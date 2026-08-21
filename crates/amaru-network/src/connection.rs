@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug, debug_span, info};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
@@ -30,7 +30,6 @@ use tokio::{
     sync::{Mutex as AsyncMutex, mpsc},
     task::JoinHandle,
 };
-use tracing::Instrument;
 
 use crate::socket_addr::resolve;
 
@@ -121,34 +120,34 @@ impl TokioConnections {
     }
 }
 
-async fn connect(addr: Vec<SocketAddr>, resource: Arc<Inner>, timeout: Duration) -> std::io::Result<ConnectionId> {
-    let stream = tokio::time::timeout(timeout, TcpStream::connect(&*addr)).await??;
-    tracing::debug!(?addr, "connected");
+async fn connect(addresses: Vec<SocketAddr>, resource: Arc<Inner>, timeout: Duration) -> std::io::Result<ConnectionId> {
+    let stream = tokio::time::timeout(timeout, TcpStream::connect(&*addresses)).await??;
+    debug!(network::connection::CONNECTED, addresses = addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>());
     let mut connections = resource.connections.lock();
     let id = connections.add_connection(Connection::new(stream, resource.read_buf_size)?);
     Ok(id)
 }
 
 impl ConnectionProvider for TokioConnections {
-    fn listen(&self, addr: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
+    fn listen(&self, address: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
         let inner = self.inner.clone();
 
         Box::pin(
             async move {
                 // If a listener already exists for this address, abort and remove it.
                 // This allows supervised restarts to work correctly.
-                let existing_task = inner.tasks.lock().remove(&addr);
+                let existing_task = inner.tasks.lock().remove(&address);
                 if let Some(task) = existing_task {
-                    tracing::info!(%addr, "aborting existing listener task for restart");
+                    info!(network::connection::LISTENER_RESTART, address = address.to_string());
                     task.abort();
                     // Wait for the task to complete so the TcpListener is dropped and the port is released.
                     let _ = task.await;
                 }
 
                 // Bind the listener with SO_REUSEADDR
-                let listener = bind_address(addr)?;
+                let listener = bind_address(address)?;
                 let local = listener.local_addr()?;
-                tracing::debug!(%local, "listening");
+                debug!(network::connection::LISTENING, local = local.to_string());
 
                 // Accept incoming connections and send them into the channel.
                 let incoming_tx = inner.incoming_tx.clone();
@@ -160,7 +159,7 @@ impl ConnectionProvider for TokioConnections {
                                 break;
                             };
                         }
-                        tracing::info!(%local, "accept loop stopped");
+                        info!(network::connection::ACCEPT_LOOP_STOPPED, local = local.to_string());
                     }
                     .instrument(debug_span!(network::connection::ACCEPT_LOOP,)),
                 );
@@ -187,7 +186,7 @@ impl ConnectionProvider for TokioConnections {
                     rx.recv().await.expect("sender cannot be dropped since we hold Inner");
                 drop(rx);
 
-                tracing::debug!(%peer_addr, "accepted connection");
+                debug!(network::connection::ACCEPTED, peer_addr = peer_addr.to_string());
                 let id = inner.connections.lock().add_connection(Connection::new(stream, inner.read_buf_size)?);
 
                 Ok((Peer::from_addr(&peer_addr), id))
@@ -209,7 +208,6 @@ impl ConnectionProvider for TokioConnections {
         Box::pin(
             async move {
                 let addr = resolve(addr).await?;
-                tracing::debug!(?addr, "resolved addresses");
                 connect(addr, resource, timeout).await
             }
             .instrument(debug_span!(network::connection::CONNECT_ADDRS,)),

@@ -20,7 +20,6 @@ bytes = { workspace = true, features = ["serde"] }
 parking_lot.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["net"] }
-tracing.workspace = true
 
 amaru-kernel.workspace = true
 amaru-observability.workspace = true
@@ -32,11 +31,7 @@ amaru-deps.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
-amaru-mempool.workspace = true
-hex.workspace = true
-proptest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tracing-subscriber.workspace = true
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]

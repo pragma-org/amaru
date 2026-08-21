@@ -27,7 +27,6 @@ anyhow.workspace = true
 hex.workspace = true
 parking_lot.workspace = true
 rand = { workspace = true, optional = true }
-tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true

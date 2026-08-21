@@ -20,14 +20,13 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeight, Peer};
-use amaru_observability::{TraceContext, debug_span, info};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, info, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::{
     manager::ManagerMessage,
     peer_sharing::{SharePeersReply, ShareResult},
 };
 use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
-use tracing::Instrument;
 
 pub use crate::performance::{DEFAULT_PEER_MIX, PeerMix, PeerMixParseError};
 use crate::{
@@ -94,10 +93,10 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 ///   with `LedgerCheck::new(eff.me())`, no supervision) and sends `()` to kick it off;
 ///   "failure in ledger-check shall tear down the node".
 ///
-/// - **Adversarial**: Debug-logs. Delegates to
+/// - **Adversarial**: Debug-logs `peer_selection.peer.adversarial`. Delegates to
 ///   `ban_peer`: removes the peer from `inbound_peers` (if present;
-///   warns `"removing peer (inbound)"`) and/or `outbound_peers` (if present; warns
-///   `"removing peer (outbound)"`, calls `regulate_peers`, marks for removal).
+///   warns `peer_selection.peer.removed` with `direction="inbound"`) and/or `outbound_peers` (if present; warns
+///   `direction="outbound"`, calls `regulate_peers`, marks for removal).
 ///   If any removal occurred, sends `ManagerMessage::RemovePeer` to the manager.
 ///   Always calls `cool_down` (which computes `STATIC_PEER_BAN_PERIOD` (10s) for
 ///   static peers vs. configured cooldown, pushes onto the cool-down min-heap, and
@@ -107,9 +106,9 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// - **AddPeer**: Manual/test hook. If the peer
 ///   has an active cool-down, removes it from `cooldown_until` (`was_banned = true`)
 ///   and cancels the armed timer if no cool-downs remain. If the peer is not already
-///   in `outbound_peers`: logs `"peer_selection.add_peer"` (with `was_banned`), sends
-///   `ManagerMessage::AddPeer`, and inserts as `Connecting`. Otherwise logs that it is
-///   not adding.
+///   in `outbound_peers`: logs `peer_selection.peer.added` (with `was_banned`), sends
+///   `ManagerMessage::AddPeer`, and inserts as `Connecting`. Otherwise logs
+///   `peer_selection.peer.add_skipped` with `reason="already_added"`.
 ///
 /// - **CheckCooldowns**: Clears any armed timer (cancel is a no-op if this message was
 ///   the delivery), drains all due min-heap entries (removes a peer from `cooldown_until`
@@ -121,7 +120,7 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// - **Connected** `(peer, conn, direction, advertisable)`:
 ///   Records latest handshake advertisability on the Performance resource, then:
 ///   - `Inbound`: If `inbound_peers.len() >= target_downstream_peers`, logs
-///     `"rejecting inbound connection: too many peers"`, sends `ManagerMessage::Disconnect`,
+///     `peer_selection.peer.add_skipped` with `reason="too_many_inbound"`, sends `ManagerMessage::Disconnect`,
 ///     and returns early (no insert). Otherwise inserts (or replaces a prior
 ///     connection for the same peer, sending `Disconnect` for the old one).
 ///   - `Outbound`: Inserts/updates as `PeerState::Connected(conn)`. If replacing
@@ -336,12 +335,24 @@ impl PeerSelection {
 
         let mut send_remove = false;
         if let Some(peer_state) = self.inbound_peers.remove(&peer) {
-            tracing::warn!(%peer, ?peer_state, is_static, "removing peer (inbound)");
+            warn!(
+                protocols::peer_selection::peer::REMOVED,
+                peer = &peer,
+                direction = "inbound",
+                peer_state = ?peer_state,
+                is_static = is_static
+            );
             send_remove = true;
         }
 
         if let Some(peer_state) = self.outbound_peers.remove(&peer) {
-            tracing::warn!(%peer, ?peer_state, is_static, "removing peer (outbound)");
+            warn!(
+                protocols::peer_selection::peer::REMOVED,
+                peer = &peer,
+                direction = "outbound",
+                peer_state = ?peer_state,
+                is_static = is_static
+            );
             self.regulate_peers(eff).await;
             send_remove = true;
         }
@@ -413,7 +424,7 @@ impl PeerSelection {
             if self.outbound_peers.contains_key(&peer) {
                 continue;
             }
-            tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
+            info!(protocols::peer_selection::peer::ADDED, peer = &peer, was_banned = false);
             eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
             self.outbound_peers.insert(peer, PeerState::Connecting);
         }
@@ -520,10 +531,10 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
     match msg {
         PeerSelectionMsg::Initialize => {
             let counts = eff.external(Performance::source_counts()).await;
-            tracing::info!(
+            info!(
+                protocols::peer_selection::CONNECT_INITIAL,
                 static_peers = counts.static_peers,
-                snapshot_peers = counts.snapshot_candidates,
-                "peer_selection.connect_initial"
+                snapshot_peers = counts.snapshot_candidates
             );
             let static_peers = eff.external(Performance::static_peers()).await;
             for p in static_peers {
@@ -542,7 +553,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             eff.send(&ledger_check, ()).await;
         }
         PeerSelectionMsg::Adversarial(peer, trace_context) => {
-            tracing::debug!(%peer, "peer_selection.adversarial");
+            debug!(protocols::peer_selection::peer::ADVERSARIAL, peer = &peer);
             let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer = &peer);
             state.ban_peer(peer, &eff).instrument(span).await;
         }
@@ -564,18 +575,18 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
 
             if !state.outbound_peers.contains_key(&peer) {
-                tracing::info!(%peer, was_banned, "peer_selection.add_peer");
+                info!(protocols::peer_selection::peer::ADDED, peer = &peer, was_banned = was_banned);
                 eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
                 state.outbound_peers.insert(peer, PeerState::Connecting);
             } else {
-                tracing::info!(%peer, "not adding peer because already added");
+                info!(protocols::peer_selection::peer::ADD_SKIPPED, peer = &peer, reason = "already_added");
             }
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Inbound, advertisable) => {
             let now = eff.clock().await;
             eff.external(Performance::record_advertisability(peer.clone(), advertisable, now)).await;
             if state.inbound_peers.len() >= state.target_downstream_peers {
-                tracing::info!(%peer, "rejecting inbound connection: too many peers");
+                info!(protocols::peer_selection::peer::ADD_SKIPPED, peer = &peer, reason = "too_many_inbound");
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, connection.id)).await;
                 return state;
             }
@@ -590,7 +601,12 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             .entered();
             let old = state.inbound_peers.insert(peer.clone(), connection);
             if let Some(conn) = old {
-                tracing::info!(%peer, ?conn, "inbound connection replaced by peer");
+                info!(
+                    protocols::peer_selection::peer::RECONNECTED,
+                    peer = &peer,
+                    direction = "inbound",
+                    conn_id = conn.id.as_u64()
+                );
                 drop(span);
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, conn.id)).await;
             }
@@ -609,7 +625,12 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             .entered();
             let old = state.outbound_peers.insert(peer.clone(), PeerState::Connected(connection));
             let disconnect_old = if let Some(PeerState::Connected(conn)) = old {
-                tracing::warn!(%peer, ?conn, "connected outbound while still connected");
+                warn!(
+                    protocols::peer_selection::peer::RECONNECTED,
+                    peer = &peer,
+                    direction = "outbound",
+                    conn_id = conn.id.as_u64()
+                );
                 Some(conn.id)
             } else {
                 None
@@ -720,8 +741,13 @@ impl LedgerCheck {
     }
 }
 
-#[tracing::instrument(level = "trace", skip_all, fields(last_height = %state.last_height))]
-async fn get_ledger_candidates(mut state: LedgerCheck, _msg: (), eff: Effects<()>) -> LedgerCheck {
+async fn get_ledger_candidates(state: LedgerCheck, msg: (), eff: Effects<()>) -> LedgerCheck {
+    let span =
+        debug_span!(protocols::peer_selection::ledger::CHECK_CANDIDATES, last_height = state.last_height.as_u64());
+    get_ledger_candidates_inner(state, msg, eff).instrument(span).await
+}
+
+async fn get_ledger_candidates_inner(mut state: LedgerCheck, _msg: (), eff: Effects<()>) -> LedgerCheck {
     let ledger = Ledger::new(eff.clone());
     let current_height = ledger.volatile_tip().await.block_height();
     if current_height < state.last_height + state.min_height_change {
@@ -731,7 +757,7 @@ async fn get_ledger_candidates(mut state: LedgerCheck, _msg: (), eff: Effects<()
     let ledger_entries = match ledger_entries {
         Ok(entries) => entries,
         Err(error) => {
-            tracing::warn!(%error, "failed to get ledger entries");
+            warn!(protocols::peer_selection::ledger::CANDIDATES_FAILED, error = %error);
             return reschedule_check(state, eff).await;
         }
     };

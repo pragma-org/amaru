@@ -26,8 +26,8 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{Header, IsHeader, NetworkName, NetworkPoint, from_cbor};
+use amaru_observability::info;
 use clap::{ArgAction, Parser};
-use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -87,12 +87,12 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
 
     info!(
-        _command = "dev chain fetch",
-        headers_dir = %args.headers_dir.to_string_lossy(),
-        network = %args.network,
-        parent = %args.parent.join(", "),
-        peer_address= %args.peer_address,
-        "running",
+        cli::dev::RUN,
+        command = "dev chain fetch",
+        network = args.network,
+        headers_dir = args.headers_dir.to_string_lossy(),
+        parent = args.parent.join(", "),
+        peer_address = &args.peer_address
     );
 
     let points =

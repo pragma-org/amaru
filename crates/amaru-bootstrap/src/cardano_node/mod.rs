@@ -17,10 +17,10 @@ use std::time::Duration;
 use amaru_kernel::{
     BlockHeight, EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, HeaderHash, Nonce, Point,
 };
+use amaru_observability::warn;
 use amaru_ouroboros::OpcertSequenceNumbers;
 use anyhow::anyhow;
 use minicbor::Decoder;
-use tracing::warn;
 
 use crate::bootstrap::{ChainState, InitialNonces};
 
@@ -86,7 +86,7 @@ pub(super) fn parse_state_snapshot_prefix(
     // Current era
     let current_era = EraName::try_from(total_eras)?;
     if current_era != EraName::Conway {
-        warn!(snapshot_era = %current_era, "parsed snapshot has a current era different from 'Conway'; things may break down the line.");
+        warn!(bootstrap::snapshot::UNEXPECTED_ERA, snapshot_era = %current_era);
     }
     decode_current_era(d, past_eras, current_era, global_parameters)
 }

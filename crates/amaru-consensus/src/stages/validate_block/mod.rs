@@ -16,11 +16,10 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point};
 use amaru_metrics::LedgerMetrics;
-use amaru_observability::{TraceContext, debug, debug_span};
+use amaru_observability::{Instrument, TraceContext, debug, debug_record, debug_span, error, info, warn};
 use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
-use tracing::Instrument;
 
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
@@ -131,7 +130,13 @@ impl ValidateBlock {
         message: &str,
         trace_context: &TraceContext,
     ) {
-        tracing::warn!(error = %reason, parent = %msg.parent, failed_tip = %failed_tip, message);
+        warn!(
+            consensus::block::INVALID,
+            failed_tip = failed_tip,
+            parent = msg.parent,
+            error = reason,
+            detail = message
+        );
         self.invalid_blocks.insert(failed_tip.hash(), failed_tip.block_height());
         self.invalid_blocks.insert(msg.tip.hash(), msg.tip.block_height());
 
@@ -171,7 +176,7 @@ pub async fn stage(
 ) -> ValidateBlock {
     let tip = msg.tip;
     if msg.parent == Point::Origin {
-        tracing::error!(parent = %msg.parent, current = %state.current, tip = %tip, "cannot start from genesis block");
+        error!(consensus::block::VALIDATE_FROM_GENESIS, tip = tip, current = state.current, parent = msg.parent);
         return eff.terminate().await;
     }
 
@@ -187,7 +192,7 @@ pub async fn stage(
     state.max_block_height = msg.max_block_height.max(state.max_block_height);
     async {
         let ledger = Ledger::new(eff.clone()).with_trace_context(&stage_context);
-        tracing::debug!(parent = %msg.parent, current = %state.current, tip = %tip, "validating block");
+        debug_record!(consensus::block::VALIDATE, current = state.current, parent = msg.parent);
 
         // No need to validate a block that descends from an invalid block or has already been determined to
         // be invalid.
@@ -209,7 +214,7 @@ pub async fn stage(
             let result = ledger
                 .validate_block(&tip)
                 .or_terminate_with(&eff, async |err| {
-                    tracing::warn!(tip = %msg.tip, err = %err, "failed to validate the new block");
+                    warn!(consensus::block::APPLY_FAILED, tip = msg.tip, step = "validate_block", error = %err);
                 })
                 .await;
             match result {
@@ -244,11 +249,11 @@ pub async fn stage(
                 return state;
             }
 
-            tracing::info!(parent = %msg.parent, current = %state.current, "switching the ledger to a new fork");
+            info!(consensus::block::SWITCH_FORK, current = state.current, parent = msg.parent);
             let result = ledger
                 .switch_to_fork(&tip)
                 .or_terminate_with(&eff, async |err| {
-                    tracing::warn!(tip = %msg.tip, err = %err, "failed to switch to a new fork");
+                    warn!(consensus::block::APPLY_FAILED, tip = msg.tip, step = "switch_to_fork", error = %err);
                 })
                 .await;
             match result {

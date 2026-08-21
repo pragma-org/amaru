@@ -17,7 +17,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use tracing::error;
+use amaru_observability::error;
 
 /// A wrapper to keep track of the status of an ongoing database transaction. This is handy to
 /// ensure that we don't misuse db transactions while using the store by adding some invariant
@@ -51,7 +51,7 @@ impl Drop for OngoingTransaction {
     fn drop(&mut self) {
         if self.get() {
             // This is a bug, no transaction should be left open. Report an error so that root cause is not swallowed.
-            error!("Ongoing transaction was not closed before dropping RocksDB");
+            error!(stores::batch::DROPPED_WITHOUT_CLOSE, outcome = "left_open");
         }
     }
 }

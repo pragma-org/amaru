@@ -19,10 +19,10 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
+use amaru_observability::info;
 use amaru_ouroboros::{BaseReadChainStore, ChildTipsMode, ReadChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
-use tracing::info;
 
 use crate::cmd::PointOrHash;
 
@@ -59,11 +59,11 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
-        _command = "dev chain children",
-        chain_dir = %chain_dir.to_string_lossy(),
-        network = %args.network,
-        start = %*args.start,
-        "running",
+        cli::dev::RUN,
+        command = "dev chain children",
+        network = args.network,
+        chain_dir = chain_dir.to_string_lossy(),
+        start = args.start.to_string()
     );
 
     let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;

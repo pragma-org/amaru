@@ -15,9 +15,9 @@
 use std::path::Path;
 
 use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, NetworkTip, ORIGIN_HASH, Point, cbor, size::HEADER, to_cbor};
+use amaru_observability::{info, warn};
 use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, StoreError};
 use rocksdb::{DB, IteratorMode, PrefixRange, ReadOptions};
-use tracing::info;
 
 use crate::rocksdb::{
     RocksDbConfig,
@@ -65,7 +65,7 @@ pub fn migrate_db(store: &RocksDBStore<DB>) -> Result<(u16, u16), StoreError> {
     let version = get_version(store)?;
 
     for n in version..CHAIN_DB_VERSION {
-        info!("Migrating Chain database to version {}", n + 1);
+        info!(consensus::chain_db_migration::EXECUTE, from = n, to = n + 1);
         MIGRATIONS[n as usize](store)?
     }
     Ok((version, CHAIN_DB_VERSION))
@@ -99,12 +99,15 @@ pub(crate) fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
 pub(crate) fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     // the reason is that v3 stores the block validation result, which cannot be derived from the v2 DB without
     // running the consensus algorithm and ledger validation. previously, blocks were stored before validation,
-    tracing::warn!(
-        "migrating chain DB to version 3 makes possibly incorrect assumption of valid best chain, better set it to the anchor hash"
+    warn!(
+        consensus::chain_db_migration::WARN,
+        to = 3u16,
+        reason = "migrating chain DB to version 3 makes possibly incorrect assumption of valid best chain, better set it to the anchor hash"
     );
 
     let original_best_chain_hash = read_legacy_hash(store, &BEST_CHAIN_PREFIX)?;
     let anchor_hash = read_legacy_hash(store, &ANCHOR_PREFIX)?;
+
     // v3 stored BEST_CHAIN_PREFIX as a raw 32-byte header hash.
     store
         .db
@@ -117,14 +120,20 @@ pub(crate) fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
             .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
     }
 
-    tracing::info!(prev_best_chain = %original_best_chain_hash, new_best_chain = %anchor_hash, "found back best chain to revalidate");
+    info!(
+        consensus::chain_db_migration::RESET_BEST_CHAIN,
+        prev_best_chain = original_best_chain_hash,
+        new_best_chain = anchor_hash
+    );
 
     set_version(store, 3)
 }
 
 pub(crate) fn migrate_to_v4(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
-    tracing::warn!(
-        "migrating chain DB to version 4: opcert sequence numbers are reconstructed from stored \
+    warn!(
+        consensus::chain_db_migration::WARN,
+        to = 4u16,
+        reason = "migrating chain DB to version 4: opcert sequence numbers are reconstructed from stored \
            headers only; counters from before this database was bootstrapped are unknown, which can \
            lead to incorrectly rejected headers from pools that have not produced a block since. \
            Re-bootstrapping from a snapshot is the reliable option."

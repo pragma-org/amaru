@@ -22,13 +22,12 @@ use std::{
 };
 
 use amaru_kernel::NonEmptyBytes;
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug, debug_span, error, info, trace, warn};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef, TryInStage, Void};
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
-use tracing::Instrument;
 
 use crate::{
     network_effects::{Network, NetworkOps},
@@ -177,10 +176,14 @@ impl State {
                         move |(conn, muxer, role), data: NonEmptyBytes, eff| async move {
                             Network::new(&eff)
                                 .send(conn, data)
-                                .or_terminate_with(
-                                    &eff,
-                                    async |err| tracing::error!(%err, %role, "failed to send data to network"),
-                                )
+                                .or_terminate_with(&eff, async |err| {
+                                    error!(
+                                        protocols::mux::FAILED,
+                                        role = %role,
+                                        operation = "send",
+                                        error = %err
+                                    );
+                                })
                                 .await;
                             eff.send(&muxer, MuxMessage::Written).await;
                             (conn, muxer, role)
@@ -216,7 +219,7 @@ pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessag
                 }
                 write!(&mut err, "{}", error).ok();
             }
-            tracing::error!(%err, role=%muxer.role(), "muxing error")
+            error!(protocols::mux::FAILED, role = %muxer.role(), operation = "muxing", error = %err);
         })
         .await;
 
@@ -237,7 +240,7 @@ async fn handle_msg(
         }
         MuxMessage::Buffer(proto_id, limit) => muxer.buffer(proto_id, limit),
         MuxMessage::Send(proto_id, bytes, sent) => {
-            tracing::trace!(%proto_id, bytes = bytes.len(), "send");
+            trace!(protocols::mux::protocol::SEND, proto_id = %proto_id, bytes = bytes.len().get() as u64);
             muxer.outgoing(proto_id, bytes.into(), sent);
             if !*sending && let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
@@ -247,7 +250,7 @@ async fn handle_msg(
             Ok(())
         }
         MuxMessage::FromNetwork(timestamp, proto_id, bytes) => {
-            tracing::trace!(%proto_id, bytes = bytes.len(), "received");
+            trace!(protocols::mux::protocol::RECEIVED, proto_id = %proto_id, bytes = bytes.len().get() as u64);
             muxer
                 .received(timestamp, proto_id.opposite(), bytes.into(), eff)
                 .await
@@ -268,7 +271,7 @@ async fn handle_msg(
             Ok(())
         }
         MuxMessage::Terminate => {
-            tracing::debug!(role=%muxer.role(), "terminating muxer due to read/write error");
+            debug!(protocols::mux::TERMINATING, role = %muxer.role());
             eff.terminate::<Void>().await;
             Ok(())
         }
@@ -283,17 +286,28 @@ async fn read_segment(
     let header = loop {
         let data = Network::new(&eff)
             .recv(conn, HEADER_LEN)
-            .or_terminate_with(
-                &eff,
-                async |err| tracing::error!(%role, %err, "failed to receive segment header from network"),
-            )
+            .or_terminate_with(&eff, async |err| {
+                error!(
+                    protocols::mux::FAILED,
+                    role = %role,
+                    operation = "recv_header",
+                    error = %err
+                );
+            })
             .await;
         let Some(header) = Header::decode(&mut data.into_inner())
-            .or_terminate(&eff, async |err| tracing::error!(%role, %err, "failed to decode segment header"))
+            .or_terminate(&eff, async |err| {
+                error!(
+                    protocols::mux::FAILED,
+                    role = %role,
+                    operation = "decode_header",
+                    error = %err
+                );
+            })
             .await
         else {
             // sending frames without payload data is not explicitly forbidden, so we just ignore them
-            tracing::info!(%role, "received empty segment header");
+            info!(protocols::mux::EMPTY_SEGMENT, role = %role);
             continue;
         };
         break header;
@@ -301,10 +315,14 @@ async fn read_segment(
 
     let data = Network::new(&eff)
         .recv(conn, header.length.into())
-        .or_terminate_with(
-            &eff,
-            async |err| tracing::error!(%role, %err, "failed to receive segment data from network"),
-        )
+        .or_terminate_with(&eff, async |err| {
+            error!(
+                protocols::mux::FAILED,
+                role = %role,
+                operation = "recv_data",
+                error = %err
+            );
+        })
         .await;
 
     eff.send(&muxer, MuxMessage::FromNetwork(header.timestamp, header.proto_id, data)).await;
@@ -401,10 +419,10 @@ impl Muxer {
 
         let pp = self.do_register(proto_id, Frame::Buffer, limit, StageRef::blackhole());
         if limit == 0 {
-            tracing::trace!(buffer = pp.incoming.len(), "switching to ignoring mode");
+            trace!(protocols::mux::protocol::BUFFER_IGNORING, buffer = pp.incoming.len());
             pp.incoming.clear();
         } else if pp.incoming.len() > limit {
-            tracing::warn!(buffer = pp.incoming.len(), limit, "reducing buffer killed the connection");
+            warn!(protocols::mux::protocol::BUFFER_OVERFLOW, buffer = pp.incoming.len(), limit = limit);
             anyhow::bail!("reducing buffer ({}) leads to excess data ({})", limit, pp.incoming.len());
         }
         Ok(())
@@ -423,7 +441,7 @@ impl Muxer {
         match self.protocols.entry(proto_id) {
             Entry::Occupied(pp) => {
                 let pp = pp.into_mut();
-                tracing::trace!(want = pp.wanted, "updating registration");
+                trace!(protocols::mux::protocol::WANT_UPDATED, want = pp.wanted);
                 pp.frame = frame;
                 pp.max_buffer = max_buffer;
                 pp.handler = handler;
@@ -441,7 +459,7 @@ impl Muxer {
         );
         let _guard = _span.enter();
 
-        tracing::trace!(%proto_id, bytes = bytes.len(), "enqueueing send");
+        trace!(protocols::mux::protocol::ENQUEUE, proto_id = %proto_id, bytes = bytes.len() as u64);
         #[allow(clippy::expect_used)]
         self.protocols
             .get_mut(&proto_id)
@@ -460,7 +478,12 @@ impl Muxer {
                     continue;
                 };
                 self.next_out = (idx + 1) % self.outgoing.len();
-                tracing::trace!(size = bytes.len(), %proto_id, next = self.next_out, "sending segment");
+                trace!(
+                    protocols::mux::protocol::SEGMENT_SENT,
+                    proto_id = %proto_id,
+                    bytes = bytes.len() as u64,
+                    next = self.next_out as u64
+                );
                 return Some((proto_id, bytes));
             }
             None
@@ -547,12 +570,16 @@ impl PerProto {
 
     pub async fn received<M>(&mut self, _timestamp: Timestamp, bytes: Bytes, eff: &Effects<M>) -> anyhow::Result<()> {
         if self.max_buffer == 0 {
-            tracing::debug!(size = bytes.len(), "ignoring bytes");
+            debug!(protocols::mux::protocol::IGNORING_BYTES, bytes = bytes.len());
             return Ok(());
         }
-        tracing::trace!(wanted = self.wanted, "received bytes");
+        trace!(protocols::mux::protocol::BYTES_RECEIVED, wanted = self.wanted);
         if self.incoming.len() + bytes.len() > self.max_buffer {
-            tracing::info!(buffered = self.incoming.len(), max_buffer = self.max_buffer, "message exceeds buffer");
+            info!(
+                protocols::mux::protocol::BUFFER_EXCEEDED,
+                buffered = self.incoming.len(),
+                max_buffer = self.max_buffer
+            );
             anyhow::bail!(
                 "message (size {}) plus buffer (size {}) exceeds limit ({})",
                 bytes.len(),
@@ -564,7 +591,7 @@ impl PerProto {
         while self.wanted > 0
             && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
         {
-            tracing::trace!(len = bytes.len(), "extracted message");
+            trace!(protocols::mux::protocol::MESSAGE_EXTRACTED, bytes = bytes.len().get());
             eff.send(&self.handler, HandlerMessage::FromNetwork(bytes)).await;
             self.wanted -= 1;
         }
@@ -572,14 +599,14 @@ impl PerProto {
     }
 
     pub async fn want_next<M>(&mut self, eff: &Effects<M>) -> anyhow::Result<()> {
-        tracing::trace!(wanted = self.wanted, "wanting next");
+        trace!(protocols::mux::protocol::BYTES_RECEIVED, wanted = self.wanted);
         if !self.incoming.is_empty()
             && let Some(bytes) = self.frame.try_consume(&mut self.incoming)?
         {
-            tracing::trace!(len = bytes.len(), "extracted message");
+            trace!(protocols::mux::protocol::MESSAGE_EXTRACTED, bytes = bytes.len().get());
             eff.send(&self.handler, HandlerMessage::FromNetwork(bytes)).await;
         } else {
-            tracing::trace!("next delivery deferred");
+            trace!(protocols::mux::protocol::DELIVERY_DEFERRED);
             self.wanted += 1;
         }
         Ok(())

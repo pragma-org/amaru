@@ -15,11 +15,10 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock};
-use amaru_observability::{TraceContext, debug_span};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
-use tracing::Instrument;
 
 use crate::{
     performance::{Performance, SelectPeersParams},
@@ -193,7 +192,6 @@ impl FetchBlocks {
     ) {
         self.block_height = tip.block_height().max(self.block_height);
 
-        tracing::debug!(tip = %tip, parent = %parent, "fetching blocks");
         assert!(
             self.missing.is_none(),
             "there shouldn't be any missing blocks when starting a new tip: {:?}",
@@ -205,6 +203,7 @@ impl FetchBlocks {
             consensus::blocks::FETCH,
             tip = tip,
             header_hash = tip.hash(),
+            parent = parent,
         );
         let stage_context = (&span).into();
 
@@ -230,12 +229,12 @@ impl FetchBlocks {
         // An origin ledger tip means that we are trying to recover from an empty ledger with
         // a non-empty store. This is a misconfiguration, and we should not attempt to replay the stored headers.
         if from.hash() == ORIGIN_HASH {
-            tracing::error!(%from, %to, "inconsistent data: stored headers found while the ledger has no tip");
+            error!(consensus::blocks::RECOVER_INCONSISTENT, from = from, to = to, reason = "ledger_tip_is_origin");
             return eff.terminate().await;
         }
 
         let Some(to_replay) = store.ancestors_between(from, to).await else {
-            tracing::error!(%from, %to, "the stored headers do not form a chain down to the ledger tip");
+            error!(consensus::blocks::RECOVER_INCONSISTENT, from = from, to = to, reason = "broken_chain");
             return eff.terminate().await;
         };
 
@@ -243,13 +242,13 @@ impl FetchBlocks {
             .load_header(&to)
             .await
             .or_terminate(&eff, async move |_| {
-                tracing::error!(hash = %to, "cannot load header for best candidate");
+                error!(consensus::blocks::HEADER_NOT_FOUND, header_hash = to);
             })
             .await;
 
         self.block_height = best_tip_header.block_height().max(self.block_height);
         let tip = best_tip_header.point();
-        tracing::debug!(%tip, "recovering stored blocks");
+        debug!(consensus::blocks::REPLAY, tip = tip);
 
         // Replay blocks one by done. The replay will have downloaded blocks as a prefix, then
         // missing blocks. The first ones are retrieved from the chain store and the other ones
@@ -262,7 +261,7 @@ impl FetchBlocks {
             let hash = block_tip.hash();
             match store.has_block(&hash).await {
                 Ok(true) => {
-                    tracing::debug!(point = %block_tip, "validating stored block");
+                    debug!(consensus::blocks::REPLAY_BLOCK, point = block_tip);
                     let downloaded_block = DownloadedBlock {
                         tip: block_tip,
                         parent,
@@ -281,7 +280,7 @@ impl FetchBlocks {
                     break;
                 }
                 Err(error) => {
-                    tracing::error!(%error, %hash, "failed to check stored block");
+                    error!(consensus::blocks::RECOVER_FAILED, error = %error, header_hash = hash);
                     return eff.terminate().await;
                 }
             }
@@ -306,17 +305,17 @@ impl FetchBlocks {
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
         let missing = match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_PER_BATCH).await {
             Ok(MissingBlocksResult::StartHeaderNotFound) => {
-                tracing::error!("failed to load initial header");
+                error!(consensus::blocks::HEADER_NOT_FOUND, header_hash = tip.hash());
                 return eff.terminate().await;
             }
             Ok(MissingBlocksResult::BoundaryNotFound) => {
-                tracing::debug!("no boundary for missing blocks found given the new tip");
+                debug!(consensus::blocks::NO_BOUNDARY);
                 self.missing = None;
                 return;
             }
             Ok(MissingBlocksResult::Found(missing_blocks)) => missing_blocks,
             Err(error) => {
-                tracing::error!(%error, "failed to find missing blocks");
+                error!(consensus::blocks::FIND_MISSING_FAILED, error = %error);
                 return eff.terminate().await;
             }
         };
@@ -336,11 +335,11 @@ impl FetchBlocks {
     ) {
         let Some((from, through)) = missing.from_to().map(|(from, through)| (*from, *through)) else {
             self.missing = None;
-            tracing::info!(tip = %tip, parent = %parent, "no blocks to fetch");
+            info!(consensus::blocks::NOTHING_TO_FETCH, tip = tip, parent = parent);
             return self.fetch_next_from(eff, tip).await;
         };
 
-        tracing::debug!(%from, %through, length = missing.nb_missing_blocks(), "requesting blocks");
+        debug!(consensus::blocks::REQUEST, from = from, through = through, length = missing.nb_missing_blocks());
         self.req_id += 1;
         self.no_peers_pause = false;
         self.trace_context = Some(parent_context);
@@ -357,10 +356,7 @@ impl FetchBlocks {
             }))
             .await;
         let peers_for_manager = if selected.weak || selected.peers.is_empty() {
-            tracing::debug!(
-                weak = selected.weak,
-                "no covering peers selected; falling back to all initiating connections"
-            );
+            debug!(consensus::blocks::WEAK_PEER_SELECTION, weak = selected.weak);
             None
         } else {
             Some(selected.peers)
@@ -391,23 +387,22 @@ impl FetchBlocks {
         let block = match network_block.decode_block() {
             Ok(block) => block,
             Err(error) => {
-                tracing::error!(%error, "failed to decode block");
+                error!(consensus::blocks::DECODE_FAILED, peer = peer, error = %error);
                 return;
             }
         };
         let point = block.header.point();
-        tracing::debug!(%point, "received block");
+        debug!(consensus::blocks::RECEIVED, point = point);
 
         // check that body belongs to header
         if block.header.body().block_body_hash != block.body_hash() {
             let span = debug_span!(consensus::block::MISMATCHED_HASH, peer = &peer, header_hash = point.hash());
             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, (&span).into())).await;
-            tracing::warn!(expected = %block.header.body().block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
 
         let Some(missing) = self.missing.as_mut() else {
-            tracing::debug!(%peer, "received straggler block");
+            debug!(consensus::blocks::STRAGGLER, peer = peer);
             return;
         };
 
@@ -429,12 +424,19 @@ impl FetchBlocks {
 
         if block.header.parent_hash() != Some(missing.boundary().hash()) {
             // this happens for stragglers when fetching from multiple peers
-            tracing::debug!(expected = %missing.boundary().hash(), actual = %block.header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
+            debug!(
+                consensus::blocks::PARENT_MISMATCH,
+                expected = missing.boundary().hash(),
+                actual = block.header.parent_hash().unwrap_or(ORIGIN_HASH)
+            );
             return;
         }
         if Some(point) != missing.first() {
-            let expected = missing.first().map(|p| p.to_string()).unwrap_or("none".to_string());
-            tracing::warn!(%expected, actual = ?point, "block point mismatch");
+            if let Some(expected) = missing.first() {
+                warn!(consensus::blocks::POINT_MISMATCH, expected = expected, actual = point);
+            } else {
+                warn!(consensus::blocks::POINT_MISMATCH, actual = point);
+            }
             return;
         }
 
@@ -444,7 +446,7 @@ impl FetchBlocks {
         store
             .store_block(&point.hash(), &network_block.raw_block())
             .or_terminate_with(&eff, async |error| {
-                tracing::error!(%error, "failed to store block");
+                error!(consensus::blocks::STORE_FAILED, error = %error);
             })
             .await;
         let tip = point;
@@ -497,7 +499,7 @@ impl FetchBlocks {
             return;
         }
 
-        tracing::info!(%req_id, "block fetching paused due to no upstream peers");
+        info!(consensus::blocks::PAUSED, req_id = req_id);
         self.no_peers_pause = true;
         self.fetch_peers.clear();
         self.fetch_settled.clear();
@@ -513,9 +515,9 @@ impl FetchBlocks {
         let contributors = std::mem::take(&mut self.fetch_contributors);
         self.fetch_settled.clear();
         if self.no_peers_pause {
-            tracing::debug!(%req_id, "retrying block fetch after no-peers pause");
+            debug!(consensus::blocks::RETRY, req_id = req_id);
         } else {
-            tracing::warn!(%req_id, "timeout fetching blocks");
+            warn!(consensus::blocks::TIMEOUT, req_id = req_id);
             let failed: Vec<Peer> = asked.into_iter().filter(|p| !contributors.contains(p)).collect();
             if !failed.is_empty() {
                 let now = eff.clock().await;
@@ -645,7 +647,7 @@ async fn cleanup_replies(mut state: Cleanup, msg: Blocks, eff: Effects<Blocks>) 
             let header = match network_block.decode_header() {
                 Ok(header) => header,
                 Err(error) => {
-                    tracing::warn!(%error, "failed to decode block in cleanup");
+                    warn!(consensus::blocks::DECODE_FAILED, peer = &peer, error = %error);
                     eff.send(&state.peer_selection, PeerSelectionMsg::adversarial(peer)).await;
                     return state;
                 }

@@ -15,10 +15,9 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{NetworkPoint, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes};
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug, debug_span, warn};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
@@ -110,7 +109,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                     through: through.to_network_point(),
                 });
                 if self.queue.len() > 1 {
-                    tracing::debug!(peer = %self.peer, "dropping request for slow peer");
+                    debug!(protocols::blockfetch::initiator::DROPPED_SLOW_PEER, peer = &self.peer);
                 }
                 self.queue.truncate(1);
                 self.queue.push_back((from, through, id, cr, MAX_FETCHED_BLOCKS));
@@ -142,9 +141,10 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                     if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
                         if let Some((_, _, id, cr, remaining_blocks)) = self.queue.front_mut() {
                             if *remaining_blocks == 0 {
-                                tracing::warn!(
-                                    max_blocks = MAX_FETCHED_BLOCKS,
-                                    "received more blocks than allowed for a single request; terminating the connection"
+                                warn!(
+                                    protocols::blockfetch::initiator::PROTOCOL_VIOLATION,
+                                    reason = "too_many_blocks",
+                                    max_blocks = MAX_FETCHED_BLOCKS
                                 );
                                 return eff.terminate().await;
                             }
@@ -152,11 +152,15 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                             let id = *id;
                             eff.send(cr, Blocks::Block(id, self.peer.clone(), network_block)).await;
                         } else {
-                            tracing::warn!("received block without a pending request; terminating the connection");
+                            warn!(protocols::blockfetch::initiator::PROTOCOL_VIOLATION, reason = "no_pending_request");
                             return eff.terminate().await;
                         }
                     } else {
-                        tracing::warn!(bytes = body.len(), "received invalid block CBOR; terminating the connection");
+                        warn!(
+                            protocols::blockfetch::initiator::PROTOCOL_VIOLATION,
+                            reason = "invalid_cbor",
+                            bytes = body.len()
+                        );
                         return eff.terminate().await;
                     }
                     None

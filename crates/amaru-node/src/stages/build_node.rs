@@ -135,11 +135,7 @@ pub fn build_node(
     let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
     state.set_observers(config.observers.clone());
     let ledger_tip = state.tip().into_owned();
-    tracing::info!(
-        tip.hash = %ledger_tip.hash(),
-        tip.slot = u64::from(ledger_tip.slot_or_default()),
-        "build_ledger"
-    );
+    amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
     let pool_summaries = state.pool_summaries();
     let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
@@ -194,7 +190,7 @@ pub fn build_node(
         let track_peers_sender = track_peers_sender.clone();
         let send = async move {
             if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
-                tracing::warn!("failed to send TrackPeersMsg::StakeDistUpdated");
+                amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
             }
         };
         #[expect(clippy::expect_used)]

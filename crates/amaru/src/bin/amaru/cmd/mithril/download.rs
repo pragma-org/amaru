@@ -21,9 +21,9 @@ use std::{
 use amaru_kernel::NetworkName;
 use amaru_ledger::store::ReadStore;
 use amaru_mithril::{download_from_mithril, from_chunk_for_resume_point, get_latest_chunk};
+use amaru_observability::info;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
-use tracing::info;
 
 pub(super) async fn run(
     network: NetworkName,
@@ -41,7 +41,7 @@ pub(super) async fn run(
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
     let from_chunk = from_chunk_for_resume_point(network, latest_chunk, tip)?;
 
-    info!(tip = %tip, from_chunk, "Downloading Mithril immutable chunks");
+    info!(cli::mithril::DOWNLOAD_CHUNKS, tip = tip, from_chunk = from_chunk);
 
     download_from_mithril(
         network,

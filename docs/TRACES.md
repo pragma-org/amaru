@@ -127,6 +127,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `fetch` | `TRACE` | public | Fetch bootstrap headers from a peer | requested_point, intersection, headers_per_point |  |
+| `next_failed` | `TRACE` | public | The chain-sync client failed while requesting or awaiting the next header. Operation ∈ {request_next, await_next}. | operation, error |  |
 
 <details><summary>span: `fetch`</summary>
 
@@ -135,6 +136,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `requested_point` | `string` | ✓ |
 | `intersection` | `string` | ✓ |
 | `headers_per_point` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `next_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `operation` | `string` | ✓ |
+| `error` | `string` | ✓ |
 
 </details>
 
@@ -266,6 +276,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `import_archive` | `TRACE` | public | Import a compressed snapshot archive | path |  |
 | `import_tvar` | `TRACE` | public | Import from the tvar data | point, new_epoch_state_offset |  |
 | `skip_download` | `TRACE` | public | Snapshot already downloaded; skipping download | snapshot |  |
+| `unexpected_era` | `TRACE` | public | The parsed snapshot's current era is not Conway; later decoding may fail | snapshot_era |  |
 
 <details><summary>span: `download`</summary>
 
@@ -298,6 +309,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `snapshot` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `unexpected_era`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `snapshot_era` | `string` | ✓ |
 
 </details>
 
@@ -415,6 +434,129 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::cli::dev`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `run` | `TRACE` | public | A developer command started, with the arguments it resolved. Command names the subcommand, e.g. "dev chain prune". | command, network | chain_dir, ledger_dir, headers_dir, input, start, block, parent, peer_address, epoch, count, from_point, only_blocks, only_validation_results, hint |
+
+<details><summary>span: `run`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `command` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `chain_dir` | `string` |  |
+| `ledger_dir` | `string` |  |
+| `headers_dir` | `string` |  |
+| `input` | `string` |  |
+| `start` | `string` |  |
+| `block` | `string` |  |
+| `parent` | `string` |  |
+| `peer_address` | `string` |  |
+| `epoch` | `string` |  |
+| `count` | `integer` |  |
+| `from_point` | `string` |  |
+| `only_blocks` | `boolean` |  |
+| `only_validation_results` | `boolean` |  |
+| `hint` | `string` |  |
+
+</details>
+
+## target: `amaru::cli::dev::chain`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `anchor_updated` | `TRACE` | public | The chain store anchor was moved to a new hash | new_anchor |  |
+| `migration_not_needed` | `TRACE` | public | The chain database is already at the current version |  |  |
+| `moving_best_chain` | `TRACE` | public | The best chain hash is being moved back before removing points |  |  |
+| `open_failed` | `TRACE` | public | The chain database could not be opened | error |  |
+| `parent_not_found` | `TRACE` | public | A header on the path back to the best chain has no stored parent | header_hash |  |
+| `point_removed` | `TRACE` | public | A point is being removed from the chain store | point |  |
+| `points_to_remove` | `TRACE` | public | The number of stored points selected for removal | points |  |
+| `prune_boundary` | `TRACE` | public | The pruning boundary derived from the oldest ledger snapshot | oldest_ledger_epoch, boundary_slot |  |
+| `validation_cleared` | `TRACE` | public | The stored validation status of a block is being cleared | header_hash |  |
+
+<details><summary>span: `anchor_updated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `new_anchor` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `open_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `parent_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `point_removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `points_to_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `points` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `prune_boundary`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `oldest_ledger_epoch` | `integer` | ✓ |
+| `boundary_slot` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `validation_cleared`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::cli::dev::ledger`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `snapshot_not_found` | `TRACE` | public | A ledger snapshot to remove does not exist | epoch |  |
+| `snapshot_removed` | `TRACE` | public | A ledger snapshot was removed | epoch |  |
+
+<details><summary>span: `snapshot_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `snapshot_removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::cli::last_block`
 
 | name | level | public | description | required fields | optional fields |
@@ -450,6 +592,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `download` | `TRACE` | public | Synchronize the cardano-node database from Mithril | from_chunk, target_dir |  |
+| `download_chunks` | `TRACE` | public | Immutable chunks are being fetched from Mithril | tip, from_chunk |  |
+| `ingest_completed` | `TRACE` | public | Finished replaying downloaded blocks into the stores | processed, duration_seconds, processed_per_seconds |  |
 | `skip_download` | `TRACE` | public | Local cardano-node database is recent enough; skipping Mithril download | from_chunk, required_chunk, target_dir, reason |  |
 
 <details><summary>span: `download`</summary>
@@ -458,6 +602,25 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `from_chunk` | `integer` | ✓ |
 | `target_dir` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `download_chunks`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `from_chunk` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `ingest_completed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `processed` | `integer` | ✓ |
+| `duration_seconds` | `number` | ✓ |
+| `processed_per_seconds` | `number` | ✓ |
 
 </details>
 
@@ -479,6 +642,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
 | `rm` | `TRACE` | public | Remove ledger and chain database from disk | chain_dir, ledger_dir, network |  |
 | `rollback` | `TRACE` | public | Roll the node databases back after a failure | chain_dir, ledger_dir, network, mode | epoch, ledger_tip, best_chain, anchor |
+| `run` | `TRACE` | public | The effective configuration a node run starts with | chain_dir, ledger_dir, listen_address, max_extra_ledger_snapshots, migrate_chain_db, network, peer_address, peer_snapshot, peer_snapshot_relays, pid_file, submit_api_address, trace_buffer_min_entries, trace_buffer_max_size, trace_dump_path, peer_removal_cooldown_secs, mempool_max_bytes, tx_submission_max_window, tx_submission_fetch_batch_bytes, tx_submission_inflight_timeout_ms, tx_submission_insert_timeout_ms | era_history, global_parameters |
+| `submit_api_shutdown_failed` | `TRACE` | public | The submit API did not stop cleanly during shutdown. Reason ∈ {join_error, timeout}. | reason | error |
 
 <details><summary>span: `bootstrap`</summary>
 
@@ -513,6 +678,44 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `ledger_tip` | `string` |  |
 | `best_chain` | `string` |  |
 | `anchor` | `string` |  |
+
+</details>
+
+<details><summary>span: `run`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `chain_dir` | `string` | ✓ |
+| `ledger_dir` | `string` | ✓ |
+| `listen_address` | `string` | ✓ |
+| `max_extra_ledger_snapshots` | `string` | ✓ |
+| `migrate_chain_db` | `boolean` | ✓ |
+| `network` | `string` | ✓ |
+| `peer_address` | `string` | ✓ |
+| `peer_snapshot` | `string` | ✓ |
+| `peer_snapshot_relays` | `integer` | ✓ |
+| `pid_file` | `string` | ✓ |
+| `submit_api_address` | `string` | ✓ |
+| `trace_buffer_min_entries` | `integer` | ✓ |
+| `trace_buffer_max_size` | `integer` | ✓ |
+| `trace_dump_path` | `string` | ✓ |
+| `peer_removal_cooldown_secs` | `integer` | ✓ |
+| `mempool_max_bytes` | `string` | ✓ |
+| `tx_submission_max_window` | `integer` | ✓ |
+| `tx_submission_fetch_batch_bytes` | `integer` | ✓ |
+| `tx_submission_inflight_timeout_ms` | `integer` | ✓ |
+| `tx_submission_insert_timeout_ms` | `integer` | ✓ |
+| `era_history` | `string` |  |
+| `global_parameters` | `string` |  |
+
+</details>
+
+<details><summary>span: `submit_api_shutdown_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `error` | `string` |  |
 
 </details>
 
@@ -622,7 +825,75 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `adopt_failed` | `TRACE` | public | Adopting a tip as the new best chain failed. Step ∈ {adopt_tip, adopt_first_tip, drag_anchor_forward}. | tip, step, error |  |
+| `apply_failed` | `TRACE` | public | A block could not be applied to the ledger. Step ∈ {validate_block, switch_to_fork}. | tip, step, error |  |
+| `header_not_found` | `TRACE` | public | A header needed to adopt a tip could not be loaded. Role ∈ {incoming_tip, current_best}. | role | tip |
+| `invalid` | `TRACE` | public | A block was rejected during validation | failed_tip, parent, error, detail |  |
+| `invariant_violated` | `TRACE` | public | The chain store contradicts itself while adopting a tip. Invariant ∈ {header_missing, no_common_ancestor}. | tip, invariant |  |
+| `mismatched_hash` | `TRACE` | public | Mismatched body hash after download, the peer is adversarial | peer, header_hash | expected, actual |
 | `skip` | `TRACE` | public | Skip a block validation when it is not better than the current ledger tip | current, tip |  |
+| `switch_fork` | `TRACE` | public | The ledger is switching to a different fork | current, parent |  |
+| `validate_from_genesis` | `TRACE` | public | Block validation cannot proceed because the parent is the genesis block | tip, current, parent |  |
+
+<details><summary>span: `adopt_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `step` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `apply_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `step` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `header_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+| `tip` | `string` |  |
+
+</details>
+
+<details><summary>span: `invalid`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `failed_tip` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+| `error` | `string` | ✓ |
+| `detail` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `invariant_violated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `invariant` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `mismatched_hash`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `expected` | `string` |  |
+| `actual` | `string` |  |
+
+</details>
 
 <details><summary>span: `skip`</summary>
 
@@ -630,6 +901,405 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `current` | `string` | ✓ |
 | `tip` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `switch_fork`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `current` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `validate_from_genesis`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `current` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::block_source`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `known_invalid` | `TRACE` | public | A peer announced a block already known to be invalid | peer, point |  |
+
+<details><summary>span: `known_invalid`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `point` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::blocks`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `decode_failed` | `TRACE` | public | Failed to decode a block received from a peer | peer, error |  |
+| `find_missing_failed` | `TRACE` | public | Failed to compute the set of missing blocks | error |  |
+| `header_not_found` | `TRACE` | public | A header required for block fetching could not be loaded from the store | header_hash |  |
+| `nothing_to_fetch` | `TRACE` | public | The batch of missing blocks is empty; resume fetching from the tip | tip, parent |  |
+| `paused` | `TRACE` | public | Block fetching paused because no upstream peers are available | req_id |  |
+| `point_mismatch` | `TRACE` | public | Received a block out of order: its point is not the next missing point | actual | expected |
+| `recover_failed` | `TRACE` | public | Failed to check whether a stored block exists during startup recovery | error, header_hash |  |
+| `recover_inconsistent` | `TRACE` | public | Startup recovery found an inconsistent stored chain. Reason ∈ {ledger_tip_is_origin, broken_chain}. | from, to, reason |  |
+| `store_failed` | `TRACE` | public | Failed to persist a downloaded block | error |  |
+| `timeout` | `TRACE` | public | Timed out waiting for requested blocks | req_id |  |
+
+<details><summary>span: `decode_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `find_missing_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `header_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `nothing_to_fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `paused`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `req_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `point_mismatch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `actual` | `string` | ✓ |
+| `expected` | `string` |  |
+
+</details>
+
+<details><summary>span: `recover_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `recover_inconsistent`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from` | `string` | ✓ |
+| `to` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `store_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `timeout`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `req_id` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::chain`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `best_tip_candidate` | `TRACE` | public | A new candidate was chosen as the best tip. Reason ∈ {better_chain, previous_invalidated}. | tip, reason | previous |
+| `best_tip_invalidated` | `TRACE` | public | The best tip candidate was invalidated and forks depending on it were dropped | removed |  |
+| `fallback_to_origin` | `TRACE` | public | No valid candidate remains; the best chain falls back to origin |  |  |
+| `fetch_next` | `TRACE` | public | Some blocks have been fetched for the current chain, decide what to do next | point, header_hash |  |
+| `find_best_candidate_failed` | `TRACE` | public | Failed to select a new best candidate after an invalidation | error |  |
+| `find_intersection` | `TRACE` | public | Find chain intersection point with peer | peer, intersection_slot |  |
+| `forks_removed` | `TRACE` | public | Chain forks were removed because they depend on an invalid block | removed |  |
+| `header_not_found` | `TRACE` | public | A header needed for chain selection could not be loaded from the store. Role ∈ {tip, best_candidate, best_candidate_parent, parent, validation_target}. | role, header_hash | tip |
+| `resume_fetch` | `TRACE` | public | Where block fetching resumes from, once per request. Outcome ∈ {resume_from_best_tip, already_at_best_tip, no_best_tip}; only \`resume_from_best_tip\` sends a tip downstream and carries its \`parent\`. | outcome, point, best_tip | parent |
+| `select_from_block_validation` | `TRACE` | public | Received a block validation result | point, valid, header_hash |  |
+| `select_from_tip` | `TRACE` | public | Received a new tip from an upstream peer | tip, header_hash |  |
+| `store_validation_failed` | `TRACE` | public | Failed to persist the validation result of a block | error, valid |  |
+| `tip_accepted` | `TRACE` | public | A tip announced by an upstream peer is new and starts or extends a chain. Outcome ∈ {new_tip, from_origin, extend, fork}. | tip, outcome | parent |
+| `tip_ignored` | `TRACE` | public | A tip announced by an upstream peer was not adopted. Reason ∈ {already_validated, already_invalid, already_tracked, invalid_ancestor}. | tip, reason | parent |
+
+<details><summary>span: `best_tip_candidate`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+| `previous` | `string` |  |
+
+</details>
+
+<details><summary>span: `best_tip_invalidated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `removed` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `fetch_next`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `find_best_candidate_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `find_intersection`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `intersection_slot` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `forks_removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `removed` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `header_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `tip` | `string` |  |
+
+</details>
+
+<details><summary>span: `resume_fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `outcome` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `best_tip` | `string` | ✓ |
+| `parent` | `string` |  |
+
+</details>
+
+<details><summary>span: `select_from_block_validation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+| `valid` | `boolean` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `select_from_tip`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `store_validation_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+| `valid` | `boolean` | ✓ |
+
+</details>
+
+<details><summary>span: `tip_accepted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `outcome` | `string` | ✓ |
+| `parent` | `string` |  |
+
+</details>
+
+<details><summary>span: `tip_ignored`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+| `parent` | `string` |  |
+
+</details>
+
+## target: `amaru::consensus::chain_db_migration`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `execute` | `TRACE` | public | Migrate the database if necessary | from, to |  |
+| `reset_best_chain` | `TRACE` | public | Reset the best chain to the anchor during migration so blocks are revalidated | prev_best_chain, new_best_chain |  |
+| `warn` | `TRACE` | public | A database migration relies on an assumption that may not hold; see the reason | to, reason |  |
+
+<details><summary>span: `execute`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from` | `integer` | ✓ |
+| `to` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `reset_best_chain`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `prev_best_chain` | `string` | ✓ |
+| `new_best_chain` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `warn`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `to` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::chainsync`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `initialized` | `TRACE` | public | A chainsync session with an upstream peer was initialized | peer, conn_id |  |
+| `intersect_found` | `TRACE` | public | An intersection with the peer's chain was found | peer, conn_id, current, highest |  |
+| `intersect_not_found` | `TRACE` | public | No intersection with the peer's chain was found, so chainsync with it stops | peer, highest |  |
+| `reinitialized` | `TRACE` | public | A chainsync session was re-initialized while still active; prior state is purged | peer, conn_id |  |
+| `roll_backward` | `TRACE` | public | A peer rolled back to an earlier point | peer, current, highest |  |
+| `roll_backward_failed` | `TRACE` | public | A rollback requested by a peer could not be applied; the peer is adversarial | peer, error |  |
+| `terminated` | `TRACE` | public | A chainsync session terminated and its connection state was purged | peer, conn_id |  |
+| `unknown_intersection_point` | `TRACE` | public | The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike \`INTERSECT_NOT_FOUND\` this points at local state, not at the peer. | peer, current, highest |  |
+
+<details><summary>span: `initialized`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `intersect_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `current` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `intersect_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `reinitialized`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `roll_backward`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `current` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `roll_backward_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `terminated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `unknown_intersection_point`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `current` | `string` | ✓ |
+| `highest` | `string` | ✓ |
 
 </details>
 
@@ -667,6 +1337,31 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `block_fetch_wait_micros` | `integer` |  |
 | `block_fetch_micros` | `integer` |  |
 | `forward_micros` | `integer` |  |
+
+</details>
+
+## target: `amaru::consensus::performance`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `queue_lagging` | `TRACE` | public | The performance operation queue is growing faster than the worker drains it | queue_depth |  |
+| `queue_overflow` | `TRACE` | public | The performance operation queue exceeded its hard limit; the node aborts | queue_depth, threshold |  |
+| `worker_panicked` | `TRACE` | public | The performance worker thread stopped because it panicked |  |  |
+
+<details><summary>span: `queue_lagging`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `queue_depth` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `queue_overflow`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `queue_depth` | `integer` | ✓ |
+| `threshold` | `integer` | ✓ |
 
 </details>
 
@@ -1592,6 +2287,170 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::network::connection`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `accept_loop_stopped` | `TRACE` | public | The accept loop terminated because the listener or channel closed | local |  |
+| `listener_restart` | `TRACE` | public | Aborted an existing listener task so the address can be rebound on restart | address |  |
+
+<details><summary>span: `accept_loop_stopped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `local` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `listener_restart`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `address` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::node::build`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `ledger_opened` | `TRACE` | public | Opened the ledger state; reports the ledger tip at startup | tip |  |
+| `stake_dist_notify_failed` | `TRACE` | public | Failed to notify the peer tracker of a stake distribution update |  |  |
+
+<details><summary>span: `ledger_opened`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::node::metrics`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `process_not_found` | `TRACE` | public | The metrics collector could not find Amaru's own process | pid |  |
+
+<details><summary>span: `process_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `pid` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::node::submit_api`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `mempool_unreachable` | `TRACE` | public | A submitted transaction could not reach the mempool. Reason ∈ {send_failed, response_dropped, deserialize_failed}. | reason |  |
+| `started` | `TRACE` | public | The transaction submission HTTP server is listening | local_addr |  |
+| `stopped` | `TRACE` | public | The transaction submission HTTP server stopped with an error | error |  |
+
+<details><summary>span: `mempool_unreachable`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `started`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `local_addr` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `stopped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::blockfetch::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `protocol_violation` | `TRACE` | public | The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}. | reason | max_blocks, bytes |
+
+<details><summary>span: `protocol_violation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `max_blocks` | `integer` |  |
+| `bytes` | `integer` |  |
+
+</details>
+
+## target: `amaru::protocols::chainsync::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `rollback_point_not_found` | `TRACE` | public | A rollback target announced by the peer is not in the chain store | header_hash |  |
+
+<details><summary>span: `rollback_point_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::chainsync::responder`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `stopped` | `TRACE` | public | The peer ended the chainsync session |  |  |
+
+## target: `amaru::protocols::connection`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `accept_failed` | `TRACE` | public | An inbound connection could not be accepted. Reason ∈ {aborted, error}. | reason | error |
+| `child_died` | `TRACE` | public | A mini-protocol stage running on a connection died | peer, conn_id, child |  |
+| `handshake_query_reply` | `TRACE` | public | The peer answered a version query instead of negotiating | version_table |  |
+| `handshake_refused` | `TRACE` | public | The peer refused our proposed protocol versions | reason |  |
+
+<details><summary>span: `accept_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `error` | `string` |  |
+
+</details>
+
+<details><summary>span: `child_died`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `child` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `handshake_query_reply`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `version_table` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `handshake_refused`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::keepalive::peer`
 
 | name | level | public | description | required fields | optional fields |
@@ -1605,6 +2464,44 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `peer` | `string` | ✓ |
 | `conn_id` | `integer` | ✓ |
 | `round_trip_micros` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::manager::blocks`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `fetch_no_peers` | `TRACE` | public | No connection was available to serve a block-fetch request | id |  |
+
+<details><summary>span: `fetch_no_peers`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `id` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::manager::listen`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `failed` | `TRACE` | public | The node could not listen on the configured address | listen_addr, error |  |
+| `started` | `TRACE` | public | The node is accepting inbound connections on an address | listen_addr |  |
+
+<details><summary>span: `failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `listen_addr` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `started`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `listen_addr` | `string` | ✓ |
 
 </details>
 
@@ -1628,8 +2525,17 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `accepted` | `TRACE` | public | An inbound connection was accepted from a peer | peer, conn_id |  |
 | `add` | `TRACE` | public | A new peer was added to the manager | peer |  |
+| `close_failed` | `TRACE` | public | Closing the socket of a dead connection failed | peer, error |  |
 | `connect` | `TRACE` | public | Initiating an outbound connection to a peer | peer |  |
+| `connect_discarded` | `TRACE` | public | A connection request for a peer was discarded. Reason ∈ {already_connected_or_scheduled, already_connected, not_added}. | peer, reason |  |
+| `connect_exhausted` | `TRACE` | public | A peer is dropped after exhausting its connection attempts | peer |  |
+| `connect_failed` | `TRACE` | public | An outbound connection attempt failed | peer, error |  |
+| `connected` | `TRACE` | public | An outbound connection to a peer was established | peer, conn_id |  |
 | `connection_died` | `TRACE` | public | A peer connection has died | peer, conn_id, role |  |
+| `connection_died_handled` | `TRACE` | public | A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}. | peer, outcome |  |
+| `disconnecting` | `TRACE` | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
+| `duplicate_terminated` | `TRACE` | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
+| `handshake_completed` | `TRACE` | public | The handshake completed on a connection | peer, conn_id, full_duplex_capable, full_duplex, advertisable |  |
 | `remove` | `TRACE` | public | A peer was removed from the manager | peer |  |
 
 <details><summary>span: `accepted`</summary>
@@ -1649,11 +2555,55 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `close_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
 <details><summary>span: `connect`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connect_discarded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connect_exhausted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connect_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connected`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
 
 </details>
 
@@ -1667,6 +2617,46 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `connection_died_handled`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `outcome` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `disconnecting`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `direction` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `duplicate_terminated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `handshake_completed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `full_duplex_capable` | `boolean` | ✓ |
+| `full_duplex` | `boolean` | ✓ |
+| `advertisable` | `boolean` | ✓ |
+
+</details>
+
 <details><summary>span: `remove`</summary>
 
 | field | type | required |
@@ -1675,12 +2665,113 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::protocols::mux`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | role |  |
+| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | role, operation, error |  |
+
+<details><summary>span: `empty_segment`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+| `operation` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::mux::protocol`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `buffer_exceeded` | `TRACE` | public | A protocol message does not fit in the buffer allotted to it | buffered, max_buffer |  |
+| `buffer_overflow` | `TRACE` | public | Reducing a protocol buffer was not enough and the connection was killed | buffer, limit |  |
+
+<details><summary>span: `buffer_exceeded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `buffered` | `integer` | ✓ |
+| `max_buffer` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `buffer_overflow`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `buffer` | `integer` | ✓ |
+| `limit` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::peer_selection`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `connect_initial` | `TRACE` | public | Connect to the initial set of peers at startup | static_peers, snapshot_peers |  |
+
+<details><summary>span: `connect_initial`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `static_peers` | `integer` | ✓ |
+| `snapshot_peers` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::peer_selection::ledger`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `candidates_failed` | `TRACE` | public | Failed to read registered relay addresses from the ledger | error |  |
+
+<details><summary>span: `candidates_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::peer_selection::peer`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `add_skipped` | `TRACE` | public | A peer was not added to the outbound set. Reason ∈ {already_added, too_many_inbound}. | peer, reason |  |
+| `added` | `TRACE` | public | A peer was added to the outbound set | peer, was_banned |  |
 | `connected` | `TRACE` | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
 | `disconnected` | `TRACE` | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
+| `reconnected` | `TRACE` | public | A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}. | peer, direction, conn_id |  |
+| `removed` | `TRACE` | public | A peer was removed after behaving adversarially | peer, direction, peer_state, is_static |  |
+
+<details><summary>span: `add_skipped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `added`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `was_banned` | `boolean` | ✓ |
+
+</details>
 
 <details><summary>span: `connected`</summary>
 
@@ -1702,6 +2793,27 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `conn_id` | `integer` | ✓ |
 | `direction` | `string` | ✓ |
 | `reason` | `string` |  |
+
+</details>
+
+<details><summary>span: `reconnected`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `direction` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `direction` | `string` | ✓ |
+| `peer_state` | `string` | ✓ |
+| `is_static` | `boolean` | ✓ |
 
 </details>
 
@@ -1734,6 +2846,86 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::protocols::peer_sharing::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `protocol_violation` | `TRACE` | public | The peer broke the peer-sharing protocol and the connection is terminated. Reason ∈ {no_request_in_flight, too_many_addresses}. | reason | requested, received |
+
+<details><summary>span: `protocol_violation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `requested` | `integer` |  |
+| `received` | `integer` |  |
+
+</details>
+
+## target: `amaru::protocols::tx_submission`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `terminating` | `TRACE` | public | The tx-submission protocol is being torn down; the cause names the rule broken | cause |  |
+
+<details><summary>span: `terminating`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `cause` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::tx_submission::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `over_acknowledged` | `TRACE` | public | The peer acknowledged more transaction ids than are outstanding | ack, window |  |
+| `unavailable_txs` | `TRACE` | public | The peer asked for transactions that are not in our outstanding window | unavailable |  |
+
+<details><summary>span: `over_acknowledged`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `ack` | `integer` | ✓ |
+| `window` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `unavailable_txs`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `unavailable` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::tx_submission::responder`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `mempool_timeout` | `TRACE` | public | The mempool did not answer an insertion batch before the timeout |  |  |
+| `over_replied` | `TRACE` | public | The peer replied with more transaction ids than were requested | requested, received, max_window |  |
+| `unsolicited_txs` | `TRACE` | public | The peer sent transaction bodies that were never requested | not_requested |  |
+
+<details><summary>span: `over_replied`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `requested` | `integer` | ✓ |
+| `received` | `integer` | ✓ |
+| `max_window` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `unsolicited_txs`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `not_requested` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::setup::build`
 
 | name | level | public | description | required fields | optional fields |
@@ -1752,6 +2944,39 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::setup::file_descriptors`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `too_low` | `TRACE` | public | The soft limit on open files is below what Amaru needs | current_soft_fd_limit, current_hard_fd_limit, expected_min, hint |  |
+| `unknown` | `TRACE` | public | The open-file limit could not be queried | expected_min |  |
+
+<details><summary>span: `too_low`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `current_soft_fd_limit` | `integer` | ✓ |
+| `current_hard_fd_limit` | `integer` | ✓ |
+| `expected_min` | `integer` | ✓ |
+| `hint` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `unknown`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `expected_min` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::setup::lifecycle`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `consensus_died` | `TRACE` | public | The consensus pipeline stopped while the node was still running |  |  |
+| `termination_signal` | `TRACE` | public | A termination signal was received; the node is shutting down |  |  |
+
 ## target: `amaru::setup::observability`
 
 | name | level | public | description | required fields | optional fields |
@@ -1765,6 +2990,59 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `with_open_telemetry` | `boolean` | ✓ |
 | `with_json_traces` | `boolean` | ✓ |
 | `with_colors` | `boolean` | ✓ |
+
+</details>
+
+## target: `amaru::setup::peer_snapshot`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `empty` | `TRACE` | public | A peer snapshot was loaded but holds no relay addresses | path, point, pools |  |
+| `loaded` | `TRACE` | public | A peer snapshot was loaded at startup | path, point, pools, relays, node_to_client_version, configs_commit |  |
+| `missing` | `TRACE` | public | No embedded peer snapshot exists for the selected network | network |  |
+
+<details><summary>span: `empty`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `pools` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `loaded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `pools` | `integer` | ✓ |
+| `relays` | `integer` | ✓ |
+| `node_to_client_version` | `integer` | ✓ |
+| `configs_commit` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `missing`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `network` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::setup::pid`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `write_failed` | `TRACE` | public | The PID file could not be created or written | error |  |
+
+<details><summary>span: `write_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
 
 </details>
 
@@ -1786,12 +3064,45 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::setup::trace_buffer`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `dump_failed` | `TRACE` | public | The stage trace buffer could not be written to disk | path, error |  |
+| `dumped` | `TRACE` | public | The stage trace buffer was written to disk | path |  |
+
+<details><summary>span: `dump_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `dumped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::stores::batch`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `commit` | `TRACE` | public | Commit a write batch |  |  |
+| `dropped_without_close` | `TRACE` | public | A transaction was dropped without commit or rollback. Outcome ∈ {left_open, auto_rolled_back}. | outcome |  |
 | `rollback` | `TRACE` | public | Rollback a write batch |  |  |
+
+<details><summary>span: `dropped_without_close`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `outcome` | `string` | ✓ |
+
+</details>
 
 ## target: `amaru::stores::consensus::block`
 
@@ -2084,7 +3395,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `unexpected_file` | `TRACE` | public | Skipped an unexpected file found in the snapshots directory | filename |  |
 | `validate` | `TRACE` | public | Validate sufficient snapshots exist |  | snapshot_count, continuous_ranges |
+
+<details><summary>span: `unexpected_file`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `filename` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `validate`</summary>
 

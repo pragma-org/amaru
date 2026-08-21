@@ -159,7 +159,10 @@ fn build_schema_associated_const_path(
 
 fn private_emit_guard_tokens() -> proc_macro2::TokenStream {
     quote! {
-        let __amaru_emit_private = {
+        // Tests always emit private schemas, so assertions can observe every trace a stage
+        // produces without any environment setup. `cfg!(test)` is resolved in the crate holding
+        // the call site, so it is a compile-time constant that costs nothing in release builds.
+        let __amaru_emit_private = cfg!(test) || {
             static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
             *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
                 ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {
@@ -430,7 +433,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         }
 
         span_records.push(quote! {
-            tracing::Span::current().record(#field_name_literal, &#formatted_ident);
+            ::amaru_observability::tracing::Span::current().record(#field_name_literal, &#formatted_ident);
         });
         event_fields.push(quote! { #field_name = #formatted_ident });
     }
@@ -465,7 +468,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
                     let _schema = #schema_name_path;
                     #(#field_prep)*
                     #(#span_records)*
-                    tracing::#level_macro!(#(#event_fields),*);
+                    ::amaru_observability::tracing::#level_macro!(#(#event_fields),*);
                 }
             }
         }
@@ -674,7 +677,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
                     quote! {
                         let #value_ident = &(#expr);
                         #validate_call
-                        let #formatted_ident = tracing::field::display(#value_ident);
+                        let #formatted_ident = ::amaru_observability::tracing::field::display(#value_ident);
                     }
                 }
                 TraceEventFormatter::Debug => {
@@ -685,7 +688,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
                     quote! {
                         let #value_ident = &(#expr);
                         #validate_call
-                        let #formatted_ident = tracing::field::debug(#value_ident);
+                        let #formatted_ident = ::amaru_observability::tracing::field::debug(#value_ident);
                     }
                 }
                 TraceEventFormatter::Value => {
@@ -725,7 +728,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
 
             if #public_const_path || __amaru_emit_private {
                 #(#value_bindings)*
-                tracing::#level_macro!(
+                ::amaru_observability::tracing::#level_macro!(
                     name: #name_path,
                     target: #target_path,
                     message = #name_path
@@ -753,7 +756,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
 /// ```
 pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     if crate::is_trace_no_emit() {
-        return quote! { tracing::Span::none() }.into();
+        return quote! { ::amaru_observability::tracing::Span::none() }.into();
     }
 
     // Parse using syn to properly handle commas in expressions
@@ -952,7 +955,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                     quote! {
                         let #value_ident = #expr;
                         #validate_call
-                        let #formatted_ident = tracing::field::display(&#value_ident);
+                        let #formatted_ident = ::amaru_observability::tracing::field::display(&#value_ident);
                     }
                 }
                 TraceSpanFormatter::Debug => {
@@ -963,7 +966,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                     quote! {
                         let #value_ident = #expr;
                         #validate_call
-                        let #formatted_ident = tracing::field::debug(&#value_ident);
+                        let #formatted_ident = ::amaru_observability::tracing::field::debug(&#value_ident);
                     }
                 }
             }
@@ -978,7 +981,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             let formatted_ident = make_ident(&format!("__amaru_trace_formatted_{index}"));
             meta.macro_call_stmt(
                 &assign_macro_ident,
-                quote! { __amaru_span_values, #field_name, &#formatted_ident as &dyn tracing::field::Value },
+                quote! { __amaru_span_values, #field_name, &#formatted_ident as &dyn ::amaru_observability::tracing::field::Value },
             )
         })
         .collect();
@@ -988,7 +991,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
     let instrument_macro_ident = make_ident(&make_instrument_macro_name(&categories, &meta.schema_name));
     let span_parent = match &args.parent {
-        Some(TraceSpanParent::Root) => Some(quote! { ::tracing::Span::none() }),
+        Some(TraceSpanParent::Root) => Some(quote! { ::amaru_observability::tracing::Span::none() }),
         Some(TraceSpanParent::Span(parent_expr)) => Some(quote! { #parent_expr }),
         Some(TraceSpanParent::Context(_)) | None => None,
     };
@@ -1008,11 +1011,11 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         }
     } else {
         let level_const = match level_str.as_str() {
-            "debug" => quote! { tracing::Level::DEBUG },
-            "info" => quote! { tracing::Level::INFO },
-            "warn" => quote! { tracing::Level::WARN },
-            "error" => quote! { tracing::Level::ERROR },
-            _ => quote! { tracing::Level::TRACE },
+            "debug" => quote! { ::amaru_observability::tracing::Level::DEBUG },
+            "info" => quote! { ::amaru_observability::tracing::Level::INFO },
+            "warn" => quote! { ::amaru_observability::tracing::Level::WARN },
+            "error" => quote! { ::amaru_observability::tracing::Level::ERROR },
+            _ => quote! { ::amaru_observability::tracing::Level::TRACE },
         };
         if let Some(parent_expr) = span_parent {
             meta.macro_call_expr(
@@ -1046,7 +1049,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                         if let ::std::result::Result::Err(error) = #span_name.set_parent(__amaru_otel_context)
                             && __amaru_has_valid_parent
                         {
-                            ::tracing::warn!(%error, "failed to set span parent context");
+                            ::amaru_observability::tracing::warn!(%error, "failed to set span parent context");
                         }
                     }
                 }
@@ -1061,13 +1064,13 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             #private_emit_guard
 
             if !#public_const_path && !__amaru_emit_private {
-                ::tracing::Span::none()
+                ::amaru_observability::tracing::Span::none()
             } else {
                 #(#value_bindings)*
 
-                let mut __amaru_span_values: Vec<::tracing::__macro_support::Option<&dyn ::tracing::field::Value>> = vec![
-                    ::tracing::__macro_support::Option::Some(
-                        &tracing::field::Empty as &dyn ::tracing::field::Value
+                let mut __amaru_span_values: Vec<::amaru_observability::tracing::__macro_support::Option<&dyn ::amaru_observability::tracing::field::Value>> = vec![
+                    ::amaru_observability::tracing::__macro_support::Option::Some(
+                        &::amaru_observability::tracing::field::Empty as &dyn ::amaru_observability::tracing::field::Value
                     );
                     #field_count_path
                 ];

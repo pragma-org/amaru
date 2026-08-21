@@ -151,7 +151,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
- "tracing",
  "zstd",
 ]
 
@@ -170,7 +169,6 @@ dependencies = [
  "amaru-plutus",
  "amaru-protocols",
  "amaru-pure-stage",
- "amaru-stores",
  "anyhow",
  "async-trait",
  "criterion",
@@ -183,11 +181,8 @@ dependencies = [
  "rand 0.9.5",
  "rayon",
  "serde",
- "serde_json",
- "tempfile",
  "thiserror 2.0.19",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -440,19 +435,14 @@ version = "0.1.2"
 dependencies = [
  "amaru-deps",
  "amaru-kernel",
- "amaru-mempool",
  "amaru-observability",
  "amaru-ouroboros",
  "amaru-pure-stage",
  "anyhow",
  "bytes",
- "hex",
  "parking_lot",
- "proptest",
  "socket2 0.6.5",
  "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -634,7 +624,6 @@ dependencies = [
  "serde",
  "socket2 0.6.5",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -708,7 +697,6 @@ dependencies = [
  "rocksdb",
  "tempfile",
  "thiserror 2.0.19",
- "tracing",
 ]
 
 [[package]]

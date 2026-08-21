@@ -53,7 +53,7 @@ pub use span_encode::{
 };
 pub use telemetry_capture::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
 pub use trace_context::TraceContext;
-pub use tracing;
+pub use tracing::{self, Instrument};
 pub use tracing_opentelemetry;
 
 #[macro_export]
