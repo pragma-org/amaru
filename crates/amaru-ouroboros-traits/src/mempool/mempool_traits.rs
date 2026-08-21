@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::TransactionId;
+use amaru_kernel::{TransactionId, cbor::WithOriginalBytes};
 
 use crate::mempool::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
 
@@ -40,7 +40,7 @@ pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + S
         Self: Sized;
 }
 
-pub type ResourceMempool<Tx> = Arc<dyn TxSubmissionMempool<Tx>>;
+pub type ResourceMempool<Tx> = Arc<dyn TxSubmissionMempool<WithOriginalBytes<Tx>>>;
 
 pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Insert a transaction into the mempool, specifying its origin.

@@ -413,6 +413,7 @@ dependencies = [
  "minicbor",
  "num",
  "num-bigint",
+ "proptest",
  "serde",
  "tracing",
 ]

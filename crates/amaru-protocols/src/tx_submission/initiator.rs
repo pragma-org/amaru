@@ -54,7 +54,9 @@ use std::{
 };
 
 use ProtocolError::*;
-use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, utils::string::display_collection};
+use amaru_kernel::{
+    EraHistory, Peer, Transaction, TransactionId, cbor::WithOriginalBytes, utils::string::display_collection,
+};
 use amaru_observability::{debug, debug_span};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -309,7 +311,7 @@ impl TxSubmissionInitiator {
     }
 
     /// Wrap each transaction with the current era tag for outgoing wire messages.
-    fn tag_txs(&self, items: Vec<Transaction>) -> Vec<EraTaggedTx> {
+    fn tag_txs(&self, items: Vec<WithOriginalBytes<Transaction>>) -> Vec<EraTaggedTx> {
         let era = self.era_history.current_era_tag();
         items.into_iter().map(|tx| EraTaggedTx { era, tx }).collect()
     }
@@ -978,7 +980,7 @@ mod tests {
         Ok(action)
     }
 
-    fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
+    fn reply_tx_ids(txs: &[WithOriginalBytes<Transaction>], ids: &[usize]) -> InitiatorAction {
         let era = test_era();
         let pairs: Vec<(EraTaggedTxId, u32)> = ids
             .iter()
@@ -987,7 +989,7 @@ mod tests {
         InitiatorAction::SendReplyTxIds(pairs)
     }
 
-    fn reply_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorAction {
+    fn reply_txs(txs: &[WithOriginalBytes<Transaction>], ids: &[usize]) -> InitiatorAction {
         let era = test_era();
         let payload: Vec<EraTaggedTx> = ids.iter().map(|id| EraTaggedTx { era, tx: txs[*id].clone() }).collect();
         InitiatorAction::SendReplyTxs(payload)
@@ -997,11 +999,11 @@ mod tests {
         InitiatorResult::RequestTxIds { ack, req, blocking }
     }
 
-    fn new_mempool() -> Arc<InMemoryMempool<Transaction>> {
+    fn new_mempool() -> Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> {
         Arc::new(InMemoryMempool::default())
     }
 
-    fn request_txs(txs: &[Transaction], ids: &[usize]) -> InitiatorResult {
+    fn request_txs(txs: &[WithOriginalBytes<Transaction>], ids: &[usize]) -> InitiatorResult {
         InitiatorResult::RequestTxs(ids.iter().map(|id| txs[*id].tx_id()).collect())
     }
 

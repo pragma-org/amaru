@@ -21,6 +21,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Constitution, Epoch, EraHistory, Header, IsHeader, MaxString128, NetworkName, Peer, Point,
     ProtocolParameters, Transaction, TransactionId, cardano::network_block::make_encoded_block,
+    cbor::WithOriginalBytes,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -54,7 +55,7 @@ use crate::{
 #[derive(Clone)]
 pub struct NodeTestConfig {
     pub chain_store: Arc<InMemoryChainStore>,
-    pub mempool: Arc<InMemoryMempool<Transaction>>,
+    pub mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
     pub connections: ConnectionsResource,
     pub chain_length: usize,
     pub upstream_peers: Vec<Peer>,
@@ -165,7 +166,7 @@ impl NodeTestConfig {
         self
     }
 
-    pub fn with_mempool(mut self, mempool: Arc<InMemoryMempool<Transaction>>) -> Self {
+    pub fn with_mempool(mut self, mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>) -> Self {
         self.mempool = mempool;
         self
     }
