@@ -16,12 +16,17 @@ use amaru_kernel::{HasLovelace, MemoizedTransactionOutput, ProtocolParameters, c
 
 use super::InvalidOutput;
 
+/// Constant charged on top of the serialized output size, approximating the in-memory overhead
+/// of the corresponding transaction input and UTxO map entry.
+const UTXO_ENTRY_OVERHEAD: u64 = 160;
+
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
     output: &MemoizedTransactionOutput,
 ) -> Result<(), InvalidOutput> {
     // This conversion is safe with no loss of information
-    let minimum_value = output.original_size() as u64 * protocol_parameters.lovelace_per_utxo_byte;
+    let minimum_value =
+        (UTXO_ENTRY_OVERHEAD + output.original_size() as u64) * protocol_parameters.lovelace_per_utxo_byte;
     let given_value = output.lovelace();
 
     if given_value < minimum_value {

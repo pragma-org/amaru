@@ -1,0 +1,27 @@
+{
+  "title": "output one lovelace below the minimum",
+  "description": "A simple transfer producing one 39-byte output holding 857,689 lovelace, one below the minimum at the default 4,310-lovelace-per-byte coefficient.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "82582019a4645f9b82992ca33be19011a1e0b9f0a66d56ab4317cd349d9689f0ab968b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00102399"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a400d901028182582019a4645f9b82992ca33be19011a1e0b9f0a66d56ab4317cd349d9689f0ab968b000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a000d1659021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840c92d4c6eb3abe7f755b9831cccf049f09f133611945b74a793871d52f22ec055f7139108d78d583e8b6dde49f0ffe1eba6e2761322b316c5ea75a8e540a47c08f5f6",
+  "expected": {
+    "predicate": "BabbageOutputTooSmallUTxO"
+  }
+}

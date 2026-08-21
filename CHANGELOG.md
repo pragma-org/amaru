@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260827 _[unreleased; planned for 2026-08-27]_
 
+### Fixed
+
+- **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
+
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 
 ### Added
