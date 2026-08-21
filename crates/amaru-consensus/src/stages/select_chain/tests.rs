@@ -433,7 +433,7 @@ fn test_block_validation_result_valid() {
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.store_headers(&prep.headers.main());
     let tip = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(tip, true, BlockHeight::from(0));
 
     let expected = SelectChain {
         tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h3.hash()])]),
@@ -472,7 +472,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(tip, false, BlockHeight::from(0));
 
     // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
@@ -531,7 +531,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(tip, false, BlockHeight::from(0));
 
     // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
@@ -592,7 +592,7 @@ fn test_block_validation_result_invalid_removes_tips() {
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
     let tip = prep.headers.h2a.point();
-    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(tip, false, BlockHeight::from(0));
 
     let expected = SelectChain {
         best_tip: Some(prep.headers.h3.clone()),
@@ -639,7 +639,7 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
     prep.store_headers(&prep.headers.main());
     let unknown_hash = HeaderHash::from([99u8; 32]);
     let tip = Point::Specific(Slot::from(999), unknown_hash, BlockHeight::from(1));
-    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(tip, false, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -672,7 +672,7 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
             .build(),
     );
     let tip = prep.headers.h2.point();
-    let msg = SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(tip, true, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -791,7 +791,7 @@ fn test_last_best_tip_invalidated_falls_back_to_origin() {
     prep.state.tips.insert(prep.headers.h3.hash(), vec![prep.headers.h3.hash()]);
 
     // Invalidate the last remaining best tip candidate (the anchor)
-    let msg = SelectChainMsg::BlockValidationResult(prep.headers.h3.point(), false, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(prep.headers.h3.point(), false, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -825,7 +825,7 @@ fn test_new_tip_after_pruning_restores_pending_block_validations() {
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
 
-    let invalid = SelectChainMsg::BlockValidationResult(prep.headers.h3a.point(), false, BlockHeight::from(0));
+    let invalid = SelectChainMsg::block_validation_result(prep.headers.h3a.point(), false, BlockHeight::from(0));
     let new_tip = SelectChainMsg::tip_from_upstream(h3b.point(), prep.headers.h2a.point());
 
     let after_prune = SelectChain {
@@ -879,8 +879,8 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
 
     // h2 is validated but not h3
     let tip = prep.headers.h3.point();
-    let msg1 = SelectChainMsg::BlockValidationResult(prep.headers.h2.point(), true, BlockHeight::from(0));
-    let msg2 = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
+    let msg1 = SelectChainMsg::block_validation_result(prep.headers.h2.point(), true, BlockHeight::from(0));
+    let msg2 = SelectChainMsg::block_validation_result(tip, false, BlockHeight::from(0));
 
     // Validating h2 drains it from the pending list; h3 is still awaiting its result.
     let after_h2_valid = SelectChain {

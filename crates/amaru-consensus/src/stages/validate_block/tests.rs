@@ -74,7 +74,7 @@ fn test_block_extending_the_current_tip_is_adopted() {
             te_input("vb-1", &msg).into(),
             te_validate_block("vb-1", tip).into(),
             tm_record_metrics("vb-1"),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
+            te_send("vb-1", "select_chain", SelectChainMsg::block_validation_result(tip, true, BlockHeight::from(0)))
                 .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
@@ -115,12 +115,12 @@ fn test_invalid_block_condemns_in_flight_descendants() {
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg1),
             te_validate_block("vb-1", tip1),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip1, false, BlockHeight::from(0))),
+            te_send("vb-1", "select_chain", SelectChainMsg::block_validation_result(tip1, false, BlockHeight::from(0))),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip1 }),
             te_state("vb-1", &after_first),
             te_input("vb-1", &msg2),
             // no ledger effect here: the parent is invalid
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip2, false, BlockHeight::from(0))),
+            te_send("vb-1", "select_chain", SelectChainMsg::block_validation_result(tip2, false, BlockHeight::from(0))),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip2 }),
             te_state("vb-1", &after_second),
         ],
@@ -225,7 +225,7 @@ fn test_completed_fork_switch_adopts_the_new_tip() {
             te_load_header("vb-1", prep.headers.h2a.hash()).into(),
             te_switch_to_fork("vb-1", &tip).into(),
             tm_record_metrics("vb-1"),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
+            te_send("vb-1", "select_chain", SelectChainMsg::block_validation_result(tip, true, BlockHeight::from(0)))
                 .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
@@ -265,7 +265,7 @@ fn test_equal_height_fork_winning_the_tiebreak_is_switched_to() {
             te_load_header("vb-1", prep.headers.h2a.hash()).into(),
             te_switch_to_fork("vb-1", &tip).into(),
             tm_record_metrics("vb-1"),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
+            te_send("vb-1", "select_chain", SelectChainMsg::block_validation_result(tip, true, BlockHeight::from(0)))
                 .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
@@ -312,12 +312,12 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
             te_send(
                 "vb-1",
                 "select_chain",
-                SelectChainMsg::BlockValidationResult(applied_tip, true, BlockHeight::from(0)),
+                SelectChainMsg::block_validation_result(applied_tip, true, BlockHeight::from(0)),
             )
             .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: applied_tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(applied_tip, BlockHeight::from(0))).into(),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0)))
+            te_send("vb-1", "select_chain", SelectChainMsg::block_validation_result(tip, false, BlockHeight::from(0)))
                 .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip }).into(),
             te_state("vb-1", &expected).into(),
@@ -358,7 +358,11 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
             te_load_header("vb-1", tip.hash()),
             te_load_header("vb-1", prep.headers.h2.hash()),
             te_switch_to_fork("vb-1", &tip),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(failed, false, BlockHeight::from(0))),
+            te_send(
+                "vb-1",
+                "select_chain",
+                SelectChainMsg::block_validation_result(failed, false, BlockHeight::from(0)),
+            ),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: failed }),
             te_state("vb-1", &expected),
         ],
