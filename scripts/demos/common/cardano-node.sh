@@ -54,7 +54,11 @@ cardano_node_requires_network_magic() {
   if have jq && [[ -f "$(cardano_node_config_file)" ]]; then
     [[ "$(jq -r '.RequiresNetworkMagic // "RequiresMagic"' "$(cardano_node_config_file)")" != "RequiresNoMagic" ]]
   else
-    return 0
+    # No configuration to consult, which is the case before setup has downloaded it and for good in
+    # public-upstream mode, where nothing needs it. Mainnet is the only network taking --mainnet
+    # instead of a magic, so its name is enough to decide; assuming a magic here instead would build
+    # `--testnet-magic` with no argument, since mainnet has no magic to look up.
+    [[ "$NETWORK" != mainnet ]]
   fi
 }
 
@@ -146,7 +150,7 @@ download_official_cardano_node_config() {
   done <<< "$files"
 
   mkdir -p "$CARDANO_NODE_CONFIG_DIR"
-  find "$tmp_dir" -type f | while IFS= read -r file_name; do
+  fd --hidden --no-ignore --type f . "$tmp_dir" | while IFS= read -r file_name; do
     local relative target
     relative="${file_name#"$tmp_dir"/}"
     target="$CARDANO_NODE_CONFIG_DIR/$relative"
@@ -339,12 +343,12 @@ download_cardano_node_home() {
     echo "[setup] using cached $archive_path"
   fi
 
-  if have shasum; then
-    checksum_tool=shasum
-  elif have sha256sum; then
+  if have sha256sum; then
     checksum_tool=sha256sum
+  elif have shasum; then
+    checksum_tool=shasum
   else
-    die "neither shasum nor sha256sum found; cannot verify cardano-node $CARDANO_NODE_RELEASE_VERSION checksum"
+    die "neither sha256sum nor shasum found; cannot verify cardano-node $CARDANO_NODE_RELEASE_VERSION checksum"
   fi
   if [[ ! -f "$checksums_path" ]]; then
     echo "[setup] downloading cardano-node checksums"
@@ -378,42 +382,37 @@ repair_downloaded_cardano_node_home() {
     return
   fi
 
-  codesign --force --sign - "$CARDANO_NODE_HOME/bin/cardano-node" "$CARDANO_NODE_HOME/bin/db-analyser"
+  codesign --force --sign - "$CARDANO_NODE_HOME/bin/cardano-node" "$CARDANO_NODE_HOME/bin/cardano-cli"
 }
 
-# Verifies that db-analyser honours --analyse-from by probing an empty database: a fixed
-# build fails to resolve the requested slot, while builds that predate the fix
-# (ouroboros-consensus#2061, anything up to cardano-node 11.0.1) silently ignore the option
-# and replay every epoch snapshot from genesis, which turns a Mithril refresh into
-# ~25 minutes per epoch.
-require_db_analyser_with_analyse_from() {
-  local db_analyser="$CARDANO_NODE_HOME/bin/db-analyser" probe_db output
-  [[ -x "$db_analyser" ]] || die "db-analyser not found at $db_analyser; run setup first"
-  probe_db="$(mktemp -d)"
-  output="$("$db_analyser" --config "$(cardano_node_config_file)" --db "$probe_db" --in-mem --analyse-from 999 --store-ledger 1000 2>&1 || true)"
-  rm -rf "$probe_db"
-  if ! grep -q "No block with given slot" <<<"$output"; then
-    die "db-analyser at $db_analyser silently ignores --analyse-from (see https://github.com/IntersectMBO/ouroboros-consensus/pull/2061, not fixed in cardano-node releases up to 11.0.1), so a Mithril refresh would replay every epoch snapshot from genesis (~25 minutes each).
-Replace it with a build that contains the fix, for example:
-  nix build \"github:IntersectMBO/ouroboros-consensus/aa96807e6891071c3553d19c07be2d39ab5c0a78#db-analyser\"
-  install -m 755 result/bin/db-analyser \"$db_analyser\"
-Probe output was: $output"
-  fi
+# Returns whether setup must provide the pinned cardano-node release, which only local upstream
+# mode needs: it is the one that runs cardano-node itself. Public mode signs transactions with
+# cardano-cli, and that comes from its own much smaller release.
+cardano_node_tools_needed() {
+  ! public_cardano_upstream_enabled
 }
 
 setup() {
   require_unscaled_process setup
   download_official_cardano_node_config
+  if tx_generation_enabled; then
+    ensure_cardano_cli
+  fi
+  if ! cardano_node_tools_needed; then
+    echo "[setup] cardano-node not needed (public upstream); skipping its release download"
+    return 0
+  fi
   if [[ "$CARDANO_NODE_HOME_WAS_SET" == true ]]; then
     echo "[setup] CARDANO_NODE_HOME is set: $CARDANO_NODE_HOME"
-  elif [[ -x "$CARDANO_NODE_HOME/bin/cardano-node" && -x "$CARDANO_NODE_HOME/bin/db-analyser" ]]; then
+  elif [[ -x "$CARDANO_NODE_HOME/bin/cardano-node" && -x "$CARDANO_NODE_HOME/bin/cardano-cli" ]]; then
     echo "[setup] using existing cardano-node tools in $CARDANO_NODE_HOME"
   else
     download_cardano_node_home
   fi
 
-  [[ -x "$CARDANO_NODE_HOME/bin/db-analyser" ]] || die "db-analyser not found at $CARDANO_NODE_HOME/bin/db-analyser"
-  [[ -x "$CARDANO_NODE" ]] || die "cardano-node not found at $CARDANO_NODE"
+  if ! public_cardano_upstream_enabled; then
+    [[ -x "$CARDANO_NODE" ]] || die "cardano-node not found at $CARDANO_NODE"
+  fi
   repair_downloaded_cardano_node_home
   echo "[setup] cardano-node tools ready in $CARDANO_NODE_HOME"
 }

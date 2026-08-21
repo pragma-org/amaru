@@ -6,25 +6,24 @@ version: "0.5"
 # PUBLIC_UPSTREAM_EXCLUDED_PROCESSES in process-compose.sh, breaks that filter.
 
 log_level: info
-log_length: 50000
+log_length: 1000
 
 processes:
   0-setup:
     description: Download local Cardano node tools when CARDANO_NODE_HOME is not configured.
     command: ./process-compose.sh run setup
 
-  1-mithril-refresh:
-    description: Refresh the Amaru chain and ledger databases from the latest Mithril snapshot.
-    command: ./process-compose.sh run mithril-refresh
+  1-bootstrap:
+    description: Bootstrap the Amaru chain and ledger databases from the public snapshot CDN.
+    command: ./process-compose.sh run bootstrap
+
+  2-initialize:
+    description: Validate configuration and copy bootstrapped Amaru databases into isolated run directories.
+    command: ./process-compose.sh run initialize
     depends_on:
       0-setup:
         condition: process_completed_successfully
-
-  2-initialize:
-    description: Validate configuration and copy refreshed Amaru databases into isolated run directories.
-    command: ./process-compose.sh run initialize
-    depends_on:
-      1-mithril-refresh:
+      1-bootstrap:
         condition: process_completed_successfully
 
   3-cardano-node:
@@ -62,8 +61,6 @@ processes:
         condition: process_completed_successfully
       3-cardano-node:
         condition: process_healthy
-      8-telemetry-setup:
-        condition: process_completed
 
   5-amaru-downstream:
     description: Run the downstream Amaru relay, connected to amaru-middle and exposing the local submit API.
@@ -83,13 +80,13 @@ processes:
         condition: process_completed_successfully
       4-amaru-middle:
         condition: process_healthy
-      8-telemetry-setup:
-        condition: process_completed
 
   6-prepare-wallet:
     description: Ensure the demo payment wallet has clean UTxOs for concurrent submit-tx runs.
     command: ./process-compose.sh run prepare-wallet
     depends_on:
+      2-initialize:
+        condition: process_completed_successfully
       3-cardano-node:
         condition: process_healthy
 
@@ -108,11 +105,13 @@ processes:
       6-prepare-wallet:
         condition: process_completed_successfully
 
+  # Deliberately not is_interactive: process-compose keeps an interactive process's pty output
+  # out of its log buffer, so a prompt here would leave the pane blank while the process waits
+  # on a terminal nobody is looking at. The count comes from TX_BATCH_COUNT instead.
   7-submit-tx-batch:
-    description: Prompt for a transaction count, then submit that many independent transactions downstream.
+    description: Submit TX_BATCH_COUNT independent transactions downstream in one run.
     command: ./process-compose.sh run submit-tx-batch
     disabled: true
-    is_interactive: true
     depends_on:
       2-initialize:
         condition: process_completed_successfully
@@ -124,15 +123,6 @@ processes:
         condition: process_healthy
       6-prepare-wallet:
         condition: process_completed_successfully
-
-  8-telemetry-setup:
-    description: Start Grafana, Tempo, Prometheus, Loki, and the OTLP collector.
-    command: ./process-compose.sh run telemetry-up
-
-  8-telemetry-open:
-    description: Open Grafana metrics, logs, and spans for Amaru in the browser.
-    command: ./process-compose.sh run telemetry-open
-    disabled: true
 
   9-watch:
     description: Follow relay logs and highlight connection, sync, mempool, transaction, warning, and error events.

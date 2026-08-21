@@ -2,3 +2,4 @@ target/
 .git/
 .env
 snapshots/
+scripts/demos/*/run/

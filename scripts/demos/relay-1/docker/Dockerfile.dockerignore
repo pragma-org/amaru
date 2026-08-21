@@ -1,0 +1,11 @@
+target/
+.git/
+.env
+.flox/run/
+.flox/cache/
+snapshots/
+mithril-snapshots/
+chain.*.db/
+ledger.*.db/
+cardano-node-config/*/db/
+scripts/demos/*/run/

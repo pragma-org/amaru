@@ -73,3 +73,9 @@ volumes:
   loki-data:
   prometheus-data:
   tempo-data:
+
+# Named explicitly so containers outside this stack can join it as `--network monitoring`, rather
+# than the `monitoring_default` compose would derive from the project and network names.
+networks:
+  default:
+    name: monitoring

@@ -35,11 +35,11 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "headers/sec",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 12,
+            "drawStyle": "bars",
+            "fillOpacity": 38,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -48,16 +48,16 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 2,
+            "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "auto",
+            "showPoints": "never",
             "spanNulls": false,
             "stacking": {
               "group": "A",
-              "mode": "none"
+              "mode": "normal"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -72,9 +72,27 @@
                 "value": null
               }
             ]
-          }
+          },
+          "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*_micros"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "µs"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -105,13 +123,13 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "label_replace(sum by (exported_job, origin, result) (amaru_metrics_mempoolTxInsertionsNum_int{exported_job=~\"amaru-middle|amaru-downstream\"}), \"panel\", \"insertions\", \"exported_job\", \".*\")",
-          "legendFormat": "{{panel}} {{exported_job}} {{origin}} {{result}}",
+          "expr": "label_replace(sum by (exported_job, outcome) (rate(amaru_consensus_header_total{exported_job=~\"${service:regex}\"}[$__rate_interval])), \"panel\", \"header_outcomes\", \"exported_job\", \".*\")",
+          "legendFormat": "{{panel}} {{exported_job}} {{outcome}}",
           "range": true,
-          "refId": "insertions"
+          "refId": "header_outcomes"
         }
       ],
-      "title": "Mempool Insertions",
+      "title": "Header Outcomes (per second, by outcome)",
       "type": "timeseries"
     },
     {
@@ -128,11 +146,11 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "transactions",
+            "axisLabel": "duration",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 16,
+            "fillOpacity": 12,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -166,13 +184,13 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "µs"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 9,
+        "w": 8,
         "x": 0,
         "y": 8
       },
@@ -199,13 +217,35 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "label_replace(max_over_time(cardano_node_metrics_txsInMempool_int{exported_job=~\"amaru-middle|amaru-downstream\"}[30s]), \"panel\", \"in_mempool_30s_max\", \"exported_job\", \".*\")",
-          "legendFormat": "{{panel}} {{exported_job}}",
+          "expr": "histogram_quantile(0.50, sum by (le, exported_job) (rate(amaru_consensus_block_fetch_wait_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p50",
           "range": true,
-          "refId": "in_mempool_30s_max"
+          "refId": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, exported_job) (rate(amaru_consensus_block_fetch_wait_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p95",
+          "range": true,
+          "refId": "p95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, exported_job) (rate(amaru_consensus_block_fetch_wait_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p99",
+          "range": true,
+          "refId": "p99"
         }
       ],
-      "title": "Transactions In Mempool (30s Max)",
+      "title": "Block Fetch Wait (header received → block requested)",
       "type": "timeseries"
     },
     {
@@ -222,11 +262,11 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "bytes",
+            "axisLabel": "duration",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 16,
+            "fillOpacity": 12,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -260,14 +300,14 @@
               }
             ]
           },
-          "unit": "bytes"
+          "unit": "µs"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
+        "h": 9,
+        "w": 8,
+        "x": 8,
         "y": 8
       },
       "id": 3,
@@ -293,13 +333,35 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "label_replace(max_over_time(cardano_node_metrics_mempoolBytes_int{exported_job=~\"amaru-middle|amaru-downstream\"}[30s]), \"panel\", \"mempool_bytes_30s_max\", \"exported_job\", \".*\")",
-          "legendFormat": "{{panel}} {{exported_job}}",
+          "expr": "histogram_quantile(0.50, sum by (le, exported_job) (rate(amaru_consensus_block_fetch_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p50",
           "range": true,
-          "refId": "mempool_bytes_30s_max"
+          "refId": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, exported_job) (rate(amaru_consensus_block_fetch_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p95",
+          "range": true,
+          "refId": "p95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, exported_job) (rate(amaru_consensus_block_fetch_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p99",
+          "range": true,
+          "refId": "p99"
         }
       ],
-      "title": "Mempool Byte Size (30s Max)",
+      "title": "Block Fetch (block requested → block received)",
       "type": "timeseries"
     },
     {
@@ -316,11 +378,11 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "transactions",
+            "axisLabel": "duration",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 38,
+            "drawStyle": "line",
+            "fillOpacity": 12,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -329,12 +391,12 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -354,15 +416,15 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "µs"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 8
       },
       "id": 4,
       "options": {
@@ -387,13 +449,35 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "label_replace(sum by (exported_job) (increase(cardano_node_metrics_txsProcessedNum_int{exported_job=~\"amaru-middle|amaru-downstream\"}[1m])), \"panel\", \"processed_1m\", \"exported_job\", \".*\")",
-          "legendFormat": "{{panel}} {{exported_job}}",
+          "expr": "histogram_quantile(0.50, sum by (le, exported_job) (rate(amaru_consensus_header_forward_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p50",
           "range": true,
-          "refId": "processed_1m"
+          "refId": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, exported_job) (rate(amaru_consensus_header_forward_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p95",
+          "range": true,
+          "refId": "p95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, exported_job) (rate(amaru_consensus_header_forward_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p99",
+          "range": true,
+          "refId": "p99"
         }
       ],
-      "title": "Transactions Processed In Last Minute",
+      "title": "Header Forward (header received → block adopted)",
       "type": "timeseries"
     },
     {
@@ -410,11 +494,11 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "transactions",
+            "axisLabel": "duration",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "bars",
-            "fillOpacity": 38,
+            "drawStyle": "line",
+            "fillOpacity": 12,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -423,12 +507,12 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -448,15 +532,15 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "µs"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 16
+        "x": 0,
+        "y": 17
       },
       "id": 5,
       "options": {
@@ -481,13 +565,35 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "label_replace(sum by (exported_job) (increase(cardano_node_metrics_txsProcessedNum_int{exported_job=~\"amaru-middle|amaru-downstream\"}[15m])), \"panel\", \"processed_15m\", \"exported_job\", \".*\")",
-          "legendFormat": "{{panel}} {{exported_job}}",
+          "expr": "histogram_quantile(0.50, sum by (le, exported_job) (rate(amaru_consensus_fork_switch_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p50",
           "range": true,
-          "refId": "processed_15m"
+          "refId": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, exported_job) (rate(amaru_consensus_fork_switch_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p95",
+          "range": true,
+          "refId": "p95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, exported_job) (rate(amaru_consensus_fork_switch_duration_microseconds_bucket{exported_job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "{{exported_job}} p99",
+          "range": true,
+          "refId": "p99"
         }
       ],
-      "title": "Transactions Processed In Last 15 Minutes",
+      "title": "Fork Switch (fork detected → applied or abandoned)",
       "type": "timeseries"
     },
     {
@@ -504,11 +610,11 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "milliseconds",
+            "axisLabel": "fork switches/sec",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 12,
+            "drawStyle": "bars",
+            "fillOpacity": 38,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -517,16 +623,16 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 2,
+            "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "auto",
+            "showPoints": "never",
             "spanNulls": false,
             "stacking": {
               "group": "A",
-              "mode": "none"
+              "mode": "normal"
             },
             "thresholdsStyle": {
               "mode": "off"
@@ -542,15 +648,15 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "short"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 24
+        "x": 12,
+        "y": 17
       },
       "id": 6,
       "options": {
@@ -575,56 +681,28 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "label_replace(cardano_node_metrics_txsSyncDuration_int{exported_job=~\"amaru-middle|amaru-downstream\"}, \"panel\", \"revalidation_ms\", \"exported_job\", \".*\")",
-          "legendFormat": "{{panel}} {{exported_job}}",
+          "expr": "label_replace(sum by (exported_job, outcome) (rate(amaru_consensus_fork_switch_total{exported_job=~\"${service:regex}\"}[$__rate_interval])), \"panel\", \"fork_switches\", \"exported_job\", \".*\")",
+          "legendFormat": "{{panel}} {{exported_job}} {{outcome}}",
           "range": true,
-          "refId": "revalidation_ms"
+          "refId": "fork_switches"
         }
       ],
-      "title": "Latest Mempool Revalidation Duration",
+      "title": "Fork Switches (per second, by outcome)",
       "type": "timeseries"
     },
     {
       "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
+        "type": "loki",
+        "uid": "loki"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "milliseconds",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 12,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
             },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
+            "inspect": false
           },
           "mappings": [],
           "thresholds": {
@@ -636,47 +714,91 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "none"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*_micros"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "µs"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 25
       },
       "id": 7,
       "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull"
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
           ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
+          "show": false
         },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
+        "showHeader": true
       },
+      "pluginVersion": "12.0.0",
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
+            "type": "loki",
+            "uid": "loki"
           },
-          "editorMode": "code",
-          "expr": "label_replace(cardano_node_metrics_txsSyncDurationTotal_int{exported_job=~\"amaru-middle|amaru-downstream\"}, \"panel\", \"revalidation_total_ms\", \"exported_job\", \".*\")",
-          "legendFormat": "{{panel}} {{exported_job}}",
-          "range": true,
-          "refId": "revalidation_total_ms"
+          "direction": "backward",
+          "editorMode": "builder",
+          "expr": "{service_name=~\"${service:regex}\"} |= \"perf.header.lifecycle\"",
+          "queryType": "range",
+          "refId": "header_lifecycle_events"
         }
       ],
-      "title": "Cumulative Mempool Revalidation Duration",
-      "type": "timeseries"
+      "title": "Header Lifecycle Events",
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "format": "json",
+            "replace": false,
+            "source": "labels"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "service_name",
+                "peer_name",
+                "header_hash",
+                "outcome",
+                "error",
+                "slot_start_to_header_micros",
+                "block_fetch_wait_micros",
+                "block_fetch_micros",
+                "forward_micros"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "table"
     }
   ],
   "preload": false,
@@ -685,10 +807,43 @@
   "tags": [
     "amaru",
     "relay-1",
-    "mempool"
+    "consensus",
+    "performance"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".+",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(exported_job)",
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service",
+        "options": [],
+        "query": {
+          "query": "label_values(exported_job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-15m",
@@ -696,8 +851,8 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Amaru Relay Mempool",
-  "uid": "amaru-relay-mempool",
+  "title": "Amaru Relay Consensus Performance",
+  "uid": "amaru-relay-consensus-perf",
   "version": 1,
   "weekStart": ""
 }

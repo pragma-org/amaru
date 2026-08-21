@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+
+# Compiles amaru from this source tree for the demo image, as an alternative to downloading a
+# published release. Used by `build.sh --local`, which exports the resulting binary to
+# docker/.build/amaru — the same path the release download stages it at, so the demo image
+# itself (see Dockerfile) is built the same way in both cases.
+#
+# The binary must be statically linked: the demo image is the flox environment, which has no
+# FHS dynamic loader, so a glibc-linked binary cannot start there ("no such file or directory"
+# on exec). This mirrors what the release workflow does — a musl target linked through zig,
+# because amaru's C dependencies do not build with musl-gcc alone.
+#
+# The build context is the repository root and includes .git, which the amaru build script reads
+# to stamp the build with its commit.
+
+FROM rust:bookworm AS build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libclang-dev pkg-config python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+# zig comes from its Python wheel, which has builds for both architectures; cargo-zigbuild then
+# uses it as the linker for the musl target.
+RUN pip3 install --break-system-packages ziglang \
+    && cargo install cargo-zigbuild --locked
+WORKDIR /usr/src/amaru
+COPY . .
+# The cargo registry and target directory are cache mounts, so repeated builds only recompile
+# what changed; the binary is copied out of the mount while it is still available.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/src/amaru/target \
+    set -eux; \
+    target="$(uname -m)-unknown-linux-musl"; \
+    rustup target add "$target"; \
+    ZIG_COMMAND="python3 -m ziglang" cargo zigbuild --release --locked --target "$target" --bin amaru; \
+    mkdir -p /out; \
+    install -m 0755 "target/$target/release/amaru" /out/amaru
+
+# Exporting this stage with `--output` writes the single binary next to the Dockerfile.
+FROM scratch AS binary
+COPY --from=build /out/amaru /amaru

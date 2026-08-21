@@ -1,101 +1,44 @@
 #!/usr/bin/env bash
 
-# Manages the demo databases: Mithril refreshes of the Amaru source databases, their
-# synchronization into isolated per-node run directories, and the initialization of the
-# local cardano-node immutable database.
+# Manages the demo databases: bootstrapping the Amaru source databases from the public
+# snapshot CDN with `amaru node bootstrap`, and their synchronization into isolated
+# per-node run directories.
 #
-# Callers must set DEMO_NAME (used in the marker file names recording which snapshot a
-# database copy came from), MITHRIL_REFRESH_DIR, MITHRIL_REFRESH_LOG_FILE,
-# MITHRIL_SNAPSHOTS_DIR, AMARU_CHAIN_SOURCE_DIR, AMARU_LEDGER_SOURCE_DIR,
-# REFRESH_FROM_MITHRIL, CARDANO_NODE_INIT_FROM_MITHRIL, and define a validate_config
-# function checked before a refresh.
+# Callers must set DEMO_NAME (used in the marker file names recording which bootstrap a
+# database copy came from), BOOTSTRAP_AMARU_DATABASES, AMARU_BOOTSTRAP_DIR,
+# AMARU_BOOTSTRAP_LOG_FILE, AMARU_CHAIN_SOURCE_DIR, and AMARU_LEDGER_SOURCE_DIR.
 
 validate_amaru_source_databases() {
   amaru_source_databases_ready ||
-    die "refreshed databases are missing or incomplete in $MITHRIL_REFRESH_DIR; run ./process-compose.sh refresh first"
+    die "bootstrapped databases are missing or incomplete in $AMARU_BOOTSTRAP_DIR; run ./process-compose.sh refresh first"
 }
 
 amaru_source_databases_ready() {
-  [[ -d "$AMARU_CHAIN_SOURCE_DIR" && -d "$AMARU_LEDGER_SOURCE_DIR" && -f "$MITHRIL_REFRESH_DIR/.mithril-refresh.json" ]]
+  [[ -d "$AMARU_CHAIN_SOURCE_DIR" && -d "$AMARU_LEDGER_SOURCE_DIR" && -f "$(bootstrap_marker_file)" ]]
 }
 
-# Initializes the local cardano-node immutable database from the selected Mithril snapshot.
-initialize_cardano_node_database() {
-  local full_source_immutable="$AMARU_DIR/data/$NETWORK/epoch-snapshots/work/cardano-db/immutable"
-  local source_immutable="$MITHRIL_SNAPSHOTS_DIR/$NETWORK/immutable"
-  local target_db="$CARDANO_NODE_CONFIG_DIR/db"
-  local target_marker="$target_db/.$DEMO_NAME-mithril-source.json"
-  local source_marker="$MITHRIL_REFRESH_DIR/.mithril-refresh.json"
-
-  case "$CARDANO_NODE_INIT_FROM_MITHRIL" in
-    auto | true | TRUE | 1 | yes | YES | on | ON) ;;
-    false | FALSE | 0 | no | NO | off | OFF)
-      echo "[initialize] skipped cardano-node database initialization because CARDANO_NODE_INIT_FROM_MITHRIL=false"
-      return 0
-      ;;
-    *) die "CARDANO_NODE_INIT_FROM_MITHRIL must be auto, true, or false" ;;
-  esac
-
-  public_cardano_upstream_enabled && return 0
-  [[ -f "$source_marker" ]] || die "Mithril refresh metadata not found: $source_marker"
-  have rsync || die "rsync not found; cannot initialize cardano-node database from Mithril"
-
-  if [[ -f "$full_source_immutable/00000.primary" ]]; then
-    source_immutable="$full_source_immutable"
-  fi
-
-  if [[ -f "$target_db/immutable/00000.primary" ]] && same_mithril_snapshot_metadata "$source_marker" "$target_marker"; then
-    if ! truthy "$CARDANO_NODE_INIT_FROM_MITHRIL"; then
-      ensure_cardano_node_db_marker "$target_db" "$(dirname "$source_immutable")"
-      echo "[initialize] cardano-node database already initialized from selected Mithril snapshot; skipping sync"
-      return 0
-    fi
-    echo "[initialize] CARDANO_NODE_INIT_FROM_MITHRIL=$CARDANO_NODE_INIT_FROM_MITHRIL; re-initializing cardano-node database from the selected Mithril snapshot"
-  fi
-
-  [[ -d "$source_immutable" ]] || die "Mithril immutable files not found: $source_immutable"
-  [[ -f "$source_immutable/00000.primary" ]] ||
-    die "cardano-node immutable source is partial: $source_immutable; expected 00000.primary so cardano-node can replay ledger from genesis"
-
-  echo "[initialize] initializing cardano-node database from Mithril immutable files..."
-  mkdir -p "$target_db"
-  rm -rf "$target_db/ledger" "$target_db/volatile"
-  mkdir -p "$target_db/immutable"
-  rsync -a --delete "$source_immutable"/ "$target_db/immutable"/
-  ensure_cardano_node_db_marker "$target_db" "$(dirname "$source_immutable")"
-  cp "$source_marker" "$target_marker"
-  echo "[initialize] cardano-node immutable database initialized from $source_immutable"
-  echo "[initialize] cardano-node will rebuild ledger and volatile state on next start"
-}
-
-# cardano-node refuses to open a non-empty database directory that lacks the protocolMagicId
-# marker file it normally writes itself (NoDbMarkerAndNotEmpty), so provide one when only the
-# immutable files were synchronized.
-ensure_cardano_node_db_marker() {
-  local target_db="$1" source_root="$2"
-  if [[ -f "$source_root/clean" && ! -f "$target_db/clean" ]]; then
-    cp "$source_root/clean" "$target_db/clean"
-  fi
-  [[ -f "$target_db/protocolMagicId" ]] && return 0
-  if [[ -f "$source_root/protocolMagicId" ]]; then
-    cp "$source_root/protocolMagicId" "$target_db/protocolMagicId"
-  else
-    jq -j '.networkMagic' "$CARDANO_NODE_CONFIG_DIR/shelley-genesis.json" > "$target_db/protocolMagicId"
-  fi
-}
-
-same_mithril_snapshot_metadata() {
-  local source="$1" target="$2"
-  [[ -f "$source" && -f "$target" ]] || return 1
-  jq -e -s '.[0].network == .[1].network and .[0].snapshot.hash == .[1].snapshot.hash' "$source" "$target" >/dev/null
+# Records which bootstrap produced the source databases; written only after a successful
+# bootstrap, so an interrupted run leaves no marker and is retried on the next start.
+bootstrap_marker_file() {
+  echo "$AMARU_BOOTSTRAP_DIR/.bootstrap.json"
 }
 
 # Synchronizes a source database into an isolated run directory, skipping the sync when
-# the destination still matches the refreshed snapshot marker.
+# the destination was initialized from the current bootstrap. The marker records source
+# provenance while the node advances the working database beyond that bootstrap point.
 sync_database_dir() {
   local label="$1" source="$2" destination="$3"
-  local source_marker="$MITHRIL_REFRESH_DIR/.mithril-refresh.json"
-  local destination_marker="$destination/.$DEMO_NAME-source.json"
+  local source_marker destination_marker legacy_destination_marker
+  source_marker="$(bootstrap_marker_file)"
+  destination_marker="${destination%/}.$DEMO_NAME-source.json"
+  legacy_destination_marker="${destination%/}/.$DEMO_NAME-source.json"
+
+  # Older demos stored this marker inside the RocksDB directory. Move it beside
+  # the database so RocksDB does not report it as an unexpected snapshot file.
+  if [[ -f "$legacy_destination_marker" ]]; then
+    mv "$legacy_destination_marker" "$destination_marker"
+  fi
+
   if [[ -f "$destination_marker" ]] && cmp -s "$source_marker" "$destination_marker"; then
     echo "[initialize] $label database unchanged; skipping sync"
     return 0
@@ -107,54 +50,56 @@ sync_database_dir() {
   cp "$source_marker" "$destination_marker"
 }
 
-mark_database_dir_dirty() {
-  local directory="$1"
-  rm -f "$directory/.$DEMO_NAME-source.json"
+# Bootstraps the Amaru source databases from the public snapshot CDN. The chain and ledger
+# directories are recreated from scratch (`amaru node bootstrap` refuses populated
+# directories), but the downloaded snapshot archives under $AMARU_BOOTSTRAP_DIR/snapshots
+# are kept and reused across runs.
+bootstrap_amaru_databases() {
+  ensure_amaru_node_binary
+  mkdir -p "$AMARU_BOOTSTRAP_DIR" "$(dirname "$AMARU_BOOTSTRAP_LOG_FILE")"
+  rm -rf "$AMARU_CHAIN_SOURCE_DIR" "$AMARU_LEDGER_SOURCE_DIR"
+  rm -f "$(bootstrap_marker_file)"
+  # The snapshot download cache lands in snapshots/<network> relative to the working
+  # directory, so run the bootstrap from inside $AMARU_BOOTSTRAP_DIR. The explicit
+  # --chain-dir/--ledger-dir arguments shield the bootstrap from any AMARU_CHAIN_DIR or
+  # AMARU_LEDGER_DIR exported in the caller's environment.
+  (
+    cd "$AMARU_BOOTSTRAP_DIR" &&
+      "$(amaru_node_binary)" node bootstrap \
+        --network "$NETWORK" \
+        --chain-dir "$AMARU_CHAIN_SOURCE_DIR" \
+        --ledger-dir "$AMARU_LEDGER_SOURCE_DIR" \
+        ${AMARU_BOOTSTRAP_EPOCH:+--epoch "$AMARU_BOOTSTRAP_EPOCH"}
+  ) 2>&1 | tee "$AMARU_BOOTSTRAP_LOG_FILE"
+  jq -n \
+    --arg network "$NETWORK" \
+    --arg epoch "${AMARU_BOOTSTRAP_EPOCH:-latest}" \
+    --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{network: $network, epoch: $epoch, completed_at: $completed_at}' \
+    >"$(bootstrap_marker_file)"
 }
 
-refresh_from_mithril() {
-  require_db_analyser_with_analyse_from
-  cd "$AMARU_DIR" || return
-  mkdir -p "$(dirname "$MITHRIL_REFRESH_LOG_FILE")"
-  AMARU_NETWORK="$NETWORK" \
-    BUILD_PROFILE="$BUILD_PROFILE" \
-    CARDANO_NODE_HOME="$CARDANO_NODE_HOME" \
-    STAGING_DIR="$MITHRIL_REFRESH_DIR" \
-    AMARU_MITHRIL_SNAPSHOTS_DIR="$MITHRIL_SNAPSHOTS_DIR" \
-    INSTALL=false \
-    FORCE_REFRESH="${FORCE_REFRESH:-false}" \
-    ./scripts/refresh-from-mithril \
-    2>&1 | tee "$MITHRIL_REFRESH_LOG_FILE"
-}
-
-# Refreshes the Amaru source databases from Mithril according to REFRESH_FROM_MITHRIL.
-run_mithril_refresh() {
-  setup
-  validate_config
-  case "$REFRESH_FROM_MITHRIL" in
+# Bootstraps the Amaru source databases according to BOOTSTRAP_AMARU_DATABASES; in auto
+# mode existing databases are reused so restarting the demo never re-bootstraps.
+run_bootstrap() {
+  case "$BOOTSTRAP_AMARU_DATABASES" in
     auto)
       if truthy "${FORCE_REFRESH:-false}"; then
-        echo "[mithril-refresh] FORCE_REFRESH=true; refreshing from Mithril"
+        echo "[bootstrap] FORCE_REFRESH=true; bootstrapping from the snapshot CDN"
       elif amaru_source_databases_ready; then
-        echo "[mithril-refresh] using existing refreshed databases from $MITHRIL_REFRESH_DIR"
+        echo "[bootstrap] using existing bootstrapped databases from $AMARU_BOOTSTRAP_DIR"
         return 0
       else
-        echo "[mithril-refresh] refreshed databases missing or incomplete; refreshing from Mithril"
+        echo "[bootstrap] bootstrapped databases missing or incomplete; bootstrapping from the snapshot CDN"
       fi
       ;;
     true | TRUE | 1 | yes | YES | on | ON) ;;
     false | FALSE | 0 | no | NO | off | OFF)
-      echo "[mithril-refresh] skipped because REFRESH_FROM_MITHRIL=false"
+      echo "[bootstrap] skipped because BOOTSTRAP_AMARU_DATABASES=false"
       return 0
       ;;
-    *) die "REFRESH_FROM_MITHRIL must be auto, true, or false" ;;
+    *) die "BOOTSTRAP_AMARU_DATABASES must be auto, true, or false" ;;
   esac
 
-  if ! refresh_from_mithril; then
-    if amaru_source_databases_ready; then
-      echo "[mithril-refresh] refresh failed; using existing refreshed databases from $MITHRIL_REFRESH_DIR"
-    else
-      die "Mithril refresh failed and no usable refreshed databases exist in $MITHRIL_REFRESH_DIR; see $MITHRIL_REFRESH_LOG_FILE"
-    fi
-  fi
+  bootstrap_amaru_databases
 }
