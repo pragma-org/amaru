@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260827 _[unreleased; planned for 2026-08-27]_
 
+### Fixed
+
+- **workflows**: executable permissions is now correctly preserved in the release workflow.
+
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 
 ### Added

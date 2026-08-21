@@ -216,7 +216,9 @@ jobs:
             BUILD_PROFILE=release \
             AMARU_BIN='./target/${{ matrix.environments.target }}/release/${{ matrix.environments.executable }}' \
             DIST_DIR="$OUT"
-          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          # Artifact uploads reset file modes, so preserve the executable bit in a tar archive.
+          tar -cf "$OUT.tar" "$OUT"
+          echo "path=$OUT.tar" >> "$GITHUB_OUTPUT"
 
       - name: Build Debian archive
         if: ${{ startsWith(matrix.environments.title, 'linux-') }}
@@ -319,13 +321,22 @@ jobs:
             fi
 
             name="$(basename "$artifact_dir")"
+            staging_archive="$artifact_dir/$name.tar"
+            if [[ ! -f "$staging_archive" ]]; then
+              echo "missing staged distribution archive: $staging_archive" >&2
+              exit 1
+            fi
+
             if [[ "$name" == *windows-* ]]; then
+              temporary_dir="$(mktemp -d)"
+              tar -C "$temporary_dir" -xf "$staging_archive"
               (
-                cd ./artifacts
-                zip -qr "../release-assets/${name}.zip" "$name"
+                cd "$temporary_dir"
+                zip -qr "$GITHUB_WORKSPACE/release-assets/${name}.zip" "$name"
               )
+              rm -rf "$temporary_dir"
             else
-              tar -C ./artifacts -czf "release-assets/${name}.tar.gz" "$name"
+              gzip --no-name --stdout "$staging_archive" > "release-assets/${name}.tar.gz"
             fi
           done
 
