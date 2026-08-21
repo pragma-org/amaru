@@ -131,6 +131,7 @@
     </Feature>
     <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
     <Property Id='ARPHELPLINK' Value='https://github.com/pragma-org/amaru'/>
+    <WixVariable Id='WixUILicenseRtf' Value='wix\License.rtf'/>
     <UIRef Id='WixUI_FeatureTree'/>
     <SetProperty
       Id='RegisterPowerShellCompletion'
