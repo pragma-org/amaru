@@ -142,14 +142,21 @@ where
     )?;
 
     let scripts_to_execute = tx_info.to_script_contexts();
-    let non_disjoint_inputs = transaction_body
-        .reference_inputs
-        .as_deref()
-        .unwrap_or_default()
-        .iter()
-        .filter(|input| transaction_body.inputs.contains(input))
-        .copied()
-        .collect::<Vec<_>>();
+
+    if scripts_to_execute.iter().any(|(_, _, script)| matches!(script, BorrowedScript::PlutusV3(_))) {
+        let non_disjoint_inputs = transaction_body
+            .reference_inputs
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter(|input| transaction_body.inputs.contains(input))
+            .copied()
+            .collect::<Vec<_>>();
+
+        if !non_disjoint_inputs.is_empty() {
+            return Err(PhaseTwoError::NonDisjointRefInputs { intersection: non_disjoint_inputs });
+        }
+    }
 
     span.record(PHASE_TWO::FIELD_SCRIPT_CONTEXT_MICROS, elapsed_and_reset(&mut meter));
 
@@ -208,10 +215,6 @@ where
                     Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
                 }
                 BorrowedScript::PlutusV3(plutus_script) => {
-                    if !non_disjoint_inputs.is_empty() {
-                        return Err(PhaseTwoError::NonDisjointRefInputs { intersection: non_disjoint_inputs.clone() });
-                    }
-
                     let (program, plutus_version) =
                         decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
                             .map_err(PhaseTwoError::from)?;
