@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
-    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
-    ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistory, Hash, Lovelace,
+    MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots, ProtocolParameters,
+    StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
@@ -43,10 +43,9 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(super) struct Fixture {
     pub(super) network: NetworkName,
-    pub(super) era_history: RefOrInline<EraHistoryProxy>,
+    pub(super) era_history: RefOrInline<EraHistory>,
     pub(super) protocol_parameters: RefOrInline<ProtocolParameters>,
     pub(super) initial_state: InitialState,
     pub(super) point: TransactionPointer,
@@ -56,7 +55,6 @@ pub(super) struct Fixture {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_utxo", default)]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
@@ -93,14 +91,12 @@ where
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct PoolDelegationProxy {
     id: PoolId,
     delegated_at: CertificatePointer,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct VoteDelegationProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     id: DRep,
@@ -108,7 +104,6 @@ struct VoteDelegationProxy {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct AccountProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     credential: StakeCredential,
@@ -141,7 +136,6 @@ where
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct DRepProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     credential: StakeCredential,
@@ -182,7 +176,6 @@ where
 /// member that has never authorized one or has resigned; `validUntil` is absent for a member that is
 /// not (or no longer) elected, which is a state a member can still authorize a hot key from.
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct CommitteeMemberProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     cold_credential: StakeCredential,
@@ -229,21 +222,21 @@ impl<'de> Deserialize<'de> for Expected {
         let value = json::Value::deserialize(d)?;
         match value {
             json::Value::String(s) if s == "Pass" => Ok(Expected::Pass),
-            json::Value::Object(ref map) if map.contains_key("decodingFailure") => match map.get("decodingFailure") {
+            json::Value::Object(ref map) if map.contains_key("decoding_failure") => match map.get("decoding_failure") {
                 Some(json::Value::Bool(true)) if map.contains_key("predicate") => Err(serde::de::Error::custom(
-                    "expected.decodingFailure cannot be combined with a predicate: no validation runs, so the predicate would never be checked",
+                    "expected.decoding_failure cannot be combined with a predicate: no validation runs, so the predicate would never be checked",
                 )),
                 Some(json::Value::Bool(true)) => Ok(Expected::DecodingFailure),
                 Some(other) => Err(serde::de::Error::custom(format!(
-                    "expected.decodingFailure must be `true`, got {other}; omit the field to expect validation to run"
+                    "expected.decoding_failure must be `true`, got {other}; omit the field to expect validation to run"
                 ))),
                 None => unreachable!("guarded by contains_key"),
             },
             json::Value::Object(_) => json::from_value(value).map(Expected::Fail).map_err(serde::de::Error::custom),
             json::Value::String(s) => Err(serde::de::Error::custom(format!("expected \"Pass\", got {s:?}"))),
-            json::Value::Null | json::Value::Bool(_) | json::Value::Number(_) | json::Value::Array(_) => {
-                Err(serde::de::Error::custom("expected \"Pass\", { decodingFailure: true } or { predicate: ..., ... }"))
-            }
+            json::Value::Null | json::Value::Bool(_) | json::Value::Number(_) | json::Value::Array(_) => Err(
+                serde::de::Error::custom("expected \"Pass\", { decoding_failure: true } or { predicate: ..., ... }"),
+            ),
         }
     }
 }

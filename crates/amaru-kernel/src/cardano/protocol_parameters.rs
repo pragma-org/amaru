@@ -154,27 +154,20 @@ impl ProtocolParameters {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-impl<'de> serde::Deserialize<'de> for ProtocolParameters {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        crate::utils::serde::deserialize_proxy(d)
-    }
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-pub use proxy::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-mod proxy {
+mod fixture {
     use serde::Deserialize;
 
     use super::{
         CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParameters,
         ProtocolVersion, RationalNumber,
     };
-    use crate::utils::serde::{HasProxy, deserialize_proxy};
+    impl<'de> serde::Deserialize<'de> for ProtocolParameters {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            ProtocolParametersProxy::deserialize(d).map(ProtocolParameters::from)
+        }
+    }
 
     #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
     struct MinFeeReferenceScriptsProxy {
         range: u32,
         base: RationalNumber,
@@ -183,12 +176,11 @@ mod proxy {
 
     /// Fixture JSON shape. The field naming is loosely inspired by
     /// [Ogmios's `ProtocolParameters` schema](https://github.com/CardanoSolutions/ogmios) but
-    /// the wire format intentionally differs: ratios are `{ numerator, denominator }` objects
-    /// rather than `"n/m"` strings, lovelace amounts and byte sizes are bare integers rather
-    /// than wrapped, and Plutus cost-model keys are camelCase (`plutusV1`, etc.).
+    /// snake_cased, and the wire format intentionally differs: ratios are
+    /// `{ numerator, denominator }` objects rather than `"n/m"` strings, and lovelace amounts
+    /// and byte sizes are bare integers rather than wrapped.
     #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct ProtocolParametersProxy {
+    struct ProtocolParametersProxy {
         min_fee_coefficient: u64,
         min_fee_constant: Lovelace,
         min_fee_reference_scripts: MinFeeReferenceScriptsProxy,
@@ -208,21 +200,15 @@ mod proxy {
         treasury_expansion: RationalNumber,
         collateral_percentage: u16,
         max_collateral_inputs: u16,
-        #[serde(deserialize_with = "deserialize_proxy")]
         plutus_cost_models: CostModels,
-        #[serde(deserialize_with = "deserialize_proxy")]
         script_execution_prices: ExUnitPrices,
-        #[serde(deserialize_with = "deserialize_proxy")]
         max_execution_units_per_transaction: ExUnits,
-        #[serde(deserialize_with = "deserialize_proxy")]
         max_execution_units_per_block: ExUnits,
-        #[serde(deserialize_with = "deserialize_proxy")]
         stake_pool_voting_thresholds: PoolVotingThresholds,
         constitutional_committee_min_size: u16,
         constitutional_committee_max_term_length: u64,
         governance_action_lifetime: u64,
         governance_action_deposit: Lovelace,
-        #[serde(deserialize_with = "deserialize_proxy")]
         delegate_representative_voting_thresholds: DRepVotingThresholds,
         delegate_representative_deposit: Lovelace,
         delegate_representative_max_idle_time: u64,
@@ -271,10 +257,6 @@ mod proxy {
                 ref_script_cost_multiplier: p.min_fee_reference_scripts.multiplier,
             }
         }
-    }
-
-    impl HasProxy for ProtocolParameters {
-        type Proxy = ProtocolParametersProxy;
     }
 }
 

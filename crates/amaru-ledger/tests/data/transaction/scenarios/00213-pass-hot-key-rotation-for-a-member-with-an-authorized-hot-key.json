@@ -2,13 +2,13 @@
   "title": "hot key rotation for a member with an authorized hot key",
   "description": "A transaction carrying an AuthCommitteeHot certificate naming a hot credential different from the one the elected member already authorized.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820e721860828c3e423be75dbf1dfe7b730255bdf0931afca28e0d775199b8c7d5100",
@@ -17,15 +17,15 @@
     ],
     "committee": [
       {
-        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "cold_credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "status": "8200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea6",
-        "validUntil": 200
+        "valid_until": 200
       }
     ]
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820e721860828c3e423be75dbf1dfe7b730255bdf0931afca28e0d775199b8c7d51000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940021a00030d4004d9010281830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258404aad7861b60a7011a6c5a2f13816cdf489b4d8b19c8fa61edf22d9509149b6006146224c532d40c79ed445421c6e4cb50998e4feda881692edae08143ca7bc0cf5f6",
   "expected": "Pass"

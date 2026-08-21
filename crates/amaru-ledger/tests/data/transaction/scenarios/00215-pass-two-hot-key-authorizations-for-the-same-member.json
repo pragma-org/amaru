@@ -2,13 +2,13 @@
   "title": "two hot key authorizations for the same member",
   "description": "A transaction carrying two AuthCommitteeHot certificates for the same elected committee member, naming different hot credentials.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820145dbddb90423611f01366971cf824bfe3493dba931387ace1ac76f8a4f0f94900",
@@ -17,15 +17,15 @@
     ],
     "committee": [
       {
-        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "cold_credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "status": null,
-        "validUntil": 200
+        "valid_until": 200
       }
     ]
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820145dbddb90423611f01366971cf824bfe3493dba931387ace1ac76f8a4f0f949000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940021a00030d4004d9010282830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea60f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258407e9e3778fca10cec80c311ea63c171fb7cc1c62a16f45a1e66102c9c615682f7176cfe306a53534b725c615e53b9b31553e8036035cb51b0531f9800b82cf20ef5f6",
   "expected": "Pass"

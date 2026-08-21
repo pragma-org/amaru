@@ -38,31 +38,3 @@ impl fmt::Display for ExUnits {
         write!(f, "{{mem={}, cpu={}}}", self.mem, self.steps)
     }
 }
-
-#[cfg(any(test, feature = "test-utils"))]
-pub use proxy::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-mod proxy {
-    use serde::Deserialize;
-
-    use super::ExUnits;
-    use crate::utils::serde::HasProxy;
-
-    /// Fixture JSON shape `{ "memory": <u64>, "cpu": <u64> }`.
-    #[derive(Deserialize)]
-    pub struct ExUnitsProxy {
-        memory: u64,
-        cpu: u64,
-    }
-
-    impl From<ExUnitsProxy> for ExUnits {
-        fn from(p: ExUnitsProxy) -> Self {
-            ExUnits { mem: p.memory, steps: p.cpu }
-        }
-    }
-
-    impl HasProxy for ExUnits {
-        type Proxy = ExUnitsProxy;
-    }
-}

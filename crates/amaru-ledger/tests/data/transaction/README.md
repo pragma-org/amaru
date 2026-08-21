@@ -14,8 +14,8 @@ fixture asserts.
 
 ```text
 common/
-  protocolParameters/<preset>.json
-  eraHistory/<preset>.json
+  protocol-parameters/<preset>.json
+  era-history/<preset>.json
   test-credentials/<name>.skey, <name>.vkey
 scenarios/
   <id>-<pass|fail>-<name>.json
@@ -40,7 +40,7 @@ fixtures covering one predicate, grep for it:
 $ grep -l '"predicate": "DelegateeStakePoolNotRegistered"' fail/*.json
 ```
 
-`common/protocolParameters/` and `common/eraHistory/` hold shared canonical documents
+`common/protocol-parameters/` and `common/era-history/` hold shared canonical documents
 that fixtures reference instead of inlining. See [Shared documents](#shared-documents)
 below.
 
@@ -59,12 +59,12 @@ required-field rules.
 | `title`              | Optional, but names the generated test case, so it must be unique across the corpus. Falls back to the fixture's path when absent. |
 | `description`        | Optional. Informational; ignored by the harness.       |
 | `network`            | `mainnet`, `preprod`, `preview`, or `testnet_<magic>`. |
-| `eraHistory`         | Inline `{ stabilityWindow, eras: [EraSummary] }` or a `$ref` to a shared file. |
-| `protocolParameters` | Inline (see `schema.json`) or a `$ref` to a shared file, optionally with `$override`. |
-| `initialState`       | See [Initial state](#initial-state).                   |
-| `point`              | `{ slot, transactionIndex }`.                          |
+| `era_history`         | Inline `{ stability_window, eras: [EraSummary] }` or a `$ref` to a shared file. |
+| `protocol_parameters` | Inline (see `schema.json`) or a `$ref` to a shared file, optionally with `$override`. |
+| `initial_state`       | See [Initial state](#initial-state).                   |
+| `point`              | `{ slot, transaction_index }`.                          |
 | `transaction`        | Hex-encoded CBOR.                                      |
-| `expected`           | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decodingFailure": true }`. Some predicates carry extra fields; `ValidationTagMismatch` requires `description`, either `"PassedUnexpectedly"` or `"FailedUnexpectedly"`. |
+| `expected`           | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decoding_failure": true }`. Some predicates carry extra fields; `ValidationTagMismatch` requires `description`, either `"PassedUnexpectedly"` or `"FailedUnexpectedly"`. |
 
 UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 `output` is the transaction output.
@@ -79,49 +79,49 @@ it is made up of the following fields:
 - `accounts`: `[{ credential, deposit, rewards?, pool?, drep? }]`. `credential`
   is hex-encoded CBOR of a `StakeCredential`; `deposit`/`rewards` are lovelace
   (`rewards` defaults to `0`); `pool`/`drep` are optional delegations of the form
-  `{ id, delegatedAt }`, where `id` is a hex pool hash or, for the drep delegation, a hex-encoded CBOR `DRep`
-  and `delegatedAt` is a `{ transaction, certificateIndex }` pointer.
-- `dreps`: `[{ credential, deposit, registeredAt, validUntil }]`, with the same
-  `credential` encoding, a `registeredAt` certificate pointer, and a `validUntil`
+  `{ id, delegated_at }`, where `id` is a hex pool hash or, for the drep delegation, a hex-encoded CBOR `DRep`
+  and `delegated_at` is a `{ transaction, certificate_index }` pointer.
+- `dreps`: `[{ credential, deposit, registered_at, valid_until }]`, with the same
+  `credential` encoding, a `registered_at` certificate pointer, and a `valid_until`
   epoch.
-- `committee`: `[{ coldCredential, status?, validUntil? }]`, the constitutional
+- `committee`: `[{ cold_credential, status?, valid_until? }]`, the constitutional
   committee keyed by cold credential, both credentials hex-encoded CBOR of a
   `StakeCredential`. `status` is the hot credential the member authorized, or
-  `"resigned"`; it is absent for a member that has never authorized one. `validUntil`
+  `"resigned"`; it is absent for a member that has never authorized one. `valid_until`
   is absent for a member holding no term, which is still a state a member can
   authorize a hot credential from. Note that a vote identifies its committee member
   by *hot* credential.
-- `proposals`: `[[id, kind, validUntil]]`, the in-flight governance proposals
+- `proposals`: `[[id, kind, valid_until]]`, the in-flight governance proposals
   seeding the block-start proposal set. `id` is a governance action id (see below);
   `kind` is the lineage the proposal belongs to, one of `ProtocolParameters`,
   `ProtocolParameters(security-group)`, `HardFork(<major>.<minor>)`,
   `ConstitutionalCommittee`, `Constitution`, `Information` or `TreasuryWithdrawals`
   (`Orphan` also names the latter two, which chain to nothing). Beyond what the
-  lineage carries, the action itself is not spelled out. `validUntil` is the last
+  lineage carries, the action itself is not spelled out. `valid_until` is the last
   epoch a vote on the proposal still counts, i.e. the epoch it was proposed in plus
-  `governanceActionLifetime`.
+  `governance_action_lifetime`.
   Use `[]` when none are seeded.
-- `proposalsRoots`: `{ protocolParameters?, hardFork?, constitutionalCommittee?, constitution? }`,
+- `proposals_roots`: `{ protocolParameters?, hardFork?, constitutionalCommittee?, constitution? }`,
   the latest enacted governance action id per purpose, each a governance action id
   (see below). Use `{}` when none are enacted; absent purposes default to none.
-- `governanceActivity`: `{ consecutiveDormantEpochs }`.
+- `governance_activity`: `{ consecutive_dormant_epochs }`.
 - `pots`: `{ treasury, reserves }`, the protocol pots as of the initial state.
-- `guardrailScript`: hex-encoded script hash of the enacted constitution's
+- `guardrail_script`: hex-encoded script hash of the enacted constitution's
   guardrails script. A proposal carrying a policy must name exactly this script;
   absent or `null` requires proposals to carry no policy at all.
 
-A governance action id is `{ transactionId, proposalIndex }`, mirroring
-`CertificatePointer`: `transactionId` is the hex-encoded 32-byte hash of the
-transaction that submitted the action, and `proposalIndex` is the action's index
+A governance action id is `{ transaction_id, proposal_index }`, mirroring
+`CertificatePointer`: `transaction_id` is the hex-encoded 32-byte hash of the
+transaction that submitted the action, and `proposal_index` is the action's index
 within that transaction.
 
-`protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
+`protocol_parameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:
 
 - ratios are `{ "numerator": N, "denominator": M }`, not `"n/m"` strings
 - lovelace amounts are bare integers, not `{ "ada": { "lovelace": N } }`
 - byte sizes are bare integers, not `{ "bytes": N }`
-- Plutus cost-model keys are camelCase (`plutusV1`, `plutusV2`, `plutusV3`)
+- Plutus cost-model keys are camelCase (`plutus_v1`, `plutus_v2`, `plutus_v3`)
 - `minFeeReferenceScripts.base` and `multiplier` are ratio objects
 
 `maxRefScriptSizePerBlock` is currently hardcoded in the Haskell ledger and is
@@ -129,7 +129,7 @@ not part of the schema.
 
 ## Shared documents
 
-`protocolParameters` and `eraHistory` are identical across many
+`protocol_parameters` and `era_history` are identical across many
 fixtures. To avoid duplicating ~800 lines per fixture, both fields accept a
 reference to a shared canonical document under `common/` instead of the inline
 form.
@@ -137,7 +137,7 @@ form.
 Reference form:
 
 ```json
-"protocolParameters": { "$ref": "common/protocolParameters/preprod-conway-v10.json" }
+"protocol_parameters": { "$ref": "common/protocol-parameters/preprod-conway-v10.json" }
 ```
 
 The path is relative to the fixture data root. The harness reads the file and
@@ -147,9 +147,9 @@ For one-off variations on a shared preset, an optional `$override` object is
 shallow-merged over the referenced document before deserialization:
 
 ```json
-"protocolParameters": {
-  "$ref": "common/protocolParameters/preprod-conway-v10.json",
-  "$override": { "maxTransactionSize": 100 }
+"protocol_parameters": {
+  "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+  "$override": { "max_transaction_size": 100 }
 }
 ```
 
@@ -164,11 +164,11 @@ The inline form is also accepted and equivalent.
 A harness should:
 
 1. Parse the fixture as JSON (and resolve/shallow-merge any `$ref` or `$override` values)
-2. Build an initial ledger state from `network`, `eraHistory`,
-   `protocolParameters`, and `initialState`. Hex-decode then CBOR-decode each
+2. Build an initial ledger state from `network`, `era_history`,
+   `protocol_parameters`, and `initial_state`. Hex-decode then CBOR-decode each
    UTxO entry's `input` and `output`.
 3. Hex-decode and CBOR-decode the `transaction`. If `expected` is
-   `{ "decodingFailure": true }`, that decode must itself fail and no validation
+   `{ "decoding_failure": true }`, that decode must itself fail and no validation
    is run.
 4. Run phase-one validation against that state and `point`, then, if phase one
    succeeded, phase-two script evaluation. Both must succeed for the transaction

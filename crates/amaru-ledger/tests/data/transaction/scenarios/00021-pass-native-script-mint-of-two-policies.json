@@ -2,13 +2,13 @@
   "title": "native-script mint of two policies",
   "description": "The transaction mints one unit under each of two always-true native-script policies, encoded in the opposite order to their sorted order, so mint::execute must sort the policy ids before assigning redeemer indices.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "8258206d3e1c05f0d5b1c9e5b1f0b2a4c8d3e7f1a9b6c2d8e4f0a3b7c1d5e9f2a6b4c800",
@@ -18,13 +18,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d90102818258206d3e1c05f0d5b1c9e5b1f0b2a4c8d3e7f1a9b6c2d8e4f0a3b7c1d5e9f2a6b4c8000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd801821a00493e00a2581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcfa15770686173652d6f6e652d666978747572652d617373657401581c3530cc9ae7f2895111a99b7a02184dd7c0cea7424f1632d73951b1d7a15770686173652d6f6e652d666978747572652d617373657401021a00030d4009a2581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcfa15770686173652d6f6e652d666978747572652d617373657401581c3530cc9ae7f2895111a99b7a02184dd7c0cea7424f1632d73951b1d7a15770686173652d6f6e652d666978747572652d6173736574010f00a201828201808303008000d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b90b39652eb071620fb0732355912436e900346d7ec7fe75411efa7bc6773c1be5d6f9b2159c2e94b681b8f9bb1e00d4547c8d622d811ab1aec0efc59660240bf5f6",
   "expected": "Pass"
