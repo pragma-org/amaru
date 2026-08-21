@@ -67,7 +67,7 @@ tmp_readme="$(mktemp)"
 trap 'rm -f "$snippet" "$tmp_readme"' EXIT
 
 cat > "$snippet" <<EOF
-#### Docker Image
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/docker.svg" height=18 /> Docker Image
 
 \`\`\`console
 docker pull ghcr.io/${repository}:v${version}
@@ -76,34 +76,34 @@ docker pull ghcr.io/${repository}:v${version}
 > [!IMPORTANT]
 > The tag \`:latest\` refers to the latest _nightly build_; not the latest release.
 
-#### Homebrew (macOS & Linux)
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/homebrew.webp" height=18 /> Homebrew (macOS & Linux)
 
 \`\`\`console
 brew tap ${repository} https://github.com/${repository} && brew trust --tap ${repository}
 brew install amaru
 \`\`\`
 
-#### Nix (macOS & Linux)
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/nix.webp" height=18 /> Nix (macOS & Linux)
 
 \`\`\`console
 nix profile install --no-write-lock-file github:${repository}#amaru
 \`\`\`
 
-#### Debian
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/debian.webp" height=18 /> Debian
 
 \`\`\`console
 VERSION=${version} ARCH=x86_64; curl -fsSL -o amaru-\$VERSION-linux-\$ARCH.deb "https://github.com/${repository}/releases/download/v\$VERSION/amaru-\$VERSION-linux-\$ARCH.deb"
-VERSION=${version} ARCH=x86_64; sudo apt install amaru-\$VERSION-linux-\$ARCH.deb
+VERSION=${version} ARCH=x86_64; sudo apt install ./amaru-\$VERSION-linux-\$ARCH.deb
 \`\`\`
 
 Also available for \`ARCH=aarch64\`.
 The Debian package installs a systemd unit and reads overrides from \`/etc/default/amaru\`.
 
-#### RPM
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/red-hat.webp" height=18 /> RPM
 
 \`\`\`console
 VERSION=${version} ARCH=x86_64; curl -fsSL -o amaru-\$VERSION-linux-\$ARCH.rpm "https://github.com/${repository}/releases/download/v\$VERSION/amaru-\$VERSION-linux-\$ARCH.rpm"
-VERSION=${version} ARCH=x86_64; sudo dnf install amaru-\$VERSION-linux-\$ARCH.rpm
+VERSION=${version} ARCH=x86_64; sudo dnf install ./amaru-\$VERSION-linux-\$ARCH.rpm
 \`\`\`
 
 Also available for \`ARCH=aarch64\`.

@@ -36,6 +36,7 @@ jobs:
       is_release: ${{ steps.meta.outputs.is_release }}
       version: ${{ steps.meta.outputs.version }}
       release_tag: ${{ steps.meta.outputs.release_tag }}
+      previous_release_tag: ${{ steps.meta.outputs.previous_release_tag }}
       release_patch: ${{ steps.meta.outputs.release_patch }}
       msi_version: ${{ steps.meta.outputs.msi_version }}
 
@@ -60,6 +61,11 @@ jobs:
               | jq -s 'map(.[]) | map(select(.draft | not) | select(.published_at != null)) | length'
           }
 
+          latest_published_release_tag() {
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              | jq -rs 'map(.[]) | map(select(.draft | not) | select(.published_at != null)) | max_by(.published_at).tag_name // empty'
+          }
+
           if [[ "$REQUESTED_RELEASE" == "true" ]]; then
             current_version="$(read_amaru_version)"
 
@@ -72,10 +78,12 @@ jobs:
             version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${release_patch}"
             msi_patch="$(count_previous_published_releases)"
             msi_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${msi_patch}"
+            previous_release_tag="$(latest_published_release_tag)"
 
             echo "is_release=true" >> "$GITHUB_OUTPUT"
             echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "release_tag=v$version" >> "$GITHUB_OUTPUT"
+            echo "previous_release_tag=$previous_release_tag" >> "$GITHUB_OUTPUT"
             echo "release_patch=$release_patch" >> "$GITHUB_OUTPUT"
             echo "msi_version=$msi_version" >> "$GITHUB_OUTPUT"
           else
@@ -96,6 +104,7 @@ jobs:
             echo "is_release=false" >> "$GITHUB_OUTPUT"
             echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "release_tag=" >> "$GITHUB_OUTPUT"
+            echo "previous_release_tag=" >> "$GITHUB_OUTPUT"
             echo "release_patch=0" >> "$GITHUB_OUTPUT"
             echo "msi_version=$current_version" >> "$GITHUB_OUTPUT"
           fi
@@ -187,6 +196,15 @@ jobs:
           fi
           cargo ${{ matrix.environments.build }} --release --locked --target ${{ matrix.environments.target }}
 
+      - name: Update README installation snippets
+        continue-on-error: true
+        shell: bash
+        env:
+          VERSION: ${{ needs.build-metadata.outputs.version }}
+        run: |
+          chmod +x scripts/update-readme-installation-sections
+          ./scripts/update-readme-installation-sections --version "${VERSION}"
+
       - name: prepare distribution files
         id: pack
         shell: bash
@@ -198,7 +216,9 @@ jobs:
             BUILD_PROFILE=release \
             AMARU_BIN='./target/${{ matrix.environments.target }}/release/${{ matrix.environments.executable }}' \
             DIST_DIR="$OUT"
-          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          # Artifact uploads reset file modes, so preserve the executable bit in a tar archive.
+          tar -cf "$OUT.tar" "$OUT"
+          echo "path=$OUT.tar" >> "$GITHUB_OUTPUT"
 
       - name: Build Debian archive
         if: ${{ startsWith(matrix.environments.title, 'linux-') }}
@@ -287,6 +307,7 @@ jobs:
         env:
           DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
           RELEASE_TAG: ${{ needs.build-metadata.outputs.release_tag }}
+          PREVIOUS_RELEASE_TAG: ${{ needs.build-metadata.outputs.previous_release_tag }}
           VERSION: ${{ needs.build-metadata.outputs.version }}
         run: |
           set -euo pipefail
@@ -300,13 +321,22 @@ jobs:
             fi
 
             name="$(basename "$artifact_dir")"
+            staging_archive="$artifact_dir/$name.tar"
+            if [[ ! -f "$staging_archive" ]]; then
+              echo "missing staged distribution archive: $staging_archive" >&2
+              exit 1
+            fi
+
             if [[ "$name" == *windows-* ]]; then
+              temporary_dir="$(mktemp -d)"
+              tar -C "$temporary_dir" -xf "$staging_archive"
               (
-                cd ./artifacts
-                zip -qr "../release-assets/${name}.zip" "$name"
+                cd "$temporary_dir"
+                zip -qr "$GITHUB_WORKSPACE/release-assets/${name}.zip" "$name"
               )
+              rm -rf "$temporary_dir"
             else
-              tar -C ./artifacts -czf "release-assets/${name}.tar.gz" "$name"
+              gzip --no-name --stdout "$staging_archive" > "release-assets/${name}.tar.gz"
             fi
           done
 
@@ -389,8 +419,39 @@ jobs:
           )
 
           docker_registry_url="https://github.com/${GITHUB_REPOSITORY}/pkgs/container/${DOCKER_IMAGE##*/}"
+          changelog_anchor="${RELEASE_TAG//./}"
 
           {
+            printf '## Target Milestone\n\n'
+            printf '## Minimum Hardware Requirements\n'
+            printf '|              |                                                          |\n'
+            printf '| ---          | ---                                                      |\n'
+            printf '| Arch         | x86_64 / aarch64                                         |\n'
+            printf '| CPU          | 2+ cores, >=2GHz                                         |\n'
+            printf '| RAM          | 2GiB                                                     |\n'
+            printf '| Storage      | 20-300GiB<sup><a href="#user-content-note-1">1</a></sup> |\n'
+            printf '| Storage type | NVMe/SATA SSD, eMMC, or UFS                              |\n\n'
+            printf '<p id=note-1><small><strong>[1]</strong>\n'
+            printf 'Amaru does not (yet) download the entire chain history on bootstrap. This can be done separately via the <code>amaru mithril sync</code>  command. Therefore, storage requirements may vary depending on the amount of history being synced.</small></p>\n\n'
+            printf '## Changelog\n\n'
+            printf '> [!TIP]\n'
+            printf '>\n'
+            printf '> Want a complete inventory of the changes? Read the [full CHANGELOG.md](https://github.com/%s/blob/main/CHANGELOG.md#%s).\n' "$GITHUB_REPOSITORY" "$changelog_anchor"
+            if [[ -n "$PREVIOUS_RELEASE_TAG" ]]; then
+              printf '>\n'
+              printf '> Want _even more_ details? See the [commit history](https://github.com/%s/compare/%s...%s) since the last release.\n' \
+                "$GITHUB_REPOSITORY" "$PREVIOUS_RELEASE_TAG" "$RELEASE_TAG"
+            fi
+            printf '\n'
+            printf '## Documentation\n\n'
+            printf '| What                                                                                                 | What for                                                             |\n'
+            printf '| ---                                                                                                  | ---                                                                  |\n'
+            printf '| [Getting Started](https://github.com/pragma-org/amaru/tree/main#getting-started)                     | First steps with Amaru                                               |\n'
+            printf '| [Bootstrapping](https://github.com/pragma-org/amaru/blob/main/docs/BOOTSTRAP.md#bootstrap-snapshots) | Creating snapshots and/or restoring from available snapshots         |\n'
+            printf '| [Monitoring](https://github.com/pragma-org/amaru/blob/main/monitoring/README.md#monitoring)          | Filtering traces, understanding metrics and observability in general |\n'
+            printf '| [Using Docker](https://github.com/pragma-org/amaru/tree/main/docker)                                 | Using Amaru with Docker or spinning up local testnets                |\n'
+            printf '| [Submit API](https://github.com/pragma-org/amaru/blob/main/docs/SUBMIT_API.md)                       | Submitting transaction to Amaru local mempool                        |\n'
+            printf '| crates.io / lib (coming soon)                                                                        | Developers using Amaru as a library                                  |\n'
             printf '## Linux\n\n'
             printf '| Type | File Extension | Download Links |\n'
             printf '| --- | --- | --- |\n'
@@ -446,7 +507,7 @@ jobs:
           draft: true
           tag_name: ${{ needs.build-metadata.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
-          name: Amaru ${{ needs.build-metadata.outputs.version }}
+          name: ${{ needs.build-metadata.outputs.version }}
           body_path: release-body.md
           fail_on_unmatched_files: true
           files: release-assets/*
