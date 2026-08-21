@@ -17,11 +17,13 @@ import Command.ValidatePhaseOne.Error
     ( Error (..)
     )
 import Data.Aeson
-    ( FromJSON
+    ( FromJSON (parseJSON)
+    , genericParseJSON
     )
 import Data.Fixture.Common
     ( perasDisabled
     , showText
+    , snakeCaseOptions
     )
 import Data.Fixture.Point
     ( Point
@@ -63,12 +65,13 @@ import qualified Ouroboros.Consensus.HardFork.History.Summary as HardForkHistory
 import qualified Data.SOP.NonEmpty as SOPNonEmpty
 
 data EraHistory = EraHistory
-    { stability_window :: !Word64
+    { stabilityWindow :: !Word64
     , eras :: ![FixtureEraSummary]
     }
     deriving (Generic)
 
-instance FromJSON EraHistory
+instance FromJSON EraHistory where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data FixtureEraSummary = FixtureEraSummary
     { start :: !EraBound
@@ -77,7 +80,8 @@ data FixtureEraSummary = FixtureEraSummary
     }
     deriving (Generic)
 
-instance FromJSON FixtureEraSummary
+instance FromJSON FixtureEraSummary where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data EraBound = EraBound
     { time :: !Word64
@@ -86,16 +90,18 @@ data EraBound = EraBound
     }
     deriving (Generic)
 
-instance FromJSON EraBound
+instance FromJSON EraBound where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data EraParameters = EraParameters
-    { epoch_size_slots :: !Word64
-    , slot_length :: !Word64
-    , era_name :: !Text
+    { epochSizeSlots :: !Word64
+    , slotLength :: !Word64
+    , eraName :: !Text
     }
     deriving (Generic)
 
-instance FromJSON EraParameters
+instance FromJSON EraParameters where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 buildEpochInfo :: EraHistory -> Point -> Either Error (EpochInfo.EpochInfo (Either Text))
 buildEpochInfo eraHistory point = do
@@ -132,12 +138,12 @@ pointEpochNo :: EraHistory -> Point -> Either Error LedgerSlot.EpochNo
 pointEpochNo eraHistory point = do
     FixtureEraSummary
         { start = EraBound{slot = eraStartSlot, epoch = eraStartEpoch}
-        , params = EraParameters{epoch_size_slots}
+        , params = EraParameters{epochSizeSlots}
         } <- singleEraSummary eraHistory
     let SlotNo currentSlot = pointConsensusSlotNo point
     when (currentSlot < eraStartSlot) $
         Left (UnsupportedFixture "the fixture point is before the era-history start bound")
-    pure (LedgerSlot.EpochNo (eraStartEpoch + ((currentSlot - eraStartSlot) `div` epoch_size_slots)))
+    pure (LedgerSlot.EpochNo (eraStartEpoch + ((currentSlot - eraStartSlot) `div` epochSizeSlots)))
 
 buildBound :: EraBound -> Either Error Bound
 buildBound EraBound{time, slot, epoch} =
@@ -150,14 +156,14 @@ buildBound EraBound{time, slot, epoch} =
             }
 
 buildEraParams :: EraParameters -> Either Error EraParams
-buildEraParams EraParameters{epoch_size_slots, slot_length, era_name}
-    | era_name /= "Conway" =
-        Left (UnsupportedFixture ("unsupported era name in era history: " <> era_name))
+buildEraParams EraParameters{epochSizeSlots, slotLength, eraName}
+    | eraName /= "Conway" =
+        Left (UnsupportedFixture ("unsupported era name in era history: " <> eraName))
     | otherwise =
         pure
             EraParams
-                { eraEpochSize = EpochSize epoch_size_slots
-                , eraSlotLength = slotLengthFromMillisec (fromIntegral slot_length)
+                { eraEpochSize = EpochSize epochSizeSlots
+                , eraSlotLength = slotLengthFromMillisec (fromIntegral slotLength)
                 , eraSafeZone = UnsafeIndefiniteSafeZone
                 , eraGenesisWin = GenesisWindow 0
                 , eraPerasRoundLength = perasDisabled

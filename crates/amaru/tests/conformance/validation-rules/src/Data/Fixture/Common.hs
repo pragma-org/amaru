@@ -15,6 +15,7 @@ module Data.Fixture.Common
     , renderRatio
     , ratioFromJson
     , showText
+    , snakeCaseOptions
     ) where
 
 import Relude
@@ -58,7 +59,10 @@ import Data.Aeson
     , (.:)
     )
 import Data.Aeson.Types
-    ( Parser
+    ( Options (fieldLabelModifier)
+    , Parser
+    , camelTo2
+    , defaultOptions
     )
 import Data.Char
     ( isHexDigit
@@ -71,6 +75,10 @@ import Ouroboros.Consensus.HardFork.History.EraParams
     ( PerasEnabled
     , pattern NoPerasEnabled
     )
+
+-- | Decoding options for records whose camelCase fields map to snake_case JSON keys.
+snakeCaseOptions :: Options
+snakeCaseOptions = defaultOptions{fieldLabelModifier = camelTo2 '_'}
 
 showText :: Show a => a -> Text
 showText value =

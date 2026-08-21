@@ -3,10 +3,10 @@
   "description": "A transaction with smart contracts and an interesting script integrity hash.",
   "network": "preprod",
   "era_history": {
-    "$ref": "common/era_history/preprod-conway.json"
+    "$ref": "common/era-history/preprod-conway.json"
   },
   "protocol_parameters": {
-    "$ref": "common/protocol_parameters/preprod-287.json"
+    "$ref": "common/protocol-parameters/preprod-287.json"
   },
   "initial_state": {
     "utxo": [

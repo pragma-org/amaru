@@ -3,10 +3,10 @@
   "description": "The transaction mints one unit of an asset under a native-script policy (always-true `ScriptAll []`), and the sole output carries that same unit so value is preserved. The witness set carries both the input's vkey signature and the native script. Opens conformance coverage on mint::execute and exercises the mint-required script witness path in scripts::execute.",
   "network": "preprod",
   "era_history": {
-    "$ref": "common/era_history/preprod-conway.json"
+    "$ref": "common/era-history/preprod-conway.json"
   },
   "protocol_parameters": {
-    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
   "initial_state": {
     "utxo": [

@@ -14,8 +14,8 @@ fixture asserts.
 
 ```text
 common/
-  protocol_parameters/<preset>.json
-  era_history/<preset>.json
+  protocol-parameters/<preset>.json
+  era-history/<preset>.json
   test-credentials/<name>.skey, <name>.vkey
 scenarios/
   <id>-<pass|fail>-<name>.json
@@ -40,7 +40,7 @@ fixtures covering one predicate, grep for it:
 $ grep -l '"predicate": "DelegateeStakePoolNotRegistered"' fail/*.json
 ```
 
-`common/protocol_parameters/` and `common/era_history/` hold shared canonical documents
+`common/protocol-parameters/` and `common/era-history/` hold shared canonical documents
 that fixtures reference instead of inlining. See [Shared documents](#shared-documents)
 below.
 
@@ -137,7 +137,7 @@ form.
 Reference form:
 
 ```json
-"protocol_parameters": { "$ref": "common/protocol_parameters/preprod-conway-v10.json" }
+"protocol_parameters": { "$ref": "common/protocol-parameters/preprod-conway-v10.json" }
 ```
 
 The path is relative to the fixture data root. The harness reads the file and
@@ -148,7 +148,7 @@ shallow-merged over the referenced document before deserialization:
 
 ```json
 "protocol_parameters": {
-  "$ref": "common/protocol_parameters/preprod-conway-v10.json",
+  "$ref": "common/protocol-parameters/preprod-conway-v10.json",
   "$override": { "max_transaction_size": 100 }
 }
 ```

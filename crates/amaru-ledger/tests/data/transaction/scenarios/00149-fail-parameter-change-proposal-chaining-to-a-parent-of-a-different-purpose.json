@@ -3,10 +3,10 @@
   "description": "A ParameterChange governance action whose previous action id points to an in-flight proposal that exists but is a NewConstitution (a different governance purpose), so it cannot be a valid protocol-parameters parent.",
   "network": "preprod",
   "era_history": {
-    "$ref": "common/era_history/preprod-conway.json"
+    "$ref": "common/era-history/preprod-conway.json"
   },
   "protocol_parameters": {
-    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
   "initial_state": {
     "utxo": [

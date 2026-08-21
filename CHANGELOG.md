@@ -52,7 +52,6 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru-kernel, amaru-ledger**: ledger conformance fixtures now use snake_case keys aligned with the canonical serde instances of the underlying types; the serialization-only JSON proxy types and the `HasProxy` machinery are removed, including the previously exported `EraHistoryProxy`. Voting-threshold and execution-unit fixture shapes now match the in-memory types, and the Haskell conformance harness parses the new format. ([#1192](https://github.com/pragma-org/amaru/issues/1192))
 - **amaru-bootstrap**: speed up node bootstrap by streaming state archives and account imports, decoding large snapshot maps incrementally, and avoiding unnecessary optimistic-transaction conflict tracking when importing fresh database batches.
 - **amaru-pure-stage**: `contramap` is now a method on `StageRef`. It no longer allocates a runtime name or adapter entry; the injection runs in the sending stage and traces record the transformed message sent to the original stage. `StageGraph::contramap` and `Effects::contramap` are removed. `Sender::send` now returns `SendError` instead of the original message (the payload cannot be recovered after a contramap injection). ([#762](https://github.com/pragma-org/amaru/issues/762))
 - **amaru-ledger**: group phase-one and phase-two traces under a single trace with multiple fields for each of the measurements.

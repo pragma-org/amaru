@@ -3,10 +3,10 @@
   "description": "Same shape as InvalidWitnessesUTXOW/3 but the bootstrap signature is encoded with 63 bytes instead of 64. The public-key + chain-code + attributes still hash to the input's bootstrap root, so the required-keys check passes; phase-one must reject on the malformed signature length.",
   "network": "preprod",
   "era_history": {
-    "$ref": "common/era_history/preprod-conway.json"
+    "$ref": "common/era-history/preprod-conway.json"
   },
   "protocol_parameters": {
-    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
   "initial_state": {
     "utxo": [

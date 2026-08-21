@@ -3,10 +3,10 @@
   "description": "The output carries the reference script (program 1.1.0 (con (list bls12_381_G1_element) [])). The BLS type tag decodes and the empty list never reads an element value, so the script is well-formed, as on the Haskell node. Preprod block 130138398.449b3e3b contains a production example (tx 4de93f45, output #2, script 0ba0ad6b).",
   "network": "preprod",
   "era_history": {
-    "$ref": "common/era_history/preprod-conway.json"
+    "$ref": "common/era-history/preprod-conway.json"
   },
   "protocol_parameters": {
-    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
   "initial_state": {
     "utxo": [

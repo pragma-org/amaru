@@ -3,10 +3,10 @@
   "description": "Body spends a Byron (bootstrap) input. The required bootstrap root is added to required-keys via require_bootstrap_witness, but the witness set is empty. Exercises the bootstrap-root contribution to required-keys, distinct from the input-vkey path in fixture 0.",
   "network": "preprod",
   "era_history": {
-    "$ref": "common/era_history/preprod-conway.json"
+    "$ref": "common/era-history/preprod-conway.json"
   },
   "protocol_parameters": {
-    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
   "initial_state": {
     "utxo": [

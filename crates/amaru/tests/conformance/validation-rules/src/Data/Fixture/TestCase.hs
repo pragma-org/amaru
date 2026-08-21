@@ -36,14 +36,16 @@ import Command.ValidatePhaseOne.Error
     )
 import Data.Aeson
     ( FromJSON
-    , parseJSON
     , eitherDecodeFileStrict'
+    , genericParseJSON
+    , parseJSON
     )
 import Data.Aeson.Types
     ( parseEither
     )
 import Data.Fixture.Common
     ( showText
+    , snakeCaseOptions
     )
 import Data.Fixture.EraHistory
     ( EraHistory
@@ -83,16 +85,17 @@ data TestCaseDocument = TestCaseDocument
     { title :: !(Maybe Text)
     , description :: !(Maybe Text)
     , network :: !FixtureNetwork
-    , era_history :: !SharedDocument
-    , protocol_parameters :: !SharedDocument
-    , initial_state :: !InitialState
+    , eraHistory :: !SharedDocument
+    , protocolParameters :: !SharedDocument
+    , initialState :: !InitialState
     , point :: !Point
     , transaction :: !Text
     , expected :: !Expected
     }
     deriving (Generic)
 
-instance FromJSON TestCaseDocument
+instance FromJSON TestCaseDocument where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data TestCase = TestCase
     { sourcePath :: !FilePath
@@ -113,9 +116,9 @@ loadTestCase testCasePath = do
         { title = documentTitle
         , description = documentDescription
         , network = documentNetwork
-        , era_history = documentEraHistory
-        , protocol_parameters = documentProtocolParameters
-        , initial_state = documentInitialState
+        , eraHistory = documentEraHistory
+        , protocolParameters = documentProtocolParameters
+        , initialState = documentInitialState
         , point = documentPoint
         , transaction = documentTransaction
         , expected = documentExpected

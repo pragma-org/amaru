@@ -3,10 +3,10 @@
   "description": "Body declares a required_signers entry whose key is not in the witness set. The consumed input is locked to the dev key and the witness set carries a valid signature for it, so the input-vkey requirement is satisfied — required_signers is the only missing key. Exercises the body.required_signers contribution to required-keys in isolation, distinct from the input-driven path covered by fixture 0.",
   "network": "preprod",
   "era_history": {
-    "$ref": "common/era_history/preprod-conway.json"
+    "$ref": "common/era-history/preprod-conway.json"
   },
   "protocol_parameters": {
-    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
   "initial_state": {
     "utxo": [

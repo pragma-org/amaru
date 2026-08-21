@@ -120,6 +120,7 @@ import Command.ValidatePhaseOne.Error
 import Data.Aeson
     ( FromJSON (parseJSON)
     , Object
+    , genericParseJSON
     , Value (Array)
     , withArray
     , withObject
@@ -145,6 +146,7 @@ import Data.Fixture.Common
     , parsePoolId
     , parseScriptHash
     , showText
+    , snakeCaseOptions
     )
 import Data.Fixture.EraHistory
     ( EraHistory
@@ -285,18 +287,20 @@ instance FromJSON CommitteeMember where
 
 data CertificatePointer = CertificatePointer
     { transaction :: !Point
-    , certificate_index :: !Word64
+    , certificateIndex :: !Word64
     }
     deriving (Generic)
 
-instance FromJSON CertificatePointer
+instance FromJSON CertificatePointer where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data GovernanceActivity = GovernanceActivity
-    { consecutive_dormant_epochs :: !Word64
+    { consecutiveDormantEpochs :: !Word64
     }
     deriving (Generic)
 
-instance FromJSON GovernanceActivity
+instance FromJSON GovernanceActivity where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 instance Default GovernanceActivity where
     def = GovernanceActivity 0
@@ -545,7 +549,7 @@ buildNewEpochState pparams eraHistory initialState point = do
                     VState
                         { vsDReps = dRepStates
                         , vsCommitteeState = CommitteeState committeeAuthorizations
-                        , vsNumDormantEpochs = phaseOneEpochNo (consecutive_dormant_epochs governanceActivity)
+                        , vsNumDormantEpochs = phaseOneEpochNo (consecutiveDormantEpochs governanceActivity)
                         }
                 , conwayCertPState =
                     PState def poolStates def def
