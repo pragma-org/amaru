@@ -162,6 +162,7 @@ jobs:
           base: ${{ needs.release-metadata.outputs.base_branch }}
           branch: release-${{ needs.release-metadata.outputs.release_tag }}
           delete-branch: true
+          signoff: true
           commit-message: "chore: update packages metadata for ${{ needs.release-metadata.outputs.release_tag }}"
           title: "Update packages metadata for ${{ needs.release-metadata.outputs.release_tag }}"
           body: |

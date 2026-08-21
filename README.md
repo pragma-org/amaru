@@ -25,11 +25,9 @@
 
 ## Getting Started
 
-> [!WARNING]
->
-> Amaru is still in an exploratory phase. Our development strategy favors early
-> integration of components, so that progress is instantly visible, even though
-> features might be limited or incomplete.
+Amaru is still in an exploratory phase. Our development strategy favors early
+integration of components, so that progress is instantly visible, even though
+features might be limited or incomplete.
 
 ### Installing
 
@@ -60,7 +58,7 @@ nix profile install --no-write-lock-file github:pragma-org/amaru#amaru
 
 ```console
 VERSION=10.11.20260820 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
-VERSION=10.11.20260820 ARCH=x86_64; sudo apt install amaru-$VERSION-linux-$ARCH.deb
+VERSION=10.11.20260820 ARCH=x86_64; sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
 ```
 
 Also available for `ARCH=aarch64`.
@@ -70,7 +68,7 @@ The Debian package installs a systemd unit and reads overrides from `/etc/defaul
 
 ```console
 VERSION=10.11.20260820 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
-VERSION=10.11.20260820 ARCH=x86_64; sudo dnf install amaru-$VERSION-linux-$ARCH.rpm
+VERSION=10.11.20260820 ARCH=x86_64; sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 ```
 
 Also available for `ARCH=aarch64`.
@@ -101,16 +99,10 @@ cargo build --release
 
 ### Running
 
-> [!IMPORTANT]
-> These instructions assume one starts from scratch, and has access to a synced [cardano-node](https://github.com/IntersectMBO/cardano-node/)
-on the selected network (e.g. [preprod](https://book.world.dev.cardano.org/env-preprod.html)).
->
-> Although you may explicitly provide peers, Amaru will automatically infer some peers from the ledger state. To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
-
-1. Bootstrap the node:
+1. _(First time)_ Bootstrap the node:
 
 ```bash
-amaru node bootstrap --network=preprod
+amaru node bootstrap --network=mainnet
 ```
 
 2. _(Optional)_ Setup observability backends:
@@ -122,15 +114,17 @@ docker compose -f monitoring/docker-compose.yml up -d
 3. Run Amaru:
 
 ```console
-amaru node run --network=preprod
+amaru node run --network=mainnet
 ```
 
 > [!TIP]
 > To ensure logs are forwarded to an OpenTelemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=true`:
 >
 > ```console
-> amaru --with-open-telemetry node run --network=preprod
+> amaru --with-open-telemetry node run --network=mainnet
 > ```
+>
+> See also `amaru node run --help` for more options.
 
 ### Monitoring
 
