@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AuxiliaryData, TransactionBody, TransactionId, TransactionRef, WitnessSet, cbor, ed25519};
+use std::ops::Deref;
+
+use crate::{AuxiliaryData, TransactionBody, TransactionId, TransactionRef, WitnessSet, cbor, cbor::WithSize, ed25519};
 
 const CHAIN_CODE_SIZE: usize = 32;
 
@@ -24,9 +26,22 @@ const CHAIN_CODE_SIZE: usize = 32;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
     pub body: TransactionBody,
-    pub witnesses: WitnessSet,
+    pub witnesses: WithSize<WitnessSet>,
     pub is_expected_valid: bool,
     pub auxiliary_data: Option<AuxiliaryData>,
+}
+
+impl Transaction {
+    #[expect(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u64 {
+        TransactionRef {
+            body: &self.body,
+            auxiliary_data: self.auxiliary_data.as_ref(),
+            witnesses: self.witnesses.as_ref(),
+            is_expected_valid: self.is_expected_valid,
+        }
+        .len()
+    }
 }
 
 // NOTE: Do not macro-derive the CBOR instances.
@@ -71,7 +86,7 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Transactio
 ///
 /// FIXME(cbor): We should move this validation to the Witness decoding once we move from `pallas` our
 /// our own data types.
-fn assert_sized_witnesses(witnesses: &WitnessSet) -> Result<(), cbor::decode::Error> {
+fn assert_sized_witnesses(witnesses: &impl Deref<Target = WitnessSet>) -> Result<(), cbor::decode::Error> {
     if let Some(verification_key_witnesses) = witnesses.verification_key_witness.as_deref() {
         for witness in verification_key_witnesses {
             assert_bytes_len("verification key", witness.verification_key.as_slice(), ed25519::PUBLIC_KEY_LENGTH)?;
@@ -107,9 +122,22 @@ impl Transaction {
     pub fn tx_ref(&self) -> TransactionRef<'_> {
         TransactionRef {
             body: &self.body,
-            witnesses: &self.witnesses,
+            witnesses: self.witnesses.as_ref(),
             is_expected_valid: self.is_expected_valid,
             auxiliary_data: self.auxiliary_data.as_ref(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Transaction, include_cbor, to_cbor};
+
+    #[test]
+    fn size_without_reencoding() {
+        let transaction: Transaction =
+            include_cbor!("transaction.len/99949da314af224cff611d22feece9e6f150ad232f6b421e9294c74aae0d5d81.cbor");
+        assert_eq!(transaction.len(), 293);
+        assert_eq!(to_cbor(&transaction).len(), 297);
     }
 }

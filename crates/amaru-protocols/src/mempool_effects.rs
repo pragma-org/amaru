@@ -407,7 +407,7 @@ impl ExternalEffectAPI for State {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Transaction, TransactionBody, TransactionId, WitnessSet};
+    use amaru_kernel::{Transaction, TransactionBody, TransactionId, WitnessSet, cbor::WithSize};
     use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
     #[allow(dead_code)]
@@ -419,7 +419,7 @@ mod tests {
         #[allow(dead_code)]
         pub fn new() -> Self {
             let body = TransactionBody::new([], [], 0);
-            let witnesses = WitnessSet::default();
+            let witnesses = WithSize::<WitnessSet>::default().with_size(1);
             let tx: Transaction = Transaction { body, witnesses, is_expected_valid: true, auxiliary_data: None };
             Self { tx }
         }

@@ -14,7 +14,7 @@
 
 use std::{
     fmt::{self, Display},
-    ops::{ControlFlow, FromResidual, Residual, Try},
+    ops::{ControlFlow, Deref, FromResidual, Residual, Try},
     process::{ExitCode, Termination},
 };
 
@@ -248,7 +248,7 @@ where
         protocol_params,
     ))?;
 
-    for (i, transaction, tx_size) in block {
+    for (i, transaction) in block {
         let transaction_id = transaction.tx_id();
 
         if let Err(violation) = debug_span!(ledger::transaction::VALIDATE, id = transaction_id).in_scope(|| {
@@ -263,7 +263,6 @@ where
                 guardrail_script,
                 TransactionPointer { slot, transaction_index: i as usize },
                 transaction,
-                tx_size,
             )
         }) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
@@ -298,7 +297,6 @@ pub fn validate_transaction<C>(
     guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
     transaction: TransactionRef<'_>,
-    tx_size: u64,
 ) -> Result<(), TransactionInvalid>
 where
     C: ValidationContext + fmt::Debug,
@@ -314,9 +312,9 @@ where
         pointer,
         transaction.is_expected_valid,
         transaction.body.clone(),
-        transaction.witnesses,
+        transaction.witnesses.deref(),
         transaction.auxiliary_data,
-        tx_size,
+        transaction.len(),
     )?;
 
     transaction::phase_two::execute(
@@ -328,7 +326,7 @@ where
         pointer,
         transaction.is_expected_valid,
         transaction.body,
-        transaction.witnesses,
+        transaction.witnesses.deref(),
     )?;
 
     consumed_inputs.into_iter().for_each(|input| context.consume(input));
