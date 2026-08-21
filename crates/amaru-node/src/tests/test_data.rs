@@ -14,7 +14,9 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
+use amaru_kernel::{
+    Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, cbor::WithSize, size::TRANSACTION_BODY,
+};
 use amaru_ouroboros::{Mempool, TxInsertResult, TxOrigin};
 
 pub fn create_transactions(number: usize) -> Vec<Transaction> {
@@ -38,5 +40,10 @@ pub fn create_transaction(id: usize) -> Transaction {
 
     let body = TransactionBody::new([tx_input], [], 0);
 
-    Transaction { body, witnesses: WitnessSet::default(), is_expected_valid: true, auxiliary_data: None }
+    Transaction {
+        body,
+        witnesses: WithSize::<WitnessSet>::default().with_size(1),
+        is_expected_valid: true,
+        auxiliary_data: None,
+    }
 }

@@ -92,7 +92,7 @@ impl Block {
 }
 
 impl IntoIterator for Block {
-    type Item = (TransactionIndex, Transaction, u64);
+    type Item = (TransactionIndex, Transaction);
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(mut self) -> Self::IntoIter {
@@ -103,24 +103,9 @@ impl IntoIterator for Block {
                 let is_expected_valid =
                     !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
 
-                let (auxiliary_data_len, auxiliary_data) = match self.auxiliary_data.remove(&i) {
-                    Some(auxiliary_data) => (auxiliary_data.len(), Some(auxiliary_data)),
-                    None => (1, None),
-                };
+                let auxiliary_data = self.auxiliary_data.remove(&i);
 
-                // NOTE: Transaction size calculation
-                //
-                // Due to how the transactions are serialised in blocks (with seggregated witnesses
-                // and auxiliary data), we have to calculate the size from multiple pieces and add
-                // an extra 'cbor framing byte' which corresponds to the declaration of the
-                // top-level array of size 3 (`0x83`). Importantly, the validity of the transaction
-                // is not taken into account for the size calculation (rationale being that this
-                // the logic is then preserved between pre-alonzo and post-alonzo eras).
-                //
-                // See also: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Tx.hs#L351-L362>
-                let size = 1 + body.len() + witnesses.len() as u64 + auxiliary_data_len;
-
-                (i, Transaction { body, witnesses: witnesses.into_inner(), auxiliary_data, is_expected_valid }, size)
+                (i, Transaction { body, witnesses, auxiliary_data, is_expected_valid })
             })
             .collect::<Vec<_>>()
             .into_iter()
@@ -128,7 +113,7 @@ impl IntoIterator for Block {
 }
 
 impl<'a> IntoIterator for &'a Block {
-    type Item = (u16, TransactionRef<'a>, u64);
+    type Item = (u16, TransactionRef<'a>);
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -137,24 +122,9 @@ impl<'a> IntoIterator for &'a Block {
                 let is_expected_valid =
                     !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
 
-                let (auxiliary_data_len, auxiliary_data) = match self.auxiliary_data.get(&i) {
-                    Some(auxiliary_data) => (auxiliary_data.len(), Some(auxiliary_data)),
-                    None => (1, None),
-                };
+                let auxiliary_data = self.auxiliary_data.get(&i);
 
-                // NOTE: Transaction size calculation
-                //
-                // Due to how the transactions are serialised in blocks (with seggregated witnesses
-                // and auxiliary data), we have to calculate the size from multiple pieces and add
-                // an extra 'cbor framing byte' which corresponds to the declaration of the
-                // top-level array of size 3 (`0x83`). Importantly, the validity of the transaction
-                // is not taken into account for the size calculation (rationale being that this
-                // the logic is then preserved between pre-alonzo and post-alonzo eras).
-                //
-                // See also: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Tx.hs#L351-L362>
-                let size = 1 + body.len() + witnesses.len() as u64 + auxiliary_data_len;
-
-                (i, TransactionRef { body, witnesses: witnesses.as_ref(), auxiliary_data, is_expected_valid }, size)
+                (i, TransactionRef { body, witnesses: witnesses.as_ref(), auxiliary_data, is_expected_valid })
             },
         ))
     }
