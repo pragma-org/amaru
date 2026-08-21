@@ -40,7 +40,8 @@ Other guiding principles:
 
 ### Fixed
 
-- **workflows**: executable permissions is now correctly preserved in the release workflow.
+- **workflows**: executable permissions are now correctly preserved in the release workflow.
+- **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 
