@@ -31,50 +31,6 @@ features might be limited or incomplete.
 
 ### Installing
 
-<!-- BEGIN GENERATED INSTALLATION -->
-#### Docker Image
-
-```console
-docker pull ghcr.io/pragma-org/amaru:v10.11.20260820
-```
-
-> [!IMPORTANT]
-> The tag `:latest` refers to the latest _nightly build_; not the latest release.
-
-#### Homebrew (macOS & Linux)
-
-```console
-brew tap pragma-org/amaru https://github.com/pragma-org/amaru && brew trust --tap pragma-org/amaru
-brew install amaru
-```
-
-#### Nix (macOS & Linux)
-
-```console
-nix profile install --no-write-lock-file github:pragma-org/amaru#amaru
-```
-
-#### Debian
-
-```console
-VERSION=10.11.20260820 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
-VERSION=10.11.20260820 ARCH=x86_64; sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
-```
-
-Also available for `ARCH=aarch64`.
-The Debian package installs a systemd unit and reads overrides from `/etc/default/amaru`.
-
-#### RPM
-
-```console
-VERSION=10.11.20260820 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
-VERSION=10.11.20260820 ARCH=x86_64; sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
-```
-
-Also available for `ARCH=aarch64`.
-The RPM package installs a systemd unit and reads overrides from `/etc/sysconfig/amaru`.
-<!-- END GENERATED INSTALLATION -->
-
 #### Manual installation: pre-compiled executables
 
 You can install Amaru "manually" by downloading an archive with pre-compiled
@@ -86,6 +42,51 @@ See either:
 - [latest releases](https://github.com/pragma-org/amaru/releases);
 - [nightly builds](https://pragma-org.github.io/amaru/).
 
+Alternatively, Amaru also comes pre-packaged for a few platforms.
+
+<!-- BEGIN GENERATED INSTALLATION -->
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/docker.svg" height=18 /> Docker Image
+
+```console
+docker pull ghcr.io/pragma-org/amaru:v10.11.20260820
+```
+
+> [!IMPORTANT]
+> The tag `:latest` refers to the latest _nightly build_; not the latest release.
+
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/homebrew.webp" height=18 /> Homebrew (macOS & Linux)
+
+```console
+brew tap pragma-org/amaru https://github.com/pragma-org/amaru && brew trust --tap pragma-org/amaru
+brew install amaru
+```
+
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/nix.webp" height=18 /> Nix (macOS & Linux)
+
+```console
+nix profile install --no-write-lock-file github:pragma-org/amaru#amaru
+```
+
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/debian.webp" height=18 /> Debian
+
+```console
+VERSION=10.11.20260820 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
+VERSION=10.11.20260820 ARCH=x86_64; sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
+```
+
+Also available for `ARCH=aarch64`.
+The Debian package installs a systemd unit and reads overrides from `/etc/default/amaru`.
+
+#### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/red-hat.webp" height=18 /> RPM
+
+```console
+VERSION=10.11.20260820 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
+VERSION=10.11.20260820 ARCH=x86_64; sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
+```
+
+Also available for `ARCH=aarch64`.
+The RPM package installs a systemd unit and reads overrides from `/etc/sysconfig/amaru`.
+<!-- END GENERATED INSTALLATION -->
 
 #### Building from sources
 
