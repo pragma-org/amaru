@@ -43,9 +43,6 @@ Other guiding principles:
 - **workflows**: executable permissions are now correctly preserved in the release workflow.
 - **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
 - **amaru-ledger**: do not re-encode locally submitted transactions to obtain their size.
-
-### Fixed
-
 - **amaru-ledger**: Do not validate disjoint input sets in protocol version 11+. Similarly, do not allow non-disjoin input sets in PV3, regardless of protocol version.
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
