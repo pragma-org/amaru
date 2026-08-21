@@ -76,6 +76,8 @@ scripts/demos/*/run/**
 scripts/demos/*/keys/**/*.skey
 
 /.opencode/
+.grok/
+.delta/
 data/*/epoch-snapshots/
 
 # Packaging and distribution target dir
