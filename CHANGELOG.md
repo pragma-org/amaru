@@ -52,6 +52,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-node**: `Telemetry::install` / `install_local` take a `LogFormat` (`Plain`, `Ansi`, or `Json`) instead of a JSON boolean, so embedders can enable ANSI colour on the console sink (JSON remains exclusive with colour).
 - **amaru-bootstrap**: speed up node bootstrap by streaming state archives and account imports, decoding large snapshot maps incrementally, and avoiding unnecessary optimistic-transaction conflict tracking when importing fresh database batches.
 - **amaru-pure-stage**: `contramap` is now a method on `StageRef`. It no longer allocates a runtime name or adapter entry; the injection runs in the sending stage and traces record the transformed message sent to the original stage. `StageGraph::contramap` and `Effects::contramap` are removed. `Sender::send` now returns `SendError` instead of the original message (the payload cannot be recovered after a contramap injection). ([#762](https://github.com/pragma-org/amaru/issues/762))
 - **amaru-ledger**: group phase-one and phase-two traces under a single trace with multiple fields for each of the measurements.

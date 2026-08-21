@@ -59,7 +59,7 @@ pub use stages::{
     config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
 };
 pub use system_metrics::{BuildIdentity, track_system_metrics};
-pub use telemetry::Telemetry;
+pub use telemetry::{LogFormat, Telemetry};
 
 /// Default relative path for ledger storage for a known network.
 pub fn default_ledger_dir(network: NetworkName) -> String {

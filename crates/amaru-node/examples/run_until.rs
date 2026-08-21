@@ -34,7 +34,7 @@ use std::{
 
 use amaru_kernel::NetworkName;
 use amaru_node::{
-    LedgerObservers, MaxExtraLedgerSnapshots, NodeBuilder, Telemetry, default_chain_dir, default_ledger_dir,
+    LedgerObservers, LogFormat, MaxExtraLedgerSnapshots, NodeBuilder, Telemetry, default_chain_dir, default_ledger_dir,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
     let done = Arc::new(AtomicBool::new(false));
     let reached = rt.block_on(async {
         // Install/shutdown are async so they run on this runtime (OTLP batch exporters attach to it).
-        let telemetry = Telemetry::install().await?;
+        let telemetry = Telemetry::install(LogFormat::Plain).await?;
 
         let done_flag = Arc::clone(&done);
 
