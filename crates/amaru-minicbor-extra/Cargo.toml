@@ -23,6 +23,7 @@ tracing = ["dep:tracing"]
 minicbor.workspace = true
 num-bigint.workspace = true
 num.workspace = true
+serde.workspace = true
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]

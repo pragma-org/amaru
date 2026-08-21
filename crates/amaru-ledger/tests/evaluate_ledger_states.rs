@@ -332,9 +332,12 @@ pub mod tests {
                 TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
                 TestVectorEvent::PassTick(..) | TestVectorEvent::PassEpoch(..) => continue,
             };
+
             let tx: Transaction = cbor::decode(tx_bytes.as_slice())?;
 
-            let tx_witness_set: WitnessSet = tx.witnesses.clone();
+            let tx_size = tx.len();
+
+            let tx_witness_set: WitnessSet = tx.witnesses.into_inner();
 
             let tx_auxiliary_data = tx.auxiliary_data.as_ref();
 
@@ -344,14 +347,6 @@ pub mod tests {
                 // the slots are the same. ultimately the pointers are made up since we do not have real blocks
                 transaction_index: ix,
             };
-
-            // NOTE: Transaction Size Calculation:
-            //
-            // As noted in block.rs, the transaction size is calcualted from an encoded 3-element list, not including the is_valid byte.
-            // We don't have that here since the fixtures encode individual transactions, instead of blocks.
-            // While the exact bytes aren't the same (the header should be 0x83 instead of 0x84), the is_valid boolean is exactly one byte.
-            // So, by subtracting one, we get the expected value.
-            let tx_size = (tx_bytes.len() - 1) as u64;
 
             // Run the transaction against the imported ledger state
             let result = transaction::phase_one::execute(

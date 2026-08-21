@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     Hash, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, TransactionBody, TransactionInput, WitnessSet,
-    size::TRANSACTION_BODY,
+    cbor::WithSize, size::TRANSACTION_BODY,
 };
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
 use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
@@ -135,5 +135,10 @@ pub fn te_record_metrics(at_stage: &str, metrics: MempoolMetrics) -> TraceEntry 
 pub fn create_transaction(input_index: usize) -> Transaction {
     let tx_input = TransactionInput { transaction_id: Hash::new([1; TRANSACTION_BODY]), index: input_index as u64 };
     let body = TransactionBody::new([tx_input], [], 0);
-    Transaction { body, witnesses: WitnessSet::default(), is_expected_valid: true, auxiliary_data: None }
+    Transaction {
+        body,
+        witnesses: WithSize::<WitnessSet>::default().with_size(1),
+        is_expected_valid: true,
+        auxiliary_data: None,
+    }
 }

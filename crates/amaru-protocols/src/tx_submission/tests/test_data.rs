@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
+use amaru_kernel::{
+    Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, cbor::WithSize, size::TRANSACTION_BODY,
+};
 use amaru_ouroboros_traits::{Mempool, TxOrigin};
 
 pub fn create_transactions(number: u64) -> Vec<Transaction> {
@@ -35,5 +37,10 @@ pub fn create_transaction(id: u64) -> Transaction {
 
     let body = TransactionBody::new([tx_input], [], 0);
 
-    Transaction { body, witnesses: WitnessSet::default(), is_expected_valid: true, auxiliary_data: None }
+    Transaction {
+        body,
+        witnesses: WithSize::<WitnessSet>::default().with_size(1),
+        is_expected_valid: true,
+        auxiliary_data: None,
+    }
 }
