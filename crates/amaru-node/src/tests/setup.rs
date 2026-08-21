@@ -21,7 +21,7 @@ use amaru_consensus::{
     },
     stages::test_utils::start_in_era,
 };
-use amaru_kernel::{ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Transaction};
+use amaru_kernel::{ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Transaction, cbor::WithOriginalBytes};
 use amaru_metrics::Meter;
 use amaru_ouroboros::{
     BaseReadChainStore, ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateTxs, Nonces,
@@ -225,7 +225,7 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     stage_graph.resources().put::<ResourceConsensusParameters>(cp);
     stage_graph.resources().put::<ResourceEraHistory>(era.clone());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
+    stage_graph.resources().put::<ResourceMempool<WithOriginalBytes<Transaction>>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());
     Ok(())
 }

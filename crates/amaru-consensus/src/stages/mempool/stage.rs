@@ -14,7 +14,7 @@
 
 use std::time::Instant;
 
-use amaru_kernel::{Point, Transaction};
+use amaru_kernel::{Point, Transaction, cbor::WithOriginalBytes};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::{mempool_effects::MemoryPool, store_effects::Store};
 use amaru_pure_stage::{Effects, StageRef};
@@ -112,7 +112,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 async fn validate_and_insert(
     ledger: &Ledger,
     memory_pool: &MemoryPool,
-    tx: Transaction,
+    tx: WithOriginalBytes<Transaction>,
     origin: &TxOrigin,
 ) -> TxInsertResult {
     match ledger.validate_tx(&tx).await {

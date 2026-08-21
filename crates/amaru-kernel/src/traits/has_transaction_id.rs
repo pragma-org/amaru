@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Transaction, TransactionBody, TransactionId};
+use std::ops::Deref;
+
+use crate::{Transaction, TransactionBody, TransactionId, cbor::WithOriginalBytes};
 
 pub trait HasTransactionId {
     fn tx_id(&self) -> TransactionId;
@@ -21,6 +23,12 @@ pub trait HasTransactionId {
 impl HasTransactionId for Transaction {
     fn tx_id(&self) -> TransactionId {
         self.tx_id()
+    }
+}
+
+impl<T: HasTransactionId> HasTransactionId for WithOriginalBytes<T> {
+    fn tx_id(&self) -> TransactionId {
+        self.deref().tx_id()
     }
 }
 

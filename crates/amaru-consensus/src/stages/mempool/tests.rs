@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Transaction, to_cbor};
+use amaru_kernel::{Transaction, cbor::WithOriginalBytes, to_cbor};
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrigin, TxInsertionResult};
 use amaru_ouroboros::{
@@ -71,7 +71,7 @@ fn insert_batch_returns_one_result_per_transaction() {
     logs.assert_and_remove(Level::INFO, &["transaction.accepted"])
         .assert_and_remove(Level::INFO, &["transaction.rejected", "invalid", "transaction rejected for testing"])
         .assert_and_remove(Level::INFO, &["transaction.rejected", "duplicate"])
-        .assert_and_remove(Level::DEBUG, &["state.update", "tx_count=1", "size_bytes=51"])
+        .assert_and_remove(Level::DEBUG, &["state.update", "tx_count=1", "size_bytes=65"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -80,7 +80,7 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
     let tx_0 = create_transaction(0);
     let tx_1 = create_transaction(1);
     let tx_2 = create_transaction(2);
-    let mempool = Arc::new(InMemoryMempool::<Transaction>::default());
+    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
     mempool.insert(tx_0.clone(), TxOrigin::Local);
     mempool.insert(tx_1.clone(), TxOrigin::Local);
     mempool.insert(tx_2.clone(), TxOrigin::Local);
@@ -96,7 +96,7 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 
     assert_eq!(mempool.mempool_txs(), vec![tx_0, tx_2]);
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"]);
-    logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);
+    logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=130"]);
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -111,14 +111,15 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
 
     // The mempool holds the transaction carried by the adopted block (identified by its body
     // alone) and an unrelated one, both invalidated by the new tip.
-    let included_tx = Transaction {
+    let included_tx: WithOriginalBytes<Transaction> = Transaction {
         body: block.transaction_bodies[0].clone(),
         witnesses: Default::default(),
         is_expected_valid: true,
         auxiliary_data: None,
-    };
+    }
+    .into();
     let evicted_tx = create_transaction(0);
-    let mempool = Arc::new(InMemoryMempool::<Transaction>::default());
+    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
     mempool.insert(included_tx.clone(), TxOrigin::Local);
     mempool.insert(evicted_tx.clone(), TxOrigin::Local);
 
@@ -150,7 +151,7 @@ pub fn make_insert_batch_example() -> TestPrep {
     TestPrep {
         msg: MempoolMsg::InsertBatch { txs, origin: TxOrigin::Local, caller },
         rt: crate::stages::test_utils::test_runtime(),
-        mempool: Arc::new(InMemoryMempool::<Transaction>::default()),
+        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
         validator: Arc::new(reject_tx_1),
         chain_store: Arc::new(InMemoryChainStore::default()),
     }
@@ -173,7 +174,7 @@ fn insertion_metric(state: MempoolState, result: TxInsertionResult) -> MempoolMe
     }
 }
 
-fn expected_results(txs: &[Transaction]) -> Vec<TxInsertResult> {
+fn expected_results(txs: &[WithOriginalBytes<Transaction>]) -> Vec<TxInsertResult> {
     vec![
         TxInsertResult::accepted(txs[0].tx_id(), MempoolSeqNo(1)),
         TxInsertResult::rejected(

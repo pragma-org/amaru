@@ -14,7 +14,8 @@
 
 use amaru_kernel::{
     Hash, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, TransactionBody, TransactionInput, WitnessSet,
-    cbor::WithSize, size::TRANSACTION_BODY,
+    cbor::{WithOriginalBytes, WithSize},
+    size::TRANSACTION_BODY,
 };
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
 use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
@@ -41,14 +42,14 @@ use crate::{
 pub struct TestPrep {
     pub msg: MempoolMsg,
     pub rt: Runtime,
-    pub mempool: ResourceMempool<Transaction>,
+    pub mempool: ResourceMempool<WithOriginalBytes<Transaction>>,
     pub validator: ResourceTxValidation,
     pub chain_store: amaru_protocols::store_effects::ResourceHeaderStore,
 }
 
 #[derive(serde::Serialize)]
 struct InsertEffectPayload {
-    tx: Transaction,
+    tx: WithOriginalBytes<Transaction>,
     tx_origin: TxOrigin,
 }
 
@@ -84,7 +85,7 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     network.resources().put::<ResourceParameters>(global_parameters.clone());
     network.resources().put::<ResourceEraHistory>(era_history.clone());
     network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockBlockValidator::default()));
-    network.resources().put::<ResourceMempool<Transaction>>(prep.mempool.clone());
+    network.resources().put::<ResourceMempool<WithOriginalBytes<Transaction>>>(prep.mempool.clone());
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
     network.resources().put::<amaru_protocols::store_effects::ResourceHeaderStore>(prep.chain_store.clone());
 
@@ -102,7 +103,7 @@ pub fn te_validate_tx(at_stage: &str, tx: &Transaction) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateTxEffect::new(tx))))
 }
 
-pub fn te_insert(at_stage: &str, tx: &Transaction, tx_origin: TxOrigin) -> TraceEntry {
+pub fn te_insert(at_stage: &str, tx: &WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> TraceEntry {
     let payload = InsertEffectPayload { tx: tx.clone(), tx_origin };
     let value = SendDataValue::from_json("payload", &payload).cast::<SendDataValue>().unwrap().value;
     let effect: Box<dyn ExternalEffect> = Box::new(UnknownExternalEffect::new(SendDataValue {
@@ -132,7 +133,7 @@ pub fn te_record_metrics(at_stage: &str, metrics: MempoolMetrics) -> TraceEntry 
     ))
 }
 
-pub fn create_transaction(input_index: usize) -> Transaction {
+pub fn create_transaction(input_index: usize) -> WithOriginalBytes<Transaction> {
     let tx_input = TransactionInput { transaction_id: Hash::new([1; TRANSACTION_BODY]), index: input_index as u64 };
     let body = TransactionBody::new([tx_input], [], 0);
     Transaction {
@@ -141,4 +142,5 @@ pub fn create_transaction(input_index: usize) -> Transaction {
         is_expected_valid: true,
         auxiliary_data: None,
     }
+    .into()
 }
