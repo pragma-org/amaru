@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId,
-    ProposalId, ProposalSlim, ProposalsRoots, StakeCredential, TransactionInput, drep,
+    ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, GovernanceAction,
+    MemoizedTransactionOutput, PoolId, ProposalId, ProposalSlim, ProposalsRoots, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
 
@@ -43,11 +43,11 @@ use crate::{
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
-    pub accounts: BTreeSet<Cow<'a, StakeCredential>>,
-    pub dreps: BTreeSet<Cow<'a, StakeCredential>>,
+    pub accounts: BTreeSet<Cow<'a, Credential>>,
+    pub dreps: BTreeSet<Cow<'a, Credential>>,
     pub drep_delegations: BTreeSet<&'a DRep>,
-    pub committee: BTreeSet<&'a StakeCredential>,
-    pub committee_voters: BTreeSet<StakeCredential>,
+    pub committee: BTreeSet<&'a Credential>,
+    pub committee_voters: BTreeSet<Credential>,
     pub proposals: BTreeSet<ProposalId>,
 }
 
@@ -81,13 +81,13 @@ impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_account(&mut self, credential: Cow<'a, StakeCredential>) {
+    fn require_account(&mut self, credential: Cow<'a, Credential>) {
         self.accounts.insert(credential);
     }
 }
 
 impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_drep(&mut self, drep: Cow<'a, StakeCredential>) {
+    fn require_drep(&mut self, drep: Cow<'a, Credential>) {
         self.dreps.insert(drep);
     }
 
@@ -97,11 +97,11 @@ impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareCommitteeSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_committee_member(&mut self, cc_member: &'a StakeCredential) {
+    fn require_committee_member(&mut self, cc_member: &'a Credential) {
         self.committee.insert(cc_member);
     }
 
-    fn require_committee_voter(&mut self, hot_credential: StakeCredential) {
+    fn require_committee_voter(&mut self, hot_credential: Credential) {
         self.committee_voters.insert(hot_credential);
     }
 }
@@ -254,8 +254,8 @@ fn resolve_pools(
 fn resolve_accounts<'block, 'volatile>(
     volatile: &'volatile impl VolatileState<Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = Cow<'block, StakeCredential>>,
-) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydratationError> {
+    mut keys: impl Iterator<Item = Cow<'block, Credential>>,
+) -> Result<BTreeMap<Credential, AccountState>, ContextHydratationError> {
     debug_span!(ledger::validation_context::accounts::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -329,8 +329,8 @@ fn resolve_accounts<'block, 'volatile>(
 fn resolve_dreps<'volatile>(
     volatile: &'volatile impl VolatileState<DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = StakeCredential>,
-) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydratationError> {
+    mut keys: impl Iterator<Item = Credential>,
+) -> Result<BTreeMap<Credential, DRepRegistration>, ContextHydratationError> {
     debug_span!(ledger::validation_context::dreps::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -381,9 +381,9 @@ fn resolve_dreps<'volatile>(
 fn resolve_committee<'block, 'volatile>(
     volatile: &'volatile impl VolatileState<CCMembers<'volatile> = <VolatileDB as VolatileState>::CCMembers<'volatile>>,
     db: &impl ReadStore,
-    cold_credentials_in_certificates: BTreeSet<&'block StakeCredential>,
-    hot_credentials_in_votes: BTreeSet<StakeCredential>,
-) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
+    cold_credentials_in_certificates: BTreeSet<&'block Credential>,
+    hot_credentials_in_votes: BTreeSet<Credential>,
+) -> Result<BTreeMap<Credential, CCMember>, ContextHydratationError> {
     debug_span!(ledger::validation_context::committee::HYDRATE).in_scope(|| {
         let mut cc_members = BTreeMap::new();
 
@@ -394,7 +394,7 @@ fn resolve_committee<'block, 'volatile>(
 
         let mut volatile_cc_members = volatile.resolve_cc_members();
 
-        let mut gone_but_requested: BTreeSet<StakeCredential> = BTreeSet::new();
+        let mut gone_but_requested: BTreeSet<Credential> = BTreeSet::new();
 
         for (cold_credential, row) in db.iter_cc_members().map_err(ContextHydratationError::ResolveCommittee)? {
             let for_certificates = cold_credentials_in_certificates.contains(&cold_credential);
@@ -540,8 +540,8 @@ mod tests {
         use std::collections::BTreeMap;
 
         use amaru_kernel::{
-            ConstitutionalCommitteeMemberStatus, Epoch, GovernanceAction, Proposal, ProposalId, StakeCredential,
-            any_proposal, any_proposal_id, any_rational_number, any_stake_credential, utils::tests::run_strategy,
+            ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
+            any_credential, any_proposal, any_proposal_id, any_rational_number, utils::tests::run_strategy,
         };
 
         use super::super::resolve_committee;
@@ -555,9 +555,8 @@ mod tests {
         };
 
         struct Mock {
-            volatile_cc_members:
-                Vec<(StakeCredential, Existence<Bind<ConstitutionalCommitteeMemberStatus, Epoch, Empty>>)>,
-            stable_cc_members: Vec<(StakeCredential, Option<Epoch>, Option<ConstitutionalCommitteeMemberStatus>)>,
+            volatile_cc_members: Vec<(Credential, Existence<Bind<ConstitutionalCommitteeMemberStatus, Epoch, Empty>>)>,
+            stable_cc_members: Vec<(Credential, Option<Epoch>, Option<ConstitutionalCommitteeMemberStatus>)>,
             proposals: Vec<Proposal>,
         }
 
@@ -567,7 +566,7 @@ mod tests {
             type Account<'a> = ();
             type DRep<'a> = ();
             type Proposal = ();
-            type CCMembers<'a> = BTreeMap<&'a StakeCredential, Existence<CommitteeMemberBind<'a>>>;
+            type CCMembers<'a> = BTreeMap<&'a Credential, Existence<CommitteeMemberBind<'a>>>;
 
             fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
                 let mut map = BTreeMap::new();
@@ -581,7 +580,7 @@ mod tests {
         }
 
         impl ReadStore for Mock {
-            fn iter_cc_members(&self) -> Result<impl Iterator<Item = (StakeCredential, cc_members::Row)>, StoreError> {
+            fn iter_cc_members(&self) -> Result<impl Iterator<Item = (Credential, cc_members::Row)>, StoreError> {
                 Ok(self.stable_cc_members.iter().copied().map(|(cold_credential, valid_until, status)| {
                     (cold_credential, cc_members::Row { valid_until, status })
                 }))
@@ -600,11 +599,11 @@ mod tests {
             }
         }
 
-        pub fn any_update_committee_proposal(cold_credential: StakeCredential) -> Proposal {
+        pub fn any_update_committee_proposal(cold_credential: Credential) -> Proposal {
             any_update_committee_proposal_with_members(vec![cold_credential])
         }
 
-        pub fn any_update_committee_proposal_with_members(cold_credentials: Vec<StakeCredential>) -> Proposal {
+        pub fn any_update_committee_proposal_with_members(cold_credentials: Vec<Credential>) -> Proposal {
             let gov_action = GovernanceAction::UpdateCommittee(
                 Default::default(),
                 Default::default(),
@@ -623,7 +622,7 @@ mod tests {
 
         #[test]
         fn recently_evicted_cc_members_still_in_proposals_are_resolved_for_certificates() {
-            let cold_credential: StakeCredential = run_strategy(any_stake_credential());
+            let cold_credential: Credential = run_strategy(any_credential());
 
             let mock = Mock {
                 volatile_cc_members: vec![(cold_credential, Existence::Gone)],
@@ -638,8 +637,8 @@ mod tests {
 
         #[test]
         fn recently_evicted_cc_members_still_in_proposals_are_not_resolved_for_votes() {
-            let cold_credential: StakeCredential = run_strategy(any_stake_credential());
-            let hot_credential: StakeCredential = run_strategy(any_stake_credential());
+            let cold_credential: Credential = run_strategy(any_credential());
+            let hot_credential: Credential = run_strategy(any_credential());
 
             let mock = Mock {
                 volatile_cc_members: vec![(cold_credential, Existence::Gone)],
@@ -654,8 +653,8 @@ mod tests {
 
         #[test]
         fn recent_volatile_hot_delegation_is_used_in_status_resolution_of_elected_member() {
-            let cold_credential: StakeCredential = run_strategy(any_stake_credential());
-            let hot_credential: StakeCredential = run_strategy(any_stake_credential());
+            let cold_credential: Credential = run_strategy(any_credential());
+            let hot_credential: Credential = run_strategy(any_credential());
 
             let mock = Mock {
                 volatile_cc_members: vec![(
@@ -676,8 +675,8 @@ mod tests {
 
         #[test]
         fn unelected_cc_members_with_delegation_are_resolved_for_votes() {
-            let cold_credential: StakeCredential = run_strategy(any_stake_credential());
-            let hot_credential: StakeCredential = run_strategy(any_stake_credential());
+            let cold_credential: Credential = run_strategy(any_credential());
+            let hot_credential: Credential = run_strategy(any_credential());
 
             let mock = Mock {
                 volatile_cc_members: vec![(
@@ -698,8 +697,8 @@ mod tests {
 
         #[test]
         fn all_recently_evicted_cc_members_still_in_proposals_are_resolved_for_certificates() {
-            let first_cold_credential: StakeCredential = run_strategy(any_stake_credential());
-            let second_cold_credential: StakeCredential = run_strategy(any_stake_credential());
+            let first_cold_credential: Credential = run_strategy(any_credential());
+            let second_cold_credential: Credential = run_strategy(any_credential());
 
             let mock = Mock {
                 volatile_cc_members: vec![
@@ -730,8 +729,8 @@ mod tests {
 
         #[test]
         fn stable_hot_delegation_is_resolved_for_votes_without_volatile_entry() {
-            let cold_credential: StakeCredential = run_strategy(any_stake_credential());
-            let hot_credential: StakeCredential = run_strategy(any_stake_credential());
+            let cold_credential: Credential = run_strategy(any_credential());
+            let hot_credential: Credential = run_strategy(any_credential());
 
             let mock = Mock {
                 volatile_cc_members: vec![],

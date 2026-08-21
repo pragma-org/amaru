@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{CertificatePointer, Lovelace, PoolId, PoolParams, ProposalId, ProposalsRootsRc, StakeCredential};
+use amaru_kernel::{CertificatePointer, Credential, Lovelace, PoolId, PoolParams, ProposalId, ProposalsRootsRc};
 
 use crate::{
     context::ProposalState,
@@ -134,8 +134,8 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     #[expect(clippy::panic)]
     pub fn iter_unreachable_accounts(
         &mut self,
-        pools_owners: BTreeSet<&'_ StakeCredential>,
-    ) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
+        pools_owners: BTreeSet<&'_ Credential>,
+    ) -> Result<impl Iterator<Item = Credential>, StoreError> {
         let AccountVolatileView { mut registered, mut unregistered } = match mem::take(&mut self.accounts) {
             None => {
                 // Just being careful here. There's no reason to ever call this twice; but if it
@@ -179,8 +179,8 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
 /// A simplified 'DiffBind' for accounts, specialized to just the stake credentials.
 #[derive(Debug)]
 struct AccountVolatileView<'volatile> {
-    registered: BTreeSet<&'volatile StakeCredential>,
-    unregistered: BTreeSet<&'volatile StakeCredential>,
+    registered: BTreeSet<&'volatile Credential>,
+    unregistered: BTreeSet<&'volatile Credential>,
 }
 
 #[cfg(test)]
@@ -277,13 +277,13 @@ mod test {
     /// and any repetition don't matter.
     fn unreachable_accounts(
         view: &mut VolatileView<'_, '_, Stable>,
-        pool_reward_accounts: BTreeSet<&StakeCredential>,
-    ) -> BTreeSet<StakeCredential> {
+        pool_reward_accounts: BTreeSet<&Credential>,
+    ) -> BTreeSet<Credential> {
         view.iter_unreachable_accounts(pool_reward_accounts).unwrap().collect()
     }
 
-    fn credential(tag: u8) -> StakeCredential {
-        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    fn credential(tag: u8) -> Credential {
+        Credential::KeyHash(Hash::new([tag; 28]))
     }
 
     fn tip() -> Point {
@@ -292,12 +292,12 @@ mod test {
 
     /// A stable store holding a set of accounts and a set of recently unregistered ones.
     struct Stable {
-        accounts: BTreeSet<StakeCredential>,
-        recently_unregistered: BTreeSet<StakeCredential>,
+        accounts: BTreeSet<Credential>,
+        recently_unregistered: BTreeSet<Credential>,
     }
 
     impl ReadStore for Stable {
-        fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError> {
+        fn account(&self, credential: &Credential) -> Result<Option<accounts::Row>, StoreError> {
             Ok(self.accounts.contains(credential).then(accounts::Row::default))
         }
 

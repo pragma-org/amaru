@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{ConstitutionalCommitteeMemberStatus, Epoch, StakeCredential, cbor};
+use amaru_kernel::{ConstitutionalCommitteeMemberStatus, Credential, Epoch, cbor};
 
 use crate::state::volatile::Resettable;
 
@@ -22,7 +22,7 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (Resettable<ConstitutionalCommitteeMemberStatus>, Resettable<Epoch>);
 
-pub type Key = StakeCredential;
+pub type Key = Credential;
 
 /// What a cold credential currently holds. Existence is not membership: a credential named in an
 /// in-flight `UpdateCommittee` may authorize a hot credential before that proposal is enacted, and

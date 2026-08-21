@@ -54,7 +54,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PoolParams {
         e.encode_with(self.pledge, ctx)?;
         e.encode_with(self.cost, ctx)?;
         e.encode_with(self.margin, ctx)?;
-        e.encode_with(&self.reward_account, ctx)?;
+        e.encode_with(self.reward_account, ctx)?;
         e.encode_with(SerialisedAsSet(&self.owners), ctx)?;
         e.encode_with(&self.relays, ctx)?;
         e.encode_with(&self.metadata, ctx)?;
@@ -90,7 +90,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        Bytes, MaxString128, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL,
+        Bytes, MaxString128, RationalNumber, Relay, any_hash28, any_hash32, any_reward_account, prop_cbor_roundtrip,
     };
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
@@ -147,7 +147,7 @@ mod tests {
             pledge in any::<u64>(),
             cost in any::<u64>(),
             margin in 0..100u64,
-            reward_account in any::<[u8; CREDENTIAL]>(),
+            reward_account in any_reward_account(),
             owners in proptest::collection::vec(any_hash28(), 1..3),
             relays in proptest::collection::vec(any_relay(), 0..10),
         ) -> PoolParams {
@@ -157,7 +157,7 @@ mod tests {
                 pledge,
                 cost,
                 margin: RationalNumber { numerator: margin, denominator: 100 },
-                reward_account: [&[0xF0], &reward_account[..]].concat().into(),
+                reward_account,
                 owners,
                 relays,
                 metadata: None,

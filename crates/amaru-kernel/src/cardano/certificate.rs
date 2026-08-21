@@ -13,31 +13,30 @@
 // limitations under the License.
 
 pub use crate::{
-    Anchor, DRep, Epoch, Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, StakeCredential,
-    cbor,
+    Anchor, Credential, DRep, Epoch, Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
 };
 use crate::{PoolParams, utils::cbor::SerialisedAsSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Certificate {
-    StakeRegistration(StakeCredential),
-    StakeDeregistration(StakeCredential),
-    StakeDelegation(StakeCredential, PoolId),
+    StakeRegistration(Credential),
+    StakeDeregistration(Credential),
+    StakeDelegation(Credential, PoolId),
     PoolRegistration(Box<PoolParams>),
     PoolRetirement(PoolId, Epoch),
-    Reg(StakeCredential, Lovelace),
-    UnReg(StakeCredential, Lovelace),
-    VoteDeleg(StakeCredential, DRep),
-    StakeVoteDeleg(StakeCredential, PoolId, DRep),
-    StakeRegDeleg(StakeCredential, PoolId, Lovelace),
-    VoteRegDeleg(StakeCredential, DRep, Lovelace),
-    StakeVoteRegDeleg(StakeCredential, PoolId, DRep, Lovelace),
-    AuthCommitteeHot(StakeCredential, StakeCredential),
-    ResignCommitteeCold(StakeCredential, Option<Box<Anchor>>),
-    RegDRepCert(StakeCredential, Lovelace, Option<Box<Anchor>>),
-    UnRegDRepCert(StakeCredential, Lovelace),
-    UpdateDRepCert(StakeCredential, Option<Box<Anchor>>),
+    Reg(Credential, Lovelace),
+    UnReg(Credential, Lovelace),
+    VoteDeleg(Credential, DRep),
+    StakeVoteDeleg(Credential, PoolId, DRep),
+    StakeRegDeleg(Credential, PoolId, Lovelace),
+    VoteRegDeleg(Credential, DRep, Lovelace),
+    StakeVoteRegDeleg(Credential, PoolId, DRep, Lovelace),
+    AuthCommitteeHot(Credential, Credential),
+    ResignCommitteeCold(Credential, Option<Box<Anchor>>),
+    RegDRepCert(Credential, Lovelace, Option<Box<Anchor>>),
+    UnRegDRepCert(Credential, Lovelace),
+    UpdateDRepCert(Credential, Option<Box<Anchor>>),
 }
 
 impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Certificate {

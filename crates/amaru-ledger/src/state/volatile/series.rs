@@ -15,7 +15,7 @@
 use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, StakeCredential, TransactionInput,
+    Credential, Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, TransactionInput,
 };
 use amaru_observability::debug_span;
 
@@ -53,22 +53,22 @@ impl VolatileState for VolatileSeries {
 
     // ------------------------------------------------------------------------------------ Accounts
     type Account<'a> = Existence<AccountBind<'a>>;
-    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
+    fn resolve_account<'a>(&'a self, credential: &Credential) -> Self::Account<'a> {
         self.aggregate.resolve_account(credential)
     }
 
-    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+    fn has_withdrawal(&self, credential: &Credential) -> bool {
         self.aggregate.has_withdrawal(credential)
     }
 
     // --------------------------------------------------------------------------------------- DReps
     type DRep<'a> = Existence<DRepBind<'a>>;
-    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
+    fn resolve_drep<'a>(&'a self, credential: &Credential) -> Self::DRep<'a> {
         self.aggregate.resolve_drep(credential)
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMembers<'a> = Box<dyn Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> + 'a>;
+    type CCMembers<'a> = Box<dyn Iterator<Item = (&'a Credential, Existence<CommitteeMemberBind<'a>>)> + 'a>;
     fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
         Box::new(self.aggregate.resolve_cc_members())
     }

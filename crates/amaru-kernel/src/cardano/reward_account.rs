@@ -12,91 +12,156 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use thiserror::Error;
 
-use crate::{Address, Bytes, Lovelace, NonEmptyKeyValuePairs, PlutusStakeAddress, StakeCredential, StakePayload};
+use crate::{Address, AsHash, Credential, Lovelace, Network, NonEmptyKeyValuePairs, bech32, cbor};
 
-/// FIXME(cbor): RewardAccount decodes as raw bytes, without validation.
+/// The account rewards are paid to, often called a StakeAddress.
 ///
-/// The Haskell node decodes this position (e.g. withdrawal map keys) as a structured
-/// `RewardAccount` — the same bytes primitive underneath, but followed by parsing and validating
-/// the address header, network tag, and stake credential (`fromCborRewardAcnt` in
-/// Cardano.Ledger.Address). By keeping the raw bytes, amaru accepts malformed reward accounts
-/// that the Haskell node rejects at deserialisation time.
-pub type RewardAccount = Bytes;
+/// On the wire, a reward account is 29 bytes: a header carrying a stake-address type and
+/// the network tag, followed by the 28 byte credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+#[serde(into = "String")]
+#[serde(try_from = "String")]
+pub struct RewardAccount {
+    network: Network,
+    credential: Credential,
+}
 
-// This function shouldn't exist and pallas should provide a RewardAccount = (Network,
-// StakeCredential) out of the box instead of row bytes.
-pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<StakeCredential> {
-    if let Some(Address::Stake(stake_addr)) = Address::from_bytes(&account[..]) {
-        match stake_addr.payload() {
-            StakePayload::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
-            StakePayload::Script(script) => Some(StakeCredential::ScriptHash(*script)),
+impl RewardAccount {
+    pub fn new(network: Network, credential: Credential) -> Self {
+        Self { network, credential }
+    }
+
+    /// The network tag carried in the account's header.
+    pub fn network(&self) -> Network {
+        self.network
+    }
+
+    /// The stake credential owning the account.
+    pub fn credential(&self) -> Credential {
+        self.credential
+    }
+
+    pub fn is_script(&self) -> bool {
+        self.credential.is_script()
+    }
+
+    /// Gets a numeric id describing the type of the address
+    fn typeid(&self) -> u8 {
+        match &self.credential {
+            Credential::KeyHash(_) => 0b1110,
+            Credential::ScriptHash(_) => 0b1111,
         }
-    } else {
-        None
+    }
+
+    /// Builds the header for this address
+    fn as_header(&self) -> u8 {
+        let type_id = self.typeid();
+        let type_id = type_id << 4;
+        let network = u8::from(self.network);
+
+        type_id | network
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        let header = self.as_header();
+        [&[header], self.credential.as_hash().as_ref()].concat()
+    }
+
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.to_vec())
+    }
+
+    pub fn to_bech32(&self) -> String {
+        let hrp = match &self.network {
+            Network::Testnet => *bech32::HRP_STAKE_TEST,
+            Network::Mainnet => *bech32::HRP_STAKE,
+        };
+
+        bech32::encode(hrp, self.to_vec())
+            .unwrap_or_else(|| unreachable!("stake address can always be encoded to bech32"))
     }
 }
 
-/// An 'unsafe' version of `reward_account_to_stake_credential` that panics when the given
-/// RewardAccount isn't a `StakeCredential`.
-#[expect(clippy::panic)]
-pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
-    reward_account_to_stake_credential(account)
-        .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
+#[derive(Debug, Error)]
+#[error("malformed reward account: {}", hex::encode(.0))]
+pub struct MalformedRewardAccount(Vec<u8>);
+
+impl TryFrom<&[u8]> for RewardAccount {
+    type Error = MalformedRewardAccount;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        match Address::from_bytes(bytes) {
+            Some(Address::Stake(account)) => Ok(account),
+            _ => Err(MalformedRewardAccount(bytes.to_vec())),
+        }
+    }
+}
+
+impl From<RewardAccount> for String {
+    fn from(account: RewardAccount) -> Self {
+        account.to_hex()
+    }
+}
+
+impl TryFrom<String> for RewardAccount {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let bytes = hex::decode(&value).map_err(|e| e.to_string())?;
+        Self::try_from(bytes.as_slice()).map_err(|e| e.to_string())
+    }
+}
+
+impl fmt::Display for RewardAccount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_hex())
+    }
+}
+
+impl<C> cbor::Encode<C> for RewardAccount {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.bytes(&self.to_vec())?.ok()
+    }
+}
+
+impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for RewardAccount {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let position = d.position();
+        let bytes = cbor::decode_bytes_with(d, ctx)?;
+        Self::try_from(bytes.as_ref()).map_err(|e| cbor::decode::Error::message(e.to_string()).at(position))
+    }
 }
 
 /// The reward withdrawals requested by a transaction.
 ///
-/// A map from the [`PlutusStakeAddress`] being withdrawn from to the amount of [`Lovelace`]
-/// taken. The [`PlutusStakeAddress`] key supplies the Plutus-canonical ordering, so this
-/// `BTreeMap` iterates, and serializes, in the order a script expects; this is the type
-/// that wrapper exists to serve.
+/// A map from the [`RewardAccount`] being withdrawn from to the amount of [`Lovelace`] taken.
 #[repr(transparent)]
 #[derive(Debug, Default)]
-pub struct PlutusWithdrawals(BTreeMap<PlutusStakeAddress, Lovelace>);
+pub struct PlutusWithdrawals(BTreeMap<RewardAccount, Lovelace>);
 
 impl PlutusWithdrawals {
-    /// Iterate over each withdrawal as a `(stake address, amount)` pair, in canonical order.
-    pub fn iter(&self) -> impl Iterator<Item = (&PlutusStakeAddress, &Lovelace)> {
+    /// Iterate over each withdrawal as an `(account, amount)` pair, in canonical order.
+    pub fn iter(&self) -> impl Iterator<Item = (&RewardAccount, &Lovelace)> {
         self.0.iter()
     }
 
-    /// Iterate over the stake addresses being withdrawn from, in canonical order.
-    pub fn keys(&self) -> impl Iterator<Item = &PlutusStakeAddress> {
+    /// Iterate over the reward accounts being withdrawn from, in canonical order.
+    pub fn keys(&self) -> impl Iterator<Item = &RewardAccount> {
         self.0.keys()
     }
 }
 
-#[doc(hidden)]
-#[derive(Debug, Error)]
-pub enum WithdrawalError {
-    #[error("invalid reward account")]
-    InvalidRewardAccount,
-    #[error("invalid address type: {0}")]
-    InvalidAddressType(Address),
-}
-
-impl TryFrom<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for PlutusWithdrawals {
-    type Error = WithdrawalError;
-
-    fn try_from(value: &NonEmptyKeyValuePairs<RewardAccount, Lovelace>) -> Result<Self, Self::Error> {
-        let withdrawals = value
-            .iter()
-            .map(|(reward_account, coin)| {
-                let address = Address::from_bytes(reward_account).ok_or(WithdrawalError::InvalidRewardAccount)?;
-
-                if let Address::Stake(reward_account) = address {
-                    Ok((PlutusStakeAddress::from(reward_account), *coin))
-                } else {
-                    Err(WithdrawalError::InvalidAddressType(address))
-                }
-            })
-            .collect::<Result<BTreeMap<_, _>, WithdrawalError>>()?;
-
-        Ok(Self(withdrawals))
+impl From<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for PlutusWithdrawals {
+    fn from(value: &NonEmptyKeyValuePairs<RewardAccount, Lovelace>) -> Self {
+        Self(value.iter().map(|(account, coin)| (*account, *coin)).collect())
     }
 }
 
@@ -105,23 +170,92 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use proptest::{prelude::*, prop_compose};
+    use proptest::prop_compose;
 
-    use crate::{Bytes, Hash, RewardAccount, StakeAddress, StakePayload, any_network};
+    use crate::{RewardAccount, any_credential, any_network};
 
     prop_compose! {
         pub fn any_reward_account()(
             network in any_network(),
-            credential in any::<[u8; 28]>(),
-            is_script in any::<bool>(),
+            credential in any_credential(),
         ) -> RewardAccount {
-            let payload = if is_script {
-                StakePayload::Script
-            } else {
-                StakePayload::Key
-            }(Hash::new(credential));
-
-            Bytes::from(StakeAddress::new(network, payload).to_vec())
+            RewardAccount::new(network, credential)
         }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use proptest::prelude::*;
+    use test_case::test_case;
+
+    use super::{RewardAccount, any_reward_account};
+    use crate::{Credential, cbor, prop_cbor_roundtrip, protocol_version};
+
+    prop_cbor_roundtrip!(RewardAccount, any_reward_account());
+
+    fn decode(bytes: &[u8]) -> Result<RewardAccount, cbor::decode::Error> {
+        let mut ctx = protocol_version::MINIMUM_SUPPORTED;
+        let mut d = cbor::Decoder::new(bytes);
+        d.decode_with(&mut ctx)
+    }
+
+    #[test_case(&[0xE0; 28]; "missing header byte")]
+    #[test_case(&[0xE0; 30]; "trailing byte")]
+    #[test_case(&[0xE2; 29]; "network tag greater than one")]
+    #[test_case(&[0x61; 29]; "enterprise address header")]
+    #[test_case(&[]; "empty")]
+    fn rejects_malformed_bytes(payload: &[u8]) {
+        let mut bytes = vec![0x58, payload.len() as u8];
+        bytes.extend_from_slice(payload);
+        let err = decode(&bytes).unwrap_err();
+        assert!(err.to_string().contains("malformed reward account"), "{err}");
+    }
+
+    #[test_case(&[0xE0; 29]; "testnet key account")]
+    #[test_case(&[0xE1; 29]; "mainnet key account")]
+    #[test_case(&[0xF0; 29]; "testnet script account")]
+    #[test_case(&[0xF1; 29]; "mainnet script account")]
+    fn accepts_wellformed_bytes(payload: &[u8]) {
+        let mut bytes = vec![0x58, payload.len() as u8];
+        bytes.extend_from_slice(payload);
+        assert_eq!(decode(&bytes).unwrap().to_vec(), payload);
+    }
+
+    /// The order a Plutus script expects withdrawal keys in: network first, then script
+    /// credentials before key credentials, then hash bytes.
+    ///
+    /// [Aiken reference implementation](https://github.com/aiken-lang/aiken/blob/a8c032935dbaf4a1140e9d8be5c270acd32c9e8c/crates/uplc/src/tx/script_context.rs#L1112)
+    #[test]
+    fn proptest_reward_account_ordering() {
+        proptest!(|(accounts in prop::collection::vec(any_reward_account(), 20..100))| {
+            let mut sorted = accounts.clone();
+            sorted.sort();
+
+            for window in sorted.windows(2) {
+                let a = &window[0];
+                let b = &window[1];
+
+                if a.network() != b.network() {
+                    prop_assert!(
+                        a.network() < b.network(),
+                        "Network ordering violated: {:?} should be < {:?}",
+                        u8::from(a.network()),
+                        u8::from(b.network())
+                    );
+                } else {
+                    match (a.credential(), b.credential()) {
+                        (Credential::ScriptHash(_), Credential::KeyHash(_)) => {}
+                        (Credential::KeyHash(_), Credential::ScriptHash(_)) => {
+                            prop_assert!(false, "Key credential should not come before Script credential");
+                        }
+                        (Credential::ScriptHash(h1), Credential::ScriptHash(h2))
+                        | (Credential::KeyHash(h1), Credential::KeyHash(h2)) => {
+                            prop_assert!(h1 <= h2, "Hash ordering violated: {:?} should be <= {:?}", h1, h2);
+                        }
+                    }
+                }
+            }
+        });
     }
 }

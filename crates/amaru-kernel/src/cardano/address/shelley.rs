@@ -12,61 +12,64 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Network, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakePayload, bech32};
+use crate::{AsHash, Credential, Network, RewardAccount, StakeReference, bech32};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
-pub struct ShelleyAddress(Network, ShelleyPaymentPart, ShelleyDelegationPart);
+pub struct ShelleyAddress {
+    network: Network,
+    payment: Credential,
+    delegation: Option<StakeReference>,
+}
 
 impl ShelleyAddress {
-    pub fn new(network: Network, payment: ShelleyPaymentPart, delegation: ShelleyDelegationPart) -> Self {
-        Self(network, payment, delegation)
+    pub fn new(network: Network, payment: Credential, delegation: Option<StakeReference>) -> Self {
+        Self { network, payment, delegation }
     }
 
     /// Indicates if either the payment or delegation part is a script
     pub fn has_script(&self) -> bool {
-        self.payment().is_script() || self.delegation().is_script()
+        self.payment().is_script() || self.delegation().is_some_and(|delegation| delegation.is_script())
     }
 
     /// Gets the network assoaciated with this address
     pub fn network(&self) -> Network {
-        self.0
+        self.network
     }
 
     /// Gets a numeric id describing the type of the address
     fn typeid(&self) -> u8 {
-        match (&self.1, &self.2) {
-            (ShelleyPaymentPart::Key(_), ShelleyDelegationPart::Key(_)) => 0b0000,
-            (ShelleyPaymentPart::Script(_), ShelleyDelegationPart::Key(_)) => 0b0001,
-            (ShelleyPaymentPart::Key(_), ShelleyDelegationPart::Script(_)) => 0b0010,
-            (ShelleyPaymentPart::Script(_), ShelleyDelegationPart::Script(_)) => 0b0011,
-            (ShelleyPaymentPart::Key(_), ShelleyDelegationPart::Pointer(_)) => 0b0100,
-            (ShelleyPaymentPart::Script(_), ShelleyDelegationPart::Pointer(_)) => 0b0101,
-            (ShelleyPaymentPart::Key(_), ShelleyDelegationPart::Null) => 0b0110,
-            (ShelleyPaymentPart::Script(_), ShelleyDelegationPart::Null) => 0b0111,
-        }
+        let payment_bit = if self.payment.is_script() { 0b0001 } else { 0b0000 };
+        let delegation_bits = match &self.delegation {
+            Some(StakeReference::Credential(credential)) if credential.is_script() => 0b0010,
+            Some(StakeReference::Credential(_)) => 0b0000,
+            Some(StakeReference::Pointer(_)) => 0b0100,
+            None => 0b0110,
+        };
+
+        payment_bit | delegation_bits
     }
 
     fn as_header(&self) -> u8 {
         let type_id = self.typeid();
         let type_id = type_id << 4;
-        let network = u8::from(self.0);
+        let network = u8::from(self.network);
         type_id | network
     }
 
-    pub fn payment(&self) -> &ShelleyPaymentPart {
-        &self.1
+    pub fn payment(&self) -> &Credential {
+        &self.payment
     }
 
-    pub fn delegation(&self) -> &ShelleyDelegationPart {
-        &self.2
+    pub fn delegation(&self) -> Option<&StakeReference> {
+        self.delegation.as_ref()
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
         let header = self.as_header();
-        let payment = self.1.to_vec();
-        let delegation = self.2.to_vec();
+        let payment = self.payment.as_hash();
+        let delegation = self.delegation.map(|delegation| delegation.to_vec()).unwrap_or_default();
 
-        [&[header], payment.as_slice(), delegation.as_slice()].concat()
+        [&[header], payment.as_ref(), delegation.as_slice()].concat()
     }
 
     pub fn to_hex(&self) -> String {
@@ -75,7 +78,7 @@ impl ShelleyAddress {
     }
 
     pub fn to_bech32(&self) -> String {
-        let hrp = match &self.0 {
+        let hrp = match &self.network {
             Network::Testnet => *bech32::HRP_ADDR_TEST,
             Network::Mainnet => *bech32::HRP_ADDR,
         };
@@ -85,16 +88,12 @@ impl ShelleyAddress {
     }
 }
 
-impl TryFrom<ShelleyAddress> for StakeAddress {
+impl TryFrom<ShelleyAddress> for RewardAccount {
     type Error = ();
 
     fn try_from(addr: ShelleyAddress) -> Result<Self, ()> {
-        let payload = match addr.delegation() {
-            ShelleyDelegationPart::Key(h) => Ok(StakePayload::Key(*h)),
-            ShelleyDelegationPart::Script(h) => Ok(StakePayload::Script(*h)),
-            ShelleyDelegationPart::Null | ShelleyDelegationPart::Pointer(..) => Err(()),
-        }?;
+        let credential = addr.delegation().and_then(StakeReference::credential).ok_or(())?;
 
-        Ok(Self::new(addr.network(), payload))
+        Ok(Self::new(addr.network(), credential))
     }
 }

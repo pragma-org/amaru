@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, mem};
 
-use amaru_kernel::StakeCredential;
+use amaru_kernel::Credential;
 
 /// Similar to [`crate::state::volatile::IterPools`], but for accounts; It provides an unordered
 /// iterator over recently unregistered accounts in an epoch that patches a read-only stable store
@@ -22,22 +22,22 @@ use amaru_kernel::StakeCredential;
 pub(crate) struct IterUnreachableAccounts<'volatile, 'pools, F, I> {
     account_exists: Box<F>,
     iter_recently_unregistered_accounts: Option<I>,
-    registrations: BTreeSet<&'volatile StakeCredential>,
-    deregistrations: BTreeSet<&'volatile StakeCredential>,
-    pools_rewards_accounts: BTreeSet<&'pools StakeCredential>,
+    registrations: BTreeSet<&'volatile Credential>,
+    deregistrations: BTreeSet<&'volatile Credential>,
+    pools_rewards_accounts: BTreeSet<&'pools Credential>,
 }
 
 impl<'volatile, 'pools, F, I> IterUnreachableAccounts<'volatile, 'pools, F, I>
 where
-    F: Fn(&StakeCredential) -> bool,
-    I: Iterator<Item = StakeCredential>,
+    F: Fn(&Credential) -> bool,
+    I: Iterator<Item = Credential>,
 {
     pub fn new(
         account_exists: F,
         iter_recently_unregistered_accounts: I,
-        registrations: &mut BTreeSet<&'volatile StakeCredential>,
-        deregistrations: &mut BTreeSet<&'volatile StakeCredential>,
-        pools_rewards_accounts: BTreeSet<&'pools StakeCredential>,
+        registrations: &mut BTreeSet<&'volatile Credential>,
+        deregistrations: &mut BTreeSet<&'volatile Credential>,
+        pools_rewards_accounts: BTreeSet<&'pools Credential>,
     ) -> Self {
         Self {
             account_exists: Box::new(account_exists),
@@ -51,10 +51,10 @@ where
 
 impl<'volatile, 'pools, F, I> Iterator for IterUnreachableAccounts<'volatile, 'pools, F, I>
 where
-    F: Fn(&StakeCredential) -> bool,
-    I: Iterator<Item = StakeCredential>,
+    F: Fn(&Credential) -> bool,
+    I: Iterator<Item = Credential>,
 {
-    type Item = StakeCredential;
+    type Item = Credential;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(db_iterator) = self.iter_recently_unregistered_accounts.as_mut() {

@@ -24,6 +24,7 @@ use amaru_kernel::{
     CertificatePointer,
     Constitution,
     ConstitutionalCommitteeStatus,
+    Credential,
     Epoch,
     EraHistory,
     Lovelace,
@@ -35,7 +36,6 @@ use amaru_kernel::{
     ProposalsRoots,
     ProtocolParameters,
     RatificationStatus,
-    StakeCredential,
     TransactionInput,
     cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
@@ -281,27 +281,27 @@ pub trait ReadStore {
 
     /// Get details about a specific Account
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>>;
+    fn account(&self, credential: &Credential) -> Result<Option<accounts::Row>>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>> {
+    fn account(&self, credential: &Credential) -> Result<Option<accounts::Row>> {
         unimplemented!("ReadStore.account({credential:?})");
     }
 
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn drep(&self, credential: &StakeCredential) -> Result<Option<dreps::Row>>;
+    fn drep(&self, credential: &Credential) -> Result<Option<dreps::Row>>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn drep(&self, credential: &StakeCredential) -> Result<Option<dreps::Row>> {
+    fn drep(&self, credential: &Credential) -> Result<Option<dreps::Row>> {
         unimplemented!("ReadStore.drep({credential:?})");
     }
 
     /// Get details about a specific constitutional committee member
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn cc_member(&self, credential: &StakeCredential) -> Result<Option<cc_members::Row>>;
+    fn cc_member(&self, credential: &Credential) -> Result<Option<cc_members::Row>>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn cc_member(&self, credential: &StakeCredential) -> Result<Option<cc_members::Row>> {
+    fn cc_member(&self, credential: &Credential) -> Result<Option<cc_members::Row>> {
         unimplemented!("ReadStore.cc_member({credential:?})");
     }
 
@@ -673,16 +673,16 @@ pub trait TransactionalContext<'a>: ReadStore {
     fn update_constitutional_committee(
         &self,
         status: &ConstitutionalCommitteeStatus,
-        added: &BTreeMap<StakeCredential, Epoch>,
-        removed: &BTreeSet<StakeCredential>,
+        added: &BTreeMap<Credential, Epoch>,
+        removed: &BTreeSet<Credential>,
     ) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
     fn update_constitutional_committee(
         &self,
         status: &ConstitutionalCommitteeStatus,
-        added: &BTreeMap<StakeCredential, Epoch>,
-        removed: &BTreeSet<StakeCredential>,
+        added: &BTreeMap<Credential, Epoch>,
+        removed: &BTreeSet<Credential>,
     ) -> Result<()> {
         unimplemented!("TransactionalContext.update_constitutional_committee({status:?}, {added:?}, {removed:?})");
     }

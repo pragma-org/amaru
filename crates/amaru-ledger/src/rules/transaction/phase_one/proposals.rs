@@ -15,9 +15,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
+    Credential, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
     ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
-    RequiredScript, StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
+    RequiredScript, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -31,11 +31,8 @@ pub enum InvalidProposals {
     #[error("proposal return address has wrong network: expected {expected:?}, actual {actual:?}")]
     ReturnAddressWrongNetwork { expected: Network, actual: Network },
 
-    #[error("proposal return address is malformed")]
-    MalformedReturnAddress,
-
     #[error("proposal return account does not exist: {0:?}")]
-    ProposalReturnAccountDoesNotExist(StakeCredential),
+    ProposalReturnAccountDoesNotExist(Credential),
 
     #[error("treasury withdrawals total is zero")]
     TreasuryWithdrawalsAllZeros,
@@ -44,7 +41,7 @@ pub enum InvalidProposals {
     TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
 
     #[error("treasury withdrawal return accounts do not exist: {0:?}")]
-    TreasuryWithdrawalReturnAccountsDoNotExist(BTreeSet<StakeCredential>),
+    TreasuryWithdrawalReturnAccountsDoNotExist(BTreeSet<Credential>),
 
     #[error("conflicting committee update: members appear in both add and remove sets")]
     ConflictingCommitteeUpdate,
@@ -172,21 +169,15 @@ where
         }
     }
 
-    match Address::from_bytes(&proposal.reward_account[..]) {
-        Some(Address::Stake(addr)) => {
-            let actual = addr.network();
+    let credential = proposal.reward_account.credential();
 
-            let credential = StakeCredential::from(*(addr.payload()));
+    if AccountsSlice::lookup(context, &credential).is_none() {
+        return Err(InvalidProposals::ProposalReturnAccountDoesNotExist(credential));
+    }
 
-            if AccountsSlice::lookup(context, &credential).is_none() {
-                return Err(InvalidProposals::ProposalReturnAccountDoesNotExist(credential));
-            }
-
-            if actual != network {
-                return Err(InvalidProposals::ReturnAddressWrongNetwork { expected: network, actual });
-            }
-        }
-        _ => return Err(InvalidProposals::MalformedReturnAddress),
+    let actual = proposal.reward_account.network();
+    if actual != network {
+        return Err(InvalidProposals::ReturnAddressWrongNetwork { expected: network, actual });
     }
 
     match &proposal.gov_action {
@@ -195,22 +186,17 @@ where
             let mut missing = BTreeSet::new();
 
             for (account, coin) in wdrls.iter() {
-                match Address::from_bytes(&account[..]) {
-                    Some(Address::Stake(addr)) => {
-                        let actual = addr.network();
-                        if actual != network {
-                            return Err(InvalidProposals::TreasuryWithdrawalWrongNetwork { expected: network, actual });
-                        }
+                let actual = account.network();
+                if actual != network {
+                    return Err(InvalidProposals::TreasuryWithdrawalWrongNetwork { expected: network, actual });
+                }
 
-                        any_positive |= *coin > 0;
+                any_positive |= *coin > 0;
 
-                        let credential = StakeCredential::from(*(addr.payload()));
+                let credential = account.credential();
 
-                        if AccountsSlice::lookup(context, &credential).is_none() {
-                            missing.insert(credential);
-                        }
-                    }
-                    _ => return Err(InvalidProposals::MalformedReturnAddress),
+                if AccountsSlice::lookup(context, &credential).is_none() {
+                    missing.insert(credential);
                 }
             }
 

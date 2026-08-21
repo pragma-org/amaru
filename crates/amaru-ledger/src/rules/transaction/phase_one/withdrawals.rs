@@ -14,9 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{
-    Lovelace, MemoizedDatum, Network, RedeemerTag, RequiredScript, RewardAccount, StakeCredential, parse_reward_account,
-};
+use amaru_kernel::{Credential, Lovelace, MemoizedDatum, Network, RedeemerTag, RequiredScript, RewardAccount};
 use thiserror::Error;
 
 use crate::{
@@ -26,16 +24,14 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum InvalidWithdrawals {
-    #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
-    MalformedRewardAccount { bytes: Vec<u8>, context: TransactionField, position: usize },
     #[error("attempted to withdraw from an account ({0:?}) that is not registered")]
-    AccountNotRegistered(StakeCredential),
+    AccountNotRegistered(Credential),
     #[error(
         "attempted to withdraw a different amount than the full account balance: balance {balance} withdrawal: {withdrawal}"
     )]
     IncompleteWithdrawal { balance: u64, withdrawal: u64 },
     #[error("attempted to withdraw from an account ({0:?}) that has no drep delegation")]
-    MissingAccountDRepDelegation(StakeCredential),
+    MissingAccountDRepDelegation(Credential),
     #[error(
         "network mismatch in reward account in {context:?} at position {position}: expected {expected}, received {received}"
     )]
@@ -55,13 +51,8 @@ where
         withdrawals
             .into_iter()
             .enumerate()
-            .map(|(position, (bytes, amount))| {
-                let (credential, account_network) =
-                    parse_reward_account(&bytes).ok_or_else(|| InvalidWithdrawals::MalformedRewardAccount {
-                        bytes: bytes.to_vec(),
-                        context: TransactionField::Withdrawals,
-                        position,
-                    })?;
+            .map(|(position, (account, amount))| {
+                let (credential, account_network) = (account.credential(), account.network());
 
                 if network != account_network {
                     return Err(InvalidWithdrawals::NetworkMismatch {
@@ -75,7 +66,7 @@ where
                 let account =
                     context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential))?;
 
-                if matches!(credential, StakeCredential::AddrKeyhash(_)) && account.drep.is_none() {
+                if matches!(credential, Credential::KeyHash(_)) && account.drep.is_none() {
                     return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential));
                 }
 
@@ -94,13 +85,13 @@ where
             .enumerate()
             .for_each(|(position, (credential, amount))| {
                 match credential {
-                    amaru_kernel::StakeCredential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
+                    amaru_kernel::Credential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
                         hash,
                         index: position as u32,
                         purpose: RedeemerTag::Reward,
                         datum: MemoizedDatum::None,
                     }),
-                    amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                    amaru_kernel::Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
                 };
 
                 context.consume_lovelace(amount);
@@ -121,24 +112,25 @@ where
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::{Network, RewardAccount};
+    use amaru_kernel::{Credential, Hash, Network, RewardAccount};
 
     use super::InvalidWithdrawals;
     use crate::{context::DefaultValidationContext, rules::TransactionField};
 
-    /// Reward accounts too short to carry a header byte plus a 28-byte hash are rejected before the
-    /// network check. Haskell cannot represent this state, such bytes fail deserialization, so
-    /// there is no conformance predicate for it and it stays a unit test.
     #[test]
-    fn rejects_a_reward_account_that_is_not_a_credential() {
+    fn rejects_a_reward_account_on_the_wrong_network() {
         let mut context = DefaultValidationContext::default();
 
-        let withdrawals = vec![(RewardAccount::from(vec![0x00, 0x00]), 1_000_000)];
+        let account = RewardAccount::new(Network::Mainnet, Credential::KeyHash(Hash::new([0; 28])));
 
         assert!(matches!(
-            super::execute(&mut context, Some(withdrawals), Network::Testnet, true),
-            Err(InvalidWithdrawals::MalformedRewardAccount { position: 0, ref bytes, context: TransactionField::Withdrawals })
-                if bytes == &vec![0x00, 0x00]
+            super::execute(&mut context, Some(vec![(account, 1_000_000)]), Network::Testnet, true),
+            Err(InvalidWithdrawals::NetworkMismatch {
+                expected: Network::Testnet,
+                received: Network::Mainnet,
+                position: 0,
+                context: TransactionField::Withdrawals,
+            })
         ));
     }
 }

@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, StakeCredential};
+use amaru_kernel::{CertificatePointer, Credential, DRepRegistration, Epoch};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -97,7 +97,7 @@ pub fn add<DB>(
 /// active governance proposal.
 pub fn set_valid_until<DB>(
     db: &Transaction<'_, DB>,
-    credentials: BTreeSet<StakeCredential>,
+    credentials: BTreeSet<Credential>,
     valid_until: Epoch,
 ) -> Result<(), StoreError> {
     trace_span!(stores::ledger::dreps::SET_VALID_UNTIL).in_scope(|| {

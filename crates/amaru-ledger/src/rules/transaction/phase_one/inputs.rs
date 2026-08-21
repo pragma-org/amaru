@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, Set, TransactionInput,
-    address::byron::AddressType, utils::string::display_collection,
+    Address, AsHash, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, Set,
+    TransactionInput, address::byron::AddressType, utils::string::display_collection,
 };
 use thiserror::Error;
 
@@ -109,13 +109,13 @@ where
             Address::Shelley(shelley_address) => {
                 if shelley_address.payment().is_script() {
                     context.require_script_witness(RequiredScript {
-                        hash: *shelley_address.payment().as_hash(),
+                        hash: shelley_address.payment().as_hash(),
                         index: input_index as u32,
                         purpose: RedeemerTag::Spend,
                         datum,
                     });
                 } else {
-                    context.require_verification_key_witness(*shelley_address.payment().as_hash());
+                    context.require_verification_key_witness(shelley_address.payment().as_hash());
                 }
             }
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),

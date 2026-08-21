@@ -1241,7 +1241,7 @@
       "properties": {
         "credential_type": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredentialKind"
+          "description": "Custom type: amaru_kernel::CredentialKind"
         },
         "account": {
           "type": "string",
@@ -3797,7 +3797,7 @@
       "properties": {
         "credential": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "description": "Custom type: amaru_kernel::Credential"
         },
         "reason": {
           "type": "string"
@@ -3820,7 +3820,7 @@
       "properties": {
         "credential_type": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredentialKind"
+          "description": "Custom type: amaru_kernel::CredentialKind"
         },
         "account": {
           "type": "string",
@@ -3872,7 +3872,7 @@
       "properties": {
         "credential": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "description": "Custom type: amaru_kernel::Credential"
         },
         "reason": {
           "type": "string"
@@ -3907,7 +3907,7 @@
       "properties": {
         "drep": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "description": "Custom type: amaru_kernel::Credential"
         },
         "reason": {
           "type": "string"
@@ -3930,7 +3930,7 @@
       "properties": {
         "credential": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "description": "Custom type: amaru_kernel::Credential"
         },
         "reason": {
           "type": "string"

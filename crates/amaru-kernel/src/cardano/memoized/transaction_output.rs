@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    Address, AssetName, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, ShelleyDelegationPart,
-    StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
+    Address, AssetName, Credential, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, StakeReference,
+    Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -88,13 +88,9 @@ impl MemoizedTransactionOutput {
         self.original_size
     }
 
-    pub fn delegate(&self) -> Option<StakeCredential> {
+    pub fn delegate(&self) -> Option<Credential> {
         match &self.address {
-            Address::Shelley(shelley) => match shelley.delegation() {
-                ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
-                ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
-                ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => None,
-            },
+            Address::Shelley(shelley) => shelley.delegation().and_then(StakeReference::credential),
             Address::Byron(..) => None,
             Address::Stake(..) => unreachable!("stake address inside output?"),
         }

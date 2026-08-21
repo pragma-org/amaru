@@ -15,9 +15,9 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use amaru_kernel::{
-    Ballot, Constitution, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, DRep, Epoch, EraHistory,
-    Lovelace, OrphanProposal, PoolId, ProposalEnum, ProposalId, ProposalsRootsRc, ProtocolParameters,
-    RatificationStatus, StakeCredential, Vote, Voter,
+    Ballot, Constitution, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Credential, DRep, Epoch,
+    EraHistory, Lovelace, OrphanProposal, PoolId, ProposalEnum, ProposalId, ProposalsRootsRc, ProtocolParameters,
+    RatificationStatus, Vote, Voter,
     rational_number::{SafeRatio, into_safe_ratio},
 };
 use amaru_observability::{debug_span, info_span};
@@ -60,7 +60,7 @@ pub struct RatificationContext<'distr> {
     pub pruned_proposals: BTreeMap<Rc<ProposalId>, RatificationStatus>,
 
     /// Enacted withdrawals during this round of ratification.
-    pub withdrawals: BTreeMap<StakeCredential, Lovelace>,
+    pub withdrawals: BTreeMap<Credential, Lovelace>,
 
     /// The current constitutional committee, if any. No committee signals a state of
     /// no-confidence.
@@ -334,7 +334,7 @@ impl<'distr> RatificationContext<'distr> {
     fn is_accepted_by_constitutional_committee(
         &self,
         proposal: &ProposalEnum,
-        votes: BTreeMap<StakeCredential, &Vote>,
+        votes: BTreeMap<Credential, &Vote>,
     ) -> bool {
         self.constitutional_committee
             .as_ref()
@@ -403,16 +403,16 @@ impl<'distr> RatificationContext<'distr> {
 /// processing of each category down the line.
 fn partition_votes(
     votes: &[(Voter, Ballot)],
-) -> (BTreeMap<DRep, &Vote>, BTreeMap<StakeCredential, &Vote>, BTreeMap<&PoolId, &Vote>) {
+) -> (BTreeMap<DRep, &Vote>, BTreeMap<Credential, &Vote>, BTreeMap<&PoolId, &Vote>) {
     votes.iter().fold(
         (BTreeMap::new(), BTreeMap::new(), BTreeMap::new()),
         |(mut dreps, mut committee, mut pools), (voter, ballot)| {
             match voter {
                 Voter::ConstitutionalCommitteeKey(hash) => {
-                    committee.insert(StakeCredential::AddrKeyhash(*hash), ballot.vote());
+                    committee.insert(Credential::KeyHash(*hash), ballot.vote());
                 }
                 Voter::ConstitutionalCommitteeScript(hash) => {
-                    committee.insert(StakeCredential::ScriptHash(*hash), ballot.vote());
+                    committee.insert(Credential::ScriptHash(*hash), ballot.vote());
                 }
                 Voter::DRepKey(hash) => {
                     dreps.insert(DRep::Key(*hash), ballot.vote());

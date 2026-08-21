@@ -18,9 +18,7 @@ use std::{
     sync::{OnceLock, atomic, atomic::AtomicUsize},
 };
 
-use amaru_kernel::{
-    DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, SortedPairs, StakeCredential, expect_stake_credential, safe_ratio,
-};
+use amaru_kernel::{Credential, DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, SortedPairs, safe_ratio};
 use amaru_observability::info;
 use serde::ser::SerializeStruct;
 
@@ -54,7 +52,7 @@ pub struct StakeSummary {
     /// Mapping of accounts' stake credentials to their respective state.
     ///
     /// Accounts that have stake but aren't delegated to any pools aren't present in the map.
-    pub accounts: SortedPairs<StakeCredential, AccountState>,
+    pub accounts: SortedPairs<Credential, AccountState>,
 }
 
 impl Deref for StakeSummary {
@@ -115,7 +113,7 @@ impl StakeSummary {
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
         let stake_pool_deposit = db.protocol_parameters()?.stake_pool_deposit;
-        let mut pools_deregistration_refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+        let mut pools_deregistration_refunds: BTreeMap<Credential, Lovelace> = BTreeMap::new();
 
         let mut pools = db
             .iter_pools()?
@@ -127,7 +125,7 @@ impl StakeSummary {
                 // ratification happens *after* pools reaping, and thus, nullify voting power of
                 // pools that are retiring.
                 if PoolsEpochTransitionUpdates::is_retiring(epoch + 1, &row) {
-                    let reward_account = expect_stake_credential(&row.current_params.reward_account);
+                    let reward_account = row.current_params.reward_account.credential();
                     pools_deregistration_refunds
                         .entry(reward_account)
                         .and_modify(|refund| *refund += stake_pool_deposit)
@@ -173,7 +171,7 @@ impl StakeSummary {
 
         // NOTE: discrepancy between Ord and serialised ordering
         //
-        // Weirdly enough, the variants of a StakeCredential comes with the script hash first,
+        // Weirdly enough, the variants of a Credential comes with the script hash first,
         // and then the key hash. However, they are serialised the other away around (key
         // variant comes with tag index 0, whereas script is 1).
         //
@@ -249,7 +247,7 @@ impl StakeSummary {
         }
 
         for pool in pools.values_mut() {
-            let reward_account = expect_stake_credential(&pool.parameters.reward_account);
+            let reward_account = pool.parameters.reward_account.credential();
             pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
         }
 
@@ -307,8 +305,8 @@ impl serde::Serialize for StakeSummary {
             "accounts",
             &self.accounts.iter().fold(Accounts::default(), |mut accounts, (credential, st)| {
                 match credential {
-                    StakeCredential::AddrKeyhash(hash) => accounts.verification_keys.insert(*hash, st),
-                    StakeCredential::ScriptHash(hash) => accounts.scripts.insert(*hash, st),
+                    Credential::KeyHash(hash) => accounts.verification_keys.insert(*hash, st),
+                    Credential::ScriptHash(hash) => accounts.scripts.insert(*hash, st),
                 };
 
                 accounts
@@ -390,8 +388,8 @@ pub mod tests {
     use std::collections::BTreeMap;
 
     use amaru_kernel::{
-        Epoch, Lovelace, any_anchor, any_certificate_pointer, any_drep, any_hash28, any_pool_params,
-        any_stake_credential, expect_stake_credential, safe_ratio,
+        Epoch, Lovelace, any_anchor, any_certificate_pointer, any_credential, any_drep, any_hash28, any_pool_params,
+        safe_ratio,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
 
@@ -408,7 +406,7 @@ pub mod tests {
             reserves in any::<u64>(),
             active_stake_delta in any::<Lovelace>(),
             dreps in collection::btree_map(any_drep(), any_drep_state(min_epoch, max_epoch), 1..10),
-            _accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
+            _accounts in collection::btree_map(any_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
             let dreps_voting_stake = dreps.values().fold(0, |total, st| total + st.voting_stake);
 
@@ -434,7 +432,7 @@ pub mod tests {
             treasury in any::<u64>(),
             reserves in any::<u64>(),
             pools in collection::btree_map(any_hash28(), any_pool_state(), 1..10),
-            accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
+            accounts in collection::btree_map(any_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
             let active_stake = pools.values().fold(0, |total, st| total + st.stake);
             let pools_voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
@@ -454,7 +452,7 @@ pub mod tests {
 
                     // Ensure some of the reward accounts do exists.
                     if ix % 2 == 0 {
-                        account = expect_stake_credential(&pool_st.parameters.reward_account);
+                        account = pool_st.parameters.reward_account.credential();
                     }
 
                     // Make sure accounts are delegated to existing pools, when they are.
@@ -469,7 +467,7 @@ pub mod tests {
             let mut pools = pools;
 
             for pool in pools.values_mut() {
-                let reward_account = expect_stake_credential(&pool.parameters.reward_account);
+                let reward_account = pool.parameters.reward_account.credential();
                 pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
             }
 

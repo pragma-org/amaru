@@ -17,12 +17,12 @@ use std::{
     fmt,
 };
 
-use crate::{Epoch, SafeRatio, StakeCredential};
+use crate::{Credential, Epoch, SafeRatio};
 
 #[derive(Debug, Clone)]
 pub enum ConstitutionalCommitteeUpdate {
     NoConfidence,
-    ChangeMembers { removed: BTreeSet<StakeCredential>, added: BTreeMap<StakeCredential, Epoch>, threshold: SafeRatio },
+    ChangeMembers { removed: BTreeSet<Credential>, added: BTreeMap<Credential, Epoch>, threshold: SafeRatio },
 }
 
 impl fmt::Display for ConstitutionalCommitteeUpdate {
@@ -61,7 +61,7 @@ pub use tests::*;
 mod tests {
     use proptest::{collection, prelude::*};
 
-    use crate::{ConstitutionalCommitteeUpdate, Epoch, any_stake_credential, safe_ratio};
+    use crate::{ConstitutionalCommitteeUpdate, Epoch, any_credential, safe_ratio};
 
     pub fn any_constitutional_committee_update(
         any_epoch: impl Strategy<Value = Epoch>,
@@ -70,8 +70,8 @@ mod tests {
 
         let any_change_members = (
             any::<u8>(),
-            collection::btree_set(any_stake_credential(), 0..3),
-            collection::btree_map(any_stake_credential(), any_epoch, 0..3),
+            collection::btree_set(any_credential(), 0..3),
+            collection::btree_map(any_credential(), any_epoch, 0..3),
         )
             .prop_map(|(numerator, removed, added)| ConstitutionalCommitteeUpdate::ChangeMembers {
                 removed,

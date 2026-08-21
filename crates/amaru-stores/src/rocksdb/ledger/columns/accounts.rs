@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AsHash, Epoch, Lovelace, StakeCredentialKind};
+use amaru_kernel::{AsHash, CredentialKind, Epoch, Lovelace};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -122,7 +122,7 @@ pub fn set_rewards<DB>(
         // TODO: Should probably be an error now that we have the overlay...
         debug!(
             stores::ledger::accounts::SET,
-            credential_type = %StakeCredentialKind::from(credential),
+            credential_type = %CredentialKind::from(credential),
             account = %credential.as_hash(),
             reason = "cannot set stake, account is gone"
         );

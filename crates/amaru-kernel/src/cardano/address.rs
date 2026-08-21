@@ -14,7 +14,7 @@
 
 use std::{fmt, str::FromStr};
 
-use crate::{AsShelley, HasOwnership, Network, StakeAddress, StakeCredential, cbor, hash, size};
+use crate::{AsShelley, Credential, HasOwnership, Network, RewardAccount, cbor, hash, size};
 
 pub mod byron;
 pub use byron::ByronAddress;
@@ -25,14 +25,8 @@ pub use shelley::ShelleyAddress;
 pub mod pointer;
 pub use pointer::AddressPointer;
 
-mod stake_payload;
-pub use stake_payload::StakePayload;
-
-mod delegation_part;
-pub use delegation_part::ShelleyDelegationPart;
-
-mod payment_part;
-pub use payment_part::ShelleyPaymentPart;
+mod stake_reference;
+pub use stake_reference::StakeReference;
 
 mod address_type;
 pub use address_type::AddressType;
@@ -42,7 +36,7 @@ pub enum Address {
     Byron(ByronAddress),
     Shelley(ShelleyAddress),
     // TODO: This is wrong, stake address should be a completely separate type.
-    Stake(StakeAddress),
+    Stake(RewardAccount),
 }
 
 impl fmt::Display for Address {
@@ -77,7 +71,7 @@ impl FromStr for Address {
 
 impl Address {
     pub fn is_locked_by_script(&self) -> bool {
-        matches!(self.as_shelley().map(|addr| addr.owner()), Some(StakeCredential::ScriptHash(_)))
+        matches!(self.as_shelley().map(|addr| addr.owner()), Some(Credential::ScriptHash(_)))
     }
 
     /// Tries to encode an Address into a bech32 string
@@ -171,10 +165,10 @@ macro_rules! parse_shelley_fn {
             let net = parse_network(header)?;
 
             let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
-            let p1 = ShelleyPaymentPart::$payment(h1);
-            let p2 = ShelleyDelegationPart::try_from_pointer(&payload[size::CREDENTIAL..])?;
+            let p1 = Credential::$payment(h1);
+            let p2 = StakeReference::try_from_pointer(&payload[size::CREDENTIAL..])?;
 
-            let addr = ShelleyAddress::new(net, p1, p2);
+            let addr = ShelleyAddress::new(net, p1, Some(p2));
 
             Some(Address::Shelley(addr))
         }
@@ -188,12 +182,12 @@ macro_rules! parse_shelley_fn {
             let net = parse_network(header)?;
 
             let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
-            let p1 = ShelleyPaymentPart::$payment(h1);
+            let p1 = Credential::$payment(h1);
 
             let h2 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[size::CREDENTIAL..])?;
-            let p2 = ShelleyDelegationPart::$delegation(h2);
+            let p2 = StakeReference::Credential(Credential::$delegation(h2));
 
-            let addr = ShelleyAddress::new(net, p1, p2);
+            let addr = ShelleyAddress::new(net, p1, Some(p2));
 
             Some(Address::Shelley(addr))
         }
@@ -206,9 +200,9 @@ macro_rules! parse_shelley_fn {
 
             let net = parse_network(header)?;
             let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
-            let p1 = ShelleyPaymentPart::$payment(h1);
+            let p1 = Credential::$payment(h1);
 
-            let addr = ShelleyAddress::new(net, p1, ShelleyDelegationPart::Null);
+            let addr = ShelleyAddress::new(net, p1, None);
 
             Some(Address::Shelley(addr))
         }
@@ -216,14 +210,14 @@ macro_rules! parse_shelley_fn {
 }
 
 // types 0-7 are Shelley addresses
-parse_shelley_fn!(parse_type_0, from_key_hash, from_key_hash);
-parse_shelley_fn!(parse_type_1, from_script_hash, from_key_hash);
-parse_shelley_fn!(parse_type_2, from_key_hash, from_script_hash);
-parse_shelley_fn!(parse_type_3, from_script_hash, from_script_hash);
-parse_shelley_fn!(parse_type_4, from_key_hash, pointer);
-parse_shelley_fn!(parse_type_5, from_script_hash, pointer);
-parse_shelley_fn!(parse_type_6, from_key_hash);
-parse_shelley_fn!(parse_type_7, from_script_hash);
+parse_shelley_fn!(parse_type_0, KeyHash, KeyHash);
+parse_shelley_fn!(parse_type_1, ScriptHash, KeyHash);
+parse_shelley_fn!(parse_type_2, KeyHash, ScriptHash);
+parse_shelley_fn!(parse_type_3, ScriptHash, ScriptHash);
+parse_shelley_fn!(parse_type_4, KeyHash, pointer);
+parse_shelley_fn!(parse_type_5, ScriptHash, pointer);
+parse_shelley_fn!(parse_type_6, KeyHash);
+parse_shelley_fn!(parse_type_7, ScriptHash);
 
 // type 8 (1000) are Byron addresses
 fn parse_type_8(header: u8, payload: &[u8]) -> Option<Address> {
@@ -241,18 +235,15 @@ macro_rules! parse_stake_fn {
 
             let net = parse_network(header)?;
             let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
-            let p1 = StakePayload::$type(h1);
 
-            let addr = StakeAddress::new(net, p1);
-
-            Some(Address::Stake(addr))
+            Some(Address::Stake(RewardAccount::new(net, Credential::$type(h1))))
         }
     };
 }
 
 // types 14-15 are Stake addresses
-parse_stake_fn!(parse_type_14, from_key_hash);
-parse_stake_fn!(parse_type_15, from_script_hash);
+parse_stake_fn!(parse_type_14, KeyHash);
+parse_stake_fn!(parse_type_15, ScriptHash);
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
@@ -261,14 +252,14 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, any_hash28};
+    use crate::{Address, Credential, Network, ShelleyAddress, StakeReference, any_hash28};
 
     pub fn any_shelley_address() -> impl Strategy<Value = Address> {
         (any::<bool>(), any_hash28(), any_hash28()).prop_map(|(is_mainnet, payment_hash, delegation_hash)| {
             let network = if is_mainnet { Network::Mainnet } else { Network::Testnet };
 
-            let payment = ShelleyPaymentPart::Key(payment_hash);
-            let delegation = ShelleyDelegationPart::Key(delegation_hash);
+            let payment = Credential::KeyHash(payment_hash);
+            let delegation = Some(StakeReference::Credential(Credential::KeyHash(delegation_hash)));
 
             Address::Shelley(ShelleyAddress::new(network, payment, delegation))
         })

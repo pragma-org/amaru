@@ -472,8 +472,8 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
     fn update_constitutional_committee(
         &self,
         _status: &ConstitutionalCommitteeStatus,
-        _added: &BTreeMap<amaru_kernel::StakeCredential, Epoch>,
-        _removed: &BTreeSet<amaru_kernel::StakeCredential>,
+        _added: &BTreeMap<amaru_kernel::Credential, Epoch>,
+        _removed: &BTreeSet<amaru_kernel::Credential>,
     ) -> amaru_ledger::store::Result<()> {
         Ok(())
     }

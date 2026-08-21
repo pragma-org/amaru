@@ -20,7 +20,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, OrphanProposal, ProposalEnum, StakeCredential, Vote,
+    Credential, Epoch, OrphanProposal, ProposalEnum, Vote,
     rational_number::{SafeRatio, safe_ratio},
 };
 use amaru_observability::warn;
@@ -34,15 +34,15 @@ pub struct ConstitutionalCommittee {
     threshold: SafeRatio,
 
     /// Members cold key hashes mapped to their hot key credential, if any and their expiry epoch.
-    members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
+    members: BTreeMap<Credential, (Option<Credential>, Epoch)>,
 
     /// Active members for a given ongoing epoch. We memoized the result to avoid re-computing it
     /// over and over.
-    active_members: RefCell<Option<(Epoch, Rc<BTreeMap<StakeCredential, StakeCredential>>)>>,
+    active_members: RefCell<Option<(Epoch, Rc<BTreeMap<Credential, Credential>>)>>,
 }
 
 impl ConstitutionalCommittee {
-    pub fn new(threshold: SafeRatio, members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>) -> Self {
+    pub fn new(threshold: SafeRatio, members: BTreeMap<Credential, (Option<Credential>, Epoch)>) -> Self {
         Self { threshold, members, active_members: RefCell::new(None) }
     }
 
@@ -53,7 +53,7 @@ impl ConstitutionalCommittee {
 
     /// Obtain a set of all the hot credentials of known members, even inactive ones. Those are all
     /// potential voters (although their votes may be invalid).
-    pub fn voters(&self) -> BTreeSet<&StakeCredential> {
+    pub fn voters(&self) -> BTreeSet<&Credential> {
         self.members.values().filter_map(|(hot_credential, _)| hot_credential.as_ref()).collect()
     }
 
@@ -61,8 +61,8 @@ impl ConstitutionalCommittee {
     pub fn update(
         &mut self,
         threshold: SafeRatio,
-        added: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
-        removed: BTreeSet<&StakeCredential>,
+        added: BTreeMap<Credential, (Option<Credential>, Epoch)>,
+        removed: BTreeSet<&Credential>,
     ) {
         self.threshold = threshold;
 
@@ -83,7 +83,7 @@ impl ConstitutionalCommittee {
     /// - it exists
     /// - its cold key is delegated to a hot key
     /// - it hasn't expired yet
-    pub fn active_members(&self, current_epoch: Epoch) -> Rc<BTreeMap<StakeCredential, StakeCredential>> {
+    pub fn active_members(&self, current_epoch: Epoch) -> Rc<BTreeMap<Credential, Credential>> {
         if let Some((memoized_epoch, active_members)) = self.active_members.borrow().as_ref()
             && memoized_epoch == &current_epoch
         {
@@ -140,7 +140,7 @@ impl ConstitutionalCommittee {
     /// - Members that do not vote will count as a default "no" (i.e. increases the denominator);
     /// - Members that expired are excluded entirely (also from the denominator);
     /// - Members that have resigned (i.e. no hot keys) are also excluded;
-    pub fn tally(&self, epoch: Epoch, votes: BTreeMap<StakeCredential, &Vote>) -> SafeRatio {
+    pub fn tally(&self, epoch: Epoch, votes: BTreeMap<Credential, &Vote>) -> SafeRatio {
         let active_members = self.active_members(epoch);
 
         let hot_credentials = active_members.values().collect::<BTreeSet<_>>();
@@ -185,8 +185,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Epoch, Hash, SafeRatio, StakeCredential, VOTE_NO, VOTE_YES, Vote, any_rational_number, any_stake_credential,
-        any_vote_ref, into_safe_ratio,
+        Credential, Epoch, Hash, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_credential, any_rational_number, any_vote_ref,
+        into_safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
@@ -207,7 +207,7 @@ mod tests {
 
             // If no active members, let's add one.
             if active_members.is_empty() {
-                let cold_credential = StakeCredential::AddrKeyhash(Hash::from(NULL_HASH));
+                let cold_credential = Credential::KeyHash(Hash::from(NULL_HASH));
                 let hot_credential = cold_credential;
                 committee.update(
                     committee.threshold().clone(),
@@ -371,7 +371,7 @@ mod tests {
         }
     }
     pub fn any_tally()
-    -> impl Strategy<Value = (Epoch, BTreeMap<StakeCredential, &'static Vote>, Rc<ConstitutionalCommittee>)> {
+    -> impl Strategy<Value = (Epoch, BTreeMap<Credential, &'static Vote>, Rc<ConstitutionalCommittee>)> {
         any_constitutional_committee().prop_flat_map(|committee| {
             (
                 // We fix the epoch arbitrarily, but in knowledge of 'any_epoch'; so that
@@ -395,9 +395,9 @@ mod tests {
         pub fn any_constitutional_committee()(
             threshold in any_rational_number(),
             members in collection::btree_map(
-                any_stake_credential(),
+                any_credential(),
                 (
-                    prop_oneof![3 => any_stake_credential().prop_map(Some), 1 => Just(None)],
+                    prop_oneof![3 => any_credential().prop_map(Some), 1 => Just(None)],
                     any_epoch()
                 ),
                 0..MAX_COMMITTEE_SIZE,
@@ -409,7 +409,7 @@ mod tests {
 
     pub fn any_votes(
         committee: &ConstitutionalCommittee,
-    ) -> impl Strategy<Value = BTreeMap<StakeCredential, &'static Vote>> + use<> {
+    ) -> impl Strategy<Value = BTreeMap<Credential, &'static Vote>> + use<> {
         let potential_voters = committee.voters().into_iter().cloned().collect::<Vec<_>>();
 
         let upper_bound = potential_voters.len();
