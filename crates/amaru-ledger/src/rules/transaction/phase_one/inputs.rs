@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, Set, TransactionInput,
-    address::byron::AddressType, utils::string::display_collection,
+    address::byron::AddressType, protocol_version::PROTOCOL_VERSION_11, utils::string::display_collection,
 };
 use thiserror::Error;
 
@@ -53,7 +53,7 @@ where
 
     let mut intersection = Vec::new();
     let mut ref_scripts_size: u64 = 0;
-    let check_disjoint_reference_inputs = protocol_parameters.protocol_version.major() < 11;
+    let check_disjoint_reference_inputs = protocol_parameters.protocol_version < PROTOCOL_VERSION_11;
 
     if let Some(reference_inputs) = reference_inputs {
         for reference_input in reference_inputs {
@@ -122,7 +122,10 @@ where
         }
 
         if let Some((script_hash, script_size)) = script_ref {
-            if !reference_inputs.is_some_and(|reference_inputs| reference_inputs.contains(input)) {
+            // Sizes are summed over the union of inputs and reference inputs; an input present
+            // in both, allowed in pv11+, was already counted above.
+            let already_counted = reference_inputs.is_some_and(|reference_inputs| reference_inputs.contains(input));
+            if !already_counted {
                 ref_scripts_size += script_size;
             }
             context.acknowledge_script(script_hash, *input);
