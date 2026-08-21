@@ -52,7 +52,7 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::TipFromUpstream", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = SelectChainMsg::BlockValidationResult(point, true, BlockHeight::from(0));
+    let msg = SelectChainMsg::block_validation_result(point, true, BlockHeight::from(0));
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::BlockValidationResult", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 

@@ -98,11 +98,22 @@ impl ValidateBlock {
     }
 
     // Notify other stages of a successful block validation, record metrics, and update the current tip.
-    pub async fn completed(&mut self, tip: Point, eff: &Effects<ValidateBlockMsg>, metrics: LedgerMetrics) {
+    pub async fn completed(
+        &mut self,
+        tip: Point,
+        eff: &Effects<ValidateBlockMsg>,
+        metrics: LedgerMetrics,
+        trace_context: &TraceContext,
+    ) {
         Metrics::new(eff).record(metrics.into()).await;
-        eff.send(&self.select_chain, SelectChainMsg::BlockValidationResult(tip, true, self.max_block_height)).await;
+        eff.send(
+            &self.select_chain,
+            SelectChainMsg::block_validation_result(tip, true, self.max_block_height).with_trace_context(trace_context),
+        )
+        .await;
         eff.send(&self.block_source, BlockSourceMsg::Validation { valid: true, point: tip }).await;
-        eff.send(&self.adopt_chain, AdoptChainMsg::new(tip, self.max_block_height)).await;
+        eff.send(&self.adopt_chain, AdoptChainMsg::new(tip, self.max_block_height).with_trace_context(trace_context))
+            .await;
 
         // Condemned blocks deeper than k below the new tip can never have their header selected again
         let k = self.consensus_security_param;
@@ -118,13 +129,18 @@ impl ValidateBlock {
         eff: &Effects<ValidateBlockMsg>,
         reason: &str,
         message: &str,
+        trace_context: &TraceContext,
     ) {
         tracing::warn!(error = %reason, parent = %msg.parent, failed_tip = %failed_tip, message);
         self.invalid_blocks.insert(failed_tip.hash(), failed_tip.block_height());
         self.invalid_blocks.insert(msg.tip.hash(), msg.tip.block_height());
 
-        eff.send(&self.select_chain, SelectChainMsg::BlockValidationResult(failed_tip, false, self.max_block_height))
-            .await;
+        eff.send(
+            &self.select_chain,
+            SelectChainMsg::block_validation_result(failed_tip, false, self.max_block_height)
+                .with_trace_context(trace_context),
+        )
+        .await;
         eff.send(&self.block_source, BlockSourceMsg::Validation { valid: false, point: failed_tip }).await;
     }
 }
@@ -160,6 +176,7 @@ pub async fn stage(
     }
 
     let trace_context = std::mem::take(&mut msg.trace_context);
+    let root_trace_context = trace_context.clone();
     let span = debug_span!(
             parent_context: trace_context,
             consensus::block::VALIDATE,
@@ -182,6 +199,7 @@ pub async fn stage(
                     &eff,
                     "the block descends from an invalid block",
                     "refusing to validate the descendant of an invalid block",
+                    &root_trace_context,
                 )
                 .await;
             return state;
@@ -195,9 +213,18 @@ pub async fn stage(
                 })
                 .await;
             match result {
-                Ok(metrics) => state.completed(tip, &eff, metrics).await,
+                Ok(metrics) => state.completed(tip, &eff, metrics, &root_trace_context).await,
                 Err(err) => {
-                    state.error(msg, tip, &eff, &err.to_string(), "failed to advance the ledger to a new tip").await;
+                    state
+                        .error(
+                            msg,
+                            tip,
+                            &eff,
+                            &err.to_string(),
+                            "failed to advance the ledger to a new tip",
+                            &root_trace_context,
+                        )
+                        .await;
                 }
             }
         } else {
@@ -225,16 +252,34 @@ pub async fn stage(
                 })
                 .await;
             match result {
-                ForkSwitchOutcome::Completed { metrics } => state.completed(tip, &eff, metrics).await,
+                ForkSwitchOutcome::Completed { metrics } => {
+                    state.completed(tip, &eff, metrics, &root_trace_context).await
+                }
                 ForkSwitchOutcome::Partial { metrics, applied_tip, failure } => {
                     // mark blocks up to applied_tip as valid
-                    state.completed(applied_tip, &eff, metrics).await;
+                    state.completed(applied_tip, &eff, metrics, &root_trace_context).await;
                     // marks blocks from failure.tip as invalid and sends the appropriate signals to other stages
-                    state.error(msg, failure.tip, &eff, &failure.reason, "fork switch partially applied").await;
+                    state
+                        .error(
+                            msg,
+                            failure.tip,
+                            &eff,
+                            &failure.reason,
+                            "fork switch partially applied",
+                            &root_trace_context,
+                        )
+                        .await;
                 }
                 ForkSwitchOutcome::Failed { failure } => {
                     state
-                        .error(msg, failure.tip, &eff, &failure.reason, "failed to fork the ledger to a new tip")
+                        .error(
+                            msg,
+                            failure.tip,
+                            &eff,
+                            &failure.reason,
+                            "failed to fork the ledger to a new tip",
+                            &root_trace_context,
+                        )
                         .await;
                 }
             }
