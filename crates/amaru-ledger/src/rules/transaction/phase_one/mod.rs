@@ -160,7 +160,7 @@ where
     )?;
     span.record(PHASE_ONE::FIELD_VALIDITY_INTERVAL_MICROS, elapsed_and_reset(&mut meter));
 
-    metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
+    metadata::execute(arena_pool, &transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
     span.record(PHASE_ONE::FIELD_METADATA_MICROS, elapsed_and_reset(&mut meter));
 
     let ref_scripts_size = inputs::execute(
@@ -211,6 +211,7 @@ where
 
     outputs::execute(
         context,
+        arena_pool,
         protocol_parameters,
         network,
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![*x]).unwrap_or_default(),
@@ -233,6 +234,7 @@ where
 
     outputs::execute(
         context,
+        arena_pool,
         protocol_parameters,
         network,
         mem::take(&mut transaction_body.outputs),
@@ -324,7 +326,6 @@ where
 
     scripts::execute(
         context,
-        arena_pool,
         transaction_witness_set,
         transaction_body.validity_interval(),
         protocol_parameters,

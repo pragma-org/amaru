@@ -391,6 +391,8 @@ normalizeUtxowFailure expectedHint = \case
         "ConflictingMetadataHash"
     MalformedReferenceScripts{} ->
         "MalformedReferenceScripts"
+    MalformedScriptWitnesses{} ->
+        "MalformedScriptWitnesses"
     otherFailure ->
         "unsupported:" <> showText expectedHint <> ":" <> showText otherFailure
 

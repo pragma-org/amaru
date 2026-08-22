@@ -37,7 +37,7 @@ use crate::{
                 outputs::{InvalidOutput, InvalidOutputs},
                 proposals::InvalidProposals,
             },
-            phase_two::PhaseTwoError,
+            phase_two::{PhaseTwoError, PreparationError, TagMismatch},
         },
     },
 };
@@ -280,6 +280,7 @@ pub(super) enum Predicate {
     InvalidPrevGovActionId,
     InvalidWitnessesUTXOW,
     MalformedReferenceScripts,
+    MalformedScriptWitnesses,
     MaxTxSizeUTxO,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
@@ -325,22 +326,22 @@ impl From<TransactionInvalid> for Predicate {
 impl From<PhaseTwoError> for Predicate {
     fn from(err: PhaseTwoError) -> Self {
         match err {
-            // Reaching the caller means `is_valid` was true, since a failing script is what an
-            // invalid transaction is expected to exhibit.
-            PhaseTwoError::UplcMachineError(_) => {
+            PhaseTwoError::ValidationTagMismatch(TagMismatch::FailedUnexpectedly(_)) => {
                 Predicate::ValidationTagMismatch { description: TagMismatchDescription::FailedUnexpectedly }
             }
-            PhaseTwoError::ValidityStateError => {
+            PhaseTwoError::ValidationTagMismatch(TagMismatch::PassedUnexpectedly) => {
                 Predicate::ValidationTagMismatch { description: TagMismatchDescription::PassedUnexpectedly }
             }
-            // The Haskell ledger reports these as 'CollectErrors' rather than a tag mismatch: they
-            // are raised while assembling the script arguments, before any script runs.
-            PhaseTwoError::MissingInput(_)
-            | PhaseTwoError::TransactionTranslationError(_)
-            | PhaseTwoError::ScriptContextStateError(_)
-            | PhaseTwoError::ScriptDeserializationError(_)
-            | PhaseTwoError::FlatDecodingError(_)
-            | PhaseTwoError::MissingCostModel(_) => unreachable!("no predicate mapping yet for {err}"),
+            PhaseTwoError::Preparation(PreparationError::MalformedScriptWitness(_)) => {
+                Predicate::MalformedScriptWitnesses
+            }
+            PhaseTwoError::Preparation(
+                PreparationError::MissingInput(_)
+                | PreparationError::TransactionTranslation(_)
+                | PreparationError::ScriptContextState(_)
+                | PreparationError::ScriptDeserialization(_)
+                | PreparationError::MissingCostModel(_),
+            ) => unreachable!("no predicate mapping yet for {err}"),
         }
     }
 }
