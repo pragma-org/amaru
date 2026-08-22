@@ -47,6 +47,7 @@ Other guiding principles:
 - **workflows**: executable permissions are now correctly preserved in the release workflow.
 - **amaru-ledger**: correctly calculate an output's minimum lovelace value.
 - **amaru-ledger**: do not re-encode locally submitted transactions to obtain their size.
+- **amaru-ledger**: do not allow the same script to exist in both the witness set and in a reference input
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 
