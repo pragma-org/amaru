@@ -17,12 +17,12 @@ use amaru_kernel::{
     ProtocolParameters, ProtocolVersion, TransactionInput, Value, size::SCRIPT, utils::string::display_collection,
 };
 use amaru_plutus::arena_pool::ArenaPool;
-use amaru_uplc::arena::Arena;
+use amaru_uplc::{arena::Arena, flat::decode_plutus_script};
 use thiserror::Error;
 
 use crate::{
     context::{BalanceSlice, UtxoSlice, WitnessSlice},
-    rules::{WithPosition, transaction::phase_one::scripts::validate_plutus_script},
+    rules::WithPosition,
 };
 
 mod inherent_value;
@@ -138,9 +138,9 @@ fn validate_reference_script(
     arena: &Arena,
 ) -> Result<(), InvalidOutput> {
     let result = match script {
-        MemoizedScript::PlutusV1Script(s) => validate_plutus_script(s, protocol_version, arena),
-        MemoizedScript::PlutusV2Script(s) => validate_plutus_script(s, protocol_version, arena),
-        MemoizedScript::PlutusV3Script(s) => validate_plutus_script(s, protocol_version, arena),
+        MemoizedScript::PlutusV1Script(s) => decode_plutus_script(s, protocol_version, arena).map(|_| ()),
+        MemoizedScript::PlutusV2Script(s) => decode_plutus_script(s, protocol_version, arena).map(|_| ()),
+        MemoizedScript::PlutusV3Script(s) => decode_plutus_script(s, protocol_version, arena).map(|_| ()),
         MemoizedScript::NativeScript(_) => return Ok(()),
     };
     result.map_err(|_| InvalidOutput::MalformedReferenceScript(script.script_hash()))

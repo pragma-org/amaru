@@ -381,6 +381,8 @@ normalizeUtxowFailure expectedHint = \case
         normalizeUtxoFailure failure
     InvalidWitnessesUTXOW{} ->
         "InvalidWitnessesUTXOW"
+    ExtraneousScriptWitnessesUTXOW{} ->
+        "ExtraneousScriptWitnessesUTXOW"
     MissingVKeyWitnessesUTXOW{} ->
         "MissingVerificationKeyWitnessesUTXOW"
     MissingTxBodyMetadataHash{} ->
