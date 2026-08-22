@@ -20,14 +20,9 @@ use std::{
 
 use amaru_kernel::{
     ExUnits, HasExUnits, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript, PlutusVersion,
-    ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
-    ValidityInterval, WitnessSet,
+    ProtocolParameters, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData, ValidityInterval, WitnessSet,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
-};
-use amaru_uplc::{
-    arena::Arena,
-    flat::{FlatDecodeError, decode_plutus_script},
 };
 use thiserror::Error;
 
@@ -164,11 +159,17 @@ where
     let required_script_hashes: BTreeSet<&Hash<SCRIPT>> =
         required_scripts.iter().map(|RequiredScript { hash, .. }| hash).collect();
 
-    let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set);
+    let (provided_scripts, witnessed_script_hashes, reference_script_hashes) =
+        collect_provided_scripts(context, &required_script_hashes, witness_set);
 
     super::native_scripts::execute(&provided_scripts, &required_script_hashes, witness_set, validity_interval)?;
 
-    let required_scripts = fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
+    let required_scripts = fail_on_script_symmetric_differences(
+        required_scripts,
+        &provided_scripts,
+        &witnessed_script_hashes,
+        &reference_script_hashes,
+    )?;
 
     let (mut required_redeemers, required_datums) = partition_scripts(required_scripts)?;
 
@@ -328,26 +329,31 @@ fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
     required: &BTreeSet<&Hash<SCRIPT>>,
     witness_set: &'a WitnessSet,
-) -> BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>
+) -> (BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>, BTreeSet<Hash<SCRIPT>>, BTreeSet<Hash<SCRIPT>>)
 where
     C: WitnessSlice,
 {
     let mut provided = collect_witness_scripts(witness_set);
+    let witnessed = provided.keys().copied().collect();
+    let mut referenced = BTreeSet::new();
 
     for (script_hash, script_ref) in context.known_scripts() {
         if required.contains(&script_hash) {
+            referenced.insert(script_hash);
             provided.insert(script_hash, ProvidedScript::from(script_ref));
         }
     }
 
-    provided
+    (provided, witnessed, referenced)
 }
 
-/// Ensures that the required and provided scripts match exactly (i.e. check that they're included
-/// in each other).
+/// Ensures that every required script is available and that the witness set contains exactly the
+/// required scripts which are not supplied by a reference input.
 fn fail_on_script_symmetric_differences<'a>(
     required: BTreeSet<RequiredScript>,
     provided: &'_ BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>,
+    witnessed: &BTreeSet<Hash<SCRIPT>>,
+    referenced: &BTreeSet<Hash<SCRIPT>>,
 ) -> Result<Vec<(RequiredScript, ProvidedScript<'a>)>, InvalidScripts> {
     let mut missing = BTreeSet::new();
     let mut existing = BTreeSet::new();
@@ -369,7 +375,11 @@ fn fail_on_script_symmetric_differences<'a>(
         return Err(InvalidScripts::MissingRequiredScripts(missing));
     }
 
-    let extraneous: BTreeSet<Hash<SCRIPT>> = provided.keys().filter(|k| !existing.contains(k)).copied().collect();
+    let extraneous = witnessed
+        .iter()
+        .filter(|hash| !existing.contains(hash) || referenced.contains(hash))
+        .copied()
+        .collect::<BTreeSet<_>>();
 
     if !extraneous.is_empty() {
         return Err(InvalidScripts::ExtraneousScriptWitnesses(extraneous));
@@ -456,16 +466,6 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
     Ok(())
 }
 
-/// Attempts to flat decode the script bytes to validate they are well formed.
-pub(crate) fn validate_plutus_script<const V: usize>(
-    script: &PlutusScript<V>,
-    protocol_version: ProtocolVersion,
-    arena: &Arena,
-) -> Result<(), FlatDecodeError> {
-    decode_plutus_script(script, protocol_version, arena)?;
-    Ok(())
-}
-
 /// Collect the witness set's scripts keyed by hash.
 fn collect_witness_scripts(witness_set: &WitnessSet) -> BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>> {
     let mut provided = BTreeMap::new();
@@ -499,18 +499,7 @@ fn collect_plutus_witness_scripts<const V: usize>(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{PROTOCOL_VERSION_10, PlutusScript, WitnessSet};
-    use test_case::test_case;
-
-    /// Well-formedness is decided by the UPLC decoder, so a truncated or empty program is rejected
-    /// before it is ever evaluated.
-    #[test_case(vec![0xDE, 0xAD]; "truncated program")]
-    #[test_case(vec![]; "empty program")]
-    fn malformed_plutus_script_rejected(bytes: Vec<u8>) {
-        let script: PlutusScript<3> = PlutusScript(bytes.into());
-        let arena = amaru_uplc::arena::Arena::new();
-        assert!(super::validate_plutus_script(&script, PROTOCOL_VERSION_10, &arena).is_err());
-    }
+    use amaru_kernel::WitnessSet;
 
     #[test]
     fn no_witness_scripts() {

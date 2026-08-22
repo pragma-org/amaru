@@ -31,9 +31,9 @@ use crate::{
         block::TransactionInvalid,
         transaction::{
             phase_one::{
-                InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
-                InvalidValidityInterval, InvalidVerificationKeyWitness, InvalidVotingProcedures, InvalidWithdrawals,
-                PhaseOneError,
+                InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidScripts,
+                InvalidTransactionMetadata, InvalidValidityInterval, InvalidVerificationKeyWitness,
+                InvalidVotingProcedures, InvalidWithdrawals, PhaseOneError,
                 outputs::{InvalidOutput, InvalidOutputs},
                 proposals::InvalidProposals,
             },
@@ -262,6 +262,7 @@ pub(super) enum Predicate {
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
     DisallowedVoters,
+    ExtraneousScriptWitnessesUTXOW,
     FeeTooSmallUTxO,
     GovActionsDoNotExist,
     IncorrectDepositDELEG,
@@ -417,6 +418,9 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::VotingOnExpiredGovAction
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
+            PhaseOneError::Scripts(InvalidScripts::ExtraneousScriptWitnesses(_)) => {
+                Predicate::ExtraneousScriptWitnessesUTXOW
+            }
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,

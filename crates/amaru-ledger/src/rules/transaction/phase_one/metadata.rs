@@ -14,10 +14,11 @@
 
 use amaru_kernel::{AuxiliaryData, Bytes, Hash, ProtocolVersion, TransactionBody};
 use amaru_plutus::arena_pool::ArenaPool;
-use amaru_uplc::{arena::Arena, flat::FlatDecodeError};
+use amaru_uplc::{
+    arena::Arena,
+    flat::{FlatDecodeError, decode_plutus_script},
+};
 use thiserror::Error;
-
-use crate::rules::transaction::phase_one::scripts::validate_plutus_script;
 
 #[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
@@ -64,8 +65,8 @@ fn validate_auxiliary_data_scripts(
     protocol_version: ProtocolVersion,
     arena: &Arena,
 ) -> Result<(), FlatDecodeError> {
-    data.plutus_v1_scripts().iter().try_for_each(|s| validate_plutus_script(s, protocol_version, arena))?;
-    data.plutus_v2_scripts().iter().try_for_each(|s| validate_plutus_script(s, protocol_version, arena))?;
-    data.plutus_v3_scripts().iter().try_for_each(|s| validate_plutus_script(s, protocol_version, arena))?;
+    data.plutus_v1_scripts().iter().try_for_each(|s| decode_plutus_script(s, protocol_version, arena).map(|_| ()))?;
+    data.plutus_v2_scripts().iter().try_for_each(|s| decode_plutus_script(s, protocol_version, arena).map(|_| ()))?;
+    data.plutus_v3_scripts().iter().try_for_each(|s| decode_plutus_script(s, protocol_version, arena).map(|_| ()))?;
     Ok(())
 }
