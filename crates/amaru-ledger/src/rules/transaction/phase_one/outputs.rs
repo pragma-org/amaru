@@ -14,9 +14,9 @@
 
 use amaru_kernel::{
     Address, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Network,
-    PlutusVersion, ProtocolParameters, ProtocolVersion, TransactionInput, Value, size::SCRIPT,
-    utils::string::display_collection,
+    ProtocolParameters, ProtocolVersion, TransactionInput, Value, size::SCRIPT, utils::string::display_collection,
 };
+use amaru_plutus::arena_pool::ArenaPool;
 use amaru_uplc::arena::Arena;
 use thiserror::Error;
 
@@ -64,6 +64,7 @@ pub enum SupplementalDatumPolicy {
 
 pub fn execute<C>(
     context: &mut C,
+    arena_pool: &ArenaPool,
     protocol_parameters: &ProtocolParameters,
     network: Network,
     outputs: Vec<MemoizedTransactionOutput>,
@@ -74,8 +75,7 @@ where
     C: WitnessSlice + UtxoSlice + BalanceSlice,
 {
     let mut invalid_outputs = Vec::new();
-    // TODO: we should not be allocating a new arena here, instead using a shared pool, such as the one we use for phase 2 validation.
-    let mut arena = Arena::new();
+    let arena = arena_pool.acquire();
 
     for (position, output) in outputs.into_iter().enumerate() {
         inherent_value::execute(protocol_parameters, &output)
@@ -94,7 +94,7 @@ where
         }
 
         if let Some(script) = output.script.as_ref() {
-            validate_reference_script(script, protocol_parameters.protocol_version, &mut arena)
+            validate_reference_script(script, protocol_parameters.protocol_version, &arena)
                 .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
         }
 
@@ -135,12 +135,12 @@ fn validate_network(output: &MemoizedTransactionOutput, expected: Network) -> Re
 fn validate_reference_script(
     script: &MemoizedScript,
     protocol_version: ProtocolVersion,
-    arena: &mut Arena,
+    arena: &Arena,
 ) -> Result<(), InvalidOutput> {
     let result = match script {
-        MemoizedScript::PlutusV1Script(s) => validate_plutus_script(s, PlutusVersion::V1, protocol_version, arena),
-        MemoizedScript::PlutusV2Script(s) => validate_plutus_script(s, PlutusVersion::V2, protocol_version, arena),
-        MemoizedScript::PlutusV3Script(s) => validate_plutus_script(s, PlutusVersion::V3, protocol_version, arena),
+        MemoizedScript::PlutusV1Script(s) => validate_plutus_script(s, protocol_version, arena),
+        MemoizedScript::PlutusV2Script(s) => validate_plutus_script(s, protocol_version, arena),
+        MemoizedScript::PlutusV3Script(s) => validate_plutus_script(s, protocol_version, arena),
         MemoizedScript::NativeScript(_) => return Ok(()),
     };
     result.map_err(|_| InvalidOutput::MalformedReferenceScript(script.script_hash()))

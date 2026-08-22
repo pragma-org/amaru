@@ -48,6 +48,9 @@ Other guiding principles:
 - **amaru-kernel**: `Hash` (and newtypes / `FixedBytes`) serialize as CBOR byte strings on the tracing path; JSON serde still uses hex. JSON/console/TUI/OTEL span sinks render those bytes as hex; OTEL logs keep byte strings.
 - **amaru**: use the `amaru-observability` crate with all other amaru crates so that all tracing events have a schema (#1266).
 
+### Changed
+- **amaru-ledger**: restructured script validations and sped up phase-one validation by up to ~11.5%
+
 ### Fixed
 
 - **amaru-protocols**: cancel the tx-submission responder's inflight-fetch timeout as soon as the peer replies, so bursty inbound traffic cannot fill the priority mailbox and panic ([#1270](https://github.com/pragma-org/amaru/issues/1270)).
@@ -57,7 +60,7 @@ Other guiding principles:
 - **amaru-stores**: abort on chain-store header and block loads whose content does not hash to the requested key (including the block body hash), including diagnostic scans ([#1261](https://github.com/pragma-org/amaru/issues/1261)).
 - **amaru-ledger**: drop the block-body-hash rule; the chain store now enforces it on load ([#1261](https://github.com/pragma-org/amaru/issues/1261)).
 - **workflows**: executable permissions are now correctly preserved in the release workflow.
-- **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
+- **amaru-ledger**: correctly calculate an output's minimum lovelace value.
 - **amaru-ledger**: do not re-encode locally submitted transactions to obtain their size.
 - **amaru-protocols**: preserve bytes of transactions flowing through the mempool.
 - **amaru-tui**: tweak block dissemination metrics headers (fetch → select, sync → fetch)

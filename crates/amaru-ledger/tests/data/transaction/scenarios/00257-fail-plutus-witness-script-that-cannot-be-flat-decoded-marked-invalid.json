@@ -1,0 +1,31 @@
+{
+  "title": "plutus witness script that cannot be flat decoded, marked invalid",
+  "description": "A transaction marked invalid spending an input locked by a Plutus V3 script whose flat encoding is truncated.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820c6268e1b46ef4a8a39f835d07fba81d8fb194ec1d0dd8dd371fad678d8a875de00",
+        "output": "a200581d70a699ffd97973265b05ef23114b7989526cdce6807f2395f40ab77960011a004c4b40"
+      },
+      {
+        "input": "82582082c43481a876db37489bb1a248e6985f6c143a4f0b77fe6a422c504873f1d4ee00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a600d9010281825820c6268e1b46ef4a8a39f835d07fba81d8fb194ec1d0dd8dd371fad678d8a875de000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0049b7d3021a0002936d0b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd901028182582082c43481a876db37489bb1a248e6985f6c143a4f0b77fe6a422c504873f1d4ee000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840cf69ec96b6a4b7c4ea4797d2b0f5ef44e87b89563ddadbcc9b1d6311b48ad2ed42d158a124bd87028be376982c6fc056cc587335f22d404e7062c1082152e80705a18200008200821907d01a000f424007d90102814342deadf4f6",
+  "expected": {
+    "predicate": "MalformedScriptWitnesses"
+  }
+}

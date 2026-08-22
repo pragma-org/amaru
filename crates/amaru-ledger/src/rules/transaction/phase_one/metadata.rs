@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryData, Bytes, Hash, PlutusVersion, ProtocolVersion, TransactionBody};
+use amaru_kernel::{AuxiliaryData, Bytes, Hash, ProtocolVersion, TransactionBody};
+use amaru_plutus::arena_pool::ArenaPool;
 use amaru_uplc::{arena::Arena, flat::FlatDecodeError};
 use thiserror::Error;
 
@@ -36,6 +37,7 @@ pub enum InvalidTransactionMetadata {
 }
 
 pub fn execute(
+    arena_pool: &ArenaPool,
     transaction: &TransactionBody,
     auxiliary_data: Option<&AuxiliaryData>,
     protocol_version: ProtocolVersion,
@@ -50,9 +52,8 @@ pub fn execute(
                 return Err(InvalidTransactionMetadata::ConflictingMetadataHash { supplied, expected });
             }
 
-            // TODO: we should not be allocating a new arena here, instead using a shared pool, such as the one we use for phase 2 validation.
-            let mut arena = Arena::new();
-            validate_auxiliary_data_scripts(data, protocol_version, &mut arena)?;
+            let arena = arena_pool.acquire();
+            validate_auxiliary_data_scripts(data, protocol_version, &arena)?;
             Ok(())
         }
     }
@@ -61,16 +62,10 @@ pub fn execute(
 fn validate_auxiliary_data_scripts(
     data: &AuxiliaryData,
     protocol_version: ProtocolVersion,
-    arena: &mut Arena,
+    arena: &Arena,
 ) -> Result<(), FlatDecodeError> {
-    data.plutus_v1_scripts()
-        .iter()
-        .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V1, protocol_version, arena))?;
-    data.plutus_v2_scripts()
-        .iter()
-        .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V2, protocol_version, arena))?;
-    data.plutus_v3_scripts()
-        .iter()
-        .try_for_each(|s| validate_plutus_script(s, PlutusVersion::V3, protocol_version, arena))?;
+    data.plutus_v1_scripts().iter().try_for_each(|s| validate_plutus_script(s, protocol_version, arena))?;
+    data.plutus_v2_scripts().iter().try_for_each(|s| validate_plutus_script(s, protocol_version, arena))?;
+    data.plutus_v3_scripts().iter().try_for_each(|s| validate_plutus_script(s, protocol_version, arena))?;
     Ok(())
 }

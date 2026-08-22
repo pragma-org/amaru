@@ -25,7 +25,6 @@ use amaru_kernel::{
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
-use amaru_plutus::arena_pool::ArenaPool;
 use amaru_uplc::{
     arena::Arena,
     flat::{FlatDecodeError, decode_plutus_script},
@@ -134,9 +133,6 @@ pub enum InvalidScripts {
     )]
     MissingRedeemers(Vec<RedeemerKey>),
 
-    #[error("malformed script witnesses: [{}]", display_collection(.0))]
-    MalformedScriptWitnesses(BTreeSet<Hash<SCRIPT>>),
-
     #[error("transaction execution units exceeded: provided {provided:?}, max {max:?}")]
     TooManyExUnits { provided: ExUnits, max: ExUnits },
 
@@ -148,15 +144,11 @@ pub enum InvalidScripts {
         format_expected_integrity(.expected.as_deref())
     )]
     ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Box<ScriptIntegrityData>> },
-
-    #[error("no cost model in protocol parameters for language used by transaction: {0:?}")]
-    MissingCostModel(PlutusVersion),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(
     context: &mut C,
-    arena_pool: &ArenaPool,
     witness_set: &WitnessSet,
     validity_interval: ValidityInterval,
     protocol_parameters: &ProtocolParameters,
@@ -172,13 +164,7 @@ where
     let required_script_hashes: BTreeSet<&Hash<SCRIPT>> =
         required_scripts.iter().map(|RequiredScript { hash, .. }| hash).collect();
 
-    let provided_scripts = collect_provided_scripts(
-        context,
-        arena_pool,
-        &required_script_hashes,
-        witness_set,
-        protocol_parameters.protocol_version,
-    )?;
+    let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set);
 
     super::native_scripts::execute(&provided_scripts, &required_script_hashes, witness_set, validity_interval)?;
 
@@ -213,17 +199,6 @@ where
 
     if !extra_redeemers.is_empty() {
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
-    }
-
-    for lang in &languages {
-        let has_cost_model = match lang {
-            PlutusVersion::V1 => protocol_parameters.cost_models.plutus_v1.is_some(),
-            PlutusVersion::V2 => protocol_parameters.cost_models.plutus_v2.is_some(),
-            PlutusVersion::V3 => protocol_parameters.cost_models.plutus_v3.is_some(),
-        };
-        if !has_cost_model {
-            return Err(InvalidScripts::MissingCostModel(*lang));
-        }
     }
 
     // NOTE: Two conformance tests ("PlutusV3 Initialization/Updating CostModels ...") fail this
@@ -351,26 +326,21 @@ fn datum_hashes(witness_set: &WitnessSet) -> BTreeSet<Hash<DATUM>> {
 /// - Scripts from collateral return
 fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
-    arena_pool: &ArenaPool,
     required: &BTreeSet<&Hash<SCRIPT>>,
     witness_set: &'a WitnessSet,
-    protocol_version: ProtocolVersion,
-) -> Result<BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>, InvalidScripts>
+) -> BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>
 where
     C: WitnessSlice,
 {
-    let mut provided = validate_witness_scripts(arena_pool, witness_set, protocol_version)?;
+    let mut provided = collect_witness_scripts(witness_set);
 
-    // Reference-input scripts are not validated here — they were validated when the producing
-    // transaction's outputs went through the output rule. We only include those required by
-    // the transaction.
     for (script_hash, script_ref) in context.known_scripts() {
         if required.contains(&script_hash) {
             provided.insert(script_hash, ProvidedScript::from(script_ref));
         }
     }
 
-    Ok(provided)
+    provided
 }
 
 /// Ensures that the required and provided scripts match exactly (i.e. check that they're included
@@ -487,40 +457,18 @@ fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> 
 }
 
 /// Attempts to flat decode the script bytes to validate they are well formed.
-/// Takes an arena to decode the script into, and then resets it.
 pub(crate) fn validate_plutus_script<const V: usize>(
     script: &PlutusScript<V>,
-    plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
     arena: &Arena,
 ) -> Result<(), FlatDecodeError> {
-    let (_program, decoded_version) = decode_plutus_script(script, protocol_version, arena)?;
-
-    if plutus_version != decoded_version {
-        // TODO: Should not be a FlatDecodeError here, but something higher level.
-        return Err(FlatDecodeError::Message(format!(
-            "mismatch in Plutus version: declared={plutus_version:?}, found={decoded_version:?}"
-        )));
-    }
-
-    // TODO: Carry decoded programs throughout
-    //
-    // We decode the script bytes here and, if they're well-formed, again during phase 2 validations.
-    // We should decode the script bytes once, and then pass them to phase 2 validation for execution.
+    decode_plutus_script(script, protocol_version, arena)?;
     Ok(())
 }
 
-/// Validate every Plutus script in the witness set and return the witness set's scripts keyed
-/// by hash (native scripts are included as-is; Plutus scripts are included after their bytes
-/// successfully decode under the given protocol version). Fails with
-/// `MalformedScriptWitnesses` if any Plutus script's flat encoding doesn't decode.
-fn validate_witness_scripts<'a>(
-    arena_pool: &'_ ArenaPool,
-    witness_set: &'a WitnessSet,
-    protocol_version: ProtocolVersion,
-) -> Result<BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>, InvalidScripts> {
+/// Collect the witness set's scripts keyed by hash.
+fn collect_witness_scripts(witness_set: &WitnessSet) -> BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>> {
     let mut provided = BTreeMap::new();
-    let mut malformed = BTreeSet::new();
 
     if let Some(scripts) = witness_set.native_script.as_deref() {
         for script in scripts {
@@ -528,79 +476,31 @@ fn validate_witness_scripts<'a>(
         }
     }
 
-    let arena = arena_pool.acquire();
+    collect_plutus_witness_scripts(witness_set.plutus_v1_script.as_deref(), PlutusVersion::V1, &mut provided);
 
-    collect_plutus_witness_scripts(
-        witness_set.plutus_v1_script.as_deref(),
-        PlutusVersion::V1,
-        protocol_version,
-        &arena,
-        &mut provided,
-        &mut malformed,
-    );
+    collect_plutus_witness_scripts(witness_set.plutus_v2_script.as_deref(), PlutusVersion::V2, &mut provided);
 
-    collect_plutus_witness_scripts(
-        witness_set.plutus_v2_script.as_deref(),
-        PlutusVersion::V2,
-        protocol_version,
-        &arena,
-        &mut provided,
-        &mut malformed,
-    );
+    collect_plutus_witness_scripts(witness_set.plutus_v3_script.as_deref(), PlutusVersion::V3, &mut provided);
 
-    collect_plutus_witness_scripts(
-        witness_set.plutus_v3_script.as_deref(),
-        PlutusVersion::V3,
-        protocol_version,
-        &arena,
-        &mut provided,
-        &mut malformed,
-    );
-
-    // TODO: Early return of ledger failures
-    //
-    // It is essential for the ledger to return as early as possible to minimize the amount of work
-    // being done. We could potentially adjust this behaviour at a later stage when running in a
-    // client mode to provide better errors; but that's not the goal _right now_. Note that I am
-    // not changing this now because:
-    //
-    // 1. I am in the middle of a review and it's not the time; it might break unrelated tests.
-    // 2. I would like to do a more extensive pass on the whole ledger regarding this; there might
-    //    be more similar occurences.
-    //
-    // TL; DR; do not decode ALL scripts if one is malformed, return at the first one.
-    if !malformed.is_empty() {
-        return Err(InvalidScripts::MalformedScriptWitnesses(malformed));
-    }
-
-    Ok(provided)
+    provided
 }
 
 fn collect_plutus_witness_scripts<const V: usize>(
     scripts: Option<&[PlutusScript<V>]>,
     plutus_version: PlutusVersion,
-    protocol_version: ProtocolVersion,
-    arena: &Arena,
     provided: &mut BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>,
-    malformed: &mut BTreeSet<Hash<SCRIPT>>,
 ) {
     let Some(scripts) = scripts else { return };
     for script in scripts {
         let hash = script.script_hash();
         provided.insert(hash, ProvidedScript::from(plutus_version));
-        if validate_plutus_script(script, plutus_version, protocol_version, arena).is_err() {
-            malformed.insert(hash);
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{NonEmptyVec, PROTOCOL_VERSION_10, PlutusScript, WitnessSet};
-    use amaru_plutus::arena_pool::ArenaPool;
+    use amaru_kernel::{PROTOCOL_VERSION_10, PlutusScript, WitnessSet};
     use test_case::test_case;
-
-    use super::{InvalidScripts, PlutusVersion};
 
     /// Well-formedness is decided by the UPLC decoder, so a truncated or empty program is rejected
     /// before it is ever evaluated.
@@ -609,28 +509,13 @@ mod tests {
     fn malformed_plutus_script_rejected(bytes: Vec<u8>) {
         let script: PlutusScript<3> = PlutusScript(bytes.into());
         let arena = amaru_uplc::arena::Arena::new();
-        assert!(super::validate_plutus_script(&script, PlutusVersion::V3, PROTOCOL_VERSION_10, &arena).is_err());
+        assert!(super::validate_plutus_script(&script, PROTOCOL_VERSION_10, &arena).is_err());
     }
 
     #[test]
-    fn malformed_witness_script_detected() {
-        let witness_set = WitnessSet {
-            plutus_v3_script: Some(NonEmptyVec::singleton(PlutusScript(vec![0xDE, 0xAD].into()))),
-            ..WitnessSet::default()
-        };
-
-        assert!(matches!(
-            super::validate_witness_scripts(&ArenaPool::new(1, 1024), &witness_set, PROTOCOL_VERSION_10),
-            Err(InvalidScripts::MalformedScriptWitnesses(ref hashes)) if hashes.len() == 1
-        ));
-    }
-
-    #[test]
-    fn no_scripts_no_malformed() {
-        let arena_pool = ArenaPool::new(1, 1024);
+    fn no_witness_scripts() {
         let witness_set = WitnessSet::default();
-        let provided = super::validate_witness_scripts(&arena_pool, &witness_set, PROTOCOL_VERSION_10)
-            .expect("empty witness set should not produce malformed scripts");
+        let provided = super::collect_witness_scripts(&witness_set);
         assert!(provided.is_empty());
     }
 }
