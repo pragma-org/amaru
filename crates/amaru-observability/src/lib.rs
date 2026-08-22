@@ -55,6 +55,7 @@ pub use telemetry_capture::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, 
 pub use trace_context::TraceContext;
 pub use tracing::{self, Instrument};
 pub use tracing_opentelemetry;
+pub use tracing_subscriber;
 
 #[macro_export]
 macro_rules! trace_event {

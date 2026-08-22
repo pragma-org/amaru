@@ -5932,11 +5932,16 @@
     "amaru::protocols::mux::EMPTY_SEGMENT": {
       "type": "object",
       "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
         "role": {
           "type": "string"
         }
       },
       "required": [
+        "peer",
         "role"
       ],
       "optional": [],
@@ -5950,6 +5955,10 @@
     "amaru::protocols::mux::FAILED": {
       "type": "object",
       "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
         "role": {
           "type": "string"
         },
@@ -5961,6 +5970,7 @@
         }
       },
       "required": [
+        "peer",
         "role",
         "operation",
         "error"

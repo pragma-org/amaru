@@ -91,7 +91,10 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use tracing_subscriber::fmt::MakeWriter;
+    use amaru_observability::{
+        tracing,
+        tracing_subscriber::{self, fmt::MakeWriter},
+    };
 
     use super::*;
 

@@ -224,7 +224,7 @@ pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessag
                 }
                 write!(&mut err, "{}", error).ok();
             }
-            error!(protocols::mux::FAILED, peer = &peer, role = muxer.role().to_string().to_string(), operation = "muxing", error = err.to_string());
+            error!(protocols::mux::FAILED, peer = &peer, role = muxer.role().to_string().to_string().to_string(), operation = "muxing", error = err.to_string());
         })
         .await;
 
@@ -276,7 +276,7 @@ async fn handle_msg(
             Ok(())
         }
         MuxMessage::Terminate => {
-            debug!(protocols::mux::TERMINATING, role = muxer.role().to_string().to_string());
+            debug!(protocols::mux::TERMINATING, role = muxer.role().to_string().to_string().to_string());
             eff.terminate::<Void>().await;
             Ok(())
         }

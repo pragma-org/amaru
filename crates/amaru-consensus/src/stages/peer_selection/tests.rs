@@ -677,9 +677,12 @@ fn test_adversarial_static_outbound_does_not_readd_while_connected() {
             te_state("ps-1", &after_ban).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_and_remove(Level::WARN, &["removing peer (outbound)"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="static.example:1""#])
+        .assert_and_remove(
+            Level::WARN,
+            &["peer.ban", "peer_selection.peer.removed", r#"direction="outbound""#, "is_static=true"],
+        )
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="static.example:1""#])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -1132,10 +1135,16 @@ fn test_earlier_cooldown_reschedules_timer() {
     logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="static1:1""#])
         .assert_and_remove(
             Level::WARN,
-            &["peer_selection.peer.removed", r#"peer="static1:1""#, r#"direction="outbound""#, "is_static=true"],
+            &[
+                "peer.ban",
+                "peer_selection.peer.removed",
+                r#"peer="static1:1""#,
+                r#"direction="outbound""#,
+                "is_static=true",
+            ],
         )
         .assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="other:1""#])
-        .assert_and_remove(Level::INFO, &["peer.ban", r#"peer="static1:1""#, "was_banned=false", r#"peer="static1:1""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="static1:1""#, "was_banned=false"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 

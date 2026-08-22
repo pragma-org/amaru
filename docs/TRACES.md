@@ -2669,13 +2669,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | role |  |
-| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | role, operation, error |  |
+| `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | peer, role |  |
+| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | peer, role, operation, error |  |
 
 <details><summary>span: `empty_segment`</summary>
 
 | field | type | required |
 | --- | --- | --- |
+| `peer` | `string` | ✓ |
 | `role` | `string` | ✓ |
 
 </details>
@@ -2684,6 +2685,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
+| `peer` | `string` | ✓ |
 | `role` | `string` | ✓ |
 | `operation` | `string` | ✓ |
 | `error` | `string` | ✓ |

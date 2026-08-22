@@ -316,10 +316,11 @@ fn test_reconnect_intersect_then_roll_forward() {
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
-    logs.assert_and_remove(Level::INFO, &["chainsync terminated"])
-        .assert_and_remove(Level::INFO, &["initializing chainsync"])
-        .assert_and_remove(Level::INFO, &["intersect found"])
-        .assert_and_remove(Level::DEBUG, &["roll forward", "new header"])
+    logs.assert_and_remove(Level::INFO, &["chainsync.terminated"])
+        .assert_and_remove(Level::INFO, &["chainsync.initialized"])
+        .assert_and_remove(Level::INFO, &["chainsync.intersect_found"])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -607,11 +608,9 @@ fn test_roll_forward_accepts_empty_slots_in_the_past() {
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
-    logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]

@@ -120,9 +120,6 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tokio-util",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
  "zstd",
 ]
 
