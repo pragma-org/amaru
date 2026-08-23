@@ -15,7 +15,6 @@
 //! Process lifecycle: per-subcommand Tokio runtimes and main-thread signal polling.
 
 use std::{
-    error::Error,
     future::Future,
     io, process,
     sync::{
@@ -28,6 +27,7 @@ use std::{
 };
 
 use amaru_metrics::Meter;
+use anyhow::{Context, anyhow};
 use parking_lot::Mutex;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
@@ -80,7 +80,7 @@ pub enum FirstSignal {
     ImmediateExit,
 }
 
-type CmdFuture = std::pin::Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + 'static>>;
+type CmdFuture = std::pin::Pin<Box<dyn Future<Output = anyhow::Result<()>> + 'static>>;
 type CmdWork = Box<dyn FnOnce(ShutdownHandle, Meter) -> CmdFuture + Send>;
 
 /// A fully resolved leaf subcommand ready to run under the process lifecycle.
@@ -102,7 +102,7 @@ impl Runnable {
     pub fn soft<F, Fut>(runtime: RuntimeKind, work: F) -> Self
     where
         F: FnOnce(ShutdownHandle, Meter) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<(), Box<dyn Error>>> + 'static,
+        Fut: Future<Output = anyhow::Result<()>> + 'static,
     {
         Self {
             runtime,
@@ -117,7 +117,7 @@ impl Runnable {
     pub fn exit_on_signal<F, Fut>(runtime: RuntimeKind, work: F) -> Self
     where
         F: FnOnce() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<(), Box<dyn Error>>> + 'static,
+        Fut: Future<Output = anyhow::Result<()>> + 'static,
     {
         Self {
             runtime,
@@ -133,14 +133,14 @@ impl Runnable {
     /// Drive this command on an already-built runtime (observability must already be set up).
     ///
     /// Does **not** shut down `rt`; the caller tears down observability and then the runtime.
-    pub fn run_on(self, rt: &Runtime, signals: &SignalState, meter: Meter) -> Result<(), Box<dyn Error>> {
+    pub fn run_on(self, rt: &Runtime, signals: &SignalState, meter: Meter) -> anyhow::Result<()> {
         run_until_exit(rt, signals, self.first_signal, self.work, meter)
     }
 
     /// Build a runtime, run the command with no meter provider, then shut the runtime down.
     ///
     /// Prefer the explicit build → observability → [`Self::run_on`] sequence in the binary.
-    pub fn run(self, signals: &SignalState) -> Result<(), Box<dyn Error>> {
+    pub fn run(self, signals: &SignalState) -> anyhow::Result<()> {
         let rt = self.build_runtime()?;
         let result = self.run_on(&rt, signals, Meter::default());
         rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
@@ -217,7 +217,8 @@ pub fn runtime_node() -> io::Result<Runtime> {
 /// Run `work` on `rt` while the calling (main) thread polls termination signals.
 ///
 /// The command future is driven via `Handle::block_on` on a dedicated worker thread so that
-/// `Box<dyn Error>` command results do not need to be `Send` through `tokio::spawn`.
+/// command futures do not need to be `Send` through `tokio::spawn`. The [`anyhow::Error`]
+/// result is sent back on a channel so context is preserved.
 ///
 /// Signal policy is controlled by [`FirstSignal`].
 ///
@@ -229,26 +230,26 @@ pub fn run_until_exit(
     first_signal: FirstSignal,
     work: CmdWork,
     meter: Meter,
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     let shutdown = ShutdownHandle::new();
     let shutdown_work = shutdown.clone();
     let handle = rt.handle().clone();
 
-    let (result_tx, result_rx) = mpsc::channel::<Result<(), String>>();
+    let (result_tx, result_rx) = mpsc::channel::<anyhow::Result<()>>();
     let worker = thread::Builder::new()
         .name("amaru-cmd".into())
         .spawn(move || {
             let result = handle.block_on(work(shutdown_work, meter));
-            let _ = result_tx.send(result.map_err(|err| err.to_string()));
+            let _ = result_tx.send(result);
         })
-        .map_err(|e| format!("failed to spawn command worker thread: {e}"))?;
+        .context("failed to spawn command worker thread")?;
 
     let mut graceful = false;
     let result = loop {
         match result_rx.try_recv() {
             Ok(result) => break result,
             Err(mpsc::TryRecvError::Disconnected) => {
-                break Err("command worker thread ended without a result".to_string());
+                break Err(anyhow!("command worker thread ended without a result"));
             }
             Err(mpsc::TryRecvError::Empty) => {}
         }
@@ -280,12 +281,12 @@ pub fn run_until_exit(
         Err(_) => {
             // Prefer the channel result if present; otherwise report panic.
             if result.is_ok() {
-                return Err("command worker thread panicked".into());
+                anyhow::bail!("command worker thread panicked");
             }
         }
     }
 
-    result.map_err(|msg| msg.into())
+    result
 }
 
 fn emit_signal_stderr(message: &str) {

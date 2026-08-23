@@ -20,6 +20,7 @@ use std::{
     process::{self, Command},
 };
 
+use anyhow::Context;
 use tracing::{debug, warn};
 
 pub struct ProcessIdHandle {
@@ -28,12 +29,13 @@ pub struct ProcessIdHandle {
 }
 
 impl ProcessIdHandle {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref().to_path_buf();
         let pid = process::id();
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create PID file directory {}", parent.display()))?;
         }
 
         let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -43,22 +45,25 @@ impl ProcessIdHandle {
                     fs::read_to_string(&path).ok().and_then(|content| content.trim().parse::<u32>().ok())
                 {
                     if process_exists(existing_pid) {
-                        return Err(format!(
-                            "process {} is already running. Consider using a different PID file.",
-                            existing_pid
-                        )
-                        .into());
+                        anyhow::bail!(
+                            "process {existing_pid} is already running. Consider using a different PID file."
+                        );
                     }
-                    fs::remove_file(&path)?;
-                    fs::OpenOptions::new().write(true).create_new(true).open(&path)?
+                    fs::remove_file(&path)
+                        .with_context(|| format!("failed to replace stale PID file {}", path.display()))?;
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                        .with_context(|| format!("failed to create PID file {}", path.display()))?
                 } else {
-                    return Err(err.into());
+                    return Err(err).with_context(|| format!("failed to create PID file {}", path.display()));
                 }
             }
-            Err(err) => return Err(err.into()),
+            Err(err) => return Err(err).with_context(|| format!("failed to create PID file {}", path.display())),
         };
 
-        write!(file, "{pid}")?;
+        write!(file, "{pid}").with_context(|| format!("failed to write PID file {}", path.display()))?;
         Ok(Self { path, pid })
     }
 

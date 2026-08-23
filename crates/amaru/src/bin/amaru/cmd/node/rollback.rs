@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, path::PathBuf};
+use std::path::PathBuf;
 
 use amaru::{
     default_chain_dir, default_ledger_dir,
@@ -89,7 +89,7 @@ pub(crate) fn runnable_epoch(
     runnable(Args { immutable_tip: false, epoch: Some(epoch), chain_dir, ledger_dir, network })
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let network = args.network;
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());

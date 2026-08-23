@@ -21,6 +21,7 @@ use amaru::{
 use amaru_kernel::{Epoch, NetworkName};
 use amaru_ledger::state::MIN_LEDGER_SNAPSHOTS;
 use amaru_stores::rocksdb::RocksDB;
+use anyhow::Context;
 use clap::Parser;
 use tracing::{info, warn};
 
@@ -52,7 +53,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 #[expect(clippy::print_stdout)]
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
@@ -66,18 +67,18 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let remaining_after = existing.iter().filter(|e| !args.epochs.contains(e)).count();
 
     if remaining_after < MIN_LEDGER_SNAPSHOTS as usize {
-        return Err(format!(
+        anyhow::bail!(
             "refusing to remove: would leave only {} snapshots (minimum required: {})",
-            remaining_after, MIN_LEDGER_SNAPSHOTS
-        )
-        .into());
+            remaining_after,
+            MIN_LEDGER_SNAPSHOTS
+        );
     }
 
     let mut removed = 0u64;
     for epoch in &args.epochs {
         let epoch_dir = ledger_dir.join(format!("{epoch}"));
         if epoch_dir.exists() {
-            fs::remove_dir_all(&epoch_dir).map_err(|e| format!("failed to remove {}: {e}", epoch_dir.display()))?;
+            fs::remove_dir_all(&epoch_dir).with_context(|| format!("failed to remove {}", epoch_dir.display()))?;
             info!(epoch = u64::from(*epoch), "removed snapshot");
             removed += 1;
         } else {

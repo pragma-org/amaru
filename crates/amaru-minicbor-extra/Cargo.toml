@@ -20,6 +20,7 @@ default = []
 tracing = ["dep:tracing"]
 
 [dependencies]
+anyhow.workspace = true
 minicbor.workspace = true
 num-bigint.workspace = true
 num.workspace = true

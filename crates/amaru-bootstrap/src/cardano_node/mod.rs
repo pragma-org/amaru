@@ -18,7 +18,7 @@ use amaru_kernel::{
     BlockHeight, EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, HeaderHash, Nonce, Point,
 };
 use amaru_ouroboros::OpcertSequenceNumbers;
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use minicbor::Decoder;
 use tracing::warn;
 
@@ -46,7 +46,7 @@ pub(super) struct StateSnapshotPrefix {
 pub fn parse_state_snapshot(
     d: &mut Decoder<'_>,
     global_parameters: &GlobalParameters,
-) -> Result<ParsedStateSnapshot, Box<dyn std::error::Error>> {
+) -> anyhow::Result<ParsedStateSnapshot> {
     let prefix = parse_state_snapshot_prefix(d, global_parameters)?;
     d.skip()?;
 
@@ -63,7 +63,7 @@ pub fn parse_state_snapshot(
 pub(super) fn parse_state_snapshot_prefix(
     d: &mut Decoder<'_>,
     global_parameters: &GlobalParameters,
-) -> Result<StateSnapshotPrefix, Box<dyn std::error::Error>> {
+) -> anyhow::Result<StateSnapshotPrefix> {
     d.array()?;
 
     // version
@@ -95,7 +95,7 @@ pub(super) fn extract_snapshot_chain_state_after_ledger(
     d: &mut Decoder<'_>,
     at: Point,
     tail: HeaderHash,
-) -> Result<ChainState, Box<dyn std::error::Error>> {
+) -> anyhow::Result<ChainState> {
     d.skip()?;
     d.skip()?;
 
@@ -104,7 +104,9 @@ pub(super) fn extract_snapshot_chain_state_after_ledger(
     d.skip()?;
 
     // ChainDepState for Praos
-    let num_eras = d.array()?.ok_or("chain dep state encoded as indefinite array; cannot determine numbers of eras")?;
+    let num_eras = d
+        .array()?
+        .ok_or_else(|| anyhow!("chain dep state encoded as indefinite array; cannot determine numbers of eras"))?;
 
     // Previous, terminated, eras.
     for _ in 1..num_eras {
@@ -149,9 +151,8 @@ pub fn parse_state_snapshot_with_chain_state(
     mut d: Decoder<'_>,
     global_parameters: &GlobalParameters,
     tail: HeaderHash,
-) -> Result<(ParsedStateSnapshot, ChainState), Box<dyn std::error::Error>> {
-    let parsed_snapshot =
-        parse_state_snapshot(&mut d, global_parameters).map_err(|err| format!("parse state snapshot prefix: {err}"))?;
+) -> anyhow::Result<(ParsedStateSnapshot, ChainState)> {
+    let parsed_snapshot = parse_state_snapshot(&mut d, global_parameters).context("parse state snapshot prefix")?;
     let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
     let chain_state = extract_snapshot_chain_state_after_ledger(&mut d, at, tail)?;
 
@@ -163,7 +164,7 @@ fn decode_current_era(
     mut eras: Vec<EraSummary>,
     current_era: EraName,
     global_parameters: &GlobalParameters,
-) -> Result<StateSnapshotPrefix, Box<dyn std::error::Error>> {
+) -> anyhow::Result<StateSnapshotPrefix> {
     d.array()?;
 
     eras.push(EraSummary {
@@ -203,10 +204,7 @@ fn decode_current_era(
     Ok(StateSnapshotPrefix { slot, hash, block_height, era_history, ledger_data_begin })
 }
 
-fn decode_partial_era_summary(
-    d: &mut minicbor::Decoder<'_>,
-    era_tag: u8,
-) -> Result<EraSummary, Box<dyn std::error::Error>> {
+fn decode_partial_era_summary(d: &mut minicbor::Decoder<'_>, era_tag: u8) -> anyhow::Result<EraSummary> {
     d.array()?;
 
     let start: EraBound = d.decode()?;

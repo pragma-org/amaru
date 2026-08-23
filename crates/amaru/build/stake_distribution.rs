@@ -91,7 +91,7 @@ fn stake_distribution_test_cases_source(network: &str, epochs: &[u64]) -> Result
 const _: fn(
     amaru_kernel::NetworkName,
     amaru_kernel::Epoch,
-) -> Result<(), Box<dyn std::error::Error>> = compare_stake_distribution_with_haskell_node;
+) -> anyhow::Result<()> = compare_stake_distribution_with_haskell_node;
 "#
         ));
     }
@@ -114,7 +114,7 @@ fn render_stake_distribution_test_function(network: &str, network_variant: &str,
     }
 
     contents.push_str(&format!(
-        r#"pub fn compare_{network}_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {{
+        r#"pub fn compare_{network}_stake_distribution_with_haskell_node(epoch: u64) -> anyhow::Result<()> {{
     compare_stake_distribution_with_haskell_node(
         amaru_kernel::NetworkName::{network_variant},
         amaru_kernel::Epoch::from(epoch),

@@ -110,7 +110,7 @@ impl Command {
     }
 
     #[allow(clippy::wildcard_enum_match_arm)]
-    pub(crate) fn show_alternative_help(&self) -> Result<bool, Box<dyn std::error::Error>> {
+    pub(crate) fn show_alternative_help(&self) -> anyhow::Result<bool> {
         match self {
             Command::Node(cmd::node::NodeCommand::Run(args)) if args.help_global_parameters => {
                 GlobalParameters::show_help()?;

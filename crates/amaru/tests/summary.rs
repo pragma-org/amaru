@@ -79,10 +79,7 @@ fn load_snapshot(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send
     handle
 }
 
-fn compare_stake_distribution_with_haskell_node(
-    network: NetworkName,
-    epoch: Epoch,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn compare_stake_distribution_with_haskell_node(network: NetworkName, epoch: Epoch) -> anyhow::Result<()> {
     let ledger_dir = ledger_dir_from_tests(network);
     if !has_ledger_snapshot(&ledger_dir, epoch) {
         // Soft-skip: missing snapshots used to be `#[ignore]`d at build time. Print a warning so
@@ -97,7 +94,7 @@ fn compare_stake_distribution_with_haskell_node(
 
     let snapshot = load_snapshot(network, epoch);
 
-    let era_history = network.as_era_history().ok_or("no era history for network={network:?}?!")?;
+    let era_history = network.as_era_history().ok_or_else(|| anyhow!("no era history for network={network:?}?!"))?;
 
     let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history)?;
 
@@ -109,10 +106,10 @@ fn compare_stake_distribution_with_haskell_node(
 #[test]
 #[ignore]
 // NOTE: To see the output of this test, pass `--ignored` and `--no-capture` to the test runner.
-fn measure_new_snapshot_summary_memory() -> Result<(), Box<dyn std::error::Error>> {
+fn measure_new_snapshot_summary_memory() -> anyhow::Result<()> {
     let network = env::var(env_vars::NETWORK)
         .ok()
-        .map(|network| network.parse::<NetworkName>())
+        .map(|network| network.parse::<NetworkName>().map_err(anyhow::Error::msg))
         .transpose()?
         .unwrap_or(NetworkName::Preprod);
 
@@ -251,7 +248,7 @@ fn format_bytes(bytes: usize) -> String {
     }
 }
 
-fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, Box<dyn std::error::Error>> {
+fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> anyhow::Result<String> {
     let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("conformance")
@@ -265,12 +262,11 @@ fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, 
 
     let compressed_path = base_path.with_extension("json.zst");
     if !compressed_path.is_file() {
-        return Err(format!(
+        anyhow::bail!(
             "missing stake distribution snapshot: expected {} or {}",
             base_path.display(),
             compressed_path.display()
-        )
-        .into());
+        );
     }
 
     let mut decompressed = String::new();
@@ -279,15 +275,12 @@ fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, 
 }
 
 #[allow(clippy::panic)]
-fn assert_json_snapshot<T: serde::Serialize>(
-    network: NetworkName,
-    epoch: Epoch,
-    actual: &T,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn assert_json_snapshot<T: serde::Serialize>(network: NetworkName, epoch: Epoch, actual: &T) -> anyhow::Result<()> {
     let diffs = diff_json::compare_json(
         read_expected_snapshot(network, epoch)?.as_str(),
         serde_json::to_string_pretty(actual)?.as_str(),
-    )?;
+    )
+    .map_err(anyhow::Error::msg)?;
 
     let n: usize = std::env::var("AMARU_MAX_DIFFS")
         .map(|var| {

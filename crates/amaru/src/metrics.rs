@@ -21,12 +21,13 @@ use std::sync::Arc;
 
 use amaru_metrics::Meter;
 use amaru_node::{BuildIdentity, track_system_metrics as track_system_metrics_node};
+use anyhow::Context;
 use tokio::task::JoinHandle;
 
 use crate::version;
 
 /// Record product build identity and start the process metrics poller.
-pub fn track_system_metrics(meter: Arc<Meter>) -> Result<Option<JoinHandle<()>>, Box<dyn std::error::Error>> {
+pub fn track_system_metrics(meter: Arc<Meter>) -> anyhow::Result<Option<JoinHandle<()>>> {
     track_system_metrics_node(
         meter,
         BuildIdentity {
@@ -37,4 +38,5 @@ pub fn track_system_metrics(meter: Arc<Meter>) -> Result<Option<JoinHandle<()>>,
             arch: version::target_arch(),
         },
     )
+    .context("failed to start system metrics")
 }

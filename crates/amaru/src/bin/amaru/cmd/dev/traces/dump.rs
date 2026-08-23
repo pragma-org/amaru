@@ -31,7 +31,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let aliases = aliases::load_workspace_type_aliases_from(&env::current_dir()?)?;
     let output = generate_traces_json_schema(&SchemaEntry::all(), &aliases);
 

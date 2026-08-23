@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, fmt::Display, path::PathBuf};
+use std::{fmt::Display, path::PathBuf};
 
 use amaru::{
     default_chain_dir,
@@ -77,7 +77,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
