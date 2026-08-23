@@ -47,6 +47,7 @@ Other guiding principles:
 - **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
 - **amaru-ledger**: do not re-encode locally submitted transactions to obtain their size.
 - **amaru-protocols**: preserve bytes of transactions flowing through the mempool.
+- **amaru-tui**: tweak block dissemination metrics headers (fetch → select, sync → fetch)
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 

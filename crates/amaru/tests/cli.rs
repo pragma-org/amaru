@@ -22,7 +22,9 @@ use tempfile::TempDir;
 fn run_under_low_fd_limit(color: &str) -> Result<Output, Box<dyn Error>> {
     let root = TempDir::new()?;
     let ledger_dir = root.path().join("ledger.preprod.db");
+    std::fs::create_dir(&ledger_dir)?;
     let chain_dir = root.path().join("chain.preprod.db");
+    std::fs::create_dir(&chain_dir)?;
     let amaru = cargo_bin("amaru");
 
     let mut command = Command::new("sh");
@@ -63,7 +65,7 @@ fn explains_fd_limit_is_too_low() -> Result<(), Box<dyn Error>> {
     let rendered = String::from_utf8_lossy(&rendered);
 
     assert!(!output.status.success());
-    assert!(rendered.contains("Increase the limit for open files before starting Amaru"));
+    assert!(rendered.contains("Increase the limit for open files before starting Amaru"), "got {}", rendered);
 
     Ok(())
 }
