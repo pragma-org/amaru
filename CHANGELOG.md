@@ -40,6 +40,9 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-consensus**: resume outbound sync after a mux drop: forget the dead `Connected` entry before the replacement handshake, and do not immediately re-dial a banned static peer while the manager still holds the live connection ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
+- **amaru-consensus**: report clock-skew versus non-monotonic slot failures distinctly instead of the same “expected at least” message ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
+- **amaru-protocols**: include the `Peer` on mux receive/send failure logs ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
 - **workflows**: executable permissions are now correctly preserved in the release workflow.
 - **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
 - **amaru-ledger**: do not re-encode locally submitted transactions to obtain their size.
