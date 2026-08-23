@@ -17,6 +17,7 @@ use std::{path::PathBuf, sync::Arc};
 use amaru_kernel::NetworkName;
 use amaru_observability::info;
 use amaru_progress_bar::ProgressBar;
+use anyhow::anyhow;
 use async_trait::async_trait;
 use mithril_client::{
     ClientBuilder, GenesisVerificationKey, MessageBuilder,
@@ -96,7 +97,7 @@ impl FeedbackReceiver for MithrilFeedbackReceiver {
     }
 }
 
-fn aggregator_details(network: NetworkName) -> Result<AggregatorDetails, Box<dyn std::error::Error>> {
+fn aggregator_details(network: NetworkName) -> anyhow::Result<AggregatorDetails> {
     match network {
         NetworkName::Mainnet => Ok(AggregatorDetails {
             endpoint: "https://aggregator.release-mainnet.api.mithril.network/aggregator",
@@ -110,7 +111,7 @@ fn aggregator_details(network: NetworkName) -> Result<AggregatorDetails, Box<dyn
             endpoint: "https://aggregator.testing-preview.api.mithril.network/aggregator",
             verification_key: "5b3132372c37332c3132342c3136312c362c3133372c3133312c3231332c3230372c3131372c3139382c38352c3137362c3139392c3136322c3234312c36382c3132332c3131392c3134352c31332c3233322c3234332c34392c3232392c322c3234392c3230352c3230352c33392c3233352c34345d",
         }),
-        NetworkName::Testnet(_) => Err("Mithril is only supported on mainnet, preprod and preview".into()),
+        NetworkName::Testnet(_) => Err(anyhow!("Mithril is only supported on mainnet, preprod and preview")),
     }
 }
 
@@ -119,7 +120,7 @@ pub async fn download_from_mithril(
     target_dir: PathBuf,
     from_chunk: u64,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let AggregatorDetails { endpoint, verification_key } = aggregator_details(network)?;
     let client = ClientBuilder::new(mithril_client::AggregatorDiscoveryType::Url(endpoint.to_string()))
         .set_genesis_verification_key(GenesisVerificationKey::JsonHex(verification_key.into()))
@@ -128,14 +129,16 @@ pub async fn download_from_mithril(
         .build()?;
     let database_client = client.cardano_database_v2();
     let snapshots = database_client.list().await?;
-    let snapshot_list_item = snapshots.first().ok_or("no Mithril cardano-db snapshot found")?;
+    let snapshot_list_item =
+        snapshots.first().ok_or_else(|| anyhow::anyhow!("no Mithril cardano-db snapshot found"))?;
 
     info!(mithril::snapshot::FETCH, hash = %snapshot_list_item.hash, from_chunk);
 
     let fetch_progress = with_progress(0, "{spinner:.green} {elapsed_precise} fetching Mithril snapshot metadata");
     let snapshot = database_client.get(&snapshot_list_item.hash).await;
     fetch_progress.clear();
-    let snapshot = snapshot?.ok_or_else(|| format!("Mithril snapshot not found: {}", snapshot_list_item.hash))?;
+    let snapshot =
+        snapshot?.ok_or_else(|| anyhow::anyhow!("Mithril snapshot not found: {}", snapshot_list_item.hash))?;
     let certificate = client.certificate().verify_chain(&snapshot.certificate_hash).await?;
 
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
@@ -162,7 +165,7 @@ pub async fn download_from_mithril(
     let message = MessageBuilder::new().compute_cardano_database_message(&certificate, &merkle_proof).await?;
 
     if !certificate.match_message(&message) {
-        return Err("Mithril certificate verification failed".into());
+        return Err(anyhow::anyhow!("Mithril certificate verification failed"));
     }
 
     info!(mithril::snapshot::READY, target_dir = %target_dir.display());

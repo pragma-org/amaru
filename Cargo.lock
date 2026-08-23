@@ -409,6 +409,7 @@ name = "amaru-minicbor-extra"
 version = "0.1.2"
 dependencies = [
  "amaru-deps",
+ "anyhow",
  "hex",
  "minicbor",
  "num",

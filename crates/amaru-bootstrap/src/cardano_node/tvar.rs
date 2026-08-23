@@ -35,6 +35,7 @@ use amaru_ledger::{
 };
 use amaru_observability::info;
 use amaru_progress_bar::ProgressBar;
+use anyhow::anyhow;
 
 use super::{extract_snapshot_chain_state_after_ledger, mempack, parse_state_snapshot_prefix};
 use crate::bootstrap::ChainState;
@@ -49,7 +50,7 @@ pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<StakeCredential>,
     with_progress: F,
-) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn std::error::Error>>
+) -> anyhow::Result<(Epoch, Point, Option<ChainState>)>
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
@@ -79,7 +80,7 @@ pub(crate) fn import_state_from_tvar<S, F, State>(
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<StakeCredential>,
     with_progress: F,
-) -> Result<(Epoch, Point, EraHistory, Option<ChainState>), Box<dyn std::error::Error>>
+) -> anyhow::Result<(Epoch, Point, EraHistory, Option<ChainState>)>
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
@@ -115,7 +116,7 @@ pub(crate) fn import_utxo_from_tvar<S, F, Utxo>(
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> anyhow::Result<()>
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
@@ -132,7 +133,7 @@ fn import_tvar_utxo<S, F>(
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> anyhow::Result<()>
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
@@ -230,9 +231,9 @@ where
     Ok(())
 }
 
-fn decode_tvar_entry(input: &[u8], output: &[u8]) -> Result<(TransactionInput, MemoizedTransactionOutput), String> {
+fn decode_tvar_entry(input: &[u8], output: &[u8]) -> anyhow::Result<(TransactionInput, MemoizedTransactionOutput)> {
     if input.len() != 34 {
-        return Err("expected 34-byte TxIn key".to_string());
+        return Err(anyhow!("expected 34-byte TxIn key"));
     }
 
     let input = TransactionInput {

@@ -14,7 +14,6 @@
 
 use std::{
     collections::BTreeSet,
-    error::Error,
     fs,
     io::{self, Read, Seek, SeekFrom},
     mem::size_of,
@@ -26,7 +25,7 @@ use amaru_kernel::{GlobalParameters, Hasher, HeaderHash, NetworkName, Point, ext
 
 use crate::parse_header_slot_and_hash;
 
-type ImmutableResult<T> = Result<T, Box<dyn Error>>;
+type ImmutableResult<T> = anyhow::Result<T>;
 
 /// A block read from the cardano-node immutable store.
 #[derive(Debug)]
@@ -77,7 +76,7 @@ impl ChunkBlockIter {
 
     fn read_block(&mut self, start: u64, end: u64) -> ImmutableResult<Vec<u8>> {
         let block_len = end.checked_sub(start).ok_or_else(|| {
-            format!("invalid immutable offsets in {}: start={start}, end={end}", self.secondary_path.display())
+            anyhow::anyhow!("invalid immutable offsets in {}: start={start}, end={end}", self.secondary_path.display())
         })?;
         let mut raw_block = vec![0; usize::try_from(block_len)?];
         self.chunk_file.seek(SeekFrom::Start(start))?;
@@ -204,12 +203,8 @@ fn consume_through_point(blocks: &mut ImmutableRawBlocksIter, point: Point, targ
 
     match reached {
         Some((block_point, _)) if block_point == point => Ok(()),
-        _ => Err(point_not_found(point)),
+        _ => Err(anyhow::anyhow!("cannot find block in immutable storage: {point}")),
     }
-}
-
-fn point_not_found(point: Point) -> Box<dyn Error> {
-    format!("cannot find block in immutable storage: {point}").into()
 }
 
 /// Returns the chunk immediately before the greatest immutable chunk number.

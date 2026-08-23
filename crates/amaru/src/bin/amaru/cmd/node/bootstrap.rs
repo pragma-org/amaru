@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    error::Error,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -128,7 +127,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let network = args.network;
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
@@ -165,7 +164,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             messages.push(format!("{hint} ({dir})"));
         }
 
-        return Err(messages.join("; ").into());
+        anyhow::bail!("{}", messages.join("; "));
     }
 
     bootstrap(

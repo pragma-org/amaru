@@ -19,10 +19,11 @@ use amaru_kernel::{
     Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress, ShelleyDelegationPart,
     ShelleyPaymentPart, StakeCredential, Value, from_cbor,
 };
+use anyhow::anyhow;
 
 const MAX_VARUINT64_BYTES: usize = 10;
 
-pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutput, String> {
+pub fn decode_transaction_output(bytes: &[u8]) -> anyhow::Result<MemoizedTransactionOutput> {
     let mut decoder = Decoder::new(bytes);
 
     match decoder.tag()? {
@@ -74,7 +75,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
             decode_datum(&mut decoder)?,
             Some(decode_script(&mut decoder)?),
         ),
-        tag => Err(format!("unsupported BabbageTxOut mempack tag {tag}")),
+        tag => Err(anyhow!("unsupported BabbageTxOut mempack tag {tag}")),
     }
 }
 
@@ -84,7 +85,7 @@ fn make_transaction_output(
     value: Value,
     datum: MemoizedDatum,
     script: Option<MemoizedScript>,
-) -> Result<MemoizedTransactionOutput, String> {
+) -> anyhow::Result<MemoizedTransactionOutput> {
     Ok(MemoizedTransactionOutput::new(is_legacy, address, value, datum, script))
 }
 
@@ -98,60 +99,60 @@ impl<'a> Decoder<'a> {
         Self { bytes, offset: 0 }
     }
 
-    fn tag(&mut self) -> Result<u8, String> {
+    fn tag(&mut self) -> anyhow::Result<u8> {
         Ok(self.take(1)?[0])
     }
 
-    fn take(&mut self, len: usize) -> Result<&'a [u8], String> {
-        let end = self.offset.checked_add(len).ok_or_else(|| "mempack offset overflow".to_string())?;
+    fn take(&mut self, len: usize) -> anyhow::Result<&'a [u8]> {
+        let end = self.offset.checked_add(len).ok_or_else(|| anyhow!("mempack offset overflow"))?;
         if end > self.bytes.len() {
-            return Err(format!("unexpected end of mempack data at {} while reading {} bytes", self.offset, len));
+            return Err(anyhow!("unexpected end of mempack data at {} while reading {} bytes", self.offset, len));
         }
         let slice = &self.bytes[self.offset..end];
         self.offset = end;
         Ok(slice)
     }
 
-    fn take_array<const N: usize>(&mut self) -> Result<[u8; N], String> {
+    fn take_array<const N: usize>(&mut self) -> anyhow::Result<[u8; N]> {
         let mut bytes = [0u8; N];
         bytes.copy_from_slice(self.take(N)?);
         Ok(bytes)
     }
 
-    fn varuint(&mut self) -> Result<u64, String> {
+    fn varuint(&mut self) -> anyhow::Result<u64> {
         decode_varuint64_with(|| self.tag(), "mempack varuint")
     }
 
-    fn short_bytes(&mut self) -> Result<&'a [u8], String> {
+    fn short_bytes(&mut self) -> anyhow::Result<&'a [u8]> {
         let len = self.varuint()? as usize;
         self.take(len)
     }
 
-    fn short_bytes_vec(&mut self) -> Result<Vec<u8>, String> {
+    fn short_bytes_vec(&mut self) -> anyhow::Result<Vec<u8>> {
         Ok(self.short_bytes()?.to_vec())
     }
 
-    fn decode_from_short_bytes<T, E, F>(&mut self, what: &str, decode: F) -> Result<T, String>
+    fn decode_from_short_bytes<T, E, F>(&mut self, what: &str, decode: F) -> anyhow::Result<T>
     where
         E: std::fmt::Display,
         F: FnOnce(Vec<u8>) -> Result<T, E>,
     {
-        decode(self.short_bytes_vec()?).map_err(|err| format!("invalid {what}: {err}"))
+        decode(self.short_bytes_vec()?).map_err(|err| anyhow!("invalid {what}: {err}"))
     }
 
-    fn decode_from_short_bytes_ref<T, E, F>(&mut self, what: &str, decode: F) -> Result<T, String>
+    fn decode_from_short_bytes_ref<T, E, F>(&mut self, what: &str, decode: F) -> anyhow::Result<T>
     where
         E: std::fmt::Display,
         F: FnOnce(&[u8]) -> Result<T, E>,
     {
-        decode(self.short_bytes()?).map_err(|err| format!("invalid {what}: {err}"))
+        decode(self.short_bytes()?).map_err(|err| anyhow!("invalid {what}: {err}"))
     }
 
-    fn hash32(&mut self) -> Result<Hash<32>, String> {
+    fn hash32(&mut self) -> anyhow::Result<Hash<32>> {
         Ok(Hash::new(self.take_array()?))
     }
 
-    fn packed_hash32(&mut self) -> Result<Hash<32>, String> {
+    fn packed_hash32(&mut self) -> anyhow::Result<Hash<32>> {
         let bytes = self.take_array::<32>()?;
         let mut hash = [0u8; 32];
         for (index, chunk) in bytes.chunks(8).enumerate() {
@@ -162,14 +163,14 @@ impl<'a> Decoder<'a> {
     }
 }
 
-fn decode_compact_address(decoder: &mut Decoder<'_>) -> Result<Address, String> {
+fn decode_compact_address(decoder: &mut Decoder<'_>) -> anyhow::Result<Address> {
     let bytes = decoder.short_bytes()?;
     let normalized = normalize_compact_address(bytes)?;
 
-    Address::from_bytes(&normalized).ok_or_else(|| "invalid compact address".to_string())
+    Address::from_bytes(&normalized).ok_or_else(|| anyhow!("invalid compact address"))
 }
 
-fn normalize_compact_address(bytes: &[u8]) -> Result<Vec<u8>, String> {
+fn normalize_compact_address(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
     if !is_pointer_compact_address(bytes) {
         return Ok(bytes.to_vec());
     }
@@ -204,11 +205,11 @@ fn is_pointer_compact_address(bytes: &[u8]) -> bool {
     !is_byron && !is_account && is_not_base && !is_enterprise
 }
 
-fn decode_varuint64(bytes: &[u8], offset: &mut usize, field_name: &str) -> Result<u64, String> {
+fn decode_varuint64(bytes: &[u8], offset: &mut usize, field_name: &str) -> anyhow::Result<u64> {
     decode_varuint64_with(
         || {
             if *offset >= bytes.len() {
-                return Err(format!("unexpected end of compact address while decoding {field_name}"));
+                return Err(anyhow!("unexpected end of compact address while decoding {field_name}"));
             }
 
             let byte = bytes[*offset];
@@ -219,9 +220,9 @@ fn decode_varuint64(bytes: &[u8], offset: &mut usize, field_name: &str) -> Resul
     )
 }
 
-fn decode_varuint64_with<F>(mut next_byte: F, what: &str) -> Result<u64, String>
+fn decode_varuint64_with<F>(mut next_byte: F, what: &str) -> anyhow::Result<u64>
 where
-    F: FnMut() -> Result<u8, String>,
+    F: FnMut() -> anyhow::Result<u8>,
 {
     let mut value = 0_u64;
 
@@ -230,14 +231,14 @@ where
         value = value
             .checked_mul(0x80)
             .and_then(|value| value.checked_add(u64::from(byte & 0x7f)))
-            .ok_or_else(|| format!("{what} overflows u64"))?;
+            .ok_or_else(|| anyhow!("{what} overflows u64"))?;
 
         if byte & 0x80 == 0 {
             return Ok(value);
         }
 
         if byte_index + 1 == MAX_VARUINT64_BYTES {
-            return Err(format!("{what} exceeds {MAX_VARUINT64_BYTES} bytes"));
+            return Err(anyhow!("{what} exceeds {MAX_VARUINT64_BYTES} bytes"));
         }
     }
 
@@ -275,19 +276,19 @@ fn encode_varuint64(mut value: u64, out: &mut Vec<u8>) {
     }
 }
 
-fn decode_stake_credential(decoder: &mut Decoder<'_>) -> Result<StakeCredential, String> {
+fn decode_stake_credential(decoder: &mut Decoder<'_>) -> anyhow::Result<StakeCredential> {
     let tag = decoder.tag()?;
     let hash = Hash::new(decoder.take_array()?);
     match tag {
         0 => Ok(StakeCredential::ScriptHash(hash)),
         1 => Ok(StakeCredential::AddrKeyhash(hash)),
-        other => Err(format!("unsupported stake credential tag {other}")),
+        other => Err(anyhow!("unsupported stake credential tag {other}")),
     }
 }
 
-fn decode_address28(decoder: &mut Decoder<'_>, stake: StakeCredential) -> Result<Address, String> {
+fn decode_address28(decoder: &mut Decoder<'_>, stake: StakeCredential) -> anyhow::Result<Address> {
     let extra = decoder.take_array::<32>()?;
-    let flags = u32::from_le_bytes(extra[24..28].try_into().map_err(|_| "slice length checked".to_string())?);
+    let flags = u32::from_le_bytes(extra[24..28].try_into().map_err(|_| anyhow!("slice length checked"))?);
 
     let mut payment_hash = [0u8; 28];
     for (i, chunk) in extra[..24].chunks(8).enumerate() {
@@ -309,15 +310,15 @@ fn decode_address28(decoder: &mut Decoder<'_>, stake: StakeCredential) -> Result
     Ok(Address::Shelley(ShelleyAddress::new(network, payment, delegation)))
 }
 
-fn decode_compact_coin(decoder: &mut Decoder<'_>) -> Result<u64, String> {
+fn decode_compact_coin(decoder: &mut Decoder<'_>) -> anyhow::Result<u64> {
     let tag = decoder.tag()?;
     if tag != 0 {
-        return Err(format!("unsupported compact coin tag {tag}"));
+        return Err(anyhow!("unsupported compact coin tag {tag}"));
     }
     decoder.varuint()
 }
 
-fn decode_compact_value(decoder: &mut Decoder<'_>) -> Result<Value, String> {
+fn decode_compact_value(decoder: &mut Decoder<'_>) -> anyhow::Result<Value> {
     match decoder.tag()? {
         0 => Ok(Value::Coin(decoder.varuint()?)),
         1 => {
@@ -330,30 +331,30 @@ fn decode_compact_value(decoder: &mut Decoder<'_>) -> Result<Value, String> {
                 })?,
             ))
         }
-        other => Err(format!("unsupported compact value tag {other}")),
+        other => Err(anyhow!("unsupported compact value tag {other}")),
     }
 }
 
-fn decode_datum(decoder: &mut Decoder<'_>) -> Result<MemoizedDatum, String> {
+fn decode_datum(decoder: &mut Decoder<'_>) -> anyhow::Result<MemoizedDatum> {
     match decoder.tag()? {
         0 => Ok(MemoizedDatum::None),
         1 => Ok(MemoizedDatum::from(decoder.hash32()?)),
         2 => Ok(MemoizedDatum::from(decode_inline_plutus_data(decoder)?)),
-        other => Err(format!("unsupported datum tag {other}")),
+        other => Err(anyhow!("unsupported datum tag {other}")),
     }
 }
 
-fn decode_inline_plutus_data(decoder: &mut Decoder<'_>) -> Result<MemoizedPlutusData, String> {
+fn decode_inline_plutus_data(decoder: &mut Decoder<'_>) -> anyhow::Result<MemoizedPlutusData> {
     decoder.decode_from_short_bytes("inline datum", |bytes| {
-        from_cbor(&bytes).ok_or_else(|| "failed to decode PlutusData from CBOR".to_string())
+        from_cbor(&bytes).ok_or_else(|| anyhow!("failed to decode PlutusData from CBOR"))
     })
 }
 
-fn decode_script(decoder: &mut Decoder<'_>) -> Result<MemoizedScript, String> {
+fn decode_script(decoder: &mut Decoder<'_>) -> anyhow::Result<MemoizedScript> {
     match decoder.tag()? {
         0 => {
             let native = decoder.decode_from_short_bytes("native script", |bytes| {
-                from_cbor(&bytes).ok_or_else(|| "failed to decode Script from CBOR".to_string())
+                from_cbor(&bytes).ok_or_else(|| anyhow!("failed to decode Script from CBOR"))
             })?;
             Ok(MemoizedScript::NativeScript(native))
         }
@@ -364,41 +365,40 @@ fn decode_script(decoder: &mut Decoder<'_>) -> Result<MemoizedScript, String> {
                 0 => Ok(MemoizedScript::PlutusV1Script(PlutusScript(bytes))),
                 1 => Ok(MemoizedScript::PlutusV2Script(PlutusScript(bytes))),
                 2 => Ok(MemoizedScript::PlutusV3Script(PlutusScript(bytes))),
-                other => Err(format!("unsupported plutus script tag {other}")),
+                other => Err(anyhow!("unsupported plutus script tag {other}")),
             }
         }
-        other => Err(format!("unsupported script tag {other}")),
+        other => Err(anyhow!("unsupported script tag {other}")),
     }
 }
 
-fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<PositiveCoin>, String> {
+fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> anyhow::Result<Multiasset<PositiveCoin>> {
     let quantity_region_end =
-        asset_count.checked_mul(8).ok_or_else(|| "multiasset quantity region overflow".to_string())?;
-    let policy_region_end = quantity_region_end
-        .checked_add(asset_count * 2)
-        .ok_or_else(|| "multiasset policy region overflow".to_string())?;
+        asset_count.checked_mul(8).ok_or_else(|| anyhow!("multiasset quantity region overflow"))?;
+    let policy_region_end =
+        quantity_region_end.checked_add(asset_count * 2).ok_or_else(|| anyhow!("multiasset policy region overflow"))?;
     let asset_region_end = policy_region_end
         .checked_add(asset_count * 2)
-        .ok_or_else(|| "multiasset asset-name region overflow".to_string())?;
+        .ok_or_else(|| anyhow!("multiasset asset-name region overflow"))?;
 
     if rep.len() < asset_region_end {
-        return Err("multiasset representation is truncated".to_string());
+        return Err(anyhow!("multiasset representation is truncated"));
     }
 
     let mut triples = Vec::with_capacity(asset_count);
     for index in 0..asset_count {
         let quantity = u64::from_le_bytes(
-            rep[index * 8..index * 8 + 8].try_into().map_err(|_| "invalid quantity bytes".to_string())?,
+            rep[index * 8..index * 8 + 8].try_into().map_err(|_| anyhow!("invalid quantity bytes"))?,
         );
         let policy_offset = u16::from_le_bytes(
             rep[quantity_region_end + index * 2..quantity_region_end + index * 2 + 2]
                 .try_into()
-                .map_err(|_| "invalid policy offset bytes".to_string())?,
+                .map_err(|_| anyhow!("invalid policy offset bytes"))?,
         ) as usize;
         let asset_offset = u16::from_le_bytes(
             rep[policy_region_end + index * 2..policy_region_end + index * 2 + 2]
                 .try_into()
-                .map_err(|_| "invalid asset-name offset bytes".to_string())?,
+                .map_err(|_| anyhow!("invalid asset-name offset bytes"))?,
         ) as usize;
 
         triples.push((policy_offset, asset_offset, quantity));
@@ -415,7 +415,7 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
     for (index, asset_offset) in ordered_asset_offsets.iter().enumerate() {
         let next_offset = ordered_asset_offsets.get(index + 1).copied().unwrap_or(rep.len());
         if *asset_offset > next_offset || next_offset > rep.len() {
-            return Err("invalid asset-name offsets in multiasset representation".to_string());
+            return Err(anyhow!("invalid asset-name offsets in multiasset representation"));
         }
         asset_lengths.insert(*asset_offset, next_offset - *asset_offset);
     }
@@ -424,20 +424,20 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
     for (policy_offset, asset_offset, quantity) in triples {
         let policy_end = policy_offset + 28;
         if policy_end > rep.len() {
-            return Err("policy id offset is out of bounds".to_string());
+            return Err(anyhow!("policy id offset is out of bounds"));
         }
 
-        let asset_len = *asset_lengths.get(&asset_offset).ok_or_else(|| "missing asset-name length".to_string())?;
+        let asset_len = *asset_lengths.get(&asset_offset).ok_or_else(|| anyhow!("missing asset-name length"))?;
         let asset_end = asset_offset + asset_len;
         if asset_end > rep.len() {
-            return Err("asset-name offset is out of bounds".to_string());
+            return Err(anyhow!("asset-name offset is out of bounds"));
         }
 
         let quantity: PositiveCoin =
-            quantity.try_into().map_err(|_| format!("invalid non-positive asset quantity {quantity}"))?;
+            quantity.try_into().map_err(|_| anyhow!("invalid non-positive asset quantity {quantity}"))?;
         bundles.entry(Hash::from(&rep[policy_offset..policy_end])).or_default().push((
             AssetName::try_from(&rep[asset_offset..asset_end])
-                .map_err(|_| format!("invalid asset name for offset {asset_offset} and end {asset_end}"))?,
+                .map_err(|_| anyhow!("invalid asset name for offset {asset_offset} and end {asset_end}"))?,
             quantity,
         ));
     }
@@ -445,7 +445,7 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
     let mut policies = BTreeMap::new();
     for (policy_id, mut assets) in bundles {
         assets.sort_by_key(|(a, _)| *a);
-        policies.insert(policy_id, NonEmptyKeyValuePairs::try_from(assets).map_err(|e| e.to_string())?);
+        policies.insert(policy_id, NonEmptyKeyValuePairs::try_from(assets).map_err(|e| anyhow!("{e}"))?);
     }
 
     Ok(policies.into())
@@ -517,7 +517,7 @@ mod tests {
     fn rejects_overlong_mempack_varuints() {
         let mut decoder = Decoder::new(&[0x80; 10]);
 
-        assert_eq!(decoder.varuint(), Err("mempack varuint exceeds 10 bytes".to_string()));
+        assert_eq!(decoder.varuint().unwrap_err().to_string(), "mempack varuint exceeds 10 bytes");
     }
 
     #[test]
@@ -526,8 +526,8 @@ mod tests {
         let mut offset = 0;
 
         assert_eq!(
-            decode_varuint64(&bytes, &mut offset, "slot"),
-            Err("compact address slot overflows u64".to_string())
+            decode_varuint64(&bytes, &mut offset, "slot").unwrap_err().to_string(),
+            "compact address slot overflows u64"
         );
     }
 }

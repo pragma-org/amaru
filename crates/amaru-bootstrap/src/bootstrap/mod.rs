@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    error::Error,
     fs,
     io::{self, Read},
     path::{Component, Path, PathBuf},
@@ -108,29 +107,26 @@ fn resolve_snapshot_path(snapshots_dir: &Path, snapshot: &Snapshot) -> Option<Pa
     is_snapshot_archive_file(&archive).then_some(archive)
 }
 
-fn snapshot_hash(snapshot: &Snapshot) -> Result<HeaderHash, Box<dyn Error>> {
-    match NetworkPoint::try_from(snapshot.point.as_str())? {
+fn snapshot_hash(snapshot: &Snapshot) -> anyhow::Result<HeaderHash> {
+    match NetworkPoint::try_from(snapshot.point.as_str()).map_err(anyhow::Error::msg)? {
         NetworkPoint::Specific(_, hash) => Ok(hash),
-        NetworkPoint::Origin => Err("bootstrap snapshots must not use origin".into()),
+        NetworkPoint::Origin => Err(anyhow!("bootstrap snapshots must not use origin")),
     }
 }
 
 /// List S3 objects under `<network>/`, derive epoch from slot via era history, return `Vec<Snapshot>`.
-async fn bootstrap_snapshots(
-    network: NetworkName,
-    s3: &AnonymousS3Client,
-) -> Result<(PathBuf, Vec<Snapshot>), Box<dyn Error>> {
+async fn bootstrap_snapshots(network: NetworkName, s3: &AnonymousS3Client) -> anyhow::Result<(PathBuf, Vec<Snapshot>)> {
     let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
 
     let era_history = network
         .as_era_history()
-        .ok_or_else(|| format!("no era history available for network {network}; S3 bootstrap is only supported for mainnet, preprod, and preview"))?;
+        .ok_or_else(|| anyhow!("no era history available for network {network}; S3 bootstrap is only supported for mainnet, preprod, and preview"))?;
 
     let s3_snapshots = s3.list_snapshots(network).await?;
 
     let mut snapshots = Vec::with_capacity(s3_snapshots.len());
 
-    let try_push = |snapshots: &mut Vec<Snapshot>, point: String, key: String| -> Result<(), Box<dyn Error>> {
+    let try_push = |snapshots: &mut Vec<Snapshot>, point: String, key: String| -> anyhow::Result<()> {
         let slot = parse_slot_from_point(&point)?;
         let epoch = era_history.slot_to_epoch_unchecked_horizon(Slot::from(slot))?;
         snapshots.push(Snapshot { epoch, point, key });
@@ -168,12 +164,12 @@ async fn bootstrap_snapshots(
 }
 
 /// Parse the slot number from a `<slot>.<hash>` point string.
-fn parse_slot_from_point(point: &str) -> Result<u64, Box<dyn Error>> {
+fn parse_slot_from_point(point: &str) -> anyhow::Result<u64> {
     point
         .split('.')
         .next()
         .and_then(|s| s.parse::<u64>().ok())
-        .ok_or_else(|| format!("invalid snapshot point format: {point}").into())
+        .ok_or_else(|| anyhow!("invalid snapshot point format: {point}"))
 }
 
 fn format_available_epochs(epochs: &[Epoch]) -> String {
@@ -184,10 +180,7 @@ fn format_available_epochs(epochs: &[Epoch]) -> String {
     }
 }
 
-fn select_bootstrap_snapshots(
-    snapshots: &[Snapshot],
-    target_epoch: Option<Epoch>,
-) -> Result<[&Snapshot; 3], Box<dyn Error>> {
+fn select_bootstrap_snapshots(snapshots: &[Snapshot], target_epoch: Option<Epoch>) -> anyhow::Result<[&Snapshot; 3]> {
     let snapshots_by_epoch: BTreeMap<Epoch, &Snapshot> = snapshots.iter().map(|s| (s.epoch, s)).collect();
     let latest_epoch = snapshots_by_epoch.keys().next_back().copied().ok_or(BootstrapError::NoBootstrapSnapshots)?;
     let first_epoch = target_epoch
@@ -244,7 +237,7 @@ pub async fn fetch_headers_from_points(
     network: NetworkName,
     points: &[NetworkPoint],
     headers_per_point: usize,
-) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+) -> anyhow::Result<Vec<Vec<u8>>> {
     if points.is_empty() || headers_per_point == 0 {
         return Ok(Vec::new());
     }
@@ -262,7 +255,7 @@ async fn fetch_headers_from_point(
     network: NetworkName,
     point: NetworkPoint,
     headers_per_point: usize,
-) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+) -> anyhow::Result<Vec<Vec<u8>>> {
     let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.map_err(|err| {
         error!(bootstrap::peer::FAILED_TO_CONNECT, peer = %peer_address, reason = %err);
         err
@@ -285,7 +278,8 @@ async fn fetch_headers_from_point(
 
         match next {
             NextResponse::RollForward(content, tip) => {
-                let block_header: Header = from_cbor(&content.cbor).ok_or("failed to decode fetched block header")?;
+                let block_header: Header =
+                    from_cbor(&content.cbor).ok_or_else(|| anyhow!("failed to decode fetched block header"))?;
                 let slot = u64::from(block_header.slot());
                 headers.push(content.cbor);
 
@@ -351,7 +345,7 @@ async fn download_snapshots(
     Ok(())
 }
 
-fn snapshot_archive_root(archive_path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+fn snapshot_archive_root(archive_path: &Path) -> anyhow::Result<PathBuf> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
     let mut state_root = None;
@@ -366,25 +360,25 @@ fn snapshot_archive_root(archive_path: &Path) -> Result<PathBuf, Box<dyn Error>>
 
     match (state_root, utxo_root) {
         (Some(state_root), Some(utxo_root)) if state_root == utxo_root => Ok(state_root),
-        (Some(_), Some(_)) => Err("snapshot archive state and tables/tvar must share the same root directory".into()),
-        _ => Err(format!("archive must contain {SNAPSHOT_STATE_FILE_NAME} and {SNAPSHOT_UTXO_FILE_NAME}").into()),
+        (Some(_), Some(_)) => Err(anyhow!("snapshot archive state and tables/tvar must share the same root directory")),
+        _ => Err(anyhow!("archive must contain {SNAPSHOT_STATE_FILE_NAME} and {SNAPSHOT_UTXO_FILE_NAME}")),
     }
 }
 
-fn validate_snapshot_archive(archive_path: &Path) -> Result<(), Box<dyn Error>> {
+fn validate_snapshot_archive(archive_path: &Path) -> anyhow::Result<()> {
     snapshot_archive_root(archive_path).map(|_| ())
 }
 
-pub fn validate_publishable_snapshot_archive(archive_path: &Path, expected_point: &str) -> Result<(), Box<dyn Error>> {
+pub fn validate_publishable_snapshot_archive(archive_path: &Path, expected_point: &str) -> anyhow::Result<()> {
     let root = snapshot_archive_root(archive_path)?;
     if root != Path::new(expected_point) {
-        return Err(format!("snapshot archive root is {}, expected {expected_point}", root.display()).into());
+        return Err(anyhow!("snapshot archive root is {}, expected {expected_point}", root.display()));
     }
 
     load_packaged_block_from_snapshot(archive_path, expected_point).map(|_| ())
 }
 
-fn read_snapshot_archive_entry(archive_path: &Path, expected: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+fn read_snapshot_archive_entry(archive_path: &Path, expected: &Path) -> anyhow::Result<Vec<u8>> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
 
@@ -397,7 +391,7 @@ fn read_snapshot_archive_entry(archive_path: &Path, expected: &Path) -> Result<V
         }
     }
 
-    Err(format!("snapshot archive {} does not contain {}", archive_path.display(), expected.display()).into())
+    Err(anyhow!("snapshot archive {} does not contain {}", archive_path.display(), expected.display()))
 }
 
 fn is_snapshot_archive_file(path: &Path) -> bool {
@@ -444,7 +438,7 @@ pub async fn bootstrap(
     chain_dir: PathBuf,
     target_epoch: Option<Epoch>,
     s3_config: S3Config,
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     let s3 = AnonymousS3Client::new(s3_config);
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network, &s3).await?;
     let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, target_epoch)?;
@@ -484,10 +478,10 @@ pub async fn bootstrap(
     let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone()))?;
     let second_chain_state = imported_second_snapshot
         .chain_state
-        .ok_or("bootstrap import must produce the chain state for the second snapshot")?;
+        .ok_or_else(|| anyhow!("bootstrap import must produce the chain state for the second snapshot"))?;
     let third_chain_state = imported_third_snapshot
         .chain_state
-        .ok_or("bootstrap import must produce the chain state for the latest snapshot")?;
+        .ok_or_else(|| anyhow!("bootstrap import must produce the chain state for the latest snapshot"))?;
     // Nonces for both packaged tips are stored before the headers so
     // `import_packaged_blocks` can attach each header via `store_validated_header`.
     store_chain_state(imported_second_snapshot.epoch, &chain_db, second_chain_state)?;
@@ -503,10 +497,11 @@ pub async fn bootstrap(
     Ok(())
 }
 
-pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> anyhow::Result<()> {
     for block in blocks {
         let header_cbor = extract_block_header_cbor(&block)?;
-        let block_header: Header = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+        let block_header: Header =
+            from_cbor(header_cbor).ok_or_else(|| anyhow!("failed to decode packaged bootstrap block header"))?;
         let hash = block_header.hash();
 
         info!(bootstrap::header::IMPORT, header = %hash);
@@ -515,7 +510,7 @@ pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> 
         // been imported for each tip so the durable "nonces present ⇔ header validated" invariant
         // holds with no special case for bootstrap.
         let nonces = db.get_nonces(&hash).ok_or_else(|| {
-            format!("bootstrap packaged header {hash} is missing nonces; refuse to store incomplete tip")
+            anyhow!("bootstrap packaged header {hash} is missing nonces; refuse to store incomplete tip")
         })?;
         db.store_validated_header(&block_header, &nonces)?;
         db.store_block(&hash, &RawBlock::from(block.as_slice()))?;
@@ -529,16 +524,16 @@ fn load_packaged_blocks_for_bootstrap(
     second_snapshot: &Snapshot,
     third_snapshot_path: &Path,
     third_snapshot: &Snapshot,
-) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+) -> anyhow::Result<Vec<Vec<u8>>> {
     Ok(vec![
         load_packaged_block_from_snapshot(second_snapshot_path, &second_snapshot.point)?,
         load_packaged_block_from_snapshot(third_snapshot_path, &third_snapshot.point)?,
     ])
 }
 
-fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str) -> anyhow::Result<Vec<u8>> {
     if !is_snapshot_archive_file(snapshot_path) {
-        return Err(format!("snapshot does not contain packaged bootstrap blocks: {}", snapshot_path.display()).into());
+        return Err(anyhow!("snapshot does not contain packaged bootstrap blocks: {}", snapshot_path.display()));
     }
 
     let bytes = read_snapshot_archive_entry(snapshot_path, Path::new(PACKAGED_BLOCKS_FILE_NAME))?;
@@ -547,27 +542,26 @@ fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str)
 
     let block = hex::decode(hex_block)?;
     let header_cbor = extract_block_header_cbor(&block)?;
-    let header: Header = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
-    let expected_point = NetworkPoint::try_from(expected_point)?;
+    let header: Header =
+        from_cbor(header_cbor).ok_or_else(|| anyhow!("failed to decode packaged bootstrap block header"))?;
+    let expected_point = NetworkPoint::try_from(expected_point).map_err(anyhow::Error::msg)?;
     if header.point().to_network_point() != expected_point {
-        return Err(format!(
+        return Err(anyhow!(
             "packaged bootstrap block is {}, expected {expected_point}",
             header.point().to_network_point()
-        )
-        .into());
+        ));
     }
 
     Ok(block)
 }
 
-fn require_single_packaged_block(mut hex_blocks: Vec<String>, snapshot_path: &Path) -> Result<String, Box<dyn Error>> {
+fn require_single_packaged_block(mut hex_blocks: Vec<String>, snapshot_path: &Path) -> anyhow::Result<String> {
     if hex_blocks.len() != 1 {
-        return Err(format!(
+        return Err(anyhow!(
             "packaged bootstrap blocks at {} contain {} blocks; expected exactly 1",
             snapshot_path.display(),
             hex_blocks.len()
-        )
-        .into());
+        ));
     }
 
     Ok(hex_blocks.remove(0))
@@ -588,7 +582,7 @@ pub struct InitialNonces {
     pub tail: HeaderHash,
 }
 
-pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainState) -> Result<(), Box<dyn Error>> {
+pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainState) -> anyhow::Result<()> {
     let initial_nonces = chain_state.initial_nonces;
     let header_hash = Hash::from(&initial_nonces.at);
 
@@ -610,9 +604,10 @@ pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainSt
     Ok(())
 }
 
-pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> anyhow::Result<()> {
     for header in headers {
-        let block_header: Header = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
+        let block_header: Header =
+            from_cbor(&header).ok_or_else(|| anyhow!("failed to decode packaged bootstrap header"))?;
         let hash = block_header.hash();
 
         info!(bootstrap::header::IMPORT, header = %hash);
@@ -628,7 +623,7 @@ pub async fn import_snapshots_from_directory(
     global_parameters: &GlobalParameters,
     ledger_dir: &Path,
     snapshot_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut snapshots = fs::read_dir(snapshot_dir)?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|path| path.is_file() && has_snapshot_archive_extension(path))
@@ -655,7 +650,7 @@ pub async fn import_snapshots(
     global_parameters: &GlobalParameters,
     snapshots: &[PathBuf],
     ledger_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     info!(bootstrap::snapshots::IMPORT, count = snapshots.len());
     for snapshot in snapshots {
         import_snapshot(network, global_parameters, snapshot, ledger_dir).await?;
@@ -679,7 +674,7 @@ async fn import_snapshot(
     global_parameters: &GlobalParameters,
     snapshot: &Path,
     ledger_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None).await?;
     Ok(())
 }
@@ -690,12 +685,12 @@ async fn import_snapshot_with_optional_nonces(
     snapshot: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
-) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
+) -> anyhow::Result<ImportedSnapshot> {
     if snapshot.is_file() && has_snapshot_archive_extension(snapshot) {
         return import_node_snapshot_archive(network, global_parameters, snapshot, ledger_dir, nonce_tail).await;
     }
 
-    Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf())))
+    Err(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf()).into())
 }
 
 async fn import_node_snapshot_archive(
@@ -704,7 +699,7 @@ async fn import_node_snapshot_archive(
     snapshot_archive: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
-) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
+) -> anyhow::Result<ImportedSnapshot> {
     info!(bootstrap::snapshot::IMPORT_ARCHIVE, path = %snapshot_archive.display());
     import_node_snapshot_source(network, global_parameters, snapshot_archive, ledger_dir, nonce_tail).await
 }
@@ -716,7 +711,7 @@ async fn import_node_snapshot_source(
     archive_path: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
-) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
+) -> anyhow::Result<ImportedSnapshot> {
     fs::create_dir_all(ledger_dir)?;
 
     let previous_accounts = if fs::exists(ledger_dir.join("live"))? {
@@ -753,7 +748,6 @@ async fn import_node_snapshot_source(
                 nonce_tail,
                 previous_accounts,
             )
-            .map_err(|e| e.to_string())
             .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
         })
         .unwrap()
@@ -774,7 +768,7 @@ fn import_node_snapshot_archive_data(
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<StakeCredential>,
-) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn Error>> {
+) -> anyhow::Result<(Epoch, Point, Option<ChainState>)> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
 
@@ -792,14 +786,14 @@ fn import_node_snapshot_archive_data(
                 network,
                 global_parameters,
                 nonce_tail,
-                previous_accounts.take().ok_or_else(|| -> Box<dyn Error> {
-                    format!("multiple {SNAPSHOT_STATE_FILE_NAME} in archive {}?", archive_path.display()).into()
+                previous_accounts.take().ok_or_else(|| {
+                    anyhow!("multiple {SNAPSHOT_STATE_FILE_NAME} in archive {}?", archive_path.display())
                 })?,
                 |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
             )?);
         } else if snapshot_archive_entry_matches(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
             let (epoch, point, era_history, chain_state) = imported_state.take().ok_or_else(|| {
-                format!(
+                anyhow!(
                     "snapshot archive {} contains {SNAPSHOT_UTXO_FILE_NAME} before {SNAPSHOT_STATE_FILE_NAME}",
                     archive_path.display()
                 )
@@ -818,7 +812,7 @@ fn import_node_snapshot_archive_data(
         }
     }
 
-    Err(format!("snapshot archive {} does not contain {SNAPSHOT_UTXO_FILE_NAME}", archive_path.display()).into())
+    Err(anyhow!("snapshot archive {} does not contain {SNAPSHOT_UTXO_FILE_NAME}", archive_path.display()))
 }
 
 #[cfg(test)]
@@ -849,7 +843,7 @@ mod tests {
         }
     }
 
-    fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dyn std::error::Error>> {
+    fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> anyhow::Result<Epoch> {
         Ok(parsed_snapshot.era_history.slot_to_epoch_unchecked_horizon(parsed_snapshot.slot.into())?)
     }
 

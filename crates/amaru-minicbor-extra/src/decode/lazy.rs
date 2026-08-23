@@ -39,7 +39,7 @@ impl<'a> LazyDecoder<'a> {
     ///
     /// Arrays and maps are consumed incrementally so the complete container does not need to fit
     /// in memory. Other values are skipped by [`cbor::Decoder::skip`].
-    pub fn skip(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn skip(&mut self) -> anyhow::Result<()> {
         let datatype = self.with_decoder(|d| Ok(d.datatype()?))?;
 
         if matches!(datatype, cbor::data::Type::Array | cbor::data::Type::ArrayIndef) {
@@ -51,12 +51,12 @@ impl<'a> LazyDecoder<'a> {
         }
     }
 
-    fn skip_array(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn skip_array(&mut self) -> anyhow::Result<()> {
         let length = self.with_decoder(|d| Ok(d.array()?))?;
         self.skip_entries(length, |d| d.skip())
     }
 
-    fn skip_map(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn skip_map(&mut self) -> anyhow::Result<()> {
         let length = self.with_decoder(|d| Ok(d.map()?))?;
         self.skip_entries(length, |d| {
             d.skip()?;
@@ -68,7 +68,7 @@ impl<'a> LazyDecoder<'a> {
         &mut self,
         mut remaining: Option<u64>,
         skip_entry: impl Fn(&mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<()> {
         loop {
             let (entries, complete) =
                 self.with_decoder(|d| decode_sequence_chunk(d, remaining, &skip_entry).map_err(Into::into))?;
@@ -81,12 +81,12 @@ impl<'a> LazyDecoder<'a> {
     }
 
     /// Consume enough bytes to decode the next CBOR element.
-    pub fn decode<T: for<'d> cbor::decode::Decode<'d, ()>>(&mut self) -> Result<T, Box<dyn std::error::Error>> {
+    pub fn decode<T: for<'d> cbor::decode::Decode<'d, ()>>(&mut self) -> anyhow::Result<T> {
         self.with_decoder(|d| Ok(d.decode()?))
     }
 
     /// Consume the header of the next definite- or indefinite-length CBOR array.
-    pub fn begin_array(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn begin_array(&mut self) -> anyhow::Result<()> {
         self.with_decoder(|d| {
             d.array()?;
             Ok(())
@@ -99,8 +99,8 @@ impl<'a> LazyDecoder<'a> {
     /// input. Other errors are returned unchanged.
     pub fn with_decoder<T>(
         &mut self,
-        decode: impl Fn(&mut cbor::decode::Decoder<'_>) -> Result<T, Box<dyn std::error::Error>>,
-    ) -> Result<T, Box<dyn std::error::Error>> {
+        decode: impl Fn(&mut cbor::decode::Decoder<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
         let mut should_read_more = self.bytes.is_empty();
         let mut can_read_more = true;
         loop {
@@ -139,7 +139,7 @@ impl<'a> LazyDecoder<'a> {
                         should_read_more = true;
                         continue;
                     }
-                    Ok(err) => return Err(err),
+                    Ok(err) => return Err(err.into()),
                     Err(err) => return Err(err),
                 },
                 Err(err) => return Err(err),
@@ -159,8 +159,8 @@ impl<'a> LazyDecoder<'a> {
         &mut self,
         decode_entry: impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
         init: impl FnOnce(Option<u64>) -> S,
-        mut handle_entries: impl FnMut(&mut S, Vec<T>) -> Result<(), Box<dyn std::error::Error>>,
-    ) -> Result<S, Box<dyn std::error::Error>> {
+        mut handle_entries: impl FnMut(&mut S, Vec<T>) -> anyhow::Result<()>,
+    ) -> anyhow::Result<S> {
         let length = self.with_decoder(|d| Ok(d.map()?))?;
         let mut remaining = length;
         let mut state = init(length);

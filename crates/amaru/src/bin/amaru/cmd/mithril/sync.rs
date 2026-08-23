@@ -70,7 +70,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let Args { network, ledger_dir, chain_dir, snapshots_dir, ingest_until_slot, ingest_maximum_blocks } = args;
     let ledger_dir = ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
     let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, process::ExitCode, time::Duration};
+use std::{process::ExitCode, time::Duration};
 
 use amaru::{
     exit::install_termination_signals,
@@ -23,7 +23,7 @@ use amaru::{
 };
 use amaru_observability::error;
 use amaru_tui as tui;
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 
 mod cli;
 mod cmd;
@@ -41,7 +41,7 @@ fn main() -> ExitCode {
         Err(err) => {
             error!(
                 cli::ERROR,
-                description = err.to_string(),
+                description = format!("{err:#}"),
                 cause = @err.source().as_ref().map(|e| tracing::field::display(e.to_string())),
             );
             ExitCode::FAILURE
@@ -49,13 +49,13 @@ fn main() -> ExitCode {
     }
 }
 
-fn try_main() -> Result<(), Box<dyn Error>> {
+fn try_main() -> anyhow::Result<()> {
     let cli = cli::parse(version::display_version())?;
     if cli.command.show_alternative_help()? {
         return Ok(());
     }
 
-    let signals = install_termination_signals().map_err(|e| anyhow!(e).context("failed to install signal handlers"))?;
+    let signals = install_termination_signals().context("failed to install signal handlers")?;
 
     let color_enabled = Color::is_enabled(cli.color);
     let with_open_telemetry = cli.with_open_telemetry;
@@ -69,7 +69,7 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     // Work is not started yet: the future is only created inside `run_on` after observability
     // is set up on that same runtime.
     let runnable = cli.command.into_runnable();
-    let rt = runnable.build_runtime().map_err(|e| anyhow!(e).context("failed to build Tokio runtime"))?;
+    let rt = runnable.build_runtime().context("failed to build Tokio runtime")?;
 
     let with_tui = if !skip_logging
         && let Some(settings) = tui_settings.filter(|settings| tui::should_enable(settings.no_tui, with_json_traces))
@@ -116,7 +116,7 @@ fn try_main() -> Result<(), Box<dyn Error>> {
         }
 
         if let Err(ref err) = result {
-            eprintln!("amaru: {err}");
+            eprintln!("amaru: {err:#}");
         }
     }
 
@@ -135,22 +135,22 @@ impl ObservabilityHints for ListenAddressHint<'_> {
 }
 
 fn run_teardown_with_timeout(
-    teardown: Box<dyn FnOnce() -> Result<(), Box<dyn Error>> + Send>,
+    teardown: Box<dyn FnOnce() -> anyhow::Result<()> + Send>,
     timeout: Duration,
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     let handle = std::thread::Builder::new()
         .name("amaru-otel-teardown".into())
         .spawn(move || {
             let result = teardown();
-            let _ = done_tx.send(result.map_err(|e| e.to_string()));
+            let _ = done_tx.send(result);
         })
-        .map_err(|e| anyhow!(e).context("failed to spawn observability teardown thread"))?;
+        .context("failed to spawn observability teardown thread")?;
 
     match done_rx.recv_timeout(timeout) {
         Ok(result) => {
             let _ = handle.join();
-            result.map_err(|e| e.into())
+            result
         }
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             eprintln!("amaru: observability teardown timed out after {timeout:?}; continuing exit");

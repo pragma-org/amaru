@@ -23,26 +23,23 @@ use std::{
 
 use amaru_kernel::Slot;
 use amaru_progress_bar::ProgressBar;
+use anyhow::anyhow;
 
 const DB_ANALYSER_PROGRESS_REPORT_INTERVAL_SECS: f64 = 1.0;
 
-pub(super) fn ensure_db_analyser_binary() -> Result<String, Box<dyn std::error::Error>> {
+pub(super) fn ensure_db_analyser_binary() -> anyhow::Result<String> {
     let binary = "db-analyser";
 
     let status = ProcessCommand::new(binary).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status();
 
     match status {
-        Ok(_) => {
-            Ok(binary.to_owned())
+        Ok(_) => Ok(binary.to_owned()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Err(anyhow!(
+            "db-analyser was not found in $PATH. Add it to your $PATH (for example: export PATH=/opt/cardano-node/bin:$PATH)."
+        )),
+        Err(error) => {
+            Err(anyhow!("failed to execute db-analyser preflight: {}. Ensure the binary is executable.", error))
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            Err("db-analyser was not found in $PATH. Add it to your $PATH (for example: export PATH=/opt/cardano-node/bin:$PATH).".into())
-        }
-        Err(error) => Err(format!(
-            "failed to execute db-analyser preflight: {}. Ensure the binary is executable.",
-            error
-        )
-        .into()),
     }
 }
 
@@ -53,7 +50,7 @@ pub(super) fn run_db_analyser(
     target_slot: Slot,
     analyse_from: Option<Slot>,
     with_progress: &Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let config_dir = config_dir.canonicalize()?;
     let db_dir = db_dir.canonicalize()?;
 
@@ -74,12 +71,12 @@ fn run_logged_command(
     step: &str,
     db_analyser_log_relay: Option<DbAnalyserLogRelay>,
     with_progress: &Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = command.spawn()?;
-    let stdout = child.stdout.take().ok_or("failed to capture child stdout")?;
-    let stderr = child.stderr.take().ok_or("failed to capture child stderr")?;
+    let stdout = child.stdout.take().ok_or_else(|| anyhow!("failed to capture child stdout"))?;
+    let stderr = child.stderr.take().ok_or_else(|| anyhow!("failed to capture child stderr"))?;
     let db_analyser_log_relay = db_analyser_log_relay.map(|relay| Arc::new(Mutex::new(relay)));
 
     let tracked = db_analyser_log_relay.as_ref().map(|relay| TrackedProgress::new(relay, with_progress));
@@ -97,7 +94,7 @@ fn run_logged_command(
     }
 
     if !status.success() {
-        return Err(format!("{step} failed with status {status}").into());
+        anyhow::bail!("{step} failed with status {status}");
     }
 
     Ok(())
@@ -356,27 +353,26 @@ pub(super) fn select_analyse_from_slot(
     ledger_snapshot_dir: &Path,
     target_slot: Slot,
     previous_snapshot_slot: Option<Slot>,
-) -> Result<Option<Slot>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<Slot>> {
     let Some(previous_snapshot_slot) = previous_snapshot_slot else {
         return Ok(latest_snapshot_slot_at_or_before(ledger_snapshot_dir, target_slot)?);
     };
 
     if previous_snapshot_slot > target_slot {
-        return Err(format!(
+        anyhow::bail!(
             "resume snapshot slot {} is greater than the target slot {}",
-            previous_snapshot_slot, target_slot
-        )
-        .into());
+            previous_snapshot_slot,
+            target_slot
+        );
     }
 
     let snapshot_dir = ledger_snapshot_dir.join(format!("{previous_snapshot_slot}_db-analyser"));
     if !snapshot_dir.is_dir() {
-        return Err(format!(
+        anyhow::bail!(
             "resume snapshot slot {} requires an existing snapshot directory at {}",
             previous_snapshot_slot,
             snapshot_dir.display()
-        )
-        .into());
+        );
     }
 
     Ok(Some(previous_snapshot_slot))
