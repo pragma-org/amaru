@@ -151,12 +151,20 @@ Run `make help` for all targets.
 - Tests in tests/ or mod tests
 - Use test_setup.rs patterns in stages
 - For single test in sim: cargo test -p amaru-sim <name>
+- When an `assert_trace_match()` simulation test fails, or expected traces need updating, follow `.agents/skills/stage-trace-test/SKILL.md`
+
+### Agent skills
+
+Reusable procedures for coding agents live under `.agents/skills/` (the standard [Agent Skills](https://agentskills.io/specification) project location). They are not tied to a particular assistant. When a task matches a skill below, **read that `SKILL.md` and follow it**; do not copy the steps into this file.
+
+- `.agents/skills/stage-trace-test`: fix failing `assert_trace_match()` pure-stage simulation tests (trace diffs, `tm_*` helpers, deserializer registration)
 
 ### Project Structure
 
 - crates/: amaru-kernel, amaru-consensus, amaru-ledger, amaru-protocols, amaru-ouroboros, etc...
 - engineering-decision-records/: all major decisions (read before big changes)
 - docs/, monitoring/, conformance-tests/
+- `.agents/skills/`: reusable coding-agent procedures (`SKILL.md` per skill; see Agent skills)
 - Use pure_stage for effectful code to enable simulation
 
 ### AI/Agent Specific

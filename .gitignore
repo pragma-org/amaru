@@ -75,7 +75,11 @@ scripts/demos/*/run/**
 # remain tracked, this only prevents committing new ones by accident
 scripts/demos/*/keys/**/*.skey
 
+# Ignore vendor-specific agent configuration
 /.opencode/
+/.grok/
+/.delta/
+
 data/*/epoch-snapshots/
 
 # Packaging and distribution target dir
