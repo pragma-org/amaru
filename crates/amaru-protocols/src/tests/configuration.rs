@@ -16,7 +16,7 @@ use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 use amaru_kernel::{
     HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction, TransactionId, any_headers_chain_with_root,
-    cardano::network_block::make_network_block, cbor::WithOriginalBytes, make_header, utils::tests::run_strategy,
+    cardano::network_block::make_encoded_chain, cbor::WithOriginalBytes, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -108,19 +108,19 @@ fn initialize_chain_store(chain_length: usize, chain_store: &dyn ChainStore) -> 
     let origin_hash: HeaderHash =
         amaru_kernel::Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")?;
     let root_header = make_header(100_000_000, 100_000_000, Some(origin_hash));
-    chain_store.set_anchor_point(&root_header.point())?;
-    let mut headers = run_strategy(any_headers_chain_with_root(
+    let mut seeds = run_strategy(any_headers_chain_with_root(
         chain_length - 1, // -1 since we already have the root header
         root_header.point(),
     ));
-    headers.insert(0, root_header);
+    seeds.insert(0, root_header);
+    let chain = make_encoded_chain(seeds, &PREPROD_ERA_HISTORY);
+    chain_store.set_anchor_point(&chain[0].header.point())?;
 
-    for header in headers.iter() {
-        chain_store.store_header(header)?;
-        chain_store.roll_forward_chain(&header.point())?;
-        tracing::info!("storing block for header {}", header.point());
-        let network_block = make_network_block(header, &PREPROD_ERA_HISTORY);
-        chain_store.store_block(&header.hash(), &network_block.raw_block())?;
+    for block in chain.iter() {
+        chain_store.store_header(&block.header)?;
+        chain_store.roll_forward_chain(&block.header.point())?;
+        tracing::info!("storing block for header {}", block.header.point());
+        chain_store.store_block(&block.header.hash(), &block.raw)?;
     }
     Ok(())
 }

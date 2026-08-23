@@ -219,13 +219,14 @@ mod tests {
         Bytes, Hash, Header, OperationalCert, Point, ProtocolVersion, VrfCert,
         cardano::{
             fixed_bytes::FixedBytes,
-            network_block::{make_block, make_block_with_header},
+            network_block::{EncodedTestBlock, make_block},
         },
         size::{BLOCK_BODY, HEADER},
     };
 
-    /// Body hash and size of a test block, so headers built here are consistent with the
-    /// blocks `make_block_with_header` attaches to them.
+    /// Body hash and size of a test block, so seed headers are close to the blocks
+    /// `EncodedTestBlock::from_seed` attaches to them. Tests that store blocks must still
+    /// take the header from that encoding.
     static TEST_BLOCK_BODY: LazyLock<(Hash<BLOCK_BODY>, u64)> = LazyLock::new(|| {
         let block = make_block();
         (block.body_hash(), block.body_len())
@@ -295,8 +296,7 @@ mod tests {
                         header.body_mut().slot = (parent.slot_or_default() + 1).as_u64();
                         header.body_mut().block_number = header.body().slot;
                         header.body_mut().prev_hash = Some(parent.hash());
-                        // fix block_body_hash
-                        let header = make_block_with_header(&header).header.clone();
+                        let header = EncodedTestBlock::from_seed(&header, &crate::EraHistory::default()).header;
                         parent = header.point();
                         header
                     }

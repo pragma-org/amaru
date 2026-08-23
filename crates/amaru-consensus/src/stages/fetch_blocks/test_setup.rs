@@ -16,7 +16,7 @@ use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
     BlockHeight, EraHistory, Header, HeaderHash, Peer, Point, RawBlock,
-    cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
+    cardano::network_block::{EncodedTestBlock, make_network_block},
 };
 use amaru_ouroboros_traits::{
     BaseReadChainStore, MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
@@ -44,8 +44,7 @@ pub fn test_peer() -> Peer {
 }
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {
-    let header = amaru_kernel::make_header(block_number, slot, parent);
-    make_block_with_header(&header).header
+    EncodedTestBlock::from_seed(&amaru_kernel::make_header(block_number, slot, parent), &EraHistory::default()).header
 }
 
 /// Simple header chain for fetch_blocks tests: h0 (genesis) -> h1 -> h2.
@@ -88,12 +87,12 @@ impl TestPrep {
     }
 
     pub fn store_block(&self, header: &Header) {
-        let raw = Self::raw_block(header);
-        self.store.store_block(&header.hash(), &raw).unwrap();
+        let block = EncodedTestBlock::from_seed(header, &EraHistory::default());
+        self.store.store_block(&block.header.hash(), &block.raw).unwrap();
     }
 
     pub fn raw_block(header: &Header) -> RawBlock {
-        make_encoded_block(header, &EraHistory::default())
+        EncodedTestBlock::from_seed(header, &EraHistory::default()).raw
     }
 
     pub fn network_block(header: &Header) -> NetworkBlock {

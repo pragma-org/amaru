@@ -18,7 +18,7 @@ use amaru_kernel::{
     Hash, Header, HeaderHash, IsHeader, NetworkPoint, NetworkTip, Point, PoolId, RawBlock, Slot, from_cbor, size,
     size::HEADER,
 };
-use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
+use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError, block_addressed_by, header_addressed_by};
 use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
@@ -35,14 +35,22 @@ where
 {
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
-        self.db.get_pinned(&prefix, ReadOptions::default()).ok().flatten().and_then(|bytes| from_cbor(bytes.as_ref()))
+        self.db
+            .get_pinned(&prefix, ReadOptions::default())
+            .ok()
+            .flatten()
+            .and_then(|bytes| from_cbor(bytes.as_ref()))
+            .map(|header| header_addressed_by(header, hash))
     }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
         let head_len = prefix.len() - 1;
         let mut results = self.db.multi_get(&[&prefix[..head_len], &prefix], ReadOptions::default()).into_iter();
-        let header = results.next().and_then(|bytes| from_cbor(bytes.ok()??.as_ref()));
+        let header = results
+            .next()
+            .and_then(|bytes| from_cbor(bytes.ok()??.as_ref()))
+            .map(|header| header_addressed_by(header, hash));
         let validity = results.next().and_then(|bytes| {
             let bytes = bytes.ok()??;
             if bytes.len() == 1 { Some(bytes[0] == 1) } else { None }
@@ -112,7 +120,7 @@ where
         Ok(self
             .db
             .get_pinned(&[&BLOCK_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
-            .map(|bytes| bytes.as_ref().into()))
+            .map(|bytes| block_addressed_by(bytes.as_ref().into(), hash)))
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {

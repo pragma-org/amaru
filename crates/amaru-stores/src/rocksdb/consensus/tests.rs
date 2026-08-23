@@ -21,10 +21,12 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, Hash, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId,
-    RawBlock, Slot, any_hash28, any_header, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
-    make_header_with_op_cert_seq,
+    BlockHeight, EraHistory, Hash, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Nonce, ORIGIN_HASH, Point,
+    PoolId, RawBlock, Slot, any_hash28, any_header, any_header_hash, any_header_with_parent, any_headers_chain,
+    cardano::network_block::{EncodedTestBlock, make_encoded_chain},
+    make_header, make_header_with_op_cert_seq,
     size::HEADER,
+    to_cbor,
     utils::tests::{random_bytes, run_strategy},
 };
 use amaru_ouroboros_traits::{
@@ -64,24 +66,22 @@ fn rocksdb_chain_store_can_get_header_it_puts() {
 #[test]
 fn rocksdb_chain_store_can_get_block_it_puts() {
     with_db(|db| {
-        let hash: HeaderHash = random_bytes(32).as_slice().into();
-        let block = RawBlock::from(&*vec![1; 64]);
+        let block = encoded(&make_header(1, 0, None));
 
-        db.store_block(&hash, &block).unwrap();
-        let block2 = db.load_block(&hash).unwrap();
-        assert_eq!(Some(block), block2);
+        db.store_block(&block.header.hash(), &block.raw).unwrap();
+        let block2 = db.load_block(&block.header.hash()).unwrap();
+        assert_eq!(Some(block.raw), block2);
     })
 }
 
 #[test]
 fn rocksdb_chain_store_can_check_if_block_exists() {
     with_db(|db| {
-        let hash: HeaderHash = random_bytes(32).as_slice().into();
-        let block = RawBlock::from(&*vec![1; 64]);
+        let block = encoded(&make_header(1, 0, None));
 
-        assert!(!db.has_block(&hash).unwrap());
-        db.store_block(&hash, &block).unwrap();
-        assert!(db.has_block(&hash).unwrap());
+        assert!(!db.has_block(&block.header.hash()).unwrap());
+        db.store_block(&block.header.hash(), &block.raw).unwrap();
+        assert!(db.has_block(&block.header.hash()).unwrap());
     })
 }
 
@@ -93,6 +93,70 @@ fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
 
         assert_eq!(result, None);
     });
+}
+
+#[test]
+#[should_panic(expected = "chain-store integrity failure")]
+fn load_header_panics_when_blob_is_stored_under_the_wrong_hash() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let stored = make_header(1, 0, None);
+    let requested = make_header(2, 1, None).hash();
+
+    store.db.put([&HEADER_PREFIX[..], &requested[..]].concat(), to_cbor(&stored)).unwrap();
+
+    let _ = store.load_header(&requested);
+}
+
+#[test]
+#[should_panic(expected = "chain-store integrity failure")]
+fn load_block_panics_when_blob_is_stored_under_the_wrong_hash() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let stored = encoded(&make_header(1, 0, None));
+    let requested = encoded(&make_header(2, 1, None)).header.hash();
+
+    store.db.put([&BLOCK_PREFIX[..], &requested[..]].concat(), stored.raw.as_ref()).unwrap();
+
+    let _ = store.load_block(&requested);
+}
+
+#[test]
+#[should_panic(expected = "chain-store integrity failure")]
+fn load_block_panics_when_body_hash_does_not_match_header() {
+    with_db(|db| {
+        let block = encoded(&make_header(1, 0, None));
+        let mut bytes = block.raw.to_vec();
+        *bytes.last_mut().unwrap() ^= 0xff;
+        db.store_block(&block.header.hash(), &RawBlock::from(bytes.as_slice())).unwrap();
+        let _ = db.load_block(&block.header.hash());
+    })
+}
+
+#[test]
+#[should_panic(expected = "chain-store integrity failure")]
+fn load_headers_panics_when_a_key_does_not_match_the_header() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let stored = make_header(1, 0, None);
+    let requested = make_header(2, 1, None).hash();
+
+    store.db.put([&HEADER_PREFIX[..], &requested[..]].concat(), to_cbor(&stored)).unwrap();
+
+    let _ = store.load_headers().count();
+}
+
+#[test]
+#[should_panic(expected = "chain-store integrity failure")]
+fn load_blocks_panics_when_a_key_does_not_match_the_block() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let stored = encoded(&make_header(1, 0, None));
+    let requested = encoded(&make_header(2, 1, None)).header.hash();
+
+    store.db.put([&BLOCK_PREFIX[..], &requested[..]].concat(), stored.raw.as_ref()).unwrap();
+
+    let _ = store.load_blocks().count();
 }
 
 #[test]
@@ -265,12 +329,11 @@ fn load_nonces() {
 #[test]
 fn load_blocks() {
     with_db_path(|(db, path)| {
-        let chain = run_strategy(any_headers_chain(3));
+        let chain = make_encoded_chain(run_strategy(any_headers_chain(3)), &EraHistory::default());
         let mut expected = BTreeMap::new();
-        for header in &chain {
-            let block = RawBlock::from(random_bytes(32).as_slice());
-            db.store_block(&header.hash(), &block).unwrap();
-            expected.insert(header.hash(), block);
+        for block in &chain {
+            db.store_block(&block.header.hash(), &block.raw).unwrap();
+            expected.insert(block.header.hash(), block.raw.clone());
         }
 
         let db = initialise_test_ro_store(path).unwrap();
@@ -516,12 +579,12 @@ fn find_missing_blocks_preserves_boundary_parent_invariant_under_truncation() {
     // For any non-empty return, missing[0].parent() == boundary, regardless of limit.
     with_db(|store| {
         // h0 -> ... -> h9, all headers stored, block present only for h0.
-        let chain = populate_db(store.clone());
-        let block = RawBlock::from(&*vec![1; 64]);
-        store.store_block(&chain[0].hash(), &block).unwrap();
+        let chain = populate_blocks(store.clone());
+        store.store_block(&chain[0].header.hash(), &chain[0].raw).unwrap();
 
         for limit in 1..=9usize {
-            let MissingBlocksResult::Found(range) = store.find_missing_blocks(chain[9].hash(), limit).unwrap() else {
+            let MissingBlocksResult::Found(range) = store.find_missing_blocks(chain[9].header.hash(), limit).unwrap()
+            else {
                 panic!("expected missing blocks");
             };
             let boundary = range.boundary();
@@ -826,17 +889,16 @@ fn find_missing_blocks_returns_path_from_nearest_available_block_to_tip() {
         //                                 block present
         // Missing path to fetch from h9:
         // h6 -> h7 -> h8 -> h9
-        let chain = populate_db(store.clone());
-        let block = RawBlock::from(&*vec![1; 64]);
-        store.store_block(&chain[6].hash(), &block).unwrap();
+        let chain = populate_blocks(store.clone());
+        store.store_block(&chain[6].header.hash(), &chain[6].raw).unwrap();
 
-        let result = store.find_missing_blocks(chain[9].hash(), 10).unwrap();
+        let result = store.find_missing_blocks(chain[9].header.hash(), 10).unwrap();
 
         assert_eq!(
             result,
             MissingBlocksResult::Found(MissingBlocks::new(
-                chain[6].point(),
-                vec![chain[7].point(), chain[8].point(), chain[9].point()],
+                chain[6].header.point(),
+                vec![chain[7].header.point(), chain[8].header.point(), chain[9].header.point()],
             ))
         );
     });
@@ -858,12 +920,11 @@ fn find_missing_blocks_returns_boundary_only_when_tip_block_exists() {
         // h0 -> h1 -> h2 -> h3 -> h4 -> h5 -> h6 -> h7 -> h8 -> h9 (tip)
         //                                                 *
         //                                              block present
-        let chain = populate_db(store.clone());
-        let block = RawBlock::from(&*vec![1; 64]);
-        store.store_block(&chain[9].hash(), &block).unwrap();
+        let chain = populate_blocks(store.clone());
+        store.store_block(&chain[9].header.hash(), &chain[9].raw).unwrap();
 
-        let result = store.find_missing_blocks(chain[9].hash(), 10).unwrap();
-        assert_eq!(result, MissingBlocksResult::Found(MissingBlocks::new(chain[9].point(), vec![])));
+        let result = store.find_missing_blocks(chain[9].header.hash(), 10).unwrap();
+        assert_eq!(result, MissingBlocksResult::Found(MissingBlocks::new(chain[9].header.point(), vec![])));
     });
 }
 
@@ -890,7 +951,8 @@ fn read_snapshot_keeps_original_best_chain_view_after_store_changes() {
 
 #[test]
 fn read_snapshot_exposes_direct_read_operations() {
-    let headers = make_forked_headers();
+    let chain = make_forked_chain();
+    let headers = chain.headers();
     let nonces = Nonces {
         active: Nonce::from(random_bytes(32).as_slice()),
         evolving: Nonce::from(random_bytes(32).as_slice()),
@@ -898,7 +960,7 @@ fn read_snapshot_exposes_direct_read_operations() {
         tail: headers.h1.hash(),
         epoch: Default::default(),
     };
-    let block = RawBlock::from(&*vec![1; 64]);
+    let block = chain.h3.raw.clone();
 
     with_read_db(
         {
@@ -1105,17 +1167,15 @@ fn read_snapshot_supports_ancestor_fork_and_sampling_queries() {
 
 #[test]
 fn read_snapshot_supports_missing_block_queries() {
-    let chain = make_linear_headers(10);
-    let block = RawBlock::from(&*vec![1; 64]);
+    let chain = make_linear_blocks(10);
 
     with_read_db(
         {
             let chain = chain.clone();
-            let block = block.clone();
             move |store| {
-                store.set_anchor_point(&chain[0].point()).unwrap();
-                append_best_chain(store.clone(), &chain);
-                store.store_block(&chain[6].hash(), &block).unwrap();
+                store.set_anchor_point(&chain[0].header.point()).unwrap();
+                append_best_chain(store.clone(), chain.iter().map(|b| &b.header));
+                store.store_block(&chain[6].header.hash(), &chain[6].raw).unwrap();
             }
         },
         {
@@ -1124,10 +1184,10 @@ fn read_snapshot_supports_missing_block_queries() {
                 let missing_tip = run_strategy(any_header_hash());
 
                 assert_eq!(
-                    store.find_missing_blocks(chain[9].hash(), 10).unwrap(),
+                    store.find_missing_blocks(chain[9].header.hash(), 10).unwrap(),
                     MissingBlocksResult::Found(MissingBlocks::new(
-                        chain[6].point(),
-                        vec![chain[7].point(), chain[8].point(), chain[9].point()],
+                        chain[6].header.point(),
+                        vec![chain[7].header.point(), chain[8].header.point(), chain[9].header.point()],
                     ))
                 );
                 assert_eq!(
@@ -1141,17 +1201,16 @@ fn read_snapshot_supports_missing_block_queries() {
 
 #[test]
 fn read_snapshot_supports_child_tips_all() {
-    let headers = make_forked_headers();
-    let block = RawBlock::from(&*vec![1; 64]);
+    let chain = make_forked_chain();
+    let headers = chain.headers();
 
     with_read_db(
         {
-            let block = block.clone();
-            let headers = headers.clone();
+            let chain = chain.clone();
             move |store| {
-                for h in headers.all() {
-                    store.store_header(h).unwrap();
-                    store.store_block(&h.hash(), &block).unwrap();
+                for block in chain.all() {
+                    store.store_header(&block.header).unwrap();
+                    store.store_block(&block.header.hash(), &block.raw).unwrap();
                 }
             }
         },
@@ -1169,18 +1228,18 @@ fn read_snapshot_supports_child_tips_all() {
 
 #[test]
 fn read_snapshot_supports_child_tips_skip_invalid() {
-    let headers = make_forked_headers();
-    let block = RawBlock::from(&*vec![1; 64]);
+    let chain = make_forked_chain();
+    let headers = chain.headers();
 
     with_read_db(
         {
-            let block = block.clone();
+            let chain = chain.clone();
             let headers = headers.clone();
             move |store| {
-                for h in headers.all() {
-                    store.store_header(h).unwrap();
-                    store.store_block(&h.hash(), &block).unwrap();
-                    store.set_block_valid(&h.hash(), h.hash() != headers.h2.hash()).unwrap();
+                for block in chain.all() {
+                    store.store_header(&block.header).unwrap();
+                    store.store_block(&block.header.hash(), &block.raw).unwrap();
+                    store.set_block_valid(&block.header.hash(), block.header.hash() != headers.h2.hash()).unwrap();
                 }
             }
         },
@@ -1756,27 +1815,66 @@ impl ForkedHeaders {
     }
 }
 
+#[derive(Clone)]
+struct ForkedChain {
+    h0: EncodedTestBlock,
+    h1: EncodedTestBlock,
+    h2: EncodedTestBlock,
+    h3: EncodedTestBlock,
+    h2a: EncodedTestBlock,
+    h3a: EncodedTestBlock,
+}
+
+impl ForkedChain {
+    fn headers(&self) -> ForkedHeaders {
+        ForkedHeaders {
+            h0: self.h0.header.clone(),
+            h1: self.h1.header.clone(),
+            h2: self.h2.header.clone(),
+            h3: self.h3.header.clone(),
+            h2a: self.h2a.header.clone(),
+            h3a: self.h3a.header.clone(),
+        }
+    }
+
+    fn all(&self) -> [&EncodedTestBlock; 6] {
+        [&self.h0, &self.h1, &self.h2, &self.h3, &self.h2a, &self.h3a]
+    }
+}
+
+fn encoded(seed: &Header) -> EncodedTestBlock {
+    EncodedTestBlock::from_seed(seed, &EraHistory::default())
+}
+
 /// h0 -> h1 -> h2 -> h3
 ///          -> h2a -> h3a
-///
-fn make_forked_headers() -> ForkedHeaders {
-    let h0 = make_header(1, 1, None);
-    let h1 = make_header(2, 2, Some(h0.hash()));
-    let h2 = make_header(3, 3, Some(h1.hash()));
-    let h3 = make_header(4, 4, Some(h2.hash()));
-    let h2a = make_header(3, 10, Some(h1.hash()));
-    let h3a = make_header(4, 11, Some(h2a.hash()));
+fn make_forked_chain() -> ForkedChain {
+    let h0 = encoded(&make_header(1, 1, None));
+    let h1 = encoded(&make_header(2, 2, Some(h0.header.hash())));
+    let h2 = encoded(&make_header(3, 3, Some(h1.header.hash())));
+    let h3 = encoded(&make_header(4, 4, Some(h2.header.hash())));
+    let h2a = encoded(&make_header(3, 10, Some(h1.header.hash())));
+    let h3a = encoded(&make_header(4, 11, Some(h2a.header.hash())));
+    ForkedChain { h0, h1, h2, h3, h2a, h3a }
+}
 
-    ForkedHeaders { h0, h1, h2, h3, h2a, h3a }
+fn make_forked_headers() -> ForkedHeaders {
+    make_forked_chain().headers()
+}
+
+fn make_linear_blocks(len: usize) -> Vec<EncodedTestBlock> {
+    let mut parent = None;
+    let mut blocks = Vec::with_capacity(len);
+    for i in 0..len {
+        let block = encoded(&make_header((i + 1) as u64, (i + 1) as u64, parent));
+        parent = Some(block.header.hash());
+        blocks.push(block);
+    }
+    blocks
 }
 
 fn make_linear_headers(len: usize) -> Vec<Header> {
-    let mut headers = Vec::with_capacity(len);
-    for i in 0..len {
-        let parent = headers.last().map(Header::hash);
-        headers.push(make_header((i + 1) as u64, (i + 1) as u64, parent));
-    }
-    headers
+    make_linear_blocks(len).into_iter().map(|block| block.header).collect()
 }
 
 fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a Header>) {
@@ -1786,17 +1884,20 @@ fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<
     }
 }
 
-fn populate_db(store: Arc<dyn ChainStore>) -> Vec<Header> {
-    let chain = run_strategy(any_headers_chain(10));
+fn populate_blocks(store: Arc<dyn ChainStore>) -> Vec<EncodedTestBlock> {
+    let chain = make_encoded_chain(run_strategy(any_headers_chain(10)), &EraHistory::default());
 
-    // Set the anchor to the first header in the chain
-    store.set_anchor_point(&chain[0].point()).expect("should set anchor hash successfully");
+    store.set_anchor_point(&chain[0].header.point()).expect("should set anchor hash successfully");
 
-    for header in chain.iter() {
-        store.roll_forward_chain(&header.point()).expect("should roll forward successfully");
-        store.store_header(header).expect("should store header successfully");
+    for block in chain.iter() {
+        store.roll_forward_chain(&block.header.point()).expect("should roll forward successfully");
+        store.store_header(&block.header).expect("should store header successfully");
     }
     chain
+}
+
+fn populate_db(store: Arc<dyn ChainStore>) -> Vec<Header> {
+    populate_blocks(store).into_iter().map(|block| block.header).collect()
 }
 
 pub fn initialise_test_rw_store(path: &Path) -> RocksDBStore {
