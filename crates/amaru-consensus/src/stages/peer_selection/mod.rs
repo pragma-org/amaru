@@ -97,12 +97,14 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// - **Adversarial**: Debug-logs. Delegates to
 ///   `ban_peer`: removes the peer from `inbound_peers` (if present;
 ///   warns `"removing peer (inbound)"`) and/or `outbound_peers` (if present; warns
-///   `"removing peer (outbound)"`, calls `regulate_peers`, marks for removal).
+///   `"removing peer (outbound)"`).
 ///   If any removal occurred, sends `ManagerMessage::RemovePeer` to the manager.
 ///   Always calls `cool_down` (which computes `STATIC_PEER_BAN_PERIOD` (10s) for
 ///   static peers vs. configured cooldown, pushes onto the cool-down min-heap, and
 ///   arms `eff.schedule_at(CheckCooldowns)` only when the live cool-down set goes from
 ///   empty to one item, or when the new end time is earlier than the currently armed timer).
+///   After the ban is recorded, outbound removal refills via `regulate_peers` (the banned
+///   peer is excluded, so a static peer is not immediately re-added while still connected).
 ///
 /// - **AddPeer**: Manual/test hook. If the peer
 ///   has an active cool-down, removes it from `cooldown_until` (`was_banned = true`)
@@ -133,7 +135,9 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// - **Disconnected**:
 ///   - `Inbound`: Removes from `inbound_peers` only on exact `ConnectionId` match
 ///     (via `Entry::Occupied` guard).
-///   - `Outbound` + `will_retry == true`: Clears availability claims only.
+///   - `Outbound` + `will_retry == true`: If present as `PeerState::Connected` with
+///     matching id, replaces it with `Connecting` so a reconnect handshake does
+///     not race a stale live entry; then clears availability if nothing remains.
 ///   - `Outbound` + `will_retry == false`: Removes only if present as exactly
 ///     `PeerState::Connected` with matching id; then `regulate_peers`.
 ///     (Share-request timers die with the connection's peer-sharing stage.)
@@ -172,7 +176,8 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// ## Regulation, Schedules, and Effects
 ///
 /// `regulate_peers` (called from `CheckCooldowns`, outbound non-retry disconnect,
-/// `ConnectFailed`, `Regulate`, and outbound removal inside `ban_peer`)
+/// `ConnectFailed`, `Regulate`, and outbound removal inside `ban_peer` after the
+/// ban is recorded)
 /// early-returns if `outbound_peers.len() >= target_upstream_peers`. Otherwise it
 /// obtains a seed via `eff.external(GenerateRandomSeed)` and asks Performance to
 /// select dials (mix + quality-weighted sample within each
@@ -335,6 +340,7 @@ impl PeerSelection {
         let is_static = eff.external(Performance::is_static_peer(peer.clone())).await;
 
         let mut send_remove = false;
+        let mut refill_outbound = false;
         if let Some(peer_state) = self.inbound_peers.remove(&peer) {
             tracing::warn!(%peer, ?peer_state, is_static, "removing peer (inbound)");
             send_remove = true;
@@ -342,8 +348,8 @@ impl PeerSelection {
 
         if let Some(peer_state) = self.outbound_peers.remove(&peer) {
             tracing::warn!(%peer, ?peer_state, is_static, "removing peer (outbound)");
-            self.regulate_peers(eff).await;
             send_remove = true;
+            refill_outbound = true;
         }
 
         if send_remove {
@@ -353,6 +359,9 @@ impl PeerSelection {
         let now = eff.clock().await;
         eff.external(Performance::peer_adversarial(peer.clone(), now)).await;
         self.cool_down(peer, eff, is_static, now).await;
+        if refill_outbound {
+            self.regulate_peers(eff).await;
+        }
     }
 
     /// Drop availability claims when a peer has no remaining live connections (scores kept).
@@ -641,8 +650,21 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
             state.clear_availability_if_gone(&peer, &eff).await;
         }
-        PeerSelectionMsg::Disconnected(peer, _, ConnectionDirection::Outbound, true) => {
-            eff.external(Performance::clear_peer_availability(peer)).await;
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, true) => {
+            if let Entry::Occupied(mut entry) = state.outbound_peers.entry(peer.clone())
+                && let PeerState::Connected(conn) = entry.get()
+                && conn.id == conn_id
+            {
+                let _span = debug_span!(
+                    amaru::protocols::peer_selection::peer::DISCONNECTED,
+                    peer = &peer,
+                    conn_id = conn_id.as_u64(),
+                    direction = ConnectionDirection::Outbound,
+                )
+                .entered();
+                entry.insert(PeerState::Connecting);
+            }
+            state.clear_availability_if_gone(&peer, &eff).await;
         }
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, _) => {
             if let Entry::Occupied(entry) = state.outbound_peers.entry(peer.clone())

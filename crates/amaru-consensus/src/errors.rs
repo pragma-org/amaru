@@ -66,6 +66,8 @@ pub enum ConsensusError {
     InvalidHeaderVariant(EraName),
     #[error("header slot {0} is in the near future (permissible clock skew)")]
     HeaderSlotInNearFuture(Slot),
+    #[error("{0}")]
+    HeaderSlotTooFarInFuture(Box<HeaderSlotTooFarInFuture>),
     #[error("Failed to roll forward chain from {0}: {1}")]
     RollForwardChainFailed(amaru_kernel::Hash<32>, StoreError),
     #[error("Failed to rollback chain at {0}: {1}")]
@@ -115,11 +117,27 @@ impl Display for InvalidHeaderParentData {
 }
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[error("Invalid header point {actual}, expected at least {parent} (upstream peer’s best validated is at {highest})")]
+#[error(
+    "Invalid header point {actual}: slot does not progress from parent {parent} (upstream peer’s best validated is at {highest})"
+)]
 pub struct InvalidHeaderPoint {
     pub actual: Point,
     pub parent: Point,
     pub highest: Point,
+}
+
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[error(
+    "header point {actual} is {delta_millis}ms ahead of local time (slot onset {onset_millis}ms since system start, local {elapsed_millis}ms; max skew {max_skew_millis}ms; parent {parent}; peer tip {highest})"
+)]
+pub struct HeaderSlotTooFarInFuture {
+    pub actual: Point,
+    pub parent: Point,
+    pub highest: Point,
+    pub onset_millis: u64,
+    pub elapsed_millis: u64,
+    pub delta_millis: u64,
+    pub max_skew_millis: u64,
 }
 
 /// A ValidationFailed error is raised when some incoming data is invalid
