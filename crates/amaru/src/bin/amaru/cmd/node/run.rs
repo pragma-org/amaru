@@ -538,8 +538,22 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
+    if !ledger_dir.is_dir() {
+        return Err(format!(
+            "ledger_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            ledger_dir.display()
+        )
+        .into());
+    }
 
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    if !chain_dir.is_dir() {
+        return Err(format!(
+            "chain_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            chain_dir.display()
+        )
+        .into());
+    }
 
     // Use network-specific default peer if no peer-address was provided
     let peer_address = if args.peer_address.is_empty() {

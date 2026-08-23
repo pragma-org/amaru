@@ -97,7 +97,7 @@ pub(in crate::ui) fn render_peers_table(
         ],
     )
     .header(
-        Row::new(vec!["", "Dir", "Peer", "Duplex?", "RTT", "Observe", "→", "Fetch", "→", "Sync", "→", "Adopt"])
+        Row::new(vec!["", "Dir", "Peer", "Duplex?", "RTT", "Observe", "→", "Select", "→", "Fetch", "→", "Adopt"])
             .style(table_header_style(model.interaction_mode)),
     )
     .column_spacing(1)
