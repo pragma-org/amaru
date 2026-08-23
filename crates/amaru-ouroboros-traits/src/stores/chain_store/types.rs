@@ -14,7 +14,7 @@
 
 use std::{collections::VecDeque, fmt::Display};
 
-use amaru_kernel::{Header, HeaderHash, NonEmptyVec, Point};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NonEmptyVec, Point, RawBlock};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -67,6 +67,53 @@ Pass `--migrate-chain-db` (or set `AMARU_MIGRATE_CHAIN_DB=true`) when starting t
             }
         }
     }
+}
+
+/// Abort if `header` is not the content addressed by `hash`.
+///
+/// A content-addressed store that yields the wrong blob is corrupt; the node cannot continue.
+#[expect(clippy::panic)]
+pub fn header_addressed_by(header: Header, hash: &HeaderHash) -> Header {
+    let actual = header.hash();
+    if actual != *hash {
+        panic!(
+            "chain-store integrity failure: header stored at key {hash} hashes to {actual}; the database is corrupt and Amaru cannot continue"
+        );
+    }
+    header
+}
+
+/// Abort if `block` is not stored under its header hash `hash`, or if the body does not match
+/// the header's `block_body_hash`.
+///
+/// Decode failure or a hash mismatch means the database is corrupt.
+#[expect(clippy::panic)]
+pub fn block_addressed_by(block: RawBlock, hash: &HeaderHash) -> RawBlock {
+    let header = match block.decode_header() {
+        Ok(header) => header,
+        Err(error) => panic!(
+            "chain-store integrity failure: block stored at key {hash} has an undecodable header ({error}); the database is corrupt and Amaru cannot continue"
+        ),
+    };
+    let actual = header.hash();
+    if actual != *hash {
+        panic!(
+            "chain-store integrity failure: block stored at key {hash} has header hash {actual}; the database is corrupt and Amaru cannot continue"
+        );
+    }
+    let expected_body = header.body().block_body_hash;
+    let actual_body = match block.body_hash() {
+        Ok(body_hash) => body_hash,
+        Err(error) => panic!(
+            "chain-store integrity failure: block stored at key {hash} has an undecodable body ({error}); the database is corrupt and Amaru cannot continue"
+        ),
+    };
+    if expected_body != actual_body {
+        panic!(
+            "chain-store integrity failure: block stored at key {hash} has body hash {actual_body} but header claims {expected_body}; the database is corrupt and Amaru cannot continue"
+        );
+    }
+    block
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]

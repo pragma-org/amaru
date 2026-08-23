@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{
     Anchor, Constitution, Epoch, EraHistory, Header, IsHeader, MaxString128, NetworkName, Peer, Point,
-    ProtocolParameters, Transaction, TransactionId, cardano::network_block::make_encoded_block,
+    ProtocolParameters, Transaction, TransactionId, cardano::network_block::make_encoded_chain,
     cbor::WithOriginalBytes,
 };
 use amaru_ledger::{
@@ -235,22 +235,23 @@ impl NodeTestConfig {
     #[expect(clippy::unwrap_used)]
     pub fn with_validated_blocks(self, headers: Vec<Header>) -> Self {
         let _span = self.enter_span();
-        for header in headers.iter() {
+        let chain = make_encoded_chain(headers, self.era_history());
+        for block in chain.iter() {
             tracing::info!(
                 "storing block for header {} (parent hash: {})",
-                header.point(),
-                header.parent_hash().unwrap_or(Point::Origin.hash())
+                block.header.point(),
+                block.header.parent_hash().unwrap_or(Point::Origin.hash())
             );
-            self.chain_store.store_header(header).unwrap();
-            self.chain_store.store_block(&header.hash(), &make_encoded_block(header, self.era_history())).unwrap();
-            self.chain_store.roll_forward_chain(&header.point()).unwrap();
+            self.chain_store.store_header(&block.header).unwrap();
+            self.chain_store.store_block(&block.header.hash(), &block.raw).unwrap();
+            self.chain_store.roll_forward_chain(&block.header.point()).unwrap();
         }
 
-        if let Some(header) = headers.first() {
-            tracing::info!("set the anchor to {}", header.point());
-            self.chain_store.set_anchor_point(&header.point()).unwrap();
-            tracing::info!("set the tip to {}", header.point());
-            self.chain_store.set_best_chain_tip(&header.point()).unwrap();
+        if let Some(block) = chain.first() {
+            tracing::info!("set the anchor to {}", block.header.point());
+            self.chain_store.set_anchor_point(&block.header.point()).unwrap();
+            tracing::info!("set the tip to {}", block.header.point());
+            self.chain_store.set_best_chain_tip(&block.header.point()).unwrap();
         }
         self
     }

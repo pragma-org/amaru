@@ -74,6 +74,12 @@ impl RawBlock {
         network_block.decode_header()
     }
 
+    /// Hash of the four body CBOR items, matching [`Block::body_hash`].
+    pub fn body_hash(&self) -> Result<crate::Hash<{ crate::size::BLOCK_BODY }>, decode::Error> {
+        let network_block: NetworkBlock = minicbor::decode(&self.0)?;
+        Block::hash_encoded_body(network_block.encoded_block())
+    }
+
     /// Return an iterator over standalone CBOR-encoded transactions extracted from the block.
     pub fn transactions(&self) -> Result<RawBlockTransactions, decode::Error> {
         let network_block = NetworkBlock::try_from(self.clone())?;
@@ -214,6 +220,8 @@ mod tests {
         let raw_block = network_block.raw_block();
         let decoded_block = raw_block.decode().expect("raw block should decode");
         assert_eq!(decoded_block, block);
+        assert_eq!(raw_block.body_hash().expect("body hash"), decoded_block.body_hash());
+        assert_eq!(decoded_block.body_hash(), decoded_block.header.body().block_body_hash);
     }
 
     #[test]

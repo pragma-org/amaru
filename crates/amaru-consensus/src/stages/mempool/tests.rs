@@ -102,11 +102,12 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 
 #[test]
 fn new_tip_reports_transactions_included_in_the_adopted_block() {
-    use amaru_kernel::{IsHeader, cardano::network_block::make_encoded_block, cbor, make_header};
+    use amaru_kernel::{IsHeader, cardano::network_block::EncodedTestBlock, cbor, make_header};
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 
-    let header = make_header(1, 1, None);
-    let raw = make_encoded_block(&header, &amaru_kernel::EraHistory::default());
+    let encoded = EncodedTestBlock::from_seed(&make_header(1, 1, None), &amaru_kernel::EraHistory::default());
+    let header = encoded.header;
+    let raw = encoded.raw;
     let (_, block): (u16, amaru_kernel::Block) = cbor::decode(&raw).unwrap();
 
     // The mempool holds the transaction carried by the adopted block (identified by its body

@@ -20,8 +20,7 @@ use std::{
 
 use amaru_kernel::{
     Block, EraHistory, ExUnits, GlobalParameters, Hash, IsHeader, NetworkName, Point, ProtocolParameters,
-    TransactionId, TransactionIndex, TransactionPointer, TransactionRef,
-    size::{BLOCK_BODY, SCRIPT},
+    TransactionId, TransactionIndex, TransactionPointer, TransactionRef, size::SCRIPT,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -33,7 +32,6 @@ use crate::{
     rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
 };
 
-pub mod body_hash;
 pub mod body_size;
 pub mod ex_units;
 pub mod header_size;
@@ -60,10 +58,6 @@ pub enum InvalidBlockDetails {
     HeaderSizeTooBig {
         supplied: u64,
         max: u64,
-    },
-    InvalidBodyHash {
-        header: Hash<BLOCK_BODY>,
-        actual: Hash<BLOCK_BODY>,
     },
     HeaderProtVerTooHigh {
         header_major: u64,
@@ -107,9 +101,6 @@ impl Display for InvalidBlockDetails {
             }
             InvalidBlockDetails::HeaderSizeTooBig { supplied, max } => {
                 write!(f, "Header size too big: supplied {}, max {}", supplied, max)
-            }
-            InvalidBlockDetails::InvalidBodyHash { header, actual } => {
-                write!(f, "Invalid body hash: header says {}, actual {}", header, actual)
             }
             InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major } => {
                 write!(f, "Header protocol version too high: {} > {}", header_major, max_major)
@@ -229,8 +220,6 @@ where
     with_block_context(header_size::block_header_size_valid(block.header_len(), protocol_params))?;
 
     with_block_context(body_size::block_body_size_valid(block))?;
-
-    with_block_context(body_hash::block_body_hash_valid(block))?;
 
     // NOTE: No protocol major version in block header
     //

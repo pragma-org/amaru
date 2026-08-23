@@ -290,9 +290,9 @@ pub mod tests {
     use std::sync::Arc;
 
     use amaru_kernel::{
-        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, Slot, any_fake_header, any_headers_chain,
+        BlockHeight, EraHistory, EraName, IsHeader, NetworkPoint, Slot, any_fake_header, any_headers_chain,
         any_headers_chain_with_root,
-        cardano::network_block::{NetworkBlock, make_encoded_block},
+        cardano::network_block::{EncodedTestBlock, NetworkBlock, make_encoded_chain},
         utils::tests::run_strategy,
     };
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -323,93 +323,86 @@ pub mod tests {
 
     #[test]
     fn test_request_range_invalid_from_greater_than_through() {
-        let (store, headers) = make_store_with_chain(5);
-        let result = request_range(store, headers[3].point(), headers[1].point());
+        let (store, chain) = make_store_with_chain(5);
+        let result = request_range(store, chain[3].header.point(), chain[1].header.point());
         assert_eq!(result, None, "should return None when from > through");
     }
 
     #[test]
     fn test_request_range_single_point_block_exists() {
-        let (store, headers) = make_store_with_chain(3);
-        store_blocks(store.clone(), &headers[1..2]);
+        let (store, chain) = make_store_with_chain(3);
+        store_blocks(store.clone(), &chain[1..2]);
 
-        let result = request_range(store, headers[1].point(), headers[1].point());
-        assert_eq!(result, Some(PointsRange::singleton(headers[1].point())));
+        let result = request_range(store, chain[1].header.point(), chain[1].header.point());
+        assert_eq!(result, Some(PointsRange::singleton(chain[1].header.point())));
     }
 
     #[test]
     fn test_request_range_single_point_block_missing() {
-        let (store, headers) = make_store_with_chain(3);
-        let result = request_range(store, headers[1].point(), headers[1].point());
+        let (store, chain) = make_store_with_chain(3);
+        let result = request_range(store, chain[1].header.point(), chain[1].header.point());
         assert_eq!(result, None, "should return None when from == through but block doesn't exist");
     }
 
     #[test]
     fn test_request_range_valid_chain() {
-        let (store, headers) = make_store_with_chain(5);
-        store_blocks(store.clone(), &headers);
-        let result = request_range(store, headers[0].point(), headers[4].point());
+        let (store, chain) = make_store_with_chain(5);
+        store_blocks(store.clone(), &chain);
+        let result = request_range(store, chain[0].header.point(), chain[4].header.point());
         assert_eq!(
             result,
             PointsRange::from_vec(vec![
-                headers[4].point(),
-                headers[3].point(),
-                headers[2].point(),
-                headers[1].point(),
-                headers[0].point(),
+                chain[4].header.point(),
+                chain[3].header.point(),
+                chain[2].header.point(),
+                chain[1].header.point(),
+                chain[0].header.point(),
             ])
         );
     }
 
     #[test]
     fn test_request_range_missing_block_in_chain() {
-        let (store, headers) = make_store_with_chain(5);
+        let (store, chain) = make_store_with_chain(5);
 
         // Store blocks for all headers except one in the middle
-        for (i, h) in headers.iter().enumerate() {
-            if i != 2 {
-                // Skip storing block for index 2
-                let raw_block = RawBlock::from(&[1u8, 2, 3][..]);
-                store.store_block(&h.hash(), &raw_block).unwrap();
-            }
-        }
+        store_blocks(store.clone(), &chain[..2]);
+        store_blocks(store.clone(), &chain[3..]);
 
-        let result = request_range(store, headers[0].point(), headers[4].point());
+        let result = request_range(store, chain[0].header.point(), chain[4].header.point());
         assert_eq!(result, None, "should return None when a block is missing in the chain");
     }
 
     #[test]
     fn test_request_range_missing_header_in_chain() {
-        let headers: Vec<Header> = run_strategy(any_headers_chain(5));
+        let chain = make_encoded_chain(run_strategy(any_headers_chain(5)), &EraHistory::default());
         let store = Arc::new(InMemoryChainStore::new());
 
-        // Set anchor to the first header
-        store.set_anchor_point(&headers[0].point()).unwrap();
+        store.set_anchor_point(&chain[0].header.point()).unwrap();
 
         // Store only some headers (skip one in the middle)
-        for (i, h) in headers.iter().enumerate() {
+        for (i, block) in chain.iter().enumerate() {
             if i != 2 {
-                // Skip storing header for index 2
-                store.store_header(h).unwrap();
-                store.roll_forward_chain(&h.point()).unwrap();
-                let raw_block = RawBlock::from(&[1u8, 2, 3][..]);
-                store.store_block(&h.hash(), &raw_block).unwrap();
+                store.store_header(&block.header).unwrap();
+                store.roll_forward_chain(&block.header.point()).unwrap();
             }
         }
+        store_blocks(store.clone(), &chain[..2]);
+        store_blocks(store.clone(), &chain[3..]);
 
-        let result = request_range(store, headers[0].point(), headers[4].point());
+        let result = request_range(store, chain[0].header.point(), chain[4].header.point());
         assert_eq!(result, None, "should return None when a header is missing in the chain");
     }
 
     #[test]
     fn test_request_range_no_parent_hash_before_from() {
         let genesis = NetworkPoint::Specific(Slot::from(10), run_strategy(any_fake_header()).hash());
-        let (store, headers) = make_store_with_chain_starting_from(5, genesis);
+        let (store, chain) = make_store_with_chain_starting_from(5, genesis);
 
         let result = request_range(
             store,
             NetworkPoint::Specific(Slot::from(2), run_strategy(any_fake_header()).hash()),
-            headers[3].point(),
+            chain[3].header.point(),
         );
         assert_eq!(result, None, "should return None when we hit genesis before finding from");
     }
@@ -417,27 +410,27 @@ pub mod tests {
     #[test]
     fn test_request_range_slot_before_from_abort() {
         // Create a chain with 5 headers
-        let (store, headers) = make_store_with_chain(5);
-        store_blocks(store.clone(), &headers);
+        let (store, chain) = make_store_with_chain(5);
+        store_blocks(store.clone(), &chain);
 
         // Create a 'from' point that has a slot within the chain range but with a non-existent hash.
         // When traversing backwards from 'through', we'll pass the slot of 'from' without finding it,
         // and then hit a block with a slot before 'from', triggering the abort condition.
-        let from_slot = headers[2].slot();
+        let from_slot = chain[2].header.slot();
         let non_existent_hash = run_strategy(any_fake_header()).hash();
         let from = NetworkPoint::Specific(from_slot, non_existent_hash);
 
-        let result = request_range(store, from, headers[4].point());
+        let result = request_range(store, from, chain[4].header.point());
         assert_eq!(result, None, "should return None when we reach a slot before 'from' without finding 'from'");
     }
 
     #[test]
     fn test_request_range_exactly_max_blocks() {
         // Create a chain longer than MAX_BLOCKS
-        let (store, headers) = make_store_with_chain(MAX_FETCHED_BLOCKS);
-        store_blocks(store.clone(), &headers);
+        let (store, chain) = make_store_with_chain(MAX_FETCHED_BLOCKS);
+        store_blocks(store.clone(), &chain);
 
-        let result = request_range(store, headers[0].point(), headers[MAX_FETCHED_BLOCKS - 1].point());
+        let result = request_range(store, chain[0].header.point(), chain[MAX_FETCHED_BLOCKS - 1].header.point());
 
         assert_eq!(result.unwrap().points().len(), MAX_FETCHED_BLOCKS);
     }
@@ -446,23 +439,23 @@ pub mod tests {
     fn test_request_range_max_blocks_limit() {
         // Create a chain longer than MAX_BLOCKS
         let chain_length = MAX_FETCHED_BLOCKS + 1;
-        let (store, headers) = make_store_with_chain(chain_length);
-        store_blocks(store.clone(), &headers);
+        let (store, chain) = make_store_with_chain(chain_length);
+        store_blocks(store.clone(), &chain);
 
-        let result = request_range(store, headers[0].point(), headers[chain_length - 1].point());
+        let result = request_range(store, chain[0].header.point(), chain[chain_length - 1].header.point());
         assert_eq!(result, None, "should return None when the requested range exceeds MAX_BLOCKS limit");
     }
 
     #[test]
     fn test_next_block_single_point() {
-        let (store, headers) = make_store_with_chain(3);
-        store_blocks(store.clone(), &headers);
+        let (store, chain) = make_store_with_chain(3);
+        store_blocks(store.clone(), &chain);
 
-        let (block, remaining_range) = next_block(store, PointsRange::singleton(headers[1].point()));
+        let (block, remaining_range) = next_block(store, PointsRange::singleton(chain[1].header.point()));
 
         // Should return the block for the single point
         let network_block: NetworkBlock = block.try_into().unwrap();
-        assert_eq!(network_block.decode_header().unwrap().point(), headers[1].point());
+        assert_eq!(network_block.decode_header().unwrap().point(), chain[1].header.point());
 
         // Should have no remaining range
         assert_eq!(remaining_range, None);
@@ -470,48 +463,49 @@ pub mod tests {
 
     #[test]
     fn test_next_block_multiple_points() {
-        let (store, headers) = make_store_with_chain(5);
-        store_blocks(store.clone(), &headers);
+        let (store, chain) = make_store_with_chain(5);
+        store_blocks(store.clone(), &chain);
 
         let (block, remaining_range) = next_block(
             store,
-            PointsRange::from_vec(vec![headers[2].point(), headers[1].point(), headers[0].point()]).unwrap(),
+            PointsRange::from_vec(vec![chain[2].header.point(), chain[1].header.point(), chain[0].header.point()])
+                .unwrap(),
         );
 
         // Should return the first block
         let network_block: NetworkBlock = block.try_into().unwrap();
-        assert_eq!(network_block.decode_header().unwrap().point(), headers[0].point());
+        assert_eq!(network_block.decode_header().unwrap().point(), chain[0].header.point());
 
         // Should have remaining points
-        assert_eq!(remaining_range, PointsRange::from_vec(vec![headers[2].point(), headers[1].point()]));
+        assert_eq!(remaining_range, PointsRange::from_vec(vec![chain[2].header.point(), chain[1].header.point()]));
     }
 
     // HELPERS
 
-    fn make_store_with_chain(n: usize) -> (Arc<InMemoryChainStore>, Vec<Header>) {
+    fn make_store_with_chain(n: usize) -> (Arc<InMemoryChainStore>, Vec<EncodedTestBlock>) {
         make_store_with_chain_starting_from(n, Point::Origin)
     }
 
     fn make_store_with_chain_starting_from(
         n: usize,
         point: impl Into<NetworkPoint>,
-    ) -> (Arc<InMemoryChainStore>, Vec<Header>) {
-        let headers: Vec<Header> =
-            run_strategy(any_headers_chain_with_root(n, Point::new(point.into(), BlockHeight::from(0))));
+    ) -> (Arc<InMemoryChainStore>, Vec<EncodedTestBlock>) {
+        let chain = make_encoded_chain(
+            run_strategy(any_headers_chain_with_root(n, Point::new(point.into(), BlockHeight::from(0)))),
+            &EraHistory::default(),
+        );
         let store = Arc::new(InMemoryChainStore::new());
-        // Set anchor to the first header
-        store.set_anchor_point(&headers[0].point()).unwrap();
-        for h in &headers {
-            store.store_header(h).unwrap();
-            store.roll_forward_chain(&h.point()).unwrap();
+        store.set_anchor_point(&chain[0].header.point()).unwrap();
+        for block in &chain {
+            store.store_header(&block.header).unwrap();
+            store.roll_forward_chain(&block.header.point()).unwrap();
         }
-        (store, headers)
+        (store, chain)
     }
 
-    fn store_blocks(store: Arc<InMemoryChainStore>, headers: &[Header]) {
-        for h in headers {
-            let raw_block = make_encoded_block(h, &EraHistory::default());
-            store.store_block(&h.hash(), &raw_block).unwrap();
+    fn store_blocks(store: Arc<InMemoryChainStore>, blocks: &[EncodedTestBlock]) {
+        for block in blocks {
+            store.store_block(&block.header.hash(), &block.raw).unwrap();
         }
     }
 

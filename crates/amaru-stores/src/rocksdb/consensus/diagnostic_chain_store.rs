@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Hash, Header, HeaderHash, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER};
-use amaru_ouroboros_traits::{DiagnosticChainStore, Nonces};
+use amaru_ouroboros_traits::{DiagnosticChainStore, Nonces, block_addressed_by, header_addressed_by};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
@@ -26,7 +26,14 @@ impl DiagnosticChainStore for RocksDBStore {
     #[allow(clippy::panic)]
     fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
         Box::new(self.db.prefix_iterator(HEADER_PREFIX).filter_map(|item| match item {
-            Ok((_k, v)) => from_cbor(v.as_ref()),
+            Ok((k, v)) => {
+                // Header values are keyed `heade || hash`; validity flags append an extra byte.
+                if k.len() != CONSENSUS_PREFIX_LEN + HEADER {
+                    return None;
+                }
+                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                from_cbor(v.as_ref()).map(|header| header_addressed_by(header, &hash))
+            }
             Err(err) => panic!("error iterating over headers: {}", err),
         }))
     }
@@ -61,7 +68,8 @@ impl DiagnosticChainStore for RocksDBStore {
         Box::new(self.db.iterator_opt(IteratorMode::Start, opts).map(|item| match item {
             Ok((k, v)) => {
                 let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
-                (hash, RawBlock::from(v))
+                let block = RawBlock::from(v);
+                (hash, block_addressed_by(block, &hash))
             }
             Err(err) => panic!("error iterating over blocks: {}", err),
         }))
