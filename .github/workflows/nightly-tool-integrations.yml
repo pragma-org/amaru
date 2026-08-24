@@ -147,7 +147,8 @@ jobs:
               TIP_POINT=$(./target/release/amaru dev chain best-chain \
                 --network preprod 2>/dev/null | grep "Best tip (stored):" | awk '{print $NF}')
               TIP_SLOT=$(echo "$TIP_POINT" | cut -d. -f1)
-              TIP_HASH=$(echo "$TIP_POINT" | cut -d. -f2)
+              # Amaru displays points as <slot>.<hash>(<block-height>), while Yaci expects the bare 64-character hash.
+              TIP_HASH=$(echo "$TIP_POINT" | cut -d. -f2 | cut -d'(' -f1)
               export STORE_CARDANO_HOST=127.0.0.1
               export STORE_CARDANO_PORT=3000
               export STORE_CARDANO_PROTOCOL_MAGIC=1
