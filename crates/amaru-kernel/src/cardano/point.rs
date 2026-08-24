@@ -131,7 +131,18 @@ impl serde::Serialize for Point {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        use serde::ser::SerializeTuple;
+
+        match *self {
+            Point::Origin => serializer.serialize_tuple(0)?.end(),
+            Point::Specific(slot, hash, height) => {
+                let mut seq = serializer.serialize_tuple(3)?;
+                seq.serialize_element(&slot.as_u64())?;
+                seq.serialize_element(&hash)?;
+                seq.serialize_element(&u64::from(height))?;
+                seq.end()
+            }
+        }
     }
 }
 
@@ -140,7 +151,71 @@ impl<'de> serde::Deserialize<'de> for Point {
     where
         D: serde::Deserializer<'de>,
     {
-        Self::from_str(<&str>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+        deserializer.deserialize_seq(PointVisitor)
+    }
+}
+
+struct PointVisitor;
+
+impl<'de> serde::de::Visitor<'de> for PointVisitor {
+    type Value = Point;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an empty array (origin) or [slot, hash, height]")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let Some(slot) = seq.next_element::<u64>()? else {
+            if seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                return Err(serde::de::Error::invalid_length(1, &self));
+            }
+            return Ok(Point::Origin);
+        };
+
+        let hash = seq.next_element::<HeaderHash>()?.ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+        let height = seq.next_element::<u64>()?.ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
+        if seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
+            return Err(serde::de::Error::invalid_length(4, &self));
+        }
+
+        Ok(Point::Specific(Slot::from(slot), hash, crate::BlockHeight::from(height)))
+    }
+}
+
+impl schemars::JsonSchema for Point {
+    fn schema_name() -> String {
+        "Point".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        #[allow(clippy::expect_used)]
+        serde_json::from_value(serde_json::json!({
+            "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+            "oneOf": [
+                {
+                    "type": "array",
+                    "maxItems": 0
+                },
+                {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": [
+                        { "type": "integer", "description": "slot" },
+                        super::hash::hex_string_json_schema(32, "header hash"),
+                        { "type": "integer", "description": "block height" }
+                    ]
+                }
+            ]
+        }))
+        .expect("point json schema is valid")
+    }
+
+    fn is_referenceable() -> bool {
+        false
     }
 }
 
@@ -220,12 +295,38 @@ mod tests {
         }
 
         #[test]
+        fn json_schema_uses_draft07_tuple_items() {
+            let schema = serde_json::to_value(schemars::schema_for!(Point).schema).expect("schema");
+            assert!(schema.get("prefixItems").is_none());
+            let specific = &schema["oneOf"][1];
+            assert!(specific["items"].is_array());
+            assert_eq!(specific["minItems"], 3);
+            assert_eq!(specific["maxItems"], 3);
+            assert_eq!(specific["items"][1]["pattern"], "^[0-9a-f]{64}$");
+            assert!(specific["items"][1].get("contentEncoding").is_none());
+        }
+
+        #[test]
         fn json() {
             let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
             let point = Point::try_from(point_str).expect("failed to parse from string");
             let point_json = serde_json::to_string(&point).expect("failed to serialize");
-            assert_eq!(format!("\"{point_str}\""), point_json);
+            assert_eq!(point_json, "[42,\"fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1\",7]");
             assert_eq!(point, serde_json::from_str(&point_json).expect("failed to deserialize"));
+            assert_eq!(serde_json::to_string(&Point::Origin).expect("origin"), "[]");
+            assert_eq!(Point::Origin, serde_json::from_str("[]").expect("origin"));
+        }
+
+        #[test]
+        fn cbor_specific_encodes_hash_as_byte_string() {
+            let point = sample_specific(7);
+            let mut buf = Vec::new();
+            cbor4ii::serde::to_writer(&mut buf, &point).expect("encode");
+            let decoded: Point = cbor4ii::serde::from_slice(&buf).expect("decode");
+            assert_eq!(decoded, point);
+
+            // CBOR major type 2, 32-byte header: 0x58 0x20. A hex *text* string would be 0x78 0x40.
+            assert!(buf.windows(2).any(|w| w == [0x58, 0x20]), "hash must be a definite 32-byte CBOR byte string");
         }
 
         #[test]

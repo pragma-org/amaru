@@ -185,7 +185,7 @@ impl GovernanceUpdates {
                     let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
 
                     if expired || ratified_or_evicted {
-                        info!(ledger::proposal::DROP, id = %id, expired, ratified_or_evicted);
+                        info!(ledger::proposal::DROP, id = id.to_string(), expired, ratified_or_evicted);
                         // Expired proposals aren't in the pruned set yet; ratified or evicted ones
                         // already are, and must keep the status recorded during ratification.
                         ctx.pruned_proposals.entry(id).or_insert(RatificationStatus::NotRatified);

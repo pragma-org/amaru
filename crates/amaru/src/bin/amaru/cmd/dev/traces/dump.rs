@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, env, io};
+use std::io;
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_observability::{aliases, registry::SchemaEntry};
+use amaru_observability::registry::SchemaEntry;
 use clap::Parser;
 use serde_json::{Value, json};
 
@@ -32,8 +32,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let aliases = aliases::load_workspace_type_aliases_from(&env::current_dir()?)?;
-    let output = generate_traces_json_schema(&SchemaEntry::all(), &aliases);
+    let output = generate_traces_json_schema(&SchemaEntry::all());
 
     if args.compact {
         serde_json::to_writer(io::stdout(), &output)
@@ -44,7 +43,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn generate_traces_json_schema(entries: &[SchemaEntry], aliases: &BTreeMap<String, String>) -> Value {
+fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
     // Only public schemas appear in the JSON output and generated documentation.
     // Private schemas are present in the registry solely for tooling (e.g. unused-schemas).
     let mut sorted_entries: Vec<_> = entries.iter().filter(|e| e.public).cloned().collect();
@@ -57,14 +56,14 @@ fn generate_traces_json_schema(entries: &[SchemaEntry], aliases: &BTreeMap<Strin
                 .required_fields
                 .iter()
                 .chain(entry.optional_fields.iter())
-                .map(|(name, ty)| (name.to_string(), field_to_json_type(ty, aliases)))
+                .map(|field| (field.name.to_string(), (field.json_schema)()))
                 .collect::<serde_json::Map<_, _>>();
 
             let required: Vec<_> =
-                entry.required_fields.iter().map(|(name, _)| Value::String(name.to_string())).collect();
+                entry.required_fields.iter().map(|field| Value::String(field.name.to_string())).collect();
 
             let optional: Vec<_> =
-                entry.optional_fields.iter().map(|(name, _)| Value::String(name.to_string())).collect();
+                entry.optional_fields.iter().map(|field| Value::String(field.name.to_string())).collect();
 
             (
                 entry.path.to_string(),
@@ -93,69 +92,24 @@ fn generate_traces_json_schema(entries: &[SchemaEntry], aliases: &BTreeMap<Strin
     })
 }
 
-/// Convert a Rust type string to a JSON Schema type
-fn field_to_json_type(rust_type: &str, aliases: &BTreeMap<String, String>) -> Value {
-    let resolved = aliases::resolve_type_alias(rust_type, aliases);
-
-    match resolved.as_str() {
-        "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "usize" | "isize" => {
-            json!({ "type": "integer" })
-        }
-        "f64" | "f32" => json!({ "type": "number" }),
-        "bool" => json!({ "type": "boolean" }),
-        "String" | "&str" => json!({ "type": "string" }),
-        _ => {
-            json!({
-                "type": "string",
-                "description": format!("Custom type: {}", rust_type)
-            })
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use amaru_observability::registry::SchemaEntry;
+
     use super::*;
 
     #[test]
-    fn test_field_to_json_type() {
-        assert_eq!(field_to_json_type("u64", &BTreeMap::new()), json!({ "type": "integer" }));
-        assert_eq!(field_to_json_type("String", &BTreeMap::new()), json!({ "type": "string" }));
-        assert_eq!(field_to_json_type("& str", &BTreeMap::new()), json!({ "type": "string" }));
-        assert_eq!(field_to_json_type("bool", &BTreeMap::new()), json!({ "type": "boolean" }));
-    }
-
-    #[test]
-    fn test_field_to_json_type_resolves_aliases() {
-        let aliases = BTreeMap::from([
-            ("Lovelace".to_string(), "u64".to_string()),
-            ("Amount".to_string(), "Lovelace".to_string()),
-            ("amaru_kernel::Lovelace".to_string(), "u64".to_string()),
-        ]);
-
-        assert_eq!(field_to_json_type("Lovelace", &aliases), json!({ "type": "integer" }));
-        assert_eq!(field_to_json_type("Amount", &aliases), json!({ "type": "integer" }));
-        assert_eq!(field_to_json_type("amaru_kernel::Lovelace", &aliases), json!({ "type": "integer" }));
-    }
-
-    #[test]
-    fn test_resolve_type_alias_stops_on_cycles() {
-        let aliases = BTreeMap::from([
-            ("Amount".to_string(), "Lovelace".to_string()),
-            ("Lovelace".to_string(), "Amount".to_string()),
-        ]);
-
-        assert_eq!(aliases::resolve_type_alias("Amount", &aliases), "Lovelace");
-    }
-
-    #[test]
-    fn test_field_to_json_type_custom_falls_back_to_string() {
-        assert_eq!(
-            field_to_json_type("amaru_kernel::Whatever", &BTreeMap::new()),
-            json!({
-                "type": "string",
-                "description": "Custom type: amaru_kernel::Whatever"
-            })
+    fn dumped_schema_uses_serialized_field_types() {
+        let dump = generate_traces_json_schema(&SchemaEntry::all());
+        let fork = &dump["definitions"]["amaru::ledger::state::SWITCH_TO_FORK"]["properties"];
+        assert!(fork["fork_point"].get("oneOf").is_some() || fork["fork_point"]["type"] == "array");
+        assert_ne!(
+            fork["fork_point"].get("description").and_then(Value::as_str).unwrap_or(""),
+            "Custom type: amaru_kernel::Point"
         );
+
+        let tip = &dump["definitions"]["amaru::ledger::tip::UPDATE"]["properties"];
+        assert_eq!(tip["header_hash"]["type"], "string");
+        assert_eq!(tip["slot"]["type"], "integer");
     }
 }

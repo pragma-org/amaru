@@ -693,7 +693,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     protocols::manager::peer::CONNECTION_DIED,
                     peer = &peer,
                     conn_id = conn_id.as_u64(),
-                    role = %role,
+                    role = role.to_string(),
                 );
                 manager.connection_died(peer, conn_id, role, &eff).instrument(span).await;
             }

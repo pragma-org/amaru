@@ -23,7 +23,20 @@ use num::{CheckedAdd, CheckedSub};
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[derive(
+    Clone,
+    Debug,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
+    schemars::JsonSchema,
+)]
+#[schemars(transparent)]
 #[repr(transparent)]
 pub struct Epoch(u64);
 
@@ -156,6 +169,19 @@ mod tests {
     prop_compose! {
         pub fn any_epoch()(epoch in any::<u64>()) -> Epoch {
             Epoch::from(epoch)
+        }
+    }
+
+    #[cfg(test)]
+    mod serde_format {
+        use super::*;
+
+        #[test]
+        fn json_is_bare_number() {
+            let epoch = Epoch::new(42);
+            let json = serde_json::to_string(&epoch).expect("json");
+            assert_eq!(json, "42");
+            assert_eq!(epoch, serde_json::from_str::<Epoch>(&json).expect("parse"));
         }
     }
 }

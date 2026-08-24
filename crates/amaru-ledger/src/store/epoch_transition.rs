@@ -151,9 +151,9 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
             |(leftovers, paid), (account, deposit)| {
                 debug!(
                     ledger::account::PAY_OR_REFUND,
-                    credential_type = %StakeCredentialKind::from(account),
-                    account = %account.as_hash(),
-                    %deposit,
+                    credential_type = StakeCredentialKind::from(account),
+                    account = account.as_hash(),
+                    deposit,
                 );
 
                 Ok((leftovers + db.refund(account, *deposit)?, paid + *deposit))

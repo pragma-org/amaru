@@ -38,7 +38,7 @@ use tokio::{fs as async_fs, time::timeout};
 use zstd::Decoder as ZstdDecoder;
 
 mod chain_sync_client;
-use chain_sync_client::ChainSyncClient;
+use chain_sync_client::{ChainSyncClient, from_pallas_point, from_pallas_tip};
 
 use crate::{
     aws::{AnonymousS3Client, S3Config},
@@ -256,14 +256,14 @@ async fn fetch_headers_from_point(
     point: NetworkPoint,
     headers_per_point: usize,
 ) -> anyhow::Result<Vec<Vec<u8>>> {
-    let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.map_err(|err| {
-        error!(bootstrap::peer::FAILED_TO_CONNECT, peer = %peer_address, reason = %err);
-        err
-    })?;
+    let peer_client =
+        PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.inspect_err(|err| {
+            error!(bootstrap::peer::FAILED_TO_CONNECT, peer = Peer::new(peer_address), reason = err.to_string());
+        })?;
     let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
     let intersection = client.find_intersection().await?;
 
-    info!(bootstrap::headers::FETCH, requested_point = %point, intersection = %intersection, headers_per_point);
+    info!(bootstrap::headers::FETCH, requested_point = point, intersection = intersection, headers_per_point);
 
     let mut headers = Vec::with_capacity(headers_per_point);
     while headers.len() < headers_per_point {
@@ -288,7 +288,9 @@ async fn fetch_headers_from_point(
                 }
             }
             NextResponse::RollBackward(point, tip) => {
-                info!(bootstrap::fetch::ROLLBACK, ?point, ?tip);
+                let point = from_pallas_point(&point);
+                let tip = from_pallas_tip(&tip);
+                info!(bootstrap::fetch::ROLLBACK, point, tip);
             }
             NextResponse::Await => continue,
         }
@@ -317,7 +319,7 @@ async fn download_snapshots(
             validate_snapshot_archive(&archive_path)
                 .map_err(|err| BootstrapError::InvalidSnapshotArchive(archive_path.clone(), err.to_string()))?;
             let snapshot_path = resolve_snapshot_path(snapshots_dir, snapshot).unwrap_or_else(|| archive_path.clone());
-            info!(bootstrap::snapshot::SKIP_DOWNLOAD, snapshot = %snapshot_path.display());
+            info!(bootstrap::snapshot::SKIP_DOWNLOAD, snapshot = snapshot_path.display().to_string());
             continue;
         }
 
@@ -330,7 +332,7 @@ async fn download_snapshots(
 
         let partial_archive_path = snapshots_dir.join(format!(".{}.download.partial", snapshot.point));
 
-        info!(bootstrap::snapshot::DOWNLOAD, epoch = %snapshot.epoch, point = %snapshot.point);
+        info!(bootstrap::snapshot::DOWNLOAD, epoch = snapshot.epoch, point = snapshot.point);
 
         s3.download_object(&snapshot.key, &partial_archive_path)
             .await
@@ -504,7 +506,7 @@ pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> 
             from_cbor(header_cbor).ok_or_else(|| anyhow!("failed to decode packaged bootstrap block header"))?;
         let hash = block_header.hash();
 
-        info!(bootstrap::header::IMPORT, header = %hash);
+        info!(bootstrap::header::IMPORT, header = hash);
 
         // Packaged bootstrap headers are trusted as fully validated; nonces must already have
         // been imported for each tip so the durable "nonces present ⇔ header validated" invariant
@@ -586,7 +588,7 @@ pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainSt
     let initial_nonces = chain_state.initial_nonces;
     let header_hash = Hash::from(&initial_nonces.at);
 
-    info!(bootstrap::nonces::IMPORT, point = %initial_nonces.at);
+    info!(bootstrap::nonces::IMPORT, point = initial_nonces.at);
 
     let nonces = Nonces {
         epoch,
@@ -598,7 +600,7 @@ pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainSt
 
     db.put_nonces(&header_hash, &nonces)?;
 
-    info!(bootstrap::opcert_sequence_numbers::IMPORT, point = %initial_nonces.at);
+    info!(bootstrap::opcert_sequence_numbers::IMPORT, point = initial_nonces.at);
     db.put_opcert_seed(&chain_state.opcert_sequence_numbers, &initial_nonces.at)?;
 
     Ok(())
@@ -610,7 +612,7 @@ pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> anyhow:
             from_cbor(&header).ok_or_else(|| anyhow!("failed to decode packaged bootstrap header"))?;
         let hash = block_header.hash();
 
-        info!(bootstrap::header::IMPORT, header = %hash);
+        info!(bootstrap::header::IMPORT, header = hash);
 
         db.store_header(&block_header)?;
     }
@@ -700,7 +702,7 @@ async fn import_node_snapshot_archive(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
 ) -> anyhow::Result<ImportedSnapshot> {
-    info!(bootstrap::snapshot::IMPORT_ARCHIVE, path = %snapshot_archive.display());
+    info!(bootstrap::snapshot::IMPORT_ARCHIVE, path = snapshot_archive.display().to_string());
     import_node_snapshot_source(network, global_parameters, snapshot_archive, ledger_dir, nonce_tail).await
 }
 

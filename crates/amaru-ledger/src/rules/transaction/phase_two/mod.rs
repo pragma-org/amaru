@@ -147,8 +147,8 @@ where
             let span_execute = debug_span!(
                 parent: &span,
                 ledger::transaction::script::EXECUTE,
-                purpose = %purpose,
-                index = index
+                purpose,
+                index
             );
             let _guard = span_execute.enter();
 

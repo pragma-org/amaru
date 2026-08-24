@@ -108,10 +108,9 @@ The `debug_span!` macro:
 
 ```rust
 // This input:
-let _span = debug_span!(VALIDATE_HEADER, slot = slot, hash = hash).entered();
+let _span = debug_span!(VALIDATE_HEADER, slot, hash).entered();
 
-// Becomes (conceptually):
-let _span = tracing::info_span!("VALIDATE_HEADER", slot = %slot, hash = %hash).entered();
+// Rendering (`%` Display / `?` Debug / typed / CBOR) comes from the schema, not the call site.
 ```
 
 ### What `trace_record!` Generates

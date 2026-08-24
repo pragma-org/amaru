@@ -69,9 +69,10 @@
 //!
 //! Trailing commas after types are allowed. Field names must be Rust identifiers; `name`,
 //! `schema`, and `message` are reserved. Types may be paths or generics
-//! (`amaru_kernel::Hash<28>`). `String` accepts any `AsRef<str>`; primitives use typed
-//! `tracing::Value` transport; other types must implement `Serialize` (CBOR via `record_bytes`)
-//! when recorded without an explicit `%` / `?` formatter.
+//! (`amaru_kernel::Hash<28>`). Prefix the type with `%` (`Display`) or `?` (`Debug`) to
+//! render as a string. Unformatted `String` accepts any `AsRef<str>`; primitives use typed
+//! `tracing::Value`; other types must implement `Serialize + JsonSchema` and are encoded as
+//! CBOR via `record_bytes`.
 //!
 //! ## Tags
 //!
@@ -138,7 +139,7 @@ define_schemas! {
                 /// Find chain intersection point with peer
                 FIND_INTERSECTION {
                     tags: bootstrap
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                     required intersection_slot: amaru_kernel::Slot
                 }
                 /// Received a new tip from an upstream peer
@@ -166,7 +167,7 @@ define_schemas! {
                 /// Received a new tip to roll forward
                 PROCESS {
                     required tip: amaru_kernel::Point
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                     optional header_hash: amaru_kernel::HeaderHash
                 }
             }
@@ -176,14 +177,14 @@ define_schemas! {
                 PROCESS {
                     required current: amaru_kernel::Point
                     required tip: amaru_kernel::Point
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                 }
             }
             header {
                 tags: cpu
                 /// Decode header from raw bytes
                 DECODE {
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                 }
                 /// Validate the whole header
                 VALIDATE {
@@ -200,7 +201,7 @@ define_schemas! {
                 /// Forward to a downstream peer
                 FORWARD {
                     required tip: amaru_kernel::Point
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                 }
             }
             block {
@@ -223,7 +224,7 @@ define_schemas! {
                 }
                 /// Mismatched body hash after download, the peer is adversarial
                 MISMATCHED_HASH {
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
                 }
             }
@@ -241,7 +242,7 @@ define_schemas! {
                 tags: cpu
                 /// A peer behaves like an adversary, ban it
                 BAN {
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                 }
             }
             perf {
@@ -256,7 +257,7 @@ define_schemas! {
                     /// - `block_fetch_micros`: request of the block to its reception
                     /// - `forward_micros`: reception of the header to the adoption of its block
                     public LIFECYCLE {
-                        optional peer: amaru_kernel::Peer
+                        optional peer: %amaru_kernel::Peer
                         optional header_hash: amaru_kernel::HeaderHash
                         optional outcome: String
                         optional error: String
@@ -378,7 +379,7 @@ define_schemas! {
                 script {
                     /// A single script execution, with the associated redeemer qualifiers
                     public EXECUTE {
-                        required purpose: String
+                        required purpose: %amaru_kernel::RedeemerTag
                         required index: u32
                         optional acquire_arena_micros: u64
                         optional decode_script_micros: u64
@@ -596,7 +597,7 @@ define_schemas! {
             account {
                 /// Pay withdrawals to an account, or refund its deposit
                 public PAY_OR_REFUND {
-                    required credential_type: amaru_kernel::StakeCredentialKind
+                    required credential_type: %amaru_kernel::StakeCredentialKind
                     required account: amaru_kernel::Hash<28>
                     required deposit: amaru_kernel::Lovelace
                 }
@@ -654,9 +655,9 @@ define_schemas! {
                 }
                 /// Skip a governance proposal during ratification
                 public SKIP {
-                    required id: String
+                    required id: %amaru_kernel::ProposalId
                     required reason: String
-                    optional proposed_in: String
+                    optional proposed_in: amaru_kernel::Epoch
                     optional ratifying_epoch: amaru_kernel::Epoch
                     optional withdrawal: amaru_kernel::Lovelace
                     optional treasury: amaru_kernel::Lovelace
@@ -812,7 +813,7 @@ define_schemas! {
             fetch {
                 /// Received a rollback while fetching bootstrap headers
                 public ROLLBACK {
-                    required point: amaru_kernel::Point
+                    required point: %amaru_kernel::NetworkPoint
                     required tip: amaru_kernel::Point
                 }
             }
@@ -831,8 +832,8 @@ define_schemas! {
             headers {
                 /// Fetch bootstrap headers from a peer
                 public FETCH {
-                    required requested_point: amaru_kernel::Point
-                    required intersection: amaru_kernel::Point
+                    required requested_point: %amaru_kernel::NetworkPoint
+                    required intersection: %amaru_kernel::NetworkPoint
                     required headers_per_point: usize
                 }
             }
@@ -857,7 +858,7 @@ define_schemas! {
             peer {
                 /// Failed to connect to a peer while bootstrapping
                 public FAILED_TO_CONNECT {
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                     required reason: String
                 }
             }
@@ -897,7 +898,7 @@ define_schemas! {
                 /// Download a snapshot archive
                 public DOWNLOAD {
                     required epoch: amaru_kernel::Epoch
-                    required point: amaru_kernel::Point
+                    required point: String
                 }
                 /// Snapshot already downloaded; skipping download
                 public SKIP_DOWNLOAD {
@@ -970,7 +971,7 @@ define_schemas! {
                 /// Resolve the last produced block for an epoch
                 public RESOLVE {
                     required epoch: amaru_kernel::Epoch
-                    required point: amaru_kernel::Point
+                    required point: %amaru_kernel::NetworkPoint
                 }
             }
             ledger_db {
@@ -999,20 +1000,20 @@ define_schemas! {
                 public BOOTSTRAP {
                     required chain_dir: String
                     required ledger_dir: String
-                    required network: amaru_kernel::NetworkName
+                    required network: %amaru_kernel::NetworkName
                     optional epoch: amaru_kernel::Epoch
                 }
                 /// Remove ledger and chain database from disk
                 public RM {
                     required chain_dir: String
                     required ledger_dir: String
-                    required network: amaru_kernel::NetworkName
+                    required network: %amaru_kernel::NetworkName
                 }
                 /// Roll the node databases back after a failure
                 public ROLLBACK {
                     required chain_dir: String
                     required ledger_dir: String
-                    required network: amaru_kernel::NetworkName
+                    required network: %amaru_kernel::NetworkName
                     required mode: String
                     optional epoch: u64
                     optional ledger_tip: String
@@ -1023,7 +1024,7 @@ define_schemas! {
             snapshot {
                 /// Create snapshots for the given network
                 public CREATE {
-                    required network: amaru_kernel::NetworkName
+                    required network: %amaru_kernel::NetworkName
                     optional epoch: amaru_kernel::Epoch
                     required snapshot_output_dir: String
                     required config_dir: String
@@ -1052,7 +1053,7 @@ define_schemas! {
                 }
                 /// Publish snapshot archives
                 public PUBLISH {
-                    required network: amaru_kernel::NetworkName
+                    required network: %amaru_kernel::NetworkName
                     required local: usize
                     required remote: usize
                 }
@@ -1070,7 +1071,7 @@ define_schemas! {
                 }
                 /// Update the published snapshot index
                 public UPDATE_INDEX {
-                    required network: amaru_kernel::NetworkName
+                    required network: %amaru_kernel::NetworkName
                     required snapshots: usize
                 }
             }
@@ -1146,7 +1147,7 @@ define_schemas! {
                         /// An account supposed to receive rewards is gone
                         GONE {
                             required rewards: amaru_kernel::Lovelace
-                            required account: amaru_kernel::StakeCredential
+                            required account: %amaru_kernel::StakeCredential
                         }
                     }
                     /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
@@ -1202,13 +1203,13 @@ define_schemas! {
                     public REMOVE {}
                     /// Update rewards balance for a single account
                     public SET {
-                        optional credential_type: amaru_kernel::StakeCredentialKind
+                        optional credential_type: %amaru_kernel::StakeCredentialKind
                         optional account: amaru_kernel::Hash<28>
                         optional reason: String
                     }
                     /// Reset rewards counters for many accounts
                     public RESET_MANY {
-                        optional credential: amaru_kernel::StakeCredential
+                        optional credential: %amaru_kernel::StakeCredential
                         optional reason: String
                     }
                 }
@@ -1227,17 +1228,17 @@ define_schemas! {
                     public GET {}
                     /// Batch-upsert DRep registrations
                     public ADD {
-                        optional credential: amaru_kernel::StakeCredential
+                        optional credential: %amaru_kernel::StakeCredential
                         optional reason: String
                     }
                     /// Record DRep de-registration
                     public REMOVE {
-                        optional drep: amaru_kernel::StakeCredential
+                        optional drep: %amaru_kernel::StakeCredential
                         optional reason: String
                     }
                     /// Refresh DRep expiry after a vote
                     public SET_VALID_UNTIL {
-                        optional credential: amaru_kernel::StakeCredential
+                        optional credential: %amaru_kernel::StakeCredential
                         optional reason: String
                     }
                 }
@@ -1354,7 +1355,7 @@ define_schemas! {
                 /// Detail trace carrying upstream peer attribution for a received tx.
                 RECEIVED_DETAIL {
                     required id: amaru_kernel::TransactionId
-                    required peer: amaru_kernel::Peer
+                    required peer: %amaru_kernel::Peer
                 }
                 /// Detail trace for a tip-driven revalidation pass.
                 REVALIDATION_DETAIL {
@@ -1372,7 +1373,7 @@ define_schemas! {
                     PROCESS {
                         required message_type: String
                         required conn_id: u64
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required role: String
                     }
                 }
@@ -1387,24 +1388,24 @@ define_schemas! {
                 peer {
                     /// A new peer was added to the manager
                     public ADD {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                     }
                     /// Initiating an outbound connection to a peer
                     public CONNECT {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                     }
                     /// An inbound connection was accepted from a peer
                     public ACCEPTED {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required conn_id: u64
                     }
                     /// A peer was removed from the manager
                     public REMOVE {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                     }
                     /// A peer connection has died
                     public CONNECTION_DIED {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required role: String
                     }
@@ -1414,7 +1415,7 @@ define_schemas! {
                 peer {
                     /// A connection has been established and the handshake completed successfully.
                     public CONNECTED {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required direction: String
                         required full_duplex_capable: bool
@@ -1423,7 +1424,7 @@ define_schemas! {
                     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
                     /// or network error).
                     public DISCONNECTED {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required direction: String
                         optional reason: String
@@ -1433,7 +1434,7 @@ define_schemas! {
                     /// Peer-sharing address list received from peer.
                     public RECEIVED {
                         /// Peer that answered (learn) or requested (advertise) the share.
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         /// Comma-separated list of shared listen addresses.
                         required peers: String
                         /// how many addresses were newly added to the shared pool.
@@ -1444,7 +1445,7 @@ define_schemas! {
                     /// Peer-sharing request served for peer.
                     public SENT {
                         /// Peer that answered (learn) or requested (advertise) the share.
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         /// Comma-separated list of shared listen addresses.
                         required peers: String
                         /// number of addresses requested.
@@ -1524,7 +1525,7 @@ define_schemas! {
                 peer {
                     /// Measured round-trip time for a keepalive exchange on an established peer connection.
                     public ROUND_TRIP {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required round_trip_micros: u64
                     }
@@ -1554,7 +1555,7 @@ define_schemas! {
                 initiator {
                     /// Handle peer-sharing initiator stage messages
                     PEER_SHARING_INITIATOR_STAGE {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required conn_id: u64
                     }
                     /// Handle peer-sharing initiator protocol messages
@@ -1578,7 +1579,7 @@ define_schemas! {
                     /// Handle tx-submission initiator stage messages
                     TX_SUBMISSION_INITIATOR_STAGE {
                         required message_type: String
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                     }
                     /// Handle tx-submission initiator protocol messages
                     TX_SUBMISSION_INITIATOR_PROTOCOL {
@@ -1586,26 +1587,26 @@ define_schemas! {
                     }
                     /// Advertise transaction ids (and their sizes) to the peer in a ReplyTxIds.
                     REPLY_TX_IDS {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required count: usize
                         required ids: &[amaru_kernel::TransactionId]
                     }
                     /// Send transaction bodies to the peer in a ReplyTxs. Advertised ids whose
                     /// tx was evicted before the fetch are listed in `omitted`.
                     REPLY_TXS {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required count: usize
                         optional omitted: String
                     }
                     /// The peer acknowledged the advertised ids.
                     ACKNOWLEDGED {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required ack: u16
                         required window: usize
                     }
                     /// A blocking RequestTxIds needs to wait until the mempool reaches `seq_no`.
                     WAIT_FOR_AT_LEAST {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required seq_no: u64
                         optional req: u16
                     }
@@ -1614,7 +1615,7 @@ define_schemas! {
                     /// Handle tx-submission responder stage messages
                     TX_SUBMISSION_RESPONDER_STAGE {
                         required message_type: String
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                     }
                     /// Handle tx-submission responder protocol messages
                     TX_SUBMISSION_RESPONDER_PROTOCOL {
@@ -1622,36 +1623,36 @@ define_schemas! {
                     }
                     /// The peer advertised transaction ids in a ReplyTxIds.
                     REPLY_TX_IDS_RECEIVED {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required count: usize
                     }
                     /// The peer delivered transaction bodies in a ReplyTxs.
                     REPLY_TXS_RECEIVED {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required count: usize
                     }
                     /// An advertised tx is already in our mempool: it will be acknowledged
                     /// without ever fetching its body.
                     SKIP_FETCH {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required id: amaru_kernel::TransactionId
                     }
                     /// Request tx ids from the peer, acknowledging processed ones.
                     REQUEST_TX_IDS {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required ack: u16
                         required req: u16
                         required blocking: bool
                     }
                     /// Request tx bodies from the peer.
                     REQUEST_TXS {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required count: usize
                         required ids: &[amaru_kernel::TransactionId]
                     }
                     /// Mempool near capacity: fetching is deferred until capacity frees up.
                     AWAITING_CAPACITY {
-                        required peer: amaru_kernel::Peer
+                        required peer: %amaru_kernel::Peer
                         required pending: usize
                     }
                 }

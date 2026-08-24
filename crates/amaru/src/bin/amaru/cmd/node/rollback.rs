@@ -108,8 +108,8 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     info!(
         cli::node::ROLLBACK,
-        chain_dir = %chain_dir.display(),
-        ledger_dir = %ledger_dir.display(),
+        chain_dir = chain_dir.display().to_string(),
+        ledger_dir = ledger_dir.display().to_string(),
         network = network,
         mode = mode,
         epoch = @args.epoch.map(|e| e.as_u64()),

@@ -139,7 +139,7 @@ impl StateOverlay {
         self.treasury_delta = TreasuryDelta::Zero;
 
         let to = self.epoch - 1;
-        debug!(ledger::epoch_transition::ROLLBACK, from = %self.epoch, %to);
+        debug!(ledger::epoch_transition::ROLLBACK, from = self.epoch, to);
         self.epoch = to;
     }
 
@@ -153,7 +153,7 @@ impl StateOverlay {
         account_exists: impl Fn(&StakeCredential) -> bool,
     ) {
         let to = self.epoch + 1;
-        debug!(ledger::epoch_transition::RECORD, from = %self.epoch, %to);
+        debug!(ledger::epoch_transition::RECORD, from = self.epoch, to);
 
         self.epoch = to;
 

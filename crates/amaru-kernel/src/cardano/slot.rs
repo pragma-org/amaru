@@ -20,7 +20,21 @@ use std::{
 
 use minicbor::{Decode, Decoder, Encode};
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, serde::Serialize, serde::Deserialize, Default)]
+#[derive(
+    Clone,
+    Debug,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
+    schemars::JsonSchema,
+)]
+#[schemars(transparent)]
 #[repr(transparent)]
 pub struct Slot(u64);
 
@@ -105,5 +119,18 @@ impl<C> Encode<C> for Slot {
 impl<'b, C> Decode<'b, C> for Slot {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         d.u64().map(Slot)
+    }
+}
+
+#[cfg(test)]
+mod serde_format {
+    use super::*;
+
+    #[test]
+    fn json_is_bare_number() {
+        let slot = Slot::new(42);
+        let json = serde_json::to_string(&slot).expect("json");
+        assert_eq!(json, "42");
+        assert_eq!(slot, serde_json::from_str::<Slot>(&json).expect("parse"));
     }
 }

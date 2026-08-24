@@ -84,7 +84,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let network_prefix = network.to_string().to_lowercase();
 
     s3.upload_bytes(serde_json::to_vec_pretty(&points)?, &format!("{network_prefix}/index.json")).await?;
-    info!(cli::snapshot::UPDATE_INDEX, %network, snapshots = points.len());
+    info!(cli::snapshot::UPDATE_INDEX, network, snapshots = points.len());
 
     Ok(())
 }

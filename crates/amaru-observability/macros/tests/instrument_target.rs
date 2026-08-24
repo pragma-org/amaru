@@ -51,8 +51,8 @@ define_local_schemas! {
             test {
                 /// Formatter behavior for testing
                 public DISTINCT_FORMATTING {
-                    required display_value: DistinctFormatting
-                    required debug_value: DistinctFormatting
+                    required display_value: %DistinctFormatting
+                    required debug_value: ?DistinctFormatting
                 }
             }
         }
@@ -236,11 +236,7 @@ fn inner_record(_total_inputs: u64) {
 }
 
 fn distinct_formatting(display_value: DistinctFormatting, debug_value: DistinctFormatting) {
-    let _span = trace_span!(
-        crate::amaru::formatting::test::DISTINCT_FORMATTING,
-        display_value = %display_value,
-        debug_value = ?debug_value
-    );
+    let _span = trace_span!(crate::amaru::formatting::test::DISTINCT_FORMATTING, display_value, debug_value);
     let _guard = _span.enter();
 }
 
@@ -250,7 +246,7 @@ fn roll_forward(peer: String) {
 }
 
 fn roll_forward_with_display_expressions(peer: String) {
-    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer = %peer.clone());
+    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer = peer.clone());
     let _guard = _span.enter();
 }
 
@@ -264,7 +260,7 @@ fn root_roll_forward(peer: String) {
 fn root_roll_forward_with_display_expression(peer: String) {
     let _outer = tracing::debug_span!("outer");
     let _outer_guard = _outer.enter();
-    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer = %&peer);
+    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer = &peer);
     let _guard = _span.enter();
 }
 

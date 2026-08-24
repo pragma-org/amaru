@@ -101,7 +101,7 @@ mod test {
 
         tracing::subscriber::with_default(subscriber, || {
             let credential = "stake-credential".to_string();
-            trace_event!(ERROR, crate::amaru::stores::accounts::RESET_MANY, ?credential, reason = "unknown account");
+            trace_event!(ERROR, crate::amaru::stores::accounts::RESET_MANY, credential, reason = "unknown account");
         });
 
         let events = captured.lock().unwrap();
@@ -111,7 +111,7 @@ mod test {
         assert_eq!(events[0].name, "accounts.reset_many");
         assert_eq!(events[0].level, tracing::Level::ERROR);
         assert_eq!(events[0].values.get("message").map(String::as_str), Some("accounts.reset_many"));
-        assert_eq!(events[0].values.get("credential").map(String::as_str), Some("\"stake-credential\""));
+        assert_eq!(events[0].values.get("credential").map(String::as_str), Some("stake-credential"));
         assert_eq!(events[0].values.get("reason").map(String::as_str), Some("unknown account"));
     }
 
@@ -126,7 +126,7 @@ mod test {
             trace_event!(
                 INFO,
                 crate::amaru::stores::accounts::RESET_MANY,
-                credential = %credential,
+                credential = credential,
                 reason = "unknown account".to_string(),
                 count
             );

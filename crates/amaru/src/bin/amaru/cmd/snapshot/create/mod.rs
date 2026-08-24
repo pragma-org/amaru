@@ -285,11 +285,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     info!(
         cli::snapshot::CREATE,
-        snapshot_output_dir = %relative_path(&snapshot_output_dir)?.display(),
-        config_dir = %relative_path(&config_dir)?.display(),
-        cardano_node_db = %relative_path(&cardano_node_db)?.display(),
-        network = %network,
-        dist_dir = %relative_path(&dist_dir)?.display(),
+        snapshot_output_dir = relative_path(&snapshot_output_dir)?.display().to_string(),
+        config_dir = relative_path(&config_dir)?.display().to_string(),
+        cardano_node_db = relative_path(&cardano_node_db)?.display().to_string(),
+        network = network,
+        dist_dir = relative_path(&dist_dir)?.display().to_string(),
         epoch = @epoch.map(|e| e.to_string()),
         snapshots = @(!snapshots_str.is_empty()).then_some(snapshots_str),
     );
@@ -307,11 +307,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
             cli::mithril::SKIP_DOWNLOAD,
             from_chunk,
             required_chunk,
-            target_dir = %relative_path(&cardano_node_db)?.display(),
+            target_dir = relative_path(&cardano_node_db)?.display().to_string(),
             reason = "cardano-node db already covers all target slots",
         );
     } else {
-        info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = %relative_path(&cardano_node_db)?.display());
+        info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = relative_path(&cardano_node_db)?.display().to_string());
         download_from_mithril(network, cardano_node_db.clone(), from_chunk, progress_factory.clone()).await?;
     }
 
@@ -355,9 +355,9 @@ fn process_target(
     if prepared_archive_path.is_file() {
         info!(
             cli::snapshot::SKIP_PACKAGE,
-            epoch = %target.epoch,
-            slot = %target.slot,
-            archive = %relative_path(&prepared_archive_path)?.display(),
+            epoch = target.epoch,
+            slot = target.slot,
+            archive = relative_path(&prepared_archive_path)?.display().to_string(),
             reason = "already exists",
         );
         return Ok(target.slot);
@@ -370,17 +370,17 @@ fn process_target(
 
     info!(
         cli::snapshot::PACKAGE,
-        epoch = %target.epoch,
-        slot = %target.slot,
-        archive = %relative_path(&prepared_archive_path)?.display(),
+        epoch = target.epoch,
+        slot = target.slot,
+        archive = relative_path(&prepared_archive_path)?.display().to_string(),
     );
     write_snapshot_archive(&snapshot_dir, &prepared_archive_path, target, &packaged_blocks)?;
 
     info!(
         cli::snapshot::CREATED,
-        epoch = %target.epoch,
-        slot = %target.slot,
-        archive = %relative_path(&prepared_archive_path)?.display(),
+        epoch = target.epoch,
+        slot = target.slot,
+        archive = relative_path(&prepared_archive_path)?.display().to_string(),
     );
 
     Ok(target.slot)
@@ -395,9 +395,9 @@ fn resolve_or_create_snapshot_dir(
     if let Some(snapshot_dir) = exact_snapshot_dir(ledger_snapshot_dir, target.slot) {
         info!(
             cli::db_analyser::REUSE_LEDGER_SNAPSHOT,
-            epoch = %target.epoch,
-            slot = %target.slot,
-            snapshot = %relative_path(&snapshot_dir)?.display(),
+            epoch = target.epoch,
+            slot = target.slot,
+            snapshot = relative_path(&snapshot_dir)?.display().to_string(),
         );
         return Ok(snapshot_dir);
     }
@@ -406,8 +406,8 @@ fn resolve_or_create_snapshot_dir(
 
     info!(
         cli::db_analyser::RUN,
-        epoch = %target.epoch,
-        slot = %target.slot,
+        epoch = target.epoch,
+        slot = target.slot,
         analyse_from = @analyse_from.map(|s| s.to_string()),
     );
 

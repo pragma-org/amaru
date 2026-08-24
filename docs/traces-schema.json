@@ -123,12 +123,37 @@
       "type": "object",
       "properties": {
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "type": "string"
         },
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -165,8 +190,10 @@
       "type": "object",
       "properties": {
         "header": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -184,12 +211,10 @@
       "type": "object",
       "properties": {
         "requested_point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "type": "string"
         },
         "intersection": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "type": "string"
         },
         "headers_per_point": {
           "type": "integer"
@@ -230,8 +255,34 @@
       "type": "object",
       "properties": {
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -249,8 +300,34 @@
       "type": "object",
       "properties": {
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -268,8 +345,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -291,16 +367,28 @@
       "type": "object",
       "properties": {
         "treasury": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "reserves": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "fees": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "donations": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -399,12 +487,13 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "type": "string"
         }
       },
       "required": [
@@ -441,8 +530,34 @@
       "type": "object",
       "properties": {
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "new_epoch_state_offset": {
           "type": "integer"
@@ -603,12 +718,16 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "snapshot": {
           "type": "string"
@@ -631,16 +750,22 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "analyse_from": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -661,12 +786,13 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "type": "string"
         }
       },
       "required": [
@@ -765,12 +891,13 @@
           "type": "string"
         },
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         },
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -798,8 +925,7 @@
           "type": "string"
         },
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         }
       },
       "required": [
@@ -825,8 +951,7 @@
           "type": "string"
         },
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         },
         "mode": {
           "type": "string"
@@ -867,8 +992,7 @@
       "type": "object",
       "properties": {
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         },
         "snapshot_output_dir": {
           "type": "string"
@@ -883,8 +1007,10 @@
           "type": "string"
         },
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "snapshots": {
           "type": "string"
@@ -912,12 +1038,16 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "archive": {
           "type": "string"
@@ -940,12 +1070,16 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "archive": {
           "type": "string"
@@ -968,8 +1102,7 @@
       "type": "object",
       "properties": {
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         },
         "local": {
           "type": "integer"
@@ -995,12 +1128,16 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "archive": {
           "type": "string"
@@ -1045,8 +1182,7 @@
       "type": "object",
       "properties": {
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         },
         "snapshots": {
           "type": "integer"
@@ -1104,12 +1240,64 @@
       "type": "object",
       "properties": {
         "current": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -1128,8 +1316,10 @@
       "type": "object",
       "properties": {
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "outcome": {
           "type": "string"
@@ -1156,12 +1346,13 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "outcome": {
           "type": "string"
@@ -1204,12 +1395,16 @@
       "type": "object",
       "properties": {
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "block_height": {
           "type": "integer"
@@ -1240,15 +1435,19 @@
       "type": "object",
       "properties": {
         "credential_type": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredentialKind"
+          "type": "string"
         },
         "account": {
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::Hash<28>"
+          "pattern": "^[0-9a-f]{56}$"
         },
         "deposit": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -1268,8 +1467,10 @@
       "type": "object",
       "properties": {
         "point_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -1299,8 +1500,10 @@
       "type": "object",
       "properties": {
         "block_id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "block_number": {
           "type": "integer"
@@ -1379,8 +1582,10 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "should_end_epoch": {
           "type": "boolean"
@@ -1411,12 +1616,16 @@
       "type": "object",
       "properties": {
         "from": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "into": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "skipped": {
           "type": "boolean"
@@ -1474,12 +1683,16 @@
       "type": "object",
       "properties": {
         "from": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "to": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -1498,8 +1711,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::PoolId"
+          "pattern": "^[0-9a-f]{56}$"
         }
       },
       "required": [
@@ -1517,12 +1732,16 @@
       "type": "object",
       "properties": {
         "from": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "to": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -1541,8 +1760,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::PoolId"
+          "pattern": "^[0-9a-f]{56}$"
         },
         "vrf": {
           "type": "string"
@@ -1620,11 +1841,16 @@
       "type": "object",
       "properties": {
         "ratifying_epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "treasury": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "votes": {
           "type": "integer"
@@ -1695,8 +1921,10 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "roots_protocol_parameters": {
           "type": "string"
@@ -1773,16 +2001,28 @@
       "type": "object",
       "properties": {
         "treasury": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "reserves": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "fees": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "donations": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -1809,12 +2049,16 @@
           "type": "string"
         },
         "proposed_in": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "valid_until": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "detail": {
           "type": "string"
@@ -1872,17 +2116,28 @@
           "type": "string"
         },
         "proposed_in": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "ratifying_epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "withdrawal": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "treasury": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "invalid_members": {
           "type": "string"
@@ -2345,12 +2600,16 @@
       "type": "object",
       "properties": {
         "for_epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "using_stake_distribution_from_epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -2372,28 +2631,52 @@
           "type": "string"
         },
         "incentives": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "treasury_tax": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "total_rewards": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "available_rewards": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "effective_rewards": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "pots_reserves": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "pots_treasury": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "pots_fees": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -2527,8 +2810,10 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -2546,8 +2831,10 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -2565,8 +2852,10 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "progress": {
           "type": "number"
@@ -2633,13 +2922,22 @@
           "type": "integer"
         },
         "active_stake": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "pools_voting_stake": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "dreps_voting_stake": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -2698,8 +2996,34 @@
       "type": "object",
       "properties": {
         "fork_point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "fork_length": {
           "type": "integer"
@@ -2734,12 +3058,16 @@
       "type": "object",
       "properties": {
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "block_height": {
           "type": "integer"
@@ -2748,12 +3076,16 @@
           "type": "integer"
         },
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "slot_in_epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "density": {
           "type": "number"
@@ -2788,8 +3120,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2846,8 +3180,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -3039,8 +3375,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "seq_no": {
           "type": "integer"
@@ -3066,12 +3404,40 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "reason": {
           "type": "string"
@@ -3094,8 +3460,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "origin": {
           "type": "string"
@@ -3117,8 +3485,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "reason": {
           "type": "string"
@@ -3243,8 +3613,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -3288,8 +3657,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -3311,8 +3679,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         }
       },
       "required": [
@@ -3330,8 +3697,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         }
       },
       "required": [
@@ -3349,8 +3715,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -3376,8 +3741,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         }
       },
       "required": [
@@ -3395,8 +3759,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -3430,8 +3793,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -3462,8 +3824,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "peers": {
           "type": "string"
@@ -3493,8 +3854,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "peers": {
           "type": "string"
@@ -3643,8 +4003,10 @@
       "type": "object",
       "properties": {
         "hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -3662,12 +4024,16 @@
       "type": "object",
       "properties": {
         "hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -3686,12 +4052,16 @@
       "type": "object",
       "properties": {
         "hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -3710,8 +4080,10 @@
       "type": "object",
       "properties": {
         "hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -3796,8 +4168,7 @@
       "type": "object",
       "properties": {
         "credential": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -3819,12 +4190,13 @@
       "type": "object",
       "properties": {
         "credential_type": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredentialKind"
+          "type": "string"
         },
         "account": {
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::Hash<28>"
+          "pattern": "^[0-9a-f]{56}$"
         },
         "reason": {
           "type": "string"
@@ -3871,8 +4243,7 @@
       "type": "object",
       "properties": {
         "credential": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -3906,8 +4277,7 @@
       "type": "object",
       "properties": {
         "drep": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -3929,8 +4299,7 @@
       "type": "object",
       "properties": {
         "credential": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::StakeCredential"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -3952,8 +4321,10 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -3971,12 +4342,16 @@
       "type": "object",
       "properties": {
         "functional_minimum": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "desired_minimum": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -4029,10 +4404,16 @@
       "type": "object",
       "properties": {
         "total_paid_or_refunded": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "treasury_leftovers": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [],
@@ -4054,10 +4435,16 @@
           "type": "integer"
         },
         "rewards_paid": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "treasury_delta": {
-          "type": "integer"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "reserves_delta": {
           "type": "integer"
@@ -4181,8 +4568,10 @@
       "type": "object",
       "properties": {
         "pool": {
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::PoolId"
+          "pattern": "^[0-9a-f]{56}$"
         },
         "reason": {
           "type": "string"
@@ -4288,8 +4677,10 @@
       "type": "object",
       "properties": {
         "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
