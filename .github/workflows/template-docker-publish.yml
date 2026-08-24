@@ -56,24 +56,61 @@ jobs:
           rm -rf dist release-assets
           mkdir -p dist release-assets
 
+      - name: Validate artifact inputs
+        shell: bash
+        env:
+          ARTIFACT_SOURCE: ${{ inputs.artifact_source }}
+          ARTIFACT_VERSION: ${{ inputs.artifact_version }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$ARTIFACT_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+|nightly-[0-9a-f]{8,12})$ ]]; then
+            echo "artifact_version must be a release version or a nightly version" >&2
+            exit 1
+          fi
+
+          if [[ "$ARTIFACT_SOURCE" == "release-asset" && "$RELEASE_TAG" != "v$ARTIFACT_VERSION" ]]; then
+            echo "release_tag must match artifact_version" >&2
+            exit 1
+          fi
+
       - name: Download workflow artifact
         if: ${{ inputs.artifact_source == 'workflow-artifact' }}
         uses: actions/download-artifact@v8
         with:
           pattern: amaru-${{ inputs.artifact_version }}-linux-${{ matrix.artifact_suffix }}
-          path: dist
+          path: release-assets
           merge-multiple: true
+
+      - name: Extract workflow artifact
+        if: ${{ inputs.artifact_source == 'workflow-artifact' }}
+        shell: bash
+        env:
+          ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+          ARTIFACT_VERSION: ${{ inputs.artifact_version }}
+        run: |
+          set -euo pipefail
+          archive="amaru-${ARTIFACT_VERSION}-linux-${ARTIFACT_SUFFIX}.tar"
+          tar -xf "release-assets/$archive" -C dist --strip-components=1
 
       - name: Download release asset
         if: ${{ inputs.artifact_source == 'release-asset' }}
         shell: bash
         env:
+          ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+          ARTIFACT_VERSION: ${{ inputs.artifact_version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          archive="amaru-${{ inputs.artifact_version }}-linux-${{ matrix.artifact_suffix }}.tar.gz"
-          gh release download "${{ inputs.release_tag }}" --dir release-assets --pattern "$archive"
+          archive="amaru-${ARTIFACT_VERSION}-linux-${ARTIFACT_SUFFIX}.tar.gz"
+          gh release download "$RELEASE_TAG" --dir release-assets --pattern "$archive"
           tar -xzf "release-assets/$archive" -C dist --strip-components=1
+
+      - name: Validate distribution
+        shell: bash
+        run: test -x dist/bin/amaru
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
