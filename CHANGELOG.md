@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260827 _[unreleased; planned for 2026-08-27]_
 
+### Added
+
+- **amaru-node**: allow embedders to disable sysinfo-backed system metrics collection through `TelemetryOptions`.
+
 ### Fixed
 
 - **amaru-consensus**: resume outbound sync after a mux drop: forget the dead `Connected` entry before the replacement handshake, and do not immediately re-dial a banned static peer while the manager still holds the live connection ([#1265](https://github.com/pragma-org/amaru/issues/1265)).

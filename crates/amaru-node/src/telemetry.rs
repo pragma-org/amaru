@@ -15,8 +15,8 @@
 //! Embedder-facing observability install helpers.
 //!
 //! Used by thin programs such as the `run_until` example so OTLP metrics/traces
-//! can be enabled without the product CLI. When OTLP is on, also starts
-//! process/build gauges via [`crate::system_metrics`].
+//! can be enabled without the product CLI. When OTLP is on, process/build gauges
+//! are collected by default; [`TelemetryOptions`] can disable their sysinfo poller.
 //!
 //! Console, JSON, and OTEL log/trace layers are the same CBOR-aware formatters
 //! as the product binary (`CborConsoleEventFormat`, `CborJsonEventFormat`,
@@ -78,6 +78,19 @@ pub enum LogFormat {
     Json,
 }
 
+/// Optional behavior for [`Telemetry::install_with_options`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TelemetryOptions {
+    /// Whether OTLP telemetry starts the sysinfo-backed process and host metrics poller.
+    pub collect_system_metrics: bool,
+}
+
+impl Default for TelemetryOptions {
+    fn default() -> Self {
+        Self { collect_system_metrics: true }
+    }
+}
+
 impl LogFormat {
     fn is_json(self) -> bool {
         matches!(self, Self::Json)
@@ -112,6 +125,14 @@ impl Telemetry {
     ///
     /// Must be polled on a Tokio runtime (OTLP batch exporters spawn on it).
     pub async fn install(format: LogFormat) -> anyhow::Result<Self> {
+        Self::install_with_options(format, TelemetryOptions::default()).await
+    }
+
+    /// Install telemetry with explicit control over optional collectors.
+    ///
+    /// Set [`TelemetryOptions::collect_system_metrics`] to `false` on platforms
+    /// where sysinfo collection is unavailable, including iOS.
+    pub async fn install_with_options(format: LogFormat, options: TelemetryOptions) -> anyhow::Result<Self> {
         let with_otlp = env_flag("AMARU_WITH_OPEN_TELEMETRY");
         let format = if env_flag("AMARU_WITH_JSON_TRACES") { LogFormat::Json } else { format };
 
@@ -119,7 +140,7 @@ impl Telemetry {
         // also require a current runtime handle when constructed below.
         tokio::task::yield_now().await;
 
-        if with_otlp { Self::install_otlp(format) } else { Self::install_local(format) }
+        if with_otlp { Self::install_otlp(format, options) } else { Self::install_local(format) }
     }
 
     /// Install a local fmt / JSON subscriber without OTLP export.
@@ -131,7 +152,7 @@ impl Telemetry {
         Ok(Self { meter: Arc::new(Meter::default()), system_metrics: None, teardown: None })
     }
 
-    fn install_otlp(format: LogFormat) -> anyhow::Result<Self> {
+    fn install_otlp(format: LogFormat, options: TelemetryOptions) -> anyhow::Result<Self> {
         let resource = build_resource();
         let service_name = resource
             .get(&opentelemetry::Key::from_static_str(SERVICE_NAME))
@@ -196,8 +217,11 @@ impl Telemetry {
         let meter = Arc::new(Meter::from(meter_provider.meter(METRICS_METER_NAME)));
         // Same process/build gauges as the product binary so e2e compare-metrics
         // sees the full supported set when OTLP is enabled.
-        let system_metrics = track_system_metrics(Arc::clone(&meter), BuildIdentity::default())
-            .map_err(|e| anyhow!("start system metrics: {e}"))?;
+        let system_metrics = if options.collect_system_metrics {
+            track_system_metrics(Arc::clone(&meter), BuildIdentity::default()).context("start system metrics")?
+        } else {
+            None
+        };
 
         let teardown = Box::new(move || {
             traces_provider.shutdown().map_err(|e| anyhow!("trace provider shutdown: {e}"))?;

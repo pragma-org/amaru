@@ -40,7 +40,9 @@ amaru-ouroboros-traits = { workspace = true, features = [] }
 amaru-deps.workspace = true
 [target.'cfg(windows)'.dependencies]
 rocksdb = { workspace = true, optional = true }
-[target.'cfg(not(windows))'.dependencies]
+[target.'cfg(target_os = "ios")'.dependencies]
+rocksdb = { workspace = true, optional = true }
+[target.'cfg(all(not(windows), not(target_os = "ios")))'.dependencies]
 rocksdb = { workspace = true, optional = true, features = ["jemalloc"] }
 
 [dev-dependencies]
