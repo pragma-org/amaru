@@ -109,7 +109,7 @@ define_schemas! {
                 /// Initialize the store
                 INITIALIZE {
                     required ledger_tip: amaru_kernel::Point
-                    optional best_chain_hash: %amaru_kernel::HeaderHash
+                    optional best_chain_hash: amaru_kernel::HeaderHash
                 }
                 /// Remove the valid status of descendants of a given block to reapply those blocks.
                 CLEAR_VALID_DESCENDANTS {
@@ -121,13 +121,13 @@ define_schemas! {
                 RECOVER_STORED {
                     tags: setup
                     required from: amaru_kernel::Point
-                    required to: %amaru_kernel::HeaderHash
+                    required to: amaru_kernel::HeaderHash
                 }
                 /// Fetch a range of blocks starting from the specified tip
                 FETCH {
                     tags: cpu
                     required tip: amaru_kernel::Point
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
             }
             node {
@@ -146,20 +146,20 @@ define_schemas! {
                 SELECT_FROM_TIP {
                     tags: cpu
                     required tip: amaru_kernel::Point
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Received a block validation result
                 SELECT_FROM_BLOCK_VALIDATION {
                     tags: cpu
                     required point: amaru_kernel::Point
                     required valid: bool
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Some blocks have been fetched for the current chain, decide what to do next
                 FETCH_NEXT {
                     tags: cpu
                     required point: amaru_kernel::Point
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
             }
             roll_forward {
@@ -168,7 +168,7 @@ define_schemas! {
                 PROCESS {
                     required tip: amaru_kernel::Point
                     required peer: %amaru_kernel::Peer
-                    optional header_hash: %amaru_kernel::HeaderHash
+                    optional header_hash: amaru_kernel::HeaderHash
                 }
             }
             roll_backward {
@@ -188,15 +188,15 @@ define_schemas! {
                 }
                 /// Validate the whole header
                 VALIDATE {
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Evolve the nonce based on header
                 EVOLVE_NONCE {
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Check header cryptographic properties
                 CHECK {
-                    required issuer_key: %amaru_kernel::VerificationKey
+                    required issuer_key: amaru_kernel::VerificationKey
                 }
                 /// Forward to a downstream peer
                 FORWARD {
@@ -209,7 +209,7 @@ define_schemas! {
                 /// Validate a block by applying it to the current ledger
                 VALIDATE {
                     required tip: amaru_kernel::Point
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                     optional valid: bool
                 }
                 /// Skip a block validation when it is not better than the current ledger tip
@@ -220,19 +220,19 @@ define_schemas! {
                 /// Adopt a block as the next block in the best chain
                 ADOPT {
                     required tip: amaru_kernel::Point
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Mismatched body hash after download, the peer is adversarial
                 MISMATCHED_HASH {
                     required peer: %amaru_kernel::Peer
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                 }
             }
             tip {
                 /// Adopt a tip as the next tip in the best chain
                 public ADOPT {
                     required slot: amaru_kernel::Slot
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                     required block_height: u64
                     required max_block_height: u64
                     required suppressed: u32
@@ -258,7 +258,7 @@ define_schemas! {
                     /// - `forward_micros`: reception of the header to the adoption of its block
                     public LIFECYCLE {
                         optional peer: %amaru_kernel::Peer
-                        optional header_hash: %amaru_kernel::HeaderHash
+                        optional header_hash: amaru_kernel::HeaderHash
                         optional outcome: String
                         optional error: String
                         optional slot_start_to_header_micros: u64
@@ -271,7 +271,7 @@ define_schemas! {
                     /// Event recorded when a fork switch ends. `duration_micros` measures the time
                     /// from the detection of the fork to its application (or abandonment).
                     public SWITCH {
-                        required header_hash: %amaru_kernel::HeaderHash
+                        required header_hash: amaru_kernel::HeaderHash
                         optional outcome: String
                         optional duration_micros: u64
                     }
@@ -301,7 +301,7 @@ define_schemas! {
                 /// Updated view of the locally adopted chain tip and its derived ledger health.
                 public UPDATE {
                     required slot: amaru_kernel::Slot
-                    required header_hash: %amaru_kernel::HeaderHash
+                    required header_hash: amaru_kernel::HeaderHash
                     required block_height: u64
                     required tx_count: usize
                     required epoch: amaru_kernel::Epoch
@@ -373,7 +373,7 @@ define_schemas! {
             transaction {
                 /// Validate a single transaction
                 public VALIDATE {
-                    required id: %amaru_kernel::TransactionId,
+                    required id: amaru_kernel::TransactionId,
                 }
 
                 script {
@@ -436,7 +436,7 @@ define_schemas! {
             block_validation_context {
                 /// Create validation context for a block
                 public CREATE {
-                    required block_id: %amaru_kernel::HeaderHash
+                    required block_id: amaru_kernel::HeaderHash
                     required block_number: u64
                     required block_body_size: u64
                     optional total_inputs: u64
@@ -445,7 +445,7 @@ define_schemas! {
             transaction_validation_context {
                 /// Create validation context for a transaction
                 public CREATE {
-                    required id: %amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                 }
             }
             validation_context {
@@ -525,7 +525,7 @@ define_schemas! {
                 }
                 /// Update a pool's parameters at an epoch boundary; only changed parameters are recorded
                 public TICK_POOL {
-                    required id: %amaru_kernel::PoolId
+                    required id: amaru_kernel::PoolId
                     optional vrf: String
                     optional pledge: String
                     optional cost: String
@@ -537,7 +537,7 @@ define_schemas! {
                 }
                 /// Retire a pool at an epoch boundary
                 public RETIRE_POOL {
-                    required id: %amaru_kernel::PoolId
+                    required id: amaru_kernel::PoolId
                 }
                 /// Rollback an in-flight epoch transition
                 public ROLLBACK {
@@ -598,7 +598,7 @@ define_schemas! {
                 /// Pay withdrawals to an account, or refund its deposit
                 public PAY_OR_REFUND {
                     required credential_type: %amaru_kernel::StakeCredentialKind
-                    required account: %amaru_kernel::Hash<28>
+                    required account: amaru_kernel::Hash<28>
                     required deposit: amaru_kernel::Lovelace
                 }
             }
@@ -826,7 +826,7 @@ define_schemas! {
             header {
                 /// Import a single header into the chain store
                 public IMPORT {
-                    required header: %amaru_kernel::HeaderHash
+                    required header: amaru_kernel::HeaderHash
                 }
             }
             headers {
@@ -1190,7 +1190,7 @@ define_schemas! {
                     public ADD {}
                     /// Schedule pool retirement
                     public REMOVE {
-                        optional pool: %amaru_kernel::PoolId
+                        optional pool: amaru_kernel::PoolId
                         optional reason: String
                     }
                 }
@@ -1204,7 +1204,7 @@ define_schemas! {
                     /// Update rewards balance for a single account
                     public SET {
                         optional credential_type: %amaru_kernel::StakeCredentialKind
-                        optional account: %amaru_kernel::Hash<28>
+                        optional account: amaru_kernel::Hash<28>
                         optional reason: String
                     }
                     /// Reset rewards counters for many accounts
@@ -1297,24 +1297,24 @@ define_schemas! {
                 header {
                     /// Store a block header
                     public STORE {
-                        required hash: %amaru_kernel::HeaderHash
+                        required hash: amaru_kernel::HeaderHash
                     }
                 }
                 block {
                     /// Store a raw block
                     public STORE {
-                        required hash: %amaru_kernel::HeaderHash
+                        required hash: amaru_kernel::HeaderHash
                     }
                 }
                 chain {
                     /// Roll forward the chain to a point
                     public ROLL_FORWARD {
-                        required hash: %amaru_kernel::HeaderHash
+                        required hash: amaru_kernel::HeaderHash
                         required slot: amaru_kernel::Slot
                     }
                     /// Switch the chain to a new fork
                     public SWITCH_TO_FORK {
-                        required hash: %amaru_kernel::HeaderHash
+                        required hash: amaru_kernel::HeaderHash
                         required slot: amaru_kernel::Slot
                     }
                 }
@@ -1331,30 +1331,30 @@ define_schemas! {
             transaction {
                 /// Transaction received by the mempool stage, before validation.
                 public RECEIVED {
-                    required id: %amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required origin: String
                 }
                 /// Transaction validated and inserted into the mempool.
                 public ACCEPTED {
-                    required id: %amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required seq_no: u64
                     required origin: String
                 }
                 /// Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.
                 public REJECTED {
-                    required id: %amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required reason: String
                     optional validation_error: String
                 }
                 /// Transaction removed from the mempool. Reason ∈ {included_in_adopted_block, evicted_after_new_tip}.
                 public EVICTED {
-                    required id: %amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required tip: amaru_kernel::Point
                     required reason: String
                 }
                 /// Detail trace carrying upstream peer attribution for a received tx.
                 RECEIVED_DETAIL {
-                    required id: %amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required peer: %amaru_kernel::Peer
                 }
                 /// Detail trace for a tip-driven revalidation pass.
@@ -1635,7 +1635,7 @@ define_schemas! {
                     /// without ever fetching its body.
                     SKIP_FETCH {
                         required peer: %amaru_kernel::Peer
-                        required id: %amaru_kernel::TransactionId
+                        required id: amaru_kernel::TransactionId
                     }
                     /// Request tx ids from the peer, acknowledging processed ones.
                     REQUEST_TX_IDS {

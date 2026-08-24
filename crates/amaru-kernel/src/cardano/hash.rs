@@ -160,27 +160,49 @@ impl<const BYTES: usize> serde::Serialize for Hash<BYTES> {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&self.to_string())
+        } else {
+            serializer.serialize_bytes(self.as_ref())
+        }
     }
 }
 
 struct HashVisitor<const BYTES: usize> {}
 
-impl<const BYTES: usize> serde::de::Visitor<'_> for HashVisitor<BYTES> {
+impl<'de, const BYTES: usize> serde::de::Visitor<'de> for HashVisitor<BYTES> {
     type Value = Hash<BYTES>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "a hex string representing {BYTES} bytes")
+        write!(formatter, "a {BYTES}-byte hash as a hex string or a byte string")
     }
 
     fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        match Hash::<BYTES>::from_str(s) {
-            Ok(x) => Ok(x),
-            Err(_) => Err(serde::de::Error::invalid_value(serde::de::Unexpected::Str(s), &self)),
+        Hash::<BYTES>::from_str(s).map_err(|_| serde::de::Error::invalid_value(serde::de::Unexpected::Str(s), &self))
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        try_from_slice(v).ok_or_else(|| serde::de::Error::invalid_length(v.len(), &self))
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut bytes = [0u8; BYTES];
+        for (i, slot) in bytes.iter_mut().enumerate() {
+            *slot = seq.next_element()?.ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
         }
+        if seq.next_element::<u8>()?.is_some() {
+            return Err(serde::de::Error::invalid_length(BYTES + 1, &self));
+        }
+        Ok(Hash::new(bytes))
     }
 }
 
@@ -189,8 +211,22 @@ impl<'de, const BYTES: usize> serde::Deserialize<'de> for Hash<BYTES> {
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_str(HashVisitor::<BYTES> {})
+        deserializer.deserialize_any(HashVisitor::<BYTES> {})
     }
+}
+
+/// JSON Schema for a lowercase hex string of `byte_len` bytes (`^[0-9a-f]{2*byte_len}$`).
+///
+/// Draft-07 `contentEncoding` is annotation-only and does not constrain characters.
+pub(crate) fn hex_string_json_schema(byte_len: usize, description: &'static str) -> schemars::schema::Schema {
+    let hex_len = byte_len * 2;
+    #[allow(clippy::expect_used)]
+    serde_json::from_value(serde_json::json!({
+        "type": "string",
+        "pattern": format!("^[0-9a-f]{{{hex_len}}}$"),
+        "description": description
+    }))
+    .expect("hex string json schema is valid")
 }
 
 impl<const BYTES: usize> schemars::JsonSchema for Hash<BYTES> {
@@ -199,16 +235,7 @@ impl<const BYTES: usize> schemars::JsonSchema for Hash<BYTES> {
     }
 
     fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
-        let hex_len = BYTES * 2;
-        #[allow(clippy::expect_used)]
-        serde_json::from_value(serde_json::json!({
-            "type": "string",
-            "contentEncoding": "hex",
-            "minLength": hex_len,
-            "maxLength": hex_len,
-            "description": "hex-encoded hash"
-        }))
-        .expect("hash json schema is valid")
+        hex_string_json_schema(BYTES, "hex-encoded hash")
     }
 
     fn is_referenceable() -> bool {
@@ -263,5 +290,40 @@ mod tests {
 
     pub fn any_hash32() -> impl Strategy<Value = Hash<32>> {
         any::<[u8; 32]>().prop_map(Hash::from)
+    }
+
+    #[cfg(test)]
+    mod serde_format {
+        use super::*;
+
+        #[test]
+        fn json_is_hex_string() {
+            let hash = Hash::<32>::from([0xabu8; 32]);
+            let json = serde_json::to_string(&hash).expect("json");
+            assert_eq!(json, format!("\"{hash}\""));
+            assert_eq!(hash, serde_json::from_str::<Hash<32>>(&json).expect("parse"));
+        }
+
+        #[test]
+        fn cbor_is_byte_string() {
+            let hash = Hash::<32>::from([0xabu8; 32]);
+            let mut buf = Vec::new();
+            cbor4ii::serde::to_writer(&mut buf, &hash).expect("encode");
+            assert!(buf.windows(2).any(|w| w == [0x58, 0x20]), "32-byte CBOR byte string header");
+            let decoded: Hash<32> = cbor4ii::serde::from_slice(&buf).expect("decode");
+            assert_eq!(decoded, hash);
+        }
+
+        #[test]
+        fn json_schema_uses_lowercase_hex_pattern() {
+            let schema32 = serde_json::to_value(schemars::schema_for!(Hash<32>).schema).expect("schema");
+            assert_eq!(schema32["pattern"], "^[0-9a-f]{64}$");
+            assert!(schema32.get("contentEncoding").is_none());
+            assert!(schema32.get("minLength").is_none());
+            assert!(schema32.get("maxLength").is_none());
+
+            let schema28 = serde_json::to_value(schemars::schema_for!(Hash<28>).schema).expect("schema");
+            assert_eq!(schema28["pattern"], "^[0-9a-f]{56}$");
+        }
     }
 }

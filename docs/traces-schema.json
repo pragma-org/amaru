@@ -163,7 +163,10 @@
       "type": "object",
       "properties": {
         "header": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -234,25 +237,23 @@
             },
             {
               "type": "array",
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
+              "items": [
                 {
-                  "type": "integer",
-                  "description": "slot"
+                  "description": "slot",
+                  "type": "integer"
                 },
                 {
+                  "description": "header hash",
                   "type": "string",
-                  "contentEncoding": "hex",
-                  "minLength": 64,
-                  "maxLength": 64,
-                  "description": "header hash"
+                  "pattern": "^[0-9a-f]{64}$"
                 },
                 {
-                  "type": "integer",
-                  "description": "block height"
+                  "description": "block height",
+                  "type": "integer"
                 }
-              ]
+              ],
+              "maxItems": 3,
+              "minItems": 3
             }
           ]
         }
@@ -281,25 +282,23 @@
             },
             {
               "type": "array",
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
+              "items": [
                 {
-                  "type": "integer",
-                  "description": "slot"
+                  "description": "slot",
+                  "type": "integer"
                 },
                 {
+                  "description": "header hash",
                   "type": "string",
-                  "contentEncoding": "hex",
-                  "minLength": 64,
-                  "maxLength": 64,
-                  "description": "header hash"
+                  "pattern": "^[0-9a-f]{64}$"
                 },
                 {
-                  "type": "integer",
-                  "description": "block height"
+                  "description": "block height",
+                  "type": "integer"
                 }
-              ]
+              ],
+              "maxItems": 3,
+              "minItems": 3
             }
           ]
         }
@@ -513,25 +512,23 @@
             },
             {
               "type": "array",
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
+              "items": [
                 {
-                  "type": "integer",
-                  "description": "slot"
+                  "description": "slot",
+                  "type": "integer"
                 },
                 {
+                  "description": "header hash",
                   "type": "string",
-                  "contentEncoding": "hex",
-                  "minLength": 64,
-                  "maxLength": 64,
-                  "description": "header hash"
+                  "pattern": "^[0-9a-f]{64}$"
                 },
                 {
-                  "type": "integer",
-                  "description": "block height"
+                  "description": "block height",
+                  "type": "integer"
                 }
-              ]
+              ],
+              "maxItems": 3,
+              "minItems": 3
             }
           ]
         },
@@ -1225,25 +1222,23 @@
             },
             {
               "type": "array",
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
+              "items": [
                 {
-                  "type": "integer",
-                  "description": "slot"
+                  "description": "slot",
+                  "type": "integer"
                 },
                 {
+                  "description": "header hash",
                   "type": "string",
-                  "contentEncoding": "hex",
-                  "minLength": 64,
-                  "maxLength": 64,
-                  "description": "header hash"
+                  "pattern": "^[0-9a-f]{64}$"
                 },
                 {
-                  "type": "integer",
-                  "description": "block height"
+                  "description": "block height",
+                  "type": "integer"
                 }
-              ]
+              ],
+              "maxItems": 3,
+              "minItems": 3
             }
           ]
         },
@@ -1257,25 +1252,23 @@
             },
             {
               "type": "array",
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
+              "items": [
                 {
-                  "type": "integer",
-                  "description": "slot"
+                  "description": "slot",
+                  "type": "integer"
                 },
                 {
+                  "description": "header hash",
                   "type": "string",
-                  "contentEncoding": "hex",
-                  "minLength": 64,
-                  "maxLength": 64,
-                  "description": "header hash"
+                  "pattern": "^[0-9a-f]{64}$"
                 },
                 {
-                  "type": "integer",
-                  "description": "block height"
+                  "description": "block height",
+                  "type": "integer"
                 }
-              ]
+              ],
+              "maxItems": 3,
+              "minItems": 3
             }
           ]
         }
@@ -1296,7 +1289,10 @@
       "type": "object",
       "properties": {
         "header_hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "outcome": {
           "type": "string"
@@ -1326,7 +1322,10 @@
           "type": "string"
         },
         "header_hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "outcome": {
           "type": "string"
@@ -1375,7 +1374,10 @@
           "minimum": 0.0
         },
         "header_hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "block_height": {
           "type": "integer"
@@ -1409,7 +1411,10 @@
           "type": "string"
         },
         "account": {
-          "type": "string"
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{56}$"
         },
         "deposit": {
           "title": "uint64",
@@ -1468,7 +1473,10 @@
       "type": "object",
       "properties": {
         "block_id": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "block_number": {
           "type": "integer"
@@ -1676,7 +1684,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{56}$"
         }
       },
       "required": [
@@ -1722,7 +1733,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{56}$"
         },
         "vrf": {
           "type": "string"
@@ -2961,25 +2975,23 @@
             },
             {
               "type": "array",
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
+              "items": [
                 {
-                  "type": "integer",
-                  "description": "slot"
+                  "description": "slot",
+                  "type": "integer"
                 },
                 {
+                  "description": "header hash",
                   "type": "string",
-                  "contentEncoding": "hex",
-                  "minLength": 64,
-                  "maxLength": 64,
-                  "description": "header hash"
+                  "pattern": "^[0-9a-f]{64}$"
                 },
                 {
-                  "type": "integer",
-                  "description": "block height"
+                  "description": "block height",
+                  "type": "integer"
                 }
-              ]
+              ],
+              "maxItems": 3,
+              "minItems": 3
             }
           ]
         },
@@ -3022,7 +3034,10 @@
           "minimum": 0.0
         },
         "header_hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "block_height": {
           "type": "integer"
@@ -3075,7 +3090,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -3132,7 +3150,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -3324,7 +3345,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "seq_no": {
           "type": "integer"
@@ -3350,7 +3374,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "tip": {
           "title": "Point",
@@ -3362,25 +3389,23 @@
             },
             {
               "type": "array",
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
+              "items": [
                 {
-                  "type": "integer",
-                  "description": "slot"
+                  "description": "slot",
+                  "type": "integer"
                 },
                 {
+                  "description": "header hash",
                   "type": "string",
-                  "contentEncoding": "hex",
-                  "minLength": 64,
-                  "maxLength": 64,
-                  "description": "header hash"
+                  "pattern": "^[0-9a-f]{64}$"
                 },
                 {
-                  "type": "integer",
-                  "description": "block height"
+                  "description": "block height",
+                  "type": "integer"
                 }
-              ]
+              ],
+              "maxItems": 3,
+              "minItems": 3
             }
           ]
         },
@@ -3405,7 +3430,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "origin": {
           "type": "string"
@@ -3427,7 +3455,10 @@
       "type": "object",
       "properties": {
         "id": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "reason": {
           "type": "string"
@@ -3942,7 +3973,10 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -3960,7 +3994,10 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "slot": {
           "title": "uint64",
@@ -3985,7 +4022,10 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "slot": {
           "title": "uint64",
@@ -4010,7 +4050,10 @@
       "type": "object",
       "properties": {
         "hash": {
-          "type": "string"
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -4120,7 +4163,10 @@
           "type": "string"
         },
         "account": {
-          "type": "string"
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{56}$"
         },
         "reason": {
           "type": "string"
@@ -4492,7 +4538,10 @@
       "type": "object",
       "properties": {
         "pool": {
-          "type": "string"
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{56}$"
         },
         "reason": {
           "type": "string"

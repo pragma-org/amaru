@@ -44,6 +44,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-observability**: field rendering is declared on the schema (`%` Display, `?` Debug, otherwise `Serialize + JsonSchema`). Call sites no longer take `%` / `?`; `@` remains for `tracing::Value` passthrough. `amaru dev traces dump` emits the JSON-sink schema of each field. `Point` traces encode as `[slot, hash, height]` with a CBOR byte-string hash ([#1263](https://github.com/pragma-org/amaru/issues/1263)).
+- **amaru-kernel**: `Hash` (and newtypes / `FixedBytes`) serialize as CBOR byte strings on the tracing path; JSON serde still uses hex. JSON/console/TUI/OTEL span sinks render those bytes as hex; OTEL logs keep byte strings.
 
 ### Fixed
 

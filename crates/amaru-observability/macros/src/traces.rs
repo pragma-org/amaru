@@ -224,12 +224,7 @@ fn build_schema_associated_const_path(
 ///
 /// The generated accessor is defined with the schema field's span, so rust-analyzer
 /// find-usages on that property includes every instrumentation site that mentions it.
-fn field_usage_anchor(
-    meta: &SchemaMeta,
-    schema_path: &syn::Path,
-    field_name: &syn::Ident,
-    _index: usize,
-) -> proc_macro2::TokenStream {
+fn field_usage_anchor(meta: &SchemaMeta, schema_path: &syn::Path, field_name: &syn::Ident) -> proc_macro2::TokenStream {
     let schema_path = build_exported_path(meta, schema_path);
     quote! {
         if false {
@@ -426,12 +421,8 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     let public_const_path = build_schema_associated_const_path(&meta, &args.schema_path, "PUBLIC");
     let schema_name_path = build_schema_associated_const_path(&meta, &args.schema_path, "NAME");
     let private_emit_guard = private_emit_guard_tokens();
-    let field_nav: Vec<_> = args
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| field_usage_anchor(&meta, &args.schema_path, &field.name, index))
-        .collect();
+    let field_nav: Vec<_> =
+        args.fields.iter().map(|field| field_usage_anchor(&meta, &args.schema_path, &field.name)).collect();
 
     // Generate the expanded code - generate the full block based on whether a level is specified
     let expanded = if let Some(level_ident) = &args.level {
@@ -618,12 +609,8 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
 
     let public_const_path = build_schema_associated_const_path(&meta, &args.schema_path, "PUBLIC");
     let private_emit_guard = private_emit_guard_tokens();
-    let field_nav: Vec<_> = args
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| field_usage_anchor(&meta, &args.schema_path, &field.name, index))
-        .collect();
+    let field_nav: Vec<_> =
+        args.fields.iter().map(|field| field_usage_anchor(&meta, &args.schema_path, &field.name)).collect();
 
     let expanded = wrap_in_module_validator(
         &meta,
@@ -847,11 +834,8 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         .collect();
 
     let required_field_names: Vec<_> = fields.iter().map(|field| field.name.to_string()).collect();
-    let field_nav: Vec<_> = fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| field_usage_anchor(&meta, &args.schema_path, &field.name, index))
-        .collect();
+    let field_nav: Vec<_> =
+        fields.iter().map(|field| field_usage_anchor(&meta, &args.schema_path, &field.name)).collect();
     let required_fields_check = generate_required_fields_check(&meta, &required_field_names);
 
     let instrument_macro_ident = make_ident(&make_instrument_macro_name(&categories, &meta.schema_name));

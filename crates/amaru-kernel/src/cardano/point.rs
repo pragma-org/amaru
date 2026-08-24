@@ -126,20 +126,6 @@ impl FromStr for Point {
     }
 }
 
-/// CBOR / compact serde of a header hash inside [`Point`]: raw bytes when the serializer is
-/// not human-readable, hex string otherwise.
-struct PointHashBytes<'a>(&'a HeaderHash);
-
-impl serde::Serialize for PointHashBytes<'_> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if serializer.is_human_readable() {
-            serializer.serialize_str(&self.0.to_string())
-        } else {
-            serializer.serialize_bytes(self.0.as_ref())
-        }
-    }
-}
-
 impl serde::Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -152,7 +138,7 @@ impl serde::Serialize for Point {
             Point::Specific(slot, hash, height) => {
                 let mut seq = serializer.serialize_tuple(3)?;
                 seq.serialize_element(&slot.as_u64())?;
-                seq.serialize_element(&PointHashBytes(&hash))?;
+                seq.serialize_element(&hash)?;
                 seq.serialize_element(&u64::from(height))?;
                 seq.end()
             }
@@ -189,56 +175,13 @@ impl<'de> serde::de::Visitor<'de> for PointVisitor {
             return Ok(Point::Origin);
         };
 
-        let hash = seq.next_element::<PointHash>()?.ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+        let hash = seq.next_element::<HeaderHash>()?.ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
         let height = seq.next_element::<u64>()?.ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
         if seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
             return Err(serde::de::Error::invalid_length(4, &self));
         }
 
-        Ok(Point::Specific(Slot::from(slot), hash.0, crate::BlockHeight::from(height)))
-    }
-}
-
-struct PointHash(HeaderHash);
-
-impl<'de> serde::Deserialize<'de> for PointHash {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(PointHashVisitor)
-    }
-}
-
-struct PointHashVisitor;
-
-impl<'de> serde::de::Visitor<'de> for PointHashVisitor {
-    type Value = PointHash;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a 32-byte header hash as a hex string or a byte string")
-    }
-
-    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-        HeaderHash::from_str(v).map(PointHash).map_err(serde::de::Error::custom)
-    }
-
-    fn visit_bytes<E: serde::de::Error>(self, v: &[u8]) -> Result<Self::Value, E> {
-        if v.len() != 32 {
-            return Err(serde::de::Error::invalid_length(v.len(), &"32 bytes"));
-        }
-        Ok(PointHash(HeaderHash::from(v)))
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::SeqAccess<'de>,
-    {
-        let mut bytes = [0u8; 32];
-        for (i, slot) in bytes.iter_mut().enumerate() {
-            *slot = seq.next_element()?.ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
-        }
-        if seq.next_element::<u8>()?.is_some() {
-            return Err(serde::de::Error::invalid_length(33, &self));
-        }
-        Ok(PointHash(HeaderHash::new(bytes)))
+        Ok(Point::Specific(Slot::from(slot), hash, crate::BlockHeight::from(height)))
     }
 }
 
@@ -260,15 +203,9 @@ impl schemars::JsonSchema for Point {
                     "type": "array",
                     "minItems": 3,
                     "maxItems": 3,
-                    "prefixItems": [
+                    "items": [
                         { "type": "integer", "description": "slot" },
-                        {
-                            "type": "string",
-                            "contentEncoding": "hex",
-                            "minLength": 64,
-                            "maxLength": 64,
-                            "description": "header hash"
-                        },
+                        super::hash::hex_string_json_schema(32, "header hash"),
                         { "type": "integer", "description": "block height" }
                     ]
                 }
@@ -355,6 +292,18 @@ mod tests {
         fn test_parse_point() {
             let error = Point::try_from("42.0123456789abcdef").unwrap_err();
             assert_eq!(error, "missing '(' for block height");
+        }
+
+        #[test]
+        fn json_schema_uses_draft07_tuple_items() {
+            let schema = serde_json::to_value(schemars::schema_for!(Point).schema).expect("schema");
+            assert!(schema.get("prefixItems").is_none());
+            let specific = &schema["oneOf"][1];
+            assert!(specific["items"].is_array());
+            assert_eq!(specific["minItems"], 3);
+            assert_eq!(specific["maxItems"], 3);
+            assert_eq!(specific["items"][1]["pattern"], "^[0-9a-f]{64}$");
+            assert!(specific["items"][1].get("contentEncoding").is_none());
         }
 
         #[test]

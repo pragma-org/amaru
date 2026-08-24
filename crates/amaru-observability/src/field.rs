@@ -18,11 +18,11 @@
 //!
 //! - **Primitives** (`bool`, integers, `f64`) and fields declared exactly as `String` are
 //!   recorded with the matching typed `tracing::Value` path (`record_bool`, `record_u64`,
-//!   `record_str`, …). Other string-like types (`&str`, `Cow<'_, str>`) take the CBOR path
-//!   unless the schema macro transport is broadened later.
+//!   `record_str`, …). Display/Debug schema fields (`%` / `?`) travel as text.
 //! - **All other values** are serialized with [`cbor4ii`] via [`serde::Serialize`] and recorded
 //!   with [`Visit::record_bytes`](tracing::field::Visit::record_bytes). Within Amaru every
-//!   `record_bytes` payload is therefore CBOR (a bare `[u8]` is encoded as a CBOR byte string).
+//!   `record_bytes` payload is therefore CBOR. Hash-like types serialize as CBOR **byte
+//!   strings** (JSON serde of those types remains hex via `is_human_readable`).
 //!
 //! Downstream layers owned by this crate decode those bytes for human/JSON/OTEL presentation.
 
@@ -189,9 +189,9 @@ fn cbor_item_to_trace_value(cbor: &Cbor) -> Option<TraceValue> {
     if let Ok(s) = cbor.try_str() {
         return Some(TraceValue::String(s.into_owned().into()));
     }
-    if cbor.try_bytes().is_ok() {
-        // Trace Value has no Bytes variant.
-        return None;
+    if let Ok(raw) = cbor.try_bytes() {
+        // Span attributes have no Bytes variant; hex matches the JSON sink.
+        return Some(TraceValue::String(hex::encode(raw.as_ref()).into()));
     }
     if let Ok(items) = cbor.try_array() {
         return homogeneous_array_to_trace_value(&items);
@@ -458,6 +458,34 @@ mod tests {
         // Stock Visit::record_bytes falls through to Debug of the raw byte slice.
         assert_ne!(text, format!("{:?}", bytes.as_ref()), "must not be raw bytes Debug");
         assert!(text.contains('1') && text.contains('2'), "diagnostic={text}");
+    }
+
+    #[test]
+    fn hash_byte_string_is_hex_in_json_and_trace_and_bytes_in_logs() {
+        use amaru_kernel::Hash;
+        use opentelemetry::logs::AnyValue;
+
+        let hash = Hash::<32>::from([0xabu8; 32]);
+        let payload = encode_cbor(&hash);
+        let hex = hash.to_string();
+
+        assert_eq!(cbor_to_json(&payload).expect("json"), JsonValue::String(hex.clone()));
+
+        let TraceValue::String(s) = cbor_to_trace_value(&payload) else {
+            panic!("expected hex string for OTEL span attributes");
+        };
+        assert_eq!(s.as_str(), hex);
+
+        match cbor_to_any_value(&payload) {
+            AnyValue::Bytes(raw) => assert_eq!(raw.as_ref(), hash.as_ref()),
+            AnyValue::Int(_)
+            | AnyValue::Double(_)
+            | AnyValue::String(_)
+            | AnyValue::Boolean(_)
+            | AnyValue::ListAny(_)
+            | AnyValue::Map(_) => panic!("expected OTEL log bytes"),
+            _ => panic!("expected OTEL log bytes"),
+        }
     }
 
     #[test]

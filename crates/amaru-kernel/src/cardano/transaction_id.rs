@@ -34,6 +34,7 @@ use crate::{Hash, cbor, size::TRANSACTION_BODY};
     serde::Deserialize,
     schemars::JsonSchema,
 )]
+#[serde(transparent)]
 #[schemars(transparent)]
 #[repr(transparent)]
 pub struct TransactionId(Hash<{ TRANSACTION_BODY }>);

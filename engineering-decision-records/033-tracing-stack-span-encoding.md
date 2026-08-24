@@ -47,15 +47,17 @@ span tree (see below).
    Child events (and child-span lifecycle events) carry `.parent_id` equal
    to the wrapping span's *parent*. Search the log for that id to recover
    the next level up. OpenTelemetry uses its own span/trace ids.
-5. **String scalars are not Debug-quoted.** Schema types declared `%HeaderHash`
-   (Display) travel as a hex string. Sinks present the hex once
-   (`"3bc8…"`), never `"\"3bc8…\""`. Unprefixed `Point` fields are a CBOR array
-   `[slot, hash-bytes, height]` (origin is `[]`); JSON sinks hex-encode the hash.
+5. **String scalars are not Debug-quoted.** Hash-like fields travel as CBOR
+   byte strings. Text sinks (console, JSON, TUI, OTEL **span** attributes)
+   present lowercase hex once (`"3bc8…"`), never `"\"3bc8…\""`. OTEL **logs**
+   keep `AnyValue::Bytes`. Unprefixed `Point` fields are a CBOR array
+   `[slot, hash-bytes, height]` (origin is `[]`).
 6. **Schema tags (`amaru.tag.*`) are filter attributes.** JSON and
    OpenTelemetry keep them. Console and TUI hide them.
 7. **CBOR `record_bytes` decodes to the richest type the sink can hold:**
-   nested JSON / OTEL log `AnyValue` for maps and arrays; homogeneous OTEL
-   *trace* arrays when possible; diagnostic text otherwise.
+   nested JSON / OTEL log `AnyValue` for maps and arrays; CBOR byte strings as
+   hex (text) or `AnyValue::Bytes` (OTEL logs); homogeneous OTEL *trace* arrays
+   when possible; diagnostic text otherwise.
 
 ### Console
 
