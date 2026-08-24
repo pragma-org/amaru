@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, Hash, Peer, Slot};
-use amaru_observability::{FieldValue, TelemetryCaptureLayer, amaru, info};
+use amaru_kernel::{BlockHeight, Epoch, Hash, Peer, Point, Slot};
+use amaru_observability::{
+    FieldValue, TelemetryCaptureLayer, amaru,
+    field::{cbor_to_json, encode_cbor},
+    info,
+};
+use serde_json::json;
 use tracing_subscriber::prelude::*;
 
 #[test]
@@ -47,4 +52,13 @@ fn peer_and_hash_schema_fields_are_emitted_as_plain_strings() {
 
     assert_eq!(peer_record.fields.get("peer"), Some(&FieldValue::Str(peer.to_string())));
     assert_eq!(tip_record.fields.get("header_hash"), Some(&FieldValue::Str(header_hash.to_string())));
+}
+
+#[test]
+fn point_encodes_as_slot_hash_height_array_with_cbor_byte_string_hash() {
+    let hash = Hash::<32>::from([0xabu8; 32]);
+    let point = Point::Specific(Slot::from(42), hash, BlockHeight::from(7));
+    let hex = "ab".repeat(32);
+    assert_eq!(cbor_to_json(&encode_cbor(&point)).expect("json"), json!([42, hex, 7]));
+    assert_eq!(cbor_to_json(&encode_cbor(&Point::Origin)).expect("origin"), json!([]));
 }

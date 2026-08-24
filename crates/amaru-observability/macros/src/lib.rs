@@ -137,11 +137,16 @@
 //! `name`, `schema`, and `message` are reserved by the tracing macros.
 //!
 //! Field types drive compile-time type checks in the generated `_RECORD!` helpers and the
-//! typed accessors on the schema marker type. Transport across `tracing` is type-driven:
+//! typed accessors on the schema marker type. Rendering is declared on the schema type:
+//! - `%T` requires [`Display`](std::fmt::Display) and is emitted as a string;
+//! - `?T` requires [`Debug`](std::fmt::Debug) and is emitted as a string;
 //! - primitives (`bool`, integers, floats) and fields declared exactly as `String` use typed
-//!   `tracing::Value`; other string-like types (`&str`, `Cow<'_, str>`) take the CBOR path;
-//! - all other types must implement [`Serialize`](serde::Serialize) and are encoded as CBOR
-//!   (`record_bytes`). Explicit `%` / `?` formatters still require Display/Debug.
+//!   `tracing::Value`;
+//! - all other types must implement `Serialize` and `JsonSchema` and are encoded as CBOR
+//!   (`record_bytes`).
+//!
+//! Call sites may use tracing-style shorthand (`field`) and `@expr` for a ready-made
+//! `tracing::Value`. `%` / `?` at the call site are rejected.
 //!
 //! Doc comments on individual fields are accepted and currently ignored by code generation
 //! (they document the schema source for readers).
@@ -280,7 +285,7 @@ pub fn trace_record(input: TokenStream) -> TokenStream {
 /// # Example
 ///
 /// ```text
-/// trace_event!(ERROR, stores::ledger::accounts::RESET_MANY, ?credential, reason = "no account for given credential");
+/// trace_event!(ERROR, stores::ledger::accounts::RESET_MANY, credential, reason = "no account for given credential");
 /// ```
 #[proc_macro]
 pub fn trace_event(input: TokenStream) -> TokenStream {

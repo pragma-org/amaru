@@ -20,6 +20,7 @@ use amaru::{
 };
 use amaru_kernel::NetworkName;
 use amaru_observability::info;
+use anyhow::anyhow;
 use clap::Parser;
 
 const AWS_ACCESS_KEY_ID_ENV: &str = "AWS_ACCESS_KEY_ID";
@@ -67,7 +68,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let Args { network, s3_bucket, s3_endpoint, s3_region } = args;
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
     let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;
@@ -83,23 +84,20 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network_prefix = network.to_string().to_lowercase();
 
     s3.upload_bytes(serde_json::to_vec_pretty(&points)?, &format!("{network_prefix}/index.json")).await?;
-    info!(cli::snapshot::UPDATE_INDEX, %network, snapshots = points.len());
+    info!(cli::snapshot::UPDATE_INDEX, network, snapshots = points.len());
 
     Ok(())
 }
 
-fn required_env(name: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn required_env(name: &str) -> anyhow::Result<String> {
     match env::var(name) {
         Ok(value) if value.is_empty() => {
-            Err(format!("environment variable {name} is empty; set it before running `amaru snapshot reindex`").into())
+            Err(anyhow!("environment variable {name} is empty; set it before running `amaru snapshot reindex`"))
         }
         Ok(value) => Ok(value),
         Err(env::VarError::NotPresent) => {
-            Err(format!("missing required environment variable {name}; set it before running `amaru snapshot reindex`")
-                .into())
+            Err(anyhow!("missing required environment variable {name}; set it before running `amaru snapshot reindex`"))
         }
-        Err(env::VarError::NotUnicode(_)) => {
-            Err(format!("environment variable {name} must contain valid UTF-8").into())
-        }
+        Err(env::VarError::NotUnicode(_)) => Err(anyhow!("environment variable {name} must contain valid UTF-8")),
     }
 }

@@ -32,7 +32,7 @@ use amaru_mithril::{
 };
 use amaru_observability::info;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 
@@ -172,12 +172,9 @@ struct EpochTarget {
 }
 
 impl EpochTarget {
-    pub fn from_snapshot_points(
-        epoch: Epoch,
-        mut snapshots: Vec<SnapshotPoint>,
-    ) -> Result<Vec<Self>, Box<dyn std::error::Error>> {
+    pub fn from_snapshot_points(epoch: Epoch, mut snapshots: Vec<SnapshotPoint>) -> anyhow::Result<Vec<Self>> {
         if snapshots.len() != 3 {
-            return Err(anyhow!("expected exactly 3 snapshot points; got {}", snapshots.len()).into());
+            anyhow::bail!("expected exactly 3 snapshot points; got {}", snapshots.len());
         }
 
         snapshots.sort_by_key(|s| std::cmp::Reverse(s.point.slot_or_default()));
@@ -195,37 +192,35 @@ impl EpochTarget {
     }
 }
 
-fn executable_dir() -> io::Result<PathBuf> {
-    let executable = env::current_exe()
-        .map_err(|err| io::Error::new(err.kind(), format!("failed to determine the amaru executable path: {err}")))?;
+fn executable_dir() -> anyhow::Result<PathBuf> {
+    let executable = env::current_exe().with_context(|| "failed to determine the amaru executable path")?;
 
     executable.parent().map(Path::to_path_buf).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("amaru executable path has no parent directory: {}", executable.display()),
         )
+        .into()
     })
 }
 
-fn default_dist_dir(network: NetworkName) -> io::Result<PathBuf> {
+fn default_dist_dir(network: NetworkName) -> anyhow::Result<PathBuf> {
     Ok(executable_dir()?.join("data").join(network.to_string().to_lowercase()).join("epoch-snapshots"))
 }
 
-pub(super) fn default_snapshot_output_dir(network: NetworkName) -> io::Result<PathBuf> {
+pub(super) fn default_snapshot_output_dir(network: NetworkName) -> anyhow::Result<PathBuf> {
     Ok(executable_dir()?.join(default_snapshots_dir(network)))
 }
 
-fn create_directory(path: &Path, purpose: &str) -> io::Result<()> {
-    fs::create_dir_all(path).map_err(|err| {
-        io::Error::new(err.kind(), format!("failed to create {purpose} directory at {}: {err}", path.display()))
-    })
+fn create_directory(path: &Path, purpose: &str) -> anyhow::Result<()> {
+    fs::create_dir_all(path).with_context(|| format!("failed to create {purpose} directory at {}", path.display()))
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let Args {
         network,
         epoch,
@@ -281,20 +276,20 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // Fail fast: every target except the oldest must carry a parent_point so its packaged block can
     // be checked against the expected chain.
     if let Some(target) = targets.iter().skip(1).find(|target| target.parent_point.is_none()) {
-        return Err(format!(
+        anyhow::bail!(
             "target epoch {} (slot {}) is missing parent_point; required to verify its packaged bootstrap block",
-            target.epoch, target.slot
-        )
-        .into());
+            target.epoch,
+            target.slot
+        );
     }
 
     info!(
         cli::snapshot::CREATE,
-        snapshot_output_dir = %relative_path(&snapshot_output_dir)?.display(),
-        config_dir = %relative_path(&config_dir)?.display(),
-        cardano_node_db = %relative_path(&cardano_node_db)?.display(),
-        network = %network,
-        dist_dir = %relative_path(&dist_dir)?.display(),
+        snapshot_output_dir = relative_path(&snapshot_output_dir)?.display().to_string(),
+        config_dir = relative_path(&config_dir)?.display().to_string(),
+        cardano_node_db = relative_path(&cardano_node_db)?.display().to_string(),
+        network = network,
+        dist_dir = relative_path(&dist_dir)?.display().to_string(),
         epoch = @epoch.map(|e| e.to_string()),
         snapshots = @(!snapshots_str.is_empty()).then_some(snapshots_str),
     );
@@ -312,11 +307,11 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             cli::mithril::SKIP_DOWNLOAD,
             from_chunk,
             required_chunk,
-            target_dir = %relative_path(&cardano_node_db)?.display(),
+            target_dir = relative_path(&cardano_node_db)?.display().to_string(),
             reason = "cardano-node db already covers all target slots",
         );
     } else {
-        info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = %relative_path(&cardano_node_db)?.display());
+        info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = relative_path(&cardano_node_db)?.display().to_string());
         download_from_mithril(network, cardano_node_db.clone(), from_chunk, progress_factory.clone()).await?;
     }
 
@@ -354,15 +349,15 @@ fn process_target(
     target: &EpochTarget,
     previous_snapshot_slot: Option<Slot>,
     context: &SnapshotBuildContext<'_>,
-) -> Result<Slot, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Slot> {
     let prepared_archive_path = archive_path_for_target(context.snapshot_output_dir, target);
 
     if prepared_archive_path.is_file() {
         info!(
             cli::snapshot::SKIP_PACKAGE,
-            epoch = %target.epoch,
-            slot = %target.slot,
-            archive = %relative_path(&prepared_archive_path)?.display(),
+            epoch = target.epoch,
+            slot = target.slot,
+            archive = relative_path(&prepared_archive_path)?.display().to_string(),
             reason = "already exists",
         );
         return Ok(target.slot);
@@ -375,17 +370,17 @@ fn process_target(
 
     info!(
         cli::snapshot::PACKAGE,
-        epoch = %target.epoch,
-        slot = %target.slot,
-        archive = %relative_path(&prepared_archive_path)?.display(),
+        epoch = target.epoch,
+        slot = target.slot,
+        archive = relative_path(&prepared_archive_path)?.display().to_string(),
     );
     write_snapshot_archive(&snapshot_dir, &prepared_archive_path, target, &packaged_blocks)?;
 
     info!(
         cli::snapshot::CREATED,
-        epoch = %target.epoch,
-        slot = %target.slot,
-        archive = %relative_path(&prepared_archive_path)?.display(),
+        epoch = target.epoch,
+        slot = target.slot,
+        archive = relative_path(&prepared_archive_path)?.display().to_string(),
     );
 
     Ok(target.slot)
@@ -396,13 +391,13 @@ fn resolve_or_create_snapshot_dir(
     previous_snapshot_slot: Option<Slot>,
     ledger_snapshot_dir: &Path,
     context: &SnapshotBuildContext<'_>,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+) -> anyhow::Result<PathBuf> {
     if let Some(snapshot_dir) = exact_snapshot_dir(ledger_snapshot_dir, target.slot) {
         info!(
             cli::db_analyser::REUSE_LEDGER_SNAPSHOT,
-            epoch = %target.epoch,
-            slot = %target.slot,
-            snapshot = %relative_path(&snapshot_dir)?.display(),
+            epoch = target.epoch,
+            slot = target.slot,
+            snapshot = relative_path(&snapshot_dir)?.display().to_string(),
         );
         return Ok(snapshot_dir);
     }
@@ -411,75 +406,69 @@ fn resolve_or_create_snapshot_dir(
 
     info!(
         cli::db_analyser::RUN,
-        epoch = %target.epoch,
-        slot = %target.slot,
+        epoch = target.epoch,
+        slot = target.slot,
         analyse_from = @analyse_from.map(|s| s.to_string()),
     );
 
-    if let Err(err) = run_db_analyser(
+    run_db_analyser(
         context.db_analyser_binary,
         context.config_dir,
         context.cardano_node_db,
         target.slot,
         analyse_from,
         context.with_progress,
-    ) {
-        return Err(format!(
-            "{err}; if immutable chunks are corrupt, delete {} and re-run to download fresh chunks from Mithril",
-            context.cardano_node_db.join("immutable").display()
-        )
-        .into());
-    }
+    ).with_context(|| {
+        format!("run_db_analyser; if immutable chunks are corrupt, delete {} and re-run to download fresh chunks from Mithril",
+            context.cardano_node_db.join("immutable").display())
+    })?;
 
     exact_snapshot_dir(ledger_snapshot_dir, target.slot)
-        .ok_or_else(|| format!("db-analyser did not create snapshot directory for slot {}", target.slot).into())
+        .ok_or_else(|| anyhow!("db-analyser did not create snapshot directory for slot {}", target.slot))
 }
 
 async fn resolve_start_epoch(
     client: &reqwest::Client,
     network: NetworkName,
     requested_epoch: Option<Epoch>,
-) -> Result<Epoch, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Epoch> {
     if let Some(epoch) = requested_epoch {
-        return Ok(epoch.checked_sub(Epoch::THREE).ok_or_else(|| {
+        return epoch.checked_sub(Epoch::THREE).ok_or_else(|| {
             anyhow!("epoch underflow: cannot bootstrap to the requested epoch: it is too early (must be >= 4).")
-        })?);
+        });
     }
 
     let current_epoch = fetch_current_epoch(client, network).await?;
     infer_start_epoch(current_epoch)
 }
 
-fn infer_start_epoch(current_epoch: Epoch) -> Result<Epoch, Box<dyn std::error::Error>> {
+fn infer_start_epoch(current_epoch: Epoch) -> anyhow::Result<Epoch> {
     current_epoch
         .checked_sub(Epoch::THREE)
-        .ok_or_else(|| format!("cannot infer bootstrap start epoch from current epoch {current_epoch}").into())
+        .ok_or_else(|| anyhow!("cannot infer bootstrap start epoch from current epoch {current_epoch}"))
 }
 
-fn bootstrap_target_epochs(epoch: Epoch) -> Result<[Epoch; 3], Box<dyn std::error::Error>> {
+fn bootstrap_target_epochs(epoch: Epoch) -> anyhow::Result<[Epoch; 3]> {
     Ok([
         epoch,
         epoch
             .checked_add(Epoch::ONE)
-            .ok_or_else(|| format!("bootstrap snapshot window overflows for epoch {epoch}"))?,
+            .ok_or_else(|| anyhow!("bootstrap snapshot window overflows for epoch {epoch}"))?,
         epoch
             .checked_add(Epoch::TWO)
-            .ok_or_else(|| format!("bootstrap snapshot window overflows for epoch {epoch}"))?,
+            .ok_or_else(|| anyhow!("bootstrap snapshot window overflows for epoch {epoch}"))?,
     ])
 }
 
-fn packaged_blocks_for_target(
-    immutable_dir: &Path,
-    target: &EpochTarget,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+fn packaged_blocks_for_target(immutable_dir: &Path, target: &EpochTarget) -> anyhow::Result<Vec<String>> {
     packaged_blocks_from_iter(iter_immutable_blocks(immutable_dir)?, target, immutable_dir)
 }
 
 fn packaged_blocks_from_iter(
-    blocks: impl IntoIterator<Item = Result<ImmutableBlock, Box<dyn std::error::Error>>>,
+    blocks: impl IntoIterator<Item = anyhow::Result<ImmutableBlock>>,
     target: &EpochTarget,
     immutable_dir: &Path,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Vec<String>> {
     for block in blocks {
         let block = block?;
         if block.hash != target.hash {
@@ -487,14 +476,12 @@ fn packaged_blocks_from_iter(
         }
 
         let header: Header = from_cbor(&block.header_cbor)
-            .ok_or_else(|| format!("failed to decode target block header {} from immutable blocks", target.hash))?;
+            .ok_or_else(|| anyhow!("failed to decode target block header {} from immutable blocks", target.hash))?;
         if header.hash() != target.hash {
-            return Err(
-                format!("target block header hash mismatch: expected {}, got {}", target.hash, header.hash()).into()
-            );
+            anyhow::bail!("target block header hash mismatch: expected {}, got {}", target.hash, header.hash());
         }
         if header.slot() != target.slot {
-            return Err(format!("target block slot mismatch: expected {}, got {}", target.slot, header.slot()).into());
+            anyhow::bail!("target block slot mismatch: expected {}, got {}", target.slot, header.slot());
         }
         if let Some(parent_point) = target.parent_point {
             let expected_parent = match parent_point {
@@ -502,29 +489,27 @@ fn packaged_blocks_from_iter(
                 NetworkPoint::Specific(_, hash) => Some(hash),
             };
             if header.parent_hash() != expected_parent {
-                return Err(format!(
+                anyhow::bail!(
                     "target block parent mismatch: expected {expected_parent:?}, got {:?}",
                     header.parent_hash()
-                )
-                .into());
+                );
             }
         }
 
         return Ok(vec![hex::encode(block.raw_block)]);
     }
 
-    Err(format!(
+    Err(anyhow!(
         "target block {}.{} not found in immutable blocks under {}",
         target.slot,
         target.hash,
         immutable_dir.display()
-    )
-    .into())
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{error::Error, fs, path::Path};
+    use std::{fs, path::Path};
 
     use amaru_kernel::{Epoch, Header, HeaderHash, IsHeader, NetworkPoint, Slot, make_header, to_cbor};
     use amaru_mithril::ImmutableBlock;
@@ -624,8 +609,8 @@ mod tests {
         let child_header = make_header(3, 43, Some(target_header.hash()));
         let target = target_for(&target_header, parent_point);
         let blocks = vec![
-            Ok::<_, Box<dyn Error>>(immutable_block(&target_header, b"target")),
-            Ok::<_, Box<dyn Error>>(immutable_block(&child_header, b"child")),
+            Ok::<_, anyhow::Error>(immutable_block(&target_header, b"target")),
+            Ok::<_, anyhow::Error>(immutable_block(&child_header, b"child")),
         ];
 
         assert_eq!(
@@ -643,14 +628,14 @@ mod tests {
         let mut target = target_for(&header, NetworkPoint::Specific(Slot::from(41), parent_hash));
         target.slot = Slot::from(43);
         assert!(
-            packaged_blocks_from_iter(vec![Ok::<_, Box<dyn Error>>(block)], &target, Path::new("immutable")).is_err()
+            packaged_blocks_from_iter(vec![Ok::<_, anyhow::Error>(block)], &target, Path::new("immutable")).is_err()
         );
 
         target.slot = header.slot();
         target.parent_point = Some(NetworkPoint::Specific(Slot::from(41), HeaderHash::from([2; 32])));
         assert!(
             packaged_blocks_from_iter(
-                vec![Ok::<_, Box<dyn Error>>(immutable_block(&header, b"target"))],
+                vec![Ok::<_, anyhow::Error>(immutable_block(&header, b"target"))],
                 &target,
                 Path::new("immutable")
             )
@@ -661,7 +646,7 @@ mod tests {
         let mismatched_header = make_header(3, 42, Some(parent_hash));
         let mismatched = ImmutableBlock { hash: target.hash, ..immutable_block(&mismatched_header, b"other") };
         assert!(
-            packaged_blocks_from_iter(vec![Ok::<_, Box<dyn Error>>(mismatched)], &target, Path::new("immutable"))
+            packaged_blocks_from_iter(vec![Ok::<_, anyhow::Error>(mismatched)], &target, Path::new("immutable"))
                 .is_err()
         );
     }

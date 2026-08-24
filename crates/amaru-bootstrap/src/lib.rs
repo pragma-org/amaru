@@ -41,7 +41,7 @@
 //! use amaru_kernel::NetworkName;
 //! use amaru_node::{default_chain_dir, default_ledger_dir};
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn example() -> anyhow::Result<()> {
 //! let network = NetworkName::Preprod;
 //! let global = network.as_global_parameters().cloned().expect("known network");
 //! let ledger_dir = PathBuf::from(default_ledger_dir(network));

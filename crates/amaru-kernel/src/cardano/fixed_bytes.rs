@@ -17,9 +17,7 @@ use std::{fmt, ops::Deref, str::FromStr};
 use crate::{Bytes, cbor};
 
 /// A list of bytes with a fixed size, known at compile time.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(into = "String")]
-#[serde(try_from = "String")]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FixedBytes<const N: usize>([u8; N]);
 
 impl<const N: usize> fmt::Debug for FixedBytes<N> {
@@ -116,6 +114,68 @@ impl<const N: usize> FromStr for FixedBytes<N> {
 impl<const N: usize> fmt::Display for FixedBytes<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&hex::encode(self.to_vec()))
+    }
+}
+
+impl<const N: usize> serde::Serialize for FixedBytes<N> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&self.to_string())
+        } else {
+            serializer.serialize_bytes(self.as_slice())
+        }
+    }
+}
+
+struct FixedBytesVisitor<const N: usize>;
+
+impl<'de, const N: usize> serde::de::Visitor<'de> for FixedBytesVisitor<N> {
+    type Value = FixedBytes<N>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "a {N}-byte value as a hex string or a byte string")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        FixedBytes::<N>::from_str(v).map_err(serde::de::Error::custom)
+    }
+
+    fn visit_bytes<E: serde::de::Error>(self, v: &[u8]) -> Result<Self::Value, E> {
+        FixedBytes::<N>::try_from(v).map_err(serde::de::Error::custom)
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut bytes = [0u8; N];
+        for (i, slot) in bytes.iter_mut().enumerate() {
+            *slot = seq.next_element()?.ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
+        }
+        if seq.next_element::<u8>()?.is_some() {
+            return Err(serde::de::Error::invalid_length(N + 1, &self));
+        }
+        Ok(FixedBytes::from(bytes))
+    }
+}
+
+impl<'de, const N: usize> serde::Deserialize<'de> for FixedBytes<N> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(FixedBytesVisitor::<N>)
+    }
+}
+
+impl<const N: usize> schemars::JsonSchema for FixedBytes<N> {
+    fn schema_name() -> String {
+        format!("FixedBytes<{N}>")
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        super::hash::hex_string_json_schema(N, "hex-encoded bytes")
+    }
+
+    fn is_referenceable() -> bool {
+        false
     }
 }
 

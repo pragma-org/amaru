@@ -39,11 +39,6 @@ mod tests {
         let fixture: Fixture =
             json::from_str(&raw).unwrap_or_else(|e| panic!("invalid json fixture {fixture_path}: {e}"));
 
-        // Fixtures encode a standalone conway transaction (a 4-element array including the is_valid byte)
-        // but the ledger expects a transaction to be the 3-element array (without the is_valid byte), so we subtract one byte to
-        // match the size used for fee calculation. See the matching note in evaluate_ledger_states.rs.
-        let tx_size = (fixture.transaction.len() - 1) as u64;
-
         let decoded = cbor::decode::<Transaction>(&fixture.transaction);
 
         if matches!(fixture.expected, Expected::DecodingFailure) {
@@ -85,7 +80,6 @@ mod tests {
             fixture.initial_state.guardrail_script,
             fixture.point,
             tx.tx_ref(),
-            tx_size,
         )
         .map_err(Predicate::from);
 

@@ -379,9 +379,9 @@ impl ProposalsForestCompass {
         if proposed_in > &forest.current_epoch {
             debug!(
                 ledger::proposal::SKIP,
-                id = %id,
-                %proposed_in,
-                ratifying_epoch = %forest.current_epoch,
+                id = id.as_ref(),
+                proposed_in,
+                ratifying_epoch = forest.current_epoch,
                 reason = "too fresh; ratification will begin next epoch",
             );
             return None;
@@ -398,7 +398,7 @@ impl ProposalsForestCompass {
             if total_withdrawn > forest.treasury() {
                 debug!(
                     ledger::proposal::SKIP,
-                    id = %id,
+                    id = id.as_ref(),
                     withdrawal = total_withdrawn,
                     treasury = forest.treasury(),
                     reason = "impossible withdrawal; treasury is depleted",
@@ -420,7 +420,7 @@ impl ProposalsForestCompass {
                     added.iter().filter(|(_, v)| is_now_invalid(v)).map(|(k, _)| k.as_hash()).collect::<Vec<_>>();
                 debug!(
                     ledger::proposal::SKIP,
-                    id = %id,
+                    id = id.as_ref(),
                     invalid_members = display_collection(invalid_members),
                     reason = "proposed committee has invalid members; their term length (now) beyond limit"
                 );
@@ -442,7 +442,11 @@ impl ProposalsForestCompass {
         if forest.matching_root(proposal) {
             Some((id, (proposal, pointer)))
         } else {
-            debug!(ledger::proposal::SKIP, id = %id, reason = "non-matching root; proposal will be pruned later");
+            debug!(
+                ledger::proposal::SKIP,
+                id = id.as_ref(),
+                reason = "non-matching root; proposal will be pruned later"
+            );
             None
         }
     }

@@ -38,10 +38,26 @@ Other guiding principles:
 
 ## v10.11.20260827 _[unreleased; planned for 2026-08-27]_
 
+### Added
+
+- **amaru-node**: allow embedders to disable sysinfo-backed system metrics collection through `TelemetryOptions`.
+### Changed
+
+- **amaru-observability**: field rendering is declared on the schema (`%` Display, `?` Debug, otherwise `Serialize + JsonSchema`). Call sites no longer take `%` / `?`; `@` remains for `tracing::Value` passthrough. `amaru dev traces dump` emits the JSON-sink schema of each field. `Point` traces encode as `[slot, hash, height]` with a CBOR byte-string hash ([#1263](https://github.com/pragma-org/amaru/issues/1263)).
+- **amaru-kernel**: `Hash` (and newtypes / `FixedBytes`) serialize as CBOR byte strings on the tracing path; JSON serde still uses hex. JSON/console/TUI/OTEL span sinks render those bytes as hex; OTEL logs keep byte strings.
+
 ### Fixed
 
+- **amaru-consensus**: resume outbound sync after a mux drop: forget the dead `Connected` entry before the replacement handshake, and do not immediately re-dial a banned static peer while the manager still holds the live connection ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
+- **amaru-consensus**: report clock-skew versus non-monotonic slot failures distinctly instead of the same “expected at least” message ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
+- **amaru-protocols**: include the `Peer` on mux receive/send failure logs ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
+- **amaru-stores**: abort on chain-store header and block loads whose content does not hash to the requested key (including the block body hash), including diagnostic scans ([#1261](https://github.com/pragma-org/amaru/issues/1261)).
+- **amaru-ledger**: drop the block-body-hash rule; the chain store now enforces it on load ([#1261](https://github.com/pragma-org/amaru/issues/1261)).
 - **workflows**: executable permissions are now correctly preserved in the release workflow.
 - **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
+- **amaru-ledger**: do not re-encode locally submitted transactions to obtain their size.
+- **amaru-protocols**: preserve bytes of transactions flowing through the mempool.
+- **amaru-tui**: tweak block dissemination metrics headers (fetch → select, sync → fetch)
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 
@@ -52,6 +68,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-node**: `Telemetry::install` / `install_local` take a `LogFormat` (`Plain`, `Ansi`, or `Json`) instead of a JSON boolean, so embedders can enable ANSI colour on the console sink (JSON remains exclusive with colour).
 - **amaru-bootstrap**: speed up node bootstrap by streaming state archives and account imports, decoding large snapshot maps incrementally, and avoiding unnecessary optimistic-transaction conflict tracking when importing fresh database batches.
 - **amaru-pure-stage**: `contramap` is now a method on `StageRef`. It no longer allocates a runtime name or adapter entry; the injection runs in the sending stage and traces record the transformed message sent to the original stage. `StageGraph::contramap` and `Effects::contramap` are removed. `Sender::send` now returns `SendError` instead of the original message (the payload cannot be recovered after a contramap injection). ([#762](https://github.com/pragma-org/amaru/issues/762))
 - **amaru-ledger**: group phase-one and phase-two traces under a single trace with multiple fields for each of the measurements.

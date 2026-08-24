@@ -73,10 +73,7 @@ fn sampled_process_memory_bytes(_pid: sysinfo::Pid, rss_bytes: u64) -> u64 {
 ///
 /// Returns a join handle for the background poller (always `Some` on success).
 /// Callers should abort it on process shutdown.
-pub fn track_system_metrics(
-    meter: Arc<Meter>,
-    build: BuildIdentity,
-) -> Result<Option<JoinHandle<()>>, Box<dyn std::error::Error>> {
+pub fn track_system_metrics(meter: Arc<Meter>, build: BuildIdentity) -> anyhow::Result<Option<JoinHandle<()>>> {
     record_build_info(&meter, build);
 
     let mut sys = System::new_with_specifics(

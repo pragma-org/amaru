@@ -305,16 +305,11 @@ mod trace_record_tests {
         trace_record!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context = 100_u64);
     }
 
-    fn augment_with_formatters(
-        _resolved_from_context: impl std::fmt::Display,
-        _resolved_from_volatile: impl std::fmt::Debug,
-        _resolved_from_db: impl tracing::field::Value,
-    ) {
+    fn augment_with_value_passthrough(_resolved_from_db: impl tracing::field::Value) {
         trace_record!(
             INFO,
             crate::ledger::state::RESOLVE_INPUTS,
-            resolved_from_context = %_resolved_from_context,
-            resolved_from_volatile = ?_resolved_from_volatile,
+            resolved_from_context = 10_u64,
             resolved_from_db = @_resolved_from_db
         );
     }
@@ -325,7 +320,7 @@ mod trace_record_tests {
         augment_with_multiple(10, 20);
         augment_with_extra(10, "extra");
         augment_with_expression();
-        augment_with_formatters(10, vec![20], 30_u64);
+        augment_with_value_passthrough(30_u64);
     }
 }
 
@@ -380,6 +375,7 @@ mod async_functions {
         )
     }
 
+    #[allow(clippy::double_must_use)]
     #[async_trait]
     trait AsyncValidator {
         async fn validate(&self, point_slot: u64) -> bool;
@@ -387,6 +383,7 @@ mod async_functions {
 
     struct Validator;
 
+    #[allow(clippy::double_must_use)]
     #[async_trait]
     impl AsyncValidator for Validator {
         async fn validate(&self, point_slot: u64) -> bool {

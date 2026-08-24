@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    error::Error,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -128,7 +127,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let network = args.network;
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
@@ -139,9 +138,9 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     info!(
         cli::node::BOOTSTRAP,
-        chain_dir = %relative_path(&chain_dir)?.display(),
-        ledger_dir = %relative_path(&ledger_dir)?.display(),
-        network = %network,
+        chain_dir = relative_path(&chain_dir)?.display().to_string(),
+        ledger_dir = relative_path(&ledger_dir)?.display().to_string(),
+        network = network,
         epoch = @args.epoch.map(|e| e.to_string()),
     );
 
@@ -154,18 +153,18 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         if ledger_dir_populated {
             let dir = relative_path(&ledger_dir)?.display().to_string();
             let hint = "ledger directory already exists: use another location or remove it manually";
-            warn!(cli::ledger_db::EXIST, dir = %dir, hint = hint);
+            warn!(cli::ledger_db::EXIST, dir = dir, hint = hint);
             messages.push(format!("{hint} ({dir})"));
         }
 
         if chain_dir_populated {
             let dir = relative_path(&chain_dir)?.display().to_string();
             let hint = "chain directory already exists: use another location or remove it manually";
-            warn!(cli::chain_db::EXIST, dir = %dir, hint = hint);
+            warn!(cli::chain_db::EXIST, dir = dir, hint = hint);
             messages.push(format!("{hint} ({dir})"));
         }
 
-        return Err(messages.join("; ").into());
+        anyhow::bail!("{}", messages.join("; "));
     }
 
     bootstrap(

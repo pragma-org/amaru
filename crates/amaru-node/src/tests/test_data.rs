@@ -14,14 +14,21 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Hash, Transaction, TransactionBody, TransactionInput, WitnessSet, size::TRANSACTION_BODY};
+use amaru_kernel::{
+    Hash, Transaction, TransactionBody, TransactionInput, WitnessSet,
+    cbor::{WithOriginalBytes, WithSize},
+    size::TRANSACTION_BODY,
+};
 use amaru_ouroboros::{Mempool, TxInsertResult, TxOrigin};
 
-pub fn create_transactions(number: usize) -> Vec<Transaction> {
+pub fn create_transactions(number: usize) -> Vec<WithOriginalBytes<Transaction>> {
     (0..number).map(create_transaction).collect()
 }
 
-pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Transaction>>, number: usize) -> Vec<Transaction> {
+pub fn create_transactions_in_mempool(
+    mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
+    number: usize,
+) -> Vec<WithOriginalBytes<Transaction>> {
     let mut txs = vec![];
     for i in 0..number {
         let tx = create_transaction(i);
@@ -33,10 +40,16 @@ pub fn create_transactions_in_mempool(mempool: Arc<dyn Mempool<Transaction>>, nu
 }
 
 /// Create a transaction with a unique input based on the given id.
-pub fn create_transaction(id: usize) -> Transaction {
+pub fn create_transaction(id: usize) -> WithOriginalBytes<Transaction> {
     let tx_input = TransactionInput { transaction_id: Hash::new([1; TRANSACTION_BODY]), index: id as u64 };
 
     let body = TransactionBody::new([tx_input], [], 0);
 
-    Transaction { body, witnesses: WitnessSet::default(), is_expected_valid: true, auxiliary_data: None }
+    Transaction {
+        body,
+        witnesses: WithSize::<WitnessSet>::default().with_size(1),
+        is_expected_valid: true,
+        auxiliary_data: None,
+    }
+    .into()
 }

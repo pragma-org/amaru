@@ -1,0 +1,5 @@
+error: field formatters `%` and `?` belong on the schema type (e.g. `required hash: %amaru_kernel::HeaderHash`), not at the call site
+  --> tests/ui/compile_fail/call_site_percent.rs:32:64
+   |
+32 |     let _span = trace_span!(crate::test::example::HASH, hash = %hash);
+   |                                                                ^

@@ -71,7 +71,7 @@ fn get_conformance_test_vectors() -> Result<()> {
     }
     writeln!(
         &mut output,
-        r#"pub fn rules_conformance_test_case(snapshot: &str, result: Result<(), &str>) -> Result<(), Box<dyn std::error::Error>> {{
+        r#"pub fn rules_conformance_test_case(snapshot: &str, result: Result<(), &str>) -> anyhow::Result<()> {{
     import_and_evaluate_vector(Path::new(TEST_DATA_DIR), snapshot, result)
 }}"#
     )?;

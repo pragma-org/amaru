@@ -21,7 +21,21 @@ use std::{
 use crate::{Hash, cbor, size::TRANSACTION_BODY};
 
 /// Identifier for a transaction. This is the hash of the transaction body bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    std::hash::Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(transparent)]
+#[schemars(transparent)]
 #[repr(transparent)]
 pub struct TransactionId(Hash<{ TRANSACTION_BODY }>);
 
@@ -64,5 +78,19 @@ impl cbor::Encode<()> for TransactionId {
 impl<'b> cbor::Decode<'b, ()> for TransactionId {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         d.decode_with(ctx).map(Self)
+    }
+}
+
+#[cfg(test)]
+mod serde_format {
+    use super::*;
+    use crate::Hash;
+
+    #[test]
+    fn json_is_inner_hash_hex_string() {
+        let id = TransactionId::new(Hash::new([0xabu8; 32]));
+        let json = serde_json::to_string(&id).expect("json");
+        assert_eq!(json, format!("\"{id}\""));
+        assert_eq!(id, serde_json::from_str::<TransactionId>(&json).expect("parse"));
     }
 }

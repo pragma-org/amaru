@@ -15,7 +15,8 @@
 use std::fmt::Display;
 
 use amaru_kernel::{
-    EraName, NonEmptyBytes, Transaction, TransactionId, cbor, to_cbor, utils::string::display_collection,
+    EraName, NonEmptyBytes, Transaction, TransactionId, cbor, cbor::WithOriginalBytes, from_cbor_no_leftovers_with,
+    to_cbor, utils::string::display_collection,
 };
 
 use crate::tx_submission::Blocking;
@@ -33,7 +34,7 @@ pub struct EraTaggedTxId {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EraTaggedTx {
     pub era: EraName,
-    pub tx: Transaction,
+    pub tx: WithOriginalBytes<Transaction>,
 }
 
 /// Messages for the txsubmission mini-protocol.
@@ -226,14 +227,14 @@ impl cbor::Encode<()> for EraTaggedTx {
         e: &mut cbor::Encoder<W>,
         _ctx: &mut (),
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        let bytes = encode_tx(&self.tx).map_err(|_| cbor::encode::Error::message("failed to encode transaction"))?;
+        let bytes = to_cbor(&self.tx);
         e.array(2)?.u16(self.era.header_variant() as u16)?.tag(cbor::IanaTag::Cbor)?.bytes(&bytes)?;
         Ok(())
     }
 }
 
 impl<'b> cbor::Decode<'b, ()> for EraTaggedTx {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
         let era = decode_era_tag(d)?;
         let tag = d.tag()?;
         if tag != cbor::IanaTag::Cbor.tag() {
@@ -246,17 +247,9 @@ impl<'b> cbor::Decode<'b, ()> for EraTaggedTx {
         // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
         // which rejects indefinite-length byte strings, so we reject them too.
         #[allow(clippy::disallowed_methods)]
-        let tx = decode_tx(d.bytes()?)?;
+        let tx = from_cbor_no_leftovers_with(d.bytes()?, ctx)?;
         Ok(EraTaggedTx { era, tx })
     }
-}
-
-/// Encode the inner transaction body: `[body, witnesses, is_valid, auxiliary_data]`.
-fn encode_tx(tx: &Transaction) -> Result<Vec<u8>, cbor::encode::Error<std::convert::Infallible>> {
-    let mut bytes = Vec::new();
-    let mut e = cbor::Encoder::new(&mut bytes);
-    e.array(4)?.encode(&tx.body)?.encode(&tx.witnesses)?.bool(tx.is_expected_valid)?.encode(&tx.auxiliary_data)?;
-    Ok(bytes)
 }
 
 /// Decode the `[era_index, _]` prefix and return the era. Leaves the decoder positioned at the
@@ -273,25 +266,6 @@ fn decode_era_tag(d: &mut cbor::Decoder<'_>) -> Result<EraName, cbor::decode::Er
     } else {
         Ok(era_name)
     }
-}
-
-/// Decode the inner transaction body produced by [`encode_tx`], asserting that
-/// no trailing bytes follow the four-element array.
-fn decode_tx(bytes: &[u8]) -> Result<Transaction, cbor::decode::Error> {
-    let mut d = cbor::Decoder::new(bytes);
-    let len = d.array()?;
-    cbor::check_tagged_array_length(0, len, 4)?;
-    let body = d.decode()?;
-    let witnesses = d.decode()?;
-    let is_expected_valid = d.bool()?;
-    let auxiliary_data = d.decode()?;
-    if !d.datatype().is_err_and(|e| e.is_end_of_input()) {
-        return Err(cbor::decode::Error::message(format!(
-            "leftovers bytes after txsubmission transaction at position {}",
-            d.position()
-        )));
-    }
-    Ok(Transaction { body, witnesses, is_expected_valid, auxiliary_data })
 }
 
 /// Decode a CBOR array — definite or indefinite-length — of items implementing `Decode`.
@@ -450,6 +424,26 @@ mod tests {
         assert_eq!(d.position(), encoded.len()); // outer message fully consumed
     }
 
+    /// A relayed transaction must go back on the wire byte-identical to how it arrived, instead of
+    /// being replaced by our own re-encoding of it.
+    #[test]
+    fn reply_txs_preserves_original_transaction_bytes() {
+        let tx_bytes = non_canonical_transaction_cbor(&create_transaction(0));
+
+        let mut encoded = Vec::new();
+        let mut e = cbor::Encoder::new(&mut encoded);
+        e.array(2).unwrap().u16(3).unwrap();
+        e.begin_array().unwrap();
+        e.array(2).unwrap().u16(EraName::Conway.header_variant() as u16).unwrap();
+        e.tag(cbor::IanaTag::Cbor).unwrap().bytes(&tx_bytes).unwrap();
+        e.end().unwrap();
+
+        let message: Message = from_cbor_no_leftovers_with(&encoded, &mut ()).expect("decode a reply_txs message");
+        let Message::ReplyTxs(txs) = &message else { panic!("expected a reply_txs message, got {message:?}") };
+        assert_eq!(to_cbor(&txs[0].tx), tx_bytes);
+        assert_eq!(to_cbor(&message), encoded);
+    }
+
     #[test]
     fn reply_tx_ids_decoding() {
         let ids = vec![(EraTaggedTxId { era: EraName::Conway, id: TransactionId::new(Hash::new([1u8; 32])) }, 42)];
@@ -550,6 +544,14 @@ mod tests {
     }
 
     // HELPERS
+
+    /// Re-encode a transaction's outer array header with a redundant one-byte length: still valid
+    /// CBOR, but no longer byte-identical to what our encoder produces.
+    fn non_canonical_transaction_cbor(tx: &WithOriginalBytes<Transaction>) -> Vec<u8> {
+        let canonical = to_cbor(tx);
+        assert_eq!(canonical[0], 0x84, "expected a definite-length array of 4 elements");
+        [&[0x98, 0x04][..], &canonical[1..]].concat()
+    }
 
     prop_compose! {
         pub fn any_tx_id()(

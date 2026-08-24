@@ -21,6 +21,7 @@ use amaru::{
 use amaru_kernel::{IsHeader, NetworkName, Point};
 use amaru_ouroboros::{ChainStore, ChildTipsMode, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
+use anyhow::anyhow;
 
 #[derive(Debug, clap::Parser)]
 pub struct Args {
@@ -62,12 +63,12 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let Args { from_point, only_blocks, only_validation_results, chain_dir, network } = args;
     let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     if only_blocks && only_validation_results {
-        return Err("cannot combine both --only-blocks and --only-validation-results".into());
+        anyhow::bail!("cannot combine both --only-blocks and --only-validation-results");
     }
 
     tracing::info!(
@@ -88,11 +89,11 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("moving back best chain hash");
         let mut current = chain_store
             .load_header(&from_point.hash())
-            .ok_or_else(|| anyhow::anyhow!("cannot find from_point {} in store", from_point))?;
+            .ok_or_else(|| anyhow!("cannot find from_point {} in store", from_point))?;
         loop {
             let Some(parent) = current.parent().and_then(|h| chain_store.load_header(&h)) else {
                 tracing::error!("no parent found for {}", current.hash());
-                return Err("no parent found for best chain hash".into());
+                anyhow::bail!("no parent found for best chain hash");
             };
             if chain_store.is_on_best_chain(parent.point().into()) {
                 chain_store.switch_to_fork(&parent.point(), &[])?;

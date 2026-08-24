@@ -115,7 +115,7 @@ impl SelectChain {
 pub enum SelectChainMsg {
     Initialize(HeaderHash),
     TipFromUpstream { tip: Point, parent: Point, trace_context: TraceContext },
-    BlockValidationResult(Point, bool, BlockHeight),
+    BlockValidationResult(Point, bool, BlockHeight, TraceContext),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
     FetchNextFrom(Point, TraceContext),
@@ -126,8 +126,23 @@ impl SelectChainMsg {
         SelectChainMsg::TipFromUpstream { tip, parent, trace_context: Default::default() }
     }
 
+    pub fn block_validation_result(point: Point, valid: bool, max_block_height: BlockHeight) -> Self {
+        SelectChainMsg::BlockValidationResult(point, valid, max_block_height, Default::default())
+    }
+
     pub fn fetch_next_from(point: Point) -> Self {
         SelectChainMsg::FetchNextFrom(point, Default::default())
+    }
+
+    /// Attaches the given contex as the parent of the span this message will open.
+    pub fn with_trace_context(mut self, context: &TraceContext) -> Self {
+        match &mut self {
+            SelectChainMsg::TipFromUpstream { trace_context, .. }
+            | SelectChainMsg::BlockValidationResult(_, _, _, trace_context)
+            | SelectChainMsg::FetchNextFrom(_, trace_context) => *trace_context = context.clone(),
+            SelectChainMsg::Initialize(_) => {}
+        }
+        self
     }
 }
 
@@ -152,8 +167,9 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             let child_trace_context = (&span).into();
             state.handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context).instrument(span).await;
         }
-        SelectChainMsg::BlockValidationResult(point, valid, max_block_height) => {
+        SelectChainMsg::BlockValidationResult(point, valid, max_block_height, parent_trace_context) => {
             let span = debug_span!(
+                parent_context: parent_trace_context,
                 consensus::chain::SELECT_FROM_BLOCK_VALIDATION,
                 point = point,
                 valid = valid,

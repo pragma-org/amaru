@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, Transaction, TransactionId};
+use amaru_kernel::{Point, Transaction, TransactionId, cbor::WithOriginalBytes};
 use amaru_ouroboros_traits::{MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_pure_stage::StageRef;
 
@@ -35,8 +35,8 @@ use amaru_pure_stage::StageRef;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MempoolMsg {
     WaitForAtLeast { seq_no: MempoolSeqNo, caller: StageRef<()> },
-    Insert { tx: Box<Transaction>, origin: TxOrigin, caller: StageRef<TxInsertResult> },
-    InsertBatch { txs: Vec<Transaction>, origin: TxOrigin, caller: StageRef<Vec<TxInsertResult>> },
+    Insert { tx: Box<WithOriginalBytes<Transaction>>, origin: TxOrigin, caller: StageRef<TxInsertResult> },
+    InsertBatch { txs: Vec<WithOriginalBytes<Transaction>>, origin: TxOrigin, caller: StageRef<Vec<TxInsertResult>> },
     NewTip(Point),
     SubscribeCapacity { caller: StageRef<()> },
 }

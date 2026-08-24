@@ -90,7 +90,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `point` | `string` | ✓ |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 
 </details>
 
@@ -162,7 +162,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `point` | `string` | ✓ |
+| `point` | `array` | ✓ |
 
 </details>
 
@@ -176,7 +176,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `point` | `string` | ✓ |
+| `point` | `array` | ✓ |
 
 </details>
 
@@ -271,7 +271,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 | `point` | `string` | ✓ |
 
 </details>
@@ -288,7 +288,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `point` | `string` | ✓ |
+| `point` | `array` | ✓ |
 | `new_epoch_state_offset` | `integer` | ✓ |
 
 </details>
@@ -399,8 +399,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `slot` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
+| `slot` | `integer` | ✓ |
 | `snapshot` | `string` | ✓ |
 
 </details>
@@ -409,9 +409,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `slot` | `string` | ✓ |
-| `analyse_from` | `string` |  |
+| `epoch` | `integer` | ✓ |
+| `slot` | `integer` | ✓ |
+| `analyse_from` | `integer` |  |
 
 </details>
 
@@ -425,7 +425,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 | `point` | `string` | ✓ |
 
 </details>
@@ -487,7 +487,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `chain_dir` | `string` | ✓ |
 | `ledger_dir` | `string` | ✓ |
 | `network` | `string` | ✓ |
-| `epoch` | `string` |  |
+| `epoch` | `integer` |  |
 
 </details>
 
@@ -539,7 +539,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `config_dir` | `string` | ✓ |
 | `cardano_node_db` | `string` | ✓ |
 | `dist_dir` | `string` | ✓ |
-| `epoch` | `string` |  |
+| `epoch` | `integer` |  |
 | `snapshots` | `string` |  |
 
 </details>
@@ -548,8 +548,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `slot` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
+| `slot` | `integer` | ✓ |
 | `archive` | `string` | ✓ |
 
 </details>
@@ -558,8 +558,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `slot` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
+| `slot` | `integer` | ✓ |
 | `archive` | `string` | ✓ |
 
 </details>
@@ -578,8 +578,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `slot` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
+| `slot` | `integer` | ✓ |
 | `archive` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 
@@ -628,8 +628,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `current` | `string` | ✓ |
-| `tip` | `string` | ✓ |
+| `current` | `array` | ✓ |
+| `tip` | `array` | ✓ |
 
 </details>
 
@@ -680,7 +680,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `slot` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
 | `header_hash` | `string` | ✓ |
 | `block_height` | `integer` | ✓ |
 | `max_block_height` | `integer` | ✓ |
@@ -715,7 +715,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `point_slot` | `string` | ✓ |
+| `point_slot` | `integer` | ✓ |
 
 </details>
 
@@ -784,7 +784,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 | `should_end_epoch` | `boolean` |  |
 | `should_snapshot` | `boolean` |  |
 | `should_begin_epoch` | `boolean` |  |
@@ -795,8 +795,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `from` | `string` | ✓ |
-| `into` | `string` | ✓ |
+| `from` | `integer` | ✓ |
+| `into` | `integer` | ✓ |
 | `skipped` | `boolean` |  |
 | `resuming_from` | `string` |  |
 
@@ -814,8 +814,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `from` | `string` | ✓ |
-| `to` | `string` | ✓ |
+| `from` | `integer` | ✓ |
+| `to` | `integer` | ✓ |
 
 </details>
 
@@ -831,8 +831,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `from` | `string` | ✓ |
-| `to` | `string` | ✓ |
+| `from` | `integer` | ✓ |
+| `to` | `integer` | ✓ |
 
 </details>
 
@@ -875,7 +875,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `ratifying_epoch` | `string` | ✓ |
+| `ratifying_epoch` | `integer` | ✓ |
 | `treasury` | `integer` |  |
 | `votes` | `integer` |  |
 
@@ -885,7 +885,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 | `roots_protocol_parameters` | `string` |  |
 | `roots_hard_fork` | `string` |  |
 | `roots_constitutional_committee` | `string` |  |
@@ -960,8 +960,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `id` | `string` | ✓ |
 | `proposal_kind` | `string` | ✓ |
-| `proposed_in` | `string` | ✓ |
-| `valid_until` | `string` | ✓ |
+| `proposed_in` | `integer` | ✓ |
+| `valid_until` | `integer` | ✓ |
 | `detail` | `string` |  |
 
 </details>
@@ -982,8 +982,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `id` | `string` | ✓ |
 | `reason` | `string` | ✓ |
-| `proposed_in` | `string` |  |
-| `ratifying_epoch` | `string` |  |
+| `proposed_in` | `integer` |  |
+| `ratifying_epoch` | `integer` |  |
 | `withdrawal` | `integer` |  |
 | `treasury` | `integer` |  |
 | `invalid_members` | `string` |  |
@@ -1166,8 +1166,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `for_epoch` | `string` | ✓ |
-| `using_stake_distribution_from_epoch` | `string` | ✓ |
+| `for_epoch` | `integer` | ✓ |
+| `using_stake_distribution_from_epoch` | `integer` | ✓ |
 
 </details>
 
@@ -1241,7 +1241,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 
 </details>
 
@@ -1249,7 +1249,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 
 </details>
 
@@ -1257,7 +1257,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 | `progress` | `number` | ✓ |
 
 </details>
@@ -1304,7 +1304,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `fork_point` | `string` | ✓ |
+| `fork_point` | `array` | ✓ |
 | `fork_length` | `integer` | ✓ |
 | `rollback_length` | `integer` | ✓ |
 | `outcome` | `string` |  |
@@ -1322,12 +1322,12 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `slot` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
 | `header_hash` | `string` | ✓ |
 | `block_height` | `integer` | ✓ |
 | `tx_count` | `integer` | ✓ |
-| `epoch` | `string` | ✓ |
-| `slot_in_epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
+| `slot_in_epoch` | `integer` | ✓ |
 | `density` | `number` | ✓ |
 | `current_kes_period` | `integer` | ✓ |
 | `remaining_kes_periods` | `integer` | ✓ |
@@ -1516,7 +1516,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `id` | `string` | ✓ |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `reason` | `string` | ✓ |
 
 </details>
@@ -1819,7 +1819,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
-| `slot` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
 
 </details>
 
@@ -1828,7 +1828,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `hash` | `string` | ✓ |
-| `slot` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
 
 </details>
 
@@ -1947,7 +1947,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 
 </details>
 
@@ -1955,8 +1955,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `functional_minimum` | `string` | ✓ |
-| `desired_minimum` | `string` | ✓ |
+| `functional_minimum` | `integer` | ✓ |
+| `desired_minimum` | `integer` | ✓ |
 
 </details>
 
@@ -2069,7 +2069,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
+| `epoch` | `integer` | ✓ |
 
 </details>
 

@@ -20,6 +20,7 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
+use anyhow::anyhow;
 use clap::Parser;
 use tracing::info;
 
@@ -51,7 +52,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 #[expect(clippy::print_stdout)]
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
@@ -65,7 +66,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let global_parameters = args
         .network
         .as_global_parameters()
-        .ok_or_else(|| format!("no global parameters available for network {}", args.network))?;
+        .ok_or_else(|| anyhow!("no global parameters available for network {}", args.network))?;
 
     import_snapshots(args.network, global_parameters, &args.snapshot_paths, &ledger_dir).await?;
 

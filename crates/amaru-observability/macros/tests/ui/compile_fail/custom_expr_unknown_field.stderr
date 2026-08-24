@@ -13,3 +13,22 @@ error: Unknown field 'typo_field' for schema STRICT_TEST. Available fields: actu
    |                   ------------------------------------------------------------------------------------------------------ in this macro invocation
    |
    = note: this error originates in the macro `__TEST__EXAMPLE__STRICT_TEST_RECORD` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no associated function or constant named `typo_field` found for struct `STRICT_TEST` in the current scope
+  --> tests/ui/compile_fail/custom_expr_unknown_field.rs:42:94
+   |
+23 | / define_local_schemas! {
+24 | |     test {
+25 | |         example {
+26 | |             /// Test schema for custom expression validation
+27 | |             STRICT_TEST {
+   | |_______________________- associated function or constant `typo_field` not found for this struct
+...
+42 |       let _span = trace_span!(crate::test::example::STRICT_TEST, actual_field = &actual_field, typo_field = get_value());
+   |                                                                                                ^^^^^^^^^^ associated function or constant not found in `STRICT_TEST`
+   |
+help: there is a method `type_id` with a similar name, but with different arguments
+  --> $RUST/core/src/any.rs
+   |
+   |     fn type_id(&self) -> TypeId;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

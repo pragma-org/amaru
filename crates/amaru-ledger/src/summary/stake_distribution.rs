@@ -263,12 +263,12 @@ impl StakeSummary {
 
         info!(
             ledger::stake_distribution::SNAPSHOT,
-            accounts = %accounts.len(),
-            dreps = %dreps.len(),
-            pools = %pools.len(),
-            active_stake = %active_stake,
-            pools_voting_stake = %pools_voting_stake,
-            dreps_voting_stake = %dreps_voting_stake,
+            accounts = accounts.len(),
+            dreps = dreps.len(),
+            pools = pools.len(),
+            active_stake = active_stake,
+            pools_voting_stake = pools_voting_stake,
+            dreps_voting_stake = dreps_voting_stake,
         );
 
         Ok(Self {

@@ -18,6 +18,69 @@
 //! JSON schema generation, and other introspection needs.
 
 use inventory;
+use schemars::{JsonSchema, r#gen::SchemaSettings};
+use serde_json::Value;
+
+/// How a schema field is rendered onto the tracing wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldRender {
+    /// Typed primitive / `String`, or `Serialize + JsonSchema` (CBOR).
+    Typed,
+    /// `Display` → string.
+    Display,
+    /// `Debug` → string.
+    Debug,
+}
+
+/// One field in a registered schema.
+#[derive(Clone)]
+pub struct SchemaFieldEntry {
+    pub name: &'static str,
+    pub rust_type: &'static str,
+    pub render: FieldRender,
+    pub json_schema: fn() -> Value,
+}
+
+impl std::fmt::Debug for SchemaFieldEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SchemaFieldEntry")
+            .field("name", &self.name)
+            .field("rust_type", &self.rust_type)
+            .field("render", &self.render)
+            .finish()
+    }
+}
+
+/// JSON Schema for a `String` / Display / Debug field.
+pub fn json_schema_string() -> Value {
+    serde_json::json!({ "type": "string" })
+}
+
+/// JSON Schema for an integer field.
+pub fn json_schema_integer() -> Value {
+    serde_json::json!({ "type": "integer" })
+}
+
+/// JSON Schema for a floating-point field.
+pub fn json_schema_number() -> Value {
+    serde_json::json!({ "type": "number" })
+}
+
+/// JSON Schema for a boolean field.
+pub fn json_schema_boolean() -> Value {
+    serde_json::json!({ "type": "boolean" })
+}
+
+/// JSON Schema of `T` with subschemas inlined, matching the JSON sink form.
+pub fn json_schema_for<T: JsonSchema>() -> Value {
+    let mut settings = SchemaSettings::draft07();
+    settings.inline_subschemas = true;
+    let root = settings.into_generator().into_root_schema_for::<T>();
+    #[allow(clippy::expect_used)]
+    {
+        serde_json::to_value(root.schema).expect("JsonSchema serializes")
+    }
+}
 
 /// A schema entry in the runtime registry
 #[derive(Debug, Clone)]
@@ -28,8 +91,8 @@ pub struct SchemaEntry {
     pub level: &'static str,
     pub description: &'static str,
     pub public: bool,
-    pub required_fields: &'static [(&'static str, &'static str)],
-    pub optional_fields: &'static [(&'static str, &'static str)],
+    pub required_fields: &'static [SchemaFieldEntry],
+    pub optional_fields: &'static [SchemaFieldEntry],
 }
 
 inventory::collect!(SchemaEntry);

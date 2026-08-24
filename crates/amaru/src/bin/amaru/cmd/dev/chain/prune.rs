@@ -21,6 +21,7 @@ use amaru::{
 use amaru_kernel::{IsHeader, NetworkName};
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
+use anyhow::anyhow;
 use clap::Parser;
 use tracing::info;
 
@@ -56,7 +57,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 #[expect(clippy::print_stdout)]
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
@@ -71,11 +72,11 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let era_history = args
         .network
         .as_era_history()
-        .ok_or_else(|| format!("no era history available for network {}", args.network))?;
+        .ok_or_else(|| anyhow!("no era history available for network {}", args.network))?;
 
     let snapshots = RocksDB::snapshots(&ledger_dir)?;
     if snapshots.is_empty() {
-        return Err("no ledger snapshots found; cannot determine safe pruning boundary".into());
+        anyhow::bail!("no ledger snapshots found; cannot determine safe pruning boundary");
     }
 
     let oldest_epoch = snapshots[0];
@@ -98,7 +99,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let mut to_remove = Vec::new();
     for hash in &chain {
         let Some(header) = chain_store.load_header(hash) else {
-            return Err(format!("header {hash} missing during prune walk; chain store may be corrupt").into());
+            anyhow::bail!("header {hash} missing during prune walk; chain store may be corrupt");
         };
         if header.slot() >= boundary_slot {
             new_anchor_hash = Some(*hash);
@@ -108,11 +109,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let Some(new_anchor) = new_anchor_hash else {
-        return Err(format!(
+        anyhow::bail!(
             "every stored header is older than the prune boundary (slot {}); refusing to prune",
             u64::from(boundary_slot),
-        )
-        .into());
+        );
     };
 
     for hash in &to_remove {
@@ -121,7 +121,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     if new_anchor != anchor_hash {
         let Some(point) = chain_store.load_point(&new_anchor) else {
-            return Err(format!("header {new_anchor} missing while updating prune anchor").into());
+            anyhow::bail!("header {new_anchor} missing while updating prune anchor");
         };
         chain_store.set_anchor_point(&point)?;
         info!(%new_anchor, "updated anchor hash");

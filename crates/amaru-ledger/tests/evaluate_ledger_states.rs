@@ -48,7 +48,7 @@ pub mod tests {
         test_data_dir: &Path,
         snapshot: &str,
         expected_result: Result<(), &str>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<()> {
         let vector_file = fs::read(test_data_dir.join(snapshot))?;
         let record: TestVector = cbor::decode(&vector_file)?;
         let actual = evaluate_vector(record, &EraHistory::default(), PPARAMS_DIR.as_ref()).map_err(|e| e.to_string());
@@ -234,16 +234,13 @@ pub mod tests {
         })
     }
 
-    fn decode_segregated_parameters(
-        dir: &Path,
-        hash: &cbor::bytes::ByteSlice,
-    ) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
+    fn decode_segregated_parameters(dir: &Path, hash: &cbor::bytes::ByteSlice) -> anyhow::Result<ProtocolParameters> {
         let pparams_file_path = fs::read_dir(dir)?
             .filter_map(|entry| entry.ok().map(|e| e.path()))
             .find(|path| {
                 path.file_name().map(|filename| filename.to_str() == Some(&hex::encode(hash.as_ref()))).unwrap_or(false)
             })
-            .ok_or("Missing pparams file")?;
+            .ok_or_else(|| anyhow::anyhow!("Missing pparams file"))?;
 
         let pparams_file = fs::read(pparams_file_path)?;
 
@@ -252,11 +249,7 @@ pub mod tests {
         Ok(pparams)
     }
 
-    fn evaluate_vector(
-        record: TestVector,
-        era_history: &EraHistory,
-        pparams_dir: &Path,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn evaluate_vector(record: TestVector, era_history: &EraHistory, pparams_dir: &Path) -> anyhow::Result<()> {
         let mut decoder = cbor::Decoder::new(&record.initial_state);
         let decoded = decode_ledger_state(&mut decoder)?;
 
@@ -324,17 +317,21 @@ pub mod tests {
         );
 
         let arena_pool = ArenaPool::new(1, 1_024_000);
-        let global_parameters =
-            NetworkName::Preprod.as_global_parameters().ok_or("missing global parameters for preprod")?;
+        let global_parameters = NetworkName::Preprod
+            .as_global_parameters()
+            .ok_or_else(|| anyhow::anyhow!("missing global parameters for preprod"))?;
 
         for (ix, event) in record.events.into_iter().enumerate() {
             let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {
                 TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
                 TestVectorEvent::PassTick(..) | TestVectorEvent::PassEpoch(..) => continue,
             };
+
             let tx: Transaction = cbor::decode(tx_bytes.as_slice())?;
 
-            let tx_witness_set: WitnessSet = tx.witnesses.clone();
+            let tx_size = tx.len();
+
+            let tx_witness_set: WitnessSet = tx.witnesses.into_inner();
 
             let tx_auxiliary_data = tx.auxiliary_data.as_ref();
 
@@ -344,14 +341,6 @@ pub mod tests {
                 // the slots are the same. ultimately the pointers are made up since we do not have real blocks
                 transaction_index: ix,
             };
-
-            // NOTE: Transaction Size Calculation:
-            //
-            // As noted in block.rs, the transaction size is calcualted from an encoded 3-element list, not including the is_valid byte.
-            // We don't have that here since the fixtures encode individual transactions, instead of blocks.
-            // While the exact bytes aren't the same (the header should be 0x83 instead of 0x84), the is_valid boolean is exactly one byte.
-            // So, by subtracting one, we get the expected value.
-            let tx_size = (tx_bytes.len() - 1) as u64;
 
             // Run the transaction against the imported ledger state
             let result = transaction::phase_one::execute(
@@ -386,9 +375,9 @@ pub mod tests {
             });
 
             match result {
-                Ok(_) if !success => return Err("Expected failure, got success".into()),
+                Ok(_) if !success => anyhow::bail!("Expected failure, got success"),
                 Err(e) if success => {
-                    return Err(format!("Expected success, got failure: {}", e).into());
+                    anyhow::bail!("Expected success, got failure: {}", e);
                 }
                 Ok(..) | Err(..) => (),
             }

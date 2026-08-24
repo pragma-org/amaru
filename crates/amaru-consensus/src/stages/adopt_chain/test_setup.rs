@@ -15,8 +15,8 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Header, HeaderHash, NonEmptyVec, Point, cardano::network_block::make_encoded_block,
-    make_header, make_header_with_op_cert_seq,
+    BlockHeight, EraHistory, Header, HeaderHash, IsHeader, NonEmptyVec, Point,
+    cardano::network_block::EncodedTestBlock, make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
 use amaru_ouroboros_traits::{
@@ -61,13 +61,15 @@ pub struct HeaderTree {
 #[allow(dead_code)]
 impl HeaderTree {
     pub fn new() -> Self {
-        let h0 = make_header(1, 1, None);
-        let h1 = make_header(2, 2, Some(h0.hash()));
-        let h2 = make_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
-        let h3 = make_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
-        let h4 = make_header(5, 5, Some(h3.hash()));
-        let h2a = make_header(3, 10, Some(h1.hash()));
-        let h3a = make_header(4, 11, Some(h2a.hash()));
+        let era = EraHistory::default();
+        let encode = |seed: Header| EncodedTestBlock::from_seed(&seed, &era).header;
+        let h0 = encode(make_header(1, 1, None));
+        let h1 = encode(make_header(2, 2, Some(h0.hash())));
+        let h2 = encode(make_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1));
+        let h3 = encode(make_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1));
+        let h4 = encode(make_header(5, 5, Some(h3.hash())));
+        let h2a = encode(make_header(3, 10, Some(h1.hash())));
+        let h3a = encode(make_header(4, 11, Some(h2a.hash())));
         Self { h0, h1, h2, h3, h4, h2a, h3a }
     }
 
@@ -100,8 +102,8 @@ impl TestPrep {
     }
 
     pub fn store_block(&self, header: &Header) {
-        let raw_block = make_encoded_block(header, &EraHistory::default());
-        self.store.store_block(&header.hash(), &raw_block).unwrap();
+        let block = EncodedTestBlock::from_seed(header, &EraHistory::default());
+        self.store.store_block(&block.header.hash(), &block.raw).unwrap();
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {

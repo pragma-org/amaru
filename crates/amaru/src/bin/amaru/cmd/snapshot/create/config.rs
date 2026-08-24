@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use std::{
-    error::Error,
     fs, io,
     path::{Path, PathBuf},
 };
 
 use amaru_kernel::NetworkName;
+use anyhow::anyhow;
 use serde::Deserialize;
 
 const OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL: &str = "https://book.world.dev.cardano.org/environments";
@@ -67,7 +67,7 @@ pub(super) async fn resolve_config_dir(
     config_dir: Option<PathBuf>,
     network: NetworkName,
     work_dir: &Path,
-) -> Result<PathBuf, Box<dyn Error>> {
+) -> anyhow::Result<PathBuf> {
     if let Some(config_dir) = config_dir {
         validate_explicit_config_dir_usage(network)?;
         validate_config_dir(&config_dir)?;
@@ -77,27 +77,26 @@ pub(super) async fn resolve_config_dir(
     download_official_config_bundle(client, network, &cached_config_dir(work_dir, network)).await
 }
 
-fn validate_explicit_config_dir_usage(network: NetworkName) -> Result<(), Box<dyn Error>> {
+fn validate_explicit_config_dir_usage(network: NetworkName) -> anyhow::Result<()> {
     if matches!(network, NetworkName::Testnet(_)) {
         return Ok(());
     }
 
-    Err(format!("--cardano-node-config-dir is only supported for custom testnet networks; omit it for {network}")
-        .into())
+    Err(anyhow!("--cardano-node-config-dir is only supported for custom testnet networks; omit it for {network}"))
 }
 
 fn cached_config_dir(work_dir: &Path, network: NetworkName) -> PathBuf {
     work_dir.join("cardano-node-config").join(network.to_string())
 }
 
-fn official_config_base_url(network: NetworkName) -> Result<String, Box<dyn Error>> {
+fn official_config_base_url(network: NetworkName) -> anyhow::Result<String> {
     match network {
         NetworkName::Mainnet => Ok(format!("{OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL}/mainnet")),
         NetworkName::Preprod => Ok(format!("{OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL}/preprod")),
         NetworkName::Preview => Ok(format!("{OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL}/preview")),
-        NetworkName::Testnet(_) => {
-            Err("automatic cardano-node config download is only supported on mainnet, preprod and preview; use --cardano-node-config-dir for custom testnet networks".into())
-        }
+        NetworkName::Testnet(_) => Err(anyhow!(
+            "automatic cardano-node config download is only supported on mainnet, preprod and preview; use --cardano-node-config-dir for custom testnet networks"
+        )),
     }
 }
 
@@ -105,7 +104,7 @@ async fn download_official_config_bundle(
     client: &reqwest::Client,
     network: NetworkName,
     config_dir: &Path,
-) -> Result<PathBuf, Box<dyn Error>> {
+) -> anyhow::Result<PathBuf> {
     if validate_config_dir(config_dir).is_ok() {
         return Ok(config_dir.to_path_buf());
     }
@@ -128,26 +127,22 @@ async fn download_official_config_bundle(
     Ok(config_dir.to_path_buf())
 }
 
-async fn download_config_file(
-    client: &reqwest::Client,
-    base_url: &str,
-    file_name: &str,
-) -> Result<Vec<u8>, Box<dyn Error>> {
+async fn download_config_file(client: &reqwest::Client, base_url: &str, file_name: &str) -> anyhow::Result<Vec<u8>> {
     let response = client.get(format!("{base_url}/{file_name}")).send().await?.error_for_status()?;
     Ok(response.bytes().await?.to_vec())
 }
 
-fn validate_config_dir(config_dir: &Path) -> Result<(), Box<dyn Error>> {
+fn validate_config_dir(config_dir: &Path) -> anyhow::Result<()> {
     let config_file = config_dir.join("config.json");
     if !config_file.is_file() {
-        return Err(format!("missing cardano-node config file at {}", config_file.display()).into());
+        anyhow::bail!("missing cardano-node config file at {}", config_file.display());
     }
 
     let manifest = serde_json::from_slice::<CardanoNodeConfigManifest>(&fs::read(&config_file)?)?;
     for file_name in manifest.referenced_files() {
         let file_path = config_dir.join(file_name);
         if !file_path.is_file() {
-            return Err(format!("missing cardano-node config companion file at {}", file_path.display()).into());
+            anyhow::bail!("missing cardano-node config companion file at {}", file_path.display());
         }
     }
 

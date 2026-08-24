@@ -81,7 +81,7 @@ pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>)
                 row.rewards = 0;
                 db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
             } else {
-                error!(stores::ledger::accounts::RESET_MANY, ?credential, reason = "no account for given credential");
+                error!(stores::ledger::accounts::RESET_MANY, credential, reason = "no account for given credential");
             }
         }
 
@@ -122,8 +122,8 @@ pub fn set_rewards<DB>(
         // TODO: Should probably be an error now that we have the overlay...
         debug!(
             stores::ledger::accounts::SET,
-            credential_type = %StakeCredentialKind::from(credential),
-            account = %credential.as_hash(),
+            credential_type = StakeCredentialKind::from(credential),
+            account = credential.as_hash(),
             reason = "cannot set stake, account is gone"
         );
 

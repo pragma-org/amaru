@@ -34,7 +34,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let output_dir = args.output_dir;
 
     create_dir(output_dir.join("share/man/man1"))?;
@@ -52,7 +52,7 @@ fn create_dir(path: PathBuf) -> io::Result<()> {
     fs::create_dir_all(path)
 }
 
-fn render_man_page(output_dir: &Path, version: &'static str) -> Result<(), Box<dyn std::error::Error>> {
+fn render_man_page(output_dir: &Path, version: &'static str) -> anyhow::Result<()> {
     let command = cli::command(version);
     let man = clap_mangen::Man::new(command);
     let path = output_dir.join("share/man/man1/amaru.1");
@@ -66,7 +66,7 @@ fn render_completion(
     version: &'static str,
     shell: Shell,
     relative_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut command = cli::command(version);
     let path = output_dir.join(relative_path);
     let mut file = File::create(path)?;
@@ -74,7 +74,7 @@ fn render_completion(
     Ok(())
 }
 
-fn render_unix_completions(output_dir: &Path, version: &'static str) -> Result<(), Box<dyn std::error::Error>> {
+fn render_unix_completions(output_dir: &Path, version: &'static str) -> anyhow::Result<()> {
     create_dir(output_dir.join("share/bash-completion/completions"))?;
     create_dir(output_dir.join("share/zsh/site-functions"))?;
     create_dir(output_dir.join("share/fish/vendor_completions.d"))?;
@@ -86,7 +86,7 @@ fn render_unix_completions(output_dir: &Path, version: &'static str) -> Result<(
     Ok(())
 }
 
-fn render_windows_completion(output_dir: &Path, version: &'static str) -> Result<(), Box<dyn std::error::Error>> {
+fn render_windows_completion(output_dir: &Path, version: &'static str) -> anyhow::Result<()> {
     create_dir(output_dir.join("share/powershell/completions"))?;
     render_completion(output_dir, version, Shell::PowerShell, Path::new("share/powershell/completions/amaru.ps1"))
 }

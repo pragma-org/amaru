@@ -267,11 +267,11 @@ pub fn epoch_of(slot: u64) -> Epoch {
     era_history.slot_to_epoch_unchecked_horizon(Slot::from(slot)).unwrap()
 }
 
-/// A block whose announced body hash does not match its body, so it fails validation.
+/// A block whose announced body size does not match its body, so it fails ledger validation.
 #[expect(clippy::expect_used)]
 pub fn invalid_block_at(slot: u64) -> Block {
     let mut block = empty_block_at(slot);
-    block.header.body_mut().block_body_hash = Hash::new([0xFF; 32]);
+    block.header.body_mut().block_body_size = block.body_len().wrapping_add(1);
     let block: Block = cbor::decode(to_cbor(&block).as_slice()).expect("tampered block should round-trip");
     block
 }

@@ -44,11 +44,18 @@ jq -r '
   def span_row:
     "| `\(.name)` | `\(.level)` | \(if .public then "public" else "" end) | \(.description // "" | escape_table_cell) | \((.required // []) | join(", ")) | \((.optional // []) | join(", ")) |";
 
+  def field_type:
+    if .type then .type
+    elif .oneOf then "array"
+    elif .prefixItems then "array"
+    else "object"
+    end;
+
   def field_rows:
     (.required // []) as $required
     | (.properties // {})
     | to_entries
-    | map(. as $field | "| `\($field.key)` | `\($field.value.type)` | \(if ($required | index($field.key)) then "✓" else "" end) |");
+    | map(. as $field | "| `\($field.key)` | `\($field.value | field_type)` | \(if ($required | index($field.key)) then "✓" else "" end) |");
 
   def span_details:
     if ((.properties // {}) | length) > 0 then

@@ -137,7 +137,7 @@ impl PoolsEpochTransitionUpdates {
 
             debug!(
                 ledger::epoch_transition::TICK_POOL,
-                id = %pool_id,
+                id = pool_id,
                 @vrf,
                 @pledge,
                 @cost,
@@ -163,7 +163,7 @@ impl PoolsEpochTransitionUpdates {
     }
 
     fn retire_pool(&mut self, epoch: Epoch, pool: &Pool, pending: PendingPoolCertificates<'_>) {
-        debug!(ledger::epoch_transition::RETIRE_POOL, id = %pool.id());
+        debug!(ledger::epoch_transition::RETIRE_POOL, id = pool.id());
 
         self.retired.insert(pool.id());
         self.refunds

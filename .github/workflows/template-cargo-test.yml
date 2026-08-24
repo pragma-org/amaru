@@ -8,7 +8,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTUP_LOG: error
   # NOTE: Unused below, but necessary if caller references it.
-  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-08-03
+  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-08-20
 
 on:
   workflow_call:

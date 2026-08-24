@@ -260,6 +260,83 @@ fn test_intersect_found_tracks_peer() {
 }
 
 #[test]
+fn test_reconnect_intersect_then_roll_forward() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let mut ids = ConnectionId::initial();
+    let conn0 = ids.get_and_increment();
+    let conn1 = ids.get_and_increment();
+    let intersect_header = &prep.headers[0];
+    let next_header = &prep.headers[1];
+    let stale = &prep.headers[2];
+    let intersect = intersect_header.point();
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), conn0, stale.point(), stale.point());
+
+    let terminated = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: conn0,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::Terminated,
+    });
+    let initialize = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: conn1,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::Initialize,
+    });
+    let intersect_found = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: conn1,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::IntersectFound(intersect, stale.point()),
+    });
+    let roll_forward = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: conn1,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(next_header, EraName::Conway), stale.point()),
+    });
+
+    let mut expected = prep.state.clone();
+    expected.insert_peer(peer.clone(), conn1, next_header.point(), stale.point());
+
+    let (running, _guards, mut logs) = setup_base(
+        &prep.rt_handle(),
+        state,
+        [terminated.clone(), initialize.clone(), intersect_found.clone(), roll_forward.clone()],
+        build_store(slice::from_ref(intersect_header)),
+        |running| {
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+                OverrideResult::handled(Ok(Nonces::for_tests()))
+            });
+        },
+    );
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &terminated).into(),
+            te_clear_peer_availability("tp-1", peer.clone()).into(),
+            te_input("tp-1", &initialize).into(),
+            te_input("tp-1", &intersect_found).into(),
+            te_load_point("tp-1", intersect.hash()).into(),
+            te_input("tp-1", &roll_forward).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_send("tp-1", "downstream", new_tip(next_header.point(), intersect)).into(),
+            te_state("tp-1", &expected).into(),
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
+    logs.assert_and_remove(Level::INFO, &["chainsync terminated"])
+        .assert_and_remove(Level::INFO, &["initializing chainsync"])
+        .assert_and_remove(Level::INFO, &["intersect found"])
+        .assert_and_remove(Level::DEBUG, &["roll forward", "new header"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
 fn test_intersect_not_found_untracked_sends_done() {
     let prep = test_prep();
     let state = prep.state.clone();
@@ -511,6 +588,48 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
     ]);
 }
 
+/// Consecutive headers may skip empty Praos slots; a later slot that is still in the past is valid.
+#[test]
+fn test_roll_forward_accepts_empty_slots_in_the_past() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let header = make_block_header(2, parent.slot().as_u64() + 130, Some(parent.hash()));
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
+    });
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+
+    let mut expected = prep.state.clone();
+    expected.insert_peer(peer.clone(), prep.conn_id, header.point(), header.point());
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_validate_header("tp-1", header.clone()).into(),
+            te_store_validated_header("tp-1", header.clone()).into(),
+            te_send("tp-1", "downstream", new_tip(header.point(), parent.point())).into(),
+            te_state("tp-1", &expected).into(),
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
+    logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
 #[test]
 fn test_roll_forward_invalid_variant_removes_peer() {
     let prep = test_prep();
@@ -739,15 +858,16 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
     );
 }
 
-/// Header slot more than 2 slots ahead of sim clock → adversarial.
-/// Slot math must use the same [`EraHistory`] as `TrackPeers` (`EraHistory::default()` in tests).
+/// Header onset more than two seconds ahead of sim clock → adversarial.
+/// Slot math must use the same `EraHistory` as `TrackPeers` (`EraHistory::default()` in tests).
 #[test]
 fn test_roll_forward_header_slot_too_far_future_adversarial() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
-    let parent = &prep.headers[0];
     let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
     let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    // Parent at "now" so the header is within the foreseeable horizon of `current`.
+    let parent = make_block_header(1, curr_slot, None);
     let header = make_block_header(2, curr_slot + 10, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -762,7 +882,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "ahead of local time"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -781,15 +901,54 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
     );
 }
 
-/// Header slot 1–2 ahead of sim clock → clock-skew defer (not adversarial).
+/// A slot beyond the foreseeable horizon (`EraHistoryError::PastTimeHorizon`) is adversarial.
+#[test]
+fn test_roll_forward_slot_past_time_horizon_is_adversarial() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    // Default test era rounds the stability window up to a full epoch (86400 slots).
+    let header = make_block_header(2, parent.slot().as_u64() + 100_000, Some(parent.hash()));
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
+    });
+
+    let expected = prep.state.clone();
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+    assert_trace_match(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_header_rejected("invalid header").into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
+            te_state("tp-1", &expected).into(),
+        ],
+    );
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "past time horizon"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+/// Header onset 1–2s ahead of sim clock → clock-skew defer (not adversarial).
 #[test]
 fn test_roll_forward_header_slot_near_future_defers() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
-    let parent = &prep.headers[0];
     let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
     let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
-    // one slot ahead of sim clock → near-future defer
+    let parent = make_block_header(1, curr_slot, None);
+    // one second ahead of sim clock → near-future defer
     let header = make_block_header(2, curr_slot + 1, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -1166,9 +1325,9 @@ fn test_height_defer_recheck_when_ledger_advances() {
 fn test_pipelined_headers_after_slot_near_future_defer() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
-    let parent = &prep.headers[0];
     let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
     let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    let parent = make_block_header(1, curr_slot, None);
     // first is near-future; second is FollowUp while peer deferred
     let h1 = make_block_header(2, curr_slot + 1, Some(parent.hash()));
     let h2 = make_block_header(3, curr_slot + 2, Some(h1.hash()));

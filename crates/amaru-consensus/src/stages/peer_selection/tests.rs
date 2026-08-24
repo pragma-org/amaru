@@ -593,6 +593,93 @@ fn test_disconnected_outbound_connecting_schedules_cooldown() {
     logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }
 
+#[test]
+fn test_outbound_retry_drops_dead_conn_before_reconnect() {
+    let mut prep = test_prep(&[]);
+    let p = TestPrep::peer("3.3.3.3:3");
+    let mut ids = ConnectionId::initial();
+    let id0 = ids.get_and_increment();
+    let id1 = ids.get_and_increment();
+    let conn0 = Connection::new(id0, true, false);
+    let conn1 = Connection::new(id1, true, false);
+
+    prep.state.outbound_peers.insert(p.clone(), PeerState::Connected(conn0));
+    let start = prep.state.clone();
+    let after_death = {
+        let mut s = start.clone();
+        s.outbound_peers.insert(p.clone(), PeerState::Connecting);
+        s
+    };
+    let after_reconnect = {
+        let mut s = start.clone();
+        s.outbound_peers.insert(p.clone(), PeerState::Connected(conn1));
+        s
+    };
+
+    let died = PeerSelectionMsg::Disconnected(p.clone(), id0, ConnectionDirection::Outbound, true);
+    let connected = PeerSelectionMsg::Connected(p.clone(), conn1, ConnectionDirection::Outbound, false);
+    let (running, _guards, mut logs) = setup_preload(&prep, [died.clone(), connected.clone()]);
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("ps-1", &start).into(),
+            te_input("ps-1", &died).into(),
+            te_clear_peer_availability("ps-1", p.clone()).into(),
+            te_state("ps-1", &after_death).into(),
+            te_input("ps-1", &connected).into(),
+            te_clock_suspend("ps-1").into(),
+            te_record_advertisability("ps-1", p.clone(), false, sim_t0()).into(),
+            te_state("ps-1", &after_reconnect).into(),
+        ],
+    );
+    assert_trace_does_not_contain(
+        &running,
+        &[
+            te_send("ps-1", "manager", ManagerMessage::Disconnect(p.clone(), id0)).into(),
+            te_send("ps-1", "manager", ManagerMessage::AddPeer(p.clone())).into(),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_adversarial_static_outbound_does_not_readd_while_connected() {
+    let mut prep = test_prep(&["static.example:1"]);
+    let p = TestPrep::peer("static.example:1");
+    prep.state.outbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+    let start = prep.state.clone();
+    let sid = first_static_schedule_id();
+    let after_ban = {
+        let mut s = start.clone();
+        s.outbound_peers.remove(&p);
+        s.cooldowns.add_and_is_first(p.clone(), static_cooldown_instant());
+        s.cooldown_timer = Some(sid);
+        s
+    };
+
+    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::adversarial(p.clone()));
+
+    // Ban must be recorded (and the live connection removed) before regulate refills.
+    // After the static ban expires, CheckCooldowns may dial the peer again.
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("ps-1", &start).into(),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())).into(),
+            te_is_static_peer("ps-1", p.clone()).into(),
+            te_send("ps-1", "manager", ManagerMessage::RemovePeer(p.clone())).into(),
+            te_peer_adversarial("ps-1", p.clone()).into(),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid).into(),
+            te_state("ps-1", &after_ban).into(),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
+        .assert_and_remove(Level::WARN, &["removing peer (outbound)"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
 // ---------------------------------------------------------------------------
 // Double-remove (Adversarial twice)
 // ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    error::Error,
     fs,
     fs::File,
     io::Write,
@@ -26,6 +25,7 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{Header, IsHeader, NetworkName, NetworkPoint, from_cbor};
+use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use tracing::info;
 
@@ -83,7 +83,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let network = args.network;
 
     info!(
@@ -95,8 +95,11 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    let points =
-        args.parent.iter().map(|point| NetworkPoint::try_from(point.as_str())).collect::<Result<Vec<_>, _>>()?;
+    let points = args
+        .parent
+        .iter()
+        .map(|point| NetworkPoint::try_from(point.as_str()).map_err(anyhow::Error::msg))
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     fetch_headers_for_network(network, &args.headers_dir, &args.peer_address, &points).await?;
 
@@ -108,16 +111,17 @@ async fn fetch_headers_for_network(
     headers_dir: &Path,
     peer_address: &str,
     points: &[NetworkPoint],
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     let headers = fetch_headers_from_points(peer_address, network, points, BOOTSTRAP_HEADERS_PER_POINT).await?;
     write_headers(headers_dir, headers)
 }
 
-fn write_headers(headers_dir: &Path, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+fn write_headers(headers_dir: &Path, headers: Vec<Vec<u8>>) -> anyhow::Result<()> {
     fs::create_dir_all(headers_dir)?;
 
     for header in headers {
-        let block_header: Header = from_cbor(&header).ok_or("failed to decode fetched block header")?;
+        let block_header: Header =
+            from_cbor(&header).ok_or_else(|| anyhow!("failed to decode fetched block header"))?;
         let hash = block_header.hash();
         let slot = block_header.slot();
         let filename = format!("header.{}.{}.cbor", slot, hex::encode(hash));

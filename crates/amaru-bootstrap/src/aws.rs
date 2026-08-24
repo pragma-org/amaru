@@ -22,6 +22,7 @@ use std::{
 
 use amaru_kernel::{NetworkName, NetworkPoint};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+use anyhow::{Context, anyhow};
 use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
 use aws_sdk_s3::{
     Client,
@@ -106,7 +107,7 @@ impl S3Client {
     /// List available snapshots by fetching `<network>/index.json` from S3.
     ///
     /// Returns an empty list if the index does not exist yet (no snapshots published).
-    pub async fn list_snapshots(&self, network: NetworkName) -> Result<Vec<S3Snapshot>, Box<dyn std::error::Error>> {
+    pub async fn list_snapshots(&self, network: NetworkName) -> anyhow::Result<Vec<S3Snapshot>> {
         let network_prefix = network.to_string().to_lowercase();
         let key = format!("{network_prefix}/index.json");
 
@@ -131,10 +132,7 @@ impl S3Client {
     }
 
     /// List snapshot archives stored under the network prefix, independently from `index.json`.
-    pub async fn list_snapshot_objects(
-        &self,
-        network: NetworkName,
-    ) -> Result<Vec<S3Snapshot>, Box<dyn std::error::Error>> {
+    pub async fn list_snapshot_objects(&self, network: NetworkName) -> anyhow::Result<Vec<S3Snapshot>> {
         let prefix = format!("{}/", network.to_string().to_lowercase());
         let mut continuation_token = None;
         let mut snapshots = Vec::new();
@@ -163,7 +161,7 @@ impl S3Client {
 
             continuation_token = response.next_continuation_token().map(str::to_owned);
             if continuation_token.is_none() {
-                return Err("S3 returned a truncated object listing without a continuation token".into());
+                return Err(anyhow!("S3 returned a truncated object listing without a continuation token"));
             }
         }
 
@@ -172,7 +170,7 @@ impl S3Client {
     }
 
     /// Download an S3 object and write it to `dest`.
-    pub async fn download_object(&self, key: &str, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn download_object(&self, key: &str, dest: &Path) -> anyhow::Result<()> {
         use tokio::{fs::File, io::AsyncWriteExt as _};
 
         let response = self.inner.get_object().bucket(&self.config.bucket).key(key).send().await?;
@@ -186,7 +184,7 @@ impl S3Client {
     }
 
     /// Upload a local file to S3 at the given key.
-    pub async fn upload_object(&self, src: &Path, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn upload_object(&self, src: &Path, key: &str) -> anyhow::Result<()> {
         let size = tokio::fs::metadata(src).await?.len();
         let content_length = i64::try_from(size)?;
         let progress = Arc::new(transfer_progress_bar("Uploading", size));
@@ -226,7 +224,7 @@ impl S3Client {
     }
 
     /// Upload raw bytes to S3 at the given key.
-    pub async fn upload_bytes(&self, bytes: Vec<u8>, key: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn upload_bytes(&self, bytes: Vec<u8>, key: &str) -> anyhow::Result<()> {
         let body = ByteStream::from(bytes);
 
         self.inner.put_object().bucket(&self.config.bucket).key(key).body(body).send().await?;
@@ -235,7 +233,7 @@ impl S3Client {
     }
 
     /// Return `true` if the S3 object with `key` exists, `false` if it returns 404.
-    pub async fn object_exists(&self, key: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    pub async fn object_exists(&self, key: &str) -> anyhow::Result<bool> {
         match self.inner.head_object().bucket(&self.config.bucket).key(key).send().await {
             Ok(_) => Ok(true),
             Err(err) => {
@@ -280,7 +278,7 @@ impl AnonymousS3Client {
     /// List available snapshots by fetching `<network>/index.json` from the public CDN.
     ///
     /// Returns an empty list if the index does not exist yet (no snapshots published).
-    pub async fn list_snapshots(&self, network: NetworkName) -> Result<Vec<S3Snapshot>, Box<dyn std::error::Error>> {
+    pub async fn list_snapshots(&self, network: NetworkName) -> anyhow::Result<Vec<S3Snapshot>> {
         let network_prefix = network.to_string().to_lowercase();
         let url = format!("{}/{network_prefix}/index.json", self.base_url);
 
@@ -298,17 +296,16 @@ impl AnonymousS3Client {
     }
 
     /// Download an object by key using an unsigned GET against the public CDN.
-    pub async fn download_object(&self, key: &str, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn download_object(&self, key: &str, dest: &Path) -> anyhow::Result<()> {
         use futures_util::TryStreamExt as _;
         use tokio::{fs::File, io::AsyncWriteExt as _};
 
         let url = format!("{}/{key}", self.base_url);
-        let response =
-            self.http.get(&url).send().await?.error_for_status().map_err(|e| format!("download failed: {e}"))?;
+        let response = self.http.get(&url).send().await?.error_for_status().context("download failed")?;
         let progress = transfer_progress_bar("Downloading", response.content_length().unwrap_or(0));
         let mut stream = response.bytes_stream();
 
-        let result: Result<(), Box<dyn std::error::Error>> = async {
+        let result: anyhow::Result<()> = async {
             let mut file = File::create(dest).await?;
             while let Some(chunk) = stream.try_next().await? {
                 file.write_all(&chunk).await?;

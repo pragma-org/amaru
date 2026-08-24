@@ -26,7 +26,7 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, Hash, Hasher, IsHeader, NetworkName, Point, PoolId,
-    ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer, protocol_version, size::SCRIPT, to_cbor,
+    ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer, protocol_version, size::SCRIPT,
     utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
@@ -707,8 +707,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             .create_transaction_validation_context(transaction)
             .map_err(|error| TransactionValidationError::Preparation { transaction_id, error })?;
 
-        let tx_size = to_cbor(transaction).len() as u64;
-
         rules::block::validate_transaction(
             &mut context,
             arena_pool,
@@ -720,7 +718,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             self.guardrail_script(),
             TransactionPointer { slot, transaction_index: 0 },
             transaction.tx_ref(),
-            tx_size,
         )
         .map_err(|violation| TransactionValidationError::Validation { transaction_id, violation: Box::new(violation) })
     }

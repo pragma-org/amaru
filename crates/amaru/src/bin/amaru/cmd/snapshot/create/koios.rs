@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, str::FromStr};
+use std::str::FromStr;
 
 use amaru_kernel::{Epoch, Hash, NetworkName, NetworkPoint, Slot};
 use amaru_observability::info;
+use anyhow::anyhow;
 use serde::Deserialize;
 
 use super::EpochTarget;
@@ -32,10 +33,7 @@ struct KoiosTip {
     epoch_no: u64,
 }
 
-pub(super) async fn fetch_current_epoch(
-    client: &reqwest::Client,
-    network: NetworkName,
-) -> Result<Epoch, Box<dyn Error>> {
+pub(super) async fn fetch_current_epoch(client: &reqwest::Client, network: NetworkName) -> anyhow::Result<Epoch> {
     let response = client
         .get(format!("{}/tip", koios_api_base(network)?))
         .header(reqwest::header::ACCEPT, "application/json")
@@ -43,18 +41,19 @@ pub(super) async fn fetch_current_epoch(
         .await?
         .error_for_status()?;
 
-    let tip = response.json::<Vec<KoiosTip>>().await?.into_iter().next().ok_or("Koios returned empty tip response")?;
+    let tip = response
+        .json::<Vec<KoiosTip>>()
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("Koios returned empty tip response"))?;
 
     info!(cli::current_epoch::RESOLVE, epoch = tip.epoch_no);
 
     Ok(Epoch::from(tip.epoch_no))
 }
 
-async fn fetch_block_by_hash(
-    client: &reqwest::Client,
-    network: NetworkName,
-    hash: &str,
-) -> Result<KoiosBlock, Box<dyn Error>> {
+async fn fetch_block_by_hash(client: &reqwest::Client, network: NetworkName, hash: &str) -> anyhow::Result<KoiosBlock> {
     let response = client
         .get(format!("{}/blocks", koios_api_base(network)?))
         .header(reqwest::header::ACCEPT, "application/json")
@@ -68,15 +67,15 @@ async fn fetch_block_by_hash(
         .await?
         .into_iter()
         .next()
-        .ok_or_else(|| format!("Koios returned no block for hash {hash}").into())
+        .ok_or_else(|| anyhow!("Koios returned no block for hash {hash}"))
 }
 
-fn koios_api_base(network: NetworkName) -> Result<&'static str, Box<dyn Error>> {
+fn koios_api_base(network: NetworkName) -> anyhow::Result<&'static str> {
     match network {
         NetworkName::Mainnet => Ok("https://api.koios.rest/api/v1"),
         NetworkName::Preprod => Ok("https://preprod.koios.rest/api/v1"),
         NetworkName::Preview => Ok("https://preview.koios.rest/api/v1"),
-        NetworkName::Testnet(_) => Err("Koios lookup is only supported on mainnet, preprod and preview".into()),
+        NetworkName::Testnet(_) => Err(anyhow!("Koios lookup is only supported on mainnet, preprod and preview")),
     }
 }
 
@@ -84,7 +83,7 @@ pub(super) async fn fetch_last_block_for_epoch(
     client: &reqwest::Client,
     network: NetworkName,
     epoch: Epoch,
-) -> Result<EpochTarget, Box<dyn Error>> {
+) -> anyhow::Result<EpochTarget> {
     let response = client
         .get(format!("{}/blocks", koios_api_base(network)?))
         .header(reqwest::header::ACCEPT, "application/json")
@@ -98,14 +97,14 @@ pub(super) async fn fetch_last_block_for_epoch(
         .await?
         .into_iter()
         .next()
-        .ok_or_else(|| format!("Koios returned no blocks for epoch {epoch}"))?;
+        .ok_or_else(|| anyhow!("Koios returned no blocks for epoch {epoch}"))?;
 
     let point = NetworkPoint::Specific(Slot::from(block.abs_slot), Hash::from_str(&block.hash)?);
 
     let parent_block = fetch_block_by_hash(client, network, &block.parent_hash).await?;
     let parent_point = NetworkPoint::Specific(Slot::from(parent_block.abs_slot), Hash::from_str(&parent_block.hash)?);
 
-    info!(cli::last_block::RESOLVE, %epoch, %point);
+    info!(cli::last_block::RESOLVE, epoch, point);
 
     Ok(EpochTarget {
         epoch,

@@ -1,0 +1,217 @@
+name: Publish relay-1 demo image
+
+# Publishes the relay-1 demo container to ghcr.io/pragma-org/amaru-relay-1-demo, so the demo can
+# be run with nothing but Docker: no checkout, no flox, no Rust toolchain.
+#
+# Unlike the node image (template-docker-publish.yml), this one cannot be cross-built with QEMU.
+# Its base comes from `flox containerize`, which only ever produces the architecture of the
+# machine it runs on, so each architecture is built on its own native runner and the two are
+# merged into a manifest list afterwards.
+
+on:
+  workflow_dispatch:
+    inputs:
+      amaru_version:
+        description: "amaru release to embed, without the leading v (default: latest release)"
+        required: false
+        type: string
+        default: latest
+      tag_latest:
+        description: "Also tag the manifest as :latest"
+        required: false
+        type: boolean
+        default: true
+      tag:
+        description: "Additional tag for the manifest, for example a date or a release version"
+        required: false
+        type: string
+        default: ""
+
+# Registry write is granted per job, so the version resolver, which only reads a public API, cannot
+# push to the registry. A job block replaces this set rather than adding to it, hence the repeated
+# contents: read where a job checks the repository out.
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/pragma-org/amaru-relay-1-demo
+  # Pinned, and checksum-verified below, because this package installs as root and then controls
+  # everything the build produces: the mutable `stable` URL alone would let a changed artifact
+  # publish an image of its own making. Bump it alongside the flox version the demo is tested with.
+  FLOX_VERSION: "1.14.1"
+
+jobs:
+  # Both architectures embed the version resolved here. Resolving `latest` inside each build would
+  # let a release published between the two requests put two amaru versions in one manifest list.
+  resolve:
+    name: Resolve the amaru release
+    runs-on: ubuntu-24.04
+    outputs:
+      amaru_version: ${{ steps.resolve.outputs.amaru_version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve the amaru version
+        id: resolve
+        shell: bash
+        env:
+          AMARU_VERSION: ${{ inputs.amaru_version }}
+        run: |
+          set -euo pipefail
+          version="$(./scripts/demos/relay-1/docker/resolve-amaru-version.sh "${AMARU_VERSION:-latest}")"
+          echo "amaru_version=$version" >> "$GITHUB_OUTPUT"
+          echo "amaru release: $version" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build demo image (${{ matrix.arch }})
+    needs: resolve
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            flox_platform: x86_64-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            flox_platform: aarch64-linux
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install flox
+        shell: bash
+        env:
+          FLOX_PLATFORM: ${{ matrix.flox_platform }}
+        run: |
+          set -euo pipefail
+          base="https://downloads.flox.dev/by-env/stable"
+          package="flox-$FLOX_VERSION.$FLOX_PLATFORM.deb"
+          curl -fsSL "$base/deb/$package" -o /tmp/flox.deb
+          curl -fsSL "$base/flox-$FLOX_VERSION.SHA256SUMS" -o /tmp/flox.SHA256SUMS
+          # The checksum file names every artifact of the release by its path in the download tree,
+          # rpm builds included, so the deb entry is picked out by name rather than by position.
+          expected="$(awk -v name="deb/$package" '$2 == name { print $1 }' /tmp/flox.SHA256SUMS)"
+          [[ -n "$expected" ]] || { echo "no checksum for $package in the flox $FLOX_VERSION checksums" >&2; exit 1; }
+          actual="$(sha256sum /tmp/flox.deb | awk '{ print $1 }')"
+          [[ "$actual" == "$expected" ]] || { echo "checksum mismatch for $package: $actual != $expected" >&2; exit 1; }
+          sudo apt-get install -y /tmp/flox.deb
+          flox --version
+
+      - name: Login Docker Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # build.sh expects the demo flox environment's tools on PATH (it says so when they are
+      # missing), and containerizes that same environment as the image's base.
+      - name: Build the image
+        shell: bash
+        env:
+          AMARU_VERSION: ${{ needs.resolve.outputs.amaru_version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          export IMAGE_TAG="$IMAGE_NAME:$ARCH"
+          flox activate -d scripts/demos -- ./scripts/demos/relay-1/docker/build.sh
+
+      # The per-architecture tag is an intermediate: what people pull is the manifest list the
+      # publish job assembles from these digests.
+      - name: Push by digest
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_NAME:$ARCH"
+          digest="$(docker buildx imagetools inspect "$IMAGE_NAME:$ARCH" --format '{{ .Manifest.Digest }}')"
+          [[ "$digest" == sha256:* ]] || { echo "could not resolve the pushed digest: $digest" >&2; exit 1; }
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: demo-image-digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish multi-arch demo image
+    needs: build
+    permissions:
+      packages: write
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: demo-image-digests-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          cache-binary: false
+
+      - name: Login Docker Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        shell: bash
+        env:
+          TAG_LATEST: ${{ inputs.tag_latest }}
+          TAG: ${{ inputs.tag }}
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+          tag_args=()
+          source_args=()
+
+          # The inputs context is only populated for a manual run, so any other trigger arrives
+          # here with empty values. Default to :latest rather than reaching the no-tags error
+          # below once both images have already been built and pushed.
+          if [[ "${TAG_LATEST:-true}" == "true" ]]; then
+            tag_args+=(-t "$IMAGE_NAME:latest")
+          fi
+          if [[ -n "$TAG" ]]; then
+            tag_args+=(-t "$IMAGE_NAME:$TAG")
+          fi
+          if [[ ${#tag_args[@]} -eq 0 ]]; then
+            echo "no docker tags configured: set tag_latest or tag" >&2
+            exit 1
+          fi
+
+          for digest in *; do
+            source_args+=("$IMAGE_NAME@sha256:${digest}")
+          done
+
+          docker buildx imagetools create "${tag_args[@]}" "${source_args[@]}"
+          docker buildx imagetools inspect "$IMAGE_NAME:${TAG:-latest}"
+
+      - name: Summary
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          {
+            echo "### relay-1 demo image published"
+            echo
+            echo '```bash'
+            echo "docker run -it -p 8091:8091 -v amaru-relay-1:/data $IMAGE_NAME:${TAG:-latest}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

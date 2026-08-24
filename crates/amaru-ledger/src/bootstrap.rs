@@ -33,6 +33,7 @@ use amaru_kernel::{
 };
 use amaru_observability::{info, warn};
 use amaru_progress_bar::ProgressBar;
+use anyhow::anyhow;
 
 use crate::{
     epoch_transition::GovernanceActivity,
@@ -77,25 +78,19 @@ fn format_pool_state_decode_error(error: cbor::decode::Error) -> String {
     format!("decode pool state: {error}")
 }
 
-fn decode_initial_snapshot_prefix(
-    d: &mut cbor::Decoder<'_>,
-    expected_epoch: Epoch,
-) -> Result<Epoch, Box<dyn std::error::Error>> {
+fn decode_initial_snapshot_prefix(d: &mut cbor::Decoder<'_>, expected_epoch: Epoch) -> anyhow::Result<Epoch> {
     use cbor::data::Type::{Map, MapIndef};
 
     d.array()?;
 
-    let epoch = d
-        .u64()
-        .map(Epoch::from)
-        .map_err(|_| Box::new(InitialSnapshotFormatError::MissingEpochPrefix) as Box<dyn std::error::Error>)?;
+    let epoch = d.u64().map(Epoch::from).map_err(|_| InitialSnapshotFormatError::MissingEpochPrefix)?;
 
     if epoch != expected_epoch {
-        return Err(Box::new(InitialSnapshotFormatError::UnexpectedEpoch { expected: expected_epoch, actual: epoch }));
+        return Err(InitialSnapshotFormatError::UnexpectedEpoch { expected: expected_epoch, actual: epoch }.into());
     }
 
     if !matches!(d.datatype()?, Map | MapIndef) {
-        return Err(Box::new(InitialSnapshotFormatError::MissingPreviousBlocksMap));
+        return Err(InitialSnapshotFormatError::MissingPreviousBlocksMap.into());
     }
 
     Ok(epoch)
@@ -156,7 +151,7 @@ fn save_bootstrap_account_batches(
     }
 }
 
-fn skip_stake_snapshot_lazy(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
+fn skip_stake_snapshot_lazy(decoder: &mut LazyDecoder<'_>) -> anyhow::Result<()> {
     decoder.begin_array()?;
     decoder.skip()?;
     decoder.skip()
@@ -167,7 +162,7 @@ fn import_rewards(
     db: &impl Store,
     rewards_size: usize,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-) -> Result<u64, Box<dyn std::error::Error>> {
+) -> anyhow::Result<u64> {
     let (progress, unclaimed_rewards) = decoder.stream_map(
         |d| {
             let credential = d.decode()?;
@@ -208,7 +203,7 @@ fn import_accounts(
     network: NetworkName,
     mut recently_unregistered_accounts: BTreeSet<StakeCredential>,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-) -> Result<ImportedAccounts, Box<dyn std::error::Error>> {
+) -> anyhow::Result<ImportedAccounts> {
     if db.iter_accounts()?.next().is_some() {
         warn!(bootstrap::accounts::IS_NOT_EMPTY);
     }
@@ -264,7 +259,7 @@ fn import_recently_unregistered_accounts(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     recently_unregistered_accounts: BTreeSet<StakeCredential>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     if !recently_unregistered_accounts.is_empty() {
         db.with_transaction(|transaction| {
             transaction.save(
@@ -297,7 +292,7 @@ fn import_default_account_deposits(
     default_deposit: Lovelace,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
     mut accounts: Vec<(StakeCredential, NodeAccount)>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     if accounts.is_empty() {
         return Ok(());
     }
@@ -332,7 +327,7 @@ fn decode_initial_snapshot(
     network: NetworkName,
     era_history: &EraHistory,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-) -> Result<InitialSnapshot, Box<dyn std::error::Error>> {
+) -> anyhow::Result<InitialSnapshot> {
     let epoch: Epoch = decoder.with_decoder(|d| decode_initial_snapshot_prefix(d, expected_epoch))?;
 
     // NOTE(INITIAL_BOOTSTRAP):
@@ -372,7 +367,7 @@ fn decode_initial_snapshot(
 
     let ImportedAccounts { recently_unregistered_accounts, awaiting_default_deposit, account_len } =
         import_accounts(decoder, db, point, network, previous_accounts, with_progress)
-            .map_err(|err| format!("decode accounts: {err}"))?;
+            .map_err(|err| anyhow!("decode accounts: {err}"))?;
 
     let remaining_state_progress = with_progress(0, "{spinner:.green} Reading remaining ledger state");
 
@@ -380,10 +375,10 @@ fn decode_initial_snapshot(
     decoder.skip()?; // dsFutureGenDelegs
     decoder.skip()?; // dsGenDelegs
 
-    skip_embedded_utxo(decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
+    skip_embedded_utxo(decoder).map_err(|err| anyhow!("skip embedded utxo: {err}"))?;
 
-    decoder.skip().map_err(|err| format!("decode deposited: {err}"))?;
-    let fees: i64 = decoder.decode().map_err(|err| format!("decode fees: {err}"))?;
+    decoder.skip().map_err(|err| anyhow!("decode deposited: {err}"))?;
+    let fees: i64 = decoder.decode().map_err(|err| anyhow!("decode fees: {err}"))?;
 
     decoder.begin_array()?; // Epoch State / Ledger State / UTxO State / utxosGovState
     decoder.begin_array()?; // Proposals
@@ -426,7 +421,7 @@ fn decode_initial_snapshot(
 
     let (pools, pools_updates, pools_retirements) =
         decode_node_pool_state(&mut cbor::Decoder::new(&raw_pool_state), network, protocol_parameters.protocol_version)
-            .map_err(format_pool_state_decode_error)?;
+            .map_err(|err| anyhow!("{}", format_pool_state_decode_error(err)))?;
 
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
@@ -450,7 +445,7 @@ fn decode_initial_snapshot(
             d.skip()?; // Delayed
             Ok((enacted, expired))
         })
-        .map_err(|err| format!("decode ratify state: {err}"))?;
+        .map_err(|err| anyhow!("decode ratify state: {err}"))?;
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
     decoder.skip()?;
@@ -485,7 +480,7 @@ fn decode_initial_snapshot(
 
             Ok(is_complete)
         })
-        .map_err(|err| format!("decode rewards update: {err}"))?;
+        .map_err(|err| anyhow!("decode rewards update: {err}"))?;
 
     remaining_state_progress.clear();
 
@@ -549,7 +544,7 @@ pub fn import_initial_snapshot(
     era_history: &EraHistory,
     network: NetworkName,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-) -> Result<Epoch, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Epoch> {
     let mut decoder = LazyDecoder::new(reader);
     import_initial_snapshot_with_decoder(
         db,
@@ -573,7 +568,7 @@ pub fn import_initial_snapshot_with_decoder(
     era_history: &EraHistory,
     network: NetworkName,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-) -> Result<Epoch, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Epoch> {
     let tip = point.slot_or_default();
     let expected_epoch = era_history.slot_to_epoch(tip, tip)?;
 
@@ -617,7 +612,7 @@ pub fn import_initial_snapshot_with_decoder(
     import_block_issuers(db, point, era_history, block_issuers)?;
 
     import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
-        .map_err(|err| format!("import pool state: {err}"))?;
+        .map_err(|err| anyhow!("import pool state: {err}"))?;
 
     import_proposals_roots(db, &proposals_roots)?;
 
@@ -666,7 +661,7 @@ fn save_point(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     governance_activity: GovernanceActivity,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let transaction = db.create_transaction();
 
     transaction.save(
@@ -685,10 +680,7 @@ fn save_point(
     Ok(())
 }
 
-fn import_protocol_parameters(
-    db: &impl Store,
-    protocol_parameters: &ProtocolParameters,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn import_protocol_parameters(db: &impl Store, protocol_parameters: &ProtocolParameters) -> anyhow::Result<()> {
     let transaction = db.create_transaction();
     transaction.set_protocol_parameters(protocol_parameters)?;
     transaction.commit()?;
@@ -700,7 +692,7 @@ fn import_block_issuers(
     _point: &Point,
     era_history: &EraHistory,
     blocks: BTreeMap<PoolId, u64>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let transaction = db.create_transaction();
     transaction.with_block_issuers(|iterator| {
         for (_, mut handle) in iterator {
@@ -745,7 +737,7 @@ fn import_block_issuers(
     transaction.commit().map_err(Into::into)
 }
 
-fn skip_embedded_utxo(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
+fn skip_embedded_utxo(decoder: &mut LazyDecoder<'_>) -> anyhow::Result<()> {
     decoder.begin_array()?;
     decoder.skip()
 }
@@ -757,7 +749,7 @@ fn import_dreps(
     protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut known_dreps = BTreeMap::new();
 
     let era_first_epoch = era_history.era_first_epoch(epoch).map_err(|e| StoreError::Internal(Box::new(e)))?;
@@ -816,7 +808,7 @@ fn import_proposals(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     proposals: &[ProposalState],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     if db.iter_proposals()?.next().is_some() {
         warn!(bootstrap::proposals::IS_NOT_EMPTY);
     }
@@ -839,7 +831,7 @@ fn import_proposals(
             cc_members: iter::empty(),
             proposals: proposals
                 .iter()
-                .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
+                .map(|proposal| -> anyhow::Result<_> {
                     let proposal_index = proposal.id.proposal_index as usize;
                     Ok((
                         proposal.id,
@@ -885,7 +877,7 @@ fn import_recently_pruned_proposals(
     roots: &ProposalsRoots,
     enacted: Vec<ProposalState>,
     expired: BTreeSet<ProposalId>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut pruned: BTreeMap<ProposalId, RatificationStatus> =
         expired.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
 
@@ -898,7 +890,7 @@ fn import_recently_pruned_proposals(
         // value is irrelevant.
         let mut forest = ProposalsForest::new(epoch - 1, &ProposalsRootsRc::from(roots.clone()), 0)
             .drain(era_history, candidates)
-            .map_err(|err| format!("replay enacted proposals: {err}"))?;
+            .map_err(|err| anyhow!("replay enacted proposals: {err}"))?;
         let mut compass = forest.new_compass();
 
         for enacted_state in enacted {
@@ -906,9 +898,9 @@ fn import_recently_pruned_proposals(
             let proposal = forest
                 .get(&id)
                 .cloned()
-                .ok_or_else(|| format!("enacted proposal {id} not found in the imported proposals"))?;
+                .ok_or_else(|| anyhow!("enacted proposal {id} not found in the imported proposals"))?;
             for (pruned_id, status) in
-                forest.enact(id, &proposal, &mut compass).map_err(|err| format!("replay enacted proposals: {err}"))?
+                forest.enact(id, &proposal, &mut compass).map_err(|err| anyhow!("replay enacted proposals: {err}"))?
             {
                 pruned.insert(*pruned_id, status);
             }
@@ -931,7 +923,7 @@ fn import_stake_pools(
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut state = DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);
@@ -992,7 +984,7 @@ fn import_stake_pools(
     Ok(transaction.commit()?)
 }
 
-fn import_pots(db: &impl Store, pots: Pots) -> Result<(), Box<dyn std::error::Error>> {
+fn import_pots(db: &impl Store, pots: Pots) -> anyhow::Result<()> {
     let transaction = db.create_transaction();
     transaction.with_pots(|mut row| {
         *row.borrow_mut() = pots;
@@ -1003,7 +995,7 @@ fn import_pots(db: &impl Store, pots: Pots) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-fn import_proposals_roots(db: &impl Store, roots: &ProposalsRoots) -> Result<(), Box<dyn std::error::Error>> {
+fn import_proposals_roots(db: &impl Store, roots: &ProposalsRoots) -> anyhow::Result<()> {
     let roots_constitution = roots.constitution.as_ref().map(|s| s.to_string());
     let roots_constitutional_committee = roots.constitutional_committee.as_ref().map(|s| s.to_string());
     let roots_hard_fork = roots.hard_fork.as_ref().map(|s| s.to_string());
@@ -1023,7 +1015,7 @@ fn import_proposals_roots(db: &impl Store, roots: &ProposalsRoots) -> Result<(),
     Ok(())
 }
 
-fn import_constitution(db: &impl Store, constitution: Constitution) -> Result<(), Box<dyn std::error::Error>> {
+fn import_constitution(db: &impl Store, constitution: Constitution) -> anyhow::Result<()> {
     let transaction = db.create_transaction();
 
     info!(
@@ -1049,7 +1041,7 @@ fn import_constitutional_committee(
     protocol_parameters: &ProtocolParameters,
     cc: Option<ConstitutionalCommittee>,
     mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let transaction = db.create_transaction();
 
     transaction.with_cc_members(|iterator| {
@@ -1113,7 +1105,7 @@ fn import_votes(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     actions: Vec<ProposalState>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let votes = actions
         .into_iter()
         .flat_map(|st| {

@@ -69,6 +69,17 @@ impl GenerationConfig {
 // Data Structures
 // =============================================================================
 
+/// How a schema field is rendered onto the tracing wire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FieldRender {
+    /// Typed primitive / `String`, or `Serialize + JsonSchema` (CBOR).
+    Typed,
+    /// `Display` → string (`%Type` in the schema).
+    Display,
+    /// `Debug` → string (`?Type` in the schema).
+    Debug,
+}
+
 /// A field within a schema definition.
 #[derive(Clone)]
 struct SchemaField {
@@ -76,6 +87,8 @@ struct SchemaField {
     name: Ident,
     /// Field type AST with spans from the schema definition.
     ty: Type,
+    /// Rendering chosen in the schema (`%` / `?` / default).
+    render: FieldRender,
 }
 
 impl SchemaField {
@@ -87,42 +100,31 @@ impl SchemaField {
         type_to_string(&self.ty)
     }
 
+    /// Field-name literal carrying the definition span (go-to-definition / find-usages).
+    fn name_lit(&self) -> syn::LitStr {
+        syn::LitStr::new(&self.name_str(), self.name.span())
+    }
+
+    /// Rust-type literal carrying the definition span of the type tokens.
+    fn type_lit(&self) -> syn::LitStr {
+        syn::LitStr::new(&self.type_str(), self.ty.span())
+    }
+
     /// How this field is transported across the `tracing` boundary.
     fn transport_kind(&self) -> FieldTransportKind {
-        match self.type_str().as_str() {
-            "bool" => FieldTransportKind::Bool,
-            "i64" | "i32" | "i16" | "i8" | "isize" => FieldTransportKind::I64,
-            "u64" | "u32" | "u16" | "u8" | "usize" => FieldTransportKind::U64,
-            "f64" | "f32" => FieldTransportKind::F64,
-            ty if is_as_ref_str_transport(ty) => FieldTransportKind::Str,
-            ty if is_display_str_transport(ty) => FieldTransportKind::DisplayStr,
-            _ => FieldTransportKind::Cbor,
+        match self.render {
+            FieldRender::Display => FieldTransportKind::DisplayStr,
+            FieldRender::Debug => FieldTransportKind::DebugStr,
+            FieldRender::Typed => match self.type_str().as_str() {
+                "bool" => FieldTransportKind::Bool,
+                "i64" | "i32" | "i16" | "i8" | "isize" => FieldTransportKind::I64,
+                "u64" | "u32" | "u16" | "u8" | "usize" => FieldTransportKind::U64,
+                "f64" | "f32" => FieldTransportKind::F64,
+                "String" | "&str" => FieldTransportKind::Str,
+                _ => FieldTransportKind::Cbor,
+            },
         }
     }
-}
-
-fn is_as_ref_str_transport(ty: &str) -> bool {
-    matches!(ty, "String" | "amaru_kernel::Peer")
-}
-
-fn is_display_str_transport(ty: &str) -> bool {
-    matches!(
-        ty,
-        "amaru_kernel::Address"
-            | "amaru_kernel::BallotId"
-            | "amaru_kernel::HeaderHash"
-            | "amaru_kernel::Network"
-            | "amaru_kernel::NetworkName"
-            | "amaru_kernel::Nonce"
-            | "amaru_kernel::PoolId"
-            | "amaru_kernel::ProposalId"
-            | "amaru_kernel::RedeemerTag"
-            | "amaru_kernel::Relay"
-            | "amaru_kernel::Tip"
-            | "amaru_kernel::TransactionId"
-            | "amaru_kernel::Vote"
-            | "amaru_kernel::Voter"
-    ) || ty.starts_with("amaru_kernel::Hash<")
 }
 
 /// Wire representation for a schema field value.
@@ -134,6 +136,7 @@ enum FieldTransportKind {
     F64,
     Str,
     DisplayStr,
+    DebugStr,
     /// Serialized with cbor4ii and recorded via `record_bytes`.
     Cbor,
 }
@@ -253,6 +256,7 @@ enum SchemaItem {
         required: bool,
         name: Ident,
         ty: Type,
+        render: FieldRender,
     },
 }
 
@@ -392,13 +396,22 @@ fn parse_schema_body(input: ParseStream) -> syn::Result<Vec<SchemaItem>> {
 
         let name: Ident = input.parse()?;
         input.parse::<Token![:]>()?;
+        let render = if input.peek(Token![%]) {
+            input.parse::<Token![%]>()?;
+            FieldRender::Display
+        } else if input.peek(Token![?]) {
+            input.parse::<Token![?]>()?;
+            FieldRender::Debug
+        } else {
+            FieldRender::Typed
+        };
         let ty: Type = input.parse()?;
         // Optional trailing comma.
         if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
         }
 
-        items.push(SchemaItem::Field { attrs, required, name, ty });
+        items.push(SchemaItem::Field { attrs, required, name, ty, render });
     }
     Ok(items)
 }
@@ -557,7 +570,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
                     tags = Some(t);
                 }
             }
-            SchemaItem::Field { attrs: _field_docs, required, name, ty } => {
+            SchemaItem::Field { attrs: _field_docs, required, name, ty, render } => {
                 let name_str = name.to_string();
                 if matches!(name_str.as_str(), "name" | "schema" | "message") {
                     errors.push(syn::Error::new(
@@ -580,7 +593,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
                     continue;
                 }
 
-                let field = SchemaField { name, ty };
+                let field = SchemaField { name, ty, render };
                 if required {
                     required_fields.push(field);
                 } else {
@@ -768,13 +781,7 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
     let name = full_path.iter().skip(2).map(|part| part.to_lowercase()).collect::<Vec<_>>().join(".");
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
-    let mut field_name_literals: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let s = field.name_str();
-            syn::LitStr::new(&s, field.name.span())
-        })
-        .collect();
+    let mut field_name_literals: Vec<_> = all_fields.iter().map(|field| field.name_lit()).collect();
     let schema_field_count = field_name_literals.len();
     for tag in &schema.tags {
         let tag_attr = format!("amaru.tag.{}", tag);
@@ -922,7 +929,7 @@ fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         .enumerate()
         .map(|(index, field)| {
             // Match on a string-literal field name at the call site.
-            let field_name = field.name_str();
+            let field_name = field.name_lit();
             quote! {
                 ($values:ident, #field_name, $value:expr) => {
                     $values[#index] = ::tracing::__macro_support::Option::Some($value);
@@ -959,6 +966,10 @@ fn serialize_trait_path(_config: &GenerationConfig) -> proc_macro2::TokenStream 
     quote! { ::amaru_observability::serde::Serialize }
 }
 
+fn json_schema_trait_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
+    quote! { ::amaru_observability::schemars::JsonSchema }
+}
+
 /// Generate the schema validation helper macro.
 fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let categories = schema.category_strings();
@@ -971,13 +982,14 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let as_str_value = as_str_value_path(config);
     let display_string_value = display_string_value_path(config);
     let serialize_trait = serialize_trait_path(config);
+    let json_schema_trait = json_schema_trait_path(config);
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
 
     let validate_value_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = field.name_str();
+            let field_name = field.name_lit();
             match field.transport_kind() {
                 FieldTransportKind::Str => quote! {
                     (#field_name, $expr:expr, validate_value) => {{
@@ -993,6 +1005,17 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                             let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
                             __amaru_assert_type($expr);
                             __amaru_assert_display($expr);
+                        }};
+                    }
+                }
+                FieldTransportKind::DebugStr => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, validate_value) => {{
+                            let __amaru_assert_type = |_: &#field_type| {};
+                            let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
+                            __amaru_assert_type($expr);
+                            __amaru_assert_debug($expr);
                         }};
                     }
                 }
@@ -1013,7 +1036,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
                             let __amaru_assert_type = |_: &#field_type| {};
-                            fn __amaru_assert_serialize<T: #serialize_trait>(_: &T) {}
+                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait>(_: &T) {}
                             __amaru_assert_type($expr);
                             __amaru_assert_serialize($expr);
                         }};
@@ -1027,7 +1050,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let format_typed_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = field.name_str();
+            let field_name = field.name_lit();
             match field.transport_kind() {
                 FieldTransportKind::Bool => quote! {
                     (#field_name, $expr:expr, format_typed) => {{
@@ -1076,12 +1099,21 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                         }};
                     }
                 }
+                FieldTransportKind::DebugStr => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, format_typed) => {{
+                            let __amaru_v: &#field_type = $expr;
+                            ::tracing::field::debug(__amaru_v)
+                        }};
+                    }
+                }
                 FieldTransportKind::Cbor => {
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
                             let __amaru_v: &#field_type = $expr;
-                            fn __amaru_assert_serialize<T: #serialize_trait>(_: &T) {}
+                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait>(_: &T) {}
                             __amaru_assert_serialize(__amaru_v);
                             #encode_cbor(__amaru_v)
                         }};
@@ -1094,8 +1126,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let validate_exact_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = field.name_str();
-            let field_type = field.type_str();
+            let field_name = field.name_lit();
+            let field_type = field.type_lit();
             quote! {
                 (#field_name, #field_type, validate) => {};
             }
@@ -1105,8 +1137,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let validate_wrong_type_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = field.name_str();
-            let expected_type = field.type_str();
+            let field_name = field.name_lit();
+            let expected_type = field.type_lit();
             quote! {
                 (#field_name, $actual_ty:literal, validate) => {
                     compile_error!(concat!(
@@ -1126,7 +1158,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let validate_formatted_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = field.name_str();
+            let field_name = field.name_lit();
             quote! {
                 (#field_name, $expr:expr, validate_event_display) => {{
                     let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
@@ -1262,6 +1294,47 @@ fn is_observability_lib() -> bool {
         && std::env::var("CARGO_CRATE_NAME").ok().as_deref() == Some("amaru_observability")
 }
 
+fn field_render_tokens(render: FieldRender) -> proc_macro2::TokenStream {
+    match render {
+        FieldRender::Typed => quote! { FieldRender::Typed },
+        FieldRender::Display => quote! { FieldRender::Display },
+        FieldRender::Debug => quote! { FieldRender::Debug },
+    }
+}
+
+fn field_json_schema_tokens(field: &SchemaField) -> proc_macro2::TokenStream {
+    match field.render {
+        FieldRender::Display | FieldRender::Debug => quote! { json_schema_string },
+        FieldRender::Typed => match field.type_str().as_str() {
+            "bool" => quote! { json_schema_boolean },
+            "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "usize" | "isize" => {
+                quote! { json_schema_integer }
+            }
+            "f64" | "f32" => quote! { json_schema_number },
+            "String" | "&str" => quote! { json_schema_string },
+            _ => {
+                let field_ty = &field.ty;
+                quote! { json_schema_for::<#field_ty> }
+            }
+        },
+    }
+}
+
+fn field_entry_tokens(field: &SchemaField) -> proc_macro2::TokenStream {
+    let name = field.name_lit();
+    let ty = field.type_lit();
+    let render = field_render_tokens(field.render);
+    let json_schema = field_json_schema_tokens(field);
+    quote! {
+        SchemaFieldEntry {
+            name: #name,
+            rust_type: #ty,
+            render: #render,
+            json_schema: #json_schema,
+        }
+    }
+}
+
 /// Generate inventory submission for runtime schema registry.
 fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     if !config.export_macros {
@@ -1272,36 +1345,53 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
     let target_path = schema.target_path();
     let schema_name = schema.name_str();
 
-    let required_fields_array: Vec<_> = schema
-        .required_fields
-        .iter()
-        .map(|f| {
-            let name = f.name_str();
-            let ty = f.type_str();
-            quote! { (#name, #ty) }
-        })
-        .collect();
-
-    let optional_fields_array: Vec<_> = schema
-        .optional_fields
-        .iter()
-        .map(|f| {
-            let name = f.name_str();
-            let ty = f.type_str();
-            quote! { (#name, #ty) }
-        })
-        .collect();
+    let required_fields_array: Vec<_> = schema.required_fields.iter().map(field_entry_tokens).collect();
+    let optional_fields_array: Vec<_> = schema.optional_fields.iter().map(field_entry_tokens).collect();
 
     let use_stmt = if is_observability_lib() {
-        quote! { use crate::registry::SchemaEntry; }
+        quote! {
+            use crate::registry::{
+                FieldRender, SchemaEntry, SchemaFieldEntry, json_schema_boolean, json_schema_for, json_schema_integer,
+                json_schema_number, json_schema_string,
+            };
+        }
     } else {
-        quote! { use amaru_observability::registry::SchemaEntry; }
+        quote! {
+            use amaru_observability::registry::{
+                FieldRender, SchemaEntry, SchemaFieldEntry, json_schema_boolean, json_schema_for, json_schema_integer,
+                json_schema_number, json_schema_string,
+            };
+        }
     };
 
     let description = schema.description.as_deref().unwrap_or("Missing description");
     let public = schema.public;
 
+    let source_token_anchors = schema.required_fields.iter().chain(schema.optional_fields.iter()).map(|field| {
+        let ty = &field.ty;
+        let name = &field.name;
+        quote! {
+            {
+                fn __bind(_: #ty) {}
+                let _ = stringify!(#name);
+            }
+        }
+    });
+    let tag_anchors = schema.tags.iter().map(|tag| {
+        quote! {
+            let _ = stringify!(#tag);
+        }
+    });
+    let tokens_fn_ident =
+        Ident::new(&format!("__amaru_schema_tokens_{}", schema.full_path().replace("::", "_")), schema.name.span());
+
     quote! {
+        #[allow(dead_code, non_snake_case, unused_variables)]
+        fn #tokens_fn_ident() {
+            #(#source_token_anchors)*
+            #(#tag_anchors)*
+        }
+
         #[allow(non_upper_case_globals)]
         const _: () = {
             #use_stmt
@@ -1526,7 +1616,7 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, config: &GenerationConfig) -
     modules
 }
 
-fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
+fn generate_schema_item(schema: &Schema, _config: &GenerationConfig) -> proc_macro2::TokenStream {
     // Preserve the original schema ident span for go-to-definition.
     let schema_ident = &schema.name;
     let schema_name = schema.event_name();
@@ -1538,17 +1628,15 @@ fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macr
     let record_fields = record_fields_trait_path();
 
     let field_constants = schema.required_fields.iter().chain(schema.optional_fields.iter()).map(|field| {
-        let field_const_ident = make_ident(&format!("FIELD_{}", field.name_str().to_uppercase()));
-        let field_name = field.name_str();
-        // Attach the field's definition span to the string literal.
-        let field_name_lit = syn::LitStr::new(&field_name, field.name.span());
+        let field_const_ident = Ident::new(&format!("FIELD_{}", field.name_str().to_uppercase()), field.name.span());
+        let field_name_lit = field.name_lit();
 
         quote! {
             pub const #field_const_ident: &str = #field_name_lit;
         }
     });
 
-    let accessors = if config.export_macros {
+    let accessors = {
         let required_accessors = schema.required_fields.iter().map(|field| {
             // Accessor method name uses the field ident from the schema (with span).
             let accessor_ident = &field.name;
@@ -1590,8 +1678,6 @@ fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macr
             #(#required_accessors)*
             #(#optional_accessors)*
         }
-    } else {
-        quote! {}
     };
 
     quote! {
@@ -1805,6 +1891,31 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_schema_with_formatters() {
+        let tokens = quote! {
+            amaru {
+                test {
+                    sub {
+                        /// Test schema
+                        SCHEMA {
+                            required point: amaru_kernel::Point
+                            required header_hash: %amaru_kernel::HeaderHash
+                            optional debug_info: ?String
+                        }
+                    }
+                }
+            }
+        };
+        let (schemas, errors) = parse_input(tokens);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert_eq!(schemas[0].required_fields[0].type_str(), "amaru_kernel::Point");
+        assert_eq!(schemas[0].required_fields[0].render, FieldRender::Typed);
+        assert_eq!(schemas[0].required_fields[1].type_str(), "amaru_kernel::HeaderHash");
+        assert_eq!(schemas[0].required_fields[1].render, FieldRender::Display);
+        assert_eq!(schemas[0].optional_fields[0].render, FieldRender::Debug);
+    }
+
+    #[test]
     fn test_extract_multiple_schemas() {
         let tokens = quote! {
             amaru {
@@ -1862,12 +1973,15 @@ mod tests {
             required_fields: Vec::new(),
             optional_fields: Vec::new(),
         };
-        schema
-            .required_fields
-            .push(SchemaField { name: Ident::new("id", proc_macro2::Span::call_site()), ty: syn::parse_quote!(u64) });
+        schema.required_fields.push(SchemaField {
+            name: Ident::new("id", proc_macro2::Span::call_site()),
+            ty: syn::parse_quote!(u64),
+            render: FieldRender::Typed,
+        });
         schema.optional_fields.push(SchemaField {
             name: Ident::new("name", proc_macro2::Span::call_site()),
             ty: syn::parse_quote!(String),
+            render: FieldRender::Typed,
         });
         assert_eq!(schema.validation_string(), "R|id:u64|O|name:String");
     }

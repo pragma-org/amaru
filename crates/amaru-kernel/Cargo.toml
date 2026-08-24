@@ -39,6 +39,7 @@ minicbor.workspace = true
 num.workspace = true
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
+schemars = { workspace = true, default-features = false, features = ["derive"] }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true, features = [ "std" ] }
 sha3.workspace = true

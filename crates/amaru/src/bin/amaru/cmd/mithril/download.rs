@@ -25,11 +25,7 @@ use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use tracing::info;
 
-pub(super) async fn run(
-    network: NetworkName,
-    ledger_dir: &Path,
-    snapshots_dir: &Path,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub(super) async fn run(network: NetworkName, ledger_dir: &Path, snapshots_dir: &Path) -> anyhow::Result<PathBuf> {
     let target_dir = snapshots_dir.join(network.to_string());
     fs::create_dir_all(&target_dir)?;
 

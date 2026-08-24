@@ -30,7 +30,7 @@ pub(super) fn write_snapshot_archive(
     archive_path: &Path,
     target: &EpochTarget,
     packaged_blocks: &[u8],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let tmp_path = archive_path.with_extension("tmp");
     let file = fs::File::create(&tmp_path)?;
     build_snapshot_archive(snapshot_dir, target, packaged_blocks, io::BufWriter::new(file))?;
@@ -43,7 +43,7 @@ fn build_snapshot_archive<W: io::Write>(
     target: &EpochTarget,
     packaged_blocks: &[u8],
     writer: W,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let root_name = format!("{}.{}", target.slot, target.hash);
 
     let encoder = zstd::Encoder::new(writer, 0)?;
@@ -66,7 +66,7 @@ fn build_snapshot_archive<W: io::Write>(
             relative.to_path_buf()
         };
         if relative == Path::new(PACKAGED_BLOCKS_FILE_NAME) {
-            return Err(format!("snapshot source contains reserved entry {}", path.display()).into());
+            anyhow::bail!("snapshot source contains reserved entry {}", path.display());
         }
         let archive_path = PathBuf::from(&root_name).join(relative);
 
@@ -75,7 +75,7 @@ fn build_snapshot_archive<W: io::Write>(
         } else if metadata.is_file() {
             append_file_entry(&mut tar, &archive_path, &path)?;
         } else {
-            return Err(format!("unsupported snapshot entry {}", path.display()).into());
+            anyhow::bail!("unsupported snapshot entry {}", path.display());
         }
     }
 

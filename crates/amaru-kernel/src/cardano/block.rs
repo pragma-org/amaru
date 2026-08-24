@@ -60,6 +60,47 @@ impl Block {
         self.hash
     }
 
+    /// Hash of the four body CBOR items, as stored in [`HeaderBody::block_body_hash`](crate::HeaderBody).
+    ///
+    /// The array must contain the slices of the four CBOR items in the order they appear in the
+    /// block body: `[bodies, witnesses, aux, invalid]`.
+    pub fn hash_body_cbor(components: [&[u8]; 4]) -> Hash<BLOCK_BODY> {
+        let mut concat = [0u8; 4 * BLOCK_BODY];
+        for (i, component) in components.iter().enumerate() {
+            let part = Hasher::<{ 8 * BLOCK_BODY }>::hash(component);
+            concat[i * BLOCK_BODY..(i + 1) * BLOCK_BODY].copy_from_slice(part.as_ref());
+        }
+        Hasher::<{ 8 * BLOCK_BODY }>::hash(&concat)
+    }
+
+    /// Hash the body of an already-encoded block term `[header, bodies, witnesses, aux, invalid]`.
+    pub fn hash_encoded_body(encoded_block: &[u8]) -> Result<Hash<BLOCK_BODY>, cbor::decode::Error> {
+        let mut decoder = cbor::Decoder::new(encoded_block);
+        let len = decoder.array()?;
+        if len != Some(Self::CBOR_FIELD_COUNT) {
+            return Err(cbor::decode::Error::message(format!(
+                "invalid Block array length. Expected {}, got {len:?}",
+                Self::CBOR_FIELD_COUNT
+            )));
+        }
+        decoder.skip()?;
+        let mut ranges = [(0usize, 0usize); 4];
+        for range in &mut ranges {
+            let start = decoder.position();
+            decoder.skip()?;
+            *range = (start, decoder.position());
+        }
+        if decoder.position() != encoded_block.len() {
+            return Err(cbor::decode::Error::message("trailing data after block body"));
+        }
+        Ok(Self::hash_body_cbor([
+            &encoded_block[ranges[0].0..ranges[0].1],
+            &encoded_block[ranges[1].0..ranges[1].1],
+            &encoded_block[ranges[2].0..ranges[2].1],
+            &encoded_block[ranges[3].0..ranges[3].1],
+        ]))
+    }
+
     /// Get the size in bytes of the serialised block.
     pub fn body_len(&self) -> u64 {
         self.original_body_size
@@ -92,7 +133,7 @@ impl Block {
 }
 
 impl IntoIterator for Block {
-    type Item = (TransactionIndex, Transaction, u64);
+    type Item = (TransactionIndex, Transaction);
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(mut self) -> Self::IntoIter {
@@ -103,24 +144,9 @@ impl IntoIterator for Block {
                 let is_expected_valid =
                     !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
 
-                let (auxiliary_data_len, auxiliary_data) = match self.auxiliary_data.remove(&i) {
-                    Some(auxiliary_data) => (auxiliary_data.len(), Some(auxiliary_data)),
-                    None => (1, None),
-                };
+                let auxiliary_data = self.auxiliary_data.remove(&i);
 
-                // NOTE: Transaction size calculation
-                //
-                // Due to how the transactions are serialised in blocks (with seggregated witnesses
-                // and auxiliary data), we have to calculate the size from multiple pieces and add
-                // an extra 'cbor framing byte' which corresponds to the declaration of the
-                // top-level array of size 3 (`0x83`). Importantly, the validity of the transaction
-                // is not taken into account for the size calculation (rationale being that this
-                // the logic is then preserved between pre-alonzo and post-alonzo eras).
-                //
-                // See also: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Tx.hs#L351-L362>
-                let size = 1 + body.len() + witnesses.len() as u64 + auxiliary_data_len;
-
-                (i, Transaction { body, witnesses: witnesses.into_inner(), auxiliary_data, is_expected_valid }, size)
+                (i, Transaction { body, witnesses, auxiliary_data, is_expected_valid })
             })
             .collect::<Vec<_>>()
             .into_iter()
@@ -128,7 +154,7 @@ impl IntoIterator for Block {
 }
 
 impl<'a> IntoIterator for &'a Block {
-    type Item = (u16, TransactionRef<'a>, u64);
+    type Item = (u16, TransactionRef<'a>);
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -137,24 +163,9 @@ impl<'a> IntoIterator for &'a Block {
                 let is_expected_valid =
                     !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
 
-                let (auxiliary_data_len, auxiliary_data) = match self.auxiliary_data.get(&i) {
-                    Some(auxiliary_data) => (auxiliary_data.len(), Some(auxiliary_data)),
-                    None => (1, None),
-                };
+                let auxiliary_data = self.auxiliary_data.get(&i);
 
-                // NOTE: Transaction size calculation
-                //
-                // Due to how the transactions are serialised in blocks (with seggregated witnesses
-                // and auxiliary data), we have to calculate the size from multiple pieces and add
-                // an extra 'cbor framing byte' which corresponds to the declaration of the
-                // top-level array of size 3 (`0x83`). Importantly, the validity of the transaction
-                // is not taken into account for the size calculation (rationale being that this
-                // the logic is then preserved between pre-alonzo and post-alonzo eras).
-                //
-                // See also: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Tx.hs#L351-L362>
-                let size = 1 + body.len() + witnesses.len() as u64 + auxiliary_data_len;
-
-                (i, TransactionRef { body, witnesses: witnesses.as_ref(), auxiliary_data, is_expected_valid }, size)
+                (i, TransactionRef { body, witnesses: witnesses.as_ref(), auxiliary_data, is_expected_valid })
             },
         ))
     }
@@ -200,24 +211,18 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
 
             let (invalid_transactions, invalid_transactions_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let mut block_body_hash = Vec::with_capacity(4 * BLOCK_BODY);
-            for component in [
-                transaction_bodies_bytes,
-                transaction_witnesses_bytes,
-                auxiliary_data_bytes,
-                invalid_transactions_bytes,
-            ] {
-                let body_part = Hasher::<{ 8 * BLOCK_BODY }>::hash(component);
-                block_body_hash.extend_from_slice(&body_part[..]);
-            }
-
             Ok(Block {
                 original_body_size: (transaction_bodies_bytes.len()
                     + transaction_witnesses_bytes.len()
                     + auxiliary_data_bytes.len()
                     + invalid_transactions_bytes.len()) as u64,
                 original_header_size: header_bytes.len() as u64,
-                hash: Hasher::<{ 8 * BLOCK_BODY }>::hash(&block_body_hash[..]),
+                hash: Self::hash_body_cbor([
+                    transaction_bodies_bytes,
+                    transaction_witnesses_bytes,
+                    auxiliary_data_bytes,
+                    invalid_transactions_bytes,
+                ]),
                 header,
                 transaction_bodies,
                 transaction_witnesses,

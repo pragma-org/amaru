@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{NetworkPoint, Peer, Slot};
+use amaru_kernel::{BlockHeight, NetworkPoint, Peer, Point, Slot};
 use amaru_observability::debug_span;
 use pallas_network::miniprotocols::{
     Point as PallasPoint,
-    chainsync::{Client, ClientError, HeaderContent, NextResponse},
+    chainsync::{Client, ClientError, HeaderContent, NextResponse, Tip as PallasTip},
 };
 use tracing::Instrument;
 
@@ -28,11 +28,15 @@ fn to_pallas_point(point: NetworkPoint) -> PallasPoint {
     }
 }
 
-fn from_pallas_point(point: &PallasPoint) -> NetworkPoint {
+pub(crate) fn from_pallas_point(point: &PallasPoint) -> NetworkPoint {
     match point {
         PallasPoint::Origin => NetworkPoint::Origin,
         PallasPoint::Specific(slot, hash) => NetworkPoint::Specific(Slot::from(*slot), From::from(hash.as_slice())),
     }
+}
+
+pub(crate) fn from_pallas_tip(tip: &PallasTip) -> Point {
+    from_pallas_point(&tip.0).with_height(BlockHeight::from(tip.1))
 }
 
 /// Handles chain synchronization network operations

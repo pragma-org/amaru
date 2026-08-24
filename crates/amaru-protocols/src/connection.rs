@@ -236,7 +236,7 @@ pub async fn stage(
         message_type = message_type,
         conn_id = conn_id.as_u64(),
         peer = peer,
-        role = %role,
+        role = role.to_string(),
     ))
     .await
 }
@@ -268,10 +268,11 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
     .await;
 }
 
-async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {
+async fn do_initialize(Params { conn_id, role, magic, peer, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {
     let muxer = eff.stage("mux", mux::stage).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
-    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role)).await;
+    let muxer =
+        eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role, peer.clone())).await;
 
     let handshake_result = eff.me_ref().contramap(ConnectionMessage::Handshake);
 

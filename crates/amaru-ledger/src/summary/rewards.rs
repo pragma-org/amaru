@@ -410,15 +410,15 @@ impl RewardsSummary {
 
         info!(
             ledger::rewards::SUMMARIZE,
-            %efficiency,
-            %incentives,
-            %treasury_tax,
-            %total_rewards,
-            %available_rewards,
-            %effective_rewards,
-            pots_reserves = %pots.reserves,
-            pots_treasury = %pots.treasury,
-            pots_fees = %pots.fees,
+            efficiency = efficiency.to_string(),
+            incentives,
+            treasury_tax,
+            total_rewards,
+            available_rewards,
+            effective_rewards,
+            pots_reserves = pots.reserves,
+            pots_treasury = pots.treasury,
+            pots_fees = pots.fees,
         );
 
         Self {

@@ -14,14 +14,13 @@
 
 use std::{
     fmt::{self, Display},
-    ops::{ControlFlow, FromResidual, Residual, Try},
+    ops::{ControlFlow, Deref, FromResidual, Residual, Try},
     process::{ExitCode, Termination},
 };
 
 use amaru_kernel::{
     Block, EraHistory, ExUnits, GlobalParameters, Hash, IsHeader, NetworkName, Point, ProtocolParameters,
-    TransactionId, TransactionIndex, TransactionPointer, TransactionRef,
-    size::{BLOCK_BODY, SCRIPT},
+    TransactionId, TransactionIndex, TransactionPointer, TransactionRef, size::SCRIPT,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -33,7 +32,6 @@ use crate::{
     rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
 };
 
-pub mod body_hash;
 pub mod body_size;
 pub mod ex_units;
 pub mod header_size;
@@ -60,10 +58,6 @@ pub enum InvalidBlockDetails {
     HeaderSizeTooBig {
         supplied: u64,
         max: u64,
-    },
-    InvalidBodyHash {
-        header: Hash<BLOCK_BODY>,
-        actual: Hash<BLOCK_BODY>,
     },
     HeaderProtVerTooHigh {
         header_major: u64,
@@ -107,9 +101,6 @@ impl Display for InvalidBlockDetails {
             }
             InvalidBlockDetails::HeaderSizeTooBig { supplied, max } => {
                 write!(f, "Header size too big: supplied {}, max {}", supplied, max)
-            }
-            InvalidBlockDetails::InvalidBodyHash { header, actual } => {
-                write!(f, "Invalid body hash: header says {}, actual {}", header, actual)
             }
             InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major } => {
                 write!(f, "Header protocol version too high: {} > {}", header_major, max_major)
@@ -230,8 +221,6 @@ where
 
     with_block_context(body_size::block_body_size_valid(block))?;
 
-    with_block_context(body_hash::block_body_hash_valid(block))?;
-
     // NOTE: No protocol major version in block header
     //
     // See: https://github.com/IntersectMBO/ouroboros-consensus/issues/2127
@@ -248,7 +237,7 @@ where
         protocol_params,
     ))?;
 
-    for (i, transaction, tx_size) in block {
+    for (i, transaction) in block {
         let transaction_id = transaction.tx_id();
 
         if let Err(violation) = debug_span!(ledger::transaction::VALIDATE, id = transaction_id).in_scope(|| {
@@ -263,7 +252,6 @@ where
                 guardrail_script,
                 TransactionPointer { slot, transaction_index: i as usize },
                 transaction,
-                tx_size,
             )
         }) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
@@ -298,7 +286,6 @@ pub fn validate_transaction<C>(
     guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
     transaction: TransactionRef<'_>,
-    tx_size: u64,
 ) -> Result<(), TransactionInvalid>
 where
     C: ValidationContext + fmt::Debug,
@@ -314,9 +301,9 @@ where
         pointer,
         transaction.is_expected_valid,
         transaction.body.clone(),
-        transaction.witnesses,
+        transaction.witnesses.deref(),
         transaction.auxiliary_data,
-        tx_size,
+        transaction.len(),
     )?;
 
     transaction::phase_two::execute(
@@ -328,7 +315,7 @@ where
         pointer,
         transaction.is_expected_valid,
         transaction.body,
-        transaction.witnesses,
+        transaction.witnesses.deref(),
     )?;
 
     consumed_inputs.into_iter().for_each(|input| context.consume(input));

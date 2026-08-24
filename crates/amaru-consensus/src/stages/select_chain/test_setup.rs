@@ -14,7 +14,10 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, Point, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{
+    EraHistory, Header, HeaderHash, IsHeader, Point, cardano::network_block::EncodedTestBlock, make_header,
+    make_header_with_op_cert_seq,
+};
 use amaru_ouroboros_traits::{BaseReadChainStore, ChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
@@ -30,7 +33,7 @@ use super::*;
 use crate::stages::test_utils::{Logs, run_simulation};
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {
-    make_header(block_number, slot, parent)
+    EncodedTestBlock::from_seed(&make_header(block_number, slot, parent), &EraHistory::default()).header
 }
 
 pub fn make_block_header_with_op_cert_seq(
@@ -39,7 +42,11 @@ pub fn make_block_header_with_op_cert_seq(
     parent: Option<HeaderHash>,
     op_cert_seq: u64,
 ) -> Header {
-    make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq)
+    EncodedTestBlock::from_seed(
+        &make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq),
+        &EraHistory::default(),
+    )
+    .header
 }
 
 /// Header tree for testing block invalidation and chain selection:

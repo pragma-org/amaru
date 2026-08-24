@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# Removes ANSI escape sequences from stdin. The nodes colorize their output so the log levels
+# stand out in the process-compose panes, and that output is also what lands in the log files,
+# so anything parsing those files has to see through the escapes.
+strip_ansi() {
+  LC_ALL=C awk '{ gsub(/\033\[[0-9;]*[A-Za-z]/, ""); print }'
+}
+
 # Extracts the latest adopted slot from an Amaru log.
 adopted_slot_from_log() {
   local log="$1"
@@ -7,9 +14,16 @@ adopted_slot_from_log() {
   local slot
   slot="$(
     tail -n 20000 "$log" 2>/dev/null \
+      | strip_ansi \
       | LC_ALL=C awk '
-          /adopted tip/ {
-            if (match($0, /"tip\.slot":"?[0-9]+"?/)) {
+          /tip\.adopt|adopted tip/ {
+            if (match($0, / slot=[0-9]+/)) {
+              slot = substr($0, RSTART + 6, RLENGTH - 6)
+            } else if (match($0, /"slot":"?[0-9]+"?/)) {
+              slot = substr($0, RSTART, RLENGTH)
+              sub(/^"slot":"?/, "", slot)
+              sub(/"?$/, "", slot)
+            } else if (match($0, /"tip\.slot":"?[0-9]+"?/)) {
               slot = substr($0, RSTART, RLENGTH)
               sub(/^"tip\.slot":"?/, "", slot)
               sub(/"?$/, "", slot)
@@ -28,8 +42,14 @@ adopted_slot_from_log() {
   if [[ -z "$slot" ]]; then
     slot="$(
       LC_ALL=C awk '
-        /adopted tip/ {
-          if (match($0, /"tip\.slot":"?[0-9]+"?/)) {
+        /tip\.adopt|adopted tip/ {
+          if (match($0, / slot=[0-9]+/)) {
+            slot = substr($0, RSTART + 6, RLENGTH - 6)
+          } else if (match($0, /"slot":"?[0-9]+"?/)) {
+            slot = substr($0, RSTART, RLENGTH)
+            sub(/^"slot":"?/, "", slot)
+            sub(/"?$/, "", slot)
+          } else if (match($0, /"tip\.slot":"?[0-9]+"?/)) {
             slot = substr($0, RSTART, RLENGTH)
             sub(/^"tip\.slot":"?/, "", slot)
             sub(/"?$/, "", slot)
@@ -43,7 +63,7 @@ adopted_slot_from_log() {
           }
         }
         END { if (slot != "") print slot; else if (initial_slot != "") print initial_slot }
-      ' "$log" 2>/dev/null
+      ' < <(strip_ansi <"$log" 2>/dev/null)
     )"
   fi
   echo "$slot"
@@ -57,7 +77,7 @@ downstream_adopted_slot() {
 amaru_network_from_log() {
   local log="$1"
   [[ -f "$log" ]] || { echo ""; return; }
-  LC_ALL=C awk '
+  strip_ansi <"$log" 2>/dev/null | LC_ALL=C awk '
     {
       if (match($0, /"network":"[^"]+"/)) {
         network = substr($0, RSTART, RLENGTH)
@@ -70,7 +90,7 @@ amaru_network_from_log() {
       }
     }
     END { if (network != "") print network }
-  ' "$log" 2>/dev/null
+  '
 }
 
 validate_amaru_runtime_network() {

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    error::Error,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -24,6 +23,7 @@ use amaru::{
 };
 use amaru_kernel::NetworkName;
 use amaru_observability::info;
+use anyhow::Context;
 use clap::Parser;
 
 #[derive(Debug, Parser)]
@@ -61,10 +61,10 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let Args { wipe_all_dbs, chain_dir, ledger_dir, network } = args;
     if !wipe_all_dbs {
-        return Err("refusing to remove node databases without --wipe-all-dbs".into());
+        anyhow::bail!("refusing to remove node databases without --wipe-all-dbs");
     }
 
     let ledger_dir = ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
@@ -72,8 +72,8 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     info!(
         cli::node::RM,
-        chain_dir = %chain_dir.display(),
-        ledger_dir = %ledger_dir.display(),
+        chain_dir = chain_dir.display().to_string(),
+        ledger_dir = ledger_dir.display().to_string(),
         network = network,
     );
 
@@ -83,10 +83,10 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn remove_database(path: &Path) -> Result<(), io::Error> {
+fn remove_database(path: &Path) -> anyhow::Result<()> {
     match fs::remove_dir_all(path) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(io::Error::new(err.kind(), format!("failed to remove {}: {err}", path.display()))),
+        err => err.with_context(|| format!("failed to remove {}", path.display())),
     }
 }

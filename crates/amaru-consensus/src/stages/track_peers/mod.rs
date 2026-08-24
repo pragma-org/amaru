@@ -35,12 +35,16 @@ use tracing::Instrument;
 use super::peer_selection::PeerSelectionMsg;
 use crate::{
     effects::{Ledger, LedgerOps, VolatileTipEffect},
-    errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
+    errors::{ConsensusError, HeaderSlotTooFarInFuture, InvalidHeaderParentData, InvalidHeaderPoint},
     performance::{HeaderLifecycleOutcome, Performance},
 };
 
 /// Poll interval while headers are deferred on applied ledger height.
 pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Permissible header clock skew: slots whose onset is at most this far in the future are deferred.
+/// Further ahead is treated as adversarial.
+pub const MAX_HEADER_CLOCK_SKEW: Duration = Duration::from_secs(2);
 
 /// Stage that tracks chainsync sessions from whom we receive headers.
 ///
@@ -93,13 +97,16 @@ pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
 /// - **StakeDistribution** — pool stake for the header's epoch is not yet known (at most one
 ///   epoch ahead of `max_epoch`). `RequestNext` may already have been pipelined before validation
 ///   failed. Woken by [`TrackPeersMsg::StakeDistUpdated`] (no self-timer).
-/// - **ClockSkew** — header slot is at most two slots in the future. Contributes the header onset
-///   as the next recheck deadline; `RequestNext` may already have been sent.
+/// - **ClockSkew** — header slot onset is at most [`MAX_HEADER_CLOCK_SKEW`] in the future.
+///   Contributes the header onset as the next recheck deadline; `RequestNext` may already have been sent.
 /// - **FollowUp** — further headers arrived while the peer was already deferred. Held until
 ///   earlier deferred items for that peer clear; no `RequestNext` from this path.
 ///
-/// Far-ahead stake (more than one epoch beyond `max_epoch`), far-future slots (more than two),
-/// and other validation failures are adversarial (peer removed and `peer_selection` notified).
+/// Far-ahead stake (more than one epoch beyond `max_epoch`), far-future slots (onset more than
+/// [`MAX_HEADER_CLOCK_SKEW`] ahead of local time, or a slot so far ahead that onset cannot be
+/// computed), and other validation failures are adversarial (peer removed and `peer_selection`
+/// notified). Empty slots between consecutive headers are allowed as long as the header is not
+/// in the future.
 ///
 /// # Recheck
 ///
@@ -173,7 +180,7 @@ enum DeferReason {
     /// The header's validation requires a stake distribution that is not yet available; hold the
     /// data needed to re-validate and store once it arrives (via StakeDistUpdated).
     StakeDistribution { epoch: Epoch, header: Header, tip: Point, variant: EraName, rn_sent: bool },
-    /// Slot onset is in the near future (≤ 2s according to slot time); defer validation until
+    /// Slot onset is in the near future (≤ [`MAX_HEADER_CLOCK_SKEW`]); defer validation until
     /// local time reaches it. Carries data to re-process later.
     ClockSkew { min_time: Instant, header: Header, tip: Point, variant: EraName, rn_sent: bool },
     /// A follow-up header that was received after a previous header was deferred.
@@ -423,7 +430,7 @@ impl TrackPeers {
         // can be less advanced than the currently transmitted header
         let highest = tip;
 
-        // check that slot time progresses monotonically
+        // Successive headers must have increasing slots; empty slots between them are allowed.
         if header.slot() <= current.slot() {
             return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                 actual: header.point(),
@@ -432,17 +439,23 @@ impl TrackPeers {
             })));
         }
 
-        // Clock skew using current time from clock (converted to slot via era params / slot length),
-        // instead of per_peer.current.
+        // Compare the header's slot onset to local time (a duration bound, not a slot count).
+        // Horizon-checked conversion: a peer-chosen slot beyond the foreseeable future is
+        // `PastTimeHorizon` / `SlotTooFar` and adversarial. Do not use the unchecked variant,
+        // which is only valid for slots already known to be in the past.
         let elapsed = current_time.duration_since_global_epoch();
-        let curr_slot = self.era_history.relative_time_to_slot(elapsed).unwrap_or_else(|_| Slot::from(0));
-        if header.slot() > curr_slot {
-            let delta_slots = header.slot() - curr_slot;
-            if delta_slots > 2 {
-                return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
+        let onset = self.era_history.slot_to_relative_time(header.slot(), current.slot())?;
+        if onset > elapsed {
+            let delta = onset - elapsed;
+            if delta > MAX_HEADER_CLOCK_SKEW {
+                return Err(ConsensusError::HeaderSlotTooFarInFuture(Box::new(HeaderSlotTooFarInFuture {
                     actual: header.point(),
                     parent: *current,
                     highest,
+                    onset_millis: onset.as_millis() as u64,
+                    elapsed_millis: elapsed.as_millis() as u64,
+                    delta_millis: delta.as_millis() as u64,
+                    max_skew_millis: MAX_HEADER_CLOCK_SKEW.as_millis() as u64,
                 })));
             }
             return Err(ConsensusError::HeaderSlotInNearFuture(header.slot()));
@@ -547,10 +560,11 @@ impl TrackPeers {
         if !matches!(error, ConsensusError::HeaderSlotInNearFuture(_)) {
             return None;
         }
-        // compute accurate wait using current clock and header onset from era; last clock check was before validation calculations
+        let (current, _) = self.upstream.get(&args.conn_id).and_then(PerPeer::established)?;
+        // Same horizon-checked conversion as `validate_header`; failure → no deferral (adversarial).
         let now = eff.clock().await;
         let elapsed = now.duration_since_global_epoch();
-        let onset = self.era_history.slot_to_relative_time_unchecked_horizon(args.header.slot()).unwrap_or_default();
+        let onset = self.era_history.slot_to_relative_time(args.header.slot(), current.slot()).ok()?;
         let wait = onset.saturating_sub(elapsed);
         Some(DeferredHeader {
             peer: args.peer.clone(),
@@ -643,7 +657,7 @@ impl TrackPeers {
                     consensus::perf::header::LIFECYCLE,
                     peer = peer,
                     header_hash = header.hash(),
-                    error = %error,
+                    error = error.to_string(),
                     outcome = HeaderLifecycleOutcome::InvalidHeader.as_str()
                 );
                 record_header_rejected(eff, HeaderLifecycleOutcome::InvalidHeader).await;
@@ -691,7 +705,7 @@ impl TrackPeers {
                             consensus::perf::header::LIFECYCLE,
                             peer = peer,
                             header_hash = current.hash(),
-                            error = %error,
+                            error = error.to_string(),
                             outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
                         );
                         record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
@@ -779,7 +793,7 @@ impl TrackPeers {
                             error!(
                                 consensus::perf::header::LIFECYCLE,
                                 peer = peer,
-                                error = %error,
+                                error = error.to_string(),
                                 outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
                             record_header_rejected(&eff, HeaderLifecycleOutcome::UndecodableHeader).await;

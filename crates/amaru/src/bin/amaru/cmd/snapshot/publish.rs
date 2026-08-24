@@ -21,6 +21,7 @@ use amaru::{
 };
 use amaru_kernel::{NetworkName, NetworkPoint, utils::path::relative_path};
 use amaru_observability::info;
+use anyhow::{Context, anyhow};
 use clap::Parser;
 
 use super::create::default_snapshot_output_dir;
@@ -90,7 +91,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let Args { network, snapshot_dir, s3_bucket, s3_endpoint, s3_region, s3_public_url } = args;
 
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
@@ -125,7 +126,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     if local_archives.is_empty() && remote_keys.is_empty() {
-        return Err("no archives found locally or in S3; run `amaru snapshot create` first".into());
+        anyhow::bail!("no archives found locally or in S3; run `amaru snapshot create` first");
     }
 
     let archives_to_upload: Vec<&String> = local_archives.difference(&remote_keys).collect();
@@ -133,10 +134,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let archive_path = snapshot_root.join(archive_name);
         let point = snapshot_point_from_archive_name(archive_name)?;
         validate_publishable_snapshot_archive(&archive_path, point)
-            .map_err(|err| format!("refusing to publish invalid snapshot archive {}: {err}", archive_path.display()))?;
+            .with_context(|| format!("refusing to publish invalid snapshot archive {}", archive_path.display()))?;
     }
 
-    info!(cli::snapshot::PUBLISH, %network, local = local_archives.len(), remote = remote_keys.len());
+    info!(cli::snapshot::PUBLISH, network, local = local_archives.len(), remote = remote_keys.len());
 
     for archive_name in &local_archives {
         let object_key = format!("{network_prefix}/{archive_name}");
@@ -145,9 +146,9 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         if remote_keys.contains(archive_name.as_str()) {
             info!(cli::snapshot::SKIP_UPLOAD, archive = archive_name);
         } else {
-            info!(cli::snapshot::UPLOAD, archive = %relative_path(&archive_path)?.display());
+            info!(cli::snapshot::UPLOAD, archive = relative_path(&archive_path)?.display().to_string());
             s3.upload_object(&archive_path, &object_key).await?;
-            info!(cli::snapshot::UPLOADED, archive = %relative_path(&archive_path)?.display());
+            info!(cli::snapshot::UPLOADED, archive = relative_path(&archive_path)?.display().to_string());
         }
     }
 
@@ -161,33 +162,30 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     };
     let index_json = serde_json::to_vec_pretty(&all_points)?;
     s3.upload_bytes(index_json, &format!("{network_prefix}/index.json")).await?;
-    info!(cli::snapshot::UPDATE_INDEX, %network, snapshots = all_points.len());
+    info!(cli::snapshot::UPDATE_INDEX, network, snapshots = all_points.len());
 
     Ok(())
 }
 
-fn snapshot_point_from_archive_name(archive_name: &str) -> Result<&str, Box<dyn std::error::Error>> {
+fn snapshot_point_from_archive_name(archive_name: &str) -> anyhow::Result<&str> {
     let point = archive_name
         .strip_suffix(ARCHIVE_EXTENSION)
-        .ok_or_else(|| format!("snapshot archive must end with {ARCHIVE_EXTENSION}: {archive_name}"))?;
+        .ok_or_else(|| anyhow!("snapshot archive must end with {ARCHIVE_EXTENSION}: {archive_name}"))?;
     if point.split('.').count() != 2 || !matches!(NetworkPoint::try_from(point), Ok(NetworkPoint::Specific(_, _))) {
-        return Err(format!("invalid snapshot archive point in filename: {archive_name}").into());
+        anyhow::bail!("invalid snapshot archive point in filename: {archive_name}");
     }
     Ok(point)
 }
 
-fn required_env(name: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn required_env(name: &str) -> anyhow::Result<String> {
     match env::var(name) {
         Ok(value) if value.is_empty() => {
-            Err(format!("environment variable {name} is empty; set it before running `amaru snapshot publish`").into())
+            Err(anyhow!("environment variable {name} is empty; set it before running `amaru snapshot publish`"))
         }
         Ok(value) => Ok(value),
         Err(env::VarError::NotPresent) => {
-            Err(format!("missing required environment variable {name}; set it before running `amaru snapshot publish`")
-                .into())
+            Err(anyhow!("missing required environment variable {name}; set it before running `amaru snapshot publish`"))
         }
-        Err(env::VarError::NotUnicode(_)) => {
-            Err(format!("environment variable {name} must contain valid UTF-8").into())
-        }
+        Err(env::VarError::NotUnicode(_)) => Err(anyhow!("environment variable {name} must contain valid UTF-8")),
     }
 }

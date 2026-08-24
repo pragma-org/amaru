@@ -45,6 +45,7 @@ use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_tui as tui;
+use anyhow::{Context, anyhow};
 use clap::{self, ArgAction, Parser};
 use parking_lot::Mutex;
 use thiserror::Error;
@@ -405,7 +406,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::soft(RuntimeKind::Node, move |shutdown, meter| run(args, meter, shutdown))
 }
 
-async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Result<()> {
     let _pid_file = optional_pid_file(args.pid_file.clone());
 
     let mut config = parse_args(args)?;
@@ -476,7 +477,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> Result<(), B
     }
 
     if consensus_died.load(Ordering::SeqCst) {
-        return Err("consensus stage graph terminated unexpectedly".into());
+        anyhow::bail!("consensus stage graph terminated unexpectedly");
     }
 
     Ok(())
@@ -487,7 +488,7 @@ async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
     mempool_sender: Sender<MempoolMsg>,
     exit: &CancellationToken,
-) -> Result<Option<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
     let Some(addr) = address else {
         return Ok(None);
     };
@@ -514,32 +515,51 @@ fn dump_trace_buffer_to_file(path: Option<&Path>, trace_buffer: &Arc<Mutex<Trace
     }
 }
 
-fn parse_trace_buffer_limits(s: &str) -> Result<(usize, usize), String> {
+fn parse_trace_buffer_limits(s: &str) -> anyhow::Result<(usize, usize)> {
     let parts: Vec<&str> = s.split(',').map(str::trim).filter(|p| !p.is_empty()).collect();
     if parts.len() != 2 {
-        return Err(format!("expected two comma-separated integers (min_entries,max_size), got {s:?}"));
+        anyhow::bail!("expected two comma-separated integers (min_entries,max_size), got {s:?}");
     }
-    let min_entries = parts[0].parse().map_err(|e| format!("min_entries {:?}: {e}", parts[0]))?;
-    let max_size = parts[1].parse().map_err(|e| format!("max_size {:?}: {e}", parts[1]))?;
+    let min_entries = parts[0].parse().with_context(|| format!("min_entries {:?}", parts[0]))?;
+    let max_size = parts[1].parse().with_context(|| format!("max_size {:?}", parts[1]))?;
     Ok((min_entries, max_size))
 }
 
 #[allow(clippy::expect_used)]
-fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
+fn parse_args(args: Args) -> anyhow::Result<Config> {
     let network = args.network;
 
-    let era_history = network.as_era_history().cloned().map(Ok).unwrap_or_else(|| {
-        args.era_history
-            .as_deref()
-            .ok_or_else(|| "missing era history for custom network".into())
-            .and_then(|path| EraHistory::load(path).map_err(|err| -> Box<dyn std::error::Error> { Box::new(err) }))
-    })?;
+    let era_history = match network.as_era_history().cloned() {
+        Some(history) => history,
+        None => {
+            let path = args.era_history.as_deref().ok_or_else(|| anyhow!("missing era history for custom network"))?;
+            EraHistory::load(path).with_context(|| format!("failed to load era history from {}", path.display()))?
+        }
+    };
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
+    if !std::fs::metadata(&ledger_dir)
+        .with_context(|| format!("failed to stat ledger_dir `{}`", ledger_dir.display()))?
+        .is_dir()
+    {
+        anyhow::bail!(
+            "ledger_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            ledger_dir.display()
+        );
+    }
 
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    if !std::fs::metadata(&chain_dir)
+        .with_context(|| format!("failed to stat chain_dir `{}`", chain_dir.display()))?
+        .is_dir()
+    {
+        anyhow::bail!(
+            "chain_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            chain_dir.display()
+        );
+    }
 
     // Use network-specific default peer if no peer-address was provided
     let peer_address = if args.peer_address.is_empty() {
@@ -653,7 +673,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_max_size,
         trace_dump_path,
         peer_removal_cooldown_secs: args.peer_removal_cooldown_secs,
-        peer_mix: args.peer_mix.parse().map_err(|e| anyhow::anyhow!("invalid --peer-mix: {e}"))?,
+        peer_mix: args.peer_mix.parse().context("invalid --peer-mix")?,
         mempool,
         tx_submission_responder_params: tx_submission_params,
         ..Config::default()

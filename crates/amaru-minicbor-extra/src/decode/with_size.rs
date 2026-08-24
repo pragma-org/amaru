@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Deref;
+
 use crate::cbor;
 
 /// Decode an element and retain its original bytes size.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, serde::Deserialize, serde::Serialize)]
 pub struct WithSize<A> {
     value: A,
     size: usize,
@@ -25,6 +27,12 @@ impl<A> WithSize<A> {
     /// Instantiate a new sized value from a known size.
     pub fn new(value: A, size: usize) -> Self {
         WithSize { value, size }
+    }
+
+    /// modifies the size using a builder-style API
+    pub fn with_size(mut self, size: usize) -> Self {
+        self.size = size;
+        self
     }
 
     /// Returns `true` if the size is null.
@@ -41,10 +49,16 @@ impl<A> WithSize<A> {
     pub fn into_inner(self) -> A {
         self.value
     }
+
+    /// Returns the inner value as reference
+    pub fn as_ref(&self) -> WithSize<&A> {
+        WithSize { size: self.size, value: &self.value }
+    }
 }
 
-impl<A> AsRef<A> for WithSize<A> {
-    fn as_ref(&self) -> &A {
+impl<A> Deref for WithSize<A> {
+    type Target = A;
+    fn deref(&self) -> &Self::Target {
         &self.value
     }
 }

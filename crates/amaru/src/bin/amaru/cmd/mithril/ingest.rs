@@ -58,7 +58,7 @@ async fn process_block(
     era_history: &EraHistory,
     raw_block: &RawBlock,
     block: Block,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let point = block.header.point();
     chain_store.store_block(&point.hash(), raw_block)?;
     let nonces = praos_chain_store.evolve_nonce(&block.header)?;
@@ -99,7 +99,7 @@ pub(super) async fn run(
     immutable_dir: PathBuf,
     ingest_until_slot: Option<u64>,
     ingest_maximum_blocks: Option<usize>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let era_history: &EraHistory =
         network.as_era_history().ok_or_else(|| anyhow!("missing default EraHistory for network: {network}"))?;
 

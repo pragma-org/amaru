@@ -48,7 +48,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 #[expect(clippy::print_stdout)]
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> anyhow::Result<()> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(

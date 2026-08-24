@@ -47,8 +47,8 @@ fn main() {
             println!(" (none)");
         } else {
             println!();
-            for (name, ty) in entry.required_fields {
-                println!("    - {}: {}", name, ty);
+            for field in entry.required_fields {
+                println!("    - {}: {}", field.name, field.rust_type);
             }
         }
         print!("  Optional fields:");
@@ -56,8 +56,8 @@ fn main() {
             println!(" (none)");
         } else {
             println!();
-            for (name, ty) in entry.optional_fields {
-                println!("    - {}: {}", name, ty);
+            for field in entry.optional_fields {
+                println!("    - {}: {}", field.name, field.rust_type);
             }
         }
         println!();

@@ -14,15 +14,17 @@
 
 #![cfg(unix)]
 
-use std::{error::Error, process::Output, time::Duration};
+use std::{process::Output, time::Duration};
 
 use assert_cmd::{Command, cargo::cargo_bin};
 use tempfile::TempDir;
 
-fn run_under_low_fd_limit(color: &str) -> Result<Output, Box<dyn Error>> {
+fn run_under_low_fd_limit(color: &str) -> anyhow::Result<Output> {
     let root = TempDir::new()?;
     let ledger_dir = root.path().join("ledger.preprod.db");
+    std::fs::create_dir(&ledger_dir)?;
     let chain_dir = root.path().join("chain.preprod.db");
+    std::fs::create_dir(&chain_dir)?;
     let amaru = cargo_bin("amaru");
 
     let mut command = Command::new("sh");
@@ -57,19 +59,19 @@ fn contains_ansi_escape(bytes: &[u8]) -> bool {
 }
 
 #[test]
-fn explains_fd_limit_is_too_low() -> Result<(), Box<dyn Error>> {
+fn explains_fd_limit_is_too_low() -> anyhow::Result<()> {
     let output = run_under_low_fd_limit("never")?;
     let rendered = combined_output(&output);
     let rendered = String::from_utf8_lossy(&rendered);
 
     assert!(!output.status.success());
-    assert!(rendered.contains("Increase the limit for open files before starting Amaru"));
+    assert!(rendered.contains("Increase the limit for open files before starting Amaru"), "got {}", rendered);
 
     Ok(())
 }
 
 #[test]
-fn no_color_when_color_is_never() -> Result<(), Box<dyn Error>> {
+fn no_color_when_color_is_never() -> anyhow::Result<()> {
     let output = run_under_low_fd_limit("never")?;
     let rendered = combined_output(&output);
 
@@ -84,7 +86,7 @@ fn no_color_when_color_is_never() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn color_when_color_is_always() -> Result<(), Box<dyn Error>> {
+fn color_when_color_is_always() -> anyhow::Result<()> {
     let output = run_under_low_fd_limit("always")?;
     let rendered = combined_output(&output);
 
@@ -98,7 +100,7 @@ fn color_when_color_is_always() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn amaru_help(args: &[&str]) -> Result<String, Box<dyn Error>> {
+fn amaru_help(args: &[&str]) -> anyhow::Result<String> {
     let amaru = cargo_bin("amaru");
     let mut command = Command::new(amaru);
     for arg in args {
@@ -111,7 +113,7 @@ fn amaru_help(args: &[&str]) -> Result<String, Box<dyn Error>> {
 }
 
 #[test]
-fn top_level_help_shows_visible_commands() -> Result<(), Box<dyn Error>> {
+fn top_level_help_shows_visible_commands() -> anyhow::Result<()> {
     let help = amaru_help(&[])?;
     assert!(help.contains("node"), "top-level help should show 'node'");
     assert!(help.contains("snapshot"), "top-level help should show 'snapshot'");
@@ -123,7 +125,7 @@ fn top_level_help_shows_visible_commands() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn mithril_sync_help_shows_all_options() -> Result<(), Box<dyn Error>> {
+fn mithril_sync_help_shows_all_options() -> anyhow::Result<()> {
     let help = amaru_help(&["mithril", "sync"])?;
     assert!(help.contains("--network"), "mithril sync should accept --network");
     assert!(help.contains("--ledger-dir"), "mithril sync should accept --ledger-dir");
@@ -135,7 +137,7 @@ fn mithril_sync_help_shows_all_options() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn removed_dev_ledger_mithril_commands_are_rejected() -> Result<(), Box<dyn Error>> {
+fn removed_dev_ledger_mithril_commands_are_rejected() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
     for command in ["mithril", "sync"] {
         let output = Command::new(&amaru).args(["dev", "ledger", command, "--help"]).output()?;
@@ -145,7 +147,7 @@ fn removed_dev_ledger_mithril_commands_are_rejected() -> Result<(), Box<dyn Erro
 }
 
 #[test]
-fn node_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
+fn node_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["node"])?;
     assert!(help.contains("run"), "node help should show 'run'");
     assert!(help.contains("bootstrap"), "node help should show 'bootstrap'");
@@ -155,7 +157,7 @@ fn node_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn node_rollback_help_shows_targets() -> Result<(), Box<dyn Error>> {
+fn node_rollback_help_shows_targets() -> anyhow::Result<()> {
     let help = amaru_help(&["node", "rollback"])?;
     assert!(help.contains("--immutable-tip"), "rollback should accept --immutable-tip");
     assert!(help.contains("--epoch"), "rollback should accept --epoch");
@@ -166,14 +168,14 @@ fn node_rollback_help_shows_targets() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn snapshot_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
+fn snapshot_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["snapshot"])?;
     assert!(help.contains("create"), "snapshot help should show 'create'");
     Ok(())
 }
 
 #[test]
-fn dev_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
+fn dev_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["dev"])?;
     assert!(help.contains("chain"), "dev help should show 'chain'");
     assert!(help.contains("ledger"), "dev help should show 'ledger'");
@@ -182,7 +184,7 @@ fn dev_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn dev_chain_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
+fn dev_chain_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["dev", "chain"])?;
     assert!(help.contains("dump"), "dev chain help should show 'dump'");
     assert!(help.contains("clear-invalid"), "dev chain help should show 'clear-invalid'");
@@ -193,14 +195,14 @@ fn dev_chain_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn dev_traces_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
+fn dev_traces_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["dev", "traces"])?;
     assert!(help.contains("dump"), "dev traces help should show 'dump'");
     Ok(())
 }
 
 #[test]
-fn legacy_run_alias_works() -> Result<(), Box<dyn Error>> {
+fn legacy_run_alias_works() -> anyhow::Result<()> {
     let help = amaru_help(&["run"])?;
     assert!(help.contains("--network"), "legacy 'run' should accept --network");
     assert!(help.contains("--listen-address"), "legacy 'run' should accept --listen-address");
@@ -208,42 +210,42 @@ fn legacy_run_alias_works() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn legacy_bootstrap_alias_works() -> Result<(), Box<dyn Error>> {
+fn legacy_bootstrap_alias_works() -> anyhow::Result<()> {
     let help = amaru_help(&["bootstrap"])?;
     assert!(help.contains("--network"), "legacy 'bootstrap' should accept --network");
     Ok(())
 }
 
 #[test]
-fn legacy_reset_to_epoch_alias_works() -> Result<(), Box<dyn Error>> {
+fn legacy_reset_to_epoch_alias_works() -> anyhow::Result<()> {
     let help = amaru_help(&["reset-to-epoch"])?;
     assert!(help.contains("--network"), "legacy 'reset-to-epoch' should accept --network");
     Ok(())
 }
 
 #[test]
-fn legacy_create_snapshots_alias_works() -> Result<(), Box<dyn Error>> {
+fn legacy_create_snapshots_alias_works() -> anyhow::Result<()> {
     let help = amaru_help(&["create-snapshots"])?;
     assert!(help.contains("--network"), "legacy 'create-snapshots' should accept --network");
     Ok(())
 }
 
 #[test]
-fn legacy_dump_chain_db_alias_works() -> Result<(), Box<dyn Error>> {
+fn legacy_dump_chain_db_alias_works() -> anyhow::Result<()> {
     let help = amaru_help(&["dump-chain-db"])?;
     assert!(help.contains("--network"), "legacy 'dump-chain-db' should accept --network");
     Ok(())
 }
 
 #[test]
-fn legacy_migrate_chain_db_alias_works() -> Result<(), Box<dyn Error>> {
+fn legacy_migrate_chain_db_alias_works() -> anyhow::Result<()> {
     let help = amaru_help(&["migrate-chain-db"])?;
     assert!(help.contains("--network"), "legacy 'migrate-chain-db' should accept --network");
     Ok(())
 }
 
 #[test]
-fn node_run_help_matches_legacy_run() -> Result<(), Box<dyn Error>> {
+fn node_run_help_matches_legacy_run() -> anyhow::Result<()> {
     let node_run_help = amaru_help(&["node", "run"])?;
     assert!(node_run_help.contains("--network"), "node run should accept --network");
     assert!(node_run_help.contains("--listen-address"), "node run should accept --listen-address");
@@ -252,7 +254,7 @@ fn node_run_help_matches_legacy_run() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn color_option_accepts_all_variants() -> Result<(), Box<dyn Error>> {
+fn color_option_accepts_all_variants() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
     for variant in &["auto", "always", "never", "on", "off"] {
         let mut command = Command::new(&amaru);
@@ -264,7 +266,7 @@ fn color_option_accepts_all_variants() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn no_short_options_on_dump_chain_db() -> Result<(), Box<dyn Error>> {
+fn no_short_options_on_dump_chain_db() -> anyhow::Result<()> {
     let help = amaru_help(&["dev", "chain", "dump"])?;
     assert!(!help.contains("  -H"), "dump should not have -H short option");
     assert!(!help.contains("  -B"), "dump should not have -B short option");

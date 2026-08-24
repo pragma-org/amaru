@@ -264,14 +264,14 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
 
 pub struct OpenTelemetryHandle {
     pub meter: Meter,
-    pub teardown: Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
+    pub teardown: Box<dyn FnOnce() -> anyhow::Result<()> + Send>,
 }
 
 impl Default for OpenTelemetryHandle {
     fn default() -> Self {
         OpenTelemetryHandle {
             meter: Meter::default(),
-            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
+            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> anyhow::Result<()> + Send>,
         }
     }
 }
@@ -382,12 +382,14 @@ fn teardown_open_telemetry(
     tracing: SdkTracerProvider,
     meter: SdkMeterProvider,
     logs: SdkLoggerProvider,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     // Shut down the providers so that it flushes any remaining spans.
     // The process lifecycle layer applies an outer timeout around this teardown.
-    tracing.shutdown()?;
-    meter.shutdown()?;
-    logs.shutdown()?;
+    use anyhow::Context as _;
+
+    tracing.shutdown().context("failed to shutdown OpenTelemetry tracer provider")?;
+    meter.shutdown().context("failed to shutdown OpenTelemetry meter provider")?;
+    logs.shutdown().context("failed to shutdown OpenTelemetry log provider")?;
 
     Ok(())
 }
@@ -498,7 +500,14 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
                     info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false);
                 }) as Box<dyn FnOnce()>,
                 _ => Box::new(move || {
-                    warn!(setup::trace::FILTER, var, value = fallback, provided_by_user = true, provided_invalid = true, error = %e);
+                    warn!(
+                        setup::trace::FILTER,
+                        var,
+                        value = fallback,
+                        provided_by_user = true,
+                        provided_invalid = true,
+                        error = e.to_string()
+                    );
                 }) as Box<dyn FnOnce()>,
             };
 

@@ -109,7 +109,7 @@ fn proposed_in(record: &TelemetryRecord) -> Option<u64> {
     if ledger::proposal::ACTIVE::matches(&record.target, &record.name) {
         Some(ledger::proposal::ACTIVE::proposed_in(record))
     } else if ledger::proposal::SKIP::matches(&record.target, &record.name) {
-        ledger::proposal::SKIP::proposed_in(record).and_then(|value| value.parse().ok())
+        ledger::proposal::SKIP::proposed_in(record)
     } else {
         None
     }

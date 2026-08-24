@@ -16,7 +16,10 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{EraHistory, Header, HeaderHash, IsHeader, Point, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{
+    EraHistory, Header, HeaderHash, IsHeader, Point, cardano::network_block::EncodedTestBlock, make_header,
+    make_header_with_op_cert_seq,
+};
 use amaru_ouroboros_traits::{
     BaseReadChainStore, MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools,
     in_memory_chain_store::InMemoryChainStore,
@@ -64,12 +67,14 @@ pub struct HeaderTree {
 
 impl HeaderTree {
     pub fn new() -> Self {
-        let h0 = make_header(1, 1, None);
-        let h1 = make_header(2, 2, Some(h0.hash()));
-        let h2 = make_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
-        let h3 = make_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
-        let h2a = make_header(3, 10, Some(h1.hash()));
-        let h3a = make_header(4, 11, Some(h2a.hash()));
+        let era = EraHistory::default();
+        let encode = |seed: Header| EncodedTestBlock::from_seed(&seed, &era).header;
+        let h0 = encode(make_header(1, 1, None));
+        let h1 = encode(make_header(2, 2, Some(h0.hash())));
+        let h2 = encode(make_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1));
+        let h3 = encode(make_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1));
+        let h2a = encode(make_header(3, 10, Some(h1.hash())));
+        let h3a = encode(make_header(4, 11, Some(h2a.hash())));
         Self { h0, h1, h2, h3, h2a, h3a }
     }
 
@@ -111,8 +116,8 @@ impl TestPrep {
 
     pub fn store_blocks(&self, headers: &[&Header]) {
         for h in headers {
-            let raw = amaru_kernel::cardano::network_block::make_encoded_block(h, &EraHistory::default());
-            self.store.store_block(&h.hash(), &raw).unwrap();
+            let block = EncodedTestBlock::from_seed(h, &EraHistory::default());
+            self.store.store_block(&block.header.hash(), &block.raw).unwrap();
         }
     }
 
