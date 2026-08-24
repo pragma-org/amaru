@@ -485,16 +485,17 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 /// Fields are validated against the schema like span fields: required fields
 /// must be present, unknown fields are rejected, and plain `field = value`
 /// assignments are type-checked against the declared field type. Transport is
-/// type-driven: primitives use typed `tracing::Value`; other types are CBOR-encoded
-/// via `Serialize`. Explicit `%` / `?` still use Display/Debug.
+/// type-driven from the schema: primitives and `String` use typed `tracing::Value`;
+/// `%` / `?` on the schema type render Display / Debug as text; other types are
+/// CBOR-encoded via `Serialize`. Call sites may use shorthand (`field`) and `@expr`
+/// for a ready-made `tracing::Value`.
 ///
 /// # Syntax
 ///
 /// ```text
-/// trace_event!(LEVEL, SCHEMA, field = value, ...);   // type-checked, typed or CBOR
-/// trace_event!(LEVEL, SCHEMA, field = value, ...);  // pre-formatted, Display-rendered
-/// trace_event!(LEVEL, SCHEMA, field = value, ...);  // pre-formatted, Debug-rendered
-/// trace_event!(LEVEL, SCHEMA, value, value, value) // shorthands for the above
+/// trace_event!(LEVEL, SCHEMA, field = value, ...);  // schema-typed (primitive, Display, or CBOR)
+/// trace_event!(LEVEL, SCHEMA, field = @value, ...); // Value passthrough (incl. field::Empty)
+/// trace_event!(LEVEL, SCHEMA, field, @field)        // shorthands for the above
 /// ```
 ///
 /// # Example

@@ -229,3 +229,52 @@ impl ProcessingFailed {
         Self { peer: None, error }
     }
 }
+
+#[cfg(test)]
+mod logged_error_text {
+    use amaru_kernel::{BlockHeight, Hash, Point, Slot};
+
+    use super::{ConsensusError, HeaderSlotTooFarInFuture};
+    use crate::{store::NoncesError, validate_header::ValidateHeaderError};
+
+    fn sample_point(height: u64) -> Point {
+        Point::Specific(Slot::from(42), Hash::new([0xabu8; 32]), BlockHeight::from(height))
+    }
+
+    /// Header-lifecycle traces stringify `ConsensusError` because the schema lives in
+    /// `amaru-observability` and cannot name this crate's error enum. Display must still
+    /// carry the point and the distinguishing numbers so the log line is usable.
+    #[test]
+    fn header_clock_skew_display_includes_point_and_delta() {
+        let actual = sample_point(7);
+        let error = ConsensusError::HeaderSlotTooFarInFuture(Box::new(HeaderSlotTooFarInFuture {
+            actual,
+            parent: Point::Origin,
+            highest: Point::Origin,
+            onset_millis: 1_000,
+            elapsed_millis: 100,
+            delta_millis: 900,
+            max_skew_millis: 2_000,
+        }));
+
+        let text = error.to_string();
+        assert!(text.contains(&actual.to_string()), "display must include the header point: {text}");
+        assert!(text.contains("900ms"), "display must include the skew delta: {text}");
+    }
+
+    /// Same check for a variant that wraps another error type (not only a boxed payload).
+    #[test]
+    fn nested_header_validation_display_includes_point_and_inner_error() {
+        let actual = sample_point(7);
+        let header = actual.hash();
+        let inner = ValidateHeaderError::Nonces(NoncesError::UnknownHeader { header });
+        let error = ConsensusError::InvalidHeader(actual, Box::new(inner));
+
+        let text = error.to_string();
+        assert!(text.contains(&actual.to_string()), "display must include the header point: {text}");
+        assert!(text.contains(&header.to_string()), "display must include the inner unknown-header hash: {text}");
+        assert!(text.contains("evolve_nonce failed"), "display must include the inner error: {text}");
+        assert!(text.contains("evolve_nonce failed"), "display must include the inner error: {text}");
+        assert!(text.contains("unknown header"), "display must include the inner error: {text}");
+    }
+}

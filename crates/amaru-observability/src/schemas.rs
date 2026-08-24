@@ -379,7 +379,7 @@ define_schemas! {
                 script {
                     /// A single script execution, with the associated redeemer qualifiers
                     public EXECUTE {
-                        required purpose: String
+                        required purpose: %amaru_kernel::RedeemerTag
                         required index: u32
                         optional acquire_arena_micros: u64
                         optional decode_script_micros: u64
@@ -655,9 +655,9 @@ define_schemas! {
                 }
                 /// Skip a governance proposal during ratification
                 public SKIP {
-                    required id: String
+                    required id: %amaru_kernel::ProposalId
                     required reason: String
-                    optional proposed_in: String
+                    optional proposed_in: amaru_kernel::Epoch
                     optional ratifying_epoch: amaru_kernel::Epoch
                     optional withdrawal: amaru_kernel::Lovelace
                     optional treasury: amaru_kernel::Lovelace
@@ -813,8 +813,8 @@ define_schemas! {
             fetch {
                 /// Received a rollback while fetching bootstrap headers
                 public ROLLBACK {
-                    required point: String
-                    required tip: String
+                    required point: %amaru_kernel::NetworkPoint
+                    required tip: amaru_kernel::Point
                 }
             }
             governance_activity {

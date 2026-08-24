@@ -171,4 +171,17 @@ mod tests {
             Epoch::from(epoch)
         }
     }
+
+    #[cfg(test)]
+    mod serde_format {
+        use super::*;
+
+        #[test]
+        fn json_is_bare_number() {
+            let epoch = Epoch::new(42);
+            let json = serde_json::to_string(&epoch).expect("json");
+            assert_eq!(json, "42");
+            assert_eq!(epoch, serde_json::from_str::<Epoch>(&json).expect("parse"));
+        }
+    }
 }

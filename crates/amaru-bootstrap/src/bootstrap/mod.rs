@@ -38,7 +38,7 @@ use tokio::{fs as async_fs, time::timeout};
 use zstd::Decoder as ZstdDecoder;
 
 mod chain_sync_client;
-use chain_sync_client::ChainSyncClient;
+use chain_sync_client::{ChainSyncClient, from_pallas_point, from_pallas_tip};
 
 use crate::{
     aws::{AnonymousS3Client, S3Config},
@@ -288,7 +288,9 @@ async fn fetch_headers_from_point(
                 }
             }
             NextResponse::RollBackward(point, tip) => {
-                info!(bootstrap::fetch::ROLLBACK, point = format!("{point:?}"), tip = format!("{tip:?}"));
+                let point = from_pallas_point(&point);
+                let tip = from_pallas_tip(&tip);
+                info!(bootstrap::fetch::ROLLBACK, point, tip);
             }
             NextResponse::Await => continue,
         }

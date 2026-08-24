@@ -90,7 +90,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `point` | `string` | ✓ |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 
 </details>
 
@@ -982,7 +982,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `id` | `string` | ✓ |
 | `reason` | `string` | ✓ |
-| `proposed_in` | `string` |  |
+| `proposed_in` | `integer` |  |
 | `ratifying_epoch` | `integer` |  |
 | `withdrawal` | `integer` |  |
 | `treasury` | `integer` |  |

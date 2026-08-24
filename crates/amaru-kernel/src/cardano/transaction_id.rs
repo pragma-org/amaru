@@ -80,3 +80,17 @@ impl<'b> cbor::Decode<'b, ()> for TransactionId {
         d.decode_with(ctx).map(Self)
     }
 }
+
+#[cfg(test)]
+mod serde_format {
+    use super::*;
+    use crate::Hash;
+
+    #[test]
+    fn json_is_inner_hash_hex_string() {
+        let id = TransactionId::new(Hash::new([0xabu8; 32]));
+        let json = serde_json::to_string(&id).expect("json");
+        assert_eq!(json, format!("\"{id}\""));
+        assert_eq!(id, serde_json::from_str::<TransactionId>(&json).expect("parse"));
+    }
+}
