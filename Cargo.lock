@@ -527,6 +527,7 @@ dependencies = [
  "opentelemetry",
  "proc-macro2",
  "quote",
+ "schemars 0.8.22",
  "serde",
  "syn 3.0.3",
  "tokio",

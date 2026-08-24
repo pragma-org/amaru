@@ -505,7 +505,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `point` | `string` | ✓ |
+| `point` | `array` | ✓ |
 
 </details>
 
@@ -609,7 +609,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `from_chunk` | `integer` | ✓ |
 
 </details>
@@ -839,7 +839,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `step` | `string` | ✓ |
 | `error` | `string` | ✓ |
 
@@ -849,7 +849,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `step` | `string` | ✓ |
 | `error` | `string` | ✓ |
 
@@ -860,7 +860,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `role` | `string` | ✓ |
-| `tip` | `string` |  |
+| `tip` | `array` |  |
 
 </details>
 
@@ -868,8 +868,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `failed_tip` | `string` | ✓ |
-| `parent` | `string` | ✓ |
+| `failed_tip` | `array` | ✓ |
+| `parent` | `array` | ✓ |
 | `error` | `string` | ✓ |
 | `detail` | `string` | ✓ |
 
@@ -879,7 +879,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `invariant` | `string` | ✓ |
 
 </details>
@@ -908,8 +908,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `current` | `string` | ✓ |
-| `parent` | `string` | ✓ |
+| `current` | `array` | ✓ |
+| `parent` | `array` | ✓ |
 
 </details>
 
@@ -917,9 +917,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
-| `current` | `string` | ✓ |
-| `parent` | `string` | ✓ |
+| `tip` | `array` | ✓ |
+| `current` | `array` | ✓ |
+| `parent` | `array` | ✓ |
 
 </details>
 
@@ -934,7 +934,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `point` | `string` | ✓ |
+| `point` | `array` | ✓ |
 
 </details>
 
@@ -982,8 +982,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
-| `parent` | `string` | ✓ |
+| `tip` | `array` | ✓ |
+| `parent` | `array` | ✓ |
 
 </details>
 
@@ -999,8 +999,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `actual` | `string` | ✓ |
-| `expected` | `string` |  |
+| `actual` | `array` | ✓ |
+| `expected` | `array` |  |
 
 </details>
 
@@ -1017,7 +1017,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `from` | `string` | ✓ |
+| `from` | `array` | ✓ |
 | `to` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 
@@ -1062,9 +1062,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `reason` | `string` | ✓ |
-| `previous` | `string` |  |
+| `previous` | `array` |  |
 
 </details>
 
@@ -1080,7 +1080,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `point` | `string` | ✓ |
+| `point` | `array` | ✓ |
 | `header_hash` | `string` | ✓ |
 
 </details>
@@ -1098,7 +1098,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `intersection_slot` | `string` | ✓ |
+| `intersection_slot` | `integer` | ✓ |
 
 </details>
 
@@ -1116,7 +1116,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `role` | `string` | ✓ |
 | `header_hash` | `string` | ✓ |
-| `tip` | `string` |  |
+| `tip` | `array` |  |
 
 </details>
 
@@ -1125,9 +1125,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `outcome` | `string` | ✓ |
-| `point` | `string` | ✓ |
-| `best_tip` | `string` | ✓ |
-| `parent` | `string` |  |
+| `point` | `array` | ✓ |
+| `best_tip` | `array` | ✓ |
+| `parent` | `array` |  |
 
 </details>
 
@@ -1135,7 +1135,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `point` | `string` | ✓ |
+| `point` | `array` | ✓ |
 | `valid` | `boolean` | ✓ |
 | `header_hash` | `string` | ✓ |
 
@@ -1145,7 +1145,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `header_hash` | `string` | ✓ |
 
 </details>
@@ -1163,9 +1163,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `outcome` | `string` | ✓ |
-| `parent` | `string` |  |
+| `parent` | `array` |  |
 
 </details>
 
@@ -1173,9 +1173,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 | `reason` | `string` | ✓ |
-| `parent` | `string` |  |
+| `parent` | `array` |  |
 
 </details>
 
@@ -1242,8 +1242,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
 | `conn_id` | `integer` | ✓ |
-| `current` | `string` | ✓ |
-| `highest` | `string` | ✓ |
+| `current` | `array` | ✓ |
+| `highest` | `array` | ✓ |
 
 </details>
 
@@ -1252,7 +1252,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `highest` | `string` | ✓ |
+| `highest` | `array` | ✓ |
 
 </details>
 
@@ -1270,8 +1270,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `current` | `string` | ✓ |
-| `highest` | `string` | ✓ |
+| `current` | `array` | ✓ |
+| `highest` | `array` | ✓ |
 
 </details>
 
@@ -1298,8 +1298,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `current` | `string` | ✓ |
-| `highest` | `string` | ✓ |
+| `current` | `array` | ✓ |
+| `highest` | `array` | ✓ |
 
 </details>
 
@@ -2321,7 +2321,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tip` | `string` | ✓ |
+| `tip` | `array` | ✓ |
 
 </details>
 
@@ -2680,15 +2680,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | peer, role |  |
-| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | peer, role, operation, error |  |
+| `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | role, peer |  |
+| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | role, peer, operation, error |  |
 
 <details><summary>span: `empty_segment`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `peer` | `string` | ✓ |
 | `role` | `string` | ✓ |
+| `peer` | `string` | ✓ |
 
 </details>
 
@@ -2696,8 +2696,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `peer` | `string` | ✓ |
 | `role` | `string` | ✓ |
+| `peer` | `string` | ✓ |
 | `operation` | `string` | ✓ |
 | `error` | `string` | ✓ |
 

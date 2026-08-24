@@ -145,6 +145,12 @@
 //! - all other types must implement `Serialize` and `JsonSchema` and are encoded as CBOR
 //!   (`record_bytes`).
 //!
+//! Declare the **owned** type (or a slice `[T]`) on the schema. Call sites pass `T`, `&T`,
+//! or another [`std::borrow::Borrow`] wrapper; the expansion borrows with `&($expr)`
+//! and does not clone. Slice fields `[T]` accept `Vec<T>`, `[T; N]`, and `&[T]`.
+//! `String` fields accept `String` and `&str` and record with `record_str` (no `to_owned`).
+//! [`AsRef`] is not used for typed fields because it is not reflexive.
+//!
 //! Call sites may use tracing-style shorthand (`field`) and `@expr` for a ready-made
 //! `tracing::Value`. `%` / `?` at the call site are rejected.
 //!

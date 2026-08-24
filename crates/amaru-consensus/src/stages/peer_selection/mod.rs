@@ -343,7 +343,7 @@ impl PeerSelection {
         if let Some(peer_state) = self.inbound_peers.remove(&peer) {
             warn!(
                 protocols::peer_selection::peer::REMOVED,
-                peer = &peer,
+                peer,
                 direction = "inbound",
                 peer_state = format!("{peer_state:?}"),
                 is_static
@@ -354,7 +354,7 @@ impl PeerSelection {
         if let Some(peer_state) = self.outbound_peers.remove(&peer) {
             warn!(
                 protocols::peer_selection::peer::REMOVED,
-                peer = &peer,
+                peer,
                 direction = "outbound",
                 peer_state = format!("{peer_state:?}"),
                 is_static
@@ -433,7 +433,7 @@ impl PeerSelection {
             if self.outbound_peers.contains_key(&peer) {
                 continue;
             }
-            info!(protocols::peer_selection::peer::ADDED, peer = &peer, was_banned = false);
+            info!(protocols::peer_selection::peer::ADDED, peer, was_banned = false);
             eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
             self.outbound_peers.insert(peer, PeerState::Connecting);
         }
@@ -562,8 +562,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             eff.send(&ledger_check, ()).await;
         }
         PeerSelectionMsg::Adversarial(peer, trace_context) => {
-            debug!(protocols::peer_selection::peer::ADVERSARIAL, peer = &peer);
-            let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer = &peer);
+            debug!(protocols::peer_selection::peer::ADVERSARIAL, peer);
+            let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer);
             state.ban_peer(peer, &eff).instrument(span).await;
         }
         PeerSelectionMsg::CheckCooldowns => {
@@ -584,24 +584,24 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
 
             if !state.outbound_peers.contains_key(&peer) {
-                info!(protocols::peer_selection::peer::ADDED, peer = &peer, was_banned);
+                info!(protocols::peer_selection::peer::ADDED, peer, was_banned);
                 eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
                 state.outbound_peers.insert(peer, PeerState::Connecting);
             } else {
-                info!(protocols::peer_selection::peer::ADD_SKIPPED, peer = &peer, reason = "already_added");
+                info!(protocols::peer_selection::peer::ADD_SKIPPED, peer, reason = "already_added");
             }
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Inbound, advertisable) => {
             let now = eff.clock().await;
             eff.external(Performance::record_advertisability(peer.clone(), advertisable, now)).await;
             if state.inbound_peers.len() >= state.target_downstream_peers {
-                info!(protocols::peer_selection::peer::ADD_SKIPPED, peer = &peer, reason = "too_many_inbound");
+                info!(protocols::peer_selection::peer::ADD_SKIPPED, peer, reason = "too_many_inbound");
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, connection.id)).await;
                 return state;
             }
             let span = debug_span!(
                 amaru::protocols::peer_selection::peer::CONNECTED,
-                peer = &peer,
+                peer,
                 conn_id = connection.id.as_u64(),
                 direction = ConnectionDirection::Inbound,
                 full_duplex_capable = connection.full_duplex_capable,
@@ -612,7 +612,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             if let Some(conn) = old {
                 info!(
                     protocols::peer_selection::peer::RECONNECTED,
-                    peer = &peer,
+                    peer,
                     direction = "inbound",
                     conn_id = conn.id.as_u64()
                 );
@@ -625,7 +625,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             eff.external(Performance::record_advertisability(peer.clone(), advertisable, now)).await;
             let span = debug_span!(
                 amaru::protocols::peer_selection::peer::CONNECTED,
-                peer = &peer,
+                peer,
                 conn_id = connection.id.as_u64(),
                 direction = ConnectionDirection::Outbound,
                 full_duplex_capable = connection.full_duplex_capable,
@@ -636,7 +636,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             let disconnect_old = if let Some(PeerState::Connected(conn)) = old {
                 warn!(
                     protocols::peer_selection::peer::RECONNECTED,
-                    peer = &peer,
+                    peer,
                     direction = "outbound",
                     conn_id = conn.id.as_u64()
                 );
@@ -658,7 +658,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             {
                 let _span = debug_span!(
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
-                    peer = &peer,
+                    peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Inbound,
                 )
@@ -678,7 +678,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             {
                 let _span = debug_span!(
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
-                    peer = &peer,
+                    peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Outbound,
                 )
@@ -694,7 +694,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             {
                 let span = debug_span!(
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
-                    peer = &peer,
+                    peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Outbound,
                 )

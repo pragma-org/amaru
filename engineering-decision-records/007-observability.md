@@ -82,9 +82,11 @@ Each schema declares:
 - **Optional fields**: Supplementary context that can be recorded later
 - **Rendering**: an optional `%` (`Display`) or `?` (`Debug`) prefix on the type. Unprefixed
   primitives and `String` use typed `tracing::Value`; other unprefixed types must implement
-  `Serialize + JsonSchema` and are encoded as CBOR. Call sites may use tracing-style shorthand
-  (`field`) and `@expr` for a ready-made `tracing::Value`; `%` / `?` belong on the schema, not
-  the call site.
+  `Serialize + JsonSchema` and are encoded as CBOR. Declare the owned type (or a slice `[T]`)
+  on the schema; call sites pass `T`, `&T`, or another `Borrow<T>` wrapper and are borrowed
+  (`String` accepts `String` and `&str` with no extra clone). Shorthand (`field`) and `@expr`
+  for a ready-made `tracing::Value` are allowed; `%` / `?` belong on the schema, not the call
+  site.
 
 ##### Tags
 
@@ -107,7 +109,7 @@ Note that even though the schema compilation generates full names like `amaru_ob
 
 ```rust
 fn evolve_nonce(&self, hash: String) -> Result<Nonce, ConsensusError> {
-    let span = debug_span!(consensus::header::EVOLVE_NONCE, hash = &hash);
+    let span = debug_span!(consensus::header::EVOLVE_NONCE, hash);
     let _guard = span.enter();
 
     // function body

@@ -55,6 +55,23 @@ impl BufferWriter {
     }
 }
 
+/// Capture test logs with the product console stack (EDR-033).
+///
+/// CBOR `record_bytes` payloads (hashes, points, …) decode to typed values; byte strings
+/// render as lowercase hex instead of a raw CBOR array.
+pub fn install_test_log_capture(writer: BufferWriter) -> BufferWriter {
+    let mut logs = writer.clone();
+    let sub = tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .with_ansi(false)
+        .event_format(CborConsoleEventFormat::new().with_ansi(false))
+        .fmt_fields(console_field_formatter())
+        .with_writer(move || writer.clone())
+        .set_default();
+    logs.set_guard(sub);
+    logs
+}
+
 /// Parsed log entries extracted from a [`BufferWriter`], with level-aware assertion helpers.
 pub struct Logs {
     entries: Vec<LogEntry>,
@@ -300,19 +317,7 @@ where
     F: FnOnce(&Resources),
     G: FnOnce(&mut SimulationRunning),
 {
-    let writer = BufferWriter::new();
-    let mut logs = writer.clone();
-
-    // Use the CBOR-aware console stack (EDR-033) so schema events render their typed fields
-    // as readable values instead of raw CBOR byte arrays.
-    let sub = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_ansi(false)
-        .event_format(CborConsoleEventFormat::new().with_ansi(false))
-        .fmt_fields(console_field_formatter())
-        .with_writer(move || writer.clone())
-        .set_default();
-    logs.set_guard(sub);
+    let logs = install_test_log_capture(BufferWriter::new());
 
     let since_network_start = start_in_era().relative_time;
     let network = SimulationBuilder::default()

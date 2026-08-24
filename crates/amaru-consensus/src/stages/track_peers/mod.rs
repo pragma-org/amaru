@@ -728,7 +728,7 @@ impl TrackPeers {
             None => {
                 debug!(
                     consensus::chainsync::ROLL_FORWARD_DONE,
-                    peer = &peer,
+                    peer,
                     current,
                     highest = tip,
                     outcome = "already_stored"
@@ -776,13 +776,7 @@ impl TrackPeers {
                     slot_start_to_header_micros,
                 ))
                 .await;
-                debug!(
-                    consensus::chainsync::ROLL_FORWARD_DONE,
-                    peer = &peer,
-                    current,
-                    highest = tip,
-                    outcome = "stored"
-                );
+                debug!(consensus::chainsync::ROLL_FORWARD_DONE, peer, current, highest = tip, outcome = "stored");
                 eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context }).await;
             }
         }
@@ -807,27 +801,27 @@ impl TrackPeers {
                 let had_state =
                     self.upstream.contains_key(&conn_id) || self.deferred.iter().any(|d| d.conn_id == conn_id);
                 if had_state {
-                    warn!(consensus::chainsync::REINITIALIZED, peer = &peer, conn_id = conn_id.as_u64());
+                    warn!(consensus::chainsync::REINITIALIZED, peer, conn_id = conn_id.as_u64());
                     self.purge_connection(conn_id);
                 }
-                info!(consensus::chainsync::INITIALIZED, peer = &peer, conn_id = conn_id.as_u64());
+                info!(consensus::chainsync::INITIALIZED, peer, conn_id = conn_id.as_u64());
                 self.upstream.insert(conn_id, PerPeer::Connecting { peer });
             }
             Terminated => {
-                info!(consensus::chainsync::TERMINATED, peer = &peer, conn_id = conn_id.as_u64());
+                info!(consensus::chainsync::TERMINATED, peer, conn_id = conn_id.as_u64());
                 self.purge_connection(conn_id);
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
             IntersectFound(current, tip) => {
                 let current_tip = Store::new(eff.clone()).load_point(&current.hash()).await;
                 let Some(current_tip) = current_tip else {
-                    warn!(consensus::chainsync::UNKNOWN_INTERSECTION_POINT, peer = &peer, current, highest = tip);
+                    warn!(consensus::chainsync::UNKNOWN_INTERSECTION_POINT, peer, current, highest = tip);
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
                 info!(
                     consensus::chainsync::INTERSECT_FOUND,
-                    peer = &peer,
+                    peer,
                     conn_id = conn_id.as_u64(),
                     current = current_tip,
                     highest = tip
@@ -837,18 +831,18 @@ impl TrackPeers {
                 self.upstream.insert(conn_id, PerPeer::Established { peer, current: current_tip, highest: tip });
             }
             IntersectNotFound(tip) => {
-                info!(consensus::chainsync::INTERSECT_NOT_FOUND, peer = &peer, highest = tip);
+                info!(consensus::chainsync::INTERSECT_NOT_FOUND, peer, highest = tip);
                 eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                 self.purge_connection(conn_id);
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
             RollForward(header_content, tip) => {
-                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip, peer = &peer);
+                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip, peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
                     trace!(
                         consensus::chainsync::ROLL_FORWARD,
-                        peer = &peer,
+                        peer,
                         variant = header_content.variant.as_str(),
                         highest = tip
                     );
@@ -938,8 +932,8 @@ impl TrackPeers {
                 .await
             }
             RollBackward(current, tip) => {
-                info!(consensus::chainsync::ROLL_BACKWARD, peer = &peer, current, highest = tip);
-                let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer = &peer);
+                info!(consensus::chainsync::ROLL_BACKWARD, peer, current, highest = tip);
+                let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
@@ -956,7 +950,7 @@ impl TrackPeers {
                             eff.external(Performance::record_rollback(peer, current_tip, parent, now)).await;
                         }
                         Err(error) => {
-                            error!(consensus::chainsync::ROLL_BACKWARD_FAILED, peer = &peer, error = error.to_string());
+                            error!(consensus::chainsync::ROLL_BACKWARD_FAILED, peer, error = error.to_string());
                             self.purge_connection(conn_id);
                             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
                         }

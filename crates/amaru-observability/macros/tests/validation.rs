@@ -79,7 +79,7 @@ mod required_fields {
     fn all_required(block_body_hash: String, block_number: u64, block_body_size: u64) {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
-            block_body_hash = &block_body_hash,
+            block_body_hash,
             block_number,
             block_body_size
         );
@@ -89,7 +89,7 @@ mod required_fields {
     fn required_different_order(block_body_size: u64, block_body_hash: String, block_number: u64) {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
-            block_body_hash = &block_body_hash,
+            block_body_hash,
             block_number,
             block_body_size
         );
@@ -99,7 +99,7 @@ mod required_fields {
     fn required_plus_optional(block_body_hash: String, block_number: u64, block_body_size: u64, total_inputs: u64) {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
-            block_body_hash = &block_body_hash,
+            block_body_hash,
             block_number,
             block_body_size,
             total_inputs
@@ -196,7 +196,7 @@ mod custom_expressions {
     }
 
     fn normal_parameter(hash: String) {
-        let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+        let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash);
         let _guard = _span.enter();
     }
 
@@ -245,7 +245,7 @@ mod extra_params {
     ) {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
-            block_body_hash = &block_body_hash,
+            block_body_hash,
             block_number,
             block_body_size
         );
@@ -262,7 +262,7 @@ mod extra_params {
     ) {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
-            block_body_hash = &block_body_hash,
+            block_body_hash,
             block_number,
             block_body_size
         );
@@ -324,12 +324,12 @@ mod namespace_paths {
     use super::*;
 
     fn network_namespace(peer: String, intersection_slot: u64) {
-        let _span = trace_span!(crate::network::chainsync_client::FIND_INTERSECTION, peer = &peer, intersection_slot);
+        let _span = trace_span!(crate::network::chainsync_client::FIND_INTERSECTION, peer, intersection_slot);
         let _guard = _span.enter();
     }
 
     fn consensus_namespace(hash: String) {
-        let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+        let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash);
         let _guard = _span.enter();
     }
 

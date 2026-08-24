@@ -315,14 +315,10 @@ impl Manager {
         let state = self.peers.entry(peer.clone()).or_default();
         match &state.outbound {
             OutboundState::Connected { .. } | OutboundState::Scheduled { .. } => {
-                info!(
-                    protocols::manager::peer::CONNECT_DISCARDED,
-                    peer = &peer,
-                    reason = "already_connected_or_scheduled"
-                );
+                info!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "already_connected_or_scheduled");
             }
             OutboundState::None => {
-                info!(protocols::manager::peer::CONNECT, peer = &peer);
+                info!(protocols::manager::peer::CONNECT, peer);
                 state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
                 self.connect(peer, true, eff).await;
             }
@@ -332,14 +328,14 @@ impl Manager {
     async fn connect(&mut self, peer: Peer, immediate: bool, eff: &Effects<ManagerMessage>) {
         let (has_inbound, attempts) = match self.peers.get_mut(&peer) {
             Some(PeerState { outbound: OutboundState::Connected { .. }, .. }) => {
-                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer = &peer, reason = "already_connected");
+                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "already_connected");
                 return;
             }
             Some(PeerState { outbound: OutboundState::Scheduled { retries }, inbound, .. }) => {
                 (inbound.is_some(), retries)
             }
             None | Some(PeerState { outbound: OutboundState::None, .. }) => {
-                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer = &peer, reason = "not_added");
+                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "not_added");
                 return;
             }
         };
@@ -352,7 +348,7 @@ impl Manager {
             let delay = if immediate { Duration::ZERO } else { self.config.reconnect_delay };
             eff.send(&self.connector, connector::ConnectorMsg::Connect { peer, delay }).await;
         } else {
-            info!(protocols::manager::peer::CONNECT_EXHAUSTED, peer = &peer);
+            info!(protocols::manager::peer::CONNECT_EXHAUSTED, peer);
             if !has_inbound {
                 self.peers.remove(&peer);
             } else if let Some(state) = self.peers.get_mut(&peer) {
@@ -370,11 +366,11 @@ impl Manager {
     ) {
         match result {
             Ok(conn_id) => {
-                info!(protocols::manager::peer::CONNECTED, peer = &peer, conn_id = conn_id.as_u64());
+                info!(protocols::manager::peer::CONNECTED, peer, conn_id = conn_id.as_u64());
                 self.start_connection_stage(eff, peer, conn_id, ConnectionDirection::Outbound).await;
             }
             Err(err) => {
-                info!(protocols::manager::peer::CONNECT_FAILED, peer = &peer, error = err.to_string());
+                info!(protocols::manager::peer::CONNECT_FAILED, peer, error = err.to_string());
                 self.connect(peer, false, eff).await;
             }
         }
@@ -460,7 +456,7 @@ impl Manager {
         };
         info!(
             protocols::manager::peer::HANDSHAKE_COMPLETED,
-            peer = &peer,
+            peer,
             conn_id = conn_id.as_u64(),
             full_duplex_capable,
             full_duplex,
@@ -509,7 +505,7 @@ impl Manager {
                 },
             );
         } else {
-            info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer = &peer, conn_id = conn_id.as_u64());
+            info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer, conn_id = conn_id.as_u64());
             eff.send(&stage, ConnectionMessage::Disconnect).await;
         }
     }
@@ -517,16 +513,11 @@ impl Manager {
     #[expect(clippy::expect_used)]
     async fn remove_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
         let Some(entry) = self.peers.remove(&peer) else {
-            info!(protocols::manager::peer::DISCONNECT_IGNORED, peer = &peer, reason = "not_connected");
+            info!(protocols::manager::peer::DISCONNECT_IGNORED, peer, reason = "not_connected");
             return;
         };
         if let Some(conn_id) = entry.inbound {
-            info!(
-                protocols::manager::peer::DISCONNECTING,
-                peer = &peer,
-                conn_id = conn_id.as_u64(),
-                direction = "inbound"
-            );
+            info!(protocols::manager::peer::DISCONNECTING, peer, conn_id = conn_id.as_u64(), direction = "inbound");
             let connection = self.connections.remove(&conn_id).expect("PeerState implies Connection");
             eff.send(
                 &self.peer_selection,
@@ -541,12 +532,7 @@ impl Manager {
             eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
         }
         if let OutboundState::Connected { conn_id } = entry.outbound {
-            info!(
-                protocols::manager::peer::DISCONNECTING,
-                peer = &peer,
-                conn_id = conn_id.as_u64(),
-                direction = "outbound"
-            );
+            info!(protocols::manager::peer::DISCONNECTING, peer, conn_id = conn_id.as_u64(), direction = "outbound");
             let connection = self.connections.remove(&conn_id).expect("PeerState implies Connection");
             eff.send(
                 &self.peer_selection,
@@ -566,7 +552,7 @@ impl Manager {
         // this is needed to clean up the socket in case the connection stage errored out
         close_connection(eff, &peer, conn_id).await;
         let Some(peer_state) = self.peers.get_mut(&peer) else {
-            debug!(protocols::manager::peer::DISCONNECT_IGNORED, peer = &peer, reason = "peer_already_removed");
+            debug!(protocols::manager::peer::DISCONNECT_IGNORED, peer, reason = "peer_already_removed");
             return;
         };
         if let Some(Connection { direction, .. }) = self.connections.remove(&conn_id) {
@@ -575,18 +561,10 @@ impl Manager {
                     assert_eq!(peer_state.inbound, Some(conn_id));
                     assert_eq!(role, Role::Responder);
                     if peer_state.outbound == OutboundState::None {
-                        info!(
-                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
-                            peer = &peer,
-                            outcome = "peer_removed"
-                        );
+                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "peer_removed");
                         self.peers.remove(&peer);
                     } else {
-                        info!(
-                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
-                            peer = &peer,
-                            outcome = "kept_for_outbound"
-                        );
+                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "kept_for_outbound");
                         peer_state.inbound = None;
                     }
                 }
@@ -600,11 +578,7 @@ impl Manager {
                     if let Some(oldest) = times[const { MAX_OUTBOUND_DEATHS_TRACKED - 1 }].replace(now)
                         && now.saturating_since(oldest) < self.config.three_strike_window
                     {
-                        info!(
-                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
-                            peer = &peer,
-                            outcome = "retries_suppressed"
-                        );
+                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "retries_suppressed");
                         if peer_state.inbound.is_none() {
                             self.peers.remove(&peer);
                         } else {
@@ -612,11 +586,7 @@ impl Manager {
                         }
                         eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer: peer.clone() }).await;
                     } else {
-                        info!(
-                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
-                            peer = &peer,
-                            outcome = "reconnect_scheduled"
-                        );
+                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "reconnect_scheduled");
                         peer_state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
                         self.connect(peer.clone(), false, eff).await;
                     }
@@ -631,7 +601,7 @@ impl Manager {
             // pre-handshake death (no entry was inserted to connections, and no Connected notify was sent)
             debug!(
                 protocols::manager::peer::DISCONNECT_IGNORED,
-                peer = &peer,
+                peer,
                 reason = "before_handshake",
                 conn_id = conn_id.as_u64()
             );
@@ -692,7 +662,7 @@ impl Manager {
         eff: &Effects<ManagerMessage>,
     ) {
         let Some(conn) = self.connections.values().find(|c| c.may_initiate && c.peer == peer) else {
-            debug!(protocols::manager::sharing::REQUEST_NO_CONNECTION, peer = &peer);
+            debug!(protocols::manager::sharing::REQUEST_NO_CONNECTION, peer);
             eff.send(&reply_to, ShareResult { peer, peers: Vec::new() }).await;
             return;
         };
@@ -714,21 +684,21 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
     async move {
         match msg {
             ManagerMessage::AddPeer(peer) => {
-                let span = debug_span!(protocols::manager::peer::ADD, peer = &peer);
+                let span = debug_span!(protocols::manager::peer::ADD, peer);
                 manager.add_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Accepted(peer, conn_id) => {
-                let span = debug_span!(protocols::manager::peer::ACCEPTED, peer = &peer, conn_id = conn_id.as_u64());
+                let span = debug_span!(protocols::manager::peer::ACCEPTED, peer, conn_id = conn_id.as_u64());
                 manager.accepted(peer, conn_id, &eff).instrument(span).await;
             }
             ManagerMessage::RemovePeer(peer) => {
-                let span = debug_span!(protocols::manager::peer::REMOVE, peer = &peer);
+                let span = debug_span!(protocols::manager::peer::REMOVE, peer);
                 manager.remove_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Disconnect(peer, conn_id) => {
                 debug!(
                     protocols::manager::peer::DISCONNECTING,
-                    peer = &peer,
+                    peer,
                     conn_id = conn_id.as_u64(),
                     direction = "requested"
                 );
@@ -737,7 +707,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 } else {
                     debug!(
                         protocols::manager::peer::DISCONNECT_IGNORED,
-                        peer = &peer,
+                        peer,
                         reason = "connection_not_found",
                         conn_id = conn_id.as_u64()
                     );
@@ -746,7 +716,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             ManagerMessage::ConnectionDied(peer, conn_id, role) => {
                 let span = debug_span!(
                     protocols::manager::peer::CONNECTION_DIED,
-                    peer = &peer,
+                    peer,
                     conn_id = conn_id.as_u64(),
                     role = role.to_string(),
                 );

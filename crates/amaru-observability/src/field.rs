@@ -24,9 +24,14 @@
 //!   `record_bytes` payload is therefore CBOR. Hash-like types serialize as CBOR **byte
 //!   strings** (JSON serde of those types remains hex via `is_human_readable`).
 //!
+//! Call sites pass `T`, `&T`, or another [`Borrow<T>`] wrapper; the trace macros borrow via
+//! [`as_field_ref`]. (`AsRef<T>` is not reflexive, so it would reject a bare `T`.) `String`
+//! fields accept `String` and `&str` through [`as_str_value`] and are recorded with
+//! `record_str` while the borrow is still live (no extra `to_owned`).
+//!
 //! Downstream layers owned by this crate decode those bytes for human/JSON/OTEL presentation.
 
-use std::fmt::Display;
+use std::{borrow::Borrow, fmt::Display};
 
 use cbor_data::Cbor;
 use opentelemetry::{Array, Key, StringValue, Value as TraceValue, logs::AnyValue};
@@ -48,14 +53,31 @@ pub fn is_tag_field_name(name: &str) -> bool {
     name.starts_with(TAG_FIELD_PREFIX)
 }
 
+/// Borrow a call-site expression as `&T`.
+///
+/// Accepts an owned `T`, a `&T`, and other [`Borrow<T>`] wrappers so a schema can declare
+/// the owned type (or a slice `[T]`) while call sites pass whatever is already on hand
+/// without cloning. Slice fields declared `[T]` therefore accept `Vec<T>`, `[T; N]`, and
+/// `&[T]`.
+///
+/// [`AsRef`] is not used here because it is not reflexive: `T: AsRef<T>` does not hold
+/// for ordinary types such as `u64` or `Peer`, so a call site passing the owned value
+/// would fail to compile.
+#[inline]
+pub fn as_field_ref<T: ?Sized>(value: &(impl Borrow<T> + ?Sized)) -> &T {
+    value.borrow()
+}
+
 /// Serialize `value` as CBOR for transport through `tracing` as `record_bytes`.
 ///
 /// Returns an owned `Box<[u8]>` so the result implements [`tracing::Value`] via
-/// `Box<[u8]>` → `[u8]` → `record_bytes`.
-pub fn encode_cbor<T: Serialize>(value: &T) -> Box<[u8]> {
+/// `Box<[u8]>` → `[u8]` → `record_bytes`. `T` is `?Sized` so slice schema types (`[Peer]`)
+/// can be encoded from `&[Peer]`. The value is passed as `&&T` because cbor4ii requires
+/// `Sized` (a reference is always `Sized`).
+pub fn encode_cbor<T: Serialize + ?Sized>(value: &T) -> Box<[u8]> {
     let mut buf = Vec::new();
     // Encoding failures are treated as empty CBOR null so instrumentation never panics.
-    if cbor4ii::serde::to_writer(&mut buf, value).is_err() {
+    if cbor4ii::serde::to_writer(&mut buf, &value).is_err() {
         // CBOR null
         buf.clear();
         buf.push(0xf6);
@@ -64,6 +86,10 @@ pub fn encode_cbor<T: Serialize>(value: &T) -> Box<[u8]> {
 }
 
 /// Borrow `value` as `str` for typed string field emission (`record_str`).
+///
+/// Accepts `String`, `&str`, and other [`AsRef<str>`] types. Neither case clones: the
+/// subscriber copies the text during `record_str` while this borrow is still live, so
+/// `&str` does not need `to_owned` and an existing `String` is not cloned or moved.
 #[inline]
 pub fn as_str_value<T: AsRef<str> + ?Sized>(value: &T) -> &str {
     value.as_ref()
@@ -415,6 +441,29 @@ mod tests {
         peers: Vec<String>,
         count: u64,
         ok: bool,
+    }
+
+    #[test]
+    fn as_field_ref_accepts_owned_reference_and_slice_wrappers() {
+        let owned = 7u64;
+        assert_eq!(*as_field_ref::<u64>(&owned), 7);
+        assert_eq!(*as_field_ref::<u64>(&&owned), 7);
+
+        let vec = vec![1u32, 2, 3];
+        assert_eq!(as_field_ref::<[u32]>(&vec), &[1, 2, 3]);
+        assert_eq!(as_field_ref::<[u32]>(vec.as_slice()), &[1, 2, 3]);
+        let array = [1u32, 2, 3];
+        assert_eq!(as_field_ref::<[u32]>(&array), &[1, 2, 3]);
+        let encoded = encode_cbor(as_field_ref::<[u32]>(&vec));
+        assert_eq!(cbor_to_json(&encoded).unwrap(), serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn as_str_value_does_not_require_owned_string() {
+        let owned = String::from("hello");
+        assert_eq!(as_str_value(&owned), "hello");
+        assert_eq!(as_str_value("hello"), "hello");
+        assert_eq!(as_str_value(&owned.as_str()), "hello");
     }
 
     #[test]

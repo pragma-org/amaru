@@ -186,7 +186,7 @@ impl State {
                                         protocols::mux::FAILED,
                                         role = role.to_string(),
                                         operation = "send",
-                                        peer = &peer,
+                                        peer,
                                         error = err.to_string()
                                     );
                                 })
@@ -228,7 +228,7 @@ pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessag
             }
             error!(
                 protocols::mux::FAILED,
-                peer = &peer,
+                peer,
                 role = muxer.role().to_string().to_string().to_string().to_string(),
                 operation = "muxing",
                 error = err.to_string()
@@ -307,7 +307,7 @@ async fn read_segment(
                 error!(
                     protocols::mux::FAILED,
                     role = role.to_string(),
-                    peer = &peer,
+                    peer,
                     operation = "recv_header",
                     error = err.to_string()
                 );
@@ -317,7 +317,7 @@ async fn read_segment(
             .or_terminate(&eff, async |err| {
                 error!(
                     protocols::mux::FAILED,
-                    peer = &peer,
+                    peer,
                     role = role.to_string(),
                     operation = "decode_header",
                     error = err.to_string()
@@ -326,7 +326,7 @@ async fn read_segment(
             .await
         else {
             // sending frames without payload data is not explicitly forbidden, so we just ignore them
-            info!(protocols::mux::EMPTY_SEGMENT, peer = &peer, role = role.to_string());
+            info!(protocols::mux::EMPTY_SEGMENT, peer, role = role.to_string());
             continue;
         };
         break header;
@@ -337,7 +337,7 @@ async fn read_segment(
         .or_terminate_with(&eff, async |err| {
             error!(
                 protocols::mux::FAILED,
-                peer = &peer,
+                peer,
                 role = role.to_string(),
                 operation = "recv_data",
                 error = err.to_string()

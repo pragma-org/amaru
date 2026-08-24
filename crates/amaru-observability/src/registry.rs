@@ -72,7 +72,7 @@ pub fn json_schema_boolean() -> Value {
 }
 
 /// JSON Schema of `T` with subschemas inlined, matching the JSON sink form.
-pub fn json_schema_for<T: JsonSchema>() -> Value {
+pub fn json_schema_for<T: JsonSchema + ?Sized>() -> Value {
     let mut settings = SchemaSettings::draft07();
     settings.inline_subschemas = true;
     let root = settings.into_generator().into_root_schema_for::<T>();

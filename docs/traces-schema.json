@@ -829,8 +829,7 @@
           "type": "string"
         },
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         },
         "chain_dir": {
           "type": "string"
@@ -906,8 +905,10 @@
       "type": "object",
       "properties": {
         "new_anchor": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -967,8 +968,10 @@
       "type": "object",
       "properties": {
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -1004,8 +1007,34 @@
       "type": "object",
       "properties": {
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -1045,8 +1074,10 @@
       "type": "object",
       "properties": {
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -1169,8 +1200,34 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "from_chunk": {
           "type": "integer"
@@ -1370,8 +1427,7 @@
           "type": "boolean"
         },
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         },
         "peer_address": {
           "type": "string"
@@ -1730,8 +1786,34 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "step": {
           "type": "string"
@@ -1757,8 +1839,34 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "step": {
           "type": "string"
@@ -1787,8 +1895,34 @@
           "type": "string"
         },
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -1808,12 +1942,64 @@
       "type": "object",
       "properties": {
         "failed_tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "parent": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "error": {
           "type": "string"
@@ -1840,8 +2026,34 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "invariant": {
           "type": "string"
@@ -1863,20 +2075,25 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "expected": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::Hash<32>"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "actual": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::Hash<32>"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -1974,12 +2191,64 @@
       "type": "object",
       "properties": {
         "current": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "parent": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -1998,16 +2267,94 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "current": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "parent": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2027,12 +2374,37 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2051,8 +2423,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "error": {
           "type": "string"
@@ -2092,8 +2463,10 @@
       "type": "object",
       "properties": {
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2111,12 +2484,64 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "parent": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2153,12 +2578,64 @@
       "type": "object",
       "properties": {
         "actual": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "expected": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2181,8 +2658,10 @@
           "type": "string"
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2201,12 +2680,40 @@
       "type": "object",
       "properties": {
         "from": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "to": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "reason": {
           "type": "string"
@@ -2265,15 +2772,67 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "reason": {
           "type": "string"
         },
         "previous": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2324,12 +2883,40 @@
       "type": "object",
       "properties": {
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2366,12 +2953,13 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "intersection_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -2411,12 +2999,40 @@
           "type": "string"
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2440,16 +3056,94 @@
           "type": "string"
         },
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "best_tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "parent": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2471,15 +3165,43 @@
       "type": "object",
       "properties": {
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "valid": {
           "type": "boolean"
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2499,12 +3221,40 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2545,15 +3295,67 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "outcome": {
           "type": "string"
         },
         "parent": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2574,15 +3376,67 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "reason": {
           "type": "string"
         },
         "parent": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2625,12 +3479,16 @@
       "type": "object",
       "properties": {
         "prev_best_chain": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "new_best_chain": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2671,8 +3529,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -2694,19 +3551,70 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
         },
         "current": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "highest": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2727,12 +3635,37 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "highest": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2751,8 +3684,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -2774,16 +3706,67 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "current": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "highest": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -2803,8 +3786,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "error": {
           "type": "string"
@@ -2826,8 +3808,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -2849,16 +3830,67 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "current": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         },
         "highest": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -5263,8 +6295,34 @@
       "type": "object",
       "properties": {
         "tip": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
@@ -5393,8 +6451,10 @@
       "type": "object",
       "properties": {
         "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::HeaderHash"
+          "pattern": "^[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -5447,8 +6507,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -5652,8 +6711,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "error": {
           "type": "string"
@@ -5693,8 +6751,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -5742,8 +6799,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "outcome": {
           "type": "string"
@@ -5765,8 +6821,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -5788,8 +6843,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         }
       },
       "required": [
@@ -5807,8 +6861,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "error": {
           "type": "string"
@@ -5830,8 +6883,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -5857,8 +6909,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -5885,8 +6936,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -5908,8 +6958,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "conn_id": {
           "type": "integer"
@@ -5960,17 +7009,16 @@
     "amaru::protocols::mux::EMPTY_SEGMENT": {
       "type": "object",
       "properties": {
-        "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
-        },
         "role": {
+          "type": "string"
+        },
+        "peer": {
           "type": "string"
         }
       },
       "required": [
-        "peer",
-        "role"
+        "role",
+        "peer"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -5983,11 +7031,10 @@
     "amaru::protocols::mux::FAILED": {
       "type": "object",
       "properties": {
-        "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
-        },
         "role": {
+          "type": "string"
+        },
+        "peer": {
           "type": "string"
         },
         "operation": {
@@ -5998,8 +7045,8 @@
         }
       },
       "required": [
-        "peer",
         "role",
+        "peer",
         "operation",
         "error"
       ],
@@ -6099,8 +7146,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "was_banned": {
           "type": "boolean"
@@ -6122,8 +7168,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "reason": {
           "type": "string"
@@ -6210,8 +7255,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "direction": {
           "type": "string"
@@ -6237,8 +7281,7 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Peer"
+          "type": "string"
         },
         "direction": {
           "type": "string"
@@ -6451,8 +7494,10 @@
       "type": "object",
       "properties": {
         "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
           "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
+          "pattern": "^[0-9a-f]{64}$"
         },
         "outcome": {
           "type": "string"
@@ -6632,8 +7677,7 @@
           "type": "string"
         },
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkPoint"
+          "type": "string"
         },
         "pools": {
           "type": "integer"
@@ -6659,8 +7703,7 @@
           "type": "string"
         },
         "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkPoint"
+          "type": "string"
         },
         "pools": {
           "type": "integer"
@@ -6695,8 +7738,7 @@
       "type": "object",
       "properties": {
         "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
+          "type": "string"
         }
       },
       "required": [

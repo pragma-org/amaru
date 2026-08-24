@@ -96,7 +96,7 @@ pub fn create_validation_context(
 ) -> Result<(), String> {
     let _span = trace_span!(
         crate::ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = &block_body_hash,
+        block_body_hash,
         block_number,
         block_body_size,
         total_inputs
@@ -123,7 +123,7 @@ pub fn roll_forward() -> Result<(), String> {
 
 /// Example 6: Network schema
 pub fn find_intersection(peer: String, intersection_slot: u64) -> Result<(), String> {
-    let _span = trace_span!(crate::network::chainsync_client::FIND_INTERSECTION, peer = &peer, intersection_slot);
+    let _span = trace_span!(crate::network::chainsync_client::FIND_INTERSECTION, peer, intersection_slot);
     let _guard = _span.enter();
     Ok(())
 }
@@ -193,12 +193,8 @@ pub fn create_validation_with_context(
     _context: &str,    // Extra param - ignored (not in schema)
     _debug_mode: bool, // Extra param - ignored (not in schema)
 ) -> Result<(), String> {
-    let _span = trace_span!(
-        crate::ledger::state::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = &block_body_hash,
-        block_number,
-        block_body_size
-    );
+    let _span =
+        trace_span!(crate::ledger::state::CREATE_VALIDATION_CONTEXT, block_body_hash, block_number, block_body_size);
     let _guard = _span.enter();
     Ok(())
 }

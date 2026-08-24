@@ -956,6 +956,10 @@ fn as_str_value_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
     quote! { ::amaru_observability::field::as_str_value }
 }
 
+fn as_field_ref_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
+    quote! { ::amaru_observability::field::as_field_ref }
+}
+
 fn display_string_value_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
     quote! { ::amaru_observability::field::display_string_value }
 }
@@ -980,6 +984,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let macro_export = config.macro_export_attr();
     let encode_cbor = encode_cbor_path(config);
     let as_str_value = as_str_value_path(config);
+    let as_field_ref = as_field_ref_path(config);
     let display_string_value = display_string_value_path(config);
     let serialize_trait = serialize_trait_path(config);
     let json_schema_trait = json_schema_trait_path(config);
@@ -1001,10 +1006,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
                             let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
-                            __amaru_assert_type($expr);
-                            __amaru_assert_display($expr);
+                            __amaru_assert_display(__amaru_v);
                         }};
                     }
                 }
@@ -1012,10 +1016,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
                             let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
-                            __amaru_assert_type($expr);
-                            __amaru_assert_debug($expr);
+                            __amaru_assert_debug(__amaru_v);
                         }};
                     }
                 }
@@ -1026,8 +1029,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
-                            __amaru_assert_type($expr);
+                            let _ = #as_field_ref::<#field_type>($expr);
                         }};
                     }
                 }
@@ -1035,10 +1037,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
-                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait>(_: &T) {}
-                            __amaru_assert_type($expr);
-                            __amaru_assert_serialize($expr);
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
+                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait + ?Sized>(_: &T) {}
+                            __amaru_assert_serialize(__amaru_v);
                         }};
                     }
                 }
@@ -1054,16 +1055,14 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
             match field.transport_kind() {
                 FieldTransportKind::Bool => quote! {
                     (#field_name, $expr:expr, format_typed) => {{
-                        let __amaru_v: &bool = $expr;
-                        *__amaru_v
+                        *#as_field_ref::<bool>($expr)
                     }};
                 },
                 FieldTransportKind::I64 => {
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            *__amaru_v
+                            *#as_field_ref::<#field_type>($expr)
                         }};
                     }
                 }
@@ -1071,8 +1070,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            *__amaru_v
+                            *#as_field_ref::<#field_type>($expr)
                         }};
                     }
                 }
@@ -1080,8 +1078,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            *__amaru_v
+                            *#as_field_ref::<#field_type>($expr)
                         }};
                     }
                 }
@@ -1094,8 +1091,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            #display_string_value(__amaru_v)
+                            #display_string_value(#as_field_ref::<#field_type>($expr))
                         }};
                     }
                 }
@@ -1103,8 +1099,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            ::tracing::field::debug(__amaru_v)
+                            ::tracing::field::debug(#as_field_ref::<#field_type>($expr))
                         }};
                     }
                 }
@@ -1112,8 +1107,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait>(_: &T) {}
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
+                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait + ?Sized>(_: &T) {}
                             __amaru_assert_serialize(__amaru_v);
                             #encode_cbor(__amaru_v)
                         }};

@@ -487,11 +487,12 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 ///
 /// Fields are validated against the schema like span fields: required fields
 /// must be present, unknown fields are rejected, and plain `field = value`
-/// assignments are type-checked against the declared field type. Transport is
-/// type-driven from the schema: primitives and `String` use typed `tracing::Value`;
-/// `%` / `?` on the schema type render Display / Debug as text; other types are
-/// CBOR-encoded via `Serialize`. Call sites may use shorthand (`field`) and `@expr`
-/// for a ready-made `tracing::Value`.
+/// assignments are type-checked against the declared field type (`Borrow<T>` for
+/// owned / slice types, `AsRef<str>` for `String`). Transport is type-driven from
+/// the schema: primitives and `String` use typed `tracing::Value`; `%` / `?` on the
+/// schema type render Display / Debug as text; other types are CBOR-encoded via
+/// `Serialize`. Call sites may use shorthand (`field`) and `@expr` for a ready-made
+/// `tracing::Value`.
 ///
 /// # Syntax
 ///
@@ -588,7 +589,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
                 CallSiteFormatter::Value => {
                     let validate_call = meta.macro_call_stmt(
                         &record_macro_ident,
-                        quote! { #field_name, &#value_ident, validate_event_value },
+                        quote! { #field_name, #value_ident, validate_event_value },
                     );
                     quote! {
                         let #value_ident = &(#expr);
@@ -803,19 +804,19 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             match field.formatter {
                 CallSiteFormatter::Typed => {
                     let format_call =
-                        meta.macro_call_expr(&record_macro_ident, quote! { #field_name, &#value_ident, format_typed });
+                        meta.macro_call_expr(&record_macro_ident, quote! { #field_name, #value_ident, format_typed });
                     quote! {
-                        let #value_ident = #expr;
+                        let #value_ident = &(#expr);
                         let #formatted_ident = #format_call;
                     }
                 }
                 CallSiteFormatter::Value => {
                     let validate_call = meta.macro_call_stmt(
                         &record_macro_ident,
-                        quote! { #field_name, &#value_ident, validate_event_value },
+                        quote! { #field_name, #value_ident, validate_event_value },
                     );
                     quote! {
-                        let #value_ident = #expr;
+                        let #value_ident = &(#expr);
                         #validate_call
                         let #formatted_ident = #value_ident;
                     }

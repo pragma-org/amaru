@@ -201,7 +201,7 @@ where
 }
 
 fn evolve_nonce(hash: String) {
-    let _span = trace_span!(crate::amaru::consensus::header::EVOLVE_NONCE, hash = &hash);
+    let _span = trace_span!(crate::amaru::consensus::header::EVOLVE_NONCE, hash);
     let _guard = _span.enter();
 }
 
@@ -213,7 +213,7 @@ fn apply_block(point_slot: u64) {
 fn process_block(block_body_hash: String, block_number: u64, block_body_size: u64) {
     let _span = trace_span!(
         crate::amaru::ledger::block::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = &block_body_hash,
+        block_body_hash,
         block_number,
         block_body_size
     );
@@ -223,7 +223,7 @@ fn process_block(block_body_hash: String, block_number: u64, block_body_size: u6
 fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size: u64) {
     let _span = trace_span!(
         crate::amaru::ledger::block::CREATE_VALIDATION_CONTEXT,
-        block_body_hash = &block_body_hash,
+        block_body_hash,
         block_number,
         block_body_size
     );
@@ -241,7 +241,7 @@ fn distinct_formatting(display_value: DistinctFormatting, debug_value: DistinctF
 }
 
 fn roll_forward(peer: String) {
-    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer = &peer);
+    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer);
     let _guard = _span.enter();
 }
 
@@ -253,19 +253,19 @@ fn roll_forward_with_display_expressions(peer: String) {
 fn root_roll_forward(peer: String) {
     let _outer = tracing::debug_span!("outer");
     let _outer_guard = _outer.enter();
-    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer = &peer);
+    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer);
     let _guard = _span.enter();
 }
 
 fn root_roll_forward_with_display_expression(peer: String) {
     let _outer = tracing::debug_span!("outer");
     let _outer_guard = _outer.enter();
-    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer = &peer);
+    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer);
     let _guard = _span.enter();
 }
 
 fn registered_span(_category: String, tip: String) {
-    let _span = trace_span!(crate::amaru::classification::test::REGISTERED_SPAN, tip = &tip);
+    let _span = trace_span!(crate::amaru::classification::test::REGISTERED_SPAN, tip);
     let _guard = _span.enter();
 }
 

@@ -121,10 +121,10 @@ impl BlockSource {
     async fn on_block_received(&mut self, peer: Peer, point: Point, eff: &Effects<BlockSourceMsg>) {
         use BlockValidity::*;
 
-        debug!(consensus::block_source::RECEIVED, peer = &peer, point);
+        debug!(consensus::block_source::RECEIVED, peer, point);
         match self.by_point.get_mut(&point) {
             Some(Invalid(_height)) => {
-                info!(consensus::block_source::KNOWN_INVALID, peer = &peer, point);
+                info!(consensus::block_source::KNOWN_INVALID, peer, point);
                 eff.send(&self.invalid_peer_sink, PeerSelectionMsg::adversarial(peer)).await;
             }
             Some(Pending(_height, peers)) => {
