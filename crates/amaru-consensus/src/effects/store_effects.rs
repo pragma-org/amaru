@@ -59,7 +59,7 @@ pub fn find_best_candidate(store: &dyn ReadChainStore) -> Result<HeaderHash, Con
     }
 
     let best = best_candidate.map(|h| h.hash()).unwrap_or(ORIGIN_HASH);
-    debug_record!(consensus::best_tip_candidate::SEARCH, visited = visited, best_candidate = best);
+    debug_record!(consensus::best_tip_candidate::SEARCH, visited, best_candidate = best);
     Ok(best)
 }
 

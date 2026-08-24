@@ -248,7 +248,7 @@ fn import_accounts(
 
     progress.clear();
 
-    info!(bootstrap::accounts::IMPORT, size = size);
+    info!(bootstrap::accounts::IMPORT, size);
 
     Ok(ImportedAccounts { awaiting_default_deposit, recently_unregistered_accounts, account_len: size })
 }

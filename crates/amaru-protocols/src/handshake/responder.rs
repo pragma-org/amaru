@@ -86,10 +86,7 @@ impl StageState<State, Responder> for HandshakeResponder {
             eff.send(&self.connection, result.clone()).await;
             Ok((Some(result.into()), self))
         }
-        .instrument(debug_span!(
-            protocols::handshake::responder::HANDSHAKE_RESPONDER_STAGE,
-            version_table = version_table
-        ))
+        .instrument(debug_span!(protocols::handshake::responder::HANDSHAKE_RESPONDER_STAGE, version_table))
         .await
     }
 

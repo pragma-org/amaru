@@ -498,7 +498,7 @@ impl SimulationRunning {
         }
         let (name, response) = self.eval_strategy.pick_runnable(&mut self.runnable);
 
-        tracing::debug!(name = %name, "resuming stage");
+        tracing::debug!(%name, "resuming stage");
         self.trace_buffer.lock().push_resume(&name, &response);
 
         let data = self.stages.get_mut(&name).assert_stage("which is not runnable");
@@ -723,7 +723,7 @@ impl SimulationRunning {
             Err(blocked) => return Some(blocked),
         };
 
-        tracing::debug!(runnable = ?self.runnable.iter().map(|r| r.0.as_str()).collect::<Vec<&str>>(), effect = ?effect, "run effect");
+        tracing::debug!(runnable = ?self.runnable.iter().map(|r| r.0.as_str()).collect::<Vec<&str>>(), ?effect, "run effect");
 
         for (name, predicate) in &self.breakpoints {
             if (predicate)(&effect) {
@@ -1701,7 +1701,7 @@ fn simulation_invariants() {
 
     for idx in 0..ops.len() {
         let effect = if idx == 0 { Effect::Receive { at_stage: "stage".into() } } else { sim.effect() };
-        tracing::info!(effect = ?effect, "effect");
+        tracing::info!(?effect, "effect");
         assert!(ops[idx].0(&effect), "effect {effect:?} should match predicate for `{idx}`");
         for (pred, op, name) in &ops {
             if !pred(&effect) {

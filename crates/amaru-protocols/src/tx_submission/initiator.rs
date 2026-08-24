@@ -138,11 +138,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
             };
             Ok((action, self))
         }
-        .instrument(debug_span!(
-            protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE,
-            message_type = message_type,
-            peer = peer
-        ))
+        .instrument(debug_span!(protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE, message_type, peer))
         .await
     }
 
@@ -169,12 +165,7 @@ impl ProtocolState<Initiator> for State {
         let _guard = _span.enter();
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
-                debug!(
-                    protocols::tx_submission::initiator::RECEIVED_REQUEST,
-                    request = "tx_ids_blocking",
-                    ack = ack,
-                    req = req
-                );
+                debug!(protocols::tx_submission::initiator::RECEIVED_REQUEST, request = "tx_ids_blocking", ack, req);
                 (
                     outcome().result(InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes }),
                     State::TxIdsBlocking,
@@ -184,8 +175,8 @@ impl ProtocolState<Initiator> for State {
                 debug!(
                     protocols::tx_submission::initiator::RECEIVED_REQUEST,
                     request = "tx_ids_non_blocking",
-                    ack = ack,
-                    req = req
+                    ack,
+                    req
                 );
                 (
                     outcome().result(InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No }),
@@ -352,7 +343,7 @@ impl TxSubmissionInitiator {
             protocols::tx_submission::initiator::WAIT_FOR_AT_LEAST,
             peer = self.peer,
             seq_no = expected_seq_no.0,
-            req = req
+            req
         );
         eff.send(
             &self.mempool_stage,
@@ -413,12 +404,7 @@ impl TxSubmissionInitiator {
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        debug!(
-            protocols::tx_submission::initiator::RECEIVED_REQUEST,
-            request = "tx_ids_non_blocking",
-            ack = ack,
-            req = req
-        );
+        debug!(protocols::tx_submission::initiator::RECEIVED_REQUEST, request = "tx_ids_non_blocking", ack, req);
         if let Some(cause) = self.check_ack(ack) {
             return terminate(cause);
         }
@@ -476,7 +462,7 @@ impl TxSubmissionInitiator {
     /// Check that `ack` does not exceed the outstanding window.
     fn check_ack(&self, ack: u16) -> Option<TerminationCause> {
         if ack as usize > self.window.len() {
-            warn!(protocols::tx_submission::initiator::OVER_ACKNOWLEDGED, ack = ack, window = self.window.len());
+            warn!(protocols::tx_submission::initiator::OVER_ACKNOWLEDGED, ack, window = self.window.len());
             Some(AckedTooManyTxids.into())
         } else {
             None

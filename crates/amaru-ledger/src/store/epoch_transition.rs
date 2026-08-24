@@ -58,7 +58,7 @@ pub fn pay_rewards<'store>(
                     } else {
                         error!(
                             stores::ledger::overlay::account::GONE,
-                            rewards = rewards,
+                            rewards,
                             account = credential,
                         );
                     }

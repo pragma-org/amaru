@@ -47,7 +47,7 @@ fn trace_public_schema(key_name: String) {
 }
 
 fn trace_record_private_schema(key_id: String) {
-    trace_record!(crate::security::secrets::PRIVATE_SECRET, key_id = key_id);
+    trace_record!(crate::security::secrets::PRIVATE_SECRET, key_id);
 }
 
 fn trace_span_private_schema(key_id: String) {

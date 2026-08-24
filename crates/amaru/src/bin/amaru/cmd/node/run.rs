@@ -586,7 +586,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
             }
             None => {
                 if PEER_SNAPSHOT_NETWORKS.contains(&network) {
-                    warn!(setup::peer_snapshot::MISSING, network = network);
+                    warn!(setup::peer_snapshot::MISSING, network);
                 }
                 BTreeSet::new()
             }
@@ -626,8 +626,8 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         peer_snapshot_relays = peer_snapshot_peers.len(),
         pid_file = args.pid_file.clone().unwrap_or_default().display().to_string(),
         submit_api_address = args.submit_api_address.as_deref().unwrap_or("disabled"),
-        trace_buffer_min_entries = trace_buffer_min_entries,
-        trace_buffer_max_size = trace_buffer_max_size,
+        trace_buffer_min_entries,
+        trace_buffer_max_size,
         trace_dump_path =
             trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
         peer_removal_cooldown_secs = args.peer_removal_cooldown_secs,
@@ -640,10 +640,10 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
     )
     .entered();
     if let Some(era_history) = era_history_path.as_deref() {
-        info_record!(cli::node::RUN, era_history = era_history);
+        info_record!(cli::node::RUN, era_history);
     }
     if let Some(global_parameters) = global_parameters_json.as_deref() {
-        info_record!(cli::node::RUN, global_parameters = global_parameters);
+        info_record!(cli::node::RUN, global_parameters);
     }
 
     Ok(Config {
@@ -718,8 +718,8 @@ fn pre_flight_checks() -> Result<(), PreFlightError> {
             if current_soft_fd_limit < EXPECTED_MIN_FOR_SOFT_FD_LIMIT {
                 error!(
                     setup::file_descriptors::TOO_LOW,
-                    current_soft_fd_limit = current_soft_fd_limit,
-                    current_hard_fd_limit = current_hard_fd_limit,
+                    current_soft_fd_limit,
+                    current_hard_fd_limit,
                     expected_min = EXPECTED_MIN_FOR_SOFT_FD_LIMIT,
                     hint = "Increase the limit for open files before starting Amaru (see ulimit -n)."
                 );

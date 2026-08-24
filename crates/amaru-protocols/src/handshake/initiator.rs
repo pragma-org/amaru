@@ -75,16 +75,25 @@ impl StageState<State, Initiator> for HandshakeInitiator {
         async move {
             Ok(match input {
                 InitiatorResult::Propose => {
-                    debug!(protocols::handshake::initiator::PROPOSING_VERSIONS, our_versions = format!("{:?}", self.our_versions));
+                    debug!(
+                        protocols::handshake::initiator::PROPOSING_VERSIONS,
+                        our_versions = format!("{:?}", self.our_versions)
+                    );
                     (Some(InitiatorAction::Propose(self.our_versions.clone())), self)
                 }
                 InitiatorResult::Conclusion(handshake_result) => {
-                    debug!(protocols::handshake::initiator::CONCLUSION, handshake_result = format!("{handshake_result:?}"));
+                    debug!(
+                        protocols::handshake::initiator::CONCLUSION,
+                        handshake_result = format!("{handshake_result:?}")
+                    );
                     eff.send(&self.connection, handshake_result).await;
                     (None, self)
                 }
                 InitiatorResult::SimOpen(version_table) => {
-                    debug!(protocols::handshake::initiator::SIMULTANEOUS_OPEN, version_table = format!("{version_table:?}"));
+                    debug!(
+                        protocols::handshake::initiator::SIMULTANEOUS_OPEN,
+                        version_table = format!("{version_table:?}")
+                    );
                     let result = crate::handshake::compute_negotiation_result(
                         crate::protocol::Role::Initiator,
                         self.our_versions.clone(),
@@ -95,10 +104,7 @@ impl StageState<State, Initiator> for HandshakeInitiator {
                 }
             })
         }
-        .instrument(debug_span!(
-            protocols::handshake::initiator::HANDSHAKE_INITIATOR_STAGE,
-            message_type = message_type
-        ))
+        .instrument(debug_span!(protocols::handshake::initiator::HANDSHAKE_INITIATOR_STAGE, message_type))
         .await
     }
 

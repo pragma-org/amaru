@@ -166,10 +166,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
             .await;
             Ok((action, self))
         }
-        .instrument(debug_span!(
-            protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE,
-            message_type = message_type
-        ))
+        .instrument(debug_span!(protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE, message_type))
         .await
     }
 

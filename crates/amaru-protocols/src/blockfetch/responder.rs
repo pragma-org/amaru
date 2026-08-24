@@ -93,12 +93,7 @@ impl PointsRange {
     ) -> anyhow::Result<Option<PointsRange>> {
         // make sure that from <= through
         if from > through {
-            debug!(
-                protocols::blockfetch::responder::RANGE_REFUSED,
-                from = from,
-                through = through,
-                reason = "inverted_range"
-            );
+            debug!(protocols::blockfetch::responder::RANGE_REFUSED, from, through, reason = "inverted_range");
             return Ok(None);
         };
 
@@ -119,8 +114,8 @@ impl PointsRange {
             if result.len() >= MAX_FETCHED_BLOCKS {
                 debug!(
                     protocols::blockfetch::responder::RANGE_REFUSED,
-                    from = from,
-                    through = through,
+                    from,
+                    through,
                     reason = "exceeds_max_blocks",
                     max_blocks = MAX_FETCHED_BLOCKS
                 );
@@ -213,10 +208,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
                 ResponderResult::Done => Ok((None, self)),
             }
         }
-        .instrument(debug_span!(
-            protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE,
-            message_type = message_type
-        ))
+        .instrument(debug_span!(protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE, message_type))
         .await
     }
 

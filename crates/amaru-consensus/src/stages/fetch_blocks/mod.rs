@@ -201,9 +201,9 @@ impl FetchBlocks {
         let span = debug_span!(
             parent_context: parent_context.clone(),
             consensus::blocks::FETCH,
-            tip = tip,
+            tip,
             header_hash = tip.hash(),
-            parent = parent,
+            parent,
         );
         let stage_context = (&span).into();
 
@@ -216,7 +216,7 @@ impl FetchBlocks {
     /// The ledger has no persisted volatile state, so `from` is where it resumes and therefore the
     /// only parent the first replayed block may have.
     pub async fn recover_stored_blocks(&mut self, eff: Effects<FetchBlocksMsg>, from: Point, to: HeaderHash) {
-        let span = debug_span!(consensus::blocks::RECOVER_STORED, from = from, to = to);
+        let span = debug_span!(consensus::blocks::RECOVER_STORED, from, to);
         let trace_context = (&span).into();
         assert!(
             self.missing.is_none(),
@@ -229,12 +229,12 @@ impl FetchBlocks {
         // An origin ledger tip means that we are trying to recover from an empty ledger with
         // a non-empty store. This is a misconfiguration, and we should not attempt to replay the stored headers.
         if from.hash() == ORIGIN_HASH {
-            error!(consensus::blocks::RECOVER_INCONSISTENT, from = from, to = to, reason = "ledger_tip_is_origin");
+            error!(consensus::blocks::RECOVER_INCONSISTENT, from, to, reason = "ledger_tip_is_origin");
             return eff.terminate().await;
         }
 
         let Some(to_replay) = store.ancestors_between(from, to).await else {
-            error!(consensus::blocks::RECOVER_INCONSISTENT, from = from, to = to, reason = "broken_chain");
+            error!(consensus::blocks::RECOVER_INCONSISTENT, from, to, reason = "broken_chain");
             return eff.terminate().await;
         };
 
@@ -248,7 +248,7 @@ impl FetchBlocks {
 
         self.block_height = best_tip_header.block_height().max(self.block_height);
         let tip = best_tip_header.point();
-        debug!(consensus::blocks::REPLAY, tip = tip);
+        debug!(consensus::blocks::REPLAY, tip);
 
         // Replay blocks one by done. The replay will have downloaded blocks as a prefix, then
         // missing blocks. The first ones are retrieved from the chain store and the other ones
@@ -335,11 +335,11 @@ impl FetchBlocks {
     ) {
         let Some((from, through)) = missing.from_to().map(|(from, through)| (*from, *through)) else {
             self.missing = None;
-            info!(consensus::blocks::NOTHING_TO_FETCH, tip = tip, parent = parent);
+            info!(consensus::blocks::NOTHING_TO_FETCH, tip, parent);
             return self.fetch_next_from(eff, tip).await;
         };
 
-        debug!(consensus::blocks::REQUEST, from = from, through = through, length = missing.nb_missing_blocks());
+        debug!(consensus::blocks::REQUEST, from, through, length = missing.nb_missing_blocks());
         self.req_id += 1;
         self.no_peers_pause = false;
         self.trace_context = Some(parent_context);
@@ -387,12 +387,12 @@ impl FetchBlocks {
         let block = match network_block.decode_block() {
             Ok(block) => block,
             Err(error) => {
-                error!(consensus::blocks::DECODE_FAILED, peer = peer, error = error.to_string());
+                error!(consensus::blocks::DECODE_FAILED, peer, error = error.to_string());
                 return;
             }
         };
         let point = block.header.point();
-        debug!(consensus::blocks::RECEIVED, point = point);
+        debug!(consensus::blocks::RECEIVED, point);
 
         // check that body belongs to header
         if block.header.body().block_body_hash != block.body_hash() {
@@ -402,22 +402,16 @@ impl FetchBlocks {
                 consensus::block::MISMATCHED_HASH,
                 peer = &peer,
                 header_hash = point.hash(),
-                expected = expected,
-                actual = actual,
+                expected,
+                actual,
             );
-            warn!(
-                consensus::block::MISMATCHED_HASH,
-                peer = &peer,
-                header_hash = point.hash(),
-                expected = expected,
-                actual = actual,
-            );
+            warn!(consensus::block::MISMATCHED_HASH, peer = &peer, header_hash = point.hash(), expected, actual,);
             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, (&span).into())).await;
             return;
         }
 
         let Some(missing) = self.missing.as_mut() else {
-            debug!(consensus::blocks::STRAGGLER, peer = peer);
+            debug!(consensus::blocks::STRAGGLER, peer);
             return;
         };
 
@@ -448,7 +442,7 @@ impl FetchBlocks {
         }
         if Some(point) != missing.first() {
             if let Some(expected) = missing.first() {
-                warn!(consensus::blocks::POINT_MISMATCH, expected = expected, actual = point);
+                warn!(consensus::blocks::POINT_MISMATCH, expected, actual = point);
             } else {
                 warn!(consensus::blocks::POINT_MISMATCH, actual = point);
             }
@@ -514,7 +508,7 @@ impl FetchBlocks {
             return;
         }
 
-        info!(consensus::blocks::PAUSED, req_id = req_id);
+        info!(consensus::blocks::PAUSED, req_id);
         self.no_peers_pause = true;
         self.fetch_peers.clear();
         self.fetch_settled.clear();
@@ -530,9 +524,9 @@ impl FetchBlocks {
         let contributors = std::mem::take(&mut self.fetch_contributors);
         self.fetch_settled.clear();
         if self.no_peers_pause {
-            debug!(consensus::blocks::RETRY, req_id = req_id);
+            debug!(consensus::blocks::RETRY, req_id);
         } else {
-            warn!(consensus::blocks::TIMEOUT, req_id = req_id);
+            warn!(consensus::blocks::TIMEOUT, req_id);
             let failed: Vec<Peer> = asked.into_iter().filter(|p| !contributors.contains(p)).collect();
             if !failed.is_empty() {
                 let now = eff.clock().await;

@@ -292,15 +292,15 @@ fn private_emit_guard_tokens() -> proc_macro2::TokenStream {
 ///
 /// ```text
 /// fn apply_block(point_slot: u64, error: Option<&str>) {
-///     let _span = debug_span!(ledger::block::APPLY, point_slot = point_slot);
+///     let _span = debug_span!(ledger::block::APPLY, point_slot);
 ///     let _guard = _span.enter();
 ///
 ///     if let Some(error) = error {
 ///         // Record additional context (no log event)
-///         trace_record!(ledger::block::APPLY, error = error);
+///         trace_record!(ledger::block::APPLY, error);
 ///
 ///         // Record and emit a debug log event
-///         trace_record!(DEBUG, ledger::block::APPLY, error = error);
+///         trace_record!(DEBUG, ledger::block::APPLY, error);
 ///     }
 /// }
 /// ```

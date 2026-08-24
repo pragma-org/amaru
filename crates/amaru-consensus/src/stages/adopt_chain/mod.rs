@@ -208,14 +208,24 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             store
                 .roll_forward_chain(&incoming_header.point())
                 .or_terminate_with(&eff, async |error| {
-                    error!(consensus::block::ADOPT_FAILED, tip = msg, step = "adopt_first_tip", error = error.to_string());
+                    error!(
+                        consensus::block::ADOPT_FAILED,
+                        tip = msg,
+                        step = "adopt_first_tip",
+                        error = error.to_string()
+                    );
                 })
                 .await;
         }
 
         let now = drag_anchor_forward(&store, &msg, state.consensus_security_param, &eff)
             .or_terminate_with(&eff, async |error| {
-                error!(consensus::block::ADOPT_FAILED, tip = msg, step = "drag_anchor_forward", error = error.to_string());
+                error!(
+                    consensus::block::ADOPT_FAILED,
+                    tip = msg,
+                    step = "drag_anchor_forward",
+                    error = error.to_string()
+                );
             })
             .await;
 

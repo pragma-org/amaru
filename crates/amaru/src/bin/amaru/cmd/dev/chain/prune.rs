@@ -124,7 +124,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
             anyhow::bail!("header {new_anchor} missing while updating prune anchor");
         };
         chain_store.set_anchor_point(&point)?;
-        info!(cli::dev::chain::ANCHOR_UPDATED, new_anchor = new_anchor);
+        info!(cli::dev::chain::ANCHOR_UPDATED, new_anchor);
     }
 
     let pruned = to_remove.len();

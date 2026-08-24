@@ -75,11 +75,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
     info!(
         cli::dev::RUN,
         command = "dev chain remove",
-        network = network,
+        network,
         chain_dir = chain_dir.to_string_lossy(),
         from_point = from_point.to_string(),
-        only_blocks = only_blocks,
-        only_validation_results = only_validation_results
+        only_blocks,
+        only_validation_results
     );
 
     let rocks_db = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
@@ -108,7 +108,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     }
 
     for point in points {
-        info!(cli::dev::chain::POINT_REMOVED, point = point);
+        info!(cli::dev::chain::POINT_REMOVED, point);
         if only_validation_results {
             rocks_db.remove_block_valid(&point.hash())?;
         } else if only_blocks {

@@ -298,7 +298,7 @@ impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
-        info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch = epoch).in_scope(|| {
+        info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch).in_scope(|| {
             let path = self.dir.join(epoch.to_string());
 
             if path.exists() {
@@ -370,12 +370,7 @@ impl HistoricalStores for RocksDBHistoricalStores {
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
 
-        info_span!(
-            stores::ledger::epoch::PRUNE_OLD_SNAPSHOTS,
-            functional_minimum = functional_minimum,
-            desired_minimum = desired_minimum,
-        )
-        .in_scope(|| {
+        info_span!(stores::ledger::epoch::PRUNE_OLD_SNAPSHOTS, functional_minimum, desired_minimum,).in_scope(|| {
             with_snapshots(&self.config.dir, |path, epoch| {
                 if epoch < desired_minimum {
                     fs::remove_dir_all(&path)
@@ -978,11 +973,7 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
         let snapshot_count = snapshots.len() as u64;
         let continuous_ranges = snapshots_ranges.len() as u64;
 
-        trace_record!(
-            stores::ledger::snapshots::VALIDATE,
-            snapshot_count = snapshot_count,
-            continuous_ranges = continuous_ranges
-        );
+        trace_record!(stores::ledger::snapshots::VALIDATE, snapshot_count, continuous_ranges);
 
         if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
             return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
@@ -1117,12 +1108,7 @@ fn with_prefix_iterator<
             }
             .map_err(|err| StoreError::Internal(err.into()))?;
         }
-        trace_record!(
-            stores::ledger::ITER_SCAN,
-            rows_scanned = rows_scanned,
-            rows_written = rows_written,
-            rows_deleted = rows_deleted
-        );
+        trace_record!(stores::ledger::ITER_SCAN, rows_scanned, rows_written, rows_deleted);
         Ok(())
     })
 }

@@ -252,15 +252,15 @@ pub fn define_local_schemas(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// fn apply_block(point_slot: u64, error: Option<&str>) {
-///     let _span = debug_span!(ledger::block::APPLY, point_slot = point_slot);
+///     let _span = debug_span!(ledger::block::APPLY, point_slot);
 ///     let _guard = _span.enter();
 ///
 ///     if let Some(error) = error {
 ///         // Record to span only
-///         trace_record!(ledger::block::APPLY, error = error);
+///         trace_record!(ledger::block::APPLY, error);
 ///
 ///         // Record to span and emit INFO log event
-///         trace_record!(INFO, ledger::block::APPLY, error = error);
+///         trace_record!(INFO, ledger::block::APPLY, error);
 ///     }
 /// }
 /// ```

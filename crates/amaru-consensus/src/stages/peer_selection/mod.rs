@@ -346,7 +346,7 @@ impl PeerSelection {
                 peer = &peer,
                 direction = "inbound",
                 peer_state = format!("{peer_state:?}"),
-                is_static = is_static
+                is_static
             );
             send_remove = true;
         }
@@ -357,7 +357,7 @@ impl PeerSelection {
                 peer = &peer,
                 direction = "outbound",
                 peer_state = format!("{peer_state:?}"),
-                is_static = is_static
+                is_static
             );
             send_remove = true;
             refill_outbound = true;
@@ -584,7 +584,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
 
             if !state.outbound_peers.contains_key(&peer) {
-                info!(protocols::peer_selection::peer::ADDED, peer = &peer, was_banned = was_banned);
+                info!(protocols::peer_selection::peer::ADDED, peer = &peer, was_banned);
                 eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
                 state.outbound_peers.insert(peer, PeerState::Connecting);
             } else {
@@ -717,13 +717,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             let peers_list = peers.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
             let SharedIngestResult { added, total } =
                 eff.external(Performance::ingest_shared_peers(peer.clone(), peers)).await;
-            info!(
-                protocols::peer_selection::sharing::RECEIVED,
-                peer = peer,
-                peers = peers_list,
-                added = added,
-                total = total,
-            );
+            info!(protocols::peer_selection::sharing::RECEIVED, peer, peers = peers_list, added, total,);
             if added > 0 {
                 state.regulate_peers(&eff).await;
             }
@@ -736,13 +730,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             let selected = eff.external(Performance::select_share_peers(peer.clone(), amount, now)).await;
             let peers_list = selected.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
             let count = selected.len();
-            info!(
-                protocols::peer_selection::sharing::SENT,
-                peer = peer,
-                peers = peers_list,
-                requested = amount,
-                count = count,
-            );
+            info!(protocols::peer_selection::sharing::SENT, peer, peers = peers_list, requested = amount, count,);
             eff.send(&reply_to, SharePeersReply { peers: selected }).await;
         }
     }

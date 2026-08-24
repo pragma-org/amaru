@@ -288,7 +288,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         snapshot_output_dir = relative_path(&snapshot_output_dir)?.display().to_string(),
         config_dir = relative_path(&config_dir)?.display().to_string(),
         cardano_node_db = relative_path(&cardano_node_db)?.display().to_string(),
-        network = network,
+        network,
         dist_dir = relative_path(&dist_dir)?.display().to_string(),
         epoch = @epoch.map(|e| e.to_string()),
         snapshots = @(!snapshots_str.is_empty()).then_some(snapshots_str),

@@ -160,7 +160,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             let span = debug_span!(
                 parent_context: &trace_context,
                 consensus::chain::SELECT_FROM_TIP,
-                tip = tip,
+                tip,
                 header_hash = tip.hash(),
             );
             let child_trace_context = (&span).into();
@@ -170,8 +170,8 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             let span = debug_span!(
                 parent_context: parent_trace_context,
                 consensus::chain::SELECT_FROM_BLOCK_VALIDATION,
-                point = point,
-                valid = valid,
+                point,
+                valid,
                 header_hash = point.hash(),
             );
             let trace_context = (&span).into();
@@ -181,7 +181,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 .await;
         }
         SelectChainMsg::FetchNextFrom(point, trace_context) => {
-            let span = debug_span!(parent_context: trace_context, consensus::chain::FETCH_NEXT, point = point, header_hash = point.hash(),);
+            let span = debug_span!(parent_context: trace_context, consensus::chain::FETCH_NEXT, point, header_hash = point.hash(),);
             let trace_context = (&span).into();
             state.handle_fetch_next_from(point, eff, trace_context).instrument(span).await;
         }
@@ -205,7 +205,7 @@ impl SelectChain {
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
 
         let Some((header, validity)) = store.load_header_with_validity(&tip.hash()).await else {
-            error!(consensus::chain::HEADER_NOT_FOUND, role = "tip", tip = tip, header_hash = tip.hash());
+            error!(consensus::chain::HEADER_NOT_FOUND, role = "tip", tip, header_hash = tip.hash());
             return eff.terminate().await;
         };
 
@@ -216,33 +216,33 @@ impl SelectChain {
         // and disturb best-tip bookkeeping for no gain.
         match validity {
             Some(true) => {
-                debug!(consensus::chain::TIP_IGNORED, tip = tip, reason = "already_validated");
+                debug!(consensus::chain::TIP_IGNORED, tip, reason = "already_validated");
                 return;
             }
             Some(false) => {
-                info!(consensus::chain::TIP_IGNORED, tip = tip, reason = "already_invalid");
+                info!(consensus::chain::TIP_IGNORED, tip, reason = "already_invalid");
                 let now = eff.clock().await;
                 eff.external(Performance::record_header_abandoned(tip.hash(), now)).await;
                 return;
             }
             None => {
-                debug!(consensus::chain::TIP_ACCEPTED, tip = tip, outcome = "new_tip");
+                debug!(consensus::chain::TIP_ACCEPTED, tip, outcome = "new_tip");
             }
         }
 
         // Redundant NewTip (e.g. concurrent peers announcing the same header) must be a no-op.
         if self.tips.contains_key(&tip.hash()) || self.best_tip.as_ref().is_some_and(|h| h.hash() == tip.hash()) {
-            debug!(consensus::chain::TIP_IGNORED, tip = tip, reason = "already_tracked");
+            debug!(consensus::chain::TIP_IGNORED, tip, reason = "already_tracked");
             return;
         }
 
         if parent == Point::Origin {
-            debug!(consensus::chain::TIP_ACCEPTED, tip = tip, outcome = "from_origin");
+            debug!(consensus::chain::TIP_ACCEPTED, tip, outcome = "from_origin");
             self.tips.insert(tip.hash(), vec![tip.hash()]);
         } else
         // if parent is in tips, extend that chain; otherwise check store for fragment
         if let Some(mut chain) = self.tips.remove(&parent.hash()) {
-            debug!(consensus::chain::TIP_ACCEPTED, tip = tip, outcome = "extend", parent = parent);
+            debug!(consensus::chain::TIP_ACCEPTED, tip, outcome = "extend", parent);
             chain.push(tip.hash());
             self.tips.insert(tip.hash(), chain);
         } else {
@@ -250,11 +250,11 @@ impl SelectChain {
             // header long, but it may still require multiple block validations to reach a valid chain.
             let (mut ancestors, valid) = store.unvalidated_ancestor_hashes(parent.hash()).await;
             if valid {
-                debug!(consensus::chain::TIP_ACCEPTED, tip = tip, outcome = "fork", parent = parent);
+                debug!(consensus::chain::TIP_ACCEPTED, tip, outcome = "fork", parent);
                 ancestors.push(tip.hash()); // new block must be validated by definition
                 self.tips.insert(tip.hash(), ancestors);
             } else {
-                info!(consensus::chain::TIP_IGNORED, tip = tip, reason = "invalid_ancestor", parent = parent);
+                info!(consensus::chain::TIP_IGNORED, tip, reason = "invalid_ancestor", parent);
                 let now = eff.clock().await;
                 eff.external(Performance::record_header_abandoned(tip.hash(), now)).await;
             }
@@ -262,7 +262,7 @@ impl SelectChain {
 
         if self.tips.contains_key(&tip.hash()) && cmp_tip(Some(&header), self.best_tip.as_ref()) == Ordering::Greater {
             let best_tip = self.best_tip.take().map(|h| h.point()).unwrap_or(Point::Origin);
-            debug!(consensus::chain::BEST_TIP_CANDIDATE, tip = tip, reason = "better_chain", previous = best_tip);
+            debug!(consensus::chain::BEST_TIP_CANDIDATE, tip, reason = "better_chain", previous = best_tip);
 
             // if we have a real fork, start recording the time it takes to switch to that fork
             if parent.hash() != best_tip.hash() {
@@ -290,7 +290,7 @@ impl SelectChain {
         let syncing = max_block_height > tip.block_height();
         let store = Store::new(eff.clone()).with_trace_context(&trace_context);
         if !store.has_header(&tip.hash()).await {
-            error!(consensus::chain::HEADER_NOT_FOUND, role = "validation_target", tip = tip, header_hash = tip.hash());
+            error!(consensus::chain::HEADER_NOT_FOUND, role = "validation_target", tip, header_hash = tip.hash());
             return eff.terminate().await;
         }
 
@@ -298,7 +298,7 @@ impl SelectChain {
         store
             .set_block_valid(&tip_hash, valid)
             .or_terminate_with(&eff, async |error| {
-                error!(consensus::chain::STORE_VALIDATION_FAILED, error = error.to_string(), valid = valid);
+                error!(consensus::chain::STORE_VALIDATION_FAILED, error = error.to_string(), valid);
             })
             .await;
 
@@ -310,7 +310,7 @@ impl SelectChain {
                     advanced += 1;
                 }
             });
-            debug!(consensus::chain::BLOCK_VALIDATED, tip = tip, advanced = advanced, syncing = syncing);
+            debug!(consensus::chain::BLOCK_VALIDATED, tip, advanced, syncing);
             let now = eff.clock().await;
             eff.external(Performance::record_block_valid(tip_hash, now, syncing)).await;
             return;
@@ -328,7 +328,7 @@ impl SelectChain {
         if let Some(best_tip) = &self.best_tip
             && !self.tips.contains_key(&best_tip.hash())
         {
-            info!(consensus::chain::BEST_TIP_INVALIDATED, removed = removed);
+            info!(consensus::chain::BEST_TIP_INVALIDATED, removed);
             // need to pick new best tip
             match eff.external(FindBestCandidate).await {
                 Ok(new_best_tip) if new_best_tip != ORIGIN_HASH => {
@@ -375,7 +375,7 @@ impl SelectChain {
                 }
             }
         } else if removed > 0 {
-            warn!(consensus::chain::FORKS_REMOVED, removed = removed);
+            warn!(consensus::chain::FORKS_REMOVED, removed);
         }
 
         // end the performance tracking for blocks that could not be successfully validated and that
@@ -427,9 +427,9 @@ impl SelectChain {
             debug!(
                 consensus::chain::RESUME_FETCH,
                 outcome = "resume_from_best_tip",
-                point = point,
+                point,
                 best_tip = best_tip.point(),
-                parent = parent
+                parent
             );
             eff.send(&self.downstream, NewBestTip { tip: best_tip.point(), parent, trace_context }).await;
         } else {
@@ -437,7 +437,7 @@ impl SelectChain {
                 Some(best_tip) => ("already_at_best_tip", best_tip.point()),
                 None => ("no_best_tip", Point::Origin),
             };
-            debug!(consensus::chain::RESUME_FETCH, outcome = outcome, point = point, best_tip = best_tip);
+            debug!(consensus::chain::RESUME_FETCH, outcome, point, best_tip);
             self.may_fetch_blocks = true;
         }
     }

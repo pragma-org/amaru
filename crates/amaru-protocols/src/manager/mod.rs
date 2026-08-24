@@ -462,9 +462,9 @@ impl Manager {
             protocols::manager::peer::HANDSHAKE_COMPLETED,
             peer = &peer,
             conn_id = conn_id.as_u64(),
-            full_duplex_capable = full_duplex_capable,
-            full_duplex = full_duplex,
-            advertisable = advertisable
+            full_duplex_capable,
+            full_duplex,
+            advertisable
         );
         let peer_state = self.peers.entry(peer.clone()).or_default();
         let accept_this = match direction {
@@ -651,7 +651,7 @@ impl Manager {
         peers: Option<Vec<Peer>>,
         eff: &Effects<ManagerMessage>,
     ) {
-        debug!(protocols::manager::blocks::FETCH, from = from, through = through, peers = format!("{peers:?}"));
+        debug!(protocols::manager::blocks::FETCH, from, through, peers = format!("{peers:?}"));
         let mut contacted = Vec::new();
         match peers {
             None => {
@@ -674,10 +674,10 @@ impl Manager {
             }
         }
         if contacted.is_empty() {
-            debug!(protocols::manager::blocks::FETCH_NO_PEERS, id = id);
+            debug!(protocols::manager::blocks::FETCH_NO_PEERS, id);
             eff.send(&cr, Blocks::NoPeersAvailable(id)).await;
         } else {
-            debug!(protocols::manager::blocks::FETCH_SENT, id = id, sent = contacted.len());
+            debug!(protocols::manager::blocks::FETCH_SENT, id, sent = contacted.len());
             eff.send(&cr, Blocks::PeersAsked(id, contacted)).await;
         }
     }
@@ -709,7 +709,7 @@ impl Manager {
 /// A peer can be added right after being removed even though the socket will be closed asynchronously.
 pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
     let message_type = msg.message_type().to_string();
-    let span = debug_span!(protocols::manager::message::PROCESS, message_type = message_type);
+    let span = debug_span!(protocols::manager::message::PROCESS, message_type);
 
     async move {
         match msg {
@@ -804,7 +804,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
 /// Close the connection and log any errors.
 async fn close_connection(eff: &Effects<ManagerMessage>, peer: &Peer, conn_id: ConnectionId) {
     if let Err(err) = Network::new(eff).close(conn_id).await {
-        error!(protocols::manager::peer::CLOSE_FAILED, peer = peer, error = err.to_string());
+        error!(protocols::manager::peer::CLOSE_FAILED, peer, error = err.to_string());
     }
 }
 

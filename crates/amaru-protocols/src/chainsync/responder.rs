@@ -80,7 +80,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 let span = debug_span!(
                     parent_context: trace_context,
                     consensus::header::FORWARD,
-                    tip = tip,
+                    tip,
                     peer = &self.peer,
                 );
                 self.upstream = tip;
@@ -124,10 +124,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 }
             }
         }
-        .instrument(debug_span!(
-            protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE,
-            message_type = message_type
-        ))
+        .instrument(debug_span!(protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE, message_type))
         .await
     }
 

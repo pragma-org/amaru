@@ -80,8 +80,8 @@ mod required_fields {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
-            block_number = block_number,
-            block_body_size = block_body_size
+            block_number,
+            block_body_size
         );
         let _guard = _span.enter();
     }
@@ -90,8 +90,8 @@ mod required_fields {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
-            block_number = block_number,
-            block_body_size = block_body_size
+            block_number,
+            block_body_size
         );
         let _guard = _span.enter();
     }
@@ -100,15 +100,15 @@ mod required_fields {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
-            block_number = block_number,
-            block_body_size = block_body_size,
-            total_inputs = total_inputs
+            block_number,
+            block_body_size,
+            total_inputs
         );
         let _guard = _span.enter();
     }
 
     fn simple_required(from: u64, into: u64) {
-        let _span = trace_span!(crate::ledger::state::EPOCH_TRANSITION, from = from, into = into);
+        let _span = trace_span!(crate::ledger::state::EPOCH_TRANSITION, from, into);
         let _guard = _span.enter();
     }
 
@@ -156,16 +156,12 @@ mod optional_fields {
     }
 
     fn one_optional(resolved_from_context: u64) {
-        let _span = trace_span!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context = resolved_from_context);
+        let _span = trace_span!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context);
         let _guard = _span.enter();
     }
 
     fn two_optional(resolved_from_context: u64, resolved_from_volatile: u64) {
-        let _span = trace_span!(
-            crate::ledger::state::RESOLVE_INPUTS,
-            resolved_from_context = resolved_from_context,
-            resolved_from_volatile = resolved_from_volatile
-        );
+        let _span = trace_span!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context, resolved_from_volatile);
         let _guard = _span.enter();
     }
 
@@ -250,8 +246,8 @@ mod extra_params {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
-            block_number = block_number,
-            block_body_size = block_body_size
+            block_number,
+            block_body_size
         );
         let _guard = _span.enter();
         let _ = (context, config);
@@ -267,8 +263,8 @@ mod extra_params {
         let _span = trace_span!(
             crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
-            block_number = block_number,
-            block_body_size = block_body_size
+            block_number,
+            block_body_size
         );
         let _guard = _span.enter();
         let _ = (extra_ref, extra_slice);
@@ -328,11 +324,7 @@ mod namespace_paths {
     use super::*;
 
     fn network_namespace(peer: String, intersection_slot: u64) {
-        let _span = trace_span!(
-            crate::network::chainsync_client::FIND_INTERSECTION,
-            peer = &peer,
-            intersection_slot = intersection_slot
-        );
+        let _span = trace_span!(crate::network::chainsync_client::FIND_INTERSECTION, peer = &peer, intersection_slot);
         let _guard = _span.enter();
     }
 
@@ -342,7 +334,7 @@ mod namespace_paths {
     }
 
     fn ledger_namespace(point_slot: u64) {
-        let _span = trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot);
+        let _span = trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot);
         let _guard = _span.enter();
     }
 
@@ -363,15 +355,13 @@ mod async_functions {
     use super::*;
 
     async fn traced_async(point_slot: u64) -> u64 {
-        async move { point_slot }
-            .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot))
-            .await
+        async move { point_slot }.instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot)).await
     }
 
     fn traced_boxed_async_like(point_slot: u64) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         Box::pin(
             async move { tracing::Span::current().metadata().is_some() }
-                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot)),
+                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot)),
         )
     }
 
@@ -388,7 +378,7 @@ mod async_functions {
     impl AsyncValidator for Validator {
         async fn validate(&self, point_slot: u64) -> bool {
             async move { tracing::Span::current().metadata().is_some() }
-                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot))
+                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot))
                 .await
         }
     }
@@ -398,7 +388,7 @@ mod async_functions {
 
     fn traced_async_with_trace_span(point_slot: u64) -> impl Future<Output = bool> + Send {
         async move { tracing::Span::current().metadata().is_some() }
-            .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot))
+            .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot))
     }
 
     #[test]

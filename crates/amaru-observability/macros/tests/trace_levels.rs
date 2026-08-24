@@ -110,12 +110,12 @@ impl<'a> Visit for SpanMetadataVisitor<'a> {
 // ============================================================================
 
 fn sync_blocks_trace(block_height: u64) {
-    let _span = trace_span!(crate::network::sync::SYNC_BLOCKS, block_height = block_height);
+    let _span = trace_span!(crate::network::sync::SYNC_BLOCKS, block_height);
     let _guard = _span.enter();
 }
 
 fn sync_blocks_debug(block_height: u64) {
-    let _span = trace_span!(DEBUG, crate::network::sync::SYNC_BLOCKS, block_height = block_height);
+    let _span = trace_span!(DEBUG, crate::network::sync::SYNC_BLOCKS, block_height);
     let _guard = _span.enter();
 }
 

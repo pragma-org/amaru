@@ -35,13 +35,13 @@ define_schemas! {
 use amaru::consensus::chain_sync::VALIDATE_HEADER;
 
 fn validate_header(slot: u64, hash: String) {
-    let _span = debug_span!(VALIDATE_HEADER, slot = slot, hash = hash).entered();
+    let _span = debug_span!(VALIDATE_HEADER, slot, hash).entered();
     // Function body
 }
 
 // Or with custom level
 fn validate_header_debug(slot: u64, hash: String) {
-    let _span = debug_span!(DEBUG, VALIDATE_HEADER, slot = slot, hash = hash).entered();
+    let _span = debug_span!(DEBUG, VALIDATE_HEADER, slot, hash).entered();
     // Function body
 }
 

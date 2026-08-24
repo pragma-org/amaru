@@ -37,7 +37,7 @@ pub(super) async fn run(network: NetworkName, ledger_dir: &Path, snapshots_dir: 
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
     let from_chunk = from_chunk_for_resume_point(network, latest_chunk, tip)?;
 
-    info!(cli::mithril::DOWNLOAD_CHUNKS, tip = tip, from_chunk = from_chunk);
+    info!(cli::mithril::DOWNLOAD_CHUNKS, tip, from_chunk);
 
     download_from_mithril(
         network,

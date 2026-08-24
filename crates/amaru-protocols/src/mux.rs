@@ -176,7 +176,9 @@ impl State {
                 let writer = eff
                     .stage(
                         format!("writer-{}", conn),
-                        move |(conn, muxer, role, peer): (ConnectionId, StageRef<MuxMessage>, Role, Peer), data: NonEmptyBytes, eff| async move {
+                        move |(conn, muxer, role, peer): (ConnectionId, StageRef<MuxMessage>, Role, Peer),
+                              data: NonEmptyBytes,
+                              eff| async move {
                             Network::new(&eff)
                                 .send(conn, data)
                                 .or_terminate_with(&eff, async |err| {
@@ -224,7 +226,13 @@ pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessag
                 }
                 write!(&mut err, "{}", error).ok();
             }
-            error!(protocols::mux::FAILED, peer = &peer, role = muxer.role().to_string().to_string().to_string().to_string(), operation = "muxing", error = err.to_string());
+            error!(
+                protocols::mux::FAILED,
+                peer = &peer,
+                role = muxer.role().to_string().to_string().to_string().to_string(),
+                operation = "muxing",
+                error = err.to_string()
+            );
         })
         .await;
 
@@ -255,7 +263,11 @@ async fn handle_msg(
             Ok(())
         }
         MuxMessage::FromNetwork(timestamp, proto_id, bytes) => {
-            trace!(protocols::mux::protocol::RECEIVED, proto_id = proto_id.to_string(), bytes = bytes.len().get() as u64);
+            trace!(
+                protocols::mux::protocol::RECEIVED,
+                proto_id = proto_id.to_string(),
+                bytes = bytes.len().get() as u64
+            );
             muxer
                 .received(timestamp, proto_id.opposite(), bytes.into(), eff)
                 .await
@@ -430,7 +442,7 @@ impl Muxer {
             trace!(protocols::mux::protocol::BUFFER_IGNORING, buffer = pp.incoming.len());
             pp.incoming.clear();
         } else if pp.incoming.len() > limit {
-            warn!(protocols::mux::protocol::BUFFER_OVERFLOW, buffer = pp.incoming.len(), limit = limit);
+            warn!(protocols::mux::protocol::BUFFER_OVERFLOW, buffer = pp.incoming.len(), limit);
             anyhow::bail!("reducing buffer ({}) leads to excess data ({})", limit, pp.incoming.len());
         }
         Ok(())

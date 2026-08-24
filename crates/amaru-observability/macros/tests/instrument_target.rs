@@ -206,7 +206,7 @@ fn evolve_nonce(hash: String) {
 }
 
 fn apply_block(point_slot: u64) {
-    let _span = trace_span!(crate::amaru::ledger::block::APPLY, point_slot = point_slot);
+    let _span = trace_span!(crate::amaru::ledger::block::APPLY, point_slot);
     let _guard = _span.enter();
 }
 
@@ -214,8 +214,8 @@ fn process_block(block_body_hash: String, block_number: u64, block_body_size: u6
     let _span = trace_span!(
         crate::amaru::ledger::block::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
-        block_number = block_number,
-        block_body_size = block_body_size
+        block_number,
+        block_body_size
     );
     let _guard = _span.enter();
 }
@@ -224,8 +224,8 @@ fn outer_with_record(block_body_hash: String, block_number: u64, block_body_size
     let _span = trace_span!(
         crate::amaru::ledger::block::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
-        block_number = block_number,
-        block_body_size = block_body_size
+        block_number,
+        block_body_size
     );
     let _guard = _span.enter();
     inner_record(5);

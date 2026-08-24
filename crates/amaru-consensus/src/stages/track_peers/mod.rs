@@ -705,7 +705,7 @@ impl TrackPeers {
                 }
                 error!(
                     consensus::perf::header::LIFECYCLE,
-                    peer = peer,
+                    peer,
                     header_hash = header.hash(),
                     error = error.to_string(),
                     outcome = HeaderLifecycleOutcome::InvalidHeader.as_str()
@@ -729,7 +729,7 @@ impl TrackPeers {
                 debug!(
                     consensus::chainsync::ROLL_FORWARD_DONE,
                     peer = &peer,
-                    current = current,
+                    current,
                     highest = tip,
                     outcome = "already_stored"
                 );
@@ -744,7 +744,7 @@ impl TrackPeers {
                 .await;
                 debug!(
                     consensus::perf::header::LIFECYCLE,
-                    peer = peer,
+                    peer,
                     header_hash = current.hash(),
                     outcome = HeaderLifecycleOutcome::DuplicateHeader.as_str()
                 );
@@ -759,7 +759,7 @@ impl TrackPeers {
                         let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
                         error!(
                             consensus::perf::header::LIFECYCLE,
-                            peer = peer,
+                            peer,
                             header_hash = current.hash(),
                             error = error.to_string(),
                             outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
@@ -779,7 +779,7 @@ impl TrackPeers {
                 debug!(
                     consensus::chainsync::ROLL_FORWARD_DONE,
                     peer = &peer,
-                    current = current,
+                    current,
                     highest = tip,
                     outcome = "stored"
                 );
@@ -821,12 +821,7 @@ impl TrackPeers {
             IntersectFound(current, tip) => {
                 let current_tip = Store::new(eff.clone()).load_point(&current.hash()).await;
                 let Some(current_tip) = current_tip else {
-                    warn!(
-                        consensus::chainsync::UNKNOWN_INTERSECTION_POINT,
-                        peer = &peer,
-                        current = current,
-                        highest = tip
-                    );
+                    warn!(consensus::chainsync::UNKNOWN_INTERSECTION_POINT, peer = &peer, current, highest = tip);
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
@@ -848,7 +843,7 @@ impl TrackPeers {
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
             RollForward(header_content, tip) => {
-                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip = tip, peer = &peer);
+                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip, peer = &peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
                     trace!(
@@ -866,7 +861,7 @@ impl TrackPeers {
                             self.purge_connection(conn_id);
                             error!(
                                 consensus::perf::header::LIFECYCLE,
-                                peer = peer,
+                                peer,
                                 error = error.to_string(),
                                 outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
@@ -943,9 +938,8 @@ impl TrackPeers {
                 .await
             }
             RollBackward(current, tip) => {
-                info!(consensus::chainsync::ROLL_BACKWARD, peer = &peer, current = current, highest = tip);
-                let span =
-                    debug_span!(root, consensus::roll_backward::PROCESS, current = current, tip = tip, peer = &peer);
+                info!(consensus::chainsync::ROLL_BACKWARD, peer = &peer, current, highest = tip);
+                let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer = &peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
@@ -962,11 +956,7 @@ impl TrackPeers {
                             eff.external(Performance::record_rollback(peer, current_tip, parent, now)).await;
                         }
                         Err(error) => {
-                            error!(
-                                consensus::chainsync::ROLL_BACKWARD_FAILED,
-                                peer = &peer,
-                                error = error.to_string()
-                            );
+                            error!(consensus::chainsync::ROLL_BACKWARD_FAILED, peer = &peer, error = error.to_string());
                             self.purge_connection(conn_id);
                             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
                         }
@@ -1018,7 +1008,7 @@ impl TrackPeers {
 }
 
 pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<Header, ConsensusError> {
-    let span = debug_span!(consensus::header::DECODE, peer = peer);
+    let span = debug_span!(consensus::header::DECODE, peer);
     let _guard = span.enter();
     // need to list all the variants supported by the current Amaru implementation
     if !matches!(raw_header.variant, EraName::Conway) {

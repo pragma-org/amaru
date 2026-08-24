@@ -165,12 +165,7 @@ pub(super) async fn run(
     let duration = Instant::now().saturating_duration_since(before);
     let duration_seconds = duration.as_secs_f64();
     let processed_per_seconds = processed as f64 / duration_seconds;
-    info!(
-        cli::mithril::INGEST_COMPLETED,
-        processed = processed as u64,
-        duration_seconds = duration_seconds,
-        processed_per_seconds = processed_per_seconds
-    );
+    info!(cli::mithril::INGEST_COMPLETED, processed = processed as u64, duration_seconds, processed_per_seconds);
 
     Ok(())
 }

@@ -237,9 +237,9 @@ pub async fn stage(
     }
     .instrument(debug_span!(
         protocols::connection::message::PROCESS,
-        message_type = message_type,
+        message_type,
         conn_id = conn_id.as_u64(),
-        peer = peer,
+        peer,
         role = role.to_string(),
     ))
     .await

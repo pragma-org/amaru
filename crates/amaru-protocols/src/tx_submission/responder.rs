@@ -110,11 +110,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
             };
             Ok((action, self))
         }
-        .instrument(debug_span!(
-            protocols::tx_submission::responder::TX_SUBMISSION_RESPONDER_STAGE,
-            message_type = message_type,
-            peer = peer
-        ))
+        .instrument(debug_span!(protocols::tx_submission::responder::TX_SUBMISSION_RESPONDER_STAGE, message_type, peer))
         .await
     }
 
@@ -431,8 +427,8 @@ impl TxSubmissionResponder {
         debug!(
             protocols::tx_submission::responder::REQUEST_TX_IDS,
             peer = self.peer,
-            ack = ack,
-            req = req,
+            ack,
+            req,
             blocking = blocking == Blocking::Yes
         );
         (ack, req, blocking)
@@ -592,7 +588,7 @@ impl TxSubmissionResponder {
             return;
         }
         let pending = self.tx_states.values().filter(|e| e.status.is_pending()).count();
-        debug!(protocols::tx_submission::responder::AWAITING_CAPACITY, peer = self.peer, pending = pending);
+        debug!(protocols::tx_submission::responder::AWAITING_CAPACITY, peer = self.peer, pending);
         if self.capacity_callback.is_blackhole() {
             self.capacity_callback =
                 eff.me_ref().contramap(|_: ()| Inputs::<ResponderLocalIn>::Local(ResponderLocalIn::CapacityAvailable));

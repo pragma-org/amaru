@@ -120,7 +120,7 @@ For async work, the same schema-validated span can be attached directly to the f
 async move {
     apply_block(block).await
 }
-.instrument(debug_span!(ledger::block::APPLY, point_slot = point_slot))
+.instrument(debug_span!(ledger::block::APPLY, point_slot))
 .await;
 ```
 
@@ -138,7 +138,7 @@ The `trace_record!` macro records fields to the current span with a schema ancho
 
 ```rust
 fn apply_block(block: &Block, point_slot: u64) {
-    let span = debug_span!(ledger::block::APPLY, point_slot = point_slot);
+    let span = debug_span!(ledger::block::APPLY, point_slot);
     let _guard = span.enter();
 
     trace_record!(

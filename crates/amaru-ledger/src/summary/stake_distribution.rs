@@ -266,9 +266,9 @@ impl StakeSummary {
             accounts = accounts.len(),
             dreps = dreps.len(),
             pools = pools.len(),
-            active_stake = active_stake,
-            pools_voting_stake = pools_voting_stake,
-            dreps_voting_stake = dreps_voting_stake,
+            active_stake,
+            pools_voting_stake,
+            dreps_voting_stake,
         );
 
         Ok(Self {

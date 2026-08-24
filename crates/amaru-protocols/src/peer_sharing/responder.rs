@@ -132,8 +132,7 @@ impl StageState<State, Responder> for PeerSharingResponder {
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
             ResponderResult::ShareRequest { amount } => {
-                let span =
-                    debug_span!(protocols::peer_sharing::responder::PEER_SHARING_RESPONDER_STAGE, amount = amount);
+                let span = debug_span!(protocols::peer_sharing::responder::PEER_SHARING_RESPONDER_STAGE, amount);
                 async move {
                     let reply_to = match self.reply_bridge.clone() {
                         Some(bridge) => bridge,

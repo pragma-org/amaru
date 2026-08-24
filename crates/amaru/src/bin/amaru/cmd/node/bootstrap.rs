@@ -140,7 +140,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         cli::node::BOOTSTRAP,
         chain_dir = relative_path(&chain_dir)?.display().to_string(),
         ledger_dir = relative_path(&ledger_dir)?.display().to_string(),
-        network = network,
+        network,
         epoch = @args.epoch.map(|e| e.to_string()),
     );
 
@@ -153,14 +153,14 @@ async fn run(args: Args) -> anyhow::Result<()> {
         if ledger_dir_populated {
             let dir = relative_path(&ledger_dir)?.display().to_string();
             let hint = "ledger directory already exists: use another location or remove it manually";
-            warn!(cli::ledger_db::EXIST, dir = dir, hint = hint);
+            warn!(cli::ledger_db::EXIST, dir, hint);
             messages.push(format!("{hint} ({dir})"));
         }
 
         if chain_dir_populated {
             let dir = relative_path(&chain_dir)?.display().to_string();
             let hint = "chain directory already exists: use another location or remove it manually";
-            warn!(cli::chain_db::EXIST, dir = dir, hint = hint);
+            warn!(cli::chain_db::EXIST, dir, hint);
             messages.push(format!("{hint} ({dir})"));
         }
 

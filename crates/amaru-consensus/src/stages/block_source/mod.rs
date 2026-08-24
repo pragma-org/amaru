@@ -115,16 +115,16 @@ impl BlockSource {
         let entries = self.by_point.len();
         self.by_point.retain(|_, entry| entry.block_height() >= adopted_h - self.max_tip_distance);
         let retained = self.by_point.len();
-        debug_record!(consensus::block_source::PRUNE, pruned = entries - retained, retained = retained);
+        debug_record!(consensus::block_source::PRUNE, pruned = entries - retained, retained);
     }
 
     async fn on_block_received(&mut self, peer: Peer, point: Point, eff: &Effects<BlockSourceMsg>) {
         use BlockValidity::*;
 
-        debug!(consensus::block_source::RECEIVED, peer = &peer, point = point);
+        debug!(consensus::block_source::RECEIVED, peer = &peer, point);
         match self.by_point.get_mut(&point) {
             Some(Invalid(_height)) => {
-                info!(consensus::block_source::KNOWN_INVALID, peer = &peer, point = point);
+                info!(consensus::block_source::KNOWN_INVALID, peer = &peer, point);
                 eff.send(&self.invalid_peer_sink, PeerSelectionMsg::adversarial(peer)).await;
             }
             Some(Pending(_height, peers)) => {
@@ -141,7 +141,7 @@ impl BlockSource {
     }
 
     async fn on_validation(&mut self, valid: bool, point: Point, eff: &Effects<BlockSourceMsg>) {
-        debug!(consensus::block_source::VALIDATION, point = point, valid = valid);
+        debug!(consensus::block_source::VALIDATION, point, valid);
         if let Some(validity) = self.by_point.get_mut(&point)
             && let BlockValidity::Pending(height, peers) = validity
         {

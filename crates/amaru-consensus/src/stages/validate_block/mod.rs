@@ -130,13 +130,7 @@ impl ValidateBlock {
         message: &str,
         trace_context: &TraceContext,
     ) {
-        warn!(
-            consensus::block::INVALID,
-            failed_tip = failed_tip,
-            parent = msg.parent,
-            error = reason,
-            detail = message
-        );
+        warn!(consensus::block::INVALID, failed_tip, parent = msg.parent, error = reason, detail = message);
         self.invalid_blocks.insert(failed_tip.hash(), failed_tip.block_height());
         self.invalid_blocks.insert(msg.tip.hash(), msg.tip.block_height());
 
@@ -176,7 +170,7 @@ pub async fn stage(
 ) -> ValidateBlock {
     let tip = msg.tip;
     if msg.parent == Point::Origin {
-        error!(consensus::block::VALIDATE_FROM_GENESIS, tip = tip, current = state.current, parent = msg.parent);
+        error!(consensus::block::VALIDATE_FROM_GENESIS, tip, current = state.current, parent = msg.parent);
         return eff.terminate().await;
     }
 
@@ -185,7 +179,7 @@ pub async fn stage(
     let span = debug_span!(
             parent_context: trace_context,
             consensus::block::VALIDATE,
-            tip = tip,
+            tip,
             header_hash = tip.hash());
     let stage_context = (&span).into();
 
@@ -214,7 +208,12 @@ pub async fn stage(
             let result = ledger
                 .validate_block(&tip)
                 .or_terminate_with(&eff, async |err| {
-                    warn!(consensus::block::APPLY_FAILED, tip = msg.tip, step = "validate_block", error = err.to_string());
+                    warn!(
+                        consensus::block::APPLY_FAILED,
+                        tip = msg.tip,
+                        step = "validate_block",
+                        error = err.to_string()
+                    );
                 })
                 .await;
             match result {
@@ -245,7 +244,7 @@ pub async fn stage(
             let message_header = store.load_header(&tip.hash()).await;
             let current_header = store.load_header(&state.current.hash()).await;
             if cmp_tip(message_header.as_ref(), current_header.as_ref()) != std::cmp::Ordering::Greater {
-                debug!(consensus::block::SKIP, current = state.current, tip = tip);
+                debug!(consensus::block::SKIP, current = state.current, tip);
                 return state;
             }
 
@@ -253,7 +252,12 @@ pub async fn stage(
             let result = ledger
                 .switch_to_fork(&tip)
                 .or_terminate_with(&eff, async |err| {
-                    warn!(consensus::block::APPLY_FAILED, tip = msg.tip, step = "switch_to_fork", error = err.to_string());
+                    warn!(
+                        consensus::block::APPLY_FAILED,
+                        tip = msg.tip,
+                        step = "switch_to_fork",
+                        error = err.to_string()
+                    );
                 })
                 .await;
             match result {

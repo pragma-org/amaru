@@ -885,13 +885,8 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let blocks = blocks.into_iter();
         let fork_length = blocks.len();
 
-        let _span = info_span!(
-            ledger::state::SWITCH_TO_FORK,
-            fork_point = fork_point,
-            fork_length = fork_length,
-            rollback_length = 0usize
-        )
-        .entered();
+        let _span =
+            info_span!(ledger::state::SWITCH_TO_FORK, fork_point, fork_length, rollback_length = 0usize).entered();
 
         let initial_immutable_tip = self.immutable_tip();
 
@@ -900,12 +895,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let state_recovery = self.rollback_to(fork_point)?;
 
         let rollback_length = state_recovery.rollback_length();
-        info!(
-            ledger::state::SWITCH_TO_FORK,
-            fork_point = fork_point,
-            fork_length = fork_length,
-            rollback_length = rollback_length
-        );
+        info!(ledger::state::SWITCH_TO_FORK, fork_point, fork_length, rollback_length);
 
         // The fork must replace the rolled-back chain at equal length or extend it by exactly one
         // block. If this condition is violated, this means that there is an issue with chain selection.
@@ -961,7 +951,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                     if !stable_modified {
                         self.recover(state_recovery);
                     }
-                    error_record!(ledger::state::SWITCH_TO_FORK, outcome = "error", stable_modified = stable_modified);
+                    error_record!(ledger::state::SWITCH_TO_FORK, outcome = "error", stable_modified);
                     return Err(error);
                 }
             }
@@ -1135,7 +1125,7 @@ where
                 let now = Instant::now();
                 if emit_progress_ticks && now.saturating_duration_since(printed) > Duration::from_millis(100) {
                     printed = now;
-                    info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch = epoch, progress);
+                    info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch, progress);
                 }
             })
         })

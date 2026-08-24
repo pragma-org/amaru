@@ -58,7 +58,7 @@ pub fn remove<DB>(db: &Transaction<'_, DB>, key: &Key) -> Result<(), StoreError>
 /// So any de-registration from `e-2`, `e-1` or `e` must survive until the end of `e`. Then, `e+2`
 /// can be cleared at the start of the next epoch `e+1`.
 pub fn prune<DB>(db: &Transaction<'_, DB>, epoch: Epoch) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::recently_unregistered_accounts::PRUNE, epoch = epoch).in_scope(|| {
+    trace_span!(stores::ledger::recently_unregistered_accounts::PRUNE, epoch).in_scope(|| {
         with_prefix_iterator::<Key, Value, DB>(db, PREFIX, COLLECTION_NAME, |iterator| {
             for (_, mut row) in iterator {
                 let value = row.borrow_mut();

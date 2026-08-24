@@ -29,7 +29,7 @@ use crate::effects::{Metrics, MetricsOps};
 pub(super) fn emit_tx_received(tx_id: &TransactionId, origin: &TxOrigin) {
     debug!(mempool::transaction::RECEIVED, id = tx_id, origin = tx_origin_label(origin));
     if let TxOrigin::Remote(peer) = origin {
-        debug!(mempool::transaction::RECEIVED_DETAIL, id = tx_id, peer = peer);
+        debug!(mempool::transaction::RECEIVED_DETAIL, id = tx_id, peer);
     }
 }
 
@@ -62,12 +62,7 @@ pub(super) async fn record_insert(
             match reason {
                 TxRejectReason::Invalid(err) => {
                     let validation_error = err.to_string();
-                    info!(
-                        mempool::transaction::REJECTED,
-                        id = tx_id,
-                        reason = reason_label,
-                        validation_error = validation_error
-                    );
+                    info!(mempool::transaction::REJECTED, id = tx_id, reason = reason_label, validation_error);
                 }
                 TxRejectReason::Duplicate | TxRejectReason::MempoolFull => {
                     info!(mempool::transaction::REJECTED, id = tx_id, reason = reason_label);
@@ -104,9 +99,9 @@ pub(super) async fn record_revalidation(
 
         for tx_id in &outcome.evicted_tx_ids {
             if included.contains(tx_id) {
-                info!(mempool::transaction::EVICTED, id = tx_id, tip = tip, reason = "included_in_adopted_block");
+                info!(mempool::transaction::EVICTED, id = tx_id, tip, reason = "included_in_adopted_block");
             } else {
-                info!(mempool::transaction::EVICTED, id = tx_id, tip = tip, reason = "evicted_after_new_tip");
+                info!(mempool::transaction::EVICTED, id = tx_id, tip, reason = "evicted_after_new_tip");
             }
         }
 
@@ -123,7 +118,7 @@ pub(super) async fn record_revalidation(
             mempool::transaction::REVALIDATION_DETAIL,
             tip_slot = outcome.tip_slot,
             total_before = outcome.total_before,
-            evicted_count = evicted_count,
+            evicted_count,
             duration_micros = outcome.duration_micros
         );
     }

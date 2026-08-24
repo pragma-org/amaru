@@ -70,7 +70,7 @@ impl StageState<State, Responder> for KeepAliveResponder {
         let cookie = input.cookie.as_u16();
 
         async move { Ok((Some(ResponderAction::SendResponse(input.cookie)), self)) }
-            .instrument(debug_span!(protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE, cookie = cookie))
+            .instrument(debug_span!(protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE, cookie))
             .await
     }
 
