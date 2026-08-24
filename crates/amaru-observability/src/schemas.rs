@@ -1951,7 +1951,7 @@ define_schemas! {
                     /// A disconnect request could not be carried out.
                     /// Reason ∈ {not_connected, connection_not_found, peer_already_removed,
                     /// before_handshake}.
-                    DISCONNECT_IGNORED {
+                    public DISCONNECT_IGNORED {
                         required peer: %amaru_kernel::Peer
                         required reason: String
                         optional conn_id: u64
@@ -2380,7 +2380,7 @@ define_schemas! {
                     public MEMPOOL_TIMEOUT {}
                     /// A transaction received from a peer was handed to the mempool.
                     /// Outcome ∈ {inserted, invalid, mempool_full, duplicate}.
-                    RECEIVED_TX {
+                    public RECEIVED_TX {
                         required id: amaru_kernel::TransactionId
                         required outcome: String
                         optional error: String

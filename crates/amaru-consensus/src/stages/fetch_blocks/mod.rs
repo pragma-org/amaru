@@ -396,7 +396,22 @@ impl FetchBlocks {
 
         // check that body belongs to header
         if block.header.body().block_body_hash != block.body_hash() {
-            let span = debug_span!(consensus::block::MISMATCHED_HASH, peer = &peer, header_hash = point.hash());
+            let expected = block.header.body().block_body_hash;
+            let actual = block.body_hash();
+            let span = debug_span!(
+                consensus::block::MISMATCHED_HASH,
+                peer = &peer,
+                header_hash = point.hash(),
+                expected = expected,
+                actual = actual,
+            );
+            warn!(
+                consensus::block::MISMATCHED_HASH,
+                peer = &peer,
+                header_hash = point.hash(),
+                expected = expected,
+                actual = actual,
+            );
             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, (&span).into())).await;
             return;
         }

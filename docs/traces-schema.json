@@ -5853,6 +5853,34 @@
       "description": "A connection is being closed on request. Direction ∈ {inbound, outbound}.",
       "public": true
     },
+    "amaru::protocols::manager::peer::DISCONNECT_IGNORED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "reason"
+      ],
+      "optional": [
+        "conn_id"
+      ],
+      "additionalProperties": false,
+      "name": "disconnect_ignored",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake}.",
+      "public": true
+    },
     "amaru::protocols::manager::peer::DUPLICATE_TERMINATED": {
       "type": "object",
       "properties": {
@@ -6417,6 +6445,34 @@
       "level": "TRACE",
       "target": "amaru::protocols::tx_submission::responder",
       "description": "The peer replied with more transaction ids than were requested",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::RECEIVED_TX": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::TransactionId"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "outcome"
+      ],
+      "optional": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "name": "received_tx",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "A transaction received from a peer was handed to the mempool. Outcome ∈ {inserted, invalid, mempool_full, duplicate}.",
       "public": true
     },
     "amaru::protocols::tx_submission::responder::UNSOLICITED_TXS": {

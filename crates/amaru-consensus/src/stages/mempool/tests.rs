@@ -72,9 +72,9 @@ fn insert_batch_returns_one_result_per_transaction() {
         .assert_and_remove(Level::INFO, &["transaction.rejected", "invalid", "transaction rejected for testing"])
         .assert_and_remove(Level::INFO, &["transaction.rejected", "duplicate"])
         .assert_and_remove(Level::DEBUG, &["state.update", "tx_count=1", "size_bytes=51"])
-        .assert_and_remove(Level::DEBUG, &["amaru_consensus::stages::mempool::traces:", r#"origin="local""#])
-        .assert_and_remove(Level::DEBUG, &["amaru_consensus::stages::mempool::traces:", r#"origin="local""#])
-        .assert_and_remove(Level::DEBUG, &["amaru_consensus::stages::mempool::traces:", r#"origin="local""#])
+        .assert_and_remove(Level::DEBUG, &["transaction.received", r#"origin="local""#])
+        .assert_and_remove(Level::DEBUG, &["transaction.received", r#"origin="local""#])
+        .assert_and_remove(Level::DEBUG, &["transaction.received", r#"origin="local""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 

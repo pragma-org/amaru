@@ -517,7 +517,7 @@ impl Manager {
     #[expect(clippy::expect_used)]
     async fn remove_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
         let Some(entry) = self.peers.remove(&peer) else {
-            debug!(protocols::manager::peer::DISCONNECT_IGNORED, peer = &peer, reason = "not_connected");
+            info!(protocols::manager::peer::DISCONNECT_IGNORED, peer = &peer, reason = "not_connected");
             return;
         };
         if let Some(conn_id) = entry.inbound {

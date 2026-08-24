@@ -2533,6 +2533,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `connected` | `TRACE` | public | An outbound connection to a peer was established | peer, conn_id |  |
 | `connection_died` | `TRACE` | public | A peer connection has died | peer, conn_id, role |  |
 | `connection_died_handled` | `TRACE` | public | A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}. | peer, outcome |  |
+| `disconnect_ignored` | `TRACE` | public | A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake}. | peer, reason | conn_id |
 | `disconnecting` | `TRACE` | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
 | `duplicate_terminated` | `TRACE` | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
 | `handshake_completed` | `TRACE` | public | The handshake completed on a connection | peer, conn_id, full_duplex_capable, full_duplex, advertisable |  |
@@ -2623,6 +2624,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
 | `outcome` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `disconnect_ignored`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+| `conn_id` | `integer` |  |
 
 </details>
 
@@ -2908,6 +2919,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `mempool_timeout` | `TRACE` | public | The mempool did not answer an insertion batch before the timeout |  |  |
 | `over_replied` | `TRACE` | public | The peer replied with more transaction ids than were requested | requested, received, max_window |  |
+| `received_tx` | `TRACE` | public | A transaction received from a peer was handed to the mempool. Outcome ∈ {inserted, invalid, mempool_full, duplicate}. | id, outcome | error |
 | `unsolicited_txs` | `TRACE` | public | The peer sent transaction bodies that were never requested | not_requested |  |
 
 <details><summary>span: `over_replied`</summary>
@@ -2917,6 +2929,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `requested` | `integer` | ✓ |
 | `received` | `integer` | ✓ |
 | `max_window` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `received_tx`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `id` | `string` | ✓ |
+| `outcome` | `string` | ✓ |
+| `error` | `string` |  |
 
 </details>
 
