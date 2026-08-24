@@ -580,13 +580,22 @@ jobs:
               continue
             fi
 
+            staging_archive="$dir/$name.tar"
+            if [[ ! -f "$staging_archive" ]]; then
+              echo "missing staged distribution archive: $staging_archive" >&2
+              exit 1
+            fi
+
             if [[ "$static_name" == windows-* ]]; then
+              temporary_dir="$(mktemp -d)"
+              tar -C "$temporary_dir" -xf "$staging_archive"
               (
-                cd ./artifacts
-                zip -qr "../dist/downloads/${static_name}.zip" "$name"
+                cd "$temporary_dir"
+                zip -qr "$GITHUB_WORKSPACE/dist/downloads/${static_name}.zip" "$name"
               )
+              rm -rf "$temporary_dir"
             else
-              tar -C ./artifacts -czf "dist/downloads/${static_name}.tar.gz" "$name"
+              gzip --no-name --stdout "$staging_archive" > "dist/downloads/${static_name}.tar.gz"
             fi
           done
 
