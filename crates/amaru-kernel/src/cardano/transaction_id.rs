@@ -21,7 +21,20 @@ use std::{
 use crate::{Hash, cbor, size::TRANSACTION_BODY};
 
 /// Identifier for a transaction. This is the hash of the transaction body bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    std::hash::Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(transparent)]
 #[repr(transparent)]
 pub struct TransactionId(Hash<{ TRANSACTION_BODY }>);
 

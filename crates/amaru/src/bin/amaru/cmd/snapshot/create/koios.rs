@@ -104,7 +104,7 @@ pub(super) async fn fetch_last_block_for_epoch(
     let parent_block = fetch_block_by_hash(client, network, &block.parent_hash).await?;
     let parent_point = NetworkPoint::Specific(Slot::from(parent_block.abs_slot), Hash::from_str(&parent_block.hash)?);
 
-    info!(cli::last_block::RESOLVE, %epoch, %point);
+    info!(cli::last_block::RESOLVE, epoch, point);
 
     Ok(EpochTarget {
         epoch,

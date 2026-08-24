@@ -193,6 +193,29 @@ impl<'de, const BYTES: usize> serde::Deserialize<'de> for Hash<BYTES> {
     }
 }
 
+impl<const BYTES: usize> schemars::JsonSchema for Hash<BYTES> {
+    fn schema_name() -> String {
+        format!("Hash<{BYTES}>")
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        let hex_len = BYTES * 2;
+        #[allow(clippy::expect_used)]
+        serde_json::from_value(serde_json::json!({
+            "type": "string",
+            "contentEncoding": "hex",
+            "minLength": hex_len,
+            "maxLength": hex_len,
+            "description": "hex-encoded hash"
+        }))
+        .expect("hash json schema is valid")
+    }
+
+    fn is_referenceable() -> bool {
+        false
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Display
 // -----------------------------------------------------------------------------

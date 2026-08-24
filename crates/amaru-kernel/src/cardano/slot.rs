@@ -20,7 +20,21 @@ use std::{
 
 use minicbor::{Decode, Decoder, Encode};
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, serde::Serialize, serde::Deserialize, Default)]
+#[derive(
+    Clone,
+    Debug,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
+    schemars::JsonSchema,
+)]
+#[schemars(transparent)]
 #[repr(transparent)]
 pub struct Slot(u64);
 

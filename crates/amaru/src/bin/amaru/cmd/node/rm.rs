@@ -72,8 +72,8 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     info!(
         cli::node::RM,
-        chain_dir = %chain_dir.display(),
-        ledger_dir = %ledger_dir.display(),
+        chain_dir = chain_dir.display().to_string(),
+        ledger_dir = ledger_dir.display().to_string(),
         network = network,
     );
 

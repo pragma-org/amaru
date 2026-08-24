@@ -14,6 +14,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+amaru-kernel.workspace = true
 amaru-observability-macros.workspace = true
 cbor-data.workspace = true
 cbor4ii.workspace = true
@@ -21,6 +22,7 @@ hex.workspace = true
 inventory.workspace = true
 opentelemetry.workspace = true
 quote.workspace = true
+schemars.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
 syn.workspace = true
@@ -30,7 +32,6 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-amaru-kernel.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["logs", "testing", "trace"] }
 
 [lints]

@@ -44,8 +44,9 @@ pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;
 pub use otel_trace_arrays::CborTraceArrayLayer;
 pub use record_fields::RecordFields;
+/// Re-export for schema macros that require `Serialize` / `JsonSchema` on complex field types.
+pub use schemars;
 pub use schemas::*;
-/// Re-export for schema macros that require `Serialize` on complex field types.
 pub use serde;
 pub use span_encode::{
     abbreviate_span_name, ancestor_span_names, format_abbreviated_span_path, write_abbreviated_span_name,

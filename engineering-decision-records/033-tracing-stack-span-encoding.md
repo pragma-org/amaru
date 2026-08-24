@@ -47,9 +47,10 @@ span tree (see below).
    Child events (and child-span lifecycle events) carry `.parent_id` equal
    to the wrapping span's *parent*. Search the log for that id to recover
    the next level up. OpenTelemetry uses its own span/trace ids.
-5. **String scalars are not Debug-quoted.** Schema types such as
-   `HeaderHash` travel as CBOR text (hex). Sinks present the hex once
-   (`"3bc8…"`), never `"\"3bc8…\""`.
+5. **String scalars are not Debug-quoted.** Schema types declared `%HeaderHash`
+   (Display) travel as a hex string. Sinks present the hex once
+   (`"3bc8…"`), never `"\"3bc8…\""`. Unprefixed `Point` fields are a CBOR array
+   `[slot, hash-bytes, height]` (origin is `[]`); JSON sinks hex-encode the hash.
 6. **Schema tags (`amaru.tag.*`) are filter attributes.** JSON and
    OpenTelemetry keep them. Console and TUI hide them.
 7. **CBOR `record_bytes` decodes to the richest type the sink can hold:**

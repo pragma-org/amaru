@@ -500,7 +500,14 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
                     info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false);
                 }) as Box<dyn FnOnce()>,
                 _ => Box::new(move || {
-                    warn!(setup::trace::FILTER, var, value = fallback, provided_by_user = true, provided_invalid = true, error = %e);
+                    warn!(
+                        setup::trace::FILTER,
+                        var,
+                        value = fallback,
+                        provided_by_user = true,
+                        provided_invalid = true,
+                        error = e.to_string()
+                    );
                 }) as Box<dyn FnOnce()>,
             };
 

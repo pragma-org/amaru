@@ -137,7 +137,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
             .with_context(|| format!("refusing to publish invalid snapshot archive {}", archive_path.display()))?;
     }
 
-    info!(cli::snapshot::PUBLISH, %network, local = local_archives.len(), remote = remote_keys.len());
+    info!(cli::snapshot::PUBLISH, network, local = local_archives.len(), remote = remote_keys.len());
 
     for archive_name in &local_archives {
         let object_key = format!("{network_prefix}/{archive_name}");
@@ -146,9 +146,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
         if remote_keys.contains(archive_name.as_str()) {
             info!(cli::snapshot::SKIP_UPLOAD, archive = archive_name);
         } else {
-            info!(cli::snapshot::UPLOAD, archive = %relative_path(&archive_path)?.display());
+            info!(cli::snapshot::UPLOAD, archive = relative_path(&archive_path)?.display().to_string());
             s3.upload_object(&archive_path, &object_key).await?;
-            info!(cli::snapshot::UPLOADED, archive = %relative_path(&archive_path)?.display());
+            info!(cli::snapshot::UPLOADED, archive = relative_path(&archive_path)?.display().to_string());
         }
     }
 
@@ -162,7 +162,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     };
     let index_json = serde_json::to_vec_pretty(&all_points)?;
     s3.upload_bytes(index_json, &format!("{network_prefix}/index.json")).await?;
-    info!(cli::snapshot::UPDATE_INDEX, %network, snapshots = all_points.len());
+    info!(cli::snapshot::UPDATE_INDEX, network, snapshots = all_points.len());
 
     Ok(())
 }

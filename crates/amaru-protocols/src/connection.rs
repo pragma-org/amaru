@@ -236,7 +236,7 @@ pub async fn stage(
         message_type = message_type,
         conn_id = conn_id.as_u64(),
         peer = peer,
-        role = %role,
+        role = role.to_string(),
     ))
     .await
 }

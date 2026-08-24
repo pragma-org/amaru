@@ -657,7 +657,7 @@ impl TrackPeers {
                     consensus::perf::header::LIFECYCLE,
                     peer = peer,
                     header_hash = header.hash(),
-                    error = %error,
+                    error = error.to_string(),
                     outcome = HeaderLifecycleOutcome::InvalidHeader.as_str()
                 );
                 record_header_rejected(eff, HeaderLifecycleOutcome::InvalidHeader).await;
@@ -705,7 +705,7 @@ impl TrackPeers {
                             consensus::perf::header::LIFECYCLE,
                             peer = peer,
                             header_hash = current.hash(),
-                            error = %error,
+                            error = error.to_string(),
                             outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
                         );
                         record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
@@ -793,7 +793,7 @@ impl TrackPeers {
                             error!(
                                 consensus::perf::header::LIFECYCLE,
                                 peer = peer,
-                                error = %error,
+                                error = error.to_string(),
                                 outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
                             record_header_rejected(&eff, HeaderLifecycleOutcome::UndecodableHeader).await;

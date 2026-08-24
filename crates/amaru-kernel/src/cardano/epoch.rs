@@ -23,7 +23,20 @@ use num::{CheckedAdd, CheckedSub};
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[derive(
+    Clone,
+    Debug,
+    Copy,
+    PartialEq,
+    PartialOrd,
+    Ord,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
+    schemars::JsonSchema,
+)]
+#[schemars(transparent)]
 #[repr(transparent)]
 pub struct Epoch(u64);
 

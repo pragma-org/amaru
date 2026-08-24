@@ -132,7 +132,7 @@ pub async fn download_from_mithril(
     let snapshot_list_item =
         snapshots.first().ok_or_else(|| anyhow::anyhow!("no Mithril cardano-db snapshot found"))?;
 
-    info!(mithril::snapshot::FETCH, hash = %snapshot_list_item.hash, from_chunk);
+    info!(mithril::snapshot::FETCH, hash = snapshot_list_item.hash, from_chunk);
 
     let fetch_progress = with_progress(0, "{spinner:.green} {elapsed_precise} fetching Mithril snapshot metadata");
     let snapshot = database_client.get(&snapshot_list_item.hash).await;
@@ -144,14 +144,14 @@ pub async fn download_from_mithril(
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
     let download_unpack_options =
         DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
-    info!(mithril::snapshot::DOWNLOAD, target_dir = %target_dir.display(), from_chunk);
+    info!(mithril::snapshot::DOWNLOAD, target_dir = target_dir.display().to_string(), from_chunk);
     database_client.download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options).await?;
 
-    info!(mithril::snapshot::VERIFY_DIGESTS, target_dir = %target_dir.display());
+    info!(mithril::snapshot::VERIFY_DIGESTS, target_dir = target_dir.display().to_string());
     let verified_digests = client.cardano_database_v2().download_and_verify_digests(&certificate, &snapshot).await?;
     let through_chunk = snapshot.beacon.immutable_file_number;
     let immutable_file_count = immutable_file_range.length(through_chunk) * 3;
-    info!(mithril::snapshot::VERIFY_DATABASE, target_dir = %target_dir.display());
+    info!(mithril::snapshot::VERIFY_DATABASE, target_dir = target_dir.display().to_string());
     let verification_template = format!(
         "{{spinner:.green}} {{elapsed_precise}} verifying immutable chunks {from_chunk}..={through_chunk} ({immutable_file_count} files)"
     );
@@ -168,7 +168,7 @@ pub async fn download_from_mithril(
         return Err(anyhow::anyhow!("Mithril certificate verification failed"));
     }
 
-    info!(mithril::snapshot::READY, target_dir = %target_dir.display());
+    info!(mithril::snapshot::READY, target_dir = target_dir.display().to_string());
 
     Ok(())
 }
