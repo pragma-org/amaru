@@ -14,7 +14,6 @@
 
 extern crate self as amaru_observability;
 
-pub mod aliases;
 pub mod field;
 pub mod json_format;
 pub mod layers;
