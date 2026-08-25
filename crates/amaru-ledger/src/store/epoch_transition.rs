@@ -28,7 +28,7 @@ use tracing::Span;
 
 use crate::{
     epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, Rewards},
-    store::{StoreError, TransactionalContext, columns::pools::Row as Pool},
+    store::{DiffVrf, StoreError, TransactionalContext, columns::pools::Row as Pool},
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -178,6 +178,7 @@ pub fn update_or_retire_pools<'store>(
     db: &impl TransactionalContext<'store>,
     updates: &BTreeMap<PoolId, Pool>,
     retirements: &BTreeSet<PoolId>,
+    projected_vrf_updates: &BTreeMap<Hash<VRF_KEY>, DiffVrf>,
 ) -> Result<(), StoreError> {
     debug_span!(
         stores::ledger::overlay::UPDATE_OR_RETIRE_POOLS,
@@ -185,7 +186,7 @@ pub fn update_or_retire_pools<'store>(
         pools_retired = retirements.len() as u64,
     )
     .in_scope(|| {
-        let mut decrement: BTreeMap<Hash<VRF_KEY>, u64> = BTreeMap::new();
+        let mut vrf_updates: Vec<(Hash<VRF_KEY>, DiffVrf)> = Vec::new();
 
         // TODO: multi-modify without full iterations?
         //
@@ -203,10 +204,7 @@ pub fn update_or_retire_pools<'store>(
             for (id, mut row) in iterator {
                 if retirements.contains(&id) {
                     if let Some(pool) = row.borrow() {
-                        decrement
-                            .entry(pool.current_params.vrf)
-                            .and_modify(|count| *count = count.saturating_add(1))
-                            .or_insert(1);
+                        vrf_updates.push((pool.current_params.vrf, DiffVrf::Decrement(1)));
                     }
                     *row.borrow_mut() = None;
                 } else if let Some(new_pool) = updates.get(&id) {
@@ -218,15 +216,29 @@ pub fn update_or_retire_pools<'store>(
                         // A VRF counter entirely overwritten (and forgotten) when a pool
                         // re-register with a new VRF. Even if that counter was greater than 1. This
                         // is a known bug in the original implementation that we reproduce.
-                        decrement.insert(old_pool.current_params.vrf, u64::MAX);
+                        vrf_updates.push((old_pool.current_params.vrf, DiffVrf::Release))
                     }
                     *row.borrow_mut() = Some(new_pool.clone())
                 }
             }
         })?;
 
-        for (key, count) in decrement.into_iter() {
-            db.decrement_vrf(key, count)?;
+        assert_eq!(
+            vrf_updates.len(),
+            projected_vrf_updates.len(),
+            "project vrf updates and actual updates have diverged in length:\nprojected={:#?}\nactual={:#?}",
+            projected_vrf_updates,
+            vrf_updates,
+        );
+
+        for (vrf, diff) in vrf_updates.iter() {
+            assert_eq!(
+                projected_vrf_updates.get(vrf),
+                Some(diff),
+                "project vrf updates and actual updates have diverged for key={vrf}",
+            );
+
+            db.update_vrf(vrf, *diff)?;
         }
 
         Ok(())
