@@ -48,7 +48,7 @@ use amaru_kernel::{
 use columns::*;
 use thiserror::Error;
 
-use crate::epoch_transition::GovernanceActivity;
+use crate::{epoch_transition::GovernanceActivity, store::vrf_keys::DiffVrf};
 
 pub mod columns;
 
@@ -369,6 +369,14 @@ pub trait ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn governance_activity(&self) -> Result<GovernanceActivity> {
         unimplemented!("ReadStore.governance_activity()");
+    }
+
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn vrf(&self, vrf_key: &Hash<VRF_KEY>) -> Result<Option<u64>>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn vrf(&self, vrf_key: &Hash<VRF_KEY>) -> Result<Option<u64>> {
+        unimplemented!("ReadStore.get_vrf({vrf_key})");
     }
 
     /// Get details about all utxos
@@ -755,11 +763,11 @@ pub trait TransactionalContext<'a>: ReadStore {
     }
 
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn decrement_vrf(&self, vrf_key: Hash<VRF_KEY>, by: u64) -> Result<()>;
+    fn update_vrf(&self, vrf_key: &Hash<VRF_KEY>, diff: DiffVrf) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn decrement_vrf(&self, vrf_key: Hash<VRF_KEY>, by: u64) -> Result<()> {
-        unimplemented!("TransactionalContext.decrement_vrf({vrf_key}, {by})");
+    fn update_vrf(&self, vrf_key: &Hash<VRF_KEY>, diff: DiffVrf) -> Result<()> {
+        unimplemented!("TransactionalContext.update_vrf({vrf_key}, {diff:?})");
     }
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.

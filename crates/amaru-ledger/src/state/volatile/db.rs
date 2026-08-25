@@ -20,7 +20,8 @@ use std::{
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
     PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
-    StakeCredential, TransactionInput, size::SCRIPT,
+    StakeCredential, TransactionInput,
+    size::{SCRIPT, VRF_KEY},
 };
 
 use crate::{
@@ -35,7 +36,7 @@ use crate::{
             VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
-    store::{HistoricalStores, Store},
+    store::{HistoricalStores, Store, columns::vrf_keys::DiffVrf},
 };
 
 #[derive(Debug)]
@@ -111,6 +112,19 @@ impl VolatileState for VolatileDB {
         } else {
             Existence::Unknown
         }
+    }
+
+    // ------------------------------------------------------------------------------------ VRF Keys
+    type VrfKeys<'a> = BTreeMap<&'a Hash<VRF_KEY>, DiffVrf>;
+    fn resolve_vrf_keys<'a>(&'a self) -> Self::VrfKeys<'a> {
+        std::iter::empty()
+            .chain(self.draining.resolve_vrf_keys())
+            .chain(self.overlay.vrf_updates())
+            .chain(self.current.resolve_vrf_keys())
+            .fold(BTreeMap::new(), |mut map, (vrf, diff)| {
+                map.entry(vrf).and_modify(|st| st.then(diff)).or_insert(diff);
+                map
+            })
     }
 
     // ------------------------------------------------------------------------------------ Accounts

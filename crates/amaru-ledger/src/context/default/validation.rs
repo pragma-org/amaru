@@ -37,6 +37,7 @@ use crate::{
         blanket_known_scripts,
     },
     state::volatile::{BindError, Existence, VolatileFragment},
+    store::columns::vrf_keys::DiffVrf,
 };
 
 #[derive(Debug, Default)]
@@ -164,22 +165,25 @@ impl PoolsSlice for DefaultValidationContext {
             // counters. Issues exists mostly for pools with conflicting VRF that pre-dates the Van
             // Rossem hard fork.
             //
-            // - If one of such pool is now re-registering with the same VRF. The counter resets to 1,
-            //   irrespective of its value.
+            // - If one of such pool is now re-registering with the same VRF:
+            //     - The counter resets to 1, irrespective of its value.
+            //     - If the pool had any pending registrations, then the counter associated to the
+            //       previous VRF is removed entirely, irrespective of its value.
             //
-            // - If the pool had any pending registrations, then the counter associated to the previous
-            //   VRF is removed entirely, irrespective of its value.
+            // - If a pool is registering for the first time, then its counter is initialized to 1
+            //   no matter what.
             //
             // It is a known buggy behaviour that we have to reproduce.
             if let Some(latest) = pool {
                 // Only change the counter if the pool has pending updates.
                 if latest.has_pending_updates && latest.vrf != params.vrf {
                     self.vrf_keys.remove(&latest.vrf);
-                    self.vrf_keys.insert(params.vrf, 1);
+                    self.state.vrf_keys.push_back((latest.vrf, DiffVrf::Release));
                 }
-            } else {
-                self.vrf_keys.insert(params.vrf, 1);
             }
+
+            self.state.vrf_keys.push_back((params.vrf, DiffVrf::Claim));
+            self.vrf_keys.insert(params.vrf, 1);
         }
 
         self.state.pools.register(params.id, Arc::new((params, pointer, deposit)));

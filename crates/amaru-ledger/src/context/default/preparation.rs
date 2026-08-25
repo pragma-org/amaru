@@ -21,7 +21,7 @@ use amaru_kernel::{
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, GovernanceAction, Hash, MemoizedTransactionOutput,
     PoolId, PoolSlim, ProposalId, ProposalSlim, ProposalsRoots, StakeCredential, TransactionInput, drep, size::VRF_KEY,
 };
-use amaru_observability::debug_span;
+use amaru_observability::{debug_span, error};
 
 use crate::{
     context::{
@@ -30,7 +30,7 @@ use crate::{
         PrepareUtxoSlice, ProposalStateSlim, UnresolvedInputPolicy,
     },
     state::volatile::{Bind, Existence, VolatileDB, VolatileState},
-    store::ReadStore,
+    store::{ReadStore, columns::vrf_keys::DiffVrf},
 };
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
@@ -43,6 +43,7 @@ use crate::{
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
+    pub vrf_keys: BTreeSet<&'a Hash<VRF_KEY>>,
     pub accounts: BTreeSet<Cow<'a, StakeCredential>>,
     pub dreps: BTreeSet<Cow<'a, StakeCredential>>,
     pub drep_delegations: BTreeSet<&'a DRep>,
@@ -56,6 +57,7 @@ impl DefaultPreparationContext<'_> {
         Self {
             utxo: BTreeSet::new(),
             pools: BTreeSet::new(),
+            vrf_keys: BTreeSet::new(),
             accounts: BTreeSet::new(),
             dreps: BTreeSet::new(),
             drep_delegations: BTreeSet::new(),
@@ -124,6 +126,7 @@ impl<'block> DefaultPreparationContext<'block> {
         volatile: &'volatile impl VolatileState<
             TransactionOutput<'volatile> = <VolatileDB as VolatileState>::TransactionOutput<'volatile>,
             Pool = <VolatileDB as VolatileState>::Pool,
+            VrfKeys<'volatile> = <VolatileDB as VolatileState>::VrfKeys<'volatile>,
             Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>,
             DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>,
             CCMembers<'volatile> = <VolatileDB as VolatileState>::CCMembers<'volatile>,
@@ -136,7 +139,7 @@ impl<'block> DefaultPreparationContext<'block> {
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
-            resolve_vrf_keys(volatile, db)?,
+            resolve_vrf_keys(volatile, db, self.vrf_keys.into_iter())?,
             resolve_accounts(volatile, db, self.accounts.into_iter())?,
             resolve_dreps(
                 volatile,
@@ -206,11 +209,48 @@ fn resolve_inputs<'block, 'volatile>(
 }
 
 /// Resolves vrf counters from the stable store and pending pools updates.
-fn resolve_vrf_keys(
-    _volatile: &impl VolatileState<Pool = <VolatileDB as VolatileState>::Pool>,
-    _db: &impl ReadStore,
+fn resolve_vrf_keys<'block, 'volatile>(
+    volatile: &'volatile impl VolatileState<VrfKeys<'volatile> = <VolatileDB as VolatileState>::VrfKeys<'volatile>>,
+    db: &impl ReadStore,
+    keys: impl Iterator<Item = &'block Hash<VRF_KEY>>,
 ) -> Result<BTreeMap<Hash<VRF_KEY>, u64>, ContextHydratationError> {
-    unimplemented!("resolve_vrf_keys")
+    debug_span!(ledger::validation_context::vrf_keys::HYDRATE).in_scope(|| {
+        let volatile_vrf_keys = volatile.resolve_vrf_keys();
+
+        let mut vrf_keys = BTreeMap::new();
+        for key in keys {
+            match volatile_vrf_keys.get(key) {
+                Some(DiffVrf::Release) => {}
+
+                Some(DiffVrf::Claim) => {
+                    vrf_keys.insert(*key, 1);
+                }
+
+                Some(DiffVrf::Decrement(n)) => {
+                    if let Some(stable_count) = db.vrf(key).map_err(ContextHydratationError::ResolveVrfKeys)? {
+                        if let Some(current_count) = stable_count.checked_sub(*n)
+                            && current_count > 0
+                        {
+                            vrf_keys.insert(*key, current_count);
+                        }
+                    } else {
+                        error!(
+                            ledger::validation_context::vrf_keys::ERROR,
+                            key = *key,
+                            diff = ?DiffVrf::Decrement(*n),
+                            reason = "volatile yield 'Decrement' on non-existing key ?!"
+                        );
+                    }
+                }
+                None => {
+                    if let Some(count) = db.vrf(key).map_err(ContextHydratationError::ResolveVrfKeys)? {
+                        vrf_keys.insert(*key, count);
+                    }
+                }
+            };
+        }
+        Ok(vrf_keys)
+    })
 }
 
 /// Resolves pools, confirming the existence of the provided `pool_ids`.
@@ -574,6 +614,7 @@ mod tests {
         impl VolatileState for Mock {
             type TransactionOutput<'a> = ();
             type Pool = ();
+            type VrfKeys<'a> = ();
             type Account<'a> = ();
             type DRep<'a> = ();
             type Proposal = ();

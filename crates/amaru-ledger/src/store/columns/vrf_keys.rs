@@ -15,4 +15,28 @@
 use amaru_kernel::{Hash, size::VRF_KEY};
 
 pub type Key = Hash<VRF_KEY>;
-pub type Value = u64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffVrf {
+    /// Mark a VRF key hash as in use by a pool registration. This *sets* the count to 1 even when
+    /// an entry alread exists.
+    Claim,
+    /// Delete a specific  retiring pools' hold on a VRF key hash, deleting the entry once nothing
+    /// holds it.
+    Release,
+    /// Remove a specific amount for a key counter.
+    Decrement(u64),
+}
+
+impl DiffVrf {
+    pub fn then(&mut self, next: Self) {
+        match next {
+            Self::Claim | Self::Release => *self = next,
+            Self::Decrement(n_next) => match self {
+                Self::Release => {}
+                Self::Claim => *self = Self::Release,
+                Self::Decrement(n_self) => *self = Self::Decrement(*n_self + n_next),
+            },
+        }
+    }
+}

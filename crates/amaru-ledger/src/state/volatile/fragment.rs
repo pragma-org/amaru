@@ -13,20 +13,23 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
 };
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
-    TransactionInput,
+    Hash, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
+    TransactionInput, size::VRF_KEY,
 };
 
 use crate::{
     context::ProposalState,
     state::volatile::{Bind, Empty},
-    store::{self, columns::*},
+    store::{
+        self,
+        columns::{vrf_keys::DiffVrf, *},
+    },
 };
 
 mod diff_bind;
@@ -56,6 +59,7 @@ pub use tests::*;
 pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
+    pub vrf_keys: VecDeque<(Hash<VRF_KEY>, DiffVrf)>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
@@ -118,12 +122,14 @@ impl AnchoredVolatileFragment {
             impl Iterator<Item = ()>,
             impl Iterator<Item = ()>,
         >,
+        impl Iterator<Item = (Hash<VRF_KEY>, DiffVrf)>,
     > {
         let Self {
             fragment:
                 VolatileFragment {
                     utxo,
                     pools,
+                    vrf_keys,
                     accounts,
                     dreps,
                     dreps_deregistrations,
@@ -143,6 +149,7 @@ impl AnchoredVolatileFragment {
             fees,
             donations,
             withdrawals: withdrawals.into_iter(),
+            vrf_keys: vrf_keys.into_iter(),
             add: store::Columns {
                 utxo: utxo.produced.into_iter().map(|(input, output)| (input, Arc::unwrap_or_clone(output))),
                 pools: add_pools(pools.registered.into_iter()),
@@ -188,7 +195,7 @@ impl AnchoredVolatileFragment {
 
 // ------------------------------------------------------------------------------------------- StoreUpdate
 
-pub struct StoreUpdate<W, A, R> {
+pub struct StoreUpdate<W, A, R, VRF> {
     pub point: Point,
     pub issuer: PoolId,
     pub fees: Lovelace,
@@ -196,6 +203,7 @@ pub struct StoreUpdate<W, A, R> {
     pub withdrawals: W,
     pub add: A,
     pub remove: R,
+    pub vrf_keys: VRF,
 }
 
 // ------------------------------------------------------------------------------------------- Pools

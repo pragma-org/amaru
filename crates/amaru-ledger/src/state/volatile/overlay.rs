@@ -16,7 +16,8 @@ use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
     Constitution, ConstitutionalCommitteeUpdate, Epoch, Hash, Lovelace, PoolId, ProposalId, ProposalsRoots,
-    ProtocolParameters, RatificationStatus, StakeCredential, TreasuryDelta, size::SCRIPT,
+    ProtocolParameters, RatificationStatus, StakeCredential, TreasuryDelta,
+    size::{SCRIPT, VRF_KEY},
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -31,7 +32,7 @@ use crate::{
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
-        pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
+        columns::vrf_keys::DiffVrf, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
         reset_recently_pruned_proposals, update_or_retire_pools,
     },
 };
@@ -296,7 +297,12 @@ impl StateOverlay {
                     reset_fees_and_donations(batch)?;
 
                     if let Some(pools_updates) = mem::take(&mut self.pools_updates) {
-                        update_or_retire_pools(batch, pools_updates.updated(), pools_updates.retired())?;
+                        update_or_retire_pools(
+                            batch,
+                            pools_updates.updated(),
+                            pools_updates.retired(),
+                            pools_updates.vrf_updates(),
+                        )?;
                         pay_or_refund_accounts(batch, pools_updates.refunds())?;
                     } else {
                         debug!(ledger::overlay::NO_POOLS_UPDATES);
@@ -366,6 +372,17 @@ impl StateOverlay {
     /// pool as still-existing.
     pub fn is_pool_retired(&self, pool_id: PoolId) -> bool {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(&pool_id))
+    }
+
+    /// VRF updates applied during the epoch transition.
+    pub fn vrf_updates<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a Hash<VRF_KEY>, DiffVrf)> + 'a> {
+        self.pools_updates
+            .as_ref()
+            .map(|pools| {
+                Box::new(pools.vrf_updates().iter().map(|(k, v)| (k, *v)))
+                    as Box<dyn Iterator<Item = (&'a Hash<VRF_KEY>, DiffVrf)> + 'a>
+            })
+            .unwrap_or_else(|| Box::new(std::iter::empty()))
     }
 
     /// The cold credentials this pending boundary transition can resolve to a member for, that is,

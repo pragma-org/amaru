@@ -16,7 +16,7 @@ use amaru_ledger::store::{
     StoreError,
     columns::{
         unsafe_decode,
-        vrf_keys::{Key, Value},
+        vrf_keys::{DiffVrf, Key},
     },
 };
 use amaru_observability::{error, trace_span};
@@ -34,49 +34,40 @@ pub const PREFIX: [u8; PREFIX_LEN] = *b"vrfs";
 pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     vrf: &Key,
-) -> Result<Option<Value>, StoreError> {
+) -> Result<Option<u64>, StoreError> {
     trace_span!(stores::ledger::vrf_keys::GET).in_scope(|| {
         let key = as_key(&PREFIX, vrf);
-        Ok(db_get(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Value>(&d)))
+        Ok(db_get(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<u64>(&d)))
     })
 }
 
-/// Set or reset a counter to 1, even when an entry already exists;
-pub fn set<DB>(db: &Transaction<'_, DB>, vrf: &Key, counter: Value) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::vrf_keys::SET).in_scope(|| {
-        db.put(as_key(&PREFIX, vrf), as_value(counter)).map_err(|err| StoreError::Internal(err.into()))?;
-        Ok(())
-    })
-}
-
-/// Drop `by` retiring pools' hold on a VRF key hash, deleting the entry once nothing holds it.
-///
-/// A stored count below `by` means occupancy was tracked lower than the number of pools
-/// actually holding the key. The entry still goes, but the shortfall is reported: it means an earlier claim was lost.
-pub fn decrement<DB>(db: &Transaction<'_, DB>, vrf: &Key, by: Value) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::vrf_keys::DECREMENT).in_scope(|| {
+/// Apply an update to a VRF key.
+pub fn update<DB>(db: &Transaction<'_, DB>, vrf: &Key, diff: DiffVrf) -> Result<(), StoreError> {
+    trace_span!(stores::ledger::vrf_keys::UPDATE).in_scope(|| {
         let key = as_key(&PREFIX, vrf);
-        match db.get(&key).map_err(|err| StoreError::Internal(err.into()))? {
-            None => {
-                error!(
-                    stores::ledger::vrf_keys::DECREMENT,
-                    ?vrf,
-                    by = by,
-                    stored = 0,
-                    error = "vrf key hash not in use"
-                );
-            }
-            Some(bytes) => {
-                let stored = unsafe_decode::<Value>(&bytes);
-                match stored.checked_sub(by).filter(|remaining| *remaining > 0) {
-                    Some(remaining) => {
-                        db.put(key, as_value(remaining)).map_err(|err| StoreError::Internal(err.into()))?
-                    }
-                    None => db.delete(key).map_err(|err| StoreError::Internal(err.into()))?,
+        match diff {
+            DiffVrf::Claim => db.put(key, as_value(1_u64)),
+            DiffVrf::Release => db.delete(key),
+            DiffVrf::Decrement(by) => match db.get(&key).map_err(|err| StoreError::Internal(err.into()))? {
+                None => {
+                    error!(
+                        stores::ledger::vrf_keys::DECREMENT,
+                        ?vrf,
+                        by = by,
+                        stored = 0,
+                        error = "vrf key hash not in use"
+                    );
+                    return Ok(());
                 }
-            }
+                Some(bytes) => {
+                    let stored = unsafe_decode::<u64>(&bytes);
+                    match stored.checked_sub(by).filter(|remaining| *remaining > 0) {
+                        Some(remaining) => db.put(key, as_value(remaining)),
+                        None => db.delete(key),
+                    }
+                }
+            },
         }
-
-        Ok(())
+        .map_err(|err| StoreError::Internal(err.into()))
     })
 }

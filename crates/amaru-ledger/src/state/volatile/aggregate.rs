@@ -140,8 +140,9 @@ impl VolatileAggregate {
             donations,
             accounts,
             dreps,
-            dreps_deregistrations: _,
             committee,
+            vrf_keys: _,
+            dreps_deregistrations: _,
             votes: _,
         } = fragment;
 
@@ -193,8 +194,9 @@ impl VolatileAggregate {
             accounts,
             committee,
             dreps,
-            dreps_deregistrations: _,
             pools,
+            vrf_keys: _,
+            dreps_deregistrations: _,
             votes: _,
         } = fragment;
 
