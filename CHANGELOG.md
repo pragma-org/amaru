@@ -47,8 +47,6 @@ Other guiding principles:
 - **amaru-observability**: field rendering is declared on the schema (`%` Display, `?` Debug, otherwise `Serialize + JsonSchema`). Call sites no longer take `%` / `?`; `@` remains for `tracing::Value` passthrough. `amaru dev traces dump` emits the JSON-sink schema of each field. `Point` traces encode as `[slot, hash, height]` with a CBOR byte-string hash ([#1263](https://github.com/pragma-org/amaru/issues/1263)).
 - **amaru-kernel**: `Hash` (and newtypes / `FixedBytes`) serialize as CBOR byte strings on the tracing path; JSON serde still uses hex. JSON/console/TUI/OTEL span sinks render those bytes as hex; OTEL logs keep byte strings.
 - **amaru**: use the `amaru-observability` crate with all other amaru crates so that all tracing events have a schema (#1266).
-
-### Changed
 - **amaru-ledger**: restructured script validations and sped up phase-one validation by up to ~11.5%
 
 ### Fixed
@@ -66,6 +64,7 @@ Other guiding principles:
 - **amaru-tui**: tweak block dissemination metrics headers (fetch → select, sync → fetch)
 - **amaru-ledger**: Do not validate disjoint input sets in protocol version 11+. Similarly, do not allow non-disjoin input sets in PV3, regardless of protocol version.
 - **amaru-kernel**: decode reward accounts as a network tag plus stake credential, rejecting malformed reward accounts at deserialization.
+- **amaru-ledger**: Do not validate disjoint input sets in protocol version 11+. Similarly, do not allow non-disjoint input sets in PV3, regardless of protocol version.
 - **amaru-ledger**: do not allow the same script to exist in both the witness set and in a reference input
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
