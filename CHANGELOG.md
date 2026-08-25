@@ -49,6 +49,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-protocols**: cancel the tx-submission responder's inflight-fetch timeout as soon as the peer replies, so bursty inbound traffic cannot fill the priority mailbox and panic ([#1270](https://github.com/pragma-org/amaru/issues/1270)).
 - **amaru-consensus**: resume outbound sync after a mux drop: forget the dead `Connected` entry before the replacement handshake, and do not immediately re-dial a banned static peer while the manager still holds the live connection ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
 - **amaru-consensus**: report clock-skew versus non-monotonic slot failures distinctly instead of the same “expected at least” message ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
 - **amaru-protocols**: include the `Peer` on mux receive/send failure logs ([#1265](https://github.com/pragma-org/amaru/issues/1265)).
