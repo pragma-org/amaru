@@ -47,6 +47,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru-pure-stage**: `Effects::detach` runs an external effect without occupying the airlock. The transition is resumed with `()` immediately; when `run()` completes the interpreter applies the provided constructor and enqueues the value on the calling stage’s bulk mailbox.
 - **amaru-node**: allow embedders to disable sysinfo-backed system metrics collection through `TelemetryOptions`.
 
 ### Changed

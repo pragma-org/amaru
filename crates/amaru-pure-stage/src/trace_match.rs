@@ -237,28 +237,54 @@ pub fn tm_wire_stage_state_supervised<'a, T: SendData, U: SendData>(
 }
 
 /// Creates a `TraceMatch` that matches any `Suspend(External { .., effect })`
-/// whose effect downcasts to the given `T`.
+/// whose effect downcasts to the given `T`. Matches both blocking
+/// [`crate::Effect::External`] and [`crate::Effect::Detach`].
 ///
 /// This is the generic form for "I expect this external effect to have been
 /// performed, but I don't care about (or can't easily name) its exact payload".
 pub fn tm_external_effect<T: ExternalEffect>(at_stage: impl AsRef<str>) -> TraceMatch<'static> {
-    tm_external_effect_match::<T>(at_stage, |_| true)
+    tm_external_effect_match::<T>(at_stage, |_| true, Detached::Either)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Detached {
+    Yes,
+    No,
+    Either,
+}
+
+impl Detached {
+    fn allows_inline(&self) -> bool {
+        matches!(self, Detached::No | Detached::Either)
+    }
+    fn allows_detached(&self) -> bool {
+        matches!(self, Detached::Yes | Detached::Either)
+    }
 }
 
 /// Creates a `TraceMatch` that matches `Suspend(External { at_stage, effect })`
-/// where the effect casts to `T` **and** the provided predicate holds on it.
+/// or `Suspend(Detach { at_stage, effect })` where the effect casts to `T` **and**
+/// the provided predicate holds on it.
 ///
 /// Use the simple `tm_external_effect::<T>(at_stage)` when only presence/type matters.
 pub fn tm_external_effect_match<'a, T: ExternalEffect>(
     at_stage: impl AsRef<str>,
     predicate: impl Fn(&T) -> bool + Send + 'a,
+    detached: Detached,
 ) -> TraceMatch<'a> {
     let stage_name = Name::from(at_stage.as_ref());
     let description = format!("ExternalEffect<{}>(at_stage: {:?})", std::any::type_name::<T>(), stage_name);
     TraceMatch::Property(
+        #[expect(clippy::wildcard_enum_match_arm)]
         Box::new(move |entry| {
-            let TraceEntry::Suspend(Effect::External { at_stage, effect }) = entry else {
-                return false;
+            let (at_stage, effect) = match entry {
+                TraceEntry::Suspend(Effect::External { at_stage, effect }) if detached.allows_inline() => {
+                    (at_stage, effect)
+                }
+                TraceEntry::Suspend(Effect::Detach { at_stage, effect }) if detached.allows_detached() => {
+                    (at_stage, effect)
+                }
+                _ => return false,
             };
             if at_stage != &stage_name {
                 return false;

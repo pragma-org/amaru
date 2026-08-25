@@ -308,6 +308,43 @@ impl<M> Effects<M> {
         })
     }
 
+    /// Start an external effect without occupying the airlock until it completes.
+    ///
+    /// The current transition is resumed immediately with `()`. When [`ExternalEffect::run`]
+    /// finishes, `inject` is applied to the result and the value is enqueued on **this** stage’s
+    /// bulk mailbox — the same path as a send from another stage. Typical use is an enum
+    /// constructor:
+    ///
+    /// ```ignore
+    /// eff.detach(ResolveEffect::new(name), PeerSelectionMessage::Resolved).await;
+    /// ```
+    ///
+    /// The stage can receive other messages while the effect runs. The follow-up is subject to
+    /// bulk-mailbox back-pressure (it waits for a slot; it is not dropped).
+    ///
+    /// In simulation, [`ExternalEffectAPI::SIMULATED_DURATION`] delays mailbox delivery, not the
+    /// `()` ack. [`crate::simulation::running::OverrideResult::handled`] supplies
+    /// `T::Response`; `inject` still runs. Tests may also [`crate::simulation::SimulationRunning::enqueue_msg`]
+    /// the already-mapped message.
+    pub fn detach<T, F>(&self, effect: T, inject: F) -> BoxFuture<'static, ()>
+    where
+        T: ExternalEffectAPI,
+        F: FnOnce(T::Response) -> M + Send + 'static,
+        M: SendData,
+    {
+        let inject: InjectFn = Box::new(move |resp| {
+            let typed = resp.cast_deserialize::<T::Response>().expect("internal messaging type error");
+            Box::new(inject(typed)) as Box<dyn SendData>
+        });
+        airlock_effect(&self.effect, StageEffect::Detach(Box::new(effect), NoDebug::new(inject)), |eff| match eff {
+            Some(StageResponse::ExternalResponse(resp)) => {
+                let (): () = resp.cast_deserialize().expect("internal messaging type error");
+                Some(())
+            }
+            _ => None,
+        })
+    }
+
     /// Terminate this stage
     ///
     /// This will terminate this stage graph if done from a stage that was created before running the graph.
@@ -463,6 +500,10 @@ pub trait ExternalEffect: SendData {
     /// (e.g., `resources.get::<Arc<MyStore>>()?`).
     ///
     /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
+    ///
+    /// For [`Effects::external`](Effects::external) the returned value is the airlock response.
+    /// For [`Effects::detach`](Effects::detach) the same value is mapped into the calling stage’s
+    /// mailbox after this future completes; the airlock is resumed with `()` immediately.
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
 }
 
@@ -656,6 +697,11 @@ pub enum CallExtra {
     Scheduled(ScheduleId),
 }
 
+/// Maps an [`ExternalEffectAPI::Response`] into the calling stage’s message type.
+///
+/// Stored on [`StageEffect::Detach`] and applied by the interpreter when `run()` completes.
+pub(crate) type InjectFn = Box<dyn FnOnce(Box<dyn SendData>) -> Box<dyn SendData> + Send>;
+
 /// An effect emitted by a stage (in which case T is `Box<dyn Message>`) or an effect
 /// upon whose resumption the stage waits (in which case T is `()`).
 #[derive(Debug)]
@@ -668,6 +714,9 @@ pub enum StageEffect<T> {
     Schedule(T, ScheduleId),
     CancelSchedule(ScheduleId),
     External(Box<dyn ExternalEffect>),
+    /// Like [`Self::External`], but the airlock is acked with `()` and `run()`’s value is later
+    /// injected into the caller’s mailbox.
+    Detach(Box<dyn ExternalEffect>, NoDebug<InjectFn>),
     Terminate,
     AddStage(Name),
     WireStage(Name, NoDebug<TransitionFactory>, T, T),
@@ -772,6 +821,9 @@ impl StageEffect<Box<dyn SendData>> {
             StageEffect::External(effect) => {
                 (StageEffect::External(Box::new(())), Effect::External { at_stage: at_name, effect })
             }
+            StageEffect::Detach(effect, inject) => {
+                (StageEffect::Detach(Box::new(()), inject), Effect::Detach { at_stage: at_name, effect })
+            }
             StageEffect::Terminate => (StageEffect::Terminate, Effect::Terminate { at_stage: at_name }),
             StageEffect::AddStage(name) => {
                 (StageEffect::AddStage(name.clone()), Effect::AddStage { at_stage: at_name, name })
@@ -821,6 +873,11 @@ pub enum Effect {
         id: ScheduleId,
     },
     External {
+        at_stage: Name,
+        #[serde(with = "crate::serde::serialize_external_effect")]
+        effect: Box<dyn ExternalEffect>,
+    },
+    Detach {
         at_stage: Name,
         #[serde(with = "crate::serde::serialize_external_effect")]
         effect: Box<dyn ExternalEffect>,
@@ -896,6 +953,18 @@ impl Effect {
                     "effect_type": effect_type,
                 })
             }
+            Effect::Detach { at_stage, effect } => {
+                let effect_type = effect
+                    .cast_ref::<UnknownExternalEffect>()
+                    .map(|e| e.send_data_value().typetag.as_str())
+                    .unwrap_or_else(|| effect.typetag_name());
+                serde_json::json!({
+                    "type": "detach",
+                    "at_stage": at_stage,
+                    "effect": effect.to_string(),
+                    "effect_type": effect_type,
+                })
+            }
             Effect::Terminate { at_stage } => serde_json::json!({
                 "type": "terminate",
                 "at_stage": at_stage,
@@ -936,6 +1005,9 @@ impl Display for Effect {
             }
             Effect::External { at_stage, effect } => {
                 write!(f, "external {at_stage}: {effect}",)
+            }
+            Effect::Detach { at_stage, effect } => {
+                write!(f, "detach {at_stage}: {effect}",)
             }
             Effect::Terminate { at_stage } => write!(f, "terminate {at_stage}"),
             Effect::AddStage { at_stage, name } => write!(f, "add_stage {at_stage} {name}"),
@@ -982,6 +1054,11 @@ impl Effect {
         Self::External { at_stage: Name::from(at_stage.as_ref()), effect }
     }
 
+    /// Construct a detach effect.
+    pub fn detach(at_stage: impl AsRef<str>, effect: Box<dyn ExternalEffect>) -> Self {
+        Self::Detach { at_stage: Name::from(at_stage.as_ref()), effect }
+    }
+
     /// Construct a terminate effect.
     pub fn terminate(at_stage: impl AsRef<str>) -> Self {
         Self::Terminate { at_stage: Name::from(at_stage.as_ref()) }
@@ -1018,6 +1095,7 @@ impl Effect {
             Effect::Schedule { at_stage, .. } => at_stage,
             Effect::CancelSchedule { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
+            Effect::Detach { at_stage, .. } => at_stage,
             Effect::Terminate { at_stage, .. } => at_stage,
             Effect::AddStage { at_stage, .. } => at_stage,
             Effect::WireStage { at_stage, .. } => at_stage,
@@ -1113,9 +1191,20 @@ impl Effect {
     pub fn assert_external<Eff: ExternalEffect + PartialEq>(&self, at_stage: impl AsRef<Name>, effect: &Eff) {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::External { at_stage: a, effect: e }
+            Effect::External { at_stage: a, effect: e } | Effect::Detach { at_stage: a, effect: e }
                 if a == at_stage && &**e as &dyn SendData == effect as &dyn SendData => {}
             _ => panic!("unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}", at_stage),
+        }
+    }
+
+    /// Assert that this effect is a [`Effect::Detach`].
+    #[track_caller]
+    pub fn assert_detach<Eff: ExternalEffect + PartialEq>(&self, at_stage: impl AsRef<Name>, effect: &Eff) {
+        let at_stage = at_stage.as_ref();
+        match self {
+            Effect::Detach { at_stage: a, effect: e }
+                if a == at_stage && &**e as &dyn SendData == effect as &dyn SendData => {}
+            _ => panic!("unexpected effect {self:?}\n  looking for Detach at `{}` with effect {effect:?}", at_stage),
         }
     }
 
@@ -1124,7 +1213,8 @@ impl Effect {
     pub fn extract_external<Eff: ExternalEffectAPI + PartialEq>(self, at_stage: impl AsRef<Name>) -> Box<Eff> {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::External { at_stage: a, effect: e } if &a == at_stage =>
+            Effect::External { at_stage: a, effect: e } | Effect::Detach { at_stage: a, effect: e }
+                if &a == at_stage =>
             {
                 #[expect(clippy::unwrap_used)]
                 e.cast::<Eff>().unwrap()
@@ -1240,6 +1330,12 @@ impl PartialEq for Effect {
             },
             Effect::External { at_stage, effect } => match other {
                 Effect::External { at_stage: other_at_stage, effect: other_effect } => {
+                    at_stage == other_at_stage && &**effect as &dyn SendData == &**other_effect as &dyn SendData
+                }
+                _ => false,
+            },
+            Effect::Detach { at_stage, effect } => match other {
+                Effect::Detach { at_stage: other_at_stage, effect: other_effect } => {
                     at_stage == other_at_stage && &**effect as &dyn SendData == &**other_effect as &dyn SendData
                 }
                 _ => false,

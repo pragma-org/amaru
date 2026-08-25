@@ -301,6 +301,7 @@ enum EffectRef<'a> {
     Schedule { at_stage: &'a Name, msg: &'a dyn SendData, id: ScheduleId },
     CancelSchedule { at_stage: &'a Name, id: ScheduleId },
     External { at_stage: &'a Name, effect: &'a dyn crate::ExternalEffect },
+    Detach { at_stage: &'a Name, effect: &'a dyn crate::ExternalEffect },
     Terminate { at_stage: &'a Name },
     AddStage { at_stage: &'a Name, name: &'a Name },
     WireStage { at_stage: &'a Name, name: &'a Name, initial_state: &'a dyn SendData, tombstone: &'a dyn SendData },
@@ -317,6 +318,7 @@ impl<'a> EffectRef<'a> {
             StageEffect::Schedule(msg, id) => EffectRef::Schedule { at_stage, msg: &**msg, id: *id },
             StageEffect::CancelSchedule(id) => EffectRef::CancelSchedule { at_stage, id: *id },
             StageEffect::External(effect) => EffectRef::External { at_stage, effect: &**effect },
+            StageEffect::Detach(effect, _) => EffectRef::Detach { at_stage, effect: &**effect },
             StageEffect::Terminate => EffectRef::Terminate { at_stage },
             StageEffect::AddStage(name) => EffectRef::AddStage { at_stage, name },
             StageEffect::WireStage(name, _transition, initial_state, tombstone) => {
