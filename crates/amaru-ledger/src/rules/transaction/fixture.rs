@@ -340,7 +340,8 @@ impl From<PhaseTwoError> for Predicate {
             | PhaseTwoError::ScriptContextStateError(_)
             | PhaseTwoError::ScriptDeserializationError(_)
             | PhaseTwoError::FlatDecodingError(_)
-            | PhaseTwoError::MissingCostModel(_) => unreachable!("no predicate mapping yet for {err}"),
+            | PhaseTwoError::MissingCostModel(_)
+            | PhaseTwoError::NonDisjointRefInputs { .. } => unreachable!("no predicate mapping yet for {err}"),
         }
     }
 }

@@ -17,7 +17,8 @@ use std::{collections::BTreeMap, fmt, time::Instant};
 use amaru_kernel::{
     BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, RedeemerKey,
     TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    to_cbor, utils::duration::elapsed_and_reset,
+    to_cbor,
+    utils::{duration::elapsed_and_reset, string::display_collection},
 };
 use amaru_observability::debug_span;
 use amaru_plutus::{
@@ -57,6 +58,11 @@ pub enum PhaseTwoError {
     ValidityStateError,
     #[error("missing cost models for version = {0:?}")]
     MissingCostModel(PlutusVersion),
+    #[error(
+        "inputs included in both reference inputs and spent inputs: intersection [{}]",
+        display_collection(.intersection),
+    )]
+    NonDisjointRefInputs { intersection: Vec<TransactionInput> },
 }
 
 #[derive(Debug)]
@@ -136,6 +142,21 @@ where
     )?;
 
     let scripts_to_execute = tx_info.to_script_contexts();
+
+    if scripts_to_execute.iter().any(|(_, _, script)| matches!(script, BorrowedScript::PlutusV3(_))) {
+        let non_disjoint_inputs = transaction_body
+            .reference_inputs
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter(|input| transaction_body.inputs.contains(input))
+            .copied()
+            .collect::<Vec<_>>();
+
+        if !non_disjoint_inputs.is_empty() {
+            return Err(PhaseTwoError::NonDisjointRefInputs { intersection: non_disjoint_inputs });
+        }
+    }
 
     span.record(PHASE_TWO::FIELD_SCRIPT_CONTEXT_MICROS, elapsed_and_reset(&mut meter));
 
