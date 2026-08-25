@@ -14,6 +14,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
+use amaru_kernel::Peer;
 use anyhow::anyhow;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -63,6 +64,12 @@ impl From<(Ipv4Addr, u16)> for ToSocketAddrs {
 impl From<(Ipv6Addr, u16)> for ToSocketAddrs {
     fn from((addr, port): (Ipv6Addr, u16)) -> Self {
         Self::IpAddrV6(addr, port)
+    }
+}
+
+impl From<Peer> for ToSocketAddrs {
+    fn from(peer: Peer) -> Self {
+        SocketAddr::from(peer).into()
     }
 }
 

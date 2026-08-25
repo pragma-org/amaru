@@ -275,7 +275,7 @@ mod tests {
         let mempool = InMemoryMempool::new(MempoolConfig::default());
         let tx = Tx::from_str("tx1").unwrap();
         let TxInsertResult::Accepted { tx_id, seq_no: seq_nb } =
-            mempool.insert(tx.clone(), TxOrigin::Remote(Peer::new("upstream")))
+            mempool.insert(tx.clone(), TxOrigin::Remote(Peer::for_test(3005)))
         else {
             panic!("transaction should be accepted")
         };

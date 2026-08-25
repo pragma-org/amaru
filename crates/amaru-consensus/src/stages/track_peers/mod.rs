@@ -428,11 +428,11 @@ impl TrackPeers {
         }
 
         let Some((current, _highest)) = self.upstream.get(&conn_id).and_then(PerPeer::established) else {
-            return Err(ConsensusError::UnknownPeer(peer.clone()));
+            return Err(ConsensusError::UnknownPeer(*peer));
         };
         if header.parent_hash().unwrap_or(ORIGIN_HASH) != current.hash() {
             return Err(ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
-                peer: peer.clone(),
+                peer: *peer,
                 forwarded: header.point(),
                 actual: header.parent_hash(),
                 expected: *current,
@@ -513,7 +513,7 @@ impl TrackPeers {
         };
         let Some((current_ref, highest_ref)) = self.upstream.get_mut(&conn_id).and_then(PerPeer::established_mut)
         else {
-            return Err(ConsensusError::UnknownPeer(peer.clone()));
+            return Err(ConsensusError::UnknownPeer(*peer));
         };
         *current_ref = current_tip;
         *highest_ref = tip;
@@ -536,7 +536,7 @@ impl TrackPeers {
     /// Drop availability claims when the peer has no remaining sessions (scores kept).
     async fn clear_availability_if_gone(&self, peer: &Peer, eff: &Effects<TrackPeersMsg>) {
         if !self.peer_still_tracked(peer) {
-            eff.external(Performance::clear_peer_availability(peer.clone())).await;
+            eff.external(Performance::clear_peer_availability(*peer)).await;
         }
     }
 
@@ -553,7 +553,7 @@ impl TrackPeers {
             return None;
         }
         Some(DeferredHeader {
-            peer: args.peer.clone(),
+            peer: args.peer,
             conn_id: args.conn_id,
             handler: args.handler.clone(),
             reason: DeferReason::StakeDistribution {
@@ -586,7 +586,7 @@ impl TrackPeers {
         let onset = self.era_history.slot_to_relative_time(args.header.slot(), current.slot()).ok()?;
         let wait = onset.saturating_sub(elapsed);
         Some(DeferredHeader {
-            peer: args.peer.clone(),
+            peer: args.peer,
             conn_id: args.conn_id,
             handler: args.handler.clone(),
             reason: DeferReason::ClockSkew {
@@ -735,7 +735,7 @@ impl TrackPeers {
                 );
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
                 eff.external(Performance::record_header_announcement(
-                    peer.clone(),
+                    peer,
                     header_tip,
                     header_parent,
                     received_at,
@@ -769,7 +769,7 @@ impl TrackPeers {
                     .await;
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
                 eff.external(Performance::record_header_announcement(
-                    peer.clone(),
+                    peer,
                     header_tip,
                     header_parent,
                     received_at,
@@ -827,7 +827,7 @@ impl TrackPeers {
                     highest = tip
                 );
                 let now = eff.clock().await;
-                eff.external(Performance::record_intersection(peer.clone(), current_tip, None, now)).await;
+                eff.external(Performance::record_intersection(peer, current_tip, None, now)).await;
                 self.upstream.insert(conn_id, PerPeer::Established { peer, current: current_tip, highest: tip });
             }
             IntersectNotFound(tip) => {
@@ -895,7 +895,7 @@ impl TrackPeers {
                     let ledger_height = self.ledger_applied_block_height;
                     if ledger_height < limit {
                         self.defer(DeferredHeader {
-                            peer: peer.clone(),
+                            peer,
                             conn_id,
                             handler: handler.clone(),
                             reason: DeferReason::LedgerHeight {

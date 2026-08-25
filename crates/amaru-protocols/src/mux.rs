@@ -197,10 +197,10 @@ impl State {
                     )
                     .await;
                 let writer = eff.supervise(writer, MuxMessage::Terminate);
-                let writer = eff.wire_up(writer, (*conn, eff.me(), self.muxer.role(), self.peer.clone())).await;
+                let writer = eff.wire_up(writer, (*conn, eff.me(), self.muxer.role(), self.peer)).await;
                 let reader = eff.stage(format!("reader-{}", conn), read_segment).await;
                 let reader = eff.supervise(reader, MuxMessage::Terminate);
-                let reader = eff.wire_up(reader, (*conn, eff.me(), self.muxer.role(), self.peer.clone())).await;
+                let reader = eff.wire_up(reader, (*conn, eff.me(), self.muxer.role(), self.peer)).await;
                 eff.send(&reader, Read).await;
                 self.conn = Connection::Init(writer, reader);
             }
@@ -212,7 +212,7 @@ impl State {
 }
 
 pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessage>) -> State {
-    let peer = state.peer.clone();
+    let peer = state.peer;
     let (muxer, sending, writer, reader) = state.init(&mut eff).await;
 
     handle_msg(msg, &eff, muxer, sending, writer, reader)
@@ -691,7 +691,7 @@ mod tests {
     const TIMEOUT: Duration = Duration::from_secs(1);
 
     fn test_peer() -> Peer {
-        Peer::new("mux-test")
+        Peer::for_test(3007)
     }
 
     async fn s<F: Future>(f: F)

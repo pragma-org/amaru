@@ -239,7 +239,7 @@ define_schemas! {
                 /// Find chain intersection point with peer
                 public FIND_INTERSECTION {
                     tags: bootstrap
-                    required peer: %amaru_kernel::Peer
+                    required peer: String
                     required intersection_slot: amaru_kernel::Slot
                 }
                 /// Received a new tip from an upstream peer
@@ -1208,7 +1208,7 @@ define_schemas! {
             peer {
                 /// Failed to connect to a peer while bootstrapping
                 public FAILED_TO_CONNECT {
-                    required peer: %amaru_kernel::Peer
+                    required peer: String
                     required reason: String
                 }
             }
@@ -2039,6 +2039,11 @@ define_schemas! {
                     /// Reason ∈ {already_added, too_many_inbound}.
                     public ADD_SKIPPED {
                         required peer: %amaru_kernel::Peer
+                        required reason: String
+                    }
+                    /// An address could not be used as a Peer (not a literal IP:port, or IPv4-mapped IPv6).
+                    public ADDRESS_REJECTED {
+                        required address: String
                         required reason: String
                     }
                     /// A peer reconnected while a previous connection was still registered;

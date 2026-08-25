@@ -110,12 +110,12 @@ pub struct TestPrep {
 
 impl TestPrep {
     pub fn peer(name: &str) -> Peer {
-        Peer::new(name)
+        name.parse().unwrap_or_else(|e| panic!("test peer {name:?} must be a literal IP:port: {e}"))
     }
 
     /// Seed ledger candidates for the Performance resource installed in [`setup_preload`].
     pub fn with_ledger(mut self, names: &[&str]) -> Self {
-        self.ledger_candidates = names.iter().map(|n| Peer::new(n)).collect();
+        self.ledger_candidates = names.iter().map(|n| Self::peer(n)).collect();
         self
     }
 }
@@ -126,8 +126,8 @@ pub fn test_prep(static_names: &[&str]) -> TestPrep {
 
 pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
-    let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| Peer::new(n)).collect();
-    let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| Peer::new(n)).collect();
+    let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| TestPrep::peer(n)).collect();
+    let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| TestPrep::peer(n)).collect();
     let peer_mix = crate::performance::PeerMix::default();
     let state = PeerSelection::new(manager, 3, 10, COOLDOWN_SECS);
     TestPrep {

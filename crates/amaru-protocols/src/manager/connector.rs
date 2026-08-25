@@ -25,7 +25,7 @@
 use std::{collections::VecDeque, time::Duration};
 
 use amaru_kernel::Peer;
-use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
+use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, StageRef};
 
 use super::ManagerMessage;
@@ -111,7 +111,7 @@ impl Worker {
 }
 
 async fn worker_stage(state: Worker, peer: Peer, eff: Effects<Peer>) -> Worker {
-    let result = Network::new(&eff).connect(ToSocketAddrs::String(peer.to_string()), state.connection_timeout).await;
+    let result = Network::new(&eff).connect(peer.into(), state.connection_timeout).await;
     eff.send(&state.connector, ConnectorMsg::WorkerDone { peer, result, worker: eff.me() }).await;
     state
 }
@@ -158,11 +158,10 @@ mod tests {
             |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<ConnectEffect>()),
         );
 
-        let peers: Vec<_> =
-            (0..DEFAULT_PARALLEL_CONNECTION + 1).map(|i| Peer::new(&format!("127.0.0.1:{}", 3000 + i))).collect();
+        let peers: Vec<_> = (0..DEFAULT_PARALLEL_CONNECTION + 1).map(|i| Peer::for_test(3000 + i as u16)).collect();
 
-        for peer in &peers {
-            running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer: peer.clone(), delay: Duration::ZERO }]);
+        for &peer in &peers {
+            running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay: Duration::ZERO }]);
         }
 
         let mut connect_effects = Vec::new();
@@ -190,10 +189,7 @@ mod tests {
 
         let next = running.run_until_blocked().assert_breakpoint("connect");
         let next_stage = next.at_stage().clone();
-        next.assert_external(
-            &next_stage,
-            &ConnectEffect { addr: ToSocketAddrs::String(peers[DEFAULT_PARALLEL_CONNECTION].to_string()), timeout },
-        );
+        next.assert_external(&next_stage, &ConnectEffect { addr: peers[DEFAULT_PARALLEL_CONNECTION].into(), timeout });
     }
 
     #[test]
@@ -208,9 +204,9 @@ mod tests {
             |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<ConnectEffect>()),
         );
 
-        let peer = Peer::new("127.0.0.1:3001");
+        let peer = Peer::for_test(3001);
         let delay = Duration::from_secs(2);
-        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer: peer.clone(), delay }]);
+        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay }]);
 
         // run_until_blocked advances sleep; use sleeping_or_blocked so the delay is visible.
         let sleeping_until = running.run_until_sleeping_or_blocked().assert_sleeping();
@@ -224,7 +220,7 @@ mod tests {
         let eff = running.run_until_blocked().assert_breakpoint("connect");
         let at = eff.at_stage().clone();
         assert!(at.as_str().starts_with("connect-worker-0-"), "expected first worker, got {at}");
-        eff.assert_external(&at, &ConnectEffect { addr: ToSocketAddrs::String(peer.to_string()), timeout });
+        eff.assert_external(&at, &ConnectEffect { addr: peer.into(), timeout });
     }
 
     #[test]
@@ -237,8 +233,8 @@ mod tests {
         let conn_id = ConnectionId::initial();
         running.override_external_effect::<ConnectEffect>(usize::MAX, move |_| OverrideResult::handled(Ok(conn_id)));
 
-        let peer = Peer::new("127.0.0.1:4000");
-        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer: peer.clone(), delay: Duration::ZERO }]);
+        let peer = Peer::for_test(4000);
+        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay: Duration::ZERO }]);
         running.run_until_blocked_incl_effects().assert_idle();
 
         let msgs: Vec<_> = rx.drain().collect();

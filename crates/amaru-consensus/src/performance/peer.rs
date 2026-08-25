@@ -25,6 +25,7 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
+use amaru_observability::warn;
 use amaru_pure_stage::Instant;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -254,7 +255,17 @@ impl PeerPerformance {
     pub fn apply_ingest_shared_peers(&mut self, from: &Peer, addrs: &[SocketAddr]) -> SharedIngestResult {
         let mut added = 0usize;
         for addr in addrs {
-            let peer = Peer::from_addr(addr);
+            let peer = match Peer::try_from(addr) {
+                Ok(peer) => peer,
+                Err(reason) => {
+                    warn!(
+                        protocols::peer_selection::peer::ADDRESS_REJECTED,
+                        address = addr.to_string(),
+                        reason = reason.to_string()
+                    );
+                    continue;
+                }
+            };
             if &peer == from
                 || self.static_peers.contains(&peer)
                 || self.snapshot_candidates.contains(&peer)
@@ -352,7 +363,7 @@ impl PeerPerformance {
             let weights = self.outbound_weights_for(&candidates, params.now);
             let items: Vec<(Peer, f64)> = weights.into_iter().map(|w| (w.peer, w.weight)).collect();
             for peer in weighted_sample_without_replacement(&mut rng, items, n) {
-                already.insert(peer.clone());
+                already.insert(peer);
                 picked.push(peer);
             }
         }
@@ -370,9 +381,7 @@ impl PeerPerformance {
             if &peer == requester {
                 continue;
             }
-            let Ok(addr) = peer.name.parse::<SocketAddr>() else {
-                continue;
-            };
+            let addr = SocketAddr::from(peer);
             // Pool members with no Performance row are treated as shareable (not observed bad).
             // Observed peers must pass advertisability / malus / non-adversarial checks.
             if self.peers.contains_key(&peer) && !self.apply_ok_for_sharing(&peer, now) {
@@ -380,11 +389,11 @@ impl PeerPerformance {
             }
             eligible.push((peer, addr));
         }
-        eligible.sort_by(|a, b| a.0.cmp(&b.0));
+        eligible.sort_by_key(|a| a.0);
         let seed = {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            requester.name.hash(&mut hasher);
+            requester.hash(&mut hasher);
             hasher.finish()
         };
         let mut rng = StdRng::seed_from_u64(seed);
@@ -396,7 +405,7 @@ impl PeerPerformance {
     fn share_candidate_pool(&self) -> BTreeSet<Peer> {
         let mut pool = BTreeSet::new();
         for p in &self.static_peers {
-            pool.insert(p.clone());
+            pool.insert(*p);
         }
         for p in self.peers.keys() {
             // Outbound peers that are not ledger/snapshot-derived appear via canonical static/shared only;
@@ -404,11 +413,11 @@ impl PeerPerformance {
             if self.canonical_source(p) == Some(PeerSource::Static)
                 || self.canonical_source(p) == Some(PeerSource::Shared)
             {
-                pool.insert(p.clone());
+                pool.insert(*p);
             }
         }
         for p in &self.shared_peers {
-            pool.insert(p.clone());
+            pool.insert(*p);
         }
         pool.retain(|p| !self.ledger_candidates.contains(p) && !self.snapshot_candidates.contains(p));
         pool
@@ -446,7 +455,7 @@ impl PeerPerformance {
                 if never_connected {
                     score += NEVER_CONNECTED_BONUS;
                 }
-                OutboundWeight { peer: peer.clone(), weight: outbound_sampling_weight(score), malus }
+                OutboundWeight { peer: *peer, weight: outbound_sampling_weight(score), malus }
             })
             .collect()
     }
@@ -485,13 +494,13 @@ impl PeerPerformance {
         response: Duration,
         bytes: u64,
     ) {
-        self.insert_claim(peer.clone(), hash, height, parent, ClaimKind::BlockDelivery, at);
+        self.insert_claim(peer, hash, height, parent, ClaimKind::BlockDelivery, at);
         self.update_block_delivery(&peer, response, bytes, at);
     }
 
     pub fn apply_fetch_failure(&mut self, peers: &[Peer], at: Instant) {
-        for peer in peers {
-            let state = self.peers.entry(peer.clone()).or_default();
+        for &peer in peers {
+            let state = self.peers.entry(peer).or_default();
             state.scores.fetch_timeouts = state.scores.fetch_timeouts.saturating_add(1);
             state.scores.last_change = Some(at);
         }
@@ -528,7 +537,7 @@ impl PeerPerformance {
         self.direct.retain(|_, claimants| !claimants.is_empty());
 
         let half_life = self.half_life_for(peer);
-        let state = self.peers.entry(peer.clone()).or_default();
+        let state = self.peers.entry(*peer).or_default();
         state.tips.clear();
         state.scores = PeerScores::default();
         state.adversarial = true;
@@ -654,7 +663,7 @@ impl PeerPerformance {
                 existing.parent = parent;
             }
             None => {
-                claimants.insert(peer.clone(), meta.clone());
+                claimants.insert(peer, meta.clone());
             }
         }
 
@@ -664,24 +673,24 @@ impl PeerPerformance {
 
     fn first_announced_at_unlocked(&self, hash: &HeaderHash) -> Option<(Peer, Instant)> {
         let claimants = self.direct.get(hash)?;
-        claimants.iter().map(|(p, m)| (p.clone(), m.at)).min_by_key(|(_, at)| *at)
+        claimants.iter().map(|(p, m)| (*p, m.at)).min_by_key(|(_, at)| *at)
     }
 
     fn direct_claimants(&self, hash: &HeaderHash) -> Vec<(Peer, Instant, ClaimKind)> {
         match self.direct.get(hash) {
-            Some(claimants) => claimants.iter().map(|(p, m)| (p.clone(), m.at, m.kind)).collect(),
+            Some(claimants) => claimants.iter().map(|(p, m)| (*p, m.at, m.kind)).collect(),
             None => Vec::new(),
         }
     }
 
     fn update_header_lag(&mut self, peer: &Peer, lag: Duration, at: Instant) {
-        let state = self.peers.entry(peer.clone()).or_default();
+        let state = self.peers.entry(*peer).or_default();
         state.scores.header_lag_ewma = Some(ewma_duration(state.scores.header_lag_ewma, lag));
         state.scores.last_change = Some(at);
     }
 
     fn update_block_delivery(&mut self, peer: &Peer, response: Duration, bytes: u64, at: Instant) {
-        let state = self.peers.entry(peer.clone()).or_default();
+        let state = self.peers.entry(*peer).or_default();
         state.scores.block_response_ewma = Some(ewma_duration(state.scores.block_response_ewma, response));
         let secs = response.as_secs_f64().max(1e-6);
         let bps = bytes as f64 / secs;
@@ -709,12 +718,12 @@ impl PeerPerformance {
         }
 
         let mut ranked: Vec<(f64, Peer)> = Vec::new();
-        for peer in self.peers.keys() {
-            if !self.peer_covers_fragment(peer, &need) {
+        for &peer in self.peers.keys() {
+            if !self.peer_covers_fragment(&peer, &need) {
                 continue;
             }
-            let score = rank_score(self.peers.get(peer).map(|s| &s.scores), need.len());
-            ranked.push((score, peer.clone()));
+            let score = rank_score(self.peers.get(&peer).map(|s| &s.scores), need.len());
+            ranked.push((score, peer));
         }
 
         ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.1.cmp(&b.1)));
@@ -733,7 +742,7 @@ impl PeerPerformance {
             .map(|peer| {
                 let scores = self.peers.get(peer).map(|s| s.scores.clone()).unwrap_or_default();
                 let badness = churn_badness(&scores);
-                (badness, peer.clone(), scores)
+                (badness, *peer, scores)
             })
             .collect();
         ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.1.cmp(&b.1)));
@@ -753,7 +762,7 @@ impl PeerPerformance {
                 at: meta.at,
             })
             .collect();
-        Some(PeerSnapshot { peer: peer.clone(), scores: state.scores.clone(), tips, share: state.share_flags() })
+        Some(PeerSnapshot { peer: *peer, scores: state.scores.clone(), tips, share: state.share_flags() })
     }
 
     fn record_rollback(&mut self, peer: Peer, point: Point, parent: Option<HeaderHash>, at: Instant) {

@@ -336,7 +336,7 @@ impl PeerSelection {
     }
 
     async fn ban_peer(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>) {
-        let is_static = eff.external(Performance::is_static_peer(peer.clone())).await;
+        let is_static = eff.external(Performance::is_static_peer(peer)).await;
 
         let mut send_remove = false;
         let mut refill_outbound = false;
@@ -364,11 +364,11 @@ impl PeerSelection {
         }
 
         if send_remove {
-            eff.send(&self.manager, ManagerMessage::RemovePeer(peer.clone())).await;
+            eff.send(&self.manager, ManagerMessage::RemovePeer(peer)).await;
         }
 
         let now = eff.clock().await;
-        eff.external(Performance::peer_adversarial(peer.clone(), now)).await;
+        eff.external(Performance::peer_adversarial(peer, now)).await;
         self.cool_down(peer, eff, is_static, now).await;
         if refill_outbound {
             self.regulate_peers(eff).await;
@@ -378,7 +378,7 @@ impl PeerSelection {
     /// Drop availability claims when a peer has no remaining live connections (scores kept).
     async fn clear_availability_if_gone(&self, peer: &Peer, eff: &Effects<PeerSelectionMsg>) {
         if !self.peer_still_connected(peer) {
-            eff.external(Performance::clear_peer_availability(peer.clone())).await;
+            eff.external(Performance::clear_peer_availability(*peer)).await;
         }
     }
 
@@ -386,7 +386,7 @@ impl PeerSelection {
         let ban_period = if is_static { STATIC_PEER_BAN_PERIOD } else { self.peer_removal_cooldown };
         let when = now + ban_period;
 
-        let was_empty = self.cooldowns.add_and_is_first(peer.clone(), when);
+        let was_empty = self.cooldowns.add_and_is_first(peer, when);
 
         match self.cooldown_timer {
             None if was_empty => {
@@ -434,7 +434,7 @@ impl PeerSelection {
                 continue;
             }
             info!(protocols::peer_selection::peer::ADDED, peer, was_banned = false);
-            eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
+            eff.send(&self.manager, ManagerMessage::AddPeer(peer)).await;
             self.outbound_peers.insert(peer, PeerState::Connecting);
         }
     }
@@ -470,7 +470,7 @@ impl Cooldowns {
     /// Adds a peer to the cooldowns, returning true if this was the first entry.
     fn add_and_is_first(&mut self, peer: Peer, until: Instant) -> bool {
         let was_empty = self.cooldown_until.is_empty();
-        self.cooldown_until.insert(peer.clone(), until);
+        self.cooldown_until.insert(peer, until);
         self.cooldown_heap.push(Reverse((until, peer)));
         was_empty
     }
@@ -487,7 +487,7 @@ impl Cooldowns {
     }
 
     fn peek(&self) -> Option<(Instant, Peer)> {
-        self.cooldown_heap.peek().map(|Reverse((when, peer))| (*when, peer.clone()))
+        self.cooldown_heap.peek().map(|Reverse((when, peer))| (*when, *peer))
     }
 
     fn drain_due(&mut self, now: Instant) {
@@ -547,7 +547,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             );
             let static_peers = eff.external(Performance::static_peers()).await;
             for p in static_peers {
-                eff.send(&state.manager, ManagerMessage::AddPeer(p.clone())).await;
+                eff.send(&state.manager, ManagerMessage::AddPeer(p)).await;
                 state.outbound_peers.insert(p, PeerState::Connecting);
             }
             // Fill remaining outbound slots via mix + quality selection in Performance.
@@ -585,7 +585,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
 
             if !state.outbound_peers.contains_key(&peer) {
                 info!(protocols::peer_selection::peer::ADDED, peer, was_banned);
-                eff.send(&state.manager, ManagerMessage::AddPeer(peer.clone())).await;
+                eff.send(&state.manager, ManagerMessage::AddPeer(peer)).await;
                 state.outbound_peers.insert(peer, PeerState::Connecting);
             } else {
                 info!(protocols::peer_selection::peer::ADD_SKIPPED, peer, reason = "already_added");
@@ -593,7 +593,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Inbound, advertisable) => {
             let now = eff.clock().await;
-            eff.external(Performance::record_advertisability(peer.clone(), advertisable, now)).await;
+            eff.external(Performance::record_advertisability(peer, advertisable, now)).await;
             if state.inbound_peers.len() >= state.target_downstream_peers {
                 info!(protocols::peer_selection::peer::ADD_SKIPPED, peer, reason = "too_many_inbound");
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, connection.id)).await;
@@ -608,7 +608,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 full_duplex = connection.full_duplex,
             )
             .entered();
-            let old = state.inbound_peers.insert(peer.clone(), connection);
+            let old = state.inbound_peers.insert(peer, connection);
             if let Some(conn) = old {
                 info!(
                     protocols::peer_selection::peer::RECONNECTED,
@@ -622,7 +622,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Outbound, advertisable) => {
             let now = eff.clock().await;
-            eff.external(Performance::record_advertisability(peer.clone(), advertisable, now)).await;
+            eff.external(Performance::record_advertisability(peer, advertisable, now)).await;
             let span = debug_span!(
                 amaru::protocols::peer_selection::peer::CONNECTED,
                 peer,
@@ -632,7 +632,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 full_duplex = connection.full_duplex,
             )
             .entered();
-            let old = state.outbound_peers.insert(peer.clone(), PeerState::Connected(connection));
+            let old = state.outbound_peers.insert(peer, PeerState::Connected(connection));
             let disconnect_old = if let Some(PeerState::Connected(conn)) = old {
                 warn!(
                     protocols::peer_selection::peer::RECONNECTED,
@@ -646,7 +646,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             };
             drop(span);
             if let Some(old_id) = disconnect_old {
-                eff.send(&state.manager, ManagerMessage::Disconnect(peer.clone(), old_id)).await;
+                eff.send(&state.manager, ManagerMessage::Disconnect(peer, old_id)).await;
             }
             // Only ask peers that advertised peer-sharing willingness (they run the server).
             // Cadence lives on the peer-sharing initiator until the connection ends.
@@ -663,7 +663,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                     direction = ConnectionDirection::Inbound,
                 )
                 .entered();
-                if let Entry::Occupied(entry) = state.inbound_peers.entry(peer.clone())
+                if let Entry::Occupied(entry) = state.inbound_peers.entry(peer)
                     && entry.get().id == conn_id
                 {
                     entry.remove();
@@ -672,7 +672,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             state.clear_availability_if_gone(&peer, &eff).await;
         }
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, true) => {
-            if let Entry::Occupied(mut entry) = state.outbound_peers.entry(peer.clone())
+            if let Entry::Occupied(mut entry) = state.outbound_peers.entry(peer)
                 && let PeerState::Connected(conn) = entry.get()
                 && conn.id == conn_id
             {
@@ -688,7 +688,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             state.clear_availability_if_gone(&peer, &eff).await;
         }
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, _) => {
-            if let Entry::Occupied(entry) = state.outbound_peers.entry(peer.clone())
+            if let Entry::Occupied(entry) = state.outbound_peers.entry(peer)
                 && let PeerState::Connected(conn) = entry.get()
                 && conn.id == conn_id
             {
@@ -707,7 +707,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         }
         PeerSelectionMsg::ConnectFailed(peer) => {
             let now = eff.clock().await;
-            eff.external(Performance::record_connection_failure(peer.clone(), now)).await;
+            eff.external(Performance::record_connection_failure(peer, now)).await;
             state.outbound_peers.remove(&peer);
             state.clear_availability_if_gone(&peer, &eff).await;
             state.regulate_peers(&eff).await;
@@ -715,8 +715,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         PeerSelectionMsg::SharePeersResult { peer, peers } => {
             // FIXME emit array once observability supports it
             let peers_list = peers.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-            let SharedIngestResult { added, total } =
-                eff.external(Performance::ingest_shared_peers(peer.clone(), peers)).await;
+            let SharedIngestResult { added, total } = eff.external(Performance::ingest_shared_peers(peer, peers)).await;
             info!(protocols::peer_selection::sharing::RECEIVED, peer, peers = peers_list, added, total,);
             if added > 0 {
                 state.regulate_peers(&eff).await;
@@ -727,7 +726,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         }
         PeerSelectionMsg::ShareRequest { peer, amount, reply_to } => {
             let now = eff.clock().await;
-            let selected = eff.external(Performance::select_share_peers(peer.clone(), amount, now)).await;
+            let selected = eff.external(Performance::select_share_peers(peer, amount, now)).await;
             let peers_list = selected.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
             let count = selected.len();
             info!(protocols::peer_selection::sharing::SENT, peer, peers = peers_list, requested = amount, count,);
@@ -771,7 +770,20 @@ async fn get_ledger_candidates_inner(mut state: LedgerCheck, _msg: (), eff: Effe
             return reschedule_check(state, eff).await;
         }
     };
-    let ledger_entries = ledger_entries.into_iter().map(|entry| Peer::from_addr(&entry)).collect();
+    let ledger_entries = ledger_entries
+        .into_iter()
+        .filter_map(|entry| match Peer::try_from(entry) {
+            Ok(peer) => Some(peer),
+            Err(reason) => {
+                warn!(
+                    protocols::peer_selection::peer::ADDRESS_REJECTED,
+                    address = entry.to_string(),
+                    reason = reason.to_string()
+                );
+                None
+            }
+        })
+        .collect();
     // Keep the large candidate set out of the parent stage mailbox / TraceBuffer path.
     eff.external(Performance::set_ledger_candidates(ledger_entries)).await;
     eff.send(&state.stage, PeerSelectionMsg::Regulate).await;

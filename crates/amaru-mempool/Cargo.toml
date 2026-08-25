@@ -25,6 +25,7 @@ amaru-deps.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 assertables.workspace = true
+amaru-kernel = { workspace = true, features = ["test-utils"] }
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]

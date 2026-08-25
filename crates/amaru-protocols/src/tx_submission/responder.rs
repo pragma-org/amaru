@@ -1032,7 +1032,7 @@ mod tests {
 
     fn new_responder() -> TxSubmissionResponder {
         TxSubmissionResponder::new(
-            Peer::new("peer"),
+            Peer::for_test(3006),
             StageRef::<MuxMessage>::blackhole(),
             test_params(),
             TxOrigin::Local,
@@ -1127,7 +1127,7 @@ mod tests {
         let mempool = network.wire_up(mempool, ());
 
         let (proto, stage_state) = TxSubmissionResponder::new(
-            Peer::new("peer"),
+            Peer::for_test(3006),
             muxer.clone().without_state(),
             test_params(),
             TxOrigin::Local,
@@ -1256,7 +1256,7 @@ mod tests {
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
         let (_state, mut responder) = TxSubmissionResponder::new(
-            Peer::new("peer"),
+            Peer::for_test(3006),
             muxer,
             test_params(),
             TxOrigin::Local,
@@ -1283,7 +1283,7 @@ mod tests {
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
         let (_state, mut responder) = TxSubmissionResponder::new(
-            Peer::new("peer"),
+            Peer::for_test(3006),
             muxer,
             test_params(),
             TxOrigin::Local,
@@ -1352,7 +1352,7 @@ mod tests {
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         run_stage_and_return_state_with(
             TxSubmissionResponder::new(
-                Peer::new("peer"),
+                Peer::for_test(3006),
                 StageRef::named_for_tests("muxer"),
                 test_params(),
                 TxOrigin::Local,

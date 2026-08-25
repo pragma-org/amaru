@@ -377,7 +377,7 @@ impl HeaderPerformance {
 
     /// First peer that announced `hash`, if tracked (tests / diagnostics).
     pub fn first_announcer(&self, hash: &HeaderHash) -> Option<Peer> {
-        self.lifecycles.get(hash).map(|l| l.peer.clone())
+        self.lifecycles.get(hash).map(|l| l.peer)
     }
 
     /// Stage-computed slot-start interval for `hash`, if tracked (tests / diagnostics).

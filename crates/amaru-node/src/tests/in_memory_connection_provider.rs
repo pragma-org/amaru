@@ -106,7 +106,9 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             *pending.initiator_peer_conn_id_slot.lock() = Some(conn_id);
 
             tracing::debug!("accepted in-memory connection from {} with id {conn_id}", pending.initiator_addr);
-            Poll::Ready(Ok((Peer::from_addr(&pending.initiator_addr), conn_id)))
+            let peer = Peer::try_from(pending.initiator_addr)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+            Poll::Ready(Ok((peer, conn_id)))
         }))
     }
 
@@ -398,7 +400,7 @@ struct PendingConnect {
     /// The endpoint for the accepting (responder) side.
     responder_endpoint: ConnectionEndpoint,
     /// The address of the connecting (initiator) side.
-    /// This identifies the downstream peer.
+    /// This identifies the downstream peer
     initiator_addr: SocketAddr,
     /// Shared slot to set the initiator's peer_conn_id when the responder is registered.
     initiator_peer_conn_id_slot: Arc<Mutex<Option<ConnectionId>>>,

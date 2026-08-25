@@ -40,13 +40,13 @@ fn tip_adopted(h: u64) -> Point {
 fn test_block_received_inserts_pending() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
+    let m = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let mut expected = prep.state.clone();
-    expected.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
+    expected.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &expected)]);
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
-        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -54,12 +54,12 @@ fn test_block_received_inserts_pending() {
 fn test_block_received_merges_second_peer() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
-    let m2 = BlockSourceMsg::BlockReceived { peer: Peer::new("bob"), tip: p };
+    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
+    let m2 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3003), tip: p };
     let mut expected = prep.state.clone();
     expected.by_point.insert(
         p,
-        BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice"), Peer::new("bob")])),
+        BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002), Peer::for_test(3003)])),
     );
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone()]);
     assert_trace(
@@ -70,15 +70,15 @@ fn test_block_received_merges_second_peer() {
             te_state(BS, &{
                 let mut s = prep.state.clone();
                 s.by_point
-                    .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
+                    .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
                 s
             }),
             te_input(BS, &m2),
             te_state(BS, &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
-        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="bob""#])
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3003""#])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -88,7 +88,7 @@ fn test_block_received_merges_second_peer() {
 fn test_validation_valid_marks_known_point() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
+    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let m2 = BlockSourceMsg::Validation { valid: true, point: p };
     let mut expected = prep.state.clone();
     expected.by_point.insert(p, BlockValidity::Valid(BlockHeight::from(50)));
@@ -101,14 +101,14 @@ fn test_validation_valid_marks_known_point() {
             te_state(BS, &{
                 let mut s = prep.state.clone();
                 s.by_point
-                    .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
+                    .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
                 s
             }),
             te_input(BS, &m2),
             te_state(BS, &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=true"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
@@ -131,17 +131,17 @@ fn test_validation_valid_unknown_point_is_noop() {
 fn test_validation_invalid_faults_each_peer() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
-    let m2 = BlockSourceMsg::BlockReceived { peer: Peer::new("bob"), tip: p };
+    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
+    let m2 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3003), tip: p };
     let m3 = BlockSourceMsg::Validation { valid: false, point: p };
     let mut after_pending_bob = prep.state.clone();
     after_pending_bob
         .by_point
-        .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
+        .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
     let mut after_both_pending = prep.state.clone();
     after_both_pending.by_point.insert(
         p,
-        BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice"), Peer::new("bob")])),
+        BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002), Peer::for_test(3003)])),
     );
     let mut final_state = prep.state.clone();
     final_state.by_point.insert(p, BlockValidity::Invalid(BlockHeight::from(50)));
@@ -155,13 +155,13 @@ fn test_validation_invalid_faults_each_peer() {
             te_input(BS, &m2),
             te_state(BS, &after_both_pending),
             te_input(BS, &m3),
-            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::new("alice"))),
-            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::new("bob"))),
+            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::for_test(3002))),
+            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::for_test(3003))),
             te_state(BS, &final_state),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
-        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="bob""#])
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3003""#])
         .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
@@ -185,11 +185,13 @@ fn test_validation_invalid_without_provenance_sends_nothing() {
 fn test_block_received_after_invalid_new_peer_faults() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
+    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let m2 = BlockSourceMsg::Validation { valid: false, point: p };
-    let m3 = BlockSourceMsg::BlockReceived { peer: Peer::new("carol"), tip: p };
+    let m3 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3004), tip: p };
     let mut after_alice = prep.state.clone();
-    after_alice.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
+    after_alice
+        .by_point
+        .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
     let mut after_invalid = prep.state.clone();
     after_invalid.by_point.insert(p, BlockValidity::Invalid(BlockHeight::from(50)));
     let mut after_carol = prep.state.clone();
@@ -202,17 +204,17 @@ fn test_block_received_after_invalid_new_peer_faults() {
             te_input(BS, &m1),
             te_state(BS, &after_alice),
             te_input(BS, &m2),
-            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::new("alice"))),
+            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::for_test(3002))),
             te_state(BS, &after_invalid),
             te_input(BS, &m3),
-            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::new("carol"))),
+            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::for_test(3004))),
             te_state(BS, &after_carol),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
-        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="carol""#])
-        .assert_and_remove(Level::INFO, &["block_source.known_invalid", r#"peer="carol""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3004""#])
+        .assert_and_remove(Level::INFO, &["block_source.known_invalid", r#"peer="127.0.0.1:3004""#])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
@@ -223,11 +225,13 @@ fn test_block_received_after_invalid_new_peer_faults() {
 fn test_block_received_after_invalid_same_peer_no_second_fault() {
     let prep = test_prep(tip_adopted(100), 1000);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
+    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let m2 = BlockSourceMsg::Validation { valid: false, point: p };
-    let m3 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
+    let m3 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let mut after_alice = prep.state.clone();
-    after_alice.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
+    after_alice
+        .by_point
+        .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
     let mut after_invalid = prep.state.clone();
     after_invalid.by_point.insert(p, BlockValidity::Invalid(BlockHeight::from(50)));
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone(), m3.clone()]);
@@ -238,17 +242,17 @@ fn test_block_received_after_invalid_same_peer_no_second_fault() {
             te_input(BS, &m1),
             te_state(BS, &after_alice),
             te_input(BS, &m2),
-            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::new("alice"))),
+            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::for_test(3002))),
             te_state(BS, &after_invalid),
             te_input(BS, &m3),
-            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::new("alice"))),
+            te_send(BS, "invalid_sink", PeerSelectionMsg::adversarial(Peer::for_test(3002))),
             te_state(BS, &after_invalid),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
-        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
-        .assert_and_remove(Level::INFO, &["block_source.known_invalid", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
+        .assert_and_remove(Level::INFO, &["block_source.known_invalid", r#"peer="127.0.0.1:3002""#])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
@@ -259,11 +263,11 @@ fn test_block_received_after_invalid_same_peer_no_second_fault() {
 fn test_block_received_pruned_when_below_adopted_window() {
     let prep = test_prep(tip_adopted(100), 10);
     let p = point_n(50);
-    let m = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
+    let m = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=1", "retained=0"])
-        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -271,10 +275,12 @@ fn test_block_received_pruned_when_below_adopted_window() {
 fn test_adopted_tip_prunes_entries_far_below() {
     let prep = test_prep(tip_adopted(100), 100);
     let p = point_n(50);
-    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
+    let m1 = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let m2 = BlockSourceMsg::AdoptedTip(tip_adopted(200));
     let mut after_recv = prep.state.clone();
-    after_recv.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
+    after_recv
+        .by_point
+        .insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
     let mut after_adopt = prep.state.clone();
     after_adopt.adopted_tip = tip_adopted(200);
     after_adopt.max_tip_distance = 100;
@@ -291,7 +297,7 @@ fn test_adopted_tip_prunes_entries_far_below() {
     );
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=1", "retained=0"])
-        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 

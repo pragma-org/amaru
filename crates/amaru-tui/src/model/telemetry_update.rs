@@ -283,7 +283,7 @@ impl Model {
             });
 
         let capacity = self.config.peer_timing_capacity;
-        let peer = self.peer_mut(peer.as_ref(), record.at);
+        let peer = self.peer_mut(peer, record.at);
         peer.record_header_lifecycle(
             record.at,
             capacity,
@@ -294,8 +294,9 @@ impl Model {
         );
     }
 
-    fn peer_mut(&mut self, address: &str, updated_at: Instant) -> &mut PeerState {
-        self.peers.entry(address.to_owned()).or_insert_with(|| PeerState::new(address.to_owned(), updated_at))
+    fn peer_mut(&mut self, address: impl ToString, updated_at: Instant) -> &mut PeerState {
+        let address = address.to_string();
+        self.peers.entry(address.clone()).or_insert_with(|| PeerState::new(address, updated_at))
     }
 
     fn upsert_proposal(&mut self, record: &TelemetryRecord, status: &str, detail: Option<String>) {

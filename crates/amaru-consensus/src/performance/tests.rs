@@ -38,7 +38,11 @@ fn tip(byte: u8, height: u64) -> Point {
 }
 
 fn peer(name: &str) -> Peer {
-    Peer::new(name)
+    if let Ok(peer) = name.parse() {
+        return peer;
+    }
+    let port = name.bytes().fold(10_000u16, |acc, b| acc.wrapping_add(u16::from(b)));
+    Peer::for_test(port.max(1024))
 }
 
 fn select(need: Vec<HeaderHash>, max_peers: usize) -> SelectPeersParams {
@@ -55,7 +59,7 @@ fn intersect_only_covers_need_ending_at_intersect_not_unknown_child() {
     let alice = peer("alice");
     let h1 = tip(1, 1);
 
-    peers.apply_intersection(alice.clone(), h1, None, t(1));
+    peers.apply_intersection(alice, h1, None, t(1));
 
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
     assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(1), hash(2)]));
@@ -67,8 +71,8 @@ fn announce_chain_collapses_to_single_tip_and_covers_ancestors() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(alice.clone(), tip(2, 2), Some(hash(1)), t(2));
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
 
     let snap = peers.apply_snapshot(&alice).expect("alice present");
     assert_eq!(snap.tips.len(), 1);
@@ -85,8 +89,8 @@ fn duplicate_announcers_both_selected() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(bob.clone(), tip(1, 1), None, t(2));
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(bob, tip(1, 1), None, t(2));
 
     let set = peers.apply_select_peers_for_fetch(select(vec![hash(1)], 2));
     assert!(!set.weak);
@@ -104,9 +108,9 @@ fn descendant_claim_covers_ancestor_via_parent_walk() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(alice.clone(), tip(2, 2), Some(hash(1)), t(2));
-    peers.apply_header_announcement(alice.clone(), tip(3, 3), Some(hash(2)), t(3));
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
+    peers.apply_header_announcement(alice, tip(3, 3), Some(hash(2)), t(3));
 
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
@@ -121,7 +125,7 @@ fn parent_walk_stops_at_target_height_on_wrong_branch() {
 
     for h in 1u8..=5 {
         let parent = (h > 1).then(|| hash(h - 1));
-        peers.apply_header_announcement(alice.clone(), tip(h, h as u64), parent, t(h as u64));
+        peers.apply_header_announcement(alice, tip(h, h as u64), parent, t(h as u64));
     }
     peers.apply_intersection(bob, tip(30, 3), Some(hash(2)), t(10));
 
@@ -135,7 +139,7 @@ fn ancestor_only_claim_does_not_cover_descendant() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_intersection(alice.clone(), tip(1, 1), None, t(1));
+    peers.apply_intersection(alice, tip(1, 1), None, t(1));
 
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
     assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
@@ -147,7 +151,7 @@ fn intersect_at_tip_of_need_covers_full_fragment_via_index() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_intersection(alice.clone(), tip(3, 3), Some(hash(2)), t(1));
+    peers.apply_intersection(alice, tip(3, 3), Some(hash(2)), t(1));
 
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1), hash(2), hash(3)]));
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(3)]));
@@ -158,14 +162,14 @@ fn rollback_drops_fork_tip_and_restores_point() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(alice.clone(), tip(2, 2), Some(hash(1)), t(2));
-    peers.apply_header_announcement(alice.clone(), tip(10, 3), Some(hash(1)), t(3));
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
+    peers.apply_header_announcement(alice, tip(10, 3), Some(hash(1)), t(3));
 
     let before = peers.apply_snapshot(&alice).expect("alice");
     assert!(!before.tips.is_empty());
 
-    peers.apply_rollback(alice.clone(), tip(1, 1), None, t(4));
+    peers.apply_rollback(alice, tip(1, 1), None, t(4));
 
     let after = peers.apply_snapshot(&alice).expect("alice");
     assert!(after.tips.iter().any(|c| c.hash == hash(1)));
@@ -180,16 +184,8 @@ fn prune_removes_old_tips_but_retains_scores() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_block_delivery(
-        alice.clone(),
-        hash(1),
-        BlockHeight::from(1),
-        None,
-        t(2),
-        Duration::from_millis(50),
-        90_000,
-    );
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(50), 90_000);
 
     let scores_before = peers.apply_scores(&alice);
     assert!(scores_before.block_response_ewma.is_some());
@@ -209,17 +205,9 @@ fn clear_availability_keeps_scores_and_share_flags() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_advertisability(alice.clone(), true, t(0));
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_block_delivery(
-        alice.clone(),
-        hash(1),
-        BlockHeight::from(1),
-        None,
-        t(2),
-        Duration::from_millis(20),
-        1000,
-    );
+    peers.apply_advertisability(alice, true, t(0));
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(20), 1000);
 
     peers.apply_clear_peer_availability(&alice);
     assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
@@ -237,18 +225,10 @@ fn peer_adversarial_keeps_reputation_stub_clears_claims_and_scores() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_advertisability(alice.clone(), true, t(0));
-    peers.apply_connection_failure(alice.clone(), t(1));
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(2));
-    peers.apply_block_delivery(
-        alice.clone(),
-        hash(1),
-        BlockHeight::from(1),
-        None,
-        t(3),
-        Duration::from_millis(20),
-        1000,
-    );
+    peers.apply_advertisability(alice, true, t(0));
+    peers.apply_connection_failure(alice, t(1));
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(2));
+    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(3), Duration::from_millis(20), 1000);
 
     peers.apply_peer_adversarial(&alice, t(4));
 
@@ -269,17 +249,17 @@ fn advertisability_latest_handshake_wins() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_advertisability(alice.clone(), true, t(1));
+    peers.apply_advertisability(alice, true, t(1));
     assert!(peers.apply_ok_for_sharing(&alice, t(10)));
 
-    peers.apply_advertisability(alice.clone(), false, t(2));
+    peers.apply_advertisability(alice, false, t(2));
     assert_eq!(
         peers.apply_share_flags(&alice),
         Some(PeerShareFlags { ever_connected: true, advertisable: false, failure_count: 0, adversarial: false })
     );
     assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
 
-    peers.apply_advertisability(alice.clone(), true, t(3));
+    peers.apply_advertisability(alice, true, t(3));
     assert!(peers.apply_ok_for_sharing(&alice, t(10)));
 }
 
@@ -290,14 +270,14 @@ fn connection_failure_blocks_sharing_until_malus_decays() {
 
     assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
 
-    peers.apply_advertisability(alice.clone(), true, t(1));
+    peers.apply_advertisability(alice, true, t(1));
     assert!(peers.apply_ok_for_sharing(&alice, t(10)));
 
-    peers.apply_connection_failure(alice.clone(), t(2));
+    peers.apply_connection_failure(alice, t(2));
     assert_eq!(peers.apply_share_flags(&alice).map(|f| f.failure_count), Some(1));
     assert!(!peers.apply_ok_for_sharing(&alice, t(2)));
 
-    peers.apply_connection_failure(alice.clone(), t(3));
+    peers.apply_connection_failure(alice, t(3));
     assert_eq!(peers.apply_share_flags(&alice).map(|f| f.failure_count), Some(2));
     // Still high shortly after failures.
     assert!(!peers.apply_ok_for_sharing(&alice, t(3)));
@@ -308,7 +288,7 @@ fn connection_failure_only_does_not_mark_ever_connected() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_connection_failure(alice.clone(), t(1));
+    peers.apply_connection_failure(alice, t(1));
 
     assert_eq!(
         peers.apply_share_flags(&alice),
@@ -323,7 +303,7 @@ fn connection_malus_decays_with_half_life_without_new_samples() {
 
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
-    peers.apply_connection_failure(alice.clone(), t(0));
+    peers.apply_connection_failure(alice, t(0));
 
     let hl = peers.half_life_for(&alice);
     assert_eq!(hl, DEFAULT_PEER_MALUS_HALF_LIFE);
@@ -345,12 +325,12 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
     let good = peer("good:1");
     let bad = peer("bad:1");
     let mut peers = PeerPerformance::with_sources(
-        BTreeSet::from([good.clone(), bad.clone()]),
+        BTreeSet::from([good, bad]),
         BTreeSet::new(),
         BTreeSet::new(),
         PeerMix::parse("static~1").unwrap(),
     );
-    peers.apply_connection_failure(bad.clone(), t(1));
+    peers.apply_connection_failure(bad, t(1));
 
     // Open=1: should strongly prefer never-connected good over failed bad.
     let mut good_picks = 0;
@@ -358,7 +338,7 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
         let seed = [i; 32];
         let picked =
             peers.apply_select_outbound(SelectOutboundParams { open: 1, excluded: BTreeSet::new(), seed, now: t(1) });
-        if picked == vec![good.clone()] {
+        if picked == vec![good] {
             good_picks += 1;
         }
     }
@@ -372,10 +352,10 @@ fn ranking_prefers_faster_delivery() {
     let slow = peer("slow");
     let partial = peer("partial");
 
-    peers.apply_header_announcement(fast.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(fast.clone(), tip(2, 2), Some(hash(1)), t(2));
+    peers.apply_header_announcement(fast, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(fast, tip(2, 2), Some(hash(1)), t(2));
     peers.apply_block_delivery(
-        fast.clone(),
+        fast,
         hash(2),
         BlockHeight::from(2),
         Some(hash(1)),
@@ -384,10 +364,10 @@ fn ranking_prefers_faster_delivery() {
         90_000,
     );
 
-    peers.apply_header_announcement(slow.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(slow.clone(), tip(2, 2), Some(hash(1)), t(2));
+    peers.apply_header_announcement(slow, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(slow, tip(2, 2), Some(hash(1)), t(2));
     peers.apply_block_delivery(
-        slow.clone(),
+        slow,
         hash(2),
         BlockHeight::from(2),
         Some(hash(1)),
@@ -396,7 +376,7 @@ fn ranking_prefers_faster_delivery() {
         90_000,
     );
 
-    peers.apply_header_announcement(partial.clone(), tip(1, 1), None, t(1));
+    peers.apply_header_announcement(partial, tip(1, 1), None, t(1));
 
     let set = peers.apply_select_peers_for_fetch(select(vec![hash(1), hash(2)], 3));
     assert!(!set.weak);
@@ -410,9 +390,9 @@ fn prefix_only_peer_not_selected_for_range() {
     let prefix = peer("prefix");
     let full = peer("full");
 
-    peers.apply_header_announcement(prefix.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(full.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(full.clone(), tip(2, 2), Some(hash(1)), t(2));
+    peers.apply_header_announcement(prefix, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(full, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(full, tip(2, 2), Some(hash(1)), t(2));
 
     let set = peers.apply_select_peers_for_fetch(select(vec![hash(1), hash(2)], 5));
     assert_eq!(set.peers, vec![full]);
@@ -435,7 +415,7 @@ fn after_intersect_selection_becomes_non_empty() {
     let empty = peers.apply_select_peers_for_fetch(select(vec![hash(5)], 5));
     assert!(empty.weak);
 
-    peers.apply_intersection(alice.clone(), tip(5, 5), Some(hash(4)), t(1));
+    peers.apply_intersection(alice, tip(5, 5), Some(hash(4)), t(1));
 
     let set = peers.apply_select_peers_for_fetch(select(vec![hash(5)], 5));
     assert!(!set.weak);
@@ -460,22 +440,14 @@ fn churn_ranks_unreliable_peers_first() {
     let good = peer("good");
     let bad = peer("bad");
 
-    peers.apply_header_announcement(good.clone(), tip(1, 1), None, t(1));
-    peers.apply_block_delivery(
-        good.clone(),
-        hash(1),
-        BlockHeight::from(1),
-        None,
-        t(2),
-        Duration::from_millis(10),
-        1000,
-    );
+    peers.apply_header_announcement(good, tip(1, 1), None, t(1));
+    peers.apply_block_delivery(good, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(10), 1000);
 
-    peers.apply_header_announcement(bad.clone(), tip(1, 1), None, t(1));
+    peers.apply_header_announcement(bad, tip(1, 1), None, t(1));
     peers.apply_fetch_failure(std::slice::from_ref(&bad), t(3));
     peers.apply_fetch_failure(std::slice::from_ref(&bad), t(4));
 
-    let ranked = peers.apply_rank_peers_for_churn(&[good.clone(), bad.clone()], t(5));
+    let ranked = peers.apply_rank_peers_for_churn(&[good, bad], t(5));
     assert_eq!(ranked[0].0, bad);
     assert_eq!(ranked[1].0, good);
 }
@@ -485,8 +457,8 @@ fn claim_kind_strength_prefers_delivery_over_intersection() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_intersection(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_block_delivery(alice.clone(), hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(5), 100);
+    peers.apply_intersection(alice, tip(1, 1), None, t(1));
+    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(5), 100);
 
     let claimants = peers.apply_direct_claimants(&hash(1));
     assert_eq!(claimants.len(), 1);
@@ -499,8 +471,8 @@ fn header_lag_records_zero_for_first_announcer_and_delay_for_late() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    peers.apply_header_announcement(bob.clone(), tip(1, 1), None, t(3));
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.apply_header_announcement(bob, tip(1, 1), None, t(3));
 
     assert_eq!(peers.apply_scores(&alice).header_lag_ewma, Some(Duration::ZERO));
     assert_eq!(peers.apply_scores(&bob).header_lag_ewma, Some(Duration::from_secs(2)));
@@ -516,8 +488,8 @@ fn header_received_and_peer_claim_are_independent_maps() {
     let mut headers = HeaderPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    headers.apply_header_received(alice.clone(), tip(1, 1), t(1), 1_000);
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000);
 
     assert_eq!(headers.lifecycle_count(), 1);
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
@@ -530,7 +502,7 @@ fn first_header_announcer_peer_is_retained() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    headers.apply_header_received(alice.clone(), tip(1, 1), t(1), 1_000);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000);
     // Later announcer must not overwrite the first peer or slot interval.
     headers.apply_header_received(bob, tip(1, 1), t(2), 9_999);
 
@@ -621,7 +593,7 @@ fn effect_constructors_mutate_resource_via_run() {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
     let alice = peer("alice");
-    let effect = Performance::record_intersection(alice.clone(), tip(7, 7), None, t(1));
+    let effect = Performance::record_intersection(alice, tip(7, 7), None, t(1));
     let _ = rt.block_on(Box::new(effect).run(resources.clone()));
 
     let select_effect = Performance::select_peers_for_fetch(select(vec![hash(7)], 5));

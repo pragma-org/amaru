@@ -282,7 +282,7 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             peers.apply_intersection(effect.peer, effect.current, effect.parent, effect.at);
         }
         PerformanceOp::RecordHeaderAnnouncement { effect } => {
-            peers.apply_header_announcement(effect.peer.clone(), effect.header, effect.parent, effect.at);
+            peers.apply_header_announcement(effect.peer, effect.header, effect.parent, effect.at);
             headers.apply_header_received(effect.peer, effect.header, effect.at, effect.slot_start_to_header_micros);
         }
         PerformanceOp::RecordBlocksRequested { effect } => {

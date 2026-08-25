@@ -26,11 +26,11 @@ fn peer_and_hash_schema_fields_are_emitted_as_plain_strings() {
     let (tx, rx) = std::sync::mpsc::sync_channel(4);
     let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
 
-    let peer = Peer::new("1.2.3.4:3001");
+    let peer: Peer = "1.2.3.4:3001".parse().unwrap();
     let header_hash = Hash::<32>::from([0xabu8; 32]);
 
     tracing::subscriber::with_default(subscriber, || {
-        info!(amaru::protocols::manager::peer::ADD, peer = peer.clone());
+        info!(amaru::protocols::manager::peer::ADD, peer = peer);
         info!(
             amaru::ledger::tip::UPDATE,
             slot = Slot::from(42),

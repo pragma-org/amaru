@@ -24,7 +24,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{NetworkMagic, NetworkName, NetworkPoint, PEER_SNAPSHOT_NETWORKS, Peer, Slot, size::HEADER};
+use amaru_kernel::{
+    NetworkMagic, NetworkName, NetworkPoint, PEER_SNAPSHOT_NETWORKS, Peer, PeerCandidate, Slot, size::HEADER,
+};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -42,6 +44,7 @@ pub struct PeerSnapshot {
     pub node_to_client_version: u64,
     pub point: NetworkPoint,
     pub peers: BTreeSet<Peer>,
+    pub unresolved: BTreeSet<PeerCandidate>,
     pub pool_count: usize,
 }
 
@@ -63,6 +66,13 @@ pub enum PeerSnapshotError {
     NetworkMagicMismatch { path: PathBuf, file_magic: u64, expected: NetworkMagic },
     #[error("failed to convert snapshot point to NetworkPoint: {0}")]
     PointConversion(#[from] PointConversionError),
+    #[error("invalid peer candidate {spec} in {path}: {source}")]
+    Candidate {
+        path: PathBuf,
+        spec: String,
+        #[source]
+        source: amaru_kernel::PeerCandidateParseError,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -152,10 +162,21 @@ pub fn parse_peer_snapshot_bytes(
 
     let pool_count = file.big_ledger_pools.len();
     let mut peers = BTreeSet::new();
+    let mut unresolved = BTreeSet::new();
     for pool in &file.big_ledger_pools {
         for relay in &pool.relays {
             let port = relay.port.unwrap_or(DEFAULT_RELAY_PORT).get();
-            peers.insert(Peer::new(&format!("{}:{}", relay.address, port)));
+            let spec = format!("{}:{}", relay.address, port);
+            let candidate: PeerCandidate = spec.parse().map_err(|source| PeerSnapshotError::Candidate {
+                path: path.to_path_buf(),
+                spec,
+                source,
+            })?;
+            if let Some(peer) = candidate.as_literal_peer() {
+                peers.insert(peer);
+            } else {
+                unresolved.insert(candidate);
+            }
         }
     }
 
@@ -164,6 +185,7 @@ pub fn parse_peer_snapshot_bytes(
         node_to_client_version: file.node_to_client_version,
         point: NetworkPoint::try_from(file.point)?,
         peers,
+        unresolved,
         pool_count,
     })
 }
@@ -229,12 +251,12 @@ mod tests {
         );
         assert_eq!(snap.node_to_client_version, 23);
         assert_eq!(snap.pool_count, 2);
+        assert_eq!(snap.peers, BTreeSet::from(["10.0.0.1:6000".parse().unwrap()]));
         assert_eq!(
-            snap.peers,
+            snap.unresolved,
             BTreeSet::from([
-                Peer::new("10.0.0.1:6000"),
-                Peer::new("relay-a.example:3001"),
-                Peer::new("relay-b.example:3001"),
+                PeerCandidate::host("relay-a.example", 3001),
+                PeerCandidate::host("relay-b.example", 3001),
             ])
         );
     }

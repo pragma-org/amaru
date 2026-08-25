@@ -78,12 +78,12 @@ fn stage_msgs(c: &mut Criterion) {
     let header = make_header(1234, 12345, None);
     let header_content = HeaderContent::new(&header, EraName::Conway);
 
-    let msg = FetchBlocksMsg::Block(Peer::new("bench"), nb.clone());
+    let msg = FetchBlocksMsg::Block(Peer::for_test(3013), nb.clone());
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::Block", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: amaru_kernel::Peer { name: "peer1".to_string() },
+        peer: Peer::for_test(3001),
         conn_id: ConnectionId::initial(),
         handler: amaru_pure_stage::StageRef::<InitiatorMessage>::named_for_tests("test"),
         msg: InitiatorResult::Initialize,
@@ -92,7 +92,7 @@ fn stage_msgs(c: &mut Criterion) {
     group.bench_function("TrackPeersMsg::FromUpstream", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: amaru_kernel::Peer { name: "peer1".to_string() },
+        peer: Peer::for_test(3001),
         conn_id: ConnectionId::initial(),
         handler: amaru_pure_stage::StageRef::<InitiatorMessage>::named_for_tests("test"),
         msg: InitiatorResult::RollForward(header_content.clone(), point),

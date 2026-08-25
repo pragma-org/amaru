@@ -482,7 +482,7 @@ fn test_block_straggler_no_outstanding_missing() {
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &prep.state).into()]);
 
     logs.assert_and_remove(Level::DEBUG, &["blocks.received"])
-        .assert_and_remove(Level::DEBUG, &["blocks.straggler", r#"peer="test-peer""#])
+        .assert_and_remove(Level::DEBUG, &["blocks.straggler", r#"peer="127.0.0.1:3009""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -519,7 +519,7 @@ fn test_timeout_records_fetch_failure_for_asked_peers() {
             1,
             schedule_id,
         );
-        state.fetch_peers = BTreeSet::from([peer.clone()]);
+        state.fetch_peers = BTreeSet::from([peer]);
         state.fetch_started_at = Some(Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time));
         state.trace_context = Some(Default::default());
         state
@@ -566,14 +566,14 @@ fn test_strong_selection_passes_peers_to_manager() {
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
     prep.set_anchor(prep.headers.h0.hash());
 
-    let selected = Peer::new("alice");
+    let selected = Peer::for_test(3002);
     let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = FetchBlocksMsg::new_tip(tip, parent);
-    let selected_clone = selected.clone();
+    let selected_clone = selected;
     let (running, _guards, mut logs) = setup_with_overrides(&prep, [msg.clone()], move |running| {
         running.override_external_effect::<SelectPeersForFetchEffect>(usize::MAX, move |_| {
-            OverrideResult::handled(FetchPeerSet { peers: vec![selected_clone.clone()], weak: false })
+            OverrideResult::handled(FetchPeerSet { peers: vec![selected_clone], weak: false })
         });
     });
 
@@ -624,14 +624,14 @@ fn test_timeout_skips_fetch_failure_for_contributors() {
     let mut prep = test_prep();
     let schedule_id = prep.schedule_at(Duration::from_secs(5));
     let good = test_peer();
-    let bad = Peer::new("silent");
+    let bad = Peer::for_test(3011);
     prep.state = {
         let mut state = prep.state_with_request(
             MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
             1,
             schedule_id,
         );
-        state.fetch_peers = BTreeSet::from([good.clone(), bad.clone()]);
+        state.fetch_peers = BTreeSet::from([good, bad]);
         state.fetch_contributors = BTreeSet::from([good]);
         state.fetch_started_at = Some(Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time));
         state.trace_context = Some(Default::default());
@@ -664,24 +664,24 @@ fn test_no_blocks_records_fetch_failure() {
 
     let mut prep = test_prep();
     let peer = test_peer();
-    let other = Peer::new("other");
+    let other = Peer::for_test(3012);
     prep.state = {
         let mut state = prep.state_with_request(
             MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
             1,
             prep.schedule_at(Duration::from_secs(5)),
         );
-        state.fetch_peers = BTreeSet::from([peer.clone(), other.clone()]);
+        state.fetch_peers = BTreeSet::from([peer, other]);
         state
     };
 
-    let msg = FetchBlocksMsg::NoBlocks(1, peer.clone());
+    let msg = FetchBlocksMsg::NoBlocks(1, peer);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let failed_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     let expected = {
         let mut state = prep.state.clone();
         state.fetch_peers.remove(&peer);
-        state.fetch_settled.insert(peer.clone());
+        state.fetch_settled.insert(peer);
         state
     };
     assert_trace_contains(
@@ -708,7 +708,7 @@ fn test_peers_asked_stores_peer_set() {
         prep.schedule_at(Duration::from_secs(5)),
     );
 
-    let msg = FetchBlocksMsg::PeersAsked(1, vec![peer.clone()]);
+    let msg = FetchBlocksMsg::PeersAsked(1, vec![peer]);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = {
         let mut state = prep.state.clone();
@@ -730,20 +730,20 @@ fn test_peers_asked_does_not_resurrect_no_blocks_peer() {
 
     let mut prep = test_prep();
     let alice = test_peer();
-    let bob = Peer::new("bob");
+    let bob = Peer::for_test(3003);
     prep.state = prep.state_with_request(
         MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
         1,
         prep.schedule_at(Duration::from_secs(5)),
     );
 
-    let no_blocks = FetchBlocksMsg::NoBlocks(1, alice.clone());
-    let peers_asked = FetchBlocksMsg::PeersAsked(1, vec![alice.clone(), bob.clone()]);
+    let no_blocks = FetchBlocksMsg::NoBlocks(1, alice);
+    let peers_asked = FetchBlocksMsg::PeersAsked(1, vec![alice, bob]);
     let (running, _guards, mut logs) = setup_preload(&prep, [no_blocks.clone(), peers_asked.clone()]);
     let failed_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     let expected = {
         let mut state = prep.state.clone();
-        state.fetch_settled = BTreeSet::from([alice.clone()]);
+        state.fetch_settled = BTreeSet::from([alice]);
         state.fetch_peers = BTreeSet::from([bob]);
         state
     };

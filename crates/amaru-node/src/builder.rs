@@ -114,14 +114,14 @@ impl NodeBuilder {
         self
     }
 
-    /// Append a single upstream peer.
+    /// Append a single upstream peer
     pub fn peer(mut self, peer: impl Into<String>) -> Self {
         self.upstream_peers.push(peer.into());
         self.use_default_peer_if_empty = false;
         self
     }
 
-    /// When no peers were set, do not fall back to the network default bootstrap peer.
+    /// When no peers were set, do not fall back to the network default bootstrap peer
     pub fn no_default_peer(mut self) -> Self {
         self.use_default_peer_if_empty = false;
         self
