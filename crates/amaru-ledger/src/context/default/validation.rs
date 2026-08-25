@@ -575,7 +575,9 @@ impl BalanceSlice for DefaultValidationContext {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Point, Proposal, Slot, TransactionPointer, UnitRationalNumber, utils::tests::run_strategy};
+    use amaru_kernel::{
+        Point, PoolSlim, Proposal, Slot, TransactionPointer, UnitRationalNumber, utils::tests::run_strategy,
+    };
     use proptest::prelude::any;
     use test_case::test_case;
 
@@ -648,7 +650,7 @@ mod tests {
     fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
         let pool = PoolId::new([9; 28]);
         let mut ctx = DefaultValidationContext {
-            pools: BTreeMap::from([(pool, run_strategy(any_pool_slim()))]),
+            pools: BTreeMap::from([(pool, run_strategy(any::<PoolSlim>()))]),
             accounts: BTreeMap::from([(cred(1), account(7))]),
             ..Default::default()
         };

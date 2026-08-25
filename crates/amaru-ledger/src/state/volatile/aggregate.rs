@@ -19,7 +19,8 @@ use std::{
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch,
-    GovernanceAction, Lovelace, MemoizedTransactionOutput, PoolId, ProposalId, TransactionInput,
+    GovernanceAction, Hash, Lovelace, MemoizedTransactionOutput, PoolId, PoolParams, ProposalId, TransactionInput,
+    size::VRF_KEY,
 };
 
 use crate::{
@@ -31,7 +32,7 @@ mod indexed_bind;
 pub use indexed_bind::IndexedBind;
 
 mod indexed_epoch_reg;
-pub use indexed_epoch_reg::IndexedEpochReg;
+pub use indexed_epoch_reg::{HasVrf, IndexedEpochReg, PoolCertificateCounters};
 
 /// The window's accounts, indexed by credential so each one's per-fragment history is retracted
 /// exactly on stabilization and folded on read. See [`IndexedBind`].
@@ -55,6 +56,12 @@ type Committee = IndexedBind<Credential, ConstitutionalCommitteeMemberStatus, Ep
 ///
 /// When cleaning up fragments, we can simply decrement and remove once we reach 0.
 type Pools = IndexedEpochReg<PoolId>;
+
+impl HasVrf for Arc<(PoolParams, CertificatePointer, Lovelace)> {
+    fn vrf(&self) -> &Hash<VRF_KEY> {
+        &self.0.vrf
+    }
+}
 
 /// A collapse/folded sequence of `crate::volatile::VolatileFragment` which can be cleaned up
 /// incrementally.
@@ -92,7 +99,7 @@ impl VolatileAggregate {
 
     /// Whether this aggregate registered the given pool. Unregistrations
     /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
-    pub fn resolve_pool(&self, pool_id: PoolId) -> bool {
+    pub fn resolve_pool(&self, pool_id: PoolId) -> Option<&PoolCertificateCounters> {
         self.pools.get(&pool_id)
     }
 

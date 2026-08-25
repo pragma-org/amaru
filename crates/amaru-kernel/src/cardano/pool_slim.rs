@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{Hash, size::VRF_KEY};
 
 /// A slim representation of a pool's state, mostly useful for rules validations.
@@ -23,20 +26,13 @@ pub struct PoolSlim {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for PoolSlim {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use crate::{Hash, PoolSlim};
-
-    prop_compose! {
-        pub fn any_pool_slim()(
-            vrf in any::<Hash::<32>>(),
-            has_pending_updates in any::<bool>(),
-        ) -> PoolSlim {
-            PoolSlim { vrf, has_pending_updates }
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<crate::Hash<32>>(), any::<bool>())
+            .prop_map(|(vrf, has_pending_updates)| PoolSlim { vrf, has_pending_updates })
+            .boxed()
     }
 }

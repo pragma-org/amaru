@@ -16,9 +16,9 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch, EraHistory,
-    Hash, Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
-    ProtocolParameters, TransactionInput, TransactionPointer, cbor, json,
-    size::SCRIPT,
+    Hash, Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, PoolSlim, Pots, ProposalId, ProposalSlim,
+    ProposalsRoots, ProtocolParameters, TransactionInput, TransactionPointer, cbor, json,
+    size::{SCRIPT, VRF_KEY},
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
@@ -61,7 +61,7 @@ pub(super) struct InitialState {
     #[serde(default)]
     pub(super) pools: BTreeMap<PoolId, PoolSlim>,
     #[serde(default)]
-    pub(super) vrf_keys: BTreeMap<Hash<VRF_KEY>, u64>,
+    pub(super) vrf_keys: BTreeMap<Hash<{ VRF_KEY }>, u64>,
     #[serde(deserialize_with = "deserialize_accounts", default)]
     pub(super) accounts: BTreeMap<Credential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
