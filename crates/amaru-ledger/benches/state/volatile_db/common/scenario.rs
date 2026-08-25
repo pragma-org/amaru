@@ -23,7 +23,7 @@ use amaru_ledger::{
 };
 use rand::Rng;
 
-use crate::common::{fixture, scale::BenchScale};
+use crate::common::{fixture, observed, scale::BenchScale};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scenario {
@@ -36,6 +36,10 @@ pub enum Scenario {
     Proposals,
     Votes,
     Mixed,
+    Observed,
+    /// Every collection holds exactly one entry per fragment: the worst case for per-collection
+    /// allocation overhead relative to the data carried.
+    Singleton,
 }
 
 impl Scenario {
@@ -64,6 +68,8 @@ impl Scenario {
             Self::Proposals => "proposals",
             Self::Votes => "votes",
             Self::Mixed => "mixed",
+            Self::Observed => "observed",
+            Self::Singleton => "singleton",
         }
     }
 
@@ -78,10 +84,27 @@ impl Scenario {
             Self::Proposals => 0xA11C_E007,
             Self::Votes => 0xA11C_E008,
             Self::Mixed => 0xA11C_E009,
+            Self::Observed => 0xA11C_E00A,
+            Self::Singleton => 0xA11C_E00B,
         }
     }
 
     pub fn fmt(self, f: &mut fmt::Formatter<'_>, scale: &BenchScale) -> fmt::Result {
+        if let Self::Observed = self {
+            return write!(
+                f,
+                "{} [volatile_size={}, sample={}, sample_size={}]",
+                self.name(),
+                scale.volatile_size,
+                observed::SAMPLE_NAME,
+                observed::BLOCKS.len(),
+            );
+        }
+
+        if let Self::Singleton = self {
+            return write!(f, "{} [volatile_size={}, one entry per collection]", self.name(), scale.volatile_size);
+        }
+
         let per_item = self.per_item_size();
         write!(
             f,
@@ -106,7 +129,9 @@ impl Scenario {
             ) -> store::Result<impl Iterator<Item = (store::columns::cc_members::Key, store::columns::cc_members::Row)>>
             {
                 match self.0 {
-                    Scenario::Committee | Scenario::Mixed => Ok(std::iter::empty()),
+                    Scenario::Committee | Scenario::Mixed | Scenario::Observed | Scenario::Singleton => {
+                        Ok(std::iter::empty())
+                    }
                     Scenario::Utxo
                     | Scenario::Pools
                     | Scenario::Accounts
@@ -121,7 +146,7 @@ impl Scenario {
             // required but we have no information on the account.
             fn account(&self, credential: &Credential) -> store::Result<Option<store::columns::accounts::Row>> {
                 match self.0 {
-                    Scenario::Withdrawals | Scenario::Mixed => Ok(None),
+                    Scenario::Withdrawals | Scenario::Mixed | Scenario::Observed | Scenario::Singleton => Ok(None),
                     Scenario::Utxo
                     | Scenario::Pools
                     | Scenario::Accounts
@@ -197,6 +222,12 @@ impl Scenario {
                 let len = all.len();
                 all.iter().map(|entity| entity.per_item_size()).sum::<usize>() / len
             }
+
+            Self::Observed => unreachable!("the observed scenario replays real counts; it has no synthetic item size"),
+
+            Self::Singleton => {
+                unreachable!("the singleton scenario puts one entry in every collection; it has no synthetic item size")
+            }
         }
     }
 
@@ -223,9 +254,23 @@ impl Scenario {
                     Self::DReps => step_fragment_dreps(fragment, rng, ix / len),
                     Self::Proposals => step_fragment_proposals(fragment, rng, ix / len),
                     Self::Votes => step_fragment_votes(fragment, rng, ix / len),
-                    Self::Mixed => unreachable!("Mixed scenario showed up in .round_robin()?"),
+                    Self::Mixed | Self::Observed | Self::Singleton => {
+                        unreachable!("composite scenario showed up in .round_robin()?")
+                    }
                 }
             }),
+            Self::Observed => unreachable!("the observed scenario is filled per block, not by size"),
+            // One entry in every collection, regardless of the requested size.
+            Self::Singleton => {
+                step_fragment_utxo(fragment, rng, 0);
+                step_fragment_pools(fragment, rng, 0);
+                step_fragment_accounts(fragment, rng, 0);
+                step_fragment_withdrawals(fragment, rng, 0);
+                step_fragment_committee(fragment, rng, 0);
+                step_fragment_dreps(fragment, rng, 0);
+                step_fragment_proposals(fragment, rng, 0);
+                step_fragment_votes(fragment, rng, 0);
+            }
         }
     }
 
@@ -261,7 +306,7 @@ impl Scenario {
                 /* Nothing to do *for now*, because we don't currently resolve voter. But
                  * eventually, we should require CC members, DReps or accounts as needed  */
             }
-            Self::Mixed => Self::round_robin().iter().for_each(|scenario| {
+            Self::Mixed | Self::Observed | Self::Singleton => Self::round_robin().iter().for_each(|scenario| {
                 assert_ne!(scenario, &Scenario::Mixed);
                 scenario.prepare_fragment(ctx, fragment);
             }),
@@ -270,6 +315,10 @@ impl Scenario {
 
     // Create a volatile database, pre-filled with data along the given dimension
     pub fn new_volatile_db(self, rng: &mut impl Rng, scale: &BenchScale) -> VolatileDB {
+        if let Self::Observed = self {
+            return observed::new_volatile_db(rng, scale.volatile_size, None);
+        }
+
         let mut db = VolatileDB::new(
             Epoch::from(0),
             MAINNET_DEFAULT_PROTOCOL_PARAMETERS.clone(),
@@ -289,7 +338,19 @@ impl Scenario {
     // Generate a fat fragment, also filled with entities of the scenario's kind
     pub fn new_fragment(self, rng: &mut impl Rng, scale: &BenchScale) -> AnchoredVolatileFragment {
         let mut fragment = VolatileFragment::default();
-        self.mut_fragment(&mut fragment, rng, scale.block_size);
+        match self {
+            Self::Observed => observed::fill_fragment(&mut fragment, rng, observed::block(scale.volatile_size)),
+            Self::Utxo
+            | Self::Pools
+            | Self::Accounts
+            | Self::Withdrawals
+            | Self::Committee
+            | Self::DReps
+            | Self::Proposals
+            | Self::Votes
+            | Self::Mixed
+            | Self::Singleton => self.mut_fragment(&mut fragment, rng, scale.block_size),
+        }
         fragment.anchor(fixture::tip(rng, scale.volatile_size as u64), fixture::default_pool_id())
     }
 }

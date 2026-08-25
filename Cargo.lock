@@ -320,6 +320,7 @@ dependencies = [
  "cryptoxide 0.6.2",
  "dashu-base",
  "dashu-int",
+ "divan",
  "ed25519-dalek 3.0.0",
  "getrandom 0.3.4",
  "hex",

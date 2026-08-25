@@ -188,11 +188,11 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{state::volatile::DiffSet, tests::fake_output};
+    use crate::{state::volatile::UtxoDiff, tests::fake_output};
 
     const VOLATILE_WINDOW: usize = 6;
 
-    fn series_from(diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>]) -> VolatileSeries {
+    fn series_from(diffs: &[UtxoDiff]) -> VolatileSeries {
         let mut series = VolatileSeries::default();
         for (index, diff) in diffs.iter().enumerate() {
             let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
@@ -219,9 +219,9 @@ mod tests {
                 (0usize..volatile_window, prop::option::of(0usize..volatile_window)),
                 0..16,
             )
-        ) -> Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> {
-            let mut diffs: Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> =
-                (0..volatile_window).map(|_| DiffSet::default()).collect();
+        ) -> Vec<UtxoDiff> {
+            let mut diffs: Vec<UtxoDiff> =
+                (0..volatile_window).map(|_| UtxoDiff::default()).collect();
 
             for (tag, (produced_at, consume_offset)) in plan.into_iter().enumerate() {
                 diffs[produced_at].produce(test_input(tag as u8), Arc::new(fixed_output()));
@@ -239,10 +239,7 @@ mod tests {
 
     /// Brute-force oracle: resolve `input` by walking `diffs` newest -> oldest. First consumed -> `None`,
     /// first produce -> `Some`. The reference the maintained aggregate is checked against.
-    fn naive_resolve<'a>(
-        diffs: &'a [DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
-        input: &TransactionInput,
-    ) -> Existence<&'a MemoizedTransactionOutput> {
+    fn naive_resolve<'a>(diffs: &'a [UtxoDiff], input: &TransactionInput) -> Existence<&'a MemoizedTransactionOutput> {
         for diff in diffs.iter().rev() {
             if diff.consumed.contains(input) {
                 return Existence::Gone;

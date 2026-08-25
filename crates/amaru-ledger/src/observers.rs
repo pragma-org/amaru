@@ -41,15 +41,14 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Block, Epoch, IsHeader, MemoizedTransactionOutput, Point, TransactionInput, TransactionRef};
-
-use crate::{
-    state::volatile::{AnchoredVolatileFragment, DiffSet, VolatileFragment},
-    summary::stake_distribution::StakeSummary,
-};
+use amaru_kernel::{Block, Epoch, IsHeader, Point, TransactionRef};
 
 /// UTxO delta carried by a tip block event (produced + consumed).
-pub type UtxoDiff = DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>;
+pub use crate::state::volatile::UtxoDiff;
+use crate::{
+    state::volatile::{AnchoredVolatileFragment, VolatileFragment},
+    summary::stake_distribution::StakeSummary,
+};
 
 /// A block that was successfully applied to the ledger tip.
 ///

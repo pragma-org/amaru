@@ -36,6 +36,8 @@ pub use traits::{
 
 mod data_structures;
 pub use data_structures::{
+    compact_collections,
+    compact_collections::{CompactMap, CompactSet},
     ignore_eq::IgnoreEq,
     key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs},
     legacy::Legacy,

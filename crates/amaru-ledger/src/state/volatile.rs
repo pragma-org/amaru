@@ -40,7 +40,7 @@ pub use resettable::Resettable;
 pub(crate) mod fragment;
 pub use fragment::{
     AnchoredVolatileFragment, BindError, DiffBind, DiffEpochReg, DiffSet, RegisterError, Registrations, StoreUpdate,
-    VolatileFragment,
+    UtxoDiff, VolatileFragment,
 };
 
 mod series;

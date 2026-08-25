@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod fixture;
-pub mod observed;
-pub mod scale;
-pub mod scenario;
+//! Sorted collections optimized for the small cardinalities that dominate per-block ledger
+//! state: a compact vector below a per-type promotion threshold `N`, a B-tree above it.
+//! Empty collections allocate nothing, and the handles are the same stack size as their
+//! `BTreeMap`/`BTreeSet` counterparts (plus the discriminant).
+
+mod compact_map;
+mod compact_set;
+mod small_buffer;
+
+pub use compact_map::{CompactMap, CompactMapIntoIter, CompactMapIter, Entry, OccupiedEntry, VacantEntry};
+pub use compact_set::{CompactSet, CompactSetIntoIter, CompactSetIter};

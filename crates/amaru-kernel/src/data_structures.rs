@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod compact_collections;
 pub mod ignore_eq;
 pub mod key_value_pairs;
 pub mod legacy;
