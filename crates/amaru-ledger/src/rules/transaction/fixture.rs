@@ -37,7 +37,7 @@ use crate::{
                 outputs::{InvalidOutput, InvalidOutputs},
                 proposals::InvalidProposals,
             },
-            phase_two::{PhaseTwoError, PreparationError, TagMismatch},
+            phase_two::{PreparationError, TagMismatch},
         },
     },
 };
@@ -311,34 +311,13 @@ pub(super) enum Predicate {
 impl From<TransactionInvalid> for Predicate {
     fn from(err: TransactionInvalid) -> Self {
         match err {
-            TransactionInvalid::PhaseOneError(err) => Predicate::from(err),
-            TransactionInvalid::PhaseTwoError(err) => Predicate::from(err),
-        }
-    }
-}
-
-impl From<PhaseTwoError> for Predicate {
-    fn from(err: PhaseTwoError) -> Self {
-        match err {
-            PhaseTwoError::ValidationTagMismatch(TagMismatch::FailedUnexpectedly(_)) => {
+            TransactionInvalid::PhaseOne(err) => Predicate::from(err),
+            TransactionInvalid::PhaseTwo(TagMismatch::FailedUnexpectedly(_)) => {
                 Predicate::ValidationTagMismatch { description: TagMismatchDescription::FailedUnexpectedly }
             }
-            PhaseTwoError::ValidationTagMismatch(TagMismatch::PassedUnexpectedly) => {
+            TransactionInvalid::PhaseTwo(TagMismatch::PassedUnexpectedly) => {
                 Predicate::ValidationTagMismatch { description: TagMismatchDescription::PassedUnexpectedly }
             }
-            PhaseTwoError::Preparation(PreparationError::MalformedScriptWitness(_)) => {
-                Predicate::MalformedScriptWitnesses
-            }
-            // The Haskell ledger reports these as 'CollectErrors' rather than a tag mismatch: they
-            // are raised while assembling the script arguments, before any script runs.
-            PhaseTwoError::Preparation(
-                PreparationError::MissingInput(_)
-                | PreparationError::TransactionTranslation(_)
-                | PreparationError::ScriptContextState(_)
-                | PreparationError::ScriptDeserialization(_)
-                | PreparationError::MissingCostModel(_)
-                | PreparationError::NonDisjointRefInputs { .. },
-            ) => unreachable!("no predicate mapping yet for {err}"),
         }
     }
 }
@@ -421,6 +400,17 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Scripts(InvalidScripts::ExtraneousScriptWitnesses(_)) => {
                 Predicate::ExtraneousScriptWitnessesUTXOW
             }
+            PhaseOneError::ScriptPreparation(PreparationError::MalformedScriptWitness(_)) => {
+                Predicate::MalformedScriptWitnesses
+            }
+            PhaseOneError::ScriptPreparation(
+                PreparationError::MissingInput(_)
+                | PreparationError::TransactionTranslation(_)
+                | PreparationError::ScriptContextState(_)
+                | PreparationError::ScriptDeserialization(_)
+                | PreparationError::MissingCostModel(_)
+                | PreparationError::NonDisjointRefInputs { .. },
+            ) => unreachable!("no predicate mapping yet for {err}"),
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,

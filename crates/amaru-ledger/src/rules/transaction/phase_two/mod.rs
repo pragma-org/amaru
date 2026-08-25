@@ -17,7 +17,9 @@ use std::{collections::BTreeMap, fmt, time::Instant};
 use amaru_kernel::{
     BorrowedScript, EraHistory, GlobalParameters, HasScriptHash, HasTransactionId, Hash, PlutusVersion,
     ProtocolParameters, RedeemerKey, TransactionBody, TransactionInput, TransactionPointer, TxInfo,
-    TxInfoTranslationError, Utxos, WitnessSet, cbor, size::SCRIPT, to_cbor,
+    TxInfoTranslationError, Utxos, WitnessSet, cbor,
+    size::SCRIPT,
+    to_cbor,
     utils::{duration::elapsed_and_reset, string::display_collection},
 };
 use amaru_observability::debug_span;
@@ -40,8 +42,11 @@ use thiserror::Error;
 
 use crate::context::UtxoSlice;
 
+/// Everything that can go wrong while evaluating a transaction's scripts. Not all of it is a
+/// phase-two failure: [`TransactionInvalid`](crate::rules::block::TransactionInvalid) is where
+/// each variant is assigned a validation phase.
 #[derive(Debug, Error)]
-pub enum PhaseTwoError {
+pub enum ScriptEvaluationError {
     #[error("script preparation failed: {0}")]
     Preparation(#[from] PreparationError),
 
@@ -110,7 +115,10 @@ where
     amaru_uplc::flat::encode(program).map(hex::encode).unwrap_or_default()
 }
 
-fn verdict(is_valid: bool, script_results: Vec<Result<ScriptOutcome, PreparationError>>) -> Result<(), PhaseTwoError> {
+fn verdict(
+    is_valid: bool,
+    script_results: Vec<Result<ScriptOutcome, PreparationError>>,
+) -> Result<(), ScriptEvaluationError> {
     let mut failures = Vec::new();
 
     for result in script_results {
@@ -138,7 +146,7 @@ pub fn execute<C>(
     is_valid: bool,
     transaction_body: &TransactionBody,
     transaction_witness_set: &WitnessSet,
-) -> Result<(), PhaseTwoError>
+) -> Result<(), ScriptEvaluationError>
 where
     C: UtxoSlice + fmt::Debug,
 {

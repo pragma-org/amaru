@@ -24,8 +24,9 @@ use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
 use crate::{
-    context::ValidationContext, epoch_transition::GovernanceActivity,
-    rules::transaction::phase_one::outputs::SupplementalDatumPolicy,
+    context::ValidationContext,
+    epoch_transition::GovernanceActivity,
+    rules::transaction::{phase_one::outputs::SupplementalDatumPolicy, phase_two::PreparationError},
 };
 
 pub mod certificates;
@@ -89,6 +90,9 @@ pub enum PhaseOneError {
 
     #[error("invalid transaction scripts: {0}")]
     Scripts(#[from] InvalidScripts),
+
+    #[error("script preparation failed: {0}")]
+    ScriptPreparation(PreparationError),
 
     #[error("invalid collateral: {0}")]
     Collateral(#[from] InvalidCollateral),
