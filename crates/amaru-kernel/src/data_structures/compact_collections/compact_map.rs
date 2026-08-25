@@ -359,6 +359,7 @@ mod tests {
         Remove(u8),
         Get(u8),
         Upsert(u8, u8),
+        RemoveViaEntry(u8),
     }
 
     fn map_operation() -> impl Strategy<Value = MapOperation> {
@@ -367,6 +368,7 @@ mod tests {
             (0u8..12).prop_map(MapOperation::Remove),
             (0u8..12).prop_map(MapOperation::Get),
             (0u8..12, any::<u8>()).prop_map(|(key, value)| MapOperation::Upsert(key, value)),
+            (0u8..12).prop_map(MapOperation::RemoveViaEntry),
         ]
     }
 
@@ -394,11 +396,12 @@ mod tests {
                     }
                     MapOperation::Get(key) => {
                         prop_assert_eq!(actual.get(&key), model.get(&key));
+                        prop_assert_eq!(actual.contains_key(&key), model.contains_key(&key));
                     }
                     MapOperation::Upsert(key, value) => {
                         match actual.entry(key) {
-                            Entry::Occupied(mut entry) => {
-                                let existing = entry.get_mut();
+                            Entry::Occupied(entry) => {
+                                let existing = entry.into_mut();
                                 *existing = existing.wrapping_add(value);
                             }
                             Entry::Vacant(entry) => {
@@ -414,6 +417,17 @@ mod tests {
                                 entry.insert(value);
                             }
                         }
+                    }
+                    MapOperation::RemoveViaEntry(key) => {
+                        let actual_removed = match actual.entry(key) {
+                            Entry::Occupied(entry) => Some(entry.remove()),
+                            Entry::Vacant(_) => None,
+                        };
+                        let model_removed = match model.entry(key) {
+                            btree_map::Entry::Occupied(entry) => Some(entry.remove()),
+                            btree_map::Entry::Vacant(_) => None,
+                        };
+                        prop_assert_eq!(actual_removed, model_removed);
                     }
                 }
 

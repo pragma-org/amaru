@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 /// A sorted vector for the small regime.
 ///
@@ -37,6 +37,11 @@ impl<T> SmallBuffer<T> {
         (index < self.entries.len()).then(|| self.entries.remove(index))
     }
 
+    /// Mutable access to a single entry; the caller must not reorder it relative to its neighbours.
+    pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.entries.get_mut(index)
+    }
+
     pub(crate) fn take(&mut self) -> Vec<T> {
         std::mem::take(&mut self.entries)
     }
@@ -51,11 +56,5 @@ impl<T> Deref for SmallBuffer<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.entries
-    }
-}
-
-impl<T> DerefMut for SmallBuffer<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.entries
     }
 }
