@@ -20,7 +20,7 @@ use amaru_kernel::{
 };
 
 mod db;
-pub use db::{RewardsAtTip, VolatileDB};
+pub use db::{RewardsAtTip, VolatileDB, VolatilePool};
 
 mod overlay;
 use overlay::StateOverlay;
@@ -85,8 +85,10 @@ pub trait VolatileState {
     }
 
     // --------------------------------------------------------------------------------------- Pools
-    type Pool;
-    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
+    type Pool<'a>
+    where
+        Self: 'a;
+    fn resolve_pool<'a>(&'a self, pool_id: PoolId) -> Self::Pool<'a> {
         unimplemented!("VolatileState.resolve_pool({pool_id})")
     }
 

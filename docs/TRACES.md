@@ -2157,6 +2157,23 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::ledger::validation_context::vrf_keys`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `error` | `TRACE` | public | An invariant violation when resolving vrf keys | key, diff, reason |  |
+| `hydrate` | `TRACE` | public | Resolve vrf keys from the volatile db or the stable one |  |  |
+
+<details><summary>span: `error`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `key` | `string` | ✓ |
+| `diff` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::ledger::volatile`
 
 | name | level | public | description | required fields | optional fields |
@@ -3460,7 +3477,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `decrement` | `TRACE` | public | Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero |  | vrf, by, stored, error |
 | `get` | `TRACE` | public | Read VRF key counter from the store |  |  |
-| `set` | `TRACE` | public | Set/Reset a VRF key counter |  |  |
+| `update` | `TRACE` | public | Set/Reset/Decrement a VRF key counter |  |  |
 
 <details><summary>span: `decrement`</summary>
 

@@ -29,7 +29,7 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, ProposalStateSlim, UnresolvedInputPolicy,
     },
-    state::volatile::{Bind, Existence, VolatileDB, VolatileState},
+    state::volatile::{Bind, Existence, VolatileDB, VolatilePool, VolatileState},
     store::{ReadStore, columns::vrf_keys::DiffVrf},
 };
 
@@ -80,6 +80,10 @@ impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
     fn require_pool(&mut self, pool: &'a PoolId) {
         self.pools.insert(pool);
     }
+
+    fn require_vrf(&mut self, vrf: &'a Hash<VRF_KEY>) {
+        self.vrf_keys.insert(vrf);
+    }
 }
 
 impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
@@ -125,7 +129,7 @@ impl<'block> DefaultPreparationContext<'block> {
         proposal_roots: ProposalsRoots,
         volatile: &'volatile impl VolatileState<
             TransactionOutput<'volatile> = <VolatileDB as VolatileState>::TransactionOutput<'volatile>,
-            Pool = <VolatileDB as VolatileState>::Pool,
+            Pool<'volatile> = <VolatileDB as VolatileState>::Pool<'volatile>,
             VrfKeys<'volatile> = <VolatileDB as VolatileState>::VrfKeys<'volatile>,
             Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>,
             DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>,
@@ -237,7 +241,7 @@ fn resolve_vrf_keys<'block, 'volatile>(
                         error!(
                             ledger::validation_context::vrf_keys::ERROR,
                             key = *key,
-                            diff = ?DiffVrf::Decrement(*n),
+                            diff = format!("{:?}", DiffVrf::Decrement(*n)),
                             reason = "volatile yield 'Decrement' on non-existing key ?!"
                         );
                     }
@@ -253,15 +257,14 @@ fn resolve_vrf_keys<'block, 'volatile>(
     })
 }
 
-/// Resolves pools, confirming the existence of the provided `pool_ids`.
+/// Resolves pools, confirming the existence of the provided `pool_ids`. Pools also resolve details
+/// about their VRF keys and pending updates; necessary to implement checks about the VRF
+/// uniqueness.
 ///
-/// Returns the subset of `pool_ids` that exist in our ledger state. This may be smaller than the
-/// argument: a pool could be registering for the first time in this very block.
-///
-/// Importantly, we only need existence, not the pool state. VRF-key uniqueness (pv11+) will be
-/// enforced globally via a `vrf -> pool_id` index.
-fn resolve_pools(
-    volatile: &impl VolatileState<Pool = <VolatileDB as VolatileState>::Pool>,
+/// The returned map may be smaller than the number of requested keys: a pool could be registering
+/// for the first time in this very block or could be gone entirely at a recent epoch transition.
+fn resolve_pools<'volatile>(
+    volatile: &'volatile impl VolatileState<Pool<'volatile> = <VolatileDB as VolatileState>::Pool<'volatile>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
 ) -> Result<BTreeMap<PoolId, PoolSlim>, ContextHydratationError> {
@@ -269,31 +272,58 @@ fn resolve_pools(
         let mut from_volatile = 0;
         let mut from_db = 0;
 
-        let pools = keys.try_fold(BTreeSet::new(), |mut pools, pool_id| {
-            match volatile.resolve_pool(pool_id) {
-                Existence::Gone => {}
+        let pools = keys
+            .try_fold(BTreeMap::new(), |mut pools, pool_id| {
+                match volatile.resolve_pool(pool_id) {
+                    Existence::Gone => {
+                        from_volatile += 1;
+                    }
 
-                Existence::Exists(()) => {
-                    pools.insert(pool_id);
-                    from_volatile += 1;
-                }
+                    Existence::Unknown => {
+                        if let Some(pool) = db.pool(&pool_id)? {
+                            let slim = PoolSlim { vrf: pool.current_params.vrf, has_pending_updates: false };
+                            pools.insert(pool_id, slim);
+                            from_db += 1;
+                        }
+                    }
 
-                Existence::Unknown => {
-                    if db.pool(&pool_id).map_err(ContextHydratationError::ResolvePools)?.is_some() {
-                        pools.insert(pool_id);
+                    Existence::Exists(
+                        entry @ VolatilePool { vrf_after_transition, first_known_vrf, total_recent_registrations },
+                    ) => {
+                        let slim = if let Some(pool) = db.pool(&pool_id)? {
+                            PoolSlim {
+                                vrf: vrf_after_transition.copied().unwrap_or(pool.current_params.vrf),
+                                has_pending_updates: total_recent_registrations > 0,
+                            }
+                        } else {
+                            PoolSlim {
+                                vrf: vrf_after_transition.or(first_known_vrf).copied().unwrap_or_else(|| {
+                                    unreachable!("Found pool ({pool_id}) freshly created with no VRF: {entry:#?}")
+                                }),
+                                // For freshly registered pool, we must consider whether the
+                                // first registrations happened before or after the transition. The
+                                // latter is given by `vrf_after_transition.is_some()`; since that
+                                // only (and necessarily) happens for pools that registered in the
+                                // previous epoch.
+                                has_pending_updates: total_recent_registrations
+                                    > if vrf_after_transition.is_some() { 0 } else { 1 },
+                            }
+                        };
+
+                        pools.insert(pool_id, slim);
                         from_db += 1;
                     }
                 }
-            }
 
-            Ok(pools)
-        })?;
+                Ok(pools)
+            })
+            .map_err(ContextHydratationError::ResolvePools)?;
 
         let span = tracing::Span::current();
         span.record("from_volatile", from_volatile);
         span.record("from_db", from_db);
 
-        Ok(unimplemented!("resolve_pools/PoolSlim"))
+        Ok(pools)
     })
 }
 
@@ -613,7 +643,7 @@ mod tests {
 
         impl VolatileState for Mock {
             type TransactionOutput<'a> = ();
-            type Pool = ();
+            type Pool<'a> = ();
             type VrfKeys<'a> = ();
             type Account<'a> = ();
             type DRep<'a> = ();

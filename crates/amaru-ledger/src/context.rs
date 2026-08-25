@@ -214,6 +214,7 @@ pub trait PoolsSlice {
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
 pub trait PreparePoolsSlice<'a> {
     fn require_pool(&'_ mut self, pool: &'a PoolId);
+    fn require_vrf(&'_ mut self, vrf: &'a Hash<VRF_KEY>);
 }
 
 // Accounts

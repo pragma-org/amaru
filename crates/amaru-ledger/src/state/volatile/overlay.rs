@@ -374,6 +374,10 @@ impl StateOverlay {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(&pool_id))
     }
 
+    pub fn pool_vrf(&self, pool_id: PoolId) -> Option<&Hash<VRF_KEY>> {
+        self.pools_updates.as_ref()?.updated().get(&pool_id).map(|pool| &pool.current_params.vrf)
+    }
+
     /// VRF updates applied during the epoch transition.
     pub fn vrf_updates<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a Hash<VRF_KEY>, DiffVrf)> + 'a> {
         self.pools_updates

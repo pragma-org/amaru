@@ -52,7 +52,7 @@ pub fn update<DB>(db: &Transaction<'_, DB>, vrf: &Key, diff: DiffVrf) -> Result<
                 None => {
                     error!(
                         stores::ledger::vrf_keys::DECREMENT,
-                        ?vrf,
+                        vrf,
                         by = by,
                         stored = 0,
                         error = "vrf key hash not in use"
