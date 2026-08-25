@@ -25,7 +25,7 @@ pub mod tests {
     use amaru_kernel::{
         Account, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
         Credential, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
-        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalSlim,
+        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, PoolSlim, ProposalId, ProposalSlim,
         ProposalState as NewEpochProposalState, ProtocolParameters, Slot, Transaction, TransactionInput,
         TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
     };

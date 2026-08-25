@@ -26,6 +26,7 @@ use crate::{
         AnchoredVolatileFragment,
         volatile::{
             AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+            aggregate::PoolCertificateCounters,
         },
     },
     store::columns::vrf_keys::DiffVrf,
@@ -46,8 +47,8 @@ impl VolatileState for VolatileSeries {
     }
 
     // --------------------------------------------------------------------------------------- Pools
-    type Pool = bool;
-    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
+    type Pool<'a> = Option<&'a PoolCertificateCounters>;
+    fn resolve_pool<'a>(&'a self, pool_id: PoolId) -> Self::Pool<'a> {
         // Whether the given pool is registered (or re-registered) anywhere in this series' aggregate.
         // Deferred retirements do not affect this; reaping is handled one level up, in the volatile DB.
         self.aggregate.resolve_pool(pool_id)

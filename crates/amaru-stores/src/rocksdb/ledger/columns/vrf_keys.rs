@@ -42,7 +42,6 @@ pub fn get<'a>(
 /// Apply an update to a VRF key.
 pub fn update<DB>(db: &Transaction<'_, DB>, vrf: &Key, diff: DiffVrf) -> Result<(), StoreError> {
     let key = as_key(&PREFIX, vrf);
-
     match diff {
         DiffVrf::Claim => db.put(key, as_value(1_u64)),
         DiffVrf::Release => db.delete(key),
@@ -55,7 +54,7 @@ pub fn update<DB>(db: &Transaction<'_, DB>, vrf: &Key, diff: DiffVrf) -> Result<
                     stored = 0,
                     error = "vrf key hash not in use"
                 );
-                Ok(())
+                return Ok(());
             }
             Some(bytes) => {
                 let stored = unsafe_decode::<u64>(&bytes);
