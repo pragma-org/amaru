@@ -15,7 +15,7 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use std::{
-        collections::{BTreeMap, BTreeSet},
+        collections::BTreeMap,
         env, fs,
         io::Write as _,
         path::{Path, PathBuf},
@@ -25,7 +25,7 @@ pub mod tests {
     use amaru_kernel::{
         Account, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
         DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
-        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalSlim,
+        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, PoolSlim, ProposalId, ProposalSlim,
         ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, Transaction,
         TransactionInput, TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
     };
@@ -107,7 +107,7 @@ pub mod tests {
     // Conformance vectors currently carry only UTxO state; the other sections decode as empty.
     struct DecodedLedgerState<'b> {
         utxos: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
-        pools: BTreeSet<PoolId>,
+        pools: BTreeMap<PoolId, PoolSlim>,
         accounts: BTreeMap<StakeCredential, Account>,
         dreps: BTreeMap<StakeCredential, DRepState>,
         cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
@@ -139,12 +139,18 @@ pub mod tests {
 
         // PState: [stake pools, future pools, retiring, deposits]. Only pool existence matters here.
         let pools = {
-            let len = d.array()?;
-            let params: BTreeMap<PoolId, PoolParams> = d.decode()?;
-            for _ in 1..len.unwrap_or(0) {
-                d.skip()?;
-            }
-            params.into_keys().collect()
+            d.array()?;
+            let current_pools: BTreeMap<PoolId, PoolParams> = d.decode()?;
+            let future_pools: BTreeMap<PoolId, PoolParams> = d.decode()?;
+            d.skip()?; // retiring
+            d.skip()?; // deposits
+            current_pools
+                .into_iter()
+                .map(|(pool_id, params)| {
+                    let has_pending_updates = future_pools.contains_key(&pool_id);
+                    (pool_id, PoolSlim { vrf: params.vrf, has_pending_updates })
+                })
+                .collect()
         };
 
         // DState: [unified map, future gen delegs, gen delegs, instantaneous rewards]. The unified map
@@ -308,12 +314,14 @@ pub mod tests {
         let mut validation_context = DefaultValidationContext::new(
             decoded.utxos,
             decoded.pools,
+            BTreeMap::new(),
             accounts,
             dreps,
             committee,
             proposals,
             proposals_roots,
             decoded.treasury,
+            protocol_parameters.protocol_version,
         );
 
         let arena_pool = ArenaPool::new(1, 1_024_000);

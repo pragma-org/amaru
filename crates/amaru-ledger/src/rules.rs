@@ -140,7 +140,10 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
             context.require_pool(pool_key_hash);
         }
 
-        Certificate::PoolRegistration(params) => context.require_pool(&params.id),
+        Certificate::PoolRegistration(params) => {
+            context.require_pool(&params.id);
+            context.require_vrf(&params.vrf);
+        }
         Certificate::PoolRetirement(pool_id, _) => context.require_pool(pool_id),
 
         Certificate::StakeVoteDeleg(credential, pool_key_hash, drep)

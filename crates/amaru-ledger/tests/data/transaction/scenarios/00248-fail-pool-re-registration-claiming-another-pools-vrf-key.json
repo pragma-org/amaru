@@ -1,0 +1,28 @@
+{
+  "title": "pool registration claiming another VRF registered in the same transaction",
+  "description": "A re-registration certificate for a registered pool, claiming the current VRF key hash of another registered pool in the same transaction, under protocol version 11.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": { "version": { "major": 11, "minor": 0 } }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258201d8f3b6a2e9c5d0b7f4a1c8e3b6d9f2a5c0e7b4d1f8a3c6e9b2d5f0a7c4e1b3800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258201d8f3b6a2e9c5d0b7f4a1c8e3b6d9f2a5c0e7b4d1f8a3c6e9b2d5f0a7c4e1b38000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d90102828a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa001a1443fd00d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f68a03581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd5820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa001a1443fd00d81e82010a581de0ddddddddddddddddddddddddddddddddddddddddddddddddddddddddd9010281581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd80f60800a0f5f6",
+  "expected": {
+    "predicate": "VrfKeyAlreadyRegistered"
+  }
+}

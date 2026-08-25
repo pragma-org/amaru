@@ -21,10 +21,11 @@ use std::{
 
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, PoolSlim, Proposal, ProposalId,
+    ProposalPointer, ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote,
+    Voter,
     cardano::value::Balance,
-    size::{DATUM, KEY, SCRIPT},
+    size::{DATUM, KEY, SCRIPT, VRF_KEY},
 };
 use thiserror::Error;
 
@@ -99,6 +100,9 @@ pub enum ContextHydratationError {
 
     #[error("failed to hydrate pots")]
     ResolvePots(#[source] StoreError),
+
+    #[error("failed to hydrate vrf keys")]
+    ResolveVrfKeys(#[source] StoreError),
 }
 
 // Errors (validation)
@@ -187,11 +191,22 @@ pub trait PrepareUtxoSlice<'a> {
 // Pools
 // ------------------------------------------------------------------------------------------------
 
+#[derive(Debug, thiserror::Error)]
+pub enum PoolRegisterError {
+    #[error("pool vrf key (hash={0}) is already registered")]
+    VrfKeyAlreadyRegistered(Hash<VRF_KEY>),
+}
+
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
-    fn exists(&self, pool: PoolId) -> bool;
+    fn lookup(&self, pool: PoolId) -> Option<PoolSlim>;
 
-    fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
+    fn register(
+        &mut self,
+        params: PoolParams,
+        pointer: CertificatePointer,
+        deposit: Lovelace,
+    ) -> Result<(), PoolRegisterError>;
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
 }
@@ -199,6 +214,7 @@ pub trait PoolsSlice {
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
 pub trait PreparePoolsSlice<'a> {
     fn require_pool(&'_ mut self, pool: &'a PoolId);
+    fn require_vrf(&'_ mut self, vrf: &'a Hash<VRF_KEY>);
 }
 
 // Accounts

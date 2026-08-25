@@ -15,7 +15,8 @@
 use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, StakeCredential, TransactionInput,
+    Hash, Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, StakeCredential, TransactionInput,
+    size::VRF_KEY,
 };
 use amaru_observability::debug_span;
 
@@ -25,8 +26,10 @@ use crate::{
         AnchoredVolatileFragment,
         volatile::{
             AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+            aggregate::PoolCertificateCounters,
         },
     },
+    store::columns::vrf_keys::DiffVrf,
 };
 
 #[derive(Debug, Default)]
@@ -44,11 +47,17 @@ impl VolatileState for VolatileSeries {
     }
 
     // --------------------------------------------------------------------------------------- Pools
-    type Pool = bool;
-    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
+    type Pool<'a> = Option<&'a PoolCertificateCounters>;
+    fn resolve_pool<'a>(&'a self, pool_id: PoolId) -> Self::Pool<'a> {
         // Whether the given pool is registered (or re-registered) anywhere in this series' aggregate.
         // Deferred retirements do not affect this; reaping is handled one level up, in the volatile DB.
         self.aggregate.resolve_pool(pool_id)
+    }
+
+    // ------------------------------------------------------------------------------------ VRF Keys
+    type VrfKeys<'a> = Box<dyn Iterator<Item = (&'a Hash<VRF_KEY>, DiffVrf)> + 'a>;
+    fn resolve_vrf_keys<'a>(&'a self) -> Self::VrfKeys<'a> {
+        Box::new(self.sequence.iter().flat_map(|anchor| anchor.fragment.vrf_keys.iter()).map(|(k, v)| (k, *v)))
     }
 
     // ------------------------------------------------------------------------------------ Accounts

@@ -59,12 +59,14 @@ mod tests {
         let mut ctx = DefaultValidationContext::new(
             fixture.initial_state.utxo,
             fixture.initial_state.pools,
+            fixture.initial_state.vrf_keys,
             fixture.initial_state.accounts,
             fixture.initial_state.dreps,
             fixture.initial_state.committee,
             fixture.initial_state.proposals,
             fixture.initial_state.proposals_roots,
             fixture.initial_state.pots.treasury,
+            protocol_parameters.protocol_version,
         );
 
         let arena_pool = ArenaPool::new(1, 1_024_000);

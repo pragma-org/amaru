@@ -19,13 +19,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::StakeEntry;
 use amaru_kernel::{
     CertificatePointer,
     Constitution,
     ConstitutionalCommitteeStatus,
     Epoch,
     EraHistory,
+    Hash,
     Lovelace,
     MemoizedTransactionOutput,
     Point,
@@ -36,17 +36,19 @@ use amaru_kernel::{
     ProtocolParameters,
     RatificationStatus,
     StakeCredential,
+    StakeEntry,
     TransactionInput,
     cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
+    size::VRF_KEY,
 };
 use columns::*;
 use thiserror::Error;
 
-use crate::epoch_transition::GovernanceActivity;
+use crate::{epoch_transition::GovernanceActivity, store::vrf_keys::DiffVrf};
 
 pub mod columns;
 
@@ -367,6 +369,14 @@ pub trait ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn governance_activity(&self) -> Result<GovernanceActivity> {
         unimplemented!("ReadStore.governance_activity()");
+    }
+
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn vrf(&self, vrf_key: &Hash<VRF_KEY>) -> Result<Option<u64>>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn vrf(&self, vrf_key: &Hash<VRF_KEY>) -> Result<Option<u64>> {
+        unimplemented!("ReadStore.get_vrf({vrf_key})");
     }
 
     /// Get details about all utxos
@@ -750,6 +760,14 @@ pub trait TransactionalContext<'a>: ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<()> {
         unimplemented!("TransactionalContext.prune_recently_unregistered_accounts({epoch})");
+    }
+
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn update_vrf(&self, vrf_key: &Hash<VRF_KEY>, diff: DiffVrf) -> Result<()>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn update_vrf(&self, vrf_key: &Hash<VRF_KEY>, diff: DiffVrf) -> Result<()> {
+        unimplemented!("TransactionalContext.update_vrf({vrf_key}, {diff:?})");
     }
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.

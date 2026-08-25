@@ -60,6 +60,7 @@ Other guiding principles:
 - **amaru-protocols**: preserve bytes of transactions flowing through the mempool.
 - **amaru-tui**: tweak block dissemination metrics headers (fetch → select, sync → fetch)
 - **amaru-ledger**: Do not validate disjoint input sets in protocol version 11+. Similarly, do not allow non-disjoin input sets in PV3, regardless of protocol version.
+- **amaru**: implement duplicate VRF check from Van Rossem / v11.
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 

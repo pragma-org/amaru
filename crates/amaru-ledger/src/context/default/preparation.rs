@@ -18,10 +18,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId,
-    ProposalId, ProposalSlim, ProposalsRoots, StakeCredential, TransactionInput, drep,
+    ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, GovernanceAction, Hash, MemoizedTransactionOutput,
+    PoolId, PoolSlim, ProposalId, ProposalSlim, ProposalsRoots, StakeCredential, TransactionInput, drep, size::VRF_KEY,
 };
-use amaru_observability::debug_span;
+use amaru_observability::{debug_span, error};
 
 use crate::{
     context::{
@@ -29,8 +29,8 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, ProposalStateSlim, UnresolvedInputPolicy,
     },
-    state::volatile::{Bind, Existence, VolatileDB, VolatileState},
-    store::ReadStore,
+    state::volatile::{Bind, Existence, VolatileDB, VolatilePool, VolatileState},
+    store::{ReadStore, columns::vrf_keys::DiffVrf},
 };
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
@@ -43,6 +43,7 @@ use crate::{
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
+    pub vrf_keys: BTreeSet<&'a Hash<VRF_KEY>>,
     pub accounts: BTreeSet<Cow<'a, StakeCredential>>,
     pub dreps: BTreeSet<Cow<'a, StakeCredential>>,
     pub drep_delegations: BTreeSet<&'a DRep>,
@@ -56,6 +57,7 @@ impl DefaultPreparationContext<'_> {
         Self {
             utxo: BTreeSet::new(),
             pools: BTreeSet::new(),
+            vrf_keys: BTreeSet::new(),
             accounts: BTreeSet::new(),
             dreps: BTreeSet::new(),
             drep_delegations: BTreeSet::new(),
@@ -77,6 +79,10 @@ impl<'a> PrepareUtxoSlice<'a> for DefaultPreparationContext<'a> {
 impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
     fn require_pool(&mut self, pool: &'a PoolId) {
         self.pools.insert(pool);
+    }
+
+    fn require_vrf(&mut self, vrf: &'a Hash<VRF_KEY>) {
+        self.vrf_keys.insert(vrf);
     }
 }
 
@@ -123,7 +129,8 @@ impl<'block> DefaultPreparationContext<'block> {
         proposal_roots: ProposalsRoots,
         volatile: &'volatile impl VolatileState<
             TransactionOutput<'volatile> = <VolatileDB as VolatileState>::TransactionOutput<'volatile>,
-            Pool = <VolatileDB as VolatileState>::Pool,
+            Pool<'volatile> = <VolatileDB as VolatileState>::Pool<'volatile>,
+            VrfKeys<'volatile> = <VolatileDB as VolatileState>::VrfKeys<'volatile>,
             Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>,
             DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>,
             CCMembers<'volatile> = <VolatileDB as VolatileState>::CCMembers<'volatile>,
@@ -136,6 +143,7 @@ impl<'block> DefaultPreparationContext<'block> {
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
+            resolve_vrf_keys(volatile, db, self.vrf_keys.into_iter())?,
             resolve_accounts(volatile, db, self.accounts.into_iter())?,
             resolve_dreps(
                 volatile,
@@ -149,6 +157,7 @@ impl<'block> DefaultPreparationContext<'block> {
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
             treasury,
+            volatile.protocol_parameters().protocol_version,
         ))
     }
 }
@@ -203,41 +212,112 @@ fn resolve_inputs<'block, 'volatile>(
     })
 }
 
-/// Resolves pools, confirming the existence of the provided `pool_ids`.
+/// Resolves vrf counters from the stable store and pending pools updates.
+fn resolve_vrf_keys<'block, 'volatile>(
+    volatile: &'volatile impl VolatileState<VrfKeys<'volatile> = <VolatileDB as VolatileState>::VrfKeys<'volatile>>,
+    db: &impl ReadStore,
+    keys: impl Iterator<Item = &'block Hash<VRF_KEY>>,
+) -> Result<BTreeMap<Hash<VRF_KEY>, u64>, ContextHydratationError> {
+    debug_span!(ledger::validation_context::vrf_keys::HYDRATE).in_scope(|| {
+        let volatile_vrf_keys = volatile.resolve_vrf_keys();
+
+        let mut vrf_keys = BTreeMap::new();
+        for key in keys {
+            match volatile_vrf_keys.get(key) {
+                Some(DiffVrf::Release) => {}
+
+                Some(DiffVrf::Claim) => {
+                    vrf_keys.insert(*key, 1);
+                }
+
+                Some(DiffVrf::Decrement(n)) => {
+                    if let Some(stable_count) = db.vrf(key).map_err(ContextHydratationError::ResolveVrfKeys)? {
+                        if let Some(current_count) = stable_count.checked_sub(*n)
+                            && current_count > 0
+                        {
+                            vrf_keys.insert(*key, current_count);
+                        }
+                    } else {
+                        error!(
+                            ledger::validation_context::vrf_keys::ERROR,
+                            key = *key,
+                            diff = format!("{:?}", DiffVrf::Decrement(*n)),
+                            reason = "volatile yield 'Decrement' on non-existing key ?!"
+                        );
+                    }
+                }
+                None => {
+                    if let Some(count) = db.vrf(key).map_err(ContextHydratationError::ResolveVrfKeys)? {
+                        vrf_keys.insert(*key, count);
+                    }
+                }
+            };
+        }
+        Ok(vrf_keys)
+    })
+}
+
+/// Resolves pools, confirming the existence of the provided `pool_ids`. Pools also resolve details
+/// about their VRF keys and pending updates; necessary to implement checks about the VRF
+/// uniqueness.
 ///
-/// Returns the subset of `pool_ids` that exist in our ledger state. This may be smaller than the
-/// argument: a pool could be registering for the first time in this very block.
-///
-/// Importantly, we only need existence, not the pool state. VRF-key uniqueness (pv11+) will be
-/// enforced globally via a `vrf -> pool_id` index.
-fn resolve_pools(
-    volatile: &impl VolatileState<Pool = <VolatileDB as VolatileState>::Pool>,
+/// The returned map may be smaller than the number of requested keys: a pool could be registering
+/// for the first time in this very block or could be gone entirely at a recent epoch transition.
+fn resolve_pools<'volatile>(
+    volatile: &'volatile impl VolatileState<Pool<'volatile> = <VolatileDB as VolatileState>::Pool<'volatile>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
-) -> Result<BTreeSet<PoolId>, ContextHydratationError> {
+) -> Result<BTreeMap<PoolId, PoolSlim>, ContextHydratationError> {
     debug_span!(ledger::validation_context::pools::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
-        let pools = keys.try_fold(BTreeSet::new(), |mut pools, pool_id| {
-            match volatile.resolve_pool(pool_id) {
-                Existence::Gone => {}
+        let pools = keys
+            .try_fold(BTreeMap::new(), |mut pools, pool_id| {
+                match volatile.resolve_pool(pool_id) {
+                    Existence::Gone => {
+                        from_volatile += 1;
+                    }
 
-                Existence::Exists(()) => {
-                    pools.insert(pool_id);
-                    from_volatile += 1;
-                }
+                    Existence::Unknown => {
+                        if let Some(pool) = db.pool(&pool_id)? {
+                            let slim = PoolSlim { vrf: pool.current_params.vrf, has_pending_updates: false };
+                            pools.insert(pool_id, slim);
+                            from_db += 1;
+                        }
+                    }
 
-                Existence::Unknown => {
-                    if db.pool(&pool_id).map_err(ContextHydratationError::ResolvePools)?.is_some() {
-                        pools.insert(pool_id);
+                    Existence::Exists(
+                        entry @ VolatilePool { vrf_after_transition, first_known_vrf, total_recent_registrations },
+                    ) => {
+                        let slim = if let Some(pool) = db.pool(&pool_id)? {
+                            PoolSlim {
+                                vrf: vrf_after_transition.copied().unwrap_or(pool.current_params.vrf),
+                                has_pending_updates: total_recent_registrations > 0,
+                            }
+                        } else {
+                            PoolSlim {
+                                vrf: vrf_after_transition.or(first_known_vrf).copied().unwrap_or_else(|| {
+                                    unreachable!("Found pool ({pool_id}) freshly created with no VRF: {entry:#?}")
+                                }),
+                                // For freshly registered pool, we must consider whether the
+                                // first registrations happened before or after the transition. The
+                                // latter is given by `vrf_after_transition.is_some()`; since that
+                                // only (and necessarily) happens for pools that registered in the
+                                // previous epoch.
+                                has_pending_updates: total_recent_registrations
+                                    > if vrf_after_transition.is_some() { 0 } else { 1 },
+                            }
+                        };
+
+                        pools.insert(pool_id, slim);
                         from_db += 1;
                     }
                 }
-            }
 
-            Ok(pools)
-        })?;
+                Ok(pools)
+            })
+            .map_err(ContextHydratationError::ResolvePools)?;
 
         let span = tracing::Span::current();
         span.record("from_volatile", from_volatile);
@@ -563,7 +643,8 @@ mod tests {
 
         impl VolatileState for Mock {
             type TransactionOutput<'a> = ();
-            type Pool = ();
+            type Pool<'a> = ();
+            type VrfKeys<'a> = ();
             type Account<'a> = ();
             type DRep<'a> = ();
             type Proposal = ();

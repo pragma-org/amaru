@@ -16,11 +16,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RationalNumber, RewardAccount, StakeCredential,
-    expect_stake_credential, utils::string::display_collection,
+    expect_stake_credential, size::VRF_KEY, utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
 
-use crate::store::columns::pools::Row as Pool;
+use crate::store::columns::{pools::Row as Pool, vrf_keys::DiffVrf};
 
 mod pool_certificates;
 pub use pool_certificates::{PendingPoolCertificates, PoolCertificate, PoolCertificates};
@@ -40,6 +40,19 @@ pub struct PoolsEpochTransitionUpdates {
 
     /// Pool owners refunds, corresponding to the return of their deposit upon de-registration.
     refunds: BTreeMap<StakeCredential, Lovelace>,
+
+    /// Changes to apply to the current VRF set at the epoch boundary. This information can *almost*
+    /// be derived from the 'retired' and 'updated' sets if we stored the associated VRF and
+    /// previous VRF. However:
+    ///
+    /// 1. Doing so would make the model more complex / heavy for all other operations too.
+    /// 2. We would have to re-compute the VRF updates dynamically each time we need to access them.
+    /// 3. We still have anyway to resolve the state against the stable store during update.
+    ///
+    /// So all-in-all, it is more convenient and more efficient to keep the resulting/pre-computed
+    /// VRF updates for the overlay here; and ensure when flushing that this predicted/projected
+    /// state does indeed reflect what we see in db.
+    vrf_updates: BTreeMap<Hash<VRF_KEY>, DiffVrf>,
 }
 
 impl PoolsEpochTransitionUpdates {
@@ -55,6 +68,12 @@ impl PoolsEpochTransitionUpdates {
 
             pools_updates
         })
+    }
+
+    /// Compute the VRF keys updates resulting from this overlay. This computes the decrement /
+    /// reset operations that must be applied to current VRF keys state.
+    pub fn vrf_updates(&self) -> &BTreeMap<Hash<VRF_KEY>, DiffVrf> {
+        &self.vrf_updates
     }
 
     pub fn retired(&self) -> &BTreeSet<PoolId> {
@@ -119,6 +138,12 @@ impl PoolsEpochTransitionUpdates {
 
             let current_params = &mut pool.current_params;
 
+            // Reset VRF counter of 'dangling VRFs'; even if some *other* pool may still be using
+            // that VRF.
+            if vrf != &current_params.vrf {
+                self.vrf_updates.insert(current_params.vrf, DiffVrf::Release);
+            }
+
             // NOTE: /!\ IMPORTANT /!\ DO NOT INLINE
             //
             // It is tempting to inline all the identifier in the log event below. But don't.
@@ -165,6 +190,7 @@ impl PoolsEpochTransitionUpdates {
     fn retire_pool(&mut self, epoch: Epoch, pool: &Pool, pending: PendingPoolCertificates<'_>) {
         debug!(ledger::epoch_transition::RETIRE_POOL, id = pool.id());
 
+        self.vrf_updates.insert(pool.current_params.vrf, DiffVrf::Decrement(1));
         self.retired.insert(pool.id());
         self.refunds
             .entry(expect_stake_credential(&pool.current_params.reward_account))

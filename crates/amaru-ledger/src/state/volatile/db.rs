@@ -20,7 +20,8 @@ use std::{
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
     PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
-    StakeCredential, TransactionInput, size::SCRIPT,
+    StakeCredential, TransactionInput,
+    size::{SCRIPT, VRF_KEY},
 };
 
 use crate::{
@@ -35,7 +36,7 @@ use crate::{
             VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
-    store::{HistoricalStores, Store},
+    store::{HistoricalStores, Store, columns::vrf_keys::DiffVrf},
 };
 
 #[derive(Debug)]
@@ -84,6 +85,12 @@ impl Default for VolatileDB {
 }
 
 impl VolatileState for VolatileDB {
+    // ------------------------------------------------------------------------- ProtocolParameters
+    /// The protocol parameters carried by an in-flight epoch transition, if any.
+    fn protocol_parameters(&self) -> &ProtocolParameters {
+        self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
+    }
+
     // --------------------------------------------------------------------------------------- UTxOs
     type TransactionOutput<'a> = Existence<&'a MemoizedTransactionOutput>;
     fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
@@ -91,20 +98,81 @@ impl VolatileState for VolatileDB {
     }
 
     // --------------------------------------------------------------------------------------- Pools
-    type Pool = Existence<()>;
-    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
-        // Whether a pool exists per the volatile state, precedence `current -> overlay (reaping) ->
-        // draining`. A re-registration in `current` cancels a boundary reaping; otherwise a reaping is
-        // `Gone`. `Unknown` means consult the stable store.
-        if self.current.resolve_pool(pool_id) {
-            Existence::Exists(())
+    // Pools from the volatile carry three useful piece of information derived from different
+    // moments:
+    //
+    // 1. Whether the pool still exists or if it was retired in the last epoch transition
+    // 2. Details helping the resolution of the current VRF
+    // 3. Whether it has multiple pending updates
+    //
+    // Note that the volatile certificates can only ever come from the current series; those from a
+    // draining series are resolved during the epoch transition and are fully captured in overlay
+    // updates.
+    //
+    // However, in the volatile, we cannot distinguish between pools that are registering and those
+    // that are re-registering. Which is why we simply resort to informing about the number of
+    // volatile update and defer the actual interpretation to the caller.
+    type Pool<'a> = Existence<VolatilePool<'a>>;
+    fn resolve_pool<'a>(&'a self, pool_id: PoolId) -> Self::Pool<'a> {
+        if let Some(counters) = self.current.resolve_pool(pool_id) {
+            // NOTE: Pool's VRF in `VolatileDB.resolve_pool` (1)
+            //
+            // We do not use the most recent VRF found in certificate here but only the VRF that is
+            // *actually in use*; if we know it. The only case where this occurs is when the pool
+            // has just been updated in the transition which is captured by the overlay.
+            //
+            // In some cases, the VRF contained in `counters.first_known_vrf()` also corresponds to
+            // the current VRF, but that isn't *generally true*, and will always require a stable
+            // lookup to confirm. Since we cannot draw any conclusion here, we defer the choice to
+            // the caller.
+            //
+            // Yet it is crucial for any overlay update to be layered on top of the stable store. So
+            // in summary:
+            //
+            // - We need `vrf_after_transition` for any *already registered pool*
+            // - We need `first_known_vrf` for newly registered pool in this epoch.
+            Existence::Exists(VolatilePool {
+                first_known_vrf: counters.first_known_vrf(),
+                vrf_after_transition: self.overlay.pool_vrf(pool_id),
+                total_recent_registrations: counters.registrations(),
+            })
         } else if self.overlay.is_pool_retired(pool_id) {
             Existence::Gone
-        } else if self.draining.resolve_pool(pool_id) {
-            Existence::Exists(())
+        } else if let Some(counters) = self.draining.resolve_pool(pool_id) {
+            // NOTE: Pool's VRF in `VolatileDB.resolve_pool` (2)
+            //
+            // This is a bit tricky for the brain but:
+            //
+            // - A pool can be the draining series AND have a VRF update in the overlay (in case one
+            //   of the draining updates was updating the pool but the transition isn't stable yet)
+            //
+            // - But if we reached this branch, then necessarily, there are no pending certificates
+            //   for the ongoing epoch since draining always refer to the *previous epoch*.
+            //
+            // Consequently, we do not care here about the 'first_known_vrf', because the transition
+            // has already happened and we must look at the *last* known vrf instead, which is what
+            // the overlay gives us.
+            Existence::Exists(VolatilePool {
+                first_known_vrf: counters.first_known_vrf(),
+                vrf_after_transition: self.overlay.pool_vrf(pool_id),
+                total_recent_registrations: 0,
+            })
         } else {
             Existence::Unknown
         }
+    }
+
+    // ------------------------------------------------------------------------------------ VRF Keys
+    type VrfKeys<'a> = BTreeMap<&'a Hash<VRF_KEY>, DiffVrf>;
+    fn resolve_vrf_keys<'a>(&'a self) -> Self::VrfKeys<'a> {
+        std::iter::empty()
+            .chain(self.draining.resolve_vrf_keys())
+            .chain(self.overlay.vrf_updates())
+            .chain(self.current.resolve_vrf_keys())
+            .fold(BTreeMap::new(), |mut map, (vrf, diff)| {
+                map.entry(vrf).and_modify(|st| st.then(diff)).or_insert(diff);
+                map
+            })
     }
 
     // ------------------------------------------------------------------------------------ Accounts
@@ -277,11 +345,6 @@ impl VolatileDB {
     /// value if available.
     pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
         self.overlay.most_recent_snapshot(snapshots)
-    }
-
-    /// The protocol parameters carried by an in-flight epoch transition, if any.
-    pub fn protocol_parameters(&self) -> &ProtocolParameters {
-        self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
     }
 
     /// Obtain the protocol parameters for a specific epoch; which can either be the *current* epoch
@@ -521,6 +584,17 @@ impl RewardsAtTip {
             Self::Add(credit) => base + credit,
         }
     }
+}
+
+/// A bespoke type for volatile outcomes that captures all the various subtleties around pool
+/// resolution. It isn't possible to return a `PoolSlim` here because we cannot distinguish
+/// between new registrations and updates; which leaves us blind to the meaning of single
+/// registrations.
+#[derive(Debug)]
+pub struct VolatilePool<'a> {
+    pub vrf_after_transition: Option<&'a Hash<VRF_KEY>>,
+    pub first_known_vrf: Option<&'a Hash<VRF_KEY>>,
+    pub total_recent_registrations: usize,
 }
 
 #[cfg(test)]

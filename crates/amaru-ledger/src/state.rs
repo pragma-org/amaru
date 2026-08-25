@@ -50,7 +50,8 @@ use crate::{
     },
     startup::{Database as StartupDatabase, StartupHook},
     state::volatile::{
-        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
+        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileState,
+        VolatileView,
     },
     store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -346,7 +347,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 });
 
                 // Persist changes for this block
-                let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, donations, add, remove, withdrawals } =
+                let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, donations, add, remove, withdrawals, vrf_keys } =
                     now_stable.into_store_update();
 
                 self.stable.lock().unwrap()
@@ -365,6 +366,10 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                             remove,
                             withdrawals,
                         )?;
+
+                        for (key, diff) in vrf_keys {
+                            batch.update_vrf(&key, diff)?;
+                        }
 
                         batch.with_pots(|mut row| {
                             let row = row.borrow_mut();

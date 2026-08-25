@@ -16,11 +16,11 @@ use std::collections::VecDeque;
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId,
-    Pots, ProposalId, StakeCredential, TransactionInput,
+    Pots, ProposalId, ProtocolParameters, StakeCredential, TransactionInput,
 };
 
 mod db;
-pub use db::{RewardsAtTip, VolatileDB};
+pub use db::{RewardsAtTip, VolatileDB, VolatilePool};
 
 mod overlay;
 use overlay::StateOverlay;
@@ -71,42 +71,52 @@ pub type DRepBind<'a> = Bind<&'a Empty, &'a Empty, &'a DRepRegistration>;
 
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {
+    // ---------------------------------------------------------------------------ProtocolParameters
+    fn protocol_parameters(&self) -> &ProtocolParameters {
+        unimplemented!("VolatileState.protocol_parameters()")
+    }
+
     // --------------------------------------------------------------------------------------- UTxOs
     type TransactionOutput<'a>
     where
         Self: 'a;
-    #[expect(clippy::panic)]
     fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
-        panic!("VolatileState.resolve_input({input})")
+        unimplemented!("VolatileState.resolve_input({input})")
     }
 
     // --------------------------------------------------------------------------------------- Pools
-    type Pool;
-    #[expect(clippy::panic)]
-    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
-        panic!("VolatileState.resolve_pool({pool_id})")
+    type Pool<'a>
+    where
+        Self: 'a;
+    fn resolve_pool<'a>(&'a self, pool_id: PoolId) -> Self::Pool<'a> {
+        unimplemented!("VolatileState.resolve_pool({pool_id})")
+    }
+
+    // ------------------------------------------------------------------------------------ VRF Keys
+    type VrfKeys<'a>
+    where
+        Self: 'a;
+    fn resolve_vrf_keys<'a>(&'a self) -> Self::VrfKeys<'a> {
+        unimplemented!("VolatileState.resolve_vrf_keys()")
     }
 
     // ------------------------------------------------------------------------------------ Accounts
     type Account<'a>
     where
         Self: 'a;
-    #[expect(clippy::panic)]
     fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
-        panic!("VolatileState.resolve_account({credential})")
+        unimplemented!("VolatileState.resolve_account({credential})")
     }
-    #[expect(clippy::panic)]
     fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
-        panic!("VolatileState.has_withdrawal({credential})")
+        unimplemented!("VolatileState.has_withdrawal({credential})")
     }
 
     // --------------------------------------------------------------------------------------- DReps
     type DRep<'a>
     where
         Self: 'a;
-    #[expect(clippy::panic)]
     fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
-        panic!("VolatileState.resolve_drep({credential})")
+        unimplemented!("VolatileState.resolve_drep({credential})")
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
@@ -120,29 +130,25 @@ pub trait VolatileState {
     /// enumerate these.
     ///
     /// The same credential may come up multiple times.
-    #[expect(clippy::panic)]
     fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
-        panic!("VolatileState.resolve_cc_members()")
+        unimplemented!("VolatileState.resolve_cc_members()")
     }
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;
-    #[expect(clippy::panic)]
     fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal {
-        panic!("VolatileState.resolve_proposal({proposal_id})")
+        unimplemented!("VolatileState.resolve_proposal({proposal_id})")
     }
 
     // ---------------------------------------------------------------------------------------- Pots
-    #[expect(clippy::panic)]
     fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
-        panic!("VolatileState.resolve_treasury({pots:?})")
+        unimplemented!("VolatileState.resolve_treasury({pots:?})")
     }
 
     /// The donations collected by blocks that are still volatile, and thus not yet reflected in the
     /// stable pots. They are moved into the treasury at the epoch boundary.
-    #[expect(clippy::panic)]
     fn resolve_donations(&self) -> Lovelace {
-        panic!("VolatileState.resolve_donations()")
+        unimplemented!("VolatileState.resolve_donations()")
     }
 }
 

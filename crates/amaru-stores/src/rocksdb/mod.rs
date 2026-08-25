@@ -22,16 +22,17 @@ use std::{
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
+    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Hash, Lovelace,
     MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
-    RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor,
+    RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor, size::VRF_KEY,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     state::volatile::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
+        TransactionalContext, columns as scolumns,
+        columns::{pots::Row as Pots, vrf_keys::DiffVrf},
     },
 };
 use amaru_observability::{debug_span, info_span, trace_record, warn};
@@ -506,6 +507,14 @@ macro_rules! impl_ReadStore_body {
                 utxo::get(|key| self.db.get_pinned(key), input)
             }
 
+            fn pots(&self) -> Result<Pots, StoreError> {
+                pots::get(|key| self.db.get_pinned(key))
+            }
+
+            fn vrf(&self, vrf_key: &Hash<VRF_KEY>) -> Result<Option<u64>, StoreError> {
+                vrf_keys::get(|key| self.db.get_pinned(key), vrf_key)
+            }
+
             fn iter_utxos(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
@@ -522,10 +531,6 @@ macro_rules! impl_ReadStore_body {
                     utxo::PREFIX,
                     |_, value| from_store(value),
                 )
-            }
-
-            fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get(|key| self.db.get_pinned(key))
             }
 
             fn iter_accounts(
@@ -795,6 +800,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     /// Prune recently unregistered accounts from the database that are no longer required.
     fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<(), StoreError> {
         recently_unregistered_accounts::prune(&self.db, epoch)
+    }
+
+    fn update_vrf(&self, vrf_key: &Hash<VRF_KEY>, diff: DiffVrf) -> Result<(), StoreError> {
+        vrf_keys::update(&self.db, vrf_key, diff)
     }
 
     fn save(
