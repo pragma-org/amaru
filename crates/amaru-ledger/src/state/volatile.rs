@@ -90,6 +90,14 @@ pub trait VolatileState {
         unimplemented!("VolatileState.resolve_pool({pool_id})")
     }
 
+    // ------------------------------------------------------------------------------------ VRF Keys
+    type VrfKeys<'a>
+    where
+        Self: 'a;
+    fn resolve_vrf_keys<'a>(&'a self) -> Self::VrfKeys<'a> {
+        unimplemented!("VolatileState.resolve_vrf_keys()")
+    }
+
     // ------------------------------------------------------------------------------------ Accounts
     type Account<'a>
     where

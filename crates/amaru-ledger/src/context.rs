@@ -99,6 +99,9 @@ pub enum ContextHydratationError {
 
     #[error("failed to hydrate pots")]
     ResolvePots(#[source] StoreError),
+
+    #[error("failed to hydrate vrf keys")]
+    ResolveVrfKeys(#[source] StoreError),
 }
 
 // Errors (validation)

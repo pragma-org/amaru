@@ -1068,6 +1068,17 @@ define_schemas! {
                         optional from_db: u64
                     }
                 }
+                vrf_keys {
+                    /// Resolve vrf keys from the volatile db or the stable one
+                    public span HYDRATE {}
+                    /// An invariant violation when resolving vrf keys
+                    public event ERROR {
+                        levels: error
+                        required key: amaru_kernel::Hash<{ amaru_kernel::size::VRF_KEY }>
+                        required diff: String
+                        required reason: String
+                    }
+                }
             }
             relays {
                 /// Fetch candidate relays from the immutable store
