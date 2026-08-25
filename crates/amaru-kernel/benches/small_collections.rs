@@ -16,8 +16,8 @@
 //! state (mainnet blocks rarely put more than a handful of entries in any non-UTxO collection).
 //! The alloc profiler reports allocation counts alongside timings, which is the primary metric
 //! for compact-collection work: below the promotion threshold, the compact representation should
-//! show at most one right-sized allocation. Sizes bracket the threshold proposed in #1147, plus
-//! larger sizes to catch regressions in the tree-backed regime.
+//! show at most one right-sized allocation. Sizes bracket the promotion threshold, plus larger
+//! sizes to catch regressions in the tree-backed regime.
 
 use std::collections::{BTreeMap, BTreeSet};
 

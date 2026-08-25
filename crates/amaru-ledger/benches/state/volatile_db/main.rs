@@ -64,7 +64,7 @@ fn print_configuration() {
 }
 
 fn in_mebibytes(bytes: i64) -> String {
-    format!("{:.3}MB", bytes as f64 / (1024.0 * 1024.0))
+    format!("{:.3}MiB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 fn print_memory_usage() {
