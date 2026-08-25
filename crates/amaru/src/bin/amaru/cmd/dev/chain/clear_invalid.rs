@@ -19,6 +19,7 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
+use amaru_observability::info;
 use amaru_ouroboros::WriteChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
@@ -56,17 +57,17 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 async fn run(args: Args) -> anyhow::Result<()> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    tracing::info!(
-        _command = "dev chain clear-invalid",
-        chain_dir = %chain_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+    info!(
+        cli::dev::RUN,
+        command = "dev chain clear-invalid",
+        network = args.network,
+        chain_dir = chain_dir.to_string_lossy()
     );
 
     let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
 
     for PointOrHash(hash) in args.blocks {
-        tracing::info!(%hash, "removing block validation status");
+        info!(cli::dev::chain::VALIDATION_CLEARED, header_hash = hash);
         chain_store.remove_block_valid(&hash)?;
     }
 

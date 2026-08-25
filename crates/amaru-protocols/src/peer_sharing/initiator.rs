@@ -21,10 +21,9 @@
 use std::{net::SocketAddr, time::Duration};
 
 use amaru_kernel::Peer;
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug_span, warn};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     mux::MuxMessage,
@@ -166,14 +165,15 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
             match input {
                 InitiatorResult::SharePeers { peers } => {
                     if !self.in_flight {
-                        tracing::warn!("received SharePeers without in-flight request; terminating");
+                        warn!(protocols::peer_sharing::initiator::PROTOCOL_VIOLATION, reason = "no_request_in_flight");
                         return eff.terminate().await;
                     }
                     if peers.len() > self.amount as usize {
-                        tracing::warn!(
+                        warn!(
+                            protocols::peer_sharing::initiator::PROTOCOL_VIOLATION,
+                            reason = "too_many_addresses",
                             requested = self.amount,
-                            received = peers.len(),
-                            "peer returned more addresses than requested; terminating"
+                            received = peers.len()
                         );
                         return eff.terminate().await;
                     }

@@ -126,7 +126,7 @@ mod test {
             trace_event!(
                 INFO,
                 crate::amaru::stores::accounts::RESET_MANY,
-                credential = credential,
+                credential,
                 reason = "unknown account".to_string(),
                 count
             );

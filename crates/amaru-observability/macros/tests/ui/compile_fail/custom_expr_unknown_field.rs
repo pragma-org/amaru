@@ -39,5 +39,5 @@ fn get_value() -> String {
 
 fn main() {
     let actual_field = String::from("ok");
-    let _span = trace_span!(crate::test::example::STRICT_TEST, actual_field = &actual_field, typo_field = get_value());
+    let _span = trace_span!(crate::test::example::STRICT_TEST, actual_field, typo_field = get_value());
 }

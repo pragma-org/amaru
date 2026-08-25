@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tracing::Span;
+use amaru_observability::tracing::Span;
 
 use crate::events::{
     BlockValidationResult, ChainSyncEvent, DecodedChainSyncEvent, Tracked, ValidateBlockEvent, ValidateHeaderEvent,

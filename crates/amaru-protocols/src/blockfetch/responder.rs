@@ -16,9 +16,8 @@ use std::fmt::Debug;
 
 use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Point, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug, debug_span};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     blockfetch::{State, messages::Message},
@@ -94,7 +93,7 @@ impl PointsRange {
     ) -> anyhow::Result<Option<PointsRange>> {
         // make sure that from <= through
         if from > through {
-            tracing::debug!(%from, %through, "requested range is invalid: from > through");
+            debug!(protocols::blockfetch::responder::RANGE_REFUSED, from, through, reason = "inverted_range");
             return Ok(None);
         };
 
@@ -113,11 +112,12 @@ impl PointsRange {
         let mut result = vec![];
         loop {
             if result.len() >= MAX_FETCHED_BLOCKS {
-                tracing::debug!(
-                    %from,
-                    %through,
-                    max_blocks = MAX_FETCHED_BLOCKS,
-                    "requested range exceeds maximum allowed blocks"
+                debug!(
+                    protocols::blockfetch::responder::RANGE_REFUSED,
+                    from,
+                    through,
+                    reason = "exceeds_max_blocks",
+                    max_blocks = MAX_FETCHED_BLOCKS
                 );
                 return Ok(None);
             }
@@ -208,10 +208,7 @@ impl StageState<State, Responder> for BlockFetchResponder {
                 ResponderResult::Done => Ok((None, self)),
             }
         }
-        .instrument(debug_span!(
-            protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE,
-            message_type = message_type
-        ))
+        .instrument(debug_span!(protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE, message_type))
         .await
     }
 

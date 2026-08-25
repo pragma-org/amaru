@@ -263,7 +263,7 @@ async fn fetch_headers_from_point(
     let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
     let intersection = client.find_intersection().await?;
 
-    info!(bootstrap::headers::FETCH, requested_point = point, intersection = intersection, headers_per_point);
+    info!(bootstrap::headers::FETCH, requested_point = point, intersection, headers_per_point);
 
     let mut headers = Vec::with_capacity(headers_per_point);
     while headers.len() < headers_per_point {

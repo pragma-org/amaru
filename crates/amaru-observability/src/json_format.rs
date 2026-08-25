@@ -541,7 +541,7 @@ mod tests {
             let peers = encode_cbor(&Peers { addresses: vec!["a:1".into(), "b:2".into()] });
             tracing::info!(
                 target: "amaru::setup::build",
-                version = version,
+                version,
                 git_dirty = dirty,
                 peers = peers.as_ref() as &[u8],
                 "build.version"

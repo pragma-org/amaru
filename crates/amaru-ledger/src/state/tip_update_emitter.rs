@@ -45,12 +45,12 @@ impl TipUpdateEmitter {
 
         debug!(
             amaru_observability::amaru::ledger::tip::UPDATE,
-            slot = slot,
+            slot,
             header_hash = point.hash(),
             block_height = metrics.block_height,
             tx_count = tx_count as usize,
-            epoch = epoch,
-            slot_in_epoch = slot_in_epoch,
+            epoch,
+            slot_in_epoch,
             density = metrics.density,
             current_kes_period = metrics.current_kes_period,
             remaining_kes_periods = metrics.remaining_kes_periods,

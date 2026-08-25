@@ -22,7 +22,7 @@ use amaru_kernel::{
     BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, from_cbor_no_leftovers,
     num::CheckedSub,
 };
-use amaru_observability::{TraceContext, debug, debug_record, debug_span, error, info_span};
+use amaru_observability::{Instrument, TraceContext, debug, debug_record, debug_span, error, info, trace, warn};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
@@ -30,7 +30,6 @@ use amaru_protocols::{
     store_effects::Store,
 };
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
-use tracing::Instrument;
 
 use super::peer_selection::PeerSelectionMsg;
 use crate::{
@@ -185,6 +184,26 @@ enum DeferReason {
     ClockSkew { min_time: Instant, header: Header, tip: Point, variant: EraName, rn_sent: bool },
     /// A follow-up header that was received after a previous header was deferred.
     FollowUp { header: Header, tip: Point, variant: EraName },
+}
+
+impl DeferReason {
+    fn as_str(&self) -> &'static str {
+        match self {
+            DeferReason::LedgerHeight { .. } => "ledger_height",
+            DeferReason::StakeDistribution { .. } => "stake_distribution",
+            DeferReason::ClockSkew { .. } => "clock_skew",
+            DeferReason::FollowUp { .. } => "follow_up",
+        }
+    }
+
+    fn header(&self) -> &Header {
+        match self {
+            DeferReason::LedgerHeight { header, .. }
+            | DeferReason::StakeDistribution { header, .. }
+            | DeferReason::ClockSkew { header, .. }
+            | DeferReason::FollowUp { header, .. } => header,
+        }
+    }
 }
 
 /// A header (or request) that was deferred. The reason indicates what is blocking and what data
@@ -624,6 +643,37 @@ impl TrackPeers {
         }
     }
 
+    /// Queue a header whose validation cannot proceed yet, tracing what is blocking it.
+    ///
+    /// Every new deferral goes through here so no reason stays invisible. Re-deferring an entry
+    /// that is still blocked (during a recheck) deliberately does not come through here: nothing
+    /// changed, and it would emit once per recheck tick for as long as the block lasts.
+    fn defer(&mut self, deferred: DeferredHeader) {
+        let header = deferred.reason.header();
+        match &deferred.reason {
+            DeferReason::LedgerHeight { min_height, .. } => {
+                debug!(
+                    consensus::chainsync::HEADER_DEFERRED,
+                    peer = &deferred.peer,
+                    reason = deferred.reason.as_str(),
+                    header_hash = header.hash(),
+                    header_height = header.block_height().as_u64(),
+                    ledger_height = self.ledger_applied_block_height.as_u64(),
+                    limit = min_height.as_u64()
+                );
+            }
+            DeferReason::StakeDistribution { .. } | DeferReason::ClockSkew { .. } | DeferReason::FollowUp { .. } => {
+                debug!(
+                    consensus::chainsync::HEADER_DEFERRED,
+                    peer = &deferred.peer,
+                    reason = deferred.reason.as_str(),
+                    header_hash = header.hash()
+                );
+            }
+        }
+        self.deferred.push(deferred);
+    }
+
     fn is_deferred(&self, conn_id: ConnectionId) -> bool {
         self.deferred.iter().any(|d| d.conn_id == conn_id)
     }
@@ -655,7 +705,7 @@ impl TrackPeers {
                 }
                 error!(
                     consensus::perf::header::LIFECYCLE,
-                    peer = peer,
+                    peer,
                     header_hash = header.hash(),
                     error = error.to_string(),
                     outcome = HeaderLifecycleOutcome::InvalidHeader.as_str()
@@ -676,7 +726,13 @@ impl TrackPeers {
         let header_parent = header.parent_hash();
         match validated {
             None => {
-                tracing::debug!(%peer, %current, highest = %tip, "roll forward, header already stored");
+                debug!(
+                    consensus::chainsync::ROLL_FORWARD_DONE,
+                    peer,
+                    current,
+                    highest = tip,
+                    outcome = "already_stored"
+                );
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
                 eff.external(Performance::record_header_announcement(
                     peer.clone(),
@@ -688,7 +744,7 @@ impl TrackPeers {
                 .await;
                 debug!(
                     consensus::perf::header::LIFECYCLE,
-                    peer = peer,
+                    peer,
                     header_hash = current.hash(),
                     outcome = HeaderLifecycleOutcome::DuplicateHeader.as_str()
                 );
@@ -703,7 +759,7 @@ impl TrackPeers {
                         let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
                         error!(
                             consensus::perf::header::LIFECYCLE,
-                            peer = peer,
+                            peer,
                             header_hash = current.hash(),
                             error = error.to_string(),
                             outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
@@ -720,7 +776,7 @@ impl TrackPeers {
                     slot_start_to_header_micros,
                 ))
                 .await;
-                tracing::debug!(%peer, %current, highest = %tip, "roll forward with new header");
+                debug!(consensus::chainsync::ROLL_FORWARD_DONE, peer, current, highest = tip, outcome = "stored");
                 eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context }).await;
             }
         }
@@ -745,44 +801,51 @@ impl TrackPeers {
                 let had_state =
                     self.upstream.contains_key(&conn_id) || self.deferred.iter().any(|d| d.conn_id == conn_id);
                 if had_state {
-                    tracing::warn!(
-                        %peer,
-                        %conn_id,
-                        "unexpected re-initialize of an active chainsync session; purging prior state"
-                    );
+                    warn!(consensus::chainsync::REINITIALIZED, peer, conn_id = conn_id.as_u64());
                     self.purge_connection(conn_id);
                 }
-                tracing::info!(%peer, %conn_id, "initializing chainsync");
+                info!(consensus::chainsync::INITIALIZED, peer, conn_id = conn_id.as_u64());
                 self.upstream.insert(conn_id, PerPeer::Connecting { peer });
             }
             Terminated => {
-                tracing::info!(%peer, %conn_id, "chainsync terminated, purging connection state");
+                info!(consensus::chainsync::TERMINATED, peer, conn_id = conn_id.as_u64());
                 self.purge_connection(conn_id);
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
             IntersectFound(current, tip) => {
                 let current_tip = Store::new(eff.clone()).load_point(&current.hash()).await;
                 let Some(current_tip) = current_tip else {
-                    tracing::warn!(%peer, %current, tip = %tip, reason = "peer sent unknown intersection point", "stopping chainsync");
+                    warn!(consensus::chainsync::UNKNOWN_INTERSECTION_POINT, peer, current, highest = tip);
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
-                tracing::info!(%peer, %conn_id, %current, highest = %tip, "intersect found");
+                info!(
+                    consensus::chainsync::INTERSECT_FOUND,
+                    peer,
+                    conn_id = conn_id.as_u64(),
+                    current = current_tip,
+                    highest = tip
+                );
                 let now = eff.clock().await;
                 eff.external(Performance::record_intersection(peer.clone(), current_tip, None, now)).await;
                 self.upstream.insert(conn_id, PerPeer::Established { peer, current: current_tip, highest: tip });
             }
             IntersectNotFound(tip) => {
-                tracing::info!(%peer, highest = %tip, reason = "intersect not found", "stopping chainsync");
+                info!(consensus::chainsync::INTERSECT_NOT_FOUND, peer, highest = tip);
                 eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                 self.purge_connection(conn_id);
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
             RollForward(header_content, tip) => {
-                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip = tip, peer = &peer);
+                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip, peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
-                    tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip, "roll forward");
+                    trace!(
+                        consensus::chainsync::ROLL_FORWARD,
+                        peer,
+                        variant = header_content.variant.as_str(),
+                        highest = tip
+                    );
 
                     let variant = header_content.variant;
                     let probe = decode_header(header_content, &peer);
@@ -792,15 +855,12 @@ impl TrackPeers {
                             self.purge_connection(conn_id);
                             error!(
                                 consensus::perf::header::LIFECYCLE,
-                                peer = peer,
+                                peer,
                                 error = error.to_string(),
                                 outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
                             record_header_rejected(&eff, HeaderLifecycleOutcome::UndecodableHeader).await;
-                            eff.send(
-                                &self.peer_selection,
-                                PeerSelectionMsg::Adversarial(peer, trace_context.clone()),
-                            )
+                            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context.clone()))
                                 .await;
                             return;
                         }
@@ -810,7 +870,7 @@ impl TrackPeers {
                     let now = eff.clock().await;
 
                     if self.is_deferred(conn_id) {
-                        self.deferred.push(DeferredHeader {
+                        self.defer(DeferredHeader {
                             peer,
                             conn_id,
                             handler,
@@ -826,7 +886,7 @@ impl TrackPeers {
                     // maybe update ledger applied block height (rate-limited to 500ms or initial)
                     if limit > self.ledger_applied_block_height
                         && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_millis(500)
-                        || self.ledger_applied_block_height == BlockHeight::from(0))
+                            || self.ledger_applied_block_height == BlockHeight::from(0))
                     {
                         self.ledger_last_checked_at = now;
                         self.ledger_applied_block_height = eff.external(VolatileTipEffect).await.block_height();
@@ -834,8 +894,7 @@ impl TrackPeers {
 
                     let ledger_height = self.ledger_applied_block_height;
                     if ledger_height < limit {
-                        tracing::debug!(%peer, %header_height, %ledger_height, %limit, "track_peers.defer_request_next");
-                        self.deferred.push(DeferredHeader {
+                        self.defer(DeferredHeader {
                             peer: peer.clone(),
                             conn_id,
                             handler: handler.clone(),
@@ -865,16 +924,16 @@ impl TrackPeers {
                         received_at: now,
                     };
                     if let Err(dh) = self.try_roll_forward(args, &eff, now).await {
-                        self.deferred.push(dh);
+                        self.defer(dh);
                         self.ensure_recheck_armed(&eff).await;
                     }
                 }
-                    .instrument(span)
-                    .await
+                .instrument(span)
+                .await
             }
             RollBackward(current, tip) => {
-                let span =
-                    info_span!(root, consensus::roll_backward::PROCESS, current = current, peer = &peer, tip = tip);
+                info!(consensus::chainsync::ROLL_BACKWARD, peer, current, highest = tip);
+                let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
@@ -891,7 +950,7 @@ impl TrackPeers {
                             eff.external(Performance::record_rollback(peer, current_tip, parent, now)).await;
                         }
                         Err(error) => {
-                            tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
+                            error!(consensus::chainsync::ROLL_BACKWARD_FAILED, peer, error = error.to_string());
                             self.purge_connection(conn_id);
                             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
                         }
@@ -935,7 +994,7 @@ impl TrackPeers {
             if let Err(dh) = self.try_roll_forward(d.into(), eff, current_time).await {
                 // the connection must still be marked as blocked
                 blocked.insert(conn_id);
-                self.deferred.push(dh);
+                self.defer(dh);
             }
         }
         self.ensure_recheck_armed(eff).await;
@@ -943,7 +1002,7 @@ impl TrackPeers {
 }
 
 pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<Header, ConsensusError> {
-    let span = debug_span!(consensus::header::DECODE, peer = peer);
+    let span = debug_span!(consensus::header::DECODE, peer);
     let _guard = span.enter();
     // need to list all the variants supported by the current Amaru implementation
     if !matches!(raw_header.variant, EraName::Conway) {

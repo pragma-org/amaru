@@ -18,7 +18,7 @@ use amaru_kernel::{Block, Point, Slot, TransactionId, cbor};
 use amaru_metrics::mempool::{
     MempoolMetricEvent, MempoolMetrics, TxEvictedReason, TxInsertionOrigin, TxInsertionResult,
 };
-use amaru_observability::{debug, debug_record, info};
+use amaru_observability::{debug, info};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{MempoolState, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::store_effects::Store;
@@ -27,9 +27,9 @@ use crate::effects::{Metrics, MetricsOps};
 
 /// Add traces for a transaction that is candidate for mempool insertion.
 pub(super) fn emit_tx_received(tx_id: &TransactionId, origin: &TxOrigin) {
-    debug_record!(mempool::transaction::RECEIVED, id = tx_id, origin = tx_origin_label(origin));
+    debug!(mempool::transaction::RECEIVED, id = tx_id, origin = tx_origin_label(origin));
     if let TxOrigin::Remote(peer) = origin {
-        debug_record!(mempool::transaction::RECEIVED_DETAIL, id = tx_id, peer = peer);
+        debug!(mempool::transaction::RECEIVED_DETAIL, id = tx_id, peer);
     }
 }
 
@@ -62,12 +62,7 @@ pub(super) async fn record_insert(
             match reason {
                 TxRejectReason::Invalid(err) => {
                     let validation_error = err.to_string();
-                    info!(
-                        mempool::transaction::REJECTED,
-                        id = tx_id,
-                        reason = reason_label,
-                        validation_error = validation_error
-                    );
+                    info!(mempool::transaction::REJECTED, id = tx_id, reason = reason_label, validation_error);
                 }
                 TxRejectReason::Duplicate | TxRejectReason::MempoolFull => {
                     info!(mempool::transaction::REJECTED, id = tx_id, reason = reason_label);
@@ -104,9 +99,9 @@ pub(super) async fn record_revalidation(
 
         for tx_id in &outcome.evicted_tx_ids {
             if included.contains(tx_id) {
-                info!(mempool::transaction::EVICTED, id = tx_id, tip = tip, reason = "included_in_adopted_block");
+                info!(mempool::transaction::EVICTED, id = tx_id, tip, reason = "included_in_adopted_block");
             } else {
-                info!(mempool::transaction::EVICTED, id = tx_id, tip = tip, reason = "evicted_after_new_tip");
+                info!(mempool::transaction::EVICTED, id = tx_id, tip, reason = "evicted_after_new_tip");
             }
         }
 
@@ -123,7 +118,7 @@ pub(super) async fn record_revalidation(
             mempool::transaction::REVALIDATION_DETAIL,
             tip_slot = outcome.tip_slot,
             total_before = outcome.total_before,
-            evicted_count = evicted_count,
+            evicted_count,
             duration_micros = outcome.duration_micros
         );
     }

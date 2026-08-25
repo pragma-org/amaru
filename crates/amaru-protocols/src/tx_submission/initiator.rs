@@ -57,10 +57,9 @@ use ProtocolError::*;
 use amaru_kernel::{
     EraHistory, Peer, Transaction, TransactionId, cbor::WithOriginalBytes, utils::string::display_collection,
 };
-use amaru_observability::{debug, debug_span};
+use amaru_observability::{Instrument, debug, debug_span, warn};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
@@ -139,11 +138,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
             };
             Ok((action, self))
         }
-        .instrument(debug_span!(
-            protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE,
-            message_type = message_type,
-            peer = peer
-        ))
+        .instrument(debug_span!(protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE, message_type, peer))
         .await
     }
 
@@ -170,21 +165,30 @@ impl ProtocolState<Initiator> for State {
         let _guard = _span.enter();
         Ok(match (self, input) {
             (State::Idle, Message::RequestTxIdsBlocking(ack, req)) => {
-                tracing::debug!(%ack, %req, "received RequestTxIdsBlocking");
+                debug!(protocols::tx_submission::initiator::RECEIVED_REQUEST, request = "tx_ids_blocking", ack, req);
                 (
                     outcome().result(InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes }),
                     State::TxIdsBlocking,
                 )
             }
             (State::Idle, Message::RequestTxIdsNonBlocking(ack, req)) => {
-                tracing::debug!(%ack, %req, "received RequestTxIdsNonBlocking");
+                debug!(
+                    protocols::tx_submission::initiator::RECEIVED_REQUEST,
+                    request = "tx_ids_non_blocking",
+                    ack,
+                    req
+                );
                 (
                     outcome().result(InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::No }),
                     State::TxIdsNonBlocking,
                 )
             }
             (State::Idle, Message::RequestTxs(tagged_ids)) => {
-                tracing::debug!(tx_ids_nb = tagged_ids.len(), "received RequestTxs");
+                debug!(
+                    protocols::tx_submission::initiator::RECEIVED_REQUEST,
+                    request = "txs",
+                    count = tagged_ids.len()
+                );
                 let tx_ids = tagged_ids.into_iter().map(|t| t.id).collect();
                 (outcome().result(InitiatorResult::RequestTxs(tx_ids)), State::Txs)
             }
@@ -339,7 +343,7 @@ impl TxSubmissionInitiator {
             protocols::tx_submission::initiator::WAIT_FOR_AT_LEAST,
             peer = self.peer,
             seq_no = expected_seq_no.0,
-            req = req
+            req
         );
         eff.send(
             &self.mempool_stage,
@@ -400,7 +404,7 @@ impl TxSubmissionInitiator {
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        tracing::debug!(%ack, %req, "received RequestTxIdsNonBlocking");
+        debug!(protocols::tx_submission::initiator::RECEIVED_REQUEST, request = "tx_ids_non_blocking", ack, req);
         if let Some(cause) = self.check_ack(ack) {
             return terminate(cause);
         }
@@ -426,12 +430,17 @@ impl TxSubmissionInitiator {
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<TransactionId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        tracing::debug!(ids = display_collection(tx_ids.iter().map(|id| id.short())), "received RequestTxs");
+        debug!(
+            protocols::tx_submission::initiator::RECEIVED_REQUEST,
+            request = "txs",
+            count = tx_ids.len(),
+            ids = display_collection(tx_ids.iter().map(|id| id.short()))
+        );
         // Return an error if the peer asked for a tx_id that was not advertised.
         let unavailable: Vec<&TransactionId> =
             tx_ids.iter().filter(|id| !self.window.iter().any(|(wid, _)| wid == *id)).collect();
         if !unavailable.is_empty() {
-            tracing::warn!(?unavailable, "peer requested transactions that are not in our window");
+            warn!(protocols::tx_submission::initiator::UNAVAILABLE_TXS, unavailable = format!("{unavailable:?}"));
             return terminate(RequestedUnavailableTx);
         }
         let txs = mempool.get_txs_for_ids(&tx_ids).await;
@@ -453,7 +462,7 @@ impl TxSubmissionInitiator {
     /// Check that `ack` does not exceed the outstanding window.
     fn check_ack(&self, ack: u16) -> Option<TerminationCause> {
         if ack as usize > self.window.len() {
-            tracing::warn!(ack, window = self.window.len(), "peer acked more txids than are outstanding");
+            warn!(protocols::tx_submission::initiator::OVER_ACKNOWLEDGED, ack, window = self.window.len());
             Some(AckedTooManyTxids.into())
         } else {
             None
@@ -536,7 +545,7 @@ struct PendingBlockingRequest {
 
 fn terminate(cause: impl Into<TerminationCause>) -> anyhow::Result<Option<InitiatorAction>> {
     let cause = cause.into();
-    tracing::warn!("terminating: {cause}");
+    warn!(protocols::tx_submission::TERMINATING, cause = cause.to_string());
     Ok(Some(InitiatorAction::Error(cause)))
 }
 

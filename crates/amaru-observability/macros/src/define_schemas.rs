@@ -792,8 +792,8 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
     let values_setup = if schema.tags.is_empty() {
         quote! {
             let __amaru_default_values = [
-                ::tracing::__macro_support::Option::Some(
-                    &tracing::field::Empty as &dyn ::tracing::field::Value
+                ::amaru_observability::tracing::__macro_support::Option::Some(
+                    &::amaru_observability::tracing::field::Empty as &dyn ::amaru_observability::tracing::field::Value
                 );
                 #field_count
             ];
@@ -803,17 +803,17 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
         let tag_slots = (schema_field_count..field_count).map(|slot| {
             quote! {
                 __amaru_all_values[#slot] =
-                    ::tracing::__macro_support::Option::Some(&true as &dyn ::tracing::field::Value);
+                    ::amaru_observability::tracing::__macro_support::Option::Some(&true as &dyn ::amaru_observability::tracing::field::Value);
             }
         });
         quote! {
             let mut __amaru_all_values = [
-                ::tracing::__macro_support::Option::Some(
-                    &tracing::field::Empty as &dyn ::tracing::field::Value
+                ::amaru_observability::tracing::__macro_support::Option::Some(
+                    &::amaru_observability::tracing::field::Empty as &dyn ::amaru_observability::tracing::field::Value
                 );
                 #field_count
             ];
-            if let ::tracing::__macro_support::Option::Some(__amaru_given) = __amaru_values {
+            if let ::amaru_observability::tracing::__macro_support::Option::Some(__amaru_given) = __amaru_values {
                 for (__amaru_slot, __amaru_given_value) in __amaru_all_values.iter_mut().zip(__amaru_given.iter()) {
                     *__amaru_slot = *__amaru_given_value;
                 }
@@ -824,23 +824,23 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
     };
 
     let span_expr = quote! {{
-        use ::tracing::__macro_support::Callsite as _;
+        use ::amaru_observability::tracing::__macro_support::Callsite as _;
 
-        static __CALLSITE: ::tracing::callsite::DefaultCallsite = {
-            static META: ::tracing::Metadata<'static> = ::tracing::Metadata::new(
+        static __CALLSITE: ::amaru_observability::tracing::callsite::DefaultCallsite = {
+            static META: ::amaru_observability::tracing::Metadata<'static> = ::amaru_observability::tracing::Metadata::new(
                 #name,
                 #target,
                 $level,
-                ::tracing::__macro_support::Option::Some(file!()),
-                ::tracing::__macro_support::Option::Some(line!()),
-                ::tracing::__macro_support::Option::Some(module_path!()),
-                ::tracing::field::FieldSet::new(
+                ::amaru_observability::tracing::__macro_support::Option::Some(file!()),
+                ::amaru_observability::tracing::__macro_support::Option::Some(line!()),
+                ::amaru_observability::tracing::__macro_support::Option::Some(module_path!()),
+                ::amaru_observability::tracing::field::FieldSet::new(
                     &[#(#field_name_literals),*],
-                    ::tracing::callsite::Identifier(&__CALLSITE),
+                    ::amaru_observability::tracing::callsite::Identifier(&__CALLSITE),
                 ),
-                ::tracing::metadata::Kind::SPAN,
+                ::amaru_observability::tracing::metadata::Kind::SPAN,
             );
-            ::tracing::callsite::DefaultCallsite::new(&META)
+            ::amaru_observability::tracing::callsite::DefaultCallsite::new(&META)
         };
 
         #values_setup
@@ -848,23 +848,23 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
         __CALLSITE.register();
 
         #[allow(unused_assignments)]
-        let mut interest = ::tracing::subscriber::Interest::never();
-        if $level <= ::tracing::level_filters::STATIC_MAX_LEVEL
-            && $level <= ::tracing::level_filters::LevelFilter::current()
+        let mut interest = ::amaru_observability::tracing::subscriber::Interest::never();
+        if $level <= ::amaru_observability::tracing::level_filters::STATIC_MAX_LEVEL
+            && $level <= ::amaru_observability::tracing::level_filters::LevelFilter::current()
             && {
                 interest = __CALLSITE.interest();
                 !interest.is_never()
             }
-            && ::tracing::__macro_support::__is_enabled(__CALLSITE.metadata(), interest)
+            && ::amaru_observability::tracing::__macro_support::__is_enabled(__CALLSITE.metadata(), interest)
         {
             let meta = __CALLSITE.metadata();
             let __amaru_values = &meta.fields().value_set_all(__amaru_values);
             match __amaru_parent {
-                ::std::option::Option::Some(parent) => ::tracing::Span::child_of(parent.id(), meta, __amaru_values),
-                ::std::option::Option::None => ::tracing::Span::new(meta, __amaru_values),
+                ::std::option::Option::Some(parent) => ::amaru_observability::tracing::Span::child_of(parent.id(), meta, __amaru_values),
+                ::std::option::Option::None => ::amaru_observability::tracing::Span::new(meta, __amaru_values),
             }
         } else {
-            ::tracing::__macro_support::__disabled_span(__CALLSITE.metadata())
+            ::amaru_observability::tracing::__macro_support::__disabled_span(__CALLSITE.metadata())
         }
     }};
 
@@ -880,37 +880,37 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
                 }
             };
             (parent = $parent:expr, values = $values_expr:expr) => {
-                #crate_prefix #macro_ident!(parent = $parent, level = tracing::Level::TRACE, values = $values_expr)
+                #crate_prefix #macro_ident!(parent = $parent, level = ::amaru_observability::tracing::Level::TRACE, values = $values_expr)
             };
             (parent = $parent:expr, level = $level:expr) => {
                 {
                     let __amaru_parent = ::std::option::Option::Some($parent);
-                    let __amaru_values: ::std::option::Option<&[::tracing::__macro_support::Option<&dyn ::tracing::field::Value>]> = ::std::option::Option::None;
+                    let __amaru_values: ::std::option::Option<&[::amaru_observability::tracing::__macro_support::Option<&dyn ::amaru_observability::tracing::field::Value>]> = ::std::option::Option::None;
                     #span_expr
                 }
             };
             (parent = $parent:expr) => {
-                #crate_prefix #macro_ident!(parent = $parent, level = tracing::Level::TRACE)
+                #crate_prefix #macro_ident!(parent = $parent, level = ::amaru_observability::tracing::Level::TRACE)
             };
             (level = $level:expr, values = $values_expr:expr) => {
                 {
-                    let __amaru_parent: ::std::option::Option<::tracing::Span> = ::std::option::Option::None;
+                    let __amaru_parent: ::std::option::Option<::amaru_observability::tracing::Span> = ::std::option::Option::None;
                     let __amaru_values = ::std::option::Option::Some($values_expr);
                     #span_expr
                 }
             };
             (values = $values_expr:expr) => {
-                #crate_prefix #macro_ident!(level = tracing::Level::TRACE, values = $values_expr)
+                #crate_prefix #macro_ident!(level = ::amaru_observability::tracing::Level::TRACE, values = $values_expr)
             };
             (level = $level:expr) => {
                 {
-                    let __amaru_parent: ::std::option::Option<::tracing::Span> = ::std::option::Option::None;
-                    let __amaru_values: ::std::option::Option<&[::tracing::__macro_support::Option<&dyn ::tracing::field::Value>]> = ::std::option::Option::None;
+                    let __amaru_parent: ::std::option::Option<::amaru_observability::tracing::Span> = ::std::option::Option::None;
+                    let __amaru_values: ::std::option::Option<&[::amaru_observability::tracing::__macro_support::Option<&dyn ::amaru_observability::tracing::field::Value>]> = ::std::option::Option::None;
                     #span_expr
                 }
             };
             () => {
-                #crate_prefix #macro_ident!(level = tracing::Level::TRACE)
+                #crate_prefix #macro_ident!(level = ::amaru_observability::tracing::Level::TRACE)
             };
         }
     }
@@ -932,7 +932,7 @@ fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
             let field_name = field.name_lit();
             quote! {
                 ($values:ident, #field_name, $value:expr) => {
-                    $values[#index] = ::tracing::__macro_support::Option::Some($value);
+                    $values[#index] = ::amaru_observability::tracing::__macro_support::Option::Some($value);
                 };
             }
         })
@@ -954,6 +954,10 @@ fn encode_cbor_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
 
 fn as_str_value_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
     quote! { ::amaru_observability::field::as_str_value }
+}
+
+fn as_field_ref_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
+    quote! { ::amaru_observability::field::as_field_ref }
 }
 
 fn display_string_value_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
@@ -980,6 +984,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let macro_export = config.macro_export_attr();
     let encode_cbor = encode_cbor_path(config);
     let as_str_value = as_str_value_path(config);
+    let as_field_ref = as_field_ref_path(config);
     let display_string_value = display_string_value_path(config);
     let serialize_trait = serialize_trait_path(config);
     let json_schema_trait = json_schema_trait_path(config);
@@ -1001,10 +1006,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
                             let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
-                            __amaru_assert_type($expr);
-                            __amaru_assert_display($expr);
+                            __amaru_assert_display(__amaru_v);
                         }};
                     }
                 }
@@ -1012,10 +1016,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
                             let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
-                            __amaru_assert_type($expr);
-                            __amaru_assert_debug($expr);
+                            __amaru_assert_debug(__amaru_v);
                         }};
                     }
                 }
@@ -1026,8 +1029,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
-                            __amaru_assert_type($expr);
+                            let _ = #as_field_ref::<#field_type>($expr);
                         }};
                     }
                 }
@@ -1035,10 +1037,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_assert_type = |_: &#field_type| {};
-                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait>(_: &T) {}
-                            __amaru_assert_type($expr);
-                            __amaru_assert_serialize($expr);
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
+                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait + ?Sized>(_: &T) {}
+                            __amaru_assert_serialize(__amaru_v);
                         }};
                     }
                 }
@@ -1054,16 +1055,14 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
             match field.transport_kind() {
                 FieldTransportKind::Bool => quote! {
                     (#field_name, $expr:expr, format_typed) => {{
-                        let __amaru_v: &bool = $expr;
-                        *__amaru_v
+                        *#as_field_ref::<bool>($expr)
                     }};
                 },
                 FieldTransportKind::I64 => {
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            *__amaru_v
+                            *#as_field_ref::<#field_type>($expr)
                         }};
                     }
                 }
@@ -1071,8 +1070,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            *__amaru_v
+                            *#as_field_ref::<#field_type>($expr)
                         }};
                     }
                 }
@@ -1080,8 +1078,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            *__amaru_v
+                            *#as_field_ref::<#field_type>($expr)
                         }};
                     }
                 }
@@ -1094,8 +1091,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            #display_string_value(__amaru_v)
+                            #display_string_value(#as_field_ref::<#field_type>($expr))
                         }};
                     }
                 }
@@ -1103,8 +1099,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            ::tracing::field::debug(__amaru_v)
+                            ::tracing::field::debug(#as_field_ref::<#field_type>($expr))
                         }};
                     }
                 }
@@ -1112,8 +1107,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
-                            let __amaru_v: &#field_type = $expr;
-                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait>(_: &T) {}
+                            let __amaru_v = #as_field_ref::<#field_type>($expr);
+                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait + ?Sized>(_: &T) {}
                             __amaru_assert_serialize(__amaru_v);
                             #encode_cbor(__amaru_v)
                         }};
@@ -1169,7 +1164,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     __amaru_assert_debug($expr);
                 }};
                 (#field_name, $expr:expr, validate_event_value) => {{
-                    let __amaru_assert_value = |_: &dyn ::tracing::field::Value| {};
+                    let __amaru_assert_value = |_: &dyn ::amaru_observability::tracing::field::Value| {};
                     __amaru_assert_value($expr);
                 }};
             }

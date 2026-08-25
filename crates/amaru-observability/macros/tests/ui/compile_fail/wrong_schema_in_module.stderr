@@ -9,7 +9,7 @@ error: Invalid trace in module test::sub : NON_EXISTENT. Expected one of: SCHEMA
 31 | | }
    | |_^
 ...
-35 |       let _span = trace_span!(crate::test::sub::NON_EXISTENT, first = &first, second = 2_u64);
-   |                   --------------------------------------------------------------------------- in this macro invocation
+35 |       let _span = trace_span!(crate::test::sub::NON_EXISTENT, first, second = 2_u64);
+   |                   ------------------------------------------------------------------ in this macro invocation
    |
    = note: this error originates in the macro `__VALIDATE_TEST_SUB` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

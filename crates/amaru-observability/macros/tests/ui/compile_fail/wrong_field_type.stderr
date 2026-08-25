@@ -1,4 +1,4 @@
-error[E0308]: mismatched types
+error[E0277]: the trait bound `i32: Borrow<u64>` is not satisfied
   --> tests/ui/compile_fail/wrong_field_type.rs:36:17
    |
 21 | / define_local_schemas! {
@@ -7,11 +7,14 @@ error[E0308]: mismatched types
 24 | |             /// Test schema for wrong field type test
 ...  |
 32 | | }
-   | |_- expected due to this
+   | |_- required by a bound introduced by this call
 ...
-36 |       let _span = trace_span!(crate::test::sub::SCHEMA, first = &first, second = 2_i32, third = 3_u64);
-   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `&u64`, found `&i32`
+36 |       let _span = trace_span!(crate::test::sub::SCHEMA, first, second = 2_i32, third = 3_u64);
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `Borrow<u64>` is not implemented for `i32`
    |
-   = note: expected reference `&u64`
-              found reference `&i32`
+note: required by a bound in `as_field_ref`
+  --> $WORKSPACE/crates/amaru-observability/src/field.rs
+   |
+   | pub fn as_field_ref<T: ?Sized>(value: &(impl Borrow<T> + ?Sized)) -> &T {
+   |                                              ^^^^^^^^^ required by this bound in `as_field_ref`
    = note: this error originates in the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

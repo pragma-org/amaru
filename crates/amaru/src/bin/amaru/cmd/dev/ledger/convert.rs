@@ -20,9 +20,9 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
+use amaru_observability::info;
 use anyhow::anyhow;
 use clap::Parser;
-use tracing::info;
 
 /// Convert a Haskell cardano-node state for import into Amaru.
 ///
@@ -67,11 +67,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "dev ledger convert",
-        input = %args.input.to_string_lossy(),
-        ledger_dir = %ledger_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+        cli::dev::RUN,
+        command = "dev ledger convert",
+        network = args.network,
+        input = args.input.to_string_lossy(),
+        ledger_dir = ledger_dir.to_string_lossy()
     );
 
     let global_parameters = args

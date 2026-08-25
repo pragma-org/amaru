@@ -233,6 +233,28 @@
       "description": "Fetch bootstrap headers from a peer",
       "public": true
     },
+    "amaru::bootstrap::headers::NEXT_FAILED": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "next_failed",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::headers",
+      "description": "The chain-sync client failed while requesting or awaiting the next header. Operation ∈ {request_next, await_next}.",
+      "public": true
+    },
     "amaru::bootstrap::import::UTXO": {
       "type": "object",
       "properties": {
@@ -593,6 +615,24 @@
       "description": "Snapshot already downloaded; skipping download",
       "public": true
     },
+    "amaru::bootstrap::snapshot::UNEXPECTED_ERA": {
+      "type": "object",
+      "properties": {
+        "snapshot_era": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_era"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unexpected_era",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::snapshot",
+      "description": "The parsed snapshot's current era is not Conway; later decoding may fail",
+      "public": true
+    },
     "amaru::bootstrap::snapshots::IMPORT": {
       "type": "object",
       "properties": {
@@ -782,6 +822,311 @@
       "description": "Run db-analyser to produce a ledger snapshot",
       "public": true
     },
+    "amaru::cli::dev::RUN": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "chain_dir": {
+          "type": "string"
+        },
+        "ledger_dir": {
+          "type": "string"
+        },
+        "headers_dir": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
+        "block": {
+          "type": "string"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "peer_address": {
+          "type": "string"
+        },
+        "epoch": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "from_point": {
+          "type": "string"
+        },
+        "only_blocks": {
+          "type": "boolean"
+        },
+        "only_validation_results": {
+          "type": "boolean"
+        },
+        "hint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "network"
+      ],
+      "optional": [
+        "chain_dir",
+        "ledger_dir",
+        "headers_dir",
+        "input",
+        "start",
+        "block",
+        "parent",
+        "peer_address",
+        "epoch",
+        "count",
+        "from_point",
+        "only_blocks",
+        "only_validation_results",
+        "hint"
+      ],
+      "additionalProperties": false,
+      "name": "run",
+      "level": "TRACE",
+      "target": "amaru::cli::dev",
+      "description": "A developer command started, with the arguments it resolved. Command names the subcommand, e.g. \"dev chain prune\".",
+      "public": true
+    },
+    "amaru::cli::dev::chain::ANCHOR_UPDATED": {
+      "type": "object",
+      "properties": {
+        "new_anchor": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "new_anchor"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "anchor_updated",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The chain store anchor was moved to a new hash",
+      "public": true
+    },
+    "amaru::cli::dev::chain::MIGRATION_NOT_NEEDED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "migration_not_needed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The chain database is already at the current version",
+      "public": true
+    },
+    "amaru::cli::dev::chain::MOVING_BEST_CHAIN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "moving_best_chain",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The best chain hash is being moved back before removing points",
+      "public": true
+    },
+    "amaru::cli::dev::chain::OPEN_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "open_failed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The chain database could not be opened",
+      "public": true
+    },
+    "amaru::cli::dev::chain::PARENT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "parent_not_found",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "A header on the path back to the best chain has no stored parent",
+      "public": true
+    },
+    "amaru::cli::dev::chain::POINTS_TO_REMOVE": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "points"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "points_to_remove",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The number of stored points selected for removal",
+      "public": true
+    },
+    "amaru::cli::dev::chain::POINT_REMOVED": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "point_removed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "A point is being removed from the chain store",
+      "public": true
+    },
+    "amaru::cli::dev::chain::PRUNE_BOUNDARY": {
+      "type": "object",
+      "properties": {
+        "oldest_ledger_epoch": {
+          "type": "integer"
+        },
+        "boundary_slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "oldest_ledger_epoch",
+        "boundary_slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "prune_boundary",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The pruning boundary derived from the oldest ledger snapshot",
+      "public": true
+    },
+    "amaru::cli::dev::chain::VALIDATION_CLEARED": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validation_cleared",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The stored validation status of a block is being cleared",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::SNAPSHOT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "snapshot_not_found",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger",
+      "description": "A ledger snapshot to remove does not exist",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::SNAPSHOT_REMOVED": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "snapshot_removed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger",
+      "description": "A ledger snapshot was removed",
+      "public": true
+    },
     "amaru::cli::last_block::RESOLVE": {
       "type": "object",
       "properties": {
@@ -849,6 +1194,81 @@
       "level": "TRACE",
       "target": "amaru::cli::mithril",
       "description": "Synchronize the cardano-node database from Mithril",
+      "public": true
+    },
+    "amaru::cli::mithril::DOWNLOAD_CHUNKS": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "from_chunk": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tip",
+        "from_chunk"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "download_chunks",
+      "level": "TRACE",
+      "target": "amaru::cli::mithril",
+      "description": "Immutable chunks are being fetched from Mithril",
+      "public": true
+    },
+    "amaru::cli::mithril::INGEST_COMPLETED": {
+      "type": "object",
+      "properties": {
+        "processed": {
+          "type": "integer"
+        },
+        "duration_seconds": {
+          "type": "number"
+        },
+        "processed_per_seconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "processed",
+        "duration_seconds",
+        "processed_per_seconds"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ingest_completed",
+      "level": "TRACE",
+      "target": "amaru::cli::mithril",
+      "description": "Finished replaying downloaded blocks into the stores",
       "public": true
     },
     "amaru::cli::mithril::SKIP_DOWNLOAD": {
@@ -986,6 +1406,132 @@
       "level": "TRACE",
       "target": "amaru::cli::node",
       "description": "Roll the node databases back after a failure",
+      "public": true
+    },
+    "amaru::cli::node::RUN": {
+      "type": "object",
+      "properties": {
+        "chain_dir": {
+          "type": "string"
+        },
+        "ledger_dir": {
+          "type": "string"
+        },
+        "listen_address": {
+          "type": "string"
+        },
+        "max_extra_ledger_snapshots": {
+          "type": "string"
+        },
+        "migrate_chain_db": {
+          "type": "boolean"
+        },
+        "network": {
+          "type": "string"
+        },
+        "peer_address": {
+          "type": "string"
+        },
+        "peer_snapshot": {
+          "type": "string"
+        },
+        "peer_snapshot_relays": {
+          "type": "integer"
+        },
+        "pid_file": {
+          "type": "string"
+        },
+        "submit_api_address": {
+          "type": "string"
+        },
+        "trace_buffer_min_entries": {
+          "type": "integer"
+        },
+        "trace_buffer_max_size": {
+          "type": "integer"
+        },
+        "trace_dump_path": {
+          "type": "string"
+        },
+        "peer_removal_cooldown_secs": {
+          "type": "integer"
+        },
+        "mempool_max_bytes": {
+          "type": "string"
+        },
+        "tx_submission_max_window": {
+          "type": "integer"
+        },
+        "tx_submission_fetch_batch_bytes": {
+          "type": "integer"
+        },
+        "tx_submission_inflight_timeout_ms": {
+          "type": "integer"
+        },
+        "tx_submission_insert_timeout_ms": {
+          "type": "integer"
+        },
+        "era_history": {
+          "type": "string"
+        },
+        "global_parameters": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_dir",
+        "ledger_dir",
+        "listen_address",
+        "max_extra_ledger_snapshots",
+        "migrate_chain_db",
+        "network",
+        "peer_address",
+        "peer_snapshot",
+        "peer_snapshot_relays",
+        "pid_file",
+        "submit_api_address",
+        "trace_buffer_min_entries",
+        "trace_buffer_max_size",
+        "trace_dump_path",
+        "peer_removal_cooldown_secs",
+        "mempool_max_bytes",
+        "tx_submission_max_window",
+        "tx_submission_fetch_batch_bytes",
+        "tx_submission_inflight_timeout_ms",
+        "tx_submission_insert_timeout_ms"
+      ],
+      "optional": [
+        "era_history",
+        "global_parameters"
+      ],
+      "additionalProperties": false,
+      "name": "run",
+      "level": "TRACE",
+      "target": "amaru::cli::node",
+      "description": "The effective configuration a node run starts with",
+      "public": true
+    },
+    "amaru::cli::node::SUBMIT_API_SHUTDOWN_FAILED": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "name": "submit_api_shutdown_failed",
+      "level": "TRACE",
+      "target": "amaru::cli::node",
+      "description": "The submit API did not stop cleanly during shutdown. Reason ∈ {join_error, timeout}.",
       "public": true
     },
     "amaru::cli::snapshot::CREATE": {
@@ -1236,6 +1782,335 @@
       "description": "Finished uploading a snapshot archive",
       "public": true
     },
+    "amaru::consensus::block::ADOPT_FAILED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "step": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "step",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "adopt_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Adopting a tip as the new best chain failed. Step ∈ {adopt_tip, adopt_first_tip, drag_anchor_forward}.",
+      "public": true
+    },
+    "amaru::consensus::block::APPLY_FAILED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "step": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "step",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "apply_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "A block could not be applied to the ledger. Step ∈ {validate_block, switch_to_fork}.",
+      "public": true
+    },
+    "amaru::consensus::block::HEADER_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "optional": [
+        "tip"
+      ],
+      "additionalProperties": false,
+      "name": "header_not_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "A header needed to adopt a tip could not be loaded. Role ∈ {incoming_tip, current_best}.",
+      "public": true
+    },
+    "amaru::consensus::block::INVALID": {
+      "type": "object",
+      "properties": {
+        "failed_tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "parent": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "failed_tip",
+        "parent",
+        "error",
+        "detail"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "invalid",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "A block was rejected during validation",
+      "public": true
+    },
+    "amaru::consensus::block::INVARIANT_VIOLATED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "invariant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "invariant"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "invariant_violated",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "The chain store contradicts itself while adopting a tip. Invariant ∈ {header_missing, no_common_ancestor}.",
+      "public": true
+    },
+    "amaru::consensus::block::MISMATCHED_HASH": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "actual": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "peer",
+        "header_hash"
+      ],
+      "optional": [
+        "expected",
+        "actual"
+      ],
+      "additionalProperties": false,
+      "name": "mismatched_hash",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Mismatched body hash after download, the peer is adversarial",
+      "public": true
+    },
     "amaru::consensus::block::SKIP": {
       "type": "object",
       "properties": {
@@ -1310,6 +2185,1725 @@
       "level": "TRACE",
       "target": "amaru::consensus::block",
       "description": "Skip a block validation when it is not better than the current ledger tip",
+      "public": true
+    },
+    "amaru::consensus::block::SWITCH_FORK": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "parent": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "current",
+        "parent"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch_fork",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "The ledger is switching to a different fork",
+      "public": true
+    },
+    "amaru::consensus::block::VALIDATE_FROM_GENESIS": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "current": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "parent": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "tip",
+        "current",
+        "parent"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_from_genesis",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Block validation cannot proceed because the parent is the genesis block",
+      "public": true
+    },
+    "amaru::consensus::block_source::KNOWN_INVALID": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "point": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "peer",
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "known_invalid",
+      "level": "TRACE",
+      "target": "amaru::consensus::block_source",
+      "description": "A peer announced a block already known to be invalid",
+      "public": true
+    },
+    "amaru::consensus::blocks::DECODE_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "decode_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to decode a block received from a peer",
+      "public": true
+    },
+    "amaru::consensus::blocks::FIND_MISSING_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "find_missing_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to compute the set of missing blocks",
+      "public": true
+    },
+    "amaru::consensus::blocks::HEADER_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "header_not_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "A header required for block fetching could not be loaded from the store",
+      "public": true
+    },
+    "amaru::consensus::blocks::NOTHING_TO_FETCH": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "parent": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "tip",
+        "parent"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "nothing_to_fetch",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "The batch of missing blocks is empty; resume fetching from the tip",
+      "public": true
+    },
+    "amaru::consensus::blocks::PAUSED": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "req_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "paused",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Block fetching paused because no upstream peers are available",
+      "public": true
+    },
+    "amaru::consensus::blocks::POINT_MISMATCH": {
+      "type": "object",
+      "properties": {
+        "actual": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "expected": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "actual"
+      ],
+      "optional": [
+        "expected"
+      ],
+      "additionalProperties": false,
+      "name": "point_mismatch",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Received a block out of order: its point is not the next missing point",
+      "public": true
+    },
+    "amaru::consensus::blocks::RECOVER_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "error",
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recover_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to check whether a stored block exists during startup recovery",
+      "public": true
+    },
+    "amaru::consensus::blocks::RECOVER_INCONSISTENT": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "to": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recover_inconsistent",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Startup recovery found an inconsistent stored chain. Reason ∈ {ledger_tip_is_origin, broken_chain}.",
+      "public": true
+    },
+    "amaru::consensus::blocks::STORE_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "store_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to persist a downloaded block",
+      "public": true
+    },
+    "amaru::consensus::blocks::TIMEOUT": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "req_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "timeout",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Timed out waiting for requested blocks",
+      "public": true
+    },
+    "amaru::consensus::chain::BEST_TIP_CANDIDATE": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "previous": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "tip",
+        "reason"
+      ],
+      "optional": [
+        "previous"
+      ],
+      "additionalProperties": false,
+      "name": "best_tip_candidate",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "A new candidate was chosen as the best tip. Reason ∈ {better_chain, previous_invalidated}.",
+      "public": true
+    },
+    "amaru::consensus::chain::BEST_TIP_INVALIDATED": {
+      "type": "object",
+      "properties": {
+        "removed": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "removed"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "best_tip_invalidated",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "The best tip candidate was invalidated and forks depending on it were dropped",
+      "public": true
+    },
+    "amaru::consensus::chain::FALLBACK_TO_ORIGIN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fallback_to_origin",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "No valid candidate remains; the best chain falls back to origin",
+      "public": true
+    },
+    "amaru::consensus::chain::FETCH_NEXT": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "point",
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch_next",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Some blocks have been fetched for the current chain, decide what to do next",
+      "public": true
+    },
+    "amaru::consensus::chain::FIND_BEST_CANDIDATE_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "find_best_candidate_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Failed to select a new best candidate after an invalidation",
+      "public": true
+    },
+    "amaru::consensus::chain::FIND_INTERSECTION": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "intersection_slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "peer",
+        "intersection_slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "find_intersection",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Find chain intersection point with peer",
+      "public": true
+    },
+    "amaru::consensus::chain::FORKS_REMOVED": {
+      "type": "object",
+      "properties": {
+        "removed": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "removed"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forks_removed",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Chain forks were removed because they depend on an invalid block",
+      "public": true
+    },
+    "amaru::consensus::chain::HEADER_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "role",
+        "header_hash"
+      ],
+      "optional": [
+        "tip"
+      ],
+      "additionalProperties": false,
+      "name": "header_not_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "A header needed for chain selection could not be loaded from the store. Role ∈ {tip, best_candidate, best_candidate_parent, parent, validation_target}.",
+      "public": true
+    },
+    "amaru::consensus::chain::RESUME_FETCH": {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string"
+        },
+        "point": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "best_tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "parent": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "point",
+        "best_tip"
+      ],
+      "optional": [
+        "parent"
+      ],
+      "additionalProperties": false,
+      "name": "resume_fetch",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Where block fetching resumes from, once per request. Outcome ∈ {resume_from_best_tip, already_at_best_tip, no_best_tip}; only `resume_from_best_tip` sends a tip downstream and carries its `parent`.",
+      "public": true
+    },
+    "amaru::consensus::chain::SELECT_FROM_BLOCK_VALIDATION": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "point",
+        "valid",
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "select_from_block_validation",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Received a block validation result",
+      "public": true
+    },
+    "amaru::consensus::chain::SELECT_FROM_TIP": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "tip",
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "select_from_tip",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Received a new tip from an upstream peer",
+      "public": true
+    },
+    "amaru::consensus::chain::STORE_VALIDATION_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "error",
+        "valid"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "store_validation_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "Failed to persist the validation result of a block",
+      "public": true
+    },
+    "amaru::consensus::chain::TIP_ACCEPTED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "parent": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "tip",
+        "outcome"
+      ],
+      "optional": [
+        "parent"
+      ],
+      "additionalProperties": false,
+      "name": "tip_accepted",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "A tip announced by an upstream peer is new and starts or extends a chain. Outcome ∈ {new_tip, from_origin, extend, fork}.",
+      "public": true
+    },
+    "amaru::consensus::chain::TIP_IGNORED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "parent": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "tip",
+        "reason"
+      ],
+      "optional": [
+        "parent"
+      ],
+      "additionalProperties": false,
+      "name": "tip_ignored",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain",
+      "description": "A tip announced by an upstream peer was not adopted. Reason ∈ {already_validated, already_invalid, already_tracked, invalid_ancestor}.",
+      "public": true
+    },
+    "amaru::consensus::chain_db_migration::EXECUTE": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "integer"
+        },
+        "to": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "execute",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_db_migration",
+      "description": "Migrate the database if necessary",
+      "public": true
+    },
+    "amaru::consensus::chain_db_migration::RESET_BEST_CHAIN": {
+      "type": "object",
+      "properties": {
+        "prev_best_chain": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "new_best_chain": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "prev_best_chain",
+        "new_best_chain"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reset_best_chain",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_db_migration",
+      "description": "Reset the best chain to the anchor during migration so blocks are revalidated",
+      "public": true
+    },
+    "amaru::consensus::chain_db_migration::WARN": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "to",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "warn",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_db_migration",
+      "description": "A database migration relies on an assumption that may not hold; see the reason",
+      "public": true
+    },
+    "amaru::consensus::chainsync::INITIALIZED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "initialized",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A chainsync session with an upstream peer was initialized",
+      "public": true
+    },
+    "amaru::consensus::chainsync::INTERSECT_FOUND": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "current": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "highest": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "current",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "intersect_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "An intersection with the peer's chain was found",
+      "public": true
+    },
+    "amaru::consensus::chainsync::INTERSECT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "highest": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "peer",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "intersect_not_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "No intersection with the peer's chain was found, so chainsync with it stops",
+      "public": true
+    },
+    "amaru::consensus::chainsync::REINITIALIZED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reinitialized",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A chainsync session was re-initialized while still active; prior state is purged",
+      "public": true
+    },
+    "amaru::consensus::chainsync::ROLL_BACKWARD": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "current": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "highest": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "peer",
+        "current",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_backward",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A peer rolled back to an earlier point",
+      "public": true
+    },
+    "amaru::consensus::chainsync::ROLL_BACKWARD_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_backward_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A rollback requested by a peer could not be applied; the peer is adversarial",
+      "public": true
+    },
+    "amaru::consensus::chainsync::TERMINATED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "terminated",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A chainsync session terminated and its connection state was purged",
+      "public": true
+    },
+    "amaru::consensus::chainsync::UNKNOWN_INTERSECTION_POINT": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "current": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "highest": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "peer",
+        "current",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unknown_intersection_point",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike `INTERSECT_NOT_FOUND` this points at local state, not at the peer.",
       "public": true
     },
     "amaru::consensus::perf::fork::SWITCH": {
@@ -1389,6 +3983,58 @@
       "level": "TRACE",
       "target": "amaru::consensus::perf::header",
       "description": "Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. `outcome` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
+      "public": true
+    },
+    "amaru::consensus::performance::QUEUE_LAGGING": {
+      "type": "object",
+      "properties": {
+        "queue_depth": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "queue_depth"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "queue_lagging",
+      "level": "TRACE",
+      "target": "amaru::consensus::performance",
+      "description": "The performance operation queue is growing faster than the worker drains it",
+      "public": true
+    },
+    "amaru::consensus::performance::QUEUE_OVERFLOW": {
+      "type": "object",
+      "properties": {
+        "queue_depth": {
+          "type": "integer"
+        },
+        "threshold": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "queue_depth",
+        "threshold"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "queue_overflow",
+      "level": "TRACE",
+      "target": "amaru::consensus::performance",
+      "description": "The performance operation queue exceeded its hard limit; the node aborts",
+      "public": true
+    },
+    "amaru::consensus::performance::WORKER_PANICKED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "worker_panicked",
+      "level": "TRACE",
+      "target": "amaru::consensus::performance",
+      "description": "The performance worker thread stopped because it panicked",
       "public": true
     },
     "amaru::consensus::tip::ADOPT": {
@@ -3609,6 +6255,316 @@
       "description": "Download and verify the digests for a Mithril snapshot",
       "public": true
     },
+    "amaru::network::connection::ACCEPT_LOOP_STOPPED": {
+      "type": "object",
+      "properties": {
+        "local": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "local"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "accept_loop_stopped",
+      "level": "TRACE",
+      "target": "amaru::network::connection",
+      "description": "The accept loop terminated because the listener or channel closed",
+      "public": true
+    },
+    "amaru::network::connection::LISTENER_RESTART": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "listener_restart",
+      "level": "TRACE",
+      "target": "amaru::network::connection",
+      "description": "Aborted an existing listener task so the address can be rebound on restart",
+      "public": true
+    },
+    "amaru::node::build::LEDGER_OPENED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "tip"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ledger_opened",
+      "level": "TRACE",
+      "target": "amaru::node::build",
+      "description": "Opened the ledger state; reports the ledger tip at startup",
+      "public": true
+    },
+    "amaru::node::build::STAKE_DIST_NOTIFY_FAILED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stake_dist_notify_failed",
+      "level": "TRACE",
+      "target": "amaru::node::build",
+      "description": "Failed to notify the peer tracker of a stake distribution update",
+      "public": true
+    },
+    "amaru::node::metrics::PROCESS_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "process_not_found",
+      "level": "TRACE",
+      "target": "amaru::node::metrics",
+      "description": "The metrics collector could not find Amaru's own process",
+      "public": true
+    },
+    "amaru::node::submit_api::MEMPOOL_UNREACHABLE": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mempool_unreachable",
+      "level": "TRACE",
+      "target": "amaru::node::submit_api",
+      "description": "A submitted transaction could not reach the mempool. Reason ∈ {send_failed, response_dropped, deserialize_failed}.",
+      "public": true
+    },
+    "amaru::node::submit_api::STARTED": {
+      "type": "object",
+      "properties": {
+        "local_addr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_addr"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "started",
+      "level": "TRACE",
+      "target": "amaru::node::submit_api",
+      "description": "The transaction submission HTTP server is listening",
+      "public": true
+    },
+    "amaru::node::submit_api::STOPPED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stopped",
+      "level": "TRACE",
+      "target": "amaru::node::submit_api",
+      "description": "The transaction submission HTTP server stopped with an error",
+      "public": true
+    },
+    "amaru::protocols::blockfetch::initiator::PROTOCOL_VIOLATION": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "max_blocks": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "max_blocks",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "name": "protocol_violation",
+      "level": "TRACE",
+      "target": "amaru::protocols::blockfetch::initiator",
+      "description": "The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}.",
+      "public": true
+    },
+    "amaru::protocols::chainsync::initiator::ROLLBACK_POINT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "rollback_point_not_found",
+      "level": "TRACE",
+      "target": "amaru::protocols::chainsync::initiator",
+      "description": "A rollback target announced by the peer is not in the chain store",
+      "public": true
+    },
+    "amaru::protocols::chainsync::responder::STOPPED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stopped",
+      "level": "TRACE",
+      "target": "amaru::protocols::chainsync::responder",
+      "description": "The peer ended the chainsync session",
+      "public": true
+    },
+    "amaru::protocols::connection::ACCEPT_FAILED": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "name": "accept_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "An inbound connection could not be accepted. Reason ∈ {aborted, error}.",
+      "public": true
+    },
+    "amaru::protocols::connection::CHILD_DIED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "child": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "child"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "child_died",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "A mini-protocol stage running on a connection died",
+      "public": true
+    },
+    "amaru::protocols::connection::HANDSHAKE_QUERY_REPLY": {
+      "type": "object",
+      "properties": {
+        "version_table": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_table"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handshake_query_reply",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "The peer answered a version query instead of negotiating",
+      "public": true
+    },
+    "amaru::protocols::connection::HANDSHAKE_REFUSED": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handshake_refused",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "The peer refused our proposed protocol versions",
+      "public": true
+    },
     "amaru::protocols::keepalive::peer::ROUND_TRIP": {
       "type": "object",
       "properties": {
@@ -3633,6 +6589,64 @@
       "level": "TRACE",
       "target": "amaru::protocols::keepalive::peer",
       "description": "Measured round-trip time for a keepalive exchange on an established peer connection.",
+      "public": true
+    },
+    "amaru::protocols::manager::blocks::FETCH_NO_PEERS": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch_no_peers",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::blocks",
+      "description": "No connection was available to serve a block-fetch request",
+      "public": true
+    },
+    "amaru::protocols::manager::listen::FAILED": {
+      "type": "object",
+      "properties": {
+        "listen_addr": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "listen_addr",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::listen",
+      "description": "The node could not listen on the configured address",
+      "public": true
+    },
+    "amaru::protocols::manager::listen::STARTED": {
+      "type": "object",
+      "properties": {
+        "listen_addr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "listen_addr"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "started",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::listen",
+      "description": "The node is accepting inbound connections on an address",
       "public": true
     },
     "amaru::protocols::manager::message::PROCESS": {
@@ -3693,6 +6707,28 @@
       "description": "A new peer was added to the manager",
       "public": true
     },
+    "amaru::protocols::manager::peer::CLOSE_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "close_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "Closing the socket of a dead connection failed",
+      "public": true
+    },
     "amaru::protocols::manager::peer::CONNECT": {
       "type": "object",
       "properties": {
@@ -3709,6 +6745,28 @@
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
       "description": "Initiating an outbound connection to a peer",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connected",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "An outbound connection to a peer was established",
       "public": true
     },
     "amaru::protocols::manager::peer::CONNECTION_DIED": {
@@ -3737,6 +6795,199 @@
       "description": "A peer connection has died",
       "public": true
     },
+    "amaru::protocols::manager::peer::CONNECTION_DIED_HANDLED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "outcome"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connection_died_handled",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}.",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECT_DISCARDED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_discarded",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A connection request for a peer was discarded. Reason ∈ {already_connected_or_scheduled, already_connected, not_added}.",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECT_EXHAUSTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_exhausted",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A peer is dropped after exhausting its connection attempts",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECT_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "An outbound connection attempt failed",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::DISCONNECTING": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "direction": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "direction"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "disconnecting",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A connection is being closed on request. Direction ∈ {inbound, outbound}.",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::DISCONNECT_IGNORED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "reason"
+      ],
+      "optional": [
+        "conn_id"
+      ],
+      "additionalProperties": false,
+      "name": "disconnect_ignored",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake}.",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::DUPLICATE_TERMINATED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "duplicate_terminated",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A duplicate connection is terminated after its handshake completed",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::HANDSHAKE_COMPLETED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "full_duplex_capable": {
+          "type": "boolean"
+        },
+        "full_duplex": {
+          "type": "boolean"
+        },
+        "advertisable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "full_duplex_capable",
+        "full_duplex",
+        "advertisable"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handshake_completed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "The handshake completed on a connection",
+      "public": true
+    },
     "amaru::protocols::manager::peer::REMOVE": {
       "type": "object",
       "properties": {
@@ -3753,6 +7004,186 @@
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
       "description": "A peer was removed from the manager",
+      "public": true
+    },
+    "amaru::protocols::mux::EMPTY_SEGMENT": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "peer"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "empty_segment",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux",
+      "description": "A segment header announcing an empty payload was received",
+      "public": true
+    },
+    "amaru::protocols::mux::FAILED": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "peer": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "peer",
+        "operation",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux",
+      "description": "The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.",
+      "public": true
+    },
+    "amaru::protocols::mux::protocol::BUFFER_EXCEEDED": {
+      "type": "object",
+      "properties": {
+        "buffered": {
+          "type": "integer"
+        },
+        "max_buffer": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "buffered",
+        "max_buffer"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "buffer_exceeded",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux::protocol",
+      "description": "A protocol message does not fit in the buffer allotted to it",
+      "public": true
+    },
+    "amaru::protocols::mux::protocol::BUFFER_OVERFLOW": {
+      "type": "object",
+      "properties": {
+        "buffer": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "buffer",
+        "limit"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "buffer_overflow",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux::protocol",
+      "description": "Reducing a protocol buffer was not enough and the connection was killed",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::CONNECT_INITIAL": {
+      "type": "object",
+      "properties": {
+        "static_peers": {
+          "type": "integer"
+        },
+        "snapshot_peers": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "static_peers",
+        "snapshot_peers"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_initial",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection",
+      "description": "Connect to the initial set of peers at startup",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::ledger::CANDIDATES_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "candidates_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::ledger",
+      "description": "Failed to read registered relay addresses from the ledger",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::ADDED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "was_banned": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "was_banned"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "added",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer was added to the outbound set",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::ADD_SKIPPED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "add_skipped",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer was not added to the outbound set. Reason ∈ {already_added, too_many_inbound}.",
       "public": true
     },
     "amaru::protocols::peer_selection::peer::CONNECTED": {
@@ -3820,6 +7251,62 @@
       "description": "A connection has been terminated (graceful disconnect, error, handshake refusal, or network error).",
       "public": true
     },
+    "amaru::protocols::peer_selection::peer::RECONNECTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "direction",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reconnected",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}.",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::REMOVED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "peer_state": {
+          "type": "string"
+        },
+        "is_static": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "direction",
+        "peer_state",
+        "is_static"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "removed",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer was removed after behaving adversarially",
+      "public": true
+    },
     "amaru::protocols::peer_selection::sharing::RECEIVED": {
       "type": "object",
       "properties": {
@@ -3880,6 +7367,177 @@
       "description": "Peer-sharing request served for peer.",
       "public": true
     },
+    "amaru::protocols::peer_sharing::initiator::PROTOCOL_VIOLATION": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "requested": {
+          "type": "integer"
+        },
+        "received": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "requested",
+        "received"
+      ],
+      "additionalProperties": false,
+      "name": "protocol_violation",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_sharing::initiator",
+      "description": "The peer broke the peer-sharing protocol and the connection is terminated. Reason ∈ {no_request_in_flight, too_many_addresses}.",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::TERMINATING": {
+      "type": "object",
+      "properties": {
+        "cause": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cause"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "terminating",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission",
+      "description": "The tx-submission protocol is being torn down; the cause names the rule broken",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::initiator::OVER_ACKNOWLEDGED": {
+      "type": "object",
+      "properties": {
+        "ack": {
+          "type": "integer"
+        },
+        "window": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ack",
+        "window"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "over_acknowledged",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::initiator",
+      "description": "The peer acknowledged more transaction ids than are outstanding",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::initiator::UNAVAILABLE_TXS": {
+      "type": "object",
+      "properties": {
+        "unavailable": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "unavailable"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unavailable_txs",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::initiator",
+      "description": "The peer asked for transactions that are not in our outstanding window",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::MEMPOOL_TIMEOUT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mempool_timeout",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "The mempool did not answer an insertion batch before the timeout",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::OVER_REPLIED": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "integer"
+        },
+        "received": {
+          "type": "integer"
+        },
+        "max_window": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requested",
+        "received",
+        "max_window"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "over_replied",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "The peer replied with more transaction ids than were requested",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::RECEIVED_TX": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "outcome"
+      ],
+      "optional": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "name": "received_tx",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "A transaction received from a peer was handed to the mempool. Outcome ∈ {inserted, invalid, mempool_full, duplicate}.",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::UNSOLICITED_TXS": {
+      "type": "object",
+      "properties": {
+        "not_requested": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "not_requested"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unsolicited_txs",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "The peer sent transaction bodies that were never requested",
+      "public": true
+    },
     "amaru::setup::build::VERSION": {
       "type": "object",
       "properties": {
@@ -3914,6 +7572,78 @@
       "description": "Running binary build/version identity (package version, git commit, target).",
       "public": true
     },
+    "amaru::setup::file_descriptors::TOO_LOW": {
+      "type": "object",
+      "properties": {
+        "current_soft_fd_limit": {
+          "type": "integer"
+        },
+        "current_hard_fd_limit": {
+          "type": "integer"
+        },
+        "expected_min": {
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "current_soft_fd_limit",
+        "current_hard_fd_limit",
+        "expected_min",
+        "hint"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "too_low",
+      "level": "TRACE",
+      "target": "amaru::setup::file_descriptors",
+      "description": "The soft limit on open files is below what Amaru needs",
+      "public": true
+    },
+    "amaru::setup::file_descriptors::UNKNOWN": {
+      "type": "object",
+      "properties": {
+        "expected_min": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expected_min"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unknown",
+      "level": "TRACE",
+      "target": "amaru::setup::file_descriptors",
+      "description": "The open-file limit could not be queried",
+      "public": true
+    },
+    "amaru::setup::lifecycle::CONSENSUS_DIED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "consensus_died",
+      "level": "TRACE",
+      "target": "amaru::setup::lifecycle",
+      "description": "The consensus pipeline stopped while the node was still running",
+      "public": true
+    },
+    "amaru::setup::lifecycle::TERMINATION_SIGNAL": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "termination_signal",
+      "level": "TRACE",
+      "target": "amaru::setup::lifecycle",
+      "description": "A termination signal was received; the node is shutting down",
+      "public": true
+    },
     "amaru::setup::observability::INIT": {
       "type": "object",
       "properties": {
@@ -3938,6 +7668,106 @@
       "level": "TRACE",
       "target": "amaru::setup::observability",
       "description": "Observability stack initialization",
+      "public": true
+    },
+    "amaru::setup::peer_snapshot::EMPTY": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "point": {
+          "type": "string"
+        },
+        "pools": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "point",
+        "pools"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "empty",
+      "level": "TRACE",
+      "target": "amaru::setup::peer_snapshot",
+      "description": "A peer snapshot was loaded but holds no relay addresses",
+      "public": true
+    },
+    "amaru::setup::peer_snapshot::LOADED": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "point": {
+          "type": "string"
+        },
+        "pools": {
+          "type": "integer"
+        },
+        "relays": {
+          "type": "integer"
+        },
+        "node_to_client_version": {
+          "type": "integer"
+        },
+        "configs_commit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "point",
+        "pools",
+        "relays",
+        "node_to_client_version",
+        "configs_commit"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "loaded",
+      "level": "TRACE",
+      "target": "amaru::setup::peer_snapshot",
+      "description": "A peer snapshot was loaded at startup",
+      "public": true
+    },
+    "amaru::setup::peer_snapshot::MISSING": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "missing",
+      "level": "TRACE",
+      "target": "amaru::setup::peer_snapshot",
+      "description": "No embedded peer snapshot exists for the selected network",
+      "public": true
+    },
+    "amaru::setup::pid::WRITE_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "write_failed",
+      "level": "TRACE",
+      "target": "amaru::setup::pid",
+      "description": "The PID file could not be created or written",
       "public": true
     },
     "amaru::setup::trace::FILTER": {
@@ -3975,6 +7805,46 @@
       "description": "Resolution of a trace filter from the environment",
       "public": true
     },
+    "amaru::setup::trace_buffer::DUMPED": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dumped",
+      "level": "TRACE",
+      "target": "amaru::setup::trace_buffer",
+      "description": "The stage trace buffer was written to disk",
+      "public": true
+    },
+    "amaru::setup::trace_buffer::DUMP_FAILED": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dump_failed",
+      "level": "TRACE",
+      "target": "amaru::setup::trace_buffer",
+      "description": "The stage trace buffer could not be written to disk",
+      "public": true
+    },
     "amaru::stores::batch::COMMIT": {
       "type": "object",
       "properties": {},
@@ -3985,6 +7855,24 @@
       "level": "TRACE",
       "target": "amaru::stores::batch",
       "description": "Commit a write batch",
+      "public": true
+    },
+    "amaru::stores::batch::DROPPED_WITHOUT_CLOSE": {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "outcome"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dropped_without_close",
+      "level": "TRACE",
+      "target": "amaru::stores::batch",
+      "description": "A transaction was dropped without commit or rollback. Outcome ∈ {left_open, auto_rolled_back}.",
       "public": true
     },
     "amaru::stores::batch::ROLLBACK": {
@@ -4728,6 +8616,24 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::slots",
       "description": "Write a slot/block-issuer entry",
+      "public": true
+    },
+    "amaru::stores::ledger::snapshots::UNEXPECTED_FILE": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unexpected_file",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::snapshots",
+      "description": "Skipped an unexpected file found in the snapshots directory",
       "public": true
     },
     "amaru::stores::ledger::snapshots::VALIDATE": {

@@ -33,11 +33,9 @@ use amaru_pure_stage::{
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::Runtime;
-use tracing::Level;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;
-use crate::stages::test_utils::{BufferWriter, Logs};
+use crate::stages::test_utils::{BufferWriter, Logs, install_test_log_capture};
 
 /// Header tree for testing adopt_chain control flow:
 /// - h0: genesis (block 1, slot 1, no parent)
@@ -169,15 +167,7 @@ pub fn test_prep(consensus_security_param: u64) -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: AdoptChainMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
-    let writer = BufferWriter::new();
-    let mut logs = writer.clone();
-
-    let sub = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_ansi(false)
-        .with_writer(move || writer.clone())
-        .set_default();
-    logs.set_guard(sub);
+    let logs = install_test_log_capture(BufferWriter::new());
 
     let guards = register_guards();
 

@@ -35,13 +35,13 @@ define_schemas! {
 use amaru::consensus::chain_sync::VALIDATE_HEADER;
 
 fn validate_header(slot: u64, hash: String) {
-    let _span = debug_span!(VALIDATE_HEADER, slot = slot, hash = hash).entered();
+    let _span = debug_span!(VALIDATE_HEADER, slot, hash).entered();
     // Function body
 }
 
 // Or with custom level
 fn validate_header_debug(slot: u64, hash: String) {
-    let _span = debug_span!(DEBUG, VALIDATE_HEADER, slot = slot, hash = hash).entered();
+    let _span = debug_span!(DEBUG, VALIDATE_HEADER, slot, hash).entered();
     // Function body
 }
 
@@ -111,6 +111,8 @@ The `debug_span!` macro:
 let _span = debug_span!(VALIDATE_HEADER, slot, hash).entered();
 
 // Rendering (`%` Display / `?` Debug / typed / CBOR) comes from the schema, not the call site.
+// Schema types are owned (`Peer`, `[Peer]`, `String`); the call site passes `T`, `&T`,
+// `Vec<T>` / `&[T]`, or `String` / `&str`. The expansion borrows (`Borrow<T>`) — it does not clone.
 ```
 
 ### What `trace_record!` Generates

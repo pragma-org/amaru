@@ -19,6 +19,7 @@ use amaru_kernel::{
     cardano::network_block::make_encoded_chain, cbor::WithOriginalBytes, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
+use amaru_observability::tracing;
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 
 use crate::tx_submission::{create_transactions, create_transactions_in_mempool};

@@ -46,6 +46,7 @@ use std::{
 };
 
 use amaru_kernel::Peer;
+use amaru_observability::{error, warn};
 use amaru_pure_stage::Instant;
 pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
@@ -63,7 +64,6 @@ use tokio::{
     },
     time::Instant as TokioInstant,
 };
-use tracing::{error, warn};
 
 /// Resource type installed in pure-stage `Resources`.
 pub type ResourcePerformance = Arc<Performance>;
@@ -90,7 +90,7 @@ impl Drop for WorkerGuard {
         if let Some(handle) = self.join.lock().take()
             && let Err(_panic) = handle.join()
         {
-            error!(target: "amaru_consensus::performance", "performance worker thread panicked");
+            error!(consensus::performance::WORKER_PANICKED);
         }
     }
 }
@@ -229,18 +229,14 @@ impl Performance {
     pub(crate) fn submit(&self, op: PerformanceOp) {
         let depth = self.pending.fetch_add(1, Ordering::Relaxed) + 1;
         if depth > QUEUE_WARN_THRESHOLD && self.should_log_queue_warn() {
-            warn!(
-                target: "amaru_consensus::performance",
-                queue_depth = depth,
-                "observability system lagging behind"
-            );
+            warn!(consensus::performance::QUEUE_LAGGING, queue_depth = depth as u64);
         }
         #[expect(clippy::panic)]
         if depth == QUEUE_ERROR_THRESHOLD + 1 {
             error!(
-                target: "amaru_consensus::performance",
-                queue_depth = depth,
-                "performance op queue exceeded {QUEUE_ERROR_THRESHOLD}"
+                consensus::performance::QUEUE_OVERFLOW,
+                queue_depth = depth as u64,
+                threshold = QUEUE_ERROR_THRESHOLD as u64
             );
             // NOTE: Amaru fails loudly and early when design assumptions are dynamically
             // violated. The performance worker is expected to keep pace with consensus stages;

@@ -30,7 +30,7 @@ use tokio::runtime::{Builder, Handle, Runtime};
 pub fn test_runtime() -> Runtime {
     Builder::new_current_thread().enable_all().build().expect("current-thread tokio runtime")
 }
-use tracing::{Level, subscriber::DefaultGuard};
+use amaru_observability::tracing::{Level, subscriber::DefaultGuard};
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub struct BufferWriter {
@@ -53,6 +53,23 @@ impl BufferWriter {
         let logs = String::from_utf8(self.buffer.lock().clone()).expect("log should be valid UTF-8");
         Logs::from_buffer(&logs)
     }
+}
+
+/// Capture test logs with the product console stack (EDR-033).
+///
+/// CBOR `record_bytes` payloads (hashes, points, …) decode to typed values; byte strings
+/// render as lowercase hex instead of a raw CBOR array.
+pub fn install_test_log_capture(writer: BufferWriter) -> BufferWriter {
+    let mut logs = writer.clone();
+    let sub = tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .with_ansi(false)
+        .event_format(CborConsoleEventFormat::new().with_ansi(false))
+        .fmt_fields(console_field_formatter())
+        .with_writer(move || writer.clone())
+        .set_default();
+    logs.set_guard(sub);
+    logs
 }
 
 /// Parsed log entries extracted from a [`BufferWriter`], with level-aware assertion helpers.
@@ -89,12 +106,29 @@ fn parse_level(line: &str) -> Level {
     }
 }
 
+fn parse_target(line: &str) -> &str {
+    line.split_whitespace().nth(2).unwrap_or("").trim_end_matches(':')
+}
+
+/// Whether a captured line is worth asserting on.
+///
+/// The simulation engine narrates every step it takes (`resuming stage`, `run effect`, ...) at
+/// DEBUG. Keeping that noise would make `assert_no_remaining_at` unusable at DEBUG, so engine
+/// chatter below INFO is discarded while its INFO and above (stage termination, dropped messages)
+/// is kept, since tests do rely on those.
+fn is_relevant(level: Level, target: &str) -> bool {
+    level <= Level::INFO || !target.starts_with("amaru_pure_stage")
+}
+
 impl Logs {
     fn from_buffer(s: &str) -> Self {
         let entries = s
             .split('\n')
             .filter(|line| !line.is_empty())
-            .map(|line| LogEntry { level: parse_level(line), line: line.to_string() })
+            .filter_map(|line| {
+                let level = parse_level(line);
+                is_relevant(level, parse_target(line)).then(|| LogEntry { level, line: line.to_string() })
+            })
             .collect();
         Self { entries }
     }
@@ -283,19 +317,7 @@ where
     F: FnOnce(&Resources),
     G: FnOnce(&mut SimulationRunning),
 {
-    let writer = BufferWriter::new();
-    let mut logs = writer.clone();
-
-    // Use the CBOR-aware console stack (EDR-033) so schema events render their typed fields
-    // as readable values instead of raw CBOR byte arrays.
-    let sub = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_ansi(false)
-        .event_format(CborConsoleEventFormat::new().with_ansi(false))
-        .fmt_fields(console_field_formatter())
-        .with_writer(move || writer.clone())
-        .set_default();
-    logs.set_guard(sub);
+    let logs = install_test_log_capture(BufferWriter::new());
 
     let since_network_start = start_in_era().relative_time;
     let network = SimulationBuilder::default()

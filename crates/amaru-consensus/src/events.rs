@@ -18,7 +18,7 @@ use std::{
 };
 
 use amaru_kernel::{Header, IsHeader, Peer, Point};
-use tracing::Span;
+use amaru_observability::tracing::Span;
 
 /// Wrapper type to factor out caught-up messages from real events.
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]

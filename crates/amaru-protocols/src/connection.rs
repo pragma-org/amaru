@@ -15,10 +15,9 @@
 use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
-use amaru_observability::{TraceContext, debug_span};
+use amaru_observability::{Instrument, TraceContext, debug_span, error, info};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
-use tracing::Instrument;
 
 use crate::{
     blockfetch::{
@@ -180,7 +179,12 @@ pub async fn stage(
                 return teardown(state, &params, &eff).await;
             }
             (state, ConnectionMessage::ChildDied(child)) => {
-                tracing::info!(?child, peer = %params.peer, conn_id = conn_id.as_u64(), "connection child died");
+                info!(
+                    protocols::connection::CHILD_DIED,
+                    peer = &params.peer,
+                    conn_id = conn_id.as_u64(),
+                    child = format!("{child:?}")
+                );
                 return teardown(state, &params, &eff).await;
             }
             (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
@@ -233,9 +237,9 @@ pub async fn stage(
     }
     .instrument(debug_span!(
         protocols::connection::message::PROCESS,
-        message_type = message_type,
+        message_type,
         conn_id = conn_id.as_u64(),
-        peer = peer,
+        peer,
         role = role.to_string(),
     ))
     .await
@@ -330,11 +334,11 @@ async fn do_handshake(
     let (version_number, version_data) = match handshake_result {
         HandshakeResult::Accepted(version_number, version_data) => (version_number, version_data),
         HandshakeResult::Refused(refuse_reason) => {
-            tracing::error!(?refuse_reason, "handshake refused");
+            error!(protocols::connection::HANDSHAKE_REFUSED, reason = format!("{refuse_reason:?}"));
             return eff.terminate().await;
         }
         HandshakeResult::Query(version_table) => {
-            tracing::info!(?version_table, "handshake query reply");
+            info!(protocols::connection::HANDSHAKE_QUERY_REPLY, version_table = format!("{version_table:?}"));
             return eff.terminate().await;
         }
     };

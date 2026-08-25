@@ -28,11 +28,11 @@ use amaru_node::stages::{
     build_node::{make_block_validator, make_state},
     config::LedgerConfig,
 };
+use amaru_observability::info;
 use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use rayon::prelude::*;
-use tracing::info;
 
 fn create_praos_chain_store(
     global_parameters: GlobalParameters,
@@ -165,7 +165,7 @@ pub(super) async fn run(
     let duration = Instant::now().saturating_duration_since(before);
     let duration_seconds = duration.as_secs_f64();
     let processed_per_seconds = processed as f64 / duration_seconds;
-    info!(processed_per_seconds, processed, duration = duration_seconds, "Finished processing blocks");
+    info!(cli::mithril::INGEST_COMPLETED, processed = processed as u64, duration_seconds, processed_per_seconds);
 
     Ok(())
 }

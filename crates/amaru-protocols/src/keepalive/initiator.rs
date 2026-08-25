@@ -15,10 +15,9 @@
 use std::time::Duration;
 
 use amaru_kernel::Peer;
-use amaru_observability::{debug, debug_span};
+use amaru_observability::{Instrument, debug, debug_span};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     keepalive::{
@@ -110,7 +109,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
                     protocols::keepalive::peer::ROUND_TRIP,
                     peer = &self.peer,
                     conn_id = self.conn_id.as_u64(),
-                    round_trip_micros = round_trip_micros
+                    round_trip_micros
                 );
             }
             self.cookie = input.cookie.next();
@@ -124,7 +123,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
             eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
             Ok((None, self))
         }
-        .instrument(debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie = cookie))
+        .instrument(debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie))
         .await
     }
 

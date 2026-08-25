@@ -19,14 +19,13 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
-use amaru_observability::info_span;
+use amaru_observability::{error, info, info_span};
 use amaru_ouroboros::StoreError;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{RocksDBStore, check_db_version, migrate_db, util::open_db},
 };
 use clap::Parser;
-use tracing::{error, info};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -55,10 +54,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
-        _command = "dev chain migrate",
-        chain_dir = %chain_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+        cli::dev::RUN,
+        command = "dev chain migrate",
+        network = args.network,
+        chain_dir = chain_dir.to_string_lossy()
     );
 
     let config = RocksDbConfig::new(chain_dir.clone());
@@ -69,16 +68,16 @@ async fn run(args: Args) -> anyhow::Result<()> {
         let store = RocksDBStore { db, basedir };
         match check_db_version(&store) {
             Ok(()) => {
-                info!("already up to date, no migration needed.");
+                info!(cli::dev::chain::MIGRATION_NOT_NEEDED);
                 Ok(())
             }
             Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
-                info_span!(consensus::chain_db::MIGRATE, from = stored, to = current)
+                info_span!(consensus::chain_db_migration::EXECUTE, from = stored, to = current)
                     .in_scope(|| migrate_db(&store))?;
                 Ok(())
             }
             Err(e) => {
-                error!(error = %e, "failed to open database");
+                error!(cli::dev::chain::OPEN_FAILED, error = e.to_string());
                 Err(Box::new(e))
             }
         }

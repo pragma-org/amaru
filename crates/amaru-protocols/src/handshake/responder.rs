@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug_span};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     handshake::{State, messages::Message},
@@ -87,10 +86,7 @@ impl StageState<State, Responder> for HandshakeResponder {
             eff.send(&self.connection, result.clone()).await;
             Ok((Some(result.into()), self))
         }
-        .instrument(debug_span!(
-            protocols::handshake::responder::HANDSHAKE_RESPONDER_STAGE,
-            version_table = version_table
-        ))
+        .instrument(debug_span!(protocols::handshake::responder::HANDSHAKE_RESPONDER_STAGE, version_table))
         .await
     }
 

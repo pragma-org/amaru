@@ -34,7 +34,7 @@ fn peer_and_hash_schema_fields_are_emitted_as_plain_strings() {
         info!(
             amaru::ledger::tip::UPDATE,
             slot = Slot::from(42),
-            header_hash = header_hash,
+            header_hash,
             block_height = 99_u64,
             tx_count = 3_usize,
             epoch = Epoch::from(1),

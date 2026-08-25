@@ -33,5 +33,5 @@ define_local_schemas! {
 
 fn main() {
     let first = String::from("one");
-    let _span = trace_span!(crate::test::sub::SCHEMA, first = &first, second = 2_u64);
+    let _span = trace_span!(crate::test::sub::SCHEMA, first, second = 2_u64);
 }

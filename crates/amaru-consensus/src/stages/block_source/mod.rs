@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{BlockHeight, Peer, Point};
+use amaru_observability::{debug, debug_record, debug_span, info};
 use amaru_pure_stage::{Effects, StageRef};
-use tracing::field;
 
 use crate::stages::peer_selection::PeerSelectionMsg;
 
@@ -110,22 +110,21 @@ impl BlockSource {
     }
 
     fn prune(&mut self) {
-        let span = tracing::debug_span!("block_source.prune", pruned = field::Empty, retained = field::Empty).entered();
+        let _span = debug_span!(consensus::block_source::PRUNE).entered();
         let adopted_h = self.adopted_tip.block_height();
         let entries = self.by_point.len();
         self.by_point.retain(|_, entry| entry.block_height() >= adopted_h - self.max_tip_distance);
         let retained = self.by_point.len();
-        span.record("pruned", entries - retained);
-        span.record("retained", retained);
+        debug_record!(consensus::block_source::PRUNE, pruned = entries - retained, retained);
     }
 
     async fn on_block_received(&mut self, peer: Peer, point: Point, eff: &Effects<BlockSourceMsg>) {
         use BlockValidity::*;
 
-        tracing::debug!(%peer, %point, "block received");
+        debug!(consensus::block_source::RECEIVED, peer, point);
         match self.by_point.get_mut(&point) {
             Some(Invalid(_height)) => {
-                tracing::info!(%peer, %point, "received known invalid block from new peer");
+                info!(consensus::block_source::KNOWN_INVALID, peer, point);
                 eff.send(&self.invalid_peer_sink, PeerSelectionMsg::adversarial(peer)).await;
             }
             Some(Pending(_height, peers)) => {
@@ -142,7 +141,7 @@ impl BlockSource {
     }
 
     async fn on_validation(&mut self, valid: bool, point: Point, eff: &Effects<BlockSourceMsg>) {
-        tracing::debug!(%valid, %point, "validation result");
+        debug!(consensus::block_source::VALIDATION, point, valid);
         if let Some(validity) = self.by_point.get_mut(&point)
             && let BlockValidity::Pending(height, peers) = validity
         {

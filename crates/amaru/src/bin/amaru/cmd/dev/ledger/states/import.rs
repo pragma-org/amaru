@@ -20,9 +20,9 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
+use amaru_observability::info;
 use anyhow::anyhow;
 use clap::Parser;
-use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -56,11 +56,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "dev ledger states import",
+        cli::dev::RUN,
+        command = "dev ledger states import",
+        network = args.network,
         count = args.snapshot_paths.len(),
-        ledger_dir = %ledger_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+        ledger_dir = ledger_dir.to_string_lossy()
     );
 
     let global_parameters = args

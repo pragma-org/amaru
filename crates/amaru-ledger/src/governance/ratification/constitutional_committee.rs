@@ -124,7 +124,7 @@ impl ConstitutionalCommittee {
                     warn!(
                         ledger::constitutional_committee::IGNORE,
                         active_members = self.active_members(current_epoch).len(),
-                        min_committee_size = min_committee_size,
+                        min_committee_size,
                         reason = "committee is below minimum size; ignoring voting threshold entirely"
                     );
                     return None;

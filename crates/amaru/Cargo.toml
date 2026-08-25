@@ -60,9 +60,6 @@ tokio = { workspace = true, features = [
 ] }
 zstd.workspace = true
 tokio-util.workspace = true
-tracing.workspace = true
-tracing-opentelemetry.workspace = true
-tracing-subscriber.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-bootstrap.workspace = true

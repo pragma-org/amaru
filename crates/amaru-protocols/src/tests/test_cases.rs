@@ -16,6 +16,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, PREPROD_ERA_HISTORY, Peer};
 use amaru_network::connection::TokioConnections;
+use amaru_observability::tracing;
 use amaru_ouroboros_traits::ConnectionProvider;
 use amaru_pure_stage::{
     StageGraph, StageRef,

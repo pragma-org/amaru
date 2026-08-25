@@ -187,7 +187,7 @@ impl HeaderTelemetry {
                     (Some(hash), Some(peer)) => {
                         debug!(
                             consensus::perf::header::LIFECYCLE,
-                            peer = peer,
+                            peer,
                             header_hash = hash,
                             outcome = outcome.as_str(),
                             slot_start_to_header_micros = @slot_start_to_header_micros,

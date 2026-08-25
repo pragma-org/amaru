@@ -24,7 +24,18 @@ use std::{
 use amaru_metrics::{METRICS_METER_NAME, Meter};
 use amaru_observability::{
     CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
-    CborTraceArrayLayer, TelemetryCaptureLayer, console_field_formatter, info, warn,
+    CborTraceArrayLayer, TelemetryCaptureLayer, console_field_formatter, info,
+    tracing::{Metadata, Subscriber, level_filters::LevelFilter, span, subscriber::Interest},
+    tracing_opentelemetry,
+    tracing_subscriber::{
+        self, EnvFilter, Registry,
+        filter::Filtered,
+        fmt::{Layer, format::FmtSpan},
+        layer::{Context, Filter, Layered, SubscriberExt},
+        prelude::*,
+        util::SubscriberInitExt,
+    },
+    warn,
 };
 use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_sdk::{
@@ -34,15 +45,6 @@ use opentelemetry_sdk::{
     trace::SdkTracerProvider,
 };
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
-use tracing::{Metadata, Subscriber, level_filters::LevelFilter, span, subscriber::Interest};
-use tracing_subscriber::{
-    EnvFilter, Registry,
-    filter::Filtered,
-    fmt::{Layer, format::FmtSpan},
-    layer::{Context, Filter, Layered, SubscriberExt},
-    prelude::*,
-    util::SubscriberInitExt,
-};
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
@@ -610,6 +612,8 @@ mod tests {
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
     };
+
+    use amaru_observability::tracing;
 
     use super::*;
 

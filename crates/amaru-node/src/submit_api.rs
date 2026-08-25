@@ -15,6 +15,7 @@
 use std::net::SocketAddr;
 
 use amaru_kernel::{Transaction, cbor::WithOriginalBytes};
+use amaru_observability::{info, warn};
 use amaru_ouroboros::{MempoolMsg, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::tx_submission::DEFAULT_MEMPOOL_INSERT_TIMEOUT;
 use amaru_pure_stage::{CallError, Sender};
@@ -29,7 +30,6 @@ use axum::{
 };
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
 
 /// For now we just need access to the mempool to route requests from the tx submission API.
 type SubmitApiState = Sender<MempoolMsg>;
@@ -47,11 +47,11 @@ pub async fn start(
         TcpListener::bind(addr).await.with_context(|| format!("failed to bind submit API address at {addr}"))?;
     let local_addr = listener.local_addr().context("failed to get local address")?;
 
-    info!(%local_addr, "Submit API server started");
+    info!(node::submit_api::STARTED, local_addr = local_addr.to_string());
 
     let handle = tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, app).with_graceful_shutdown(shutdown.cancelled_owned()).await {
-            warn!(error = %err, "Submit API server stopped with error");
+            warn!(node::submit_api::STOPPED, error = err.to_string());
         }
     });
 
@@ -99,15 +99,15 @@ async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: Header
         ),
         Err(CallError::TimedOut) => text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool timed out"),
         Err(CallError::SendFailed) => {
-            warn!("mempool send failed");
+            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "send_failed");
             text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
         }
         Err(CallError::ResponseDropped) => {
-            warn!("mempool response dropped");
+            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "response_dropped");
             text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
         }
         Err(CallError::ResponseDeserializeFailed) => {
-            warn!("mempool response deserialization failed");
+            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "deserialize_failed");
             text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool returned an invalid response")
         }
     }

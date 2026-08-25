@@ -95,16 +95,29 @@ use amaru_observability_macros::define_schemas;
 define_schemas! {
     amaru {
         consensus {
+            chain_db_migration {
+                /// Migrate the database if necessary
+                public EXECUTE {
+                    required from: u16
+                    required to: u16
+                }
+                /// A database migration relies on an assumption that may not hold; see the reason
+                public WARN {
+                    /// Version the database is being migrated to
+                    required to: u16
+                    required reason: String
+                }
+                /// Reset the best chain to the anchor during migration so blocks are revalidated
+                public RESET_BEST_CHAIN {
+                    required prev_best_chain: amaru_kernel::HeaderHash
+                    required new_best_chain: amaru_kernel::HeaderHash
+                }
+            }
             chain_db {
                 tags: setup
                 /// Open the database
                 OPEN {
                     required path: String
-                }
-                /// Migrate the database if necessary
-                MIGRATE {
-                    required from: u16
-                    required to: u16
                 }
                 /// Initialize the store
                 INITIALIZE {
@@ -128,6 +141,93 @@ define_schemas! {
                     tags: cpu
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
+                    optional parent: amaru_kernel::Point
+                }
+                /// Startup recovery found an inconsistent stored chain.
+                /// Reason ∈ {ledger_tip_is_origin, broken_chain}.
+                public RECOVER_INCONSISTENT {
+                    required from: amaru_kernel::Point
+                    required to: amaru_kernel::HeaderHash
+                    required reason: String
+                }
+                /// Failed to check whether a stored block exists during startup recovery
+                public RECOVER_FAILED {
+                    required error: String
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+                /// A header required for block fetching could not be loaded from the store
+                public HEADER_NOT_FOUND {
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+                /// Begin replaying stored blocks up to the given tip during startup recovery
+                REPLAY {
+                    tags: setup
+                    required tip: amaru_kernel::Point
+                }
+                /// Resubmit one stored block for validation during startup recovery
+                REPLAY_BLOCK {
+                    tags: setup
+                    required point: amaru_kernel::Point
+                }
+                /// No missing-block boundary found for the new tip; nothing to fetch
+                NO_BOUNDARY {}
+                /// Failed to compute the set of missing blocks
+                public FIND_MISSING_FAILED {
+                    required error: String
+                }
+                /// The batch of missing blocks is empty; resume fetching from the tip
+                public NOTHING_TO_FETCH {
+                    required tip: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
+                }
+                /// Request a batch of missing blocks from peers
+                REQUEST {
+                    required from: amaru_kernel::Point
+                    required through: amaru_kernel::Point
+                    required length: usize
+                }
+                /// No covering peer set was selected; falling back to all initiating connections
+                WEAK_PEER_SELECTION {
+                    required weak: bool
+                }
+                /// Failed to decode a block received from a peer
+                public DECODE_FAILED {
+                    required peer: %amaru_kernel::Peer
+                    required error: String
+                }
+                /// Received a block from a peer
+                RECEIVED {
+                    required point: amaru_kernel::Point
+                }
+                /// Received a block while no batch is active (straggler)
+                STRAGGLER {
+                    required peer: %amaru_kernel::Peer
+                }
+                /// Received a block whose parent does not match the batch boundary
+                PARENT_MISMATCH {
+                    required expected: amaru_kernel::HeaderHash
+                    required actual: amaru_kernel::HeaderHash
+                }
+                /// Received a block out of order: its point is not the next missing point
+                public POINT_MISMATCH {
+                    optional expected: amaru_kernel::Point
+                    required actual: amaru_kernel::Point
+                }
+                /// Failed to persist a downloaded block
+                public STORE_FAILED {
+                    required error: String
+                }
+                /// Block fetching paused because no upstream peers are available
+                public PAUSED {
+                    required req_id: u64
+                }
+                /// Retry block fetching after a no-peers pause
+                RETRY {
+                    required req_id: u64
+                }
+                /// Timed out waiting for requested blocks
+                public TIMEOUT {
+                    required req_id: u64
                 }
             }
             node {
@@ -137,29 +237,216 @@ define_schemas! {
             }
             chain {
                 /// Find chain intersection point with peer
-                FIND_INTERSECTION {
+                public FIND_INTERSECTION {
                     tags: bootstrap
                     required peer: %amaru_kernel::Peer
                     required intersection_slot: amaru_kernel::Slot
                 }
                 /// Received a new tip from an upstream peer
-                SELECT_FROM_TIP {
+                public SELECT_FROM_TIP {
                     tags: cpu
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Received a block validation result
-                SELECT_FROM_BLOCK_VALIDATION {
+                public SELECT_FROM_BLOCK_VALIDATION {
                     tags: cpu
                     required point: amaru_kernel::Point
                     required valid: bool
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Some blocks have been fetched for the current chain, decide what to do next
-                FETCH_NEXT {
+                public FETCH_NEXT {
                     tags: cpu
                     required point: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
+                }
+                /// A tip announced by an upstream peer was not adopted.
+                /// Reason ∈ {already_validated, already_invalid, already_tracked, invalid_ancestor}.
+                public TIP_IGNORED {
+                    required tip: amaru_kernel::Point
+                    required reason: String
+                    optional parent: amaru_kernel::Point
+                }
+                /// A tip announced by an upstream peer is new and starts or extends a chain.
+                /// Outcome ∈ {new_tip, from_origin, extend, fork}.
+                public TIP_ACCEPTED {
+                    required tip: amaru_kernel::Point
+                    required outcome: String
+                    optional parent: amaru_kernel::Point
+                }
+                /// A block was validated successfully, so the chains awaiting it advance past it.
+                ///
+                /// The operator-facing counterpart is `consensus::tip::ADOPT`; this records the
+                /// bookkeeping chain selection does with the result.
+                BLOCK_VALIDATED {
+                    required tip: amaru_kernel::Point
+                    /// How many tracked chains had their pending prefix advanced past this block
+                    required advanced: usize
+                    /// Whether the node is still catching up, where per-block timings are not
+                    /// a meaningful network-health signal
+                    required syncing: bool
+                }
+                /// A new candidate was chosen as the best tip.
+                /// Reason ∈ {better_chain, previous_invalidated}.
+                public BEST_TIP_CANDIDATE {
+                    required tip: amaru_kernel::Point
+                    required reason: String
+                    optional previous: amaru_kernel::Point
+                }
+                /// The best tip candidate was invalidated and forks depending on it were dropped
+                public BEST_TIP_INVALIDATED {
+                    required removed: usize
+                }
+                /// Chain forks were removed because they depend on an invalid block
+                public FORKS_REMOVED {
+                    required removed: usize
+                }
+                /// No valid candidate remains; the best chain falls back to origin
+                public FALLBACK_TO_ORIGIN {}
+                /// Failed to select a new best candidate after an invalidation
+                public FIND_BEST_CANDIDATE_FAILED {
+                    required error: String
+                }
+                /// Where block fetching resumes from, once per request.
+                /// Outcome ∈ {resume_from_best_tip, already_at_best_tip, no_best_tip}; only
+                /// `resume_from_best_tip` sends a tip downstream and carries its `parent`.
+                public RESUME_FETCH {
+                    required outcome: String
+                    required point: amaru_kernel::Point
+                    required best_tip: amaru_kernel::Point
+                    optional parent: amaru_kernel::Point
+                }
+                /// A header needed for chain selection could not be loaded from the store.
+                /// Role ∈ {tip, best_candidate, best_candidate_parent, parent, validation_target}.
+                public HEADER_NOT_FOUND {
+                    required role: String
+                    required header_hash: amaru_kernel::HeaderHash
+                    optional tip: amaru_kernel::Point
+                }
+                /// Failed to persist the validation result of a block
+                public STORE_VALIDATION_FAILED {
+                    required error: String
+                    required valid: bool
+                }
+            }
+            performance {
+                /// The performance worker thread stopped because it panicked
+                public WORKER_PANICKED {}
+                /// The performance operation queue is growing faster than the worker drains it
+                public QUEUE_LAGGING {
+                    required queue_depth: u64
+                }
+                /// The performance operation queue exceeded its hard limit; the node aborts
+                public QUEUE_OVERFLOW {
+                    required queue_depth: u64
+                    required threshold: u64
+                }
+            }
+            best_tip_candidate {
+                /// Walk the stored block tree to find the best candidate tip
+                SEARCH {
+                    required anchor: amaru_kernel::HeaderHash
+                    optional visited: usize
+                    optional best_candidate: amaru_kernel::HeaderHash
+                }
+                /// A stored block was skipped while searching because it is invalid
+                SKIP_INVALID {
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+            }
+            block_source {
+                /// Forget tracked blocks that fell too far behind the adopted tip
+                PRUNE {
+                    optional pruned: usize
+                    optional retained: usize
+                }
+                /// A peer announced a block body
+                RECEIVED {
+                    required peer: %amaru_kernel::Peer
+                    required point: amaru_kernel::Point
+                }
+                /// A peer announced a block already known to be invalid
+                public KNOWN_INVALID {
+                    required peer: %amaru_kernel::Peer
+                    required point: amaru_kernel::Point
+                }
+                /// A block validation result was recorded against its known sources
+                VALIDATION {
+                    required point: amaru_kernel::Point
+                    required valid: bool
+                }
+            }
+            chainsync {
+                /// A chainsync session with an upstream peer was initialized
+                public INITIALIZED {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                }
+                /// A chainsync session was re-initialized while still active; prior state is purged
+                public REINITIALIZED {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                }
+                /// A chainsync session terminated and its connection state was purged
+                public TERMINATED {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                }
+                /// An intersection with the peer's chain was found
+                public INTERSECT_FOUND {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                }
+                /// No intersection with the peer's chain was found, so chainsync with it stops
+                public INTERSECT_NOT_FOUND {
+                    required peer: %amaru_kernel::Peer
+                    required highest: amaru_kernel::Point
+                }
+                /// The peer intersected on a point absent from our own store, so chainsync with it
+                /// stops. Unlike `INTERSECT_NOT_FOUND` this points at local state, not at the peer.
+                public UNKNOWN_INTERSECTION_POINT {
+                    required peer: %amaru_kernel::Peer
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                }
+                /// A header was announced by a peer
+                ROLL_FORWARD {
+                    required peer: %amaru_kernel::Peer
+                    required variant: String
+                    required highest: amaru_kernel::Point
+                }
+                /// A header announced by a peer was processed.
+                /// Outcome ∈ {already_stored, stored}.
+                ROLL_FORWARD_DONE {
+                    required peer: %amaru_kernel::Peer
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                    required outcome: String
+                }
+                /// A peer rolled back to an earlier point
+                public ROLL_BACKWARD {
+                    required peer: %amaru_kernel::Peer
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                }
+                /// A rollback requested by a peer could not be applied; the peer is adversarial
+                public ROLL_BACKWARD_FAILED {
+                    required peer: %amaru_kernel::Peer
+                    required error: String
+                }
+                /// A header's validation is held back until what blocks it resolves.
+                /// Reason ∈ {ledger_height, stake_distribution, clock_skew, follow_up}; the height
+                /// fields are present for `ledger_height`, where they say how far behind we are.
+                HEADER_DEFERRED {
+                    required peer: %amaru_kernel::Peer
+                    required reason: String
+                    required header_hash: amaru_kernel::HeaderHash
+                    optional header_height: u64
+                    optional ledger_height: u64
+                    optional limit: u64
                 }
             }
             roll_forward {
@@ -211,6 +498,9 @@ define_schemas! {
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                     optional valid: bool
+                    /// Ledger tip the block is applied on top of
+                    optional current: amaru_kernel::Point
+                    optional parent: amaru_kernel::Point
                 }
                 /// Skip a block validation when it is not better than the current ledger tip
                 public SKIP {
@@ -222,10 +512,64 @@ define_schemas! {
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
+                /// A tip was not adopted as the new best chain.
+                /// Reason ∈ {shorter_than_best, not_better_than_best}.
+                ADOPT_SKIPPED {
+                    required tip: amaru_kernel::Point
+                    required reason: String
+                    optional current_best_tip: amaru_kernel::Point
+                }
+                /// Adopting a tip as the new best chain failed.
+                /// Step ∈ {adopt_tip, adopt_first_tip, drag_anchor_forward}.
+                public ADOPT_FAILED {
+                    required tip: amaru_kernel::Point
+                    required step: String
+                    required error: String
+                }
+                /// The chain store contradicts itself while adopting a tip.
+                /// Invariant ∈ {header_missing, no_common_ancestor}.
+                public INVARIANT_VIOLATED {
+                    required tip: amaru_kernel::Point
+                    required invariant: String
+                }
+                /// A header needed to adopt a tip could not be loaded.
+                /// Role ∈ {incoming_tip, current_best}.
+                public HEADER_NOT_FOUND {
+                    required role: String
+                    optional tip: amaru_kernel::Point
+                }
+                /// Block validation cannot proceed because the parent is the genesis block
+                public VALIDATE_FROM_GENESIS {
+                    required tip: amaru_kernel::Point
+                    required current: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
+                }
+                /// A block could not be applied to the ledger.
+                /// Step ∈ {validate_block, switch_to_fork}.
+                public APPLY_FAILED {
+                    required tip: amaru_kernel::Point
+                    required step: String
+                    required error: String
+                }
+                /// A block was rejected during validation
+                public INVALID {
+                    required failed_tip: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
+                    required error: String
+                    /// Human-readable context on where the rejection came from
+                    required detail: String
+                }
+                /// The ledger is switching to a different fork
+                public SWITCH_FORK {
+                    required current: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
+                }
                 /// Mismatched body hash after download, the peer is adversarial
-                MISMATCHED_HASH {
+                public MISMATCHED_HASH {
                     required peer: %amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
+                    optional expected: amaru_kernel::Hash<32>
+                    optional actual: amaru_kernel::Hash<32>
                 }
             }
             tip {
@@ -836,6 +1180,12 @@ define_schemas! {
                     required intersection: %amaru_kernel::NetworkPoint
                     required headers_per_point: usize
                 }
+                /// The chain-sync client failed while requesting or awaiting the next header.
+                /// Operation ∈ {request_next, await_next}.
+                public NEXT_FAILED {
+                    required operation: String
+                    required error: String
+                }
             }
             import {
                 /// Import UTxO entries from a snapshot
@@ -913,6 +1263,10 @@ define_schemas! {
                     required point: amaru_kernel::Point
                     required new_epoch_state_offset: usize
                 }
+                /// The parsed snapshot's current era is not Conway; later decoding may fail
+                public UNEXPECTED_ERA {
+                    required snapshot_era: %amaru_kernel::EraName
+                }
             }
             snapshots {
                 /// Import all snapshots
@@ -939,6 +1293,111 @@ define_schemas! {
             public ERROR {
                 required description: String
                 optional cause: String
+            }
+            dev {
+                tags: cli
+                /// A developer command started, with the arguments it resolved.
+                /// Command names the subcommand, e.g. "dev chain prune".
+                public RUN {
+                    required command: String
+                    required network: %amaru_kernel::NetworkName
+                    optional chain_dir: String
+                    optional ledger_dir: String
+                    optional headers_dir: String
+                    optional input: String
+                    optional start: String
+                    optional block: String
+                    optional parent: String
+                    optional peer_address: String
+                    optional epoch: String
+                    optional count: usize
+                    optional from_point: String
+                    optional only_blocks: bool
+                    optional only_validation_results: bool
+                    /// Extra guidance for the operator, when a better command exists
+                    optional hint: String
+                }
+                chain {
+                    /// The pruning boundary derived from the oldest ledger snapshot
+                    public PRUNE_BOUNDARY {
+                        required oldest_ledger_epoch: u64
+                        required boundary_slot: u64
+                    }
+                    /// The chain store anchor was moved to a new hash
+                    public ANCHOR_UPDATED {
+                        required new_anchor: amaru_kernel::HeaderHash
+                    }
+                    /// The chain database is already at the current version
+                    public MIGRATION_NOT_NEEDED {}
+                    /// The chain database could not be opened
+                    public OPEN_FAILED {
+                        required error: String
+                    }
+                    /// The number of stored points selected for removal
+                    public POINTS_TO_REMOVE {
+                        required points: usize
+                    }
+                    /// The best chain hash is being moved back before removing points
+                    public MOVING_BEST_CHAIN {}
+                    /// A header on the path back to the best chain has no stored parent
+                    public PARENT_NOT_FOUND {
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
+                    /// A point is being removed from the chain store
+                    public POINT_REMOVED {
+                        required point: amaru_kernel::Point
+                    }
+                    /// The stored validation status of a block is being cleared
+                    public VALIDATION_CLEARED {
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
+                }
+                ledger {
+                    /// A ledger snapshot was removed
+                    public SNAPSHOT_REMOVED {
+                        required epoch: u64
+                    }
+                    /// A ledger snapshot to remove does not exist
+                    public SNAPSHOT_NOT_FOUND {
+                        required epoch: u64
+                    }
+                }
+            }
+            node {
+                tags: setup
+                /// The effective configuration a node run starts with
+                public RUN {
+                    required chain_dir: String
+                    required ledger_dir: String
+                    required listen_address: String
+                    required max_extra_ledger_snapshots: String
+                    required migrate_chain_db: bool
+                    required network: %amaru_kernel::NetworkName
+                    required peer_address: String
+                    required peer_snapshot: String
+                    required peer_snapshot_relays: usize
+                    required pid_file: String
+                    required submit_api_address: String
+                    required trace_buffer_min_entries: usize
+                    required trace_buffer_max_size: usize
+                    required trace_dump_path: String
+                    required peer_removal_cooldown_secs: u64
+                    required mempool_max_bytes: String
+                    required tx_submission_max_window: u16
+                    required tx_submission_fetch_batch_bytes: u64
+                    required tx_submission_inflight_timeout_ms: u64
+                    required tx_submission_insert_timeout_ms: u64
+                    /// Path to an era history override, when one was given
+                    optional era_history: String
+                    /// Serialised global parameters, for test networks only
+                    optional global_parameters: String
+                }
+                /// The submit API did not stop cleanly during shutdown.
+                /// Reason ∈ {join_error, timeout}.
+                public SUBMIT_API_SHUTDOWN_FAILED {
+                    required reason: String
+                    optional error: String
+                }
             }
             chain_db {
                 /// Chain database already exists
@@ -986,6 +1445,17 @@ define_schemas! {
                 public DOWNLOAD {
                     required from_chunk: u64
                     required target_dir: String
+                }
+                /// Immutable chunks are being fetched from Mithril
+                public DOWNLOAD_CHUNKS {
+                    required tip: amaru_kernel::Point
+                    required from_chunk: u64
+                }
+                /// Finished replaying downloaded blocks into the stores
+                public INGEST_COMPLETED {
+                    required processed: u64
+                    required duration_seconds: f64
+                    required processed_per_seconds: f64
                 }
                 /// Local cardano-node database is recent enough; skipping Mithril download
                 public SKIP_DOWNLOAD {
@@ -1109,6 +1579,11 @@ define_schemas! {
                 public COMMIT {}
                 /// Rollback a write batch
                 public ROLLBACK {}
+                /// A transaction was dropped without commit or rollback.
+                /// Outcome ∈ {left_open, auto_rolled_back}.
+                public DROPPED_WITHOUT_CLOSE {
+                    required outcome: String
+                }
             }
             ledger {
                 epoch {
@@ -1284,6 +1759,10 @@ define_schemas! {
                         optional snapshot_count: u64
                         optional continuous_ranges: u64
                     }
+                    /// Skipped an unexpected file found in the snapshots directory
+                    public UNEXPECTED_FILE {
+                        required filename: String
+                    }
                 }
                 /// Full scan for a given collection
                 public ITER_SCAN {
@@ -1377,6 +1856,26 @@ define_schemas! {
                         required role: String
                     }
                 }
+                /// A mini-protocol stage running on a connection died
+                public CHILD_DIED {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                    required child: String
+                }
+                /// The peer refused our proposed protocol versions
+                public HANDSHAKE_REFUSED {
+                    required reason: String
+                }
+                /// The peer answered a version query instead of negotiating
+                public HANDSHAKE_QUERY_REPLY {
+                    required version_table: String
+                }
+                /// An inbound connection could not be accepted.
+                /// Reason ∈ {aborted, error}.
+                public ACCEPT_FAILED {
+                    required reason: String
+                    optional error: String
+                }
             }
             manager {
                 message {
@@ -1409,6 +1908,101 @@ define_schemas! {
                         required conn_id: u64
                         required role: String
                     }
+                    /// A connection request for a peer was discarded.
+                    /// Reason ∈ {already_connected_or_scheduled, already_connected, not_added}.
+                    public CONNECT_DISCARDED {
+                        required peer: %amaru_kernel::Peer
+                        required reason: String
+                    }
+                    /// A peer is dropped after exhausting its connection attempts
+                    public CONNECT_EXHAUSTED {
+                        required peer: %amaru_kernel::Peer
+                    }
+                    /// An outbound connection to a peer was established
+                    public CONNECTED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                    }
+                    /// An outbound connection attempt failed
+                    public CONNECT_FAILED {
+                        required peer: %amaru_kernel::Peer
+                        required error: String
+                    }
+                    /// The handshake completed on a connection
+                    public HANDSHAKE_COMPLETED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required full_duplex_capable: bool
+                        required full_duplex: bool
+                        required advertisable: bool
+                    }
+                    /// A duplicate connection is terminated after its handshake completed
+                    public DUPLICATE_TERMINATED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                    }
+                    /// A connection is being closed on request.
+                    /// Direction ∈ {inbound, outbound}.
+                    public DISCONNECTING {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required direction: String
+                    }
+                    /// A disconnect request could not be carried out.
+                    /// Reason ∈ {not_connected, connection_not_found, peer_already_removed,
+                    /// before_handshake}.
+                    public DISCONNECT_IGNORED {
+                        required peer: %amaru_kernel::Peer
+                        required reason: String
+                        optional conn_id: u64
+                    }
+                    /// A dead connection was reconciled with the peer's remaining state.
+                    /// Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed,
+                    /// reconnect_scheduled}.
+                    public CONNECTION_DIED_HANDLED {
+                        required peer: %amaru_kernel::Peer
+                        required outcome: String
+                    }
+                    /// Closing the socket of a dead connection failed
+                    public CLOSE_FAILED {
+                        required peer: %amaru_kernel::Peer
+                        required error: String
+                    }
+                }
+                listen {
+                    tags: setup
+                    /// The node is accepting inbound connections on an address
+                    public STARTED {
+                        required listen_addr: String
+                    }
+                    /// The node could not listen on the configured address
+                    public FAILED {
+                        required listen_addr: String
+                        required error: String
+                    }
+                }
+                blocks {
+                    /// Dispatch a block-fetch request to connected peers
+                    FETCH {
+                        required from: amaru_kernel::Point
+                        required through: amaru_kernel::Point
+                        optional peers: String
+                    }
+                    /// A block-fetch request was dispatched to at least one connection
+                    FETCH_SENT {
+                        required id: u64
+                        required sent: usize
+                    }
+                    /// No connection was available to serve a block-fetch request
+                    public FETCH_NO_PEERS {
+                        required id: u64
+                    }
+                }
+                sharing {
+                    /// No initiating connection was available to request shared peers from
+                    REQUEST_NO_CONNECTION {
+                        required peer: %amaru_kernel::Peer
+                    }
                 }
             }
             peer_selection {
@@ -1429,6 +2023,51 @@ define_schemas! {
                         required direction: String
                         optional reason: String
                     }
+                    /// A peer was removed after behaving adversarially
+                    public REMOVED {
+                        required peer: %amaru_kernel::Peer
+                        required direction: String
+                        required peer_state: String
+                        required is_static: bool
+                    }
+                    /// A peer was added to the outbound set
+                    public ADDED {
+                        required peer: %amaru_kernel::Peer
+                        required was_banned: bool
+                    }
+                    /// A peer was not added to the outbound set.
+                    /// Reason ∈ {already_added, too_many_inbound}.
+                    public ADD_SKIPPED {
+                        required peer: %amaru_kernel::Peer
+                        required reason: String
+                    }
+                    /// A peer reconnected while a previous connection was still registered;
+                    /// the older connection is dropped. Direction ∈ {inbound, outbound}.
+                    public RECONNECTED {
+                        required peer: %amaru_kernel::Peer
+                        required direction: String
+                        required conn_id: u64
+                    }
+                    /// A peer was reported as adversarial and is about to be banned
+                    ADVERSARIAL {
+                        required peer: %amaru_kernel::Peer
+                    }
+                }
+                ledger {
+                    /// Look for peer candidates registered as relays in the ledger
+                    CHECK_CANDIDATES {
+                        required last_height: u64
+                    }
+                    /// Failed to read registered relay addresses from the ledger
+                    public CANDIDATES_FAILED {
+                        required error: String
+                    }
+                }
+                /// Connect to the initial set of peers at startup
+                public CONNECT_INITIAL {
+                    tags: setup
+                    required static_peers: usize
+                    required snapshot_peers: usize
                 }
                 sharing {
                     /// Peer-sharing address list received from peer.
@@ -1465,6 +2104,14 @@ define_schemas! {
                     CHAINSYNC_INITIATOR_PROTOCOL {
                         required message_type: String
                     }
+                    /// Sample stored points to propose as chain intersections
+                    INTERSECT_POINTS {
+                        optional points: String
+                    }
+                    /// A rollback target announced by the peer is not in the chain store
+                    public ROLLBACK_POINT_NOT_FOUND {
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
                 }
                 responder {
                     /// Handle chain sync responder stage messages
@@ -1475,6 +2122,8 @@ define_schemas! {
                     CHAINSYNC_RESPONDER_PROTOCOL {
                         required message_type: String
                     }
+                    /// The peer ended the chainsync session
+                    public STOPPED {}
                 }
             }
             blockfetch {
@@ -1487,6 +2136,17 @@ define_schemas! {
                     BLOCKFETCH_INITIATOR_PROTOCOL {
                         required message_type: String
                     }
+                    /// A queued request is dropped because the peer is too slow
+                    DROPPED_SLOW_PEER {
+                        required peer: %amaru_kernel::Peer
+                    }
+                    /// The peer broke the block-fetch protocol and the connection is terminated.
+                    /// Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}.
+                    public PROTOCOL_VIOLATION {
+                        required reason: String
+                        optional max_blocks: usize
+                        optional bytes: usize
+                    }
                 }
                 responder {
                     /// Handle block fetch responder stage messages
@@ -1496,6 +2156,14 @@ define_schemas! {
                     /// Handle block fetch responder protocol messages
                     BLOCKFETCH_RESPONDER_PROTOCOL {
                         required message_type: String
+                    }
+                    /// A requested block range was refused.
+                    /// Reason ∈ {inverted_range, exceeds_max_blocks}.
+                    RANGE_REFUSED {
+                        required from: %amaru_kernel::NetworkPoint
+                        required through: %amaru_kernel::NetworkPoint
+                        required reason: String
+                        optional max_blocks: usize
                     }
                 }
             }
@@ -1508,6 +2176,18 @@ define_schemas! {
                     /// Handle handshake initiator protocol messages
                     HANDSHAKE_INITIATOR_PROTOCOL {
                         required message_type: String
+                    }
+                    /// The protocol versions we offer to the peer
+                    PROPOSING_VERSIONS {
+                        required our_versions: String
+                    }
+                    /// The outcome of the version negotiation
+                    CONCLUSION {
+                        required handshake_result: String
+                    }
+                    /// Both sides opened a connection at the same time
+                    SIMULTANEOUS_OPEN {
+                        required version_table: String
                     }
                 }
                 responder {
@@ -1562,6 +2242,13 @@ define_schemas! {
                     PEER_SHARING_INITIATOR_PROTOCOL {
                         required message_type: String
                     }
+                    /// The peer broke the peer-sharing protocol and the connection is terminated.
+                    /// Reason ∈ {no_request_in_flight, too_many_addresses}.
+                    public PROTOCOL_VIOLATION {
+                        required reason: String
+                        optional requested: u8
+                        optional received: usize
+                    }
                 }
                 responder {
                     /// Handle peer-sharing responder stage messages
@@ -1575,6 +2262,12 @@ define_schemas! {
                 }
             }
             tx_submission {
+                /// The tx-submission protocol is being torn down; the cause names the rule broken
+                public TERMINATING {
+                    required cause: String
+                }
+                /// The responder side of the protocol was initialized
+                INITIALIZED {}
                 initiator {
                     /// Handle tx-submission initiator stage messages
                     TX_SUBMISSION_INITIATOR_STAGE {
@@ -1609,6 +2302,24 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required seq_no: u64
                         optional req: u16
+                    }
+                    /// The peer requested transaction ids or bodies.
+                    /// Request ∈ {tx_ids_blocking, tx_ids_non_blocking, txs}.
+                    RECEIVED_REQUEST {
+                        required request: String
+                        optional ack: u16
+                        optional req: u16
+                        optional count: usize
+                        optional ids: String
+                    }
+                    /// The peer asked for transactions that are not in our outstanding window
+                    public UNAVAILABLE_TXS {
+                        required unavailable: String
+                    }
+                    /// The peer acknowledged more transaction ids than are outstanding
+                    public OVER_ACKNOWLEDGED {
+                        required ack: u16
+                        required window: usize
                     }
                 }
                 responder {
@@ -1655,6 +2366,25 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required pending: usize
                     }
+                    /// The peer replied with more transaction ids than were requested
+                    public OVER_REPLIED {
+                        required requested: u16
+                        required received: usize
+                        required max_window: u16
+                    }
+                    /// The peer sent transaction bodies that were never requested
+                    public UNSOLICITED_TXS {
+                        required not_requested: String
+                    }
+                    /// The mempool did not answer an insertion batch before the timeout
+                    public MEMPOOL_TIMEOUT {}
+                    /// A transaction received from a peer was handed to the mempool.
+                    /// Outcome ∈ {inserted, invalid, mempool_full, duplicate}.
+                    public RECEIVED_TX {
+                        required id: amaru_kernel::TransactionId
+                        required outcome: String
+                        optional error: String
+                    }
                 }
             }
             mux {
@@ -1673,13 +2403,142 @@ define_schemas! {
                     /// Handle received protocol data
                     RECEIVED {
                         optional bytes: u64
+                        optional proto_id: String
                     }
                     /// Want next message for protocol
                     WANT_NEXT {}
+                    /// A protocol segment was handed to the network. High-rate event.
+                    SEND {
+                        required proto_id: String
+                        required bytes: u64
+                    }
+                    /// A protocol segment was queued for sending. High-rate event.
+                    ENQUEUE {
+                        required proto_id: String
+                        required bytes: u64
+                    }
+                    /// A segment is written to the wire. High-rate event.
+                    SEGMENT_SENT {
+                        required proto_id: String
+                        required bytes: u64
+                        required next: u64
+                    }
+                    /// A protocol updated how many bytes it is waiting for. High-rate event.
+                    WANT_UPDATED {
+                        required want: usize
+                    }
+                    /// Bytes were delivered to a protocol buffer. High-rate event.
+                    BYTES_RECEIVED {
+                        required wanted: usize
+                    }
+                    /// A complete message was extracted from a protocol buffer. High-rate event.
+                    MESSAGE_EXTRACTED {
+                        required bytes: usize
+                    }
+                    /// The next delivery to a protocol is deferred until more bytes arrive
+                    DELIVERY_DEFERRED {}
+                    /// Incoming bytes are dropped because the protocol stopped consuming them
+                    IGNORING_BYTES {
+                        required bytes: usize
+                    }
+                    /// A protocol buffer grew past its limit; incoming data is now ignored
+                    BUFFER_IGNORING {
+                        required buffer: usize
+                    }
+                    /// A protocol message does not fit in the buffer allotted to it
+                    public BUFFER_EXCEEDED {
+                        required buffered: usize
+                        required max_buffer: usize
+                    }
+                    /// Reducing a protocol buffer was not enough and the connection was killed
+                    public BUFFER_OVERFLOW {
+                        required buffer: usize
+                        required limit: usize
+                    }
+                }
+                /// The muxer failed while moving data between a protocol and the network.
+                /// Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.
+                public FAILED {
+                    required role: String
+                    required peer: %amaru_kernel::Peer
+                    required operation: String
+                    required error: String
+                }
+                /// A segment header announcing an empty payload was received
+                public EMPTY_SEGMENT {
+                    required role: String
+                    required peer: %amaru_kernel::Peer
+                }
+                /// The muxer is shutting down after a read or write error
+                TERMINATING {
+                    required role: String
                 }
             }
         }
         setup {
+            lifecycle {
+                /// A termination signal was received; the node is shutting down
+                public TERMINATION_SIGNAL {}
+                /// The consensus pipeline stopped while the node was still running
+                public CONSENSUS_DIED {}
+            }
+            pid {
+                /// The PID file for this node instance was created
+                CREATED {
+                    required path: String
+                    required pid: u32
+                }
+                /// The PID file could not be created or written
+                public WRITE_FAILED {
+                    required error: String
+                }
+            }
+            file_descriptors {
+                /// The soft limit on open files is below what Amaru needs
+                public TOO_LOW {
+                    required current_soft_fd_limit: u64
+                    required current_hard_fd_limit: u64
+                    required expected_min: u64
+                    /// Operator-facing instruction on how to raise the limit
+                    required hint: String
+                }
+                /// The open-file limit could not be queried
+                public UNKNOWN {
+                    required expected_min: u64
+                }
+            }
+            trace_buffer {
+                /// The stage trace buffer was written to disk
+                public DUMPED {
+                    required path: String
+                }
+                /// The stage trace buffer could not be written to disk
+                public DUMP_FAILED {
+                    required path: String
+                    required error: String
+                }
+            }
+            peer_snapshot {
+                /// A peer snapshot was loaded at startup
+                public LOADED {
+                    required path: String
+                    required point: %amaru_kernel::NetworkPoint
+                    required pools: usize
+                    required relays: usize
+                    required node_to_client_version: u64
+                    required configs_commit: String
+                }
+                /// A peer snapshot was loaded but holds no relay addresses
+                public EMPTY {
+                    required path: String
+                    required point: %amaru_kernel::NetworkPoint
+                    required pools: usize
+                }
+                /// No embedded peer snapshot exists for the selected network
+                public MISSING {
+                    required network: %amaru_kernel::NetworkName
+                }
+            }
             observability {
                 /// Observability stack initialization
                 public INIT {
@@ -1709,6 +2568,39 @@ define_schemas! {
                 }
             }
         }
+        node {
+            build {
+                tags: setup
+                /// Opened the ledger state; reports the ledger tip at startup
+                public LEDGER_OPENED {
+                    required tip: amaru_kernel::Point
+                }
+                /// Failed to notify the peer tracker of a stake distribution update
+                public STAKE_DIST_NOTIFY_FAILED {}
+            }
+            metrics {
+                /// The metrics collector could not find Amaru's own process
+                public PROCESS_NOT_FOUND {
+                    required pid: u32
+                }
+            }
+            submit_api {
+                tags: io
+                /// The transaction submission HTTP server is listening
+                public STARTED {
+                    required local_addr: String
+                }
+                /// The transaction submission HTTP server stopped with an error
+                public STOPPED {
+                    required error: String
+                }
+                /// A submitted transaction could not reach the mempool.
+                /// Reason ∈ {send_failed, response_dropped, deserialize_failed}.
+                public MEMPOOL_UNREACHABLE {
+                    required reason: String
+                }
+            }
+        }
         network {
             connection {
                 tags: io
@@ -1728,6 +2620,30 @@ define_schemas! {
                 RECV {}
                 /// Close connection
                 CLOSE {}
+                /// Aborted an existing listener task so the address can be rebound on restart
+                public LISTENER_RESTART {
+                    required address: String
+                }
+                /// A TCP listener is bound and accepting incoming connections
+                LISTENING {
+                    required local: String
+                }
+                /// The accept loop terminated because the listener or channel closed
+                public ACCEPT_LOOP_STOPPED {
+                    required local: String
+                }
+                /// Accepted an incoming TCP connection
+                ACCEPTED {
+                    required peer_addr: String
+                }
+                /// Established a TCP connection to one of the given addresses
+                CONNECTED {
+                    required addresses: Vec<String>
+                }
+                /// Resolved a peer specification into socket addresses
+                RESOLVED {
+                    required addresses: Vec<String>
+                }
             }
         }
     }

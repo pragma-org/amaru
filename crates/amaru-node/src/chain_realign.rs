@@ -59,7 +59,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
         chain_store.roll_forward_chain(&tip)?;
     }
 
-    info_record!(consensus::chain_db::INITIALIZE, best_chain_hash = best_chain_hash);
+    info_record!(consensus::chain_db::INITIALIZE, best_chain_hash);
     clear_validation_after_tip(chain_store, tip, clear)?;
     Ok(())
 }
@@ -83,7 +83,7 @@ fn clear_validation_after_tip(chain_store: &dyn ChainStore, tip: Point, clear: C
 
         to_visit.extend(chain_store.get_children(&hash));
     }
-    debug!(consensus::chain_db::CLEAR_VALID_DESCENDANTS, count = count);
+    debug!(consensus::chain_db::CLEAR_VALID_DESCENDANTS, count);
     Ok(())
 }
 

@@ -15,12 +15,12 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point, Slot};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros_traits::{StoreError, overriding_chain_store::OverridingChainStore};
 use amaru_pure_stage::{
     Instant, assert_trace_contains,
     trace_buffer::{TerminationReason, TraceEntry},
 };
-use tracing::Level;
 
 use super::*;
 use crate::stages::{
@@ -54,9 +54,9 @@ fn test_tip_not_found() {
             te_terminated("sc-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["tip not found"])
+    logs.assert_and_remove(Level::ERROR, &["chain.select_from_tip", "chain.header_not_found", r#"role="tip""#])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -80,11 +80,11 @@ fn test_tip_already_validated_is_ignored() {
             te_state("sc-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["already validated"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["chain.select_from_tip", "chain.tip_ignored", r#"reason="already_validated""#],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -112,11 +112,8 @@ fn test_tip_already_invalid_is_abandoned() {
             te_state("sc-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["already invalid"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::INFO, &["chain.select_from_tip", "chain.tip_ignored", r#"reason="already_invalid""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -142,9 +139,12 @@ fn test_tip_already_tracked_is_noop() {
             te_state("sc-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["already tracked"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["chain.select_from_tip", "chain.tip_ignored", r#"reason="already_tracked""#],
+    )
+    .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -173,10 +173,10 @@ fn test_tip_extends_from_origin() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["new chain from origin"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.tip_accepted", "from_origin"])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.best_tip_candidate", "better_chain"])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -210,10 +210,10 @@ fn test_tip_extends_from_h1() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["new chain"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.best_tip_candidate", "better_chain"])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="fork""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -250,10 +250,10 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["new chain"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.best_tip_candidate", "better_chain"])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="fork""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -299,10 +299,10 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["new chain"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.best_tip_candidate", "better_chain"])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="fork""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -337,9 +337,9 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["new chain"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.tip_accepted", r#"outcome="new_tip""#])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.tip_accepted", r#"outcome="fork""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -382,10 +382,10 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["new chain"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chain.select_from_tip", "chain.best_tip_candidate", "better_chain"])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="fork""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -420,9 +420,12 @@ fn test_upstream_tip_depends_on_invalid_block() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::INFO, &["upstream tip depends on invalid block"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::INFO,
+        &["chain.select_from_tip", "chain.tip_ignored", r#"reason="invalid_ancestor""#],
+    )
+    .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -457,7 +460,11 @@ fn test_block_validation_result_valid() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["chain.select_from_block_validation", "chain.block_validated", "advanced=1"],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -512,9 +519,14 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["chain.select_from_block_validation", "chain.best_tip_invalidated"])
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search"])
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search", "visited=3", "visited=3"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &["chain.select_from_block_validation", r#"reason="previous_invalidated""#, "valid=false"],
+        )
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -576,9 +588,14 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["chain.select_from_block_validation", "chain.best_tip_invalidated"])
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search"])
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search", "visited=5", "visited=5"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &["chain.select_from_block_validation", r#"reason="previous_invalidated""#, "valid=false"],
+        )
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -625,11 +642,8 @@ fn test_block_validation_result_invalid_removes_tips() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::WARN, &["chain fork(s) removed due to invalid block"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::WARN, &["chain.select_from_block_validation", "chain.forks_removed"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -652,9 +666,12 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
             te_terminated("sc-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["header not found"])
-        .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::ERROR,
+        &["chain.select_from_block_validation", "chain.header_not_found", r#"role="validation_target""#],
+    )
+    .assert_and_remove(Level::INFO, &["terminated"])
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -686,9 +703,12 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
             te_terminated("sc-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["failed to store block validation result", "injected fault"])
-        .assert_and_remove(Level::INFO, &["terminated", "stage=sc-1"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::ERROR,
+        &["chain.select_from_block_validation", "chain.store_validation_failed", "injected fault"],
+    )
+    .assert_and_remove(Level::INFO, &["terminated", "stage=sc-1"])
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -711,11 +731,11 @@ fn test_startup_with_non_empty_store() {
             te_state("sc-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["resuming block fetching"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["chain.fetch_next", "chain.resume_fetch", r#"outcome="resume_from_best_tip""#],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -743,11 +763,11 @@ fn test_fetch_next_from_resumes_best_candidate() {
         ],
     );
 
-    logs.assert_and_remove(Level::DEBUG, &["resuming block fetching"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["chain.fetch_next", "chain.resume_fetch", r#"outcome="resume_from_best_tip""#],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -779,7 +799,11 @@ fn test_fetch_next_from_enables_may_fetch_blocks() {
 
     assert!(final_state.may_fetch_blocks, "expected may_fetch_blocks to be enabled");
 
-    logs.assert_no_remaining_at([Level::ERROR]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["chain.fetch_next", "chain.resume_fetch", r#"outcome="already_at_best_tip""#],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -804,7 +828,14 @@ fn test_last_best_tip_invalidated_falls_back_to_origin() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"]).assert_no_remaining_at([Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["chain.select_from_block_validation", "chain.best_tip_invalidated"])
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search"])
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search", "visited=1", "visited=1"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &["chain.select_from_block_validation", r#"reason="previous_invalidated""#, "valid=false"],
+        )
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -859,10 +890,10 @@ fn test_new_tip_after_pruning_restores_pending_block_validations() {
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::WARN, &["chain fork(s) removed due to invalid block"])
-        .assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
-        .assert_and_remove(Level::DEBUG, &["new chain"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::WARN, &["chain.select_from_block_validation", "chain.forks_removed"])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="new_tip""#])
+        .assert_and_remove(Level::DEBUG, &["chain.select_from_tip", r#"outcome="fork""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -920,9 +951,18 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
             te_state("sc-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
-        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["chain.select_from_block_validation", "chain.best_tip_invalidated"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &["chain.select_from_block_validation", "advanced=1", "syncing=false", "valid=true"],
+        )
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search"])
+        .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search", "visited=4", "visited=4"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &["chain.select_from_block_validation", r#"reason="previous_invalidated""#, "valid=false"],
+        )
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[cfg(test)]

@@ -13,12 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{EraName, NetworkPoint, Peer, Point};
-use amaru_observability::{TraceContext, debug_span};
+use amaru_observability::{Instrument, TraceContext, debug_span, info};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use anyhow::{Context, anyhow, ensure};
-use tracing::Instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
@@ -81,7 +80,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 let span = debug_span!(
                     parent_context: trace_context,
                     consensus::header::FORWARD,
-                    tip = tip,
+                    tip,
                     peer = &self.peer,
                 );
                 self.upstream = tip;
@@ -120,15 +119,12 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                     Ok((action, self))
                 }
                 ResponderResult::Done => {
-                    tracing::info!("peer stopped chainsync");
+                    info!(protocols::chainsync::responder::STOPPED);
                     Ok((None, self))
                 }
             }
         }
-        .instrument(debug_span!(
-            protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE,
-            message_type = message_type
-        ))
+        .instrument(debug_span!(protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE, message_type))
         .await
     }
 

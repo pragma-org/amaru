@@ -15,6 +15,7 @@
 use std::{self, slice, time::Duration};
 
 use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, num::CheckedSub};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{Nonces, has_stake_distribution::GetPoolError};
 use amaru_protocols::chainsync::{
@@ -22,9 +23,8 @@ use amaru_protocols::chainsync::{
 };
 use amaru_pure_stage::{
     Instant, assert_trace_contains, assert_trace_does_not_contain, assert_trace_match,
-    simulation::running::OverrideResult, tm_send, trace_buffer::TraceEntry,
+    simulation::running::OverrideResult, tm_send,
 };
-use tracing::Level;
 
 use crate::{
     effects::{ValidateHeaderEffect, VolatileTipEffect},
@@ -38,7 +38,7 @@ use crate::{
                 HEIGHT_RECHECK_INTERVAL, SIM_INITIAL_CLOCK_SECS, build_store, build_store_with_nonces,
                 height_recheck_schedule_id, make_block_header, new_tip, schedule_id_at, setup, setup_base,
                 setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clear_peer_availability,
-                te_clock, te_clock_suspend, te_get_nonces, te_load_header, te_load_point,
+                te_clock, te_clock_suspend, te_get_nonces, te_header_rejected, te_load_header, te_load_point,
                 te_record_header_announcement, te_record_rollback, te_schedule, te_store_validated_header,
                 te_validate_header, test_prep, test_prep_with_max_peer_lead, tm_volatile_tip,
             },
@@ -47,24 +47,6 @@ use crate::{
     store::NoncesError,
     validate_header::ValidateHeaderError,
 };
-
-/// Performance effect recorded for a header rejected on reception.
-fn te_header_rejected(outcome: &str) -> TraceEntry {
-    use amaru_pure_stage::Effect;
-
-    use crate::performance::HeaderLifecycleOutcome as O;
-    let outcome = match outcome {
-        "invalid header" => O::InvalidHeader,
-        "duplicate header" => O::DuplicateHeader,
-        "undecodable header" => O::UndecodableHeader,
-        "store header error" => O::StoreHeaderError,
-        other => panic!("unknown header rejection outcome in test: {other}"),
-    };
-    amaru_pure_stage::trace_buffer::TraceEntry::suspend(Effect::external(
-        "tp-1",
-        Box::new(crate::performance::Performance::record_header_rejected(outcome)),
-    ))
-}
 
 #[test]
 fn test_new_peer() {
@@ -86,7 +68,8 @@ fn test_new_peer() {
         &running,
         &[te_state("tp-1", &state).into(), te_input("tp-1", &msg).into(), te_state("tp-1", &expected).into()],
     );
-    logs.assert_and_remove(Level::INFO, &["initializing chainsync"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["chainsync.initialized"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -116,9 +99,9 @@ fn test_initialize_resets_established_session() {
         &running,
         &[te_state("tp-1", &state).into(), te_input("tp-1", &msg).into(), te_state("tp-1", &expected).into()],
     );
-    logs.assert_and_remove(Level::WARN, &["unexpected re-initialize"])
-        .assert_and_remove(Level::INFO, &["initializing chainsync"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::WARN, &["chainsync.reinitialized"])
+        .assert_and_remove(Level::INFO, &["chainsync.initialized"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -150,7 +133,8 @@ fn test_terminated_purges_upstream_and_deferred() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["chainsync terminated"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["chainsync.terminated"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -186,7 +170,8 @@ fn test_terminated_only_purges_matching_connection() {
     );
     // Other connection still tracked for this peer ⇒ no clear_peer_availability.
     assert_trace_does_not_contain(&running, &[te_clear_peer_availability("tp-1", peer).into()]);
-    logs.assert_and_remove(Level::INFO, &["chainsync terminated"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["chainsync.terminated"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -217,7 +202,8 @@ fn test_intersect_found_missing_header_sends_done() {
             te_state("tp-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::WARN, &["peer sent unknown intersection point"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::WARN, &["chainsync.unknown_intersection_point"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -252,7 +238,8 @@ fn test_intersect_found_tracks_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["intersect found"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["chainsync.intersect_found"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -329,10 +316,11 @@ fn test_reconnect_intersect_then_roll_forward() {
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
-    logs.assert_and_remove(Level::INFO, &["chainsync terminated"])
-        .assert_and_remove(Level::INFO, &["initializing chainsync"])
-        .assert_and_remove(Level::INFO, &["intersect found"])
-        .assert_and_remove(Level::DEBUG, &["roll forward", "new header"])
+    logs.assert_and_remove(Level::INFO, &["chainsync.terminated"])
+        .assert_and_remove(Level::INFO, &["chainsync.initialized"])
+        .assert_and_remove(Level::INFO, &["chainsync.intersect_found"])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -357,7 +345,8 @@ fn test_intersect_not_found_untracked_sends_done() {
             te_state("tp-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["intersect not found"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["chainsync.intersect_not_found"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -388,7 +377,8 @@ fn test_intersect_not_found_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["intersect not found"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["chainsync.intersect_not_found"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -422,11 +412,10 @@ fn test_roll_forward_unknown_peer_removes_peer() {
             te_state("tp-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Unknown peer"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Unknown peer"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -472,11 +461,11 @@ fn test_roll_forward_known_peer_header_already_stored() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll forward", "already stored"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="already_stored""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="duplicate_header""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="duplicate_header""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// A header may already sit in the chain store without nonces (legacy import / incomplete
@@ -530,11 +519,9 @@ fn test_roll_forward_stored_header_missing_nonces_revalidates() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -581,11 +568,9 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Consecutive headers may skip empty Praos slots; a later slot that is still in the past is valid.
@@ -623,11 +608,9 @@ fn test_roll_forward_accepts_empty_slots_in_the_past() {
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
-    logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -661,7 +644,8 @@ fn test_roll_forward_invalid_variant_removes_peer() {
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header variant"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="undecodable_header""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -695,7 +679,8 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Failed to decode header"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="undecodable_header""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -729,11 +714,10 @@ fn test_roll_forward_invalid_parent_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header parent"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header parent"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -766,11 +750,10 @@ fn test_roll_forward_invalid_height_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header height"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header height"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -803,11 +786,10 @@ fn test_roll_forward_invalid_point_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header point"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header point"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -837,11 +819,10 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             });
         });
 
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_match(
         &running,
         &[
@@ -882,11 +863,10 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "ahead of local time"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "ahead of local time"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_match(
         &running,
         &[
@@ -962,7 +942,10 @@ fn test_roll_forward_header_slot_near_future_defers() {
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="clock_skew""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // Clock-skew defers, then sim advances and RecheckLedgerHeight processes the header.
     assert_trace_contains(
         &running,
@@ -1013,11 +996,10 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
             });
         });
 
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_match(
         &running,
         &[
@@ -1070,7 +1052,12 @@ fn test_roll_backward_updates_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["chainsync.roll_backward"]).assert_no_remaining_at([
+        Level::DEBUG,
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -1101,8 +1088,9 @@ fn test_roll_backward_unknown_peer_removes_peer() {
             te_state("tp-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.roll_backward.failed", "Unknown peer"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["chainsync.roll_backward_failed", "Unknown peer"])
+        .assert_and_remove(Level::INFO, &["chainsync.roll_backward"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -1133,8 +1121,9 @@ fn test_roll_backward_unknown_point_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.roll_backward.failed", "Unknown point"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["chainsync.roll_backward_failed", "Unknown point"])
+        .assert_and_remove(Level::INFO, &["chainsync.roll_backward"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Tests that a RollForward whose header height requires a ledger height beyond what is currently
@@ -1164,11 +1153,12 @@ fn test_roll_forward_defers_request_next() {
     let (running, _guards, mut logs) =
         setup_with_ledger_tip_until_sleeping(&prep.rt_handle(), state.clone(), [msg.clone()], store, Point::Origin);
 
-    logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
-        Level::ERROR,
-        Level::WARN,
-        Level::INFO,
-    ]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["chainsync.header_deferred", r#"reason="ledger_height""#, "header_height=1", "ledger_height=0", "limit=1"],
+    )
+    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 
     assert_trace_match(
         &running,
@@ -1227,11 +1217,11 @@ fn test_pipelined_headers_after_height_defer() {
         Point::Origin,
     );
 
-    logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="ledger_height""#, "limit=2"])
+        .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="follow_up""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_match(
         &running,
         &[
@@ -1289,9 +1279,10 @@ fn test_height_defer_recheck_when_ledger_advances() {
             });
         });
 
-    logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"])
-        .assert_and_remove(Level::DEBUG, &["roll forward"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="ledger_height""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 
     assert_trace_contains(
         &running,
@@ -1355,7 +1346,17 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
             });
         });
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    let (h1_hash, h2_hash) = (h1.hash().to_string(), h2.hash().to_string());
+    // h2 is one slot later than h1, so it is still in the near future when h1 becomes valid and
+    // gets clock-skew deferred a second time, on its own this time rather than as a follow-up.
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="clock_skew""#, &h1_hash])
+        .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="follow_up""#, &h2_hash])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h1_hash])
+        .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="clock_skew""#, &h2_hash])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h2_hash])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // First header clock-skew defers; second is FollowUp; recheck may drain both before run ends.
     assert_trace_contains(
         &running,
@@ -1424,11 +1425,14 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
         },
     );
 
-    logs.assert_and_remove(Level::DEBUG, &["roll forward"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    let (h1_hash, h2_hash) = (h1.hash().to_string(), h2.hash().to_string());
+    logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="stake_distribution""#, &h1_hash])
+        .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="follow_up""#, &h2_hash])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h1_hash])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h2_hash])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // h1 stake-deferred after RN; h2 is FollowUp (peer already deferred); wake reprocesses both in order.
     assert_trace_contains(
         &running,
@@ -1506,11 +1510,9 @@ fn test_recheck_deferred_survives_purge_shrinking_the_list() {
             ),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header parent"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
+        .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header parent"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// A deferred header that is still deferred on recheck must keep blocking its follow-ups.
@@ -1562,7 +1564,19 @@ fn test_redeferred_header_keeps_blocking_follow_ups() {
         },
     );
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    let (h1_hash, h2_hash) = (h1.hash().to_string(), h2.hash().to_string());
+    // h1 is deferred for the same reason twice: once while its roll-forward is handled, then again
+    // when the recheck re-validates it and the stake distribution it needs is still missing. Only
+    // the first happens inside the roll-forward span, which is what tells the two apart.
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &["roll_forward.process", "chainsync.header_deferred", r#"reason="stake_distribution""#, &h1_hash],
+    )
+    .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="follow_up""#, &h2_hash])
+    .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="stake_distribution""#, &h1_hash])
+    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_contains(
         &running,
         &[

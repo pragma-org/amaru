@@ -384,8 +384,8 @@ mod tests {
         let header_hash = HeaderHash::new([HASH_BYTE; 32]);
         info!(
             consensus::tip::ADOPT,
-            slot = slot,
-            header_hash = header_hash,
+            slot,
+            header_hash,
             block_height = 100_u64,
             max_block_height = 100_u64,
             suppressed = 0_u32,

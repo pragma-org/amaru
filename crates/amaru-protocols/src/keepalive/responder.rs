@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug_span};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     keepalive::{
@@ -71,7 +70,7 @@ impl StageState<State, Responder> for KeepAliveResponder {
         let cookie = input.cookie.as_u16();
 
         async move { Ok((Some(ResponderAction::SendResponse(input.cookie)), self)) }
-            .instrument(debug_span!(protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE, cookie = cookie))
+            .instrument(debug_span!(protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE, cookie))
             .await
     }
 

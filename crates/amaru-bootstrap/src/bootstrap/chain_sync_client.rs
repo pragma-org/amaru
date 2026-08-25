@@ -13,12 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{BlockHeight, NetworkPoint, Peer, Point, Slot};
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug_span, error};
 use pallas_network::miniprotocols::{
     Point as PallasPoint,
     chainsync::{Client, ClientError, HeaderContent, NextResponse, Tip as PallasTip},
 };
-use tracing::Instrument;
 
 // TODO: Avoid Pallas points here and use our own chain sync client.
 fn to_pallas_point(point: NetworkPoint) -> PallasPoint {
@@ -77,7 +76,9 @@ impl ChainSyncClient {
         client
             .request_next()
             .await
-            .inspect_err(|err| tracing::error!(reason = %err, "request next failed"))
+            .inspect_err(|err| {
+                error!(bootstrap::headers::NEXT_FAILED, operation = "request_next", error = err.to_string());
+            })
             .map_err(ChainSyncClientError::NetworkError)
     }
 
@@ -87,7 +88,7 @@ impl ChainSyncClient {
         match client.recv_while_must_reply().await {
             Ok(result) => Ok(result),
             Err(err) => {
-                tracing::error!(reason = %err, "failed while awaiting for next block");
+                error!(bootstrap::headers::NEXT_FAILED, operation = "await_next", error = err.to_string());
                 Err(ChainSyncClientError::NetworkError(err))
             }
         }

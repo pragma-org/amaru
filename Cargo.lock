@@ -120,9 +120,6 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tokio-util",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
  "zstd",
 ]
 
@@ -151,7 +148,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.19",
  "tokio",
- "tracing",
  "zstd",
 ]
 
@@ -170,7 +166,6 @@ dependencies = [
  "amaru-plutus",
  "amaru-protocols",
  "amaru-pure-stage",
- "amaru-stores",
  "anyhow",
  "async-trait",
  "criterion",
@@ -183,11 +178,8 @@ dependencies = [
  "rand 0.9.5",
  "rayon",
  "serde",
- "serde_json",
- "tempfile",
  "thiserror 2.0.19",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -443,19 +435,14 @@ version = "0.1.2"
 dependencies = [
  "amaru-deps",
  "amaru-kernel",
- "amaru-mempool",
  "amaru-observability",
  "amaru-ouroboros",
  "amaru-pure-stage",
  "anyhow",
  "bytes",
- "hex",
  "parking_lot",
- "proptest",
  "socket2 0.6.5",
  "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -540,6 +527,7 @@ dependencies = [
  "opentelemetry",
  "proc-macro2",
  "quote",
+ "schemars 0.8.22",
  "serde",
  "syn 3.0.3",
  "tokio",
@@ -636,7 +624,6 @@ dependencies = [
  "serde",
  "socket2 0.6.5",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -710,7 +697,6 @@ dependencies = [
  "rocksdb",
  "tempfile",
  "thiserror 2.0.19",
- "tracing",
 ]
 
 [[package]]

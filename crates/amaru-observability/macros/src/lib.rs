@@ -145,6 +145,12 @@
 //! - all other types must implement `Serialize` and `JsonSchema` and are encoded as CBOR
 //!   (`record_bytes`).
 //!
+//! Declare the **owned** type (or a slice `[T]`) on the schema. Call sites pass `T`, `&T`,
+//! or another [`std::borrow::Borrow`] wrapper; the expansion borrows with `&($expr)`
+//! and does not clone. Slice fields `[T]` accept `Vec<T>`, `[T; N]`, and `&[T]`.
+//! `String` fields accept `String` and `&str` and record with `record_str` (no `to_owned`).
+//! [`AsRef`] is not used for typed fields because it is not reflexive.
+//!
 //! Call sites may use tracing-style shorthand (`field`) and `@expr` for a ready-made
 //! `tracing::Value`. `%` / `?` at the call site are rejected.
 //!
@@ -252,15 +258,15 @@ pub fn define_local_schemas(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// fn apply_block(point_slot: u64, error: Option<&str>) {
-///     let _span = debug_span!(ledger::block::APPLY, point_slot = point_slot);
+///     let _span = debug_span!(ledger::block::APPLY, point_slot);
 ///     let _guard = _span.enter();
 ///
 ///     if let Some(error) = error {
 ///         // Record to span only
-///         trace_record!(ledger::block::APPLY, error = error);
+///         trace_record!(ledger::block::APPLY, error);
 ///
 ///         // Record to span and emit INFO log event
-///         trace_record!(INFO, ledger::block::APPLY, error = error);
+///         trace_record!(INFO, ledger::block::APPLY, error);
 ///     }
 /// }
 /// ```
