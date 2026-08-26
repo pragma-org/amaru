@@ -15,8 +15,10 @@
 use std::{collections::BTreeMap, fmt, time::Instant};
 
 use amaru_kernel::{
-    BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, RedeemerKey,
-    TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
+    BorrowedScript, EraHistory, GlobalParameters, HasScriptHash, HasTransactionId, Hash, PlutusVersion,
+    ProtocolParameters, RedeemerKey, TransactionBody, TransactionInput, TransactionPointer, TxInfo,
+    TxInfoTranslationError, Utxos, WitnessSet, cbor,
+    size::SCRIPT,
     to_cbor,
     utils::{duration::elapsed_and_reset, string::display_collection},
 };
@@ -30,7 +32,7 @@ use amaru_uplc::{
     binder::Binder,
     constant::Constant,
     data::PlutusData,
-    flat::{FlatDecodeError, decode_plutus_script},
+    flat::decode_plutus_script,
     machine::{CostModel, ExBudget, MachineInfo},
     program::Program,
     term::Term,
@@ -40,29 +42,52 @@ use thiserror::Error;
 
 use crate::context::UtxoSlice;
 
+/// Everything that can go wrong while evaluating a transaction's scripts. Not all of it is a
+/// phase-two failure: [`TransactionInvalid`](crate::rules::block::TransactionInvalid) is where
+/// each variant is assigned a validation phase.
 #[derive(Debug, Error)]
-pub enum PhaseTwoError {
+pub enum ScriptEvaluationError {
+    #[error("script preparation failed: {0}")]
+    Preparation(#[from] PreparationError),
+
+    #[error("validation tag mismatch: {0}")]
+    ValidationTagMismatch(#[from] TagMismatch),
+}
+
+#[derive(Debug, Error)]
+pub enum PreparationError {
     #[error("missing input: {0}")]
     MissingInput(TransactionInput),
+
     #[error("failed to translate transaction to TxInfo: {0}")]
-    TransactionTranslationError(#[from] TxInfoTranslationError),
+    TransactionTranslation(#[from] TxInfoTranslationError),
+
     #[error("illegal state in ScriptContext: {0}")]
-    ScriptContextStateError(#[from] PlutusDataError),
+    ScriptContextState(#[from] PlutusDataError),
+
     #[error("failed to deserialize script: {0}")]
-    ScriptDeserializationError(cbor::decode::Error),
-    #[error("failed to flat decode script: {0}")]
-    FlatDecodingError(#[from] FlatDecodeError),
-    #[error("script evaluation failure: {0:?}")]
-    UplcMachineError(UplcMachineError),
-    #[error("expected scripts to fail but didn't")]
-    ValidityStateError,
+    ScriptDeserialization(#[from] cbor::decode::Error),
+
     #[error("missing cost models for version = {0:?}")]
     MissingCostModel(PlutusVersion),
+
+    #[error("malformed script witness: {0}")]
+    MalformedScriptWitness(Hash<SCRIPT>),
+
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         display_collection(.intersection),
     )]
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
+}
+
+#[derive(Debug, Error)]
+pub enum TagMismatch {
+    #[error("expected scripts to fail but they passed")]
+    PassedUnexpectedly,
+
+    #[error("expected scripts to pass but they failed: {0:?}")]
+    FailedUnexpectedly(Vec<UplcMachineError>),
 }
 
 #[derive(Debug)]
@@ -77,11 +102,37 @@ pub struct UplcMachineError {
     pub program: String,
 }
 
+#[derive(Debug)]
+enum ScriptOutcome {
+    Passed,
+    Failed(UplcMachineError),
+}
+
 fn encode_program<'a, V>(program: &'a Program<'a, V>) -> String
 where
     V: Binder<'a>,
 {
     amaru_uplc::flat::encode(program).map(hex::encode).unwrap_or_default()
+}
+
+fn verdict(
+    is_valid: bool,
+    script_results: Vec<Result<ScriptOutcome, PreparationError>>,
+) -> Result<(), ScriptEvaluationError> {
+    let mut failures = Vec::new();
+
+    for result in script_results {
+        match result? {
+            ScriptOutcome::Passed => {}
+            ScriptOutcome::Failed(err) => failures.push(err),
+        }
+    }
+
+    match (is_valid, failures.is_empty()) {
+        (true, true) | (false, false) => Ok(()),
+        (true, false) => Err(TagMismatch::FailedUnexpectedly(failures).into()),
+        (false, true) => Err(TagMismatch::PassedUnexpectedly.into()),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -95,14 +146,14 @@ pub fn execute<C>(
     is_valid: bool,
     transaction_body: &TransactionBody,
     transaction_witness_set: &WitnessSet,
-) -> Result<(), PhaseTwoError>
+) -> Result<(), ScriptEvaluationError>
 where
     C: UtxoSlice + fmt::Debug,
 {
     use amaru_observability::amaru::ledger::rules::PHASE_TWO;
 
     if transaction_witness_set.redeemer.is_none() {
-        return if is_valid { Ok(()) } else { Err(PhaseTwoError::ValidityStateError) };
+        return verdict(is_valid, Vec::new());
     }
 
     let span = debug_span!(ledger::rules::PHASE_TWO);
@@ -113,8 +164,8 @@ where
     let mut resolved_inputs = transaction_body
         .inputs
         .iter()
-        .map(|input| Ok((*input, context.lookup(input).ok_or(PhaseTwoError::MissingInput(*input))?.clone())))
-        .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()?;
+        .map(|input| Ok((*input, context.lookup(input).ok_or(PreparationError::MissingInput(*input))?.clone())))
+        .collect::<Result<BTreeMap<_, _>, PreparationError>>()?;
 
     let mut resolved_reference_inputs = transaction_body
         .reference_inputs
@@ -122,8 +173,8 @@ where
         .map(|reference_inputs| {
             reference_inputs
                 .iter()
-                .map(|input| Ok((*input, context.lookup(input).ok_or(PhaseTwoError::MissingInput(*input))?.clone())))
-                .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()
+                .map(|input| Ok((*input, context.lookup(input).ok_or(PreparationError::MissingInput(*input))?.clone())))
+                .collect::<Result<BTreeMap<_, _>, PreparationError>>()
         })
         .transpose()?
         .unwrap_or_default();
@@ -139,7 +190,8 @@ where
         &pointer.slot,
         era_history,
         global_parameters,
-    )?;
+    )
+    .map_err(PreparationError::from)?;
 
     let scripts_to_execute = tx_info.to_script_contexts();
 
@@ -154,7 +206,7 @@ where
             .collect::<Vec<_>>();
 
         if !non_disjoint_inputs.is_empty() {
-            return Err(PhaseTwoError::NonDisjointRefInputs { intersection: non_disjoint_inputs });
+            return Err(PreparationError::NonDisjointRefInputs { intersection: non_disjoint_inputs }.into());
         }
     }
 
@@ -185,7 +237,7 @@ where
                 BorrowedScript::PlutusV1(plutus_script) => {
                     let (program, plutus_version) =
                         decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
-                            .map_err(PhaseTwoError::from)?;
+                            .map_err(|_| PreparationError::MalformedScriptWitness(plutus_script.script_hash()))?;
                     span_execute.record(EXECUTE::FIELD_DECODE_SCRIPT_MICROS, elapsed_and_reset(&mut meter));
 
                     let args = script_context.to_script_args(PLUTUS_V1)?;
@@ -194,14 +246,14 @@ where
                         .cost_models
                         .plutus_v1
                         .as_deref()
-                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+                        .ok_or(PreparationError::MissingCostModel(plutus_version))?;
 
-                    Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
+                    Ok::<_, PreparationError>((program, plutus_version, args, cost_model))
                 }
                 BorrowedScript::PlutusV2(plutus_script) => {
                     let (program, plutus_version) =
                         decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
-                            .map_err(PhaseTwoError::from)?;
+                            .map_err(|_| PreparationError::MalformedScriptWitness(plutus_script.script_hash()))?;
                     span_execute.record(EXECUTE::FIELD_DECODE_SCRIPT_MICROS, elapsed_and_reset(&mut meter));
 
                     let args = script_context.to_script_args(PLUTUS_V2)?;
@@ -210,14 +262,14 @@ where
                         .cost_models
                         .plutus_v2
                         .as_deref()
-                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+                        .ok_or(PreparationError::MissingCostModel(plutus_version))?;
 
-                    Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
+                    Ok::<_, PreparationError>((program, plutus_version, args, cost_model))
                 }
                 BorrowedScript::PlutusV3(plutus_script) => {
                     let (program, plutus_version) =
                         decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
-                            .map_err(PhaseTwoError::from)?;
+                            .map_err(|_| PreparationError::MalformedScriptWitness(plutus_script.script_hash()))?;
                     span_execute.record(EXECUTE::FIELD_DECODE_SCRIPT_MICROS, elapsed_and_reset(&mut meter));
 
                     let args = script_context.to_script_args(PLUTUS_V3)?;
@@ -226,9 +278,9 @@ where
                         .cost_models
                         .plutus_v3
                         .as_deref()
-                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+                        .ok_or(PreparationError::MissingCostModel(plutus_version))?;
 
-                    Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
+                    Ok::<_, PreparationError>((program, plutus_version, args, cost_model))
                 }
             }?;
 
@@ -262,42 +314,34 @@ where
             span_execute.record(EXECUTE::FIELD_EVALUATE_UPLC_PROGRAM_MICROS, elapsed_and_reset(&mut meter));
 
             let uplc_machine_error = |err| {
-                Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                ScriptOutcome::Failed(UplcMachineError {
                     plutus_version,
                     info: result.info,
                     err,
                     redeemer: *redeemer,
                     program: encode_program(program),
-                }))
+                })
             };
 
-            match plutus_version {
+            Ok(match plutus_version {
                 PlutusVersion::V1 | PlutusVersion::V2 => match result.term {
                     Ok(Term::Error) => uplc_machine_error("evaluated to error term".to_owned()),
-                    Ok(_) => Ok(()),
+                    Ok(_) => ScriptOutcome::Passed,
                     Err(e) => uplc_machine_error(e.to_string()),
                 },
 
                 // According to [CIP-117](https://cips.cardano.org/cip/CIP-0117),
                 // Plutus V3 scripts must evaluate to a constant term of unit
                 PlutusVersion::V3 => match result.term {
-                    Ok(Term::Constant(Constant::Unit)) => Ok(()),
+                    Ok(Term::Constant(Constant::Unit)) => ScriptOutcome::Passed,
                     Ok(_) => uplc_machine_error("evaluated to a non-unit term".to_owned()),
                     Err(e) => uplc_machine_error(e.to_string()),
                 },
-            }
+            })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map(|_| ());
+        .collect::<Vec<_>>();
 
-    if is_valid {
-        script_results
-    } else {
-        match script_results {
-            Ok(_) => Err(PhaseTwoError::ValidityStateError),
-            Err(_) => Ok(()),
-        }
-    }
+    verdict(is_valid, script_results)
 }
 
 #[cfg(test)]

@@ -24,8 +24,9 @@ use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
 use crate::{
-    context::ValidationContext, epoch_transition::GovernanceActivity,
-    rules::transaction::phase_one::outputs::SupplementalDatumPolicy,
+    context::ValidationContext,
+    epoch_transition::GovernanceActivity,
+    rules::transaction::{phase_one::outputs::SupplementalDatumPolicy, phase_two::PreparationError},
 };
 
 pub mod certificates;
@@ -89,6 +90,9 @@ pub enum PhaseOneError {
 
     #[error("invalid transaction scripts: {0}")]
     Scripts(#[from] InvalidScripts),
+
+    #[error("script preparation failed: {0}")]
+    ScriptPreparation(PreparationError),
 
     #[error("invalid collateral: {0}")]
     Collateral(#[from] InvalidCollateral),
@@ -160,7 +164,7 @@ where
     )?;
     span.record(PHASE_ONE::FIELD_VALIDITY_INTERVAL_MICROS, elapsed_and_reset(&mut meter));
 
-    metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
+    metadata::execute(arena_pool, &transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
     span.record(PHASE_ONE::FIELD_METADATA_MICROS, elapsed_and_reset(&mut meter));
 
     let ref_scripts_size = inputs::execute(
@@ -211,6 +215,7 @@ where
 
     outputs::execute(
         context,
+        arena_pool,
         protocol_parameters,
         network,
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![*x]).unwrap_or_default(),
@@ -233,6 +238,7 @@ where
 
     outputs::execute(
         context,
+        arena_pool,
         protocol_parameters,
         network,
         mem::take(&mut transaction_body.outputs),
@@ -324,7 +330,6 @@ where
 
     scripts::execute(
         context,
-        arena_pool,
         transaction_witness_set,
         transaction_body.validity_interval(),
         protocol_parameters,

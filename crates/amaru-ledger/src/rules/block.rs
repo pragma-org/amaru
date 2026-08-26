@@ -29,7 +29,11 @@ use thiserror::Error;
 use crate::{
     context::ValidationContext,
     epoch_transition::GovernanceActivity,
-    rules::transaction::{self, phase_one::PhaseOneError, phase_two::PhaseTwoError},
+    rules::transaction::{
+        self,
+        phase_one::PhaseOneError,
+        phase_two::{ScriptEvaluationError, TagMismatch},
+    },
 };
 
 pub mod body_size;
@@ -38,12 +42,25 @@ pub mod header_size;
 pub mod header_version;
 pub mod ref_scripts_size;
 
+/// The single point deciding which validation phase a failure belongs to: phase one rejects the
+/// transaction outright, phase two is a disagreement between the claimed and actual script results.
 #[derive(Debug, Error)]
 pub enum TransactionInvalid {
     #[error("transaction failed phase one validation: {0}")]
-    PhaseOneError(#[from] PhaseOneError),
+    PhaseOne(#[from] PhaseOneError),
     #[error("transaction failed phase two validation: {0}")]
-    PhaseTwoError(#[from] PhaseTwoError),
+    PhaseTwo(TagMismatch),
+}
+
+impl From<ScriptEvaluationError> for TransactionInvalid {
+    fn from(err: ScriptEvaluationError) -> Self {
+        match err {
+            ScriptEvaluationError::Preparation(err) => {
+                TransactionInvalid::PhaseOne(PhaseOneError::ScriptPreparation(err))
+            }
+            ScriptEvaluationError::ValidationTagMismatch(err) => TransactionInvalid::PhaseTwo(err),
+        }
+    }
 }
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
