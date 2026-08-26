@@ -129,6 +129,58 @@ submit_tx_with_retry() {
   return 1
 }
 
+# Validates the successful Submit API response for a known transaction. The endpoint returns the
+# accepted transaction id as a JSON string; accepting a generic 2xx here would not prove that the
+# request body was decoded as the transaction the caller built.
+submit_tx_response_matches_id() {
+  local expected_tx_id="$1" response_file="$2"
+
+  jq -e --arg expected_tx_id "$expected_tx_id" '
+    type == "string" and (ascii_downcase == ($expected_tx_id | ascii_downcase))
+  ' "$response_file" >/dev/null
+}
+
+# Submits a transaction and verifies the complete public contract used by the end-to-end test:
+# HTTP 202 and a response body containing exactly the expected transaction id. A missing-input
+# rejection is retryable because Amaru may still be catching up to the cardano-node used to select
+# the input.
+submit_tx_and_expect_id() {
+  local tx_file="$1" expected_tx_id="$2" response_file="$3" attempt=1
+  local status body retries="$TX_SUBMIT_RETRY_LIMIT" delay="$TX_SUBMIT_RETRY_DELAY"
+
+  while ((attempt <= retries)); do
+    echo "[submit-tx] attempt $attempt/$retries: submitting tx_id=$expected_tx_id to the Amaru Submit API at $TX_SUBMIT_API_ADDRESS"
+    if curl --max-time "${TX_SUBMIT_HTTP_TIMEOUT_SECONDS:-30}" -sS -o "$response_file" -w '%{http_code}' \
+      -X POST -H 'Content-Type: application/cbor' \
+      --data-binary "@$tx_file" \
+      "http://$TX_SUBMIT_API_ADDRESS/api/submit/tx" >"$response_file.status"; then
+      status="$(cat "$response_file.status")"
+      body="$(cat "$response_file")"
+      echo "[submit-tx] response: HTTP $status"
+      echo "$body"
+      if [[ "$status" == 202 ]] && submit_tx_response_matches_id "$expected_tx_id" "$response_file"; then
+        return 0
+      fi
+      if [[ "$status" == 202 ]]; then
+        echo "[submit-tx] HTTP 202 response did not contain the expected transaction id"
+        return 1
+      fi
+      if grep -qi 'missing transaction inputs' <<<"$body"; then
+        echo "[submit-tx] Amaru has not indexed the input UTxO yet; waiting ${delay}s before retry"
+      else
+        echo "[submit-tx] expected HTTP 202 for tx_id=$expected_tx_id, got HTTP $status; aborting retries"
+        return 1
+      fi
+    else
+      echo "[submit-tx] Submit API request failed; waiting ${delay}s before retry"
+    fi
+    sleep "$delay"
+    attempt=$((attempt + 1))
+  done
+  echo "[submit-tx] giving up after $retries attempts"
+  return 1
+}
+
 # Whether TX_PAYMENT_SKEY holds the key itself rather than a path to a file holding it, which lets a
 # container run without mounting anything.
 #
