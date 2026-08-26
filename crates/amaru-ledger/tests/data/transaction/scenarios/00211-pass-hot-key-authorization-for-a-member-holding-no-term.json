@@ -2,13 +2,13 @@
   "title": "hot key authorization for a member holding no term",
   "description": "A transaction carrying an AuthCommitteeHot certificate for a committee member holding no term and no hot credential.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820a20797e05da3392a38d45049a7210983bf032a710d67daf65fabb486556d5c0900",
@@ -17,15 +17,15 @@
     ],
     "committee": [
       {
-        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "cold_credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "status": null,
-        "validUntil": null
+        "valid_until": null
       }
     ]
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820a20797e05da3392a38d45049a7210983bf032a710d67daf65fabb486556d5c09000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940021a00030d4004d9010281830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584058551fc1ae184485c1822da47959721442b4c9800e306252b009b3300f504cba80df0dceb54c537f7f56327b1f00c267be951d37e371465d0d1c036f5bfaf407f5f6",
   "expected": "Pass"

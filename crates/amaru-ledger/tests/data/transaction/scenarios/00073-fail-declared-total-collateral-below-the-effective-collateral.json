@@ -2,13 +2,13 @@
   "title": "declared total collateral below the effective collateral",
   "description": "A plutus spend declaring total_collateral of 4 ADA while the single collateral input contributes 5 ADA; the declared field has to equal the effective collateral exactly.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820111111111111111111111111111111111111111111111111111111111111111100",
@@ -22,13 +22,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a700d90102818258201111111111111111111111111111111111111111111111111111111111111111000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00895440021a000f42400b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258202222222222222222222222222222222222222222222222222222222222222222000f00111a003d0900a305a18200008200821907d01a000f4240078145440101006100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840ec2d4daf277e0375c04440652645c6f778396f10b553d42014c9cfdb10562bb283f184cd009975902c450685288fbec59e2c3225cb2f80f2041aba019c53020ff4f6",
   "expected": {

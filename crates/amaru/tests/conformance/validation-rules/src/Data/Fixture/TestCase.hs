@@ -36,14 +36,16 @@ import Command.ValidatePhaseOne.Error
     )
 import Data.Aeson
     ( FromJSON
-    , parseJSON
     , eitherDecodeFileStrict'
+    , genericParseJSON
+    , parseJSON
     )
 import Data.Aeson.Types
     ( parseEither
     )
 import Data.Fixture.Common
     ( showText
+    , snakeCaseOptions
     )
 import Data.Fixture.EraHistory
     ( EraHistory
@@ -92,7 +94,8 @@ data TestCaseDocument = TestCaseDocument
     }
     deriving (Generic)
 
-instance FromJSON TestCaseDocument
+instance FromJSON TestCaseDocument where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data TestCase = TestCase
     { sourcePath :: !FilePath
@@ -122,8 +125,8 @@ loadTestCase testCasePath = do
         } <-
         ExceptT (first (FixtureReadError testCasePath . toText) <$> liftIO (eitherDecodeFileStrict' testCasePath))
     fixtureRoot <- hoistEither (findFixtureRoot testCasePath)
-    resolvedEraHistoryValue <- resolveSharedDocument fixtureRoot "eraHistory" documentEraHistory
-    resolvedProtocolParametersValue <- resolveSharedDocument fixtureRoot "protocolParameters" documentProtocolParameters
+    resolvedEraHistoryValue <- resolveSharedDocument fixtureRoot "era_history" documentEraHistory
+    resolvedProtocolParametersValue <- resolveSharedDocument fixtureRoot "protocol_parameters" documentProtocolParameters
     resolvedEraHistory <- hoistEither (first (FixtureDecodeError testCasePath . toText) (parseEither parseJSON resolvedEraHistoryValue))
     resolvedProtocolParameters <-
         hoistEither

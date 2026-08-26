@@ -79,7 +79,6 @@ pub struct GovernanceUpdates {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, cbor::Encode, cbor::Decode, serde::Serialize, serde::Deserialize,
 )]
-#[serde(rename_all = "camelCase")]
 pub struct GovernanceActivity {
     #[n(0)]
     pub consecutive_dormant_epochs: u32,

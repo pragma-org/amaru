@@ -2,13 +2,13 @@
   "title": "stake vote reg delegation to registered drep",
   "description": "A registration, stake-, and vote-delegation certificate registers the credential and delegates to a registered pool and DRep.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820abababababababababababababababababababababababababababababababab00",
@@ -23,23 +23,23 @@
       {
         "credential": "8200581ccdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
         "deposit": 500000000,
-        "registeredAt": {
+        "registered_at": {
           "transaction": {
             "slot": 0,
-            "transactionIndex": 0
+            "transaction_index": 0
           },
-          "certificateIndex": 0
+          "certificate_index": 0
         },
-        "validUntil": 1000
+        "valid_until": 1000
       }
     ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a400d9010281825820abababababababababababababababababababababababababababababababab000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480ff021a00030d4004d9010281850d8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd8200581ccdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd1a001e8480a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258400f9097d86cded31d68951a86e1b94563b0a87917cb49e68a5c78c05f007ef435e0cd7a7706048ebd923a517a9f9eebc5c168deb4a9885773307898a9e1dcec07f5f6",
   "expected": "Pass"

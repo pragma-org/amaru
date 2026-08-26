@@ -154,127 +154,211 @@ impl ProtocolParameters {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-impl<'de> serde::Deserialize<'de> for ProtocolParameters {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        crate::utils::serde::deserialize_proxy(d)
-    }
-}
+mod fixture {
+    use std::fmt;
 
-#[cfg(any(test, feature = "test-utils"))]
-pub use proxy::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-mod proxy {
-    use serde::Deserialize;
+    use serde::de::{Error, IgnoredAny, MapAccess, Visitor};
 
     use super::{
         CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParameters,
         ProtocolVersion, RationalNumber,
     };
-    use crate::utils::serde::{HasProxy, deserialize_proxy};
 
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct MinFeeReferenceScriptsProxy {
-        range: u32,
-        base: RationalNumber,
-        multiplier: RationalNumber,
-    }
-
-    /// Fixture JSON shape. The field naming is loosely inspired by
-    /// [Ogmios's `ProtocolParameters` schema](https://github.com/CardanoSolutions/ogmios) but
-    /// the wire format intentionally differs: ratios are `{ numerator, denominator }` objects
-    /// rather than `"n/m"` strings, lovelace amounts and byte sizes are bare integers rather
-    /// than wrapped, and Plutus cost-model keys are camelCase (`plutusV1`, etc.).
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct ProtocolParametersProxy {
-        min_fee_coefficient: u64,
-        min_fee_constant: Lovelace,
-        min_fee_reference_scripts: MinFeeReferenceScriptsProxy,
-        min_utxo_deposit_coefficient: u64,
-        max_block_body_size: u64,
-        max_block_header_size: u16,
-        max_transaction_size: u64,
-        max_value_size: u64,
-        max_reference_scripts_size: u32,
-        stake_credential_deposit: Lovelace,
-        stake_pool_deposit: Lovelace,
-        stake_pool_retirement_epoch_bound: u64,
-        stake_pool_pledge_influence: RationalNumber,
-        min_stake_pool_cost: Lovelace,
-        desired_number_of_stake_pools: u16,
-        monetary_expansion: RationalNumber,
-        treasury_expansion: RationalNumber,
-        collateral_percentage: u16,
-        max_collateral_inputs: u16,
-        #[serde(deserialize_with = "deserialize_proxy")]
-        plutus_cost_models: CostModels,
-        #[serde(deserialize_with = "deserialize_proxy")]
-        script_execution_prices: ExUnitPrices,
-        #[serde(deserialize_with = "deserialize_proxy")]
-        max_execution_units_per_transaction: ExUnits,
-        #[serde(deserialize_with = "deserialize_proxy")]
-        max_execution_units_per_block: ExUnits,
-        #[serde(deserialize_with = "deserialize_proxy")]
-        stake_pool_voting_thresholds: PoolVotingThresholds,
-        constitutional_committee_min_size: u16,
-        constitutional_committee_max_term_length: u64,
-        governance_action_lifetime: u64,
-        governance_action_deposit: Lovelace,
-        #[serde(deserialize_with = "deserialize_proxy")]
-        delegate_representative_voting_thresholds: DRepVotingThresholds,
-        delegate_representative_deposit: Lovelace,
-        delegate_representative_max_idle_time: u64,
-        version: ProtocolVersion,
-    }
-
-    impl From<ProtocolParametersProxy> for ProtocolParameters {
-        fn from(p: ProtocolParametersProxy) -> Self {
-            ProtocolParameters {
-                protocol_version: p.version,
-                min_fee_a: p.min_fee_coefficient,
-                min_fee_b: p.min_fee_constant,
-                max_block_body_size: p.max_block_body_size,
-                max_transaction_size: p.max_transaction_size,
-                max_block_header_size: p.max_block_header_size,
-                stake_credential_deposit: p.stake_credential_deposit,
-                stake_pool_deposit: p.stake_pool_deposit,
-                stake_pool_max_retirement_epoch: p.stake_pool_retirement_epoch_bound,
-                optimal_stake_pools_count: p.desired_number_of_stake_pools,
-                pledge_influence: p.stake_pool_pledge_influence,
-                monetary_expansion_rate: p.monetary_expansion,
-                treasury_expansion_rate: p.treasury_expansion,
-                min_pool_cost: p.min_stake_pool_cost,
-                lovelace_per_utxo_byte: p.min_utxo_deposit_coefficient,
-                prices: p.script_execution_prices,
-                max_tx_ex_units: p.max_execution_units_per_transaction,
-                max_block_ex_units: p.max_execution_units_per_block,
-                max_value_size: p.max_value_size,
-                collateral_percentage: p.collateral_percentage,
-                max_collateral_inputs: p.max_collateral_inputs,
-                pool_voting_thresholds: p.stake_pool_voting_thresholds,
-                drep_voting_thresholds: p.delegate_representative_voting_thresholds,
-                min_committee_size: p.constitutional_committee_min_size,
-                max_committee_term_length: p.constitutional_committee_max_term_length,
-                gov_action_lifetime: p.governance_action_lifetime,
-                gov_action_deposit: p.governance_action_deposit,
-                drep_deposit: p.delegate_representative_deposit,
-                drep_expiry: p.delegate_representative_max_idle_time,
-                min_fee_ref_script_lovelace_per_byte: p.min_fee_reference_scripts.base,
-                cost_models: p.plutus_cost_models,
-                max_ref_script_size_per_tx: p.max_reference_scripts_size,
-                // Hardcoded in the Haskell ledger; not yet a real protocol parameter, so the
-                // fixture schema does not carry it.
-                max_ref_script_size_per_block: 1024 * 1024,
-                ref_script_cost_stride: p.min_fee_reference_scripts.range,
-                ref_script_cost_multiplier: p.min_fee_reference_scripts.multiplier,
+    // NOTE: Hand-written deserializer for the protocol parameters fixture
+    //
+    // The fixture wire format intentionally follows Ogmios-inspired, snake_cased field names
+    // (e.g. `min_fee_coefficient` for `min_fee_a`) and groups the reference-script parameters
+    // under a nested `min_fee_reference_scripts` object. That vocabulary is a stable contract
+    // shared with other fixture consumers, so instead of deriving an instance from the Rust
+    // field names, this implementation maps fixture keys onto `ProtocolParameters` by hand.
+    impl<'de> serde::Deserialize<'de> for ProtocolParameters {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            #[derive(serde::Deserialize)]
+            struct MinFeeReferenceScripts {
+                range: u32,
+                base: RationalNumber,
+                multiplier: RationalNumber,
             }
-        }
-    }
 
-    impl HasProxy for ProtocolParameters {
-        type Proxy = ProtocolParametersProxy;
+            struct FixtureVisitor;
+
+            impl<'de> Visitor<'de> for FixtureVisitor {
+                type Value = ProtocolParameters;
+
+                fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.write_str("a protocol parameters fixture object")
+                }
+
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                    let mut protocol_version: Option<ProtocolVersion> = None;
+                    let mut min_fee_a: Option<Lovelace> = None;
+                    let mut min_fee_b: Option<u64> = None;
+                    let mut min_fee_reference_scripts: Option<MinFeeReferenceScripts> = None;
+                    let mut lovelace_per_utxo_byte: Option<Lovelace> = None;
+                    let mut max_block_body_size: Option<u64> = None;
+                    let mut max_block_header_size: Option<u16> = None;
+                    let mut max_transaction_size: Option<u64> = None;
+                    let mut max_value_size: Option<u64> = None;
+                    let mut max_ref_script_size_per_tx: Option<u32> = None;
+                    let mut stake_credential_deposit: Option<Lovelace> = None;
+                    let mut stake_pool_deposit: Option<Lovelace> = None;
+                    let mut stake_pool_max_retirement_epoch: Option<u64> = None;
+                    let mut pledge_influence: Option<RationalNumber> = None;
+                    let mut min_pool_cost: Option<u64> = None;
+                    let mut optimal_stake_pools_count: Option<u16> = None;
+                    let mut monetary_expansion_rate: Option<RationalNumber> = None;
+                    let mut treasury_expansion_rate: Option<RationalNumber> = None;
+                    let mut collateral_percentage: Option<u16> = None;
+                    let mut max_collateral_inputs: Option<u16> = None;
+                    let mut cost_models: Option<CostModels> = None;
+                    let mut prices: Option<ExUnitPrices> = None;
+                    let mut max_tx_ex_units: Option<ExUnits> = None;
+                    let mut max_block_ex_units: Option<ExUnits> = None;
+                    let mut pool_voting_thresholds: Option<PoolVotingThresholds> = None;
+                    let mut min_committee_size: Option<u16> = None;
+                    let mut max_committee_term_length: Option<u64> = None;
+                    let mut gov_action_lifetime: Option<u64> = None;
+                    let mut gov_action_deposit: Option<Lovelace> = None;
+                    let mut drep_voting_thresholds: Option<DRepVotingThresholds> = None;
+                    let mut drep_deposit: Option<Lovelace> = None;
+                    let mut drep_expiry: Option<u64> = None;
+
+                    macro_rules! set {
+                        ($slot:ident, $key:literal) => {{
+                            if $slot.is_some() {
+                                return Err(A::Error::duplicate_field($key));
+                            }
+                            $slot = Some(map.next_value()?);
+                        }};
+                    }
+
+                    while let Some(key) = map.next_key::<String>()? {
+                        match key.as_str() {
+                            "version" => set!(protocol_version, "version"),
+                            "min_fee_coefficient" => set!(min_fee_a, "min_fee_coefficient"),
+                            "min_fee_constant" => set!(min_fee_b, "min_fee_constant"),
+                            "min_fee_reference_scripts" => {
+                                set!(min_fee_reference_scripts, "min_fee_reference_scripts")
+                            }
+                            "min_utxo_deposit_coefficient" => {
+                                set!(lovelace_per_utxo_byte, "min_utxo_deposit_coefficient")
+                            }
+                            "max_block_body_size" => set!(max_block_body_size, "max_block_body_size"),
+                            "max_block_header_size" => set!(max_block_header_size, "max_block_header_size"),
+                            "max_transaction_size" => set!(max_transaction_size, "max_transaction_size"),
+                            "max_value_size" => set!(max_value_size, "max_value_size"),
+                            "max_reference_scripts_size" => {
+                                set!(max_ref_script_size_per_tx, "max_reference_scripts_size")
+                            }
+                            "stake_credential_deposit" => set!(stake_credential_deposit, "stake_credential_deposit"),
+                            "stake_pool_deposit" => set!(stake_pool_deposit, "stake_pool_deposit"),
+                            "stake_pool_retirement_epoch_bound" => {
+                                set!(stake_pool_max_retirement_epoch, "stake_pool_retirement_epoch_bound")
+                            }
+                            "stake_pool_pledge_influence" => set!(pledge_influence, "stake_pool_pledge_influence"),
+                            "min_stake_pool_cost" => set!(min_pool_cost, "min_stake_pool_cost"),
+                            "desired_number_of_stake_pools" => {
+                                set!(optimal_stake_pools_count, "desired_number_of_stake_pools")
+                            }
+                            "monetary_expansion" => set!(monetary_expansion_rate, "monetary_expansion"),
+                            "treasury_expansion" => set!(treasury_expansion_rate, "treasury_expansion"),
+                            "collateral_percentage" => set!(collateral_percentage, "collateral_percentage"),
+                            "max_collateral_inputs" => set!(max_collateral_inputs, "max_collateral_inputs"),
+                            "plutus_cost_models" => set!(cost_models, "plutus_cost_models"),
+                            "script_execution_prices" => set!(prices, "script_execution_prices"),
+                            "max_execution_units_per_transaction" => {
+                                set!(max_tx_ex_units, "max_execution_units_per_transaction")
+                            }
+                            "max_execution_units_per_block" => {
+                                set!(max_block_ex_units, "max_execution_units_per_block")
+                            }
+                            "stake_pool_voting_thresholds" => {
+                                set!(pool_voting_thresholds, "stake_pool_voting_thresholds")
+                            }
+                            "constitutional_committee_min_size" => {
+                                set!(min_committee_size, "constitutional_committee_min_size")
+                            }
+                            "constitutional_committee_max_term_length" => {
+                                set!(max_committee_term_length, "constitutional_committee_max_term_length")
+                            }
+                            "governance_action_lifetime" => set!(gov_action_lifetime, "governance_action_lifetime"),
+                            "governance_action_deposit" => set!(gov_action_deposit, "governance_action_deposit"),
+                            "delegate_representative_voting_thresholds" => {
+                                set!(drep_voting_thresholds, "delegate_representative_voting_thresholds")
+                            }
+                            "delegate_representative_deposit" => {
+                                set!(drep_deposit, "delegate_representative_deposit")
+                            }
+                            "delegate_representative_max_idle_time" => {
+                                set!(drep_expiry, "delegate_representative_max_idle_time")
+                            }
+                            _ => {
+                                map.next_value::<IgnoredAny>()?;
+                            }
+                        }
+                    }
+
+                    macro_rules! require {
+                        ($slot:ident, $key:literal) => {
+                            $slot.ok_or_else(|| A::Error::missing_field($key))?
+                        };
+                    }
+
+                    let min_fee_reference_scripts = require!(min_fee_reference_scripts, "min_fee_reference_scripts");
+
+                    Ok(ProtocolParameters {
+                        protocol_version: require!(protocol_version, "version"),
+                        min_fee_a: require!(min_fee_a, "min_fee_coefficient"),
+                        min_fee_b: require!(min_fee_b, "min_fee_constant"),
+                        max_block_body_size: require!(max_block_body_size, "max_block_body_size"),
+                        max_transaction_size: require!(max_transaction_size, "max_transaction_size"),
+                        max_block_header_size: require!(max_block_header_size, "max_block_header_size"),
+                        stake_credential_deposit: require!(stake_credential_deposit, "stake_credential_deposit"),
+                        stake_pool_deposit: require!(stake_pool_deposit, "stake_pool_deposit"),
+                        stake_pool_max_retirement_epoch: require!(
+                            stake_pool_max_retirement_epoch,
+                            "stake_pool_retirement_epoch_bound"
+                        ),
+                        optimal_stake_pools_count: require!(optimal_stake_pools_count, "desired_number_of_stake_pools"),
+                        pledge_influence: require!(pledge_influence, "stake_pool_pledge_influence"),
+                        monetary_expansion_rate: require!(monetary_expansion_rate, "monetary_expansion"),
+                        treasury_expansion_rate: require!(treasury_expansion_rate, "treasury_expansion"),
+                        min_pool_cost: require!(min_pool_cost, "min_stake_pool_cost"),
+                        lovelace_per_utxo_byte: require!(lovelace_per_utxo_byte, "min_utxo_deposit_coefficient"),
+                        prices: require!(prices, "script_execution_prices"),
+                        max_tx_ex_units: require!(max_tx_ex_units, "max_execution_units_per_transaction"),
+                        max_block_ex_units: require!(max_block_ex_units, "max_execution_units_per_block"),
+                        max_value_size: require!(max_value_size, "max_value_size"),
+                        collateral_percentage: require!(collateral_percentage, "collateral_percentage"),
+                        max_collateral_inputs: require!(max_collateral_inputs, "max_collateral_inputs"),
+                        pool_voting_thresholds: require!(pool_voting_thresholds, "stake_pool_voting_thresholds"),
+                        drep_voting_thresholds: require!(
+                            drep_voting_thresholds,
+                            "delegate_representative_voting_thresholds"
+                        ),
+                        min_committee_size: require!(min_committee_size, "constitutional_committee_min_size"),
+                        max_committee_term_length: require!(
+                            max_committee_term_length,
+                            "constitutional_committee_max_term_length"
+                        ),
+                        gov_action_lifetime: require!(gov_action_lifetime, "governance_action_lifetime"),
+                        gov_action_deposit: require!(gov_action_deposit, "governance_action_deposit"),
+                        drep_deposit: require!(drep_deposit, "delegate_representative_deposit"),
+                        drep_expiry: require!(drep_expiry, "delegate_representative_max_idle_time"),
+                        min_fee_ref_script_lovelace_per_byte: min_fee_reference_scripts.base,
+                        cost_models: require!(cost_models, "plutus_cost_models"),
+                        max_ref_script_size_per_tx: require!(max_ref_script_size_per_tx, "max_reference_scripts_size"),
+                        // Hardcoded in the Haskell ledger; not yet a real protocol parameter, so the
+                        // fixture schema does not carry it.
+                        max_ref_script_size_per_block: 1024 * 1024,
+                        ref_script_cost_stride: min_fee_reference_scripts.range,
+                        ref_script_cost_multiplier: min_fee_reference_scripts.multiplier,
+                    })
+                }
+            }
+
+            d.deserialize_map(FixtureVisitor)
+        }
     }
 }
 

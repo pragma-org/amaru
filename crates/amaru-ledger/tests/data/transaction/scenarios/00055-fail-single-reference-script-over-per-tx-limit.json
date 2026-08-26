@@ -2,16 +2,16 @@
   "title": "single reference script over per-tx limit",
   "description": "A single reference script (60 bytes) exceeds the per-tx limit (50).",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
     "$override": {
-      "maxReferenceScriptsSize": 50
+      "max_reference_scripts_size": 50
     }
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed02800",
@@ -22,13 +22,13 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b4003d81858408202583c010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101ff"
       }
     ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed028000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400f0012d9010281825820111111111111111111111111111111111111111111111111111111111111111100a101d9010281820180f5f6",
   "expected": {

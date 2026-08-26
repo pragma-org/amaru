@@ -52,9 +52,9 @@ mod tests {
         let tx: Transaction = decoded.expect("decode tx");
 
         let resolver = FilesystemRefResolver::new(fixtures_dir);
-        let era_history: EraHistory = fixture.era_history.resolve_into(&resolver).expect("resolve eraHistory");
+        let era_history: EraHistory = fixture.era_history.resolve(&resolver).expect("resolve era_history");
         let protocol_parameters: ProtocolParameters =
-            fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
+            fixture.protocol_parameters.resolve(&resolver).expect("resolve protocol_parameters");
 
         let mut ctx = DefaultValidationContext::new(
             fixture.initial_state.utxo,

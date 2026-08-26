@@ -2,13 +2,13 @@
   "title": "plutus spend, collateral return exceeds collateral input",
   "description": "A Plutus V3 spend whose collateral return (6 ADA) exceeds its collateral input (5 ADA), leaving a negative collateral balance.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820111111111111111111111111111111111111111111111111111111111111111100",
@@ -19,13 +19,13 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
       }
     ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84bf00d90102818258201111111111111111111111111111111111111111111111111111111111111111000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480ff021a000f42400b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd901028182582022222222222222222222222222222222222222222222222222222222222222220010bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a005b8d80ffffa300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b15fa7f1537948c5122a93380e7f3c8ceade064fd66a2e770b51b2a1259c751ee231158471ecc737bf0d1e3fe43ca57935bad28a02fc2a530695419ddf70ea0c05a18200008200821907d01a000f424007d9010281454401010061f4f6",
   "expected": {

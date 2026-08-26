@@ -9,7 +9,11 @@ module Data.Fixture.Point
 import Relude
 
 import Data.Aeson
-    ( FromJSON
+    ( FromJSON (parseJSON)
+    , genericParseJSON
+    )
+import Data.Fixture.Common
+    ( snakeCaseOptions
     )
 import qualified Cardano.Ledger.Slot as LedgerSlot
 import Ouroboros.Consensus.Block
@@ -22,7 +26,8 @@ data Point = Point
     }
     deriving (Generic)
 
-instance FromJSON Point
+instance FromJSON Point where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 pointSlotNo :: Point -> LedgerSlot.SlotNo
 pointSlotNo Point{slot} =

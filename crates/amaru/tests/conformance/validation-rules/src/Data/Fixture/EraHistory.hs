@@ -17,11 +17,13 @@ import Command.ValidatePhaseOne.Error
     ( Error (..)
     )
 import Data.Aeson
-    ( FromJSON
+    ( FromJSON (parseJSON)
+    , genericParseJSON
     )
 import Data.Fixture.Common
     ( perasDisabled
     , showText
+    , snakeCaseOptions
     )
 import Data.Fixture.Point
     ( Point
@@ -68,7 +70,8 @@ data EraHistory = EraHistory
     }
     deriving (Generic)
 
-instance FromJSON EraHistory
+instance FromJSON EraHistory where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data FixtureEraSummary = FixtureEraSummary
     { start :: !EraBound
@@ -77,7 +80,8 @@ data FixtureEraSummary = FixtureEraSummary
     }
     deriving (Generic)
 
-instance FromJSON FixtureEraSummary
+instance FromJSON FixtureEraSummary where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data EraBound = EraBound
     { time :: !Word64
@@ -86,16 +90,18 @@ data EraBound = EraBound
     }
     deriving (Generic)
 
-instance FromJSON EraBound
+instance FromJSON EraBound where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 data EraParameters = EraParameters
     { epochSizeSlots :: !Word64
-    , slotLengthMs :: !Word64
+    , slotLength :: !Word64
     , eraName :: !Text
     }
     deriving (Generic)
 
-instance FromJSON EraParameters
+instance FromJSON EraParameters where
+    parseJSON = genericParseJSON snakeCaseOptions
 
 buildEpochInfo :: EraHistory -> Point -> Either Error (EpochInfo.EpochInfo (Either Text))
 buildEpochInfo eraHistory point = do
@@ -150,14 +156,14 @@ buildBound EraBound{time, slot, epoch} =
             }
 
 buildEraParams :: EraParameters -> Either Error EraParams
-buildEraParams EraParameters{epochSizeSlots, slotLengthMs, eraName}
+buildEraParams EraParameters{epochSizeSlots, slotLength, eraName}
     | eraName /= "Conway" =
         Left (UnsupportedFixture ("unsupported era name in era history: " <> eraName))
     | otherwise =
         pure
             EraParams
                 { eraEpochSize = EpochSize epochSizeSlots
-                , eraSlotLength = slotLengthFromMillisec (fromIntegral slotLengthMs)
+                , eraSlotLength = slotLengthFromMillisec (fromIntegral slotLength)
                 , eraSafeZone = UnsafeIndefiniteSafeZone
                 , eraGenesisWin = GenesisWindow 0
                 , eraPerasRoundLength = perasDisabled

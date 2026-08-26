@@ -17,7 +17,6 @@ use std::fmt;
 use crate::{Slot, cbor};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TransactionPointer {
     pub slot: Slot,
     pub transaction_index: usize,

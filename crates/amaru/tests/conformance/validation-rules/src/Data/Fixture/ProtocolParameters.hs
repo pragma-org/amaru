@@ -114,39 +114,39 @@ data ProtocolParameters = ProtocolParameters
 protocolParametersFromJson :: Value -> Parser ProtocolParameters
 protocolParametersFromJson =
     withObject "ProtocolParameters" $ \objectValue -> do
-        minFeeCoefficientValue <- objectValue .: "minFeeCoefficient"
-        minFeeConstantValue <- objectValue .: "minFeeConstant"
-        maxBlockBodySize <- parseBounded objectValue "maxBlockBodySize"
-        maxBlockHeaderSize <- parseBounded objectValue "maxBlockHeaderSize"
-        maxTransactionSize <- parseBounded objectValue "maxTransactionSize"
-        maxValueSize <- parseBounded objectValue "maxValueSize"
-        maxReferenceScriptsSize <- objectValue .: "maxReferenceScriptsSize"
-        stakeCredentialDepositValue <- objectValue .: "stakeCredentialDeposit"
-        stakePoolDepositValue <- objectValue .: "stakePoolDeposit"
-        stakePoolRetirementEpochBound <- parseBounded objectValue "stakePoolRetirementEpochBound"
-        stakePoolPledgeInfluence <- objectValue .: "stakePoolPledgeInfluence" >>= parseBoundedRatio "stakePoolPledgeInfluence"
-        minStakePoolCostValue <- objectValue .: "minStakePoolCost"
-        desiredNumberOfStakePools <- parseBounded objectValue "desiredNumberOfStakePools"
-        monetaryExpansion <- objectValue .: "monetaryExpansion" >>= parseBoundedRatio "monetaryExpansion"
-        treasuryExpansion <- objectValue .: "treasuryExpansion" >>= parseBoundedRatio "treasuryExpansion"
-        collateralPercentage <- parseBounded objectValue "collateralPercentage"
-        maxCollateralInputs <- parseBounded objectValue "maxCollateralInputs"
-        scriptExecutionPrices <- objectValue .: "scriptExecutionPrices" >>= pricesFromJson
-        maxExecutionUnitsPerTransaction <- objectValue .: "maxExecutionUnitsPerTransaction" >>= executionUnitsFromJson
-        maxExecutionUnitsPerBlock <- objectValue .: "maxExecutionUnitsPerBlock" >>= executionUnitsFromJson
-        minFeeReferenceScripts <- objectValue .: "minFeeReferenceScripts" >>= minFeeReferenceScriptsFromJson
-        poolVotingThresholds <- objectValue .: "stakePoolVotingThresholds" >>= poolVotingThresholdsFromJson
-        dRepVotingThresholds <- objectValue .: "delegateRepresentativeVotingThresholds" >>= drepVotingThresholdsFromJson
-        constitutionalCommitteeMinSize <- fromIntegral <$> (objectValue .: "constitutionalCommitteeMinSize" :: Parser Word64)
-        constitutionalCommitteeMaxTermLength <- parseBounded objectValue "constitutionalCommitteeMaxTermLength"
-        governanceActionLifetime <- parseBounded objectValue "governanceActionLifetime"
-        governanceActionDepositValue <- objectValue .: "governanceActionDeposit"
-        delegateRepresentativeDepositValue <- objectValue .: "delegateRepresentativeDeposit"
-        delegateRepresentativeMaxIdleTime <- parseBounded objectValue "delegateRepresentativeMaxIdleTime"
+        minFeeCoefficientValue <- objectValue .: "min_fee_coefficient"
+        minFeeConstantValue <- objectValue .: "min_fee_constant"
+        maxBlockBodySize <- parseBounded objectValue "max_block_body_size"
+        maxBlockHeaderSize <- parseBounded objectValue "max_block_header_size"
+        maxTransactionSize <- parseBounded objectValue "max_transaction_size"
+        maxValueSize <- parseBounded objectValue "max_value_size"
+        maxReferenceScriptsSize <- objectValue .: "max_reference_scripts_size"
+        stakeCredentialDepositValue <- objectValue .: "stake_credential_deposit"
+        stakePoolDepositValue <- objectValue .: "stake_pool_deposit"
+        stakePoolRetirementEpochBound <- parseBounded objectValue "stake_pool_retirement_epoch_bound"
+        stakePoolPledgeInfluence <- objectValue .: "stake_pool_pledge_influence" >>= parseBoundedRatio "stake_pool_pledge_influence"
+        minStakePoolCostValue <- objectValue .: "min_stake_pool_cost"
+        desiredNumberOfStakePools <- parseBounded objectValue "desired_number_of_stake_pools"
+        monetaryExpansion <- objectValue .: "monetary_expansion" >>= parseBoundedRatio "monetary_expansion"
+        treasuryExpansion <- objectValue .: "treasury_expansion" >>= parseBoundedRatio "treasury_expansion"
+        collateralPercentage <- parseBounded objectValue "collateral_percentage"
+        maxCollateralInputs <- parseBounded objectValue "max_collateral_inputs"
+        scriptExecutionPrices <- objectValue .: "script_execution_prices" >>= pricesFromJson
+        maxExecutionUnitsPerTransaction <- objectValue .: "max_execution_units_per_transaction" >>= executionUnitsFromJson
+        maxExecutionUnitsPerBlock <- objectValue .: "max_execution_units_per_block" >>= executionUnitsFromJson
+        minFeeReferenceScripts <- objectValue .: "min_fee_reference_scripts" >>= minFeeReferenceScriptsFromJson
+        poolVotingThresholds <- objectValue .: "stake_pool_voting_thresholds" >>= poolVotingThresholdsFromJson
+        dRepVotingThresholds <- objectValue .: "delegate_representative_voting_thresholds" >>= drepVotingThresholdsFromJson
+        constitutionalCommitteeMinSize <- fromIntegral <$> (objectValue .: "constitutional_committee_min_size" :: Parser Word64)
+        constitutionalCommitteeMaxTermLength <- parseBounded objectValue "constitutional_committee_max_term_length"
+        governanceActionLifetime <- parseBounded objectValue "governance_action_lifetime"
+        governanceActionDepositValue <- objectValue .: "governance_action_deposit"
+        delegateRepresentativeDepositValue <- objectValue .: "delegate_representative_deposit"
+        delegateRepresentativeMaxIdleTime <- parseBounded objectValue "delegate_representative_max_idle_time"
         protocolVersion <- objectValue .: "version" >>= protocolVersionFromJson
-        minUtxoDepositCoefficientValue <- fromIntegral <$> (objectValue .: "minUtxoDepositCoefficient" :: Parser Word64)
-        minUtxoDepositConstantValue <- (objectValue .:? "minUtxoDepositConstant" :: Parser (Maybe Integer))
-        plutusCostModels <- objectValue .: "plutusCostModels" >>= plutusCostModelsFromJson
+        minUtxoDepositCoefficientValue <- fromIntegral <$> (objectValue .: "min_utxo_deposit_coefficient" :: Parser Word64)
+        minUtxoDepositConstantValue <- (objectValue .:? "min_utxo_deposit_constant" :: Parser (Maybe Integer))
+        plutusCostModels <- objectValue .: "plutus_cost_models" >>= plutusCostModelsFromJson
 
         case minUtxoDepositConstantValue of
             Nothing ->
@@ -161,7 +161,7 @@ protocolParametersFromJson =
                 { maxReferenceScriptsSize
                 , pparams =
                     emptyPParams @ConwayEra
-                        & ppTxFeePerByteL .~ CoinPerByte (compactCoinOrError "minFeeCoefficient" (Coin minFeeCoefficientValue))
+                        & ppTxFeePerByteL .~ CoinPerByte (compactCoinOrError "min_fee_coefficient" (Coin minFeeCoefficientValue))
                         & ppTxFeeFixedL .~ Coin minFeeConstantValue
                         & ppMaxBBSizeL .~ maxBlockBodySize
                         & ppMaxBHSizeL .~ maxBlockHeaderSize
@@ -189,20 +189,20 @@ protocolParametersFromJson =
                         & ppDRepDepositL .~ Coin delegateRepresentativeDepositValue
                         & ppDRepActivityL .~ EpochInterval delegateRepresentativeMaxIdleTime
                         & ppProtocolVersionL .~ protocolVersion
-                        & ppCoinsPerUTxOByteL .~ CoinPerByte (compactCoinOrError "minUtxoDepositCoefficient" (Coin minUtxoDepositCoefficientValue))
+                        & ppCoinsPerUTxOByteL .~ CoinPerByte (compactCoinOrError "min_utxo_deposit_coefficient" (Coin minUtxoDepositCoefficientValue))
                         & ppMinFeeRefScriptCostPerByteL .~ minFeeReferenceScripts
                         & ppCostModelsL .~ plutusCostModels
                 }
 
--- | Parse the Plutus cost models from JSON. The JSON object is expected to have keys "plutusV1", "plutusV2", and "plutusV3",
+-- | Parse the Plutus cost models from JSON. The JSON object is expected to have keys "plutus_v1", "plutus_v2", and "plutus_v3",
 --   each containing the cost model parameters for the respective Plutus version.
 --   If any of the cost models are invalid, a parsing error will be raised.
 plutusCostModelsFromJson :: Value -> Parser CostModels
 plutusCostModelsFromJson =
-    withObject "plutusCostModels" $ \objectValue -> do
-        plutusV1 <- objectValue .:? "plutusV1"
-        plutusV2 <- objectValue .:? "plutusV2"
-        plutusV3 <- objectValue .:? "plutusV3"
+    withObject "plutus_cost_models" $ \objectValue -> do
+        plutusV1 <- objectValue .:? "plutus_v1"
+        plutusV2 <- objectValue .:? "plutus_v2"
+        plutusV3 <- objectValue .:? "plutus_v3"
         costModels <-
             sequence
                 [ buildCostModel language parameters
@@ -232,65 +232,55 @@ pricesFromJson :: Value -> Parser Prices
 pricesFromJson =
     withObject "ScriptExecutionPrices" $ \objectValue ->
         Prices
-            <$> (objectValue .: "memory" >>= parseBoundedRatio "scriptExecutionPrices.memory")
-            <*> (objectValue .: "cpu" >>= parseBoundedRatio "scriptExecutionPrices.cpu")
+            <$> (objectValue .: "mem_price" >>= parseBoundedRatio "script_execution_prices.mem_price")
+            <*> (objectValue .: "step_price" >>= parseBoundedRatio "script_execution_prices.step_price")
 
 executionUnitsFromJson :: Value -> Parser ExUnits
 executionUnitsFromJson =
     withObject "ExecutionUnits" $ \objectValue ->
         ExUnits
-            <$> (fromIntegral <$> (objectValue .: "memory" :: Parser Word64))
-            <*> (fromIntegral <$> (objectValue .: "cpu" :: Parser Word64))
+            <$> (fromIntegral <$> (objectValue .: "mem" :: Parser Word64))
+            <*> (fromIntegral <$> (objectValue .: "steps" :: Parser Word64))
 
 minFeeReferenceScriptsFromJson :: Value -> Parser NonNegativeInterval
 minFeeReferenceScriptsFromJson =
     withObject "MinFeeReferenceScripts" $ \objectValue -> do
         range <- objectValue .: "range"
-        base <- objectValue .: "base" >>= parseBoundedRatio "minFeeReferenceScripts.base"
+        base <- objectValue .: "base" >>= parseBoundedRatio "min_fee_reference_scripts.base"
         multiplier <- objectValue .: "multiplier" >>= ratioFromJson
         when (range /= (25600 :: Word64)) $
-            fail ("minFeeReferenceScripts.range must be 25600 for the current Haskell ledger, but got " <> show range)
+            fail ("min_fee_reference_scripts.range must be 25600 for the current Haskell ledger, but got " <> show range)
         when (multiplier /= (12 % 10)) $
             fail
-                ( "minFeeReferenceScripts.multiplier must be 12/10 for the current Haskell ledger, but got "
+                ( "min_fee_reference_scripts.multiplier must be 12/10 for the current Haskell ledger, but got "
                     <> toString (renderRatio multiplier)
                 )
         pure base
 
 poolVotingThresholdsFromJson :: Value -> Parser PoolVotingThresholds
 poolVotingThresholdsFromJson =
-    withObject "PoolVotingThresholds" $ \objectValue -> do
-        noConfidence <- objectValue .: "noConfidence" >>= parseBoundedRatio "stakePoolVotingThresholds.noConfidence"
-        constitutionalCommittee <- objectValue .: "constitutionalCommittee"
-        hardForkInitiation <- objectValue .: "hardForkInitiation" >>= parseBoundedRatio "stakePoolVotingThresholds.hardForkInitiation"
-        protocolParametersUpdate <- objectValue .: "protocolParametersUpdate"
+    withObject "PoolVotingThresholds" $ \objectValue ->
         PoolVotingThresholds
-            <$> pure noConfidence
-            <*> (constitutionalCommittee .: "default" >>= parseBoundedRatio "stakePoolVotingThresholds.constitutionalCommittee.default")
-            <*> (constitutionalCommittee .: "stateOfNoConfidence" >>= parseBoundedRatio "stakePoolVotingThresholds.constitutionalCommittee.stateOfNoConfidence")
-            <*> pure hardForkInitiation
-            <*> (protocolParametersUpdate .: "security" >>= parseBoundedRatio "stakePoolVotingThresholds.protocolParametersUpdate.security")
+            <$> (objectValue .: "motion_no_confidence" >>= parseBoundedRatio "stake_pool_voting_thresholds.motion_no_confidence")
+            <*> (objectValue .: "committee_normal" >>= parseBoundedRatio "stake_pool_voting_thresholds.committee_normal")
+            <*> (objectValue .: "committee_no_confidence" >>= parseBoundedRatio "stake_pool_voting_thresholds.committee_no_confidence")
+            <*> (objectValue .: "hard_fork_initiation" >>= parseBoundedRatio "stake_pool_voting_thresholds.hard_fork_initiation")
+            <*> (objectValue .: "security_voting_threshold" >>= parseBoundedRatio "stake_pool_voting_thresholds.security_voting_threshold")
 
 drepVotingThresholdsFromJson :: Value -> Parser DRepVotingThresholds
 drepVotingThresholdsFromJson =
-    withObject "DRepVotingThresholds" $ \objectValue -> do
-        noConfidence <- objectValue .: "noConfidence" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.noConfidence"
-        constitution <- objectValue .: "constitution" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.constitution"
-        constitutionalCommittee <- objectValue .: "constitutionalCommittee"
-        hardForkInitiation <- objectValue .: "hardForkInitiation" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.hardForkInitiation"
-        protocolParametersUpdate <- objectValue .: "protocolParametersUpdate"
-        treasuryWithdrawals <- objectValue .: "treasuryWithdrawals" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.treasuryWithdrawals"
+    withObject "DRepVotingThresholds" $ \objectValue ->
         DRepVotingThresholds
-            <$> pure noConfidence
-            <*> (constitutionalCommittee .: "default" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.constitutionalCommittee.default")
-            <*> (constitutionalCommittee .: "stateOfNoConfidence" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.constitutionalCommittee.stateOfNoConfidence")
-            <*> pure constitution
-            <*> pure hardForkInitiation
-            <*> (protocolParametersUpdate .: "network" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.protocolParametersUpdate.network")
-            <*> (protocolParametersUpdate .: "economic" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.protocolParametersUpdate.economic")
-            <*> (protocolParametersUpdate .: "technical" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.protocolParametersUpdate.technical")
-            <*> (protocolParametersUpdate .: "governance" >>= parseBoundedRatio "delegateRepresentativeVotingThresholds.protocolParametersUpdate.governance")
-            <*> pure treasuryWithdrawals
+            <$> (objectValue .: "motion_no_confidence" >>= parseBoundedRatio "delegate_representative_voting_thresholds.motion_no_confidence")
+            <*> (objectValue .: "committee_normal" >>= parseBoundedRatio "delegate_representative_voting_thresholds.committee_normal")
+            <*> (objectValue .: "committee_no_confidence" >>= parseBoundedRatio "delegate_representative_voting_thresholds.committee_no_confidence")
+            <*> (objectValue .: "update_constitution" >>= parseBoundedRatio "delegate_representative_voting_thresholds.update_constitution")
+            <*> (objectValue .: "hard_fork_initiation" >>= parseBoundedRatio "delegate_representative_voting_thresholds.hard_fork_initiation")
+            <*> (objectValue .: "pp_network_group" >>= parseBoundedRatio "delegate_representative_voting_thresholds.pp_network_group")
+            <*> (objectValue .: "pp_economic_group" >>= parseBoundedRatio "delegate_representative_voting_thresholds.pp_economic_group")
+            <*> (objectValue .: "pp_technical_group" >>= parseBoundedRatio "delegate_representative_voting_thresholds.pp_technical_group")
+            <*> (objectValue .: "pp_governance_group" >>= parseBoundedRatio "delegate_representative_voting_thresholds.pp_governance_group")
+            <*> (objectValue .: "treasury_withdrawal" >>= parseBoundedRatio "delegate_representative_voting_thresholds.treasury_withdrawal")
 
 protocolVersionFromJson :: Value -> Parser ProtVer
 protocolVersionFromJson =

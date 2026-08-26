@@ -2,13 +2,13 @@
   "title": "empty input set",
   "description": "The transaction body has an empty input set; a withdrawal funds the output and the fee so that the empty set is the only rule violated.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [],
     "pools": [],
     "accounts": [
@@ -18,24 +18,24 @@
         "rewards": 5000000,
         "drep": {
           "id": "8102",
-          "delegatedAt": {
+          "delegated_at": {
             "transaction": {
               "slot": 0,
-              "transactionIndex": 0
+              "transaction_index": 0
             },
-            "certificateIndex": 0
+            "certificate_index": 0
           }
         }
       }
     ],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d90102800181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4005a1581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a004c4b400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584072e4f179ffb41b57b2ef639610afa064b1b64a94a17b838523419263950fb3ee269fdd675b57de8bd254fbceee0016ad9a010be620f02c9d2205cfa145dd2a09f5f6",
   "expected": {

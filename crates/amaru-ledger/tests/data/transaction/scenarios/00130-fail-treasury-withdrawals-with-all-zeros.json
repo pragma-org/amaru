@@ -2,13 +2,13 @@
   "title": "Treasury withdrawals with all zeros",
   "description": "A TreasuryWithdrawals proposal which contains only zero-withdrawals.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820000000000000000000000000000000000000000000000000000000000000000100",
@@ -35,7 +35,7 @@
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84A500D90102818258200000000000000000000000000000000000000000000000000000000000000001000181A200581D70D441227553A0F1A965FEE7D60A0F724B368DD1BDDBC208730FCCEBCF011A001E8480021A00030D400F0014D9010281841B000000174876E800581DE0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8302A3581DE0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00581DE0BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB00581DE0CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC00F6827468747470733A2F2F616D6172752E676C6F62616C58200000000000000000000000000000000000000000000000000000000000000000A10181820180F5F6",
   "expected": {

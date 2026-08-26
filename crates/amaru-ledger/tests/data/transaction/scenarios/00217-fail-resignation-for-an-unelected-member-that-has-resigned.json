@@ -2,13 +2,13 @@
   "title": "resignation for an unelected member that has resigned",
   "description": "A transaction carrying a ResignCommitteeCold certificate for a committee member holding no term whose recorded status is a resignation.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "8258202dc4feba3f183472ef4026374a8e89c79e8319b584f64ebcc2169add3223d4f700",
@@ -17,15 +17,15 @@
     ],
     "committee": [
       {
-        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "cold_credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "status": "resigned",
-        "validUntil": null
+        "valid_until": null
       }
     ]
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d90102818258202dc4feba3f183472ef4026374a8e89c79e8319b584f64ebcc2169add3223d4f7000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940021a00030d4004d9010281830f8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f60f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258401dd0412ed4b3bfdb6e75003d82b400f4f4624e55df8608aef80c16e2784a4d9d33b6fd3a8cb1b60756524b6e8f6322b7e715785740c857be07cb3b314b6f7b0ff5f6",
   "expected": {

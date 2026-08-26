@@ -2,13 +2,13 @@
   "title": "output holding exactly the minimum lovelace",
   "description": "A simple transfer producing one 39-byte output holding 857,690 lovelace, the exact minimum at the default 4,310-lovelace-per-byte coefficient.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820b308d3cd60d01a5531eadaddc1e0667eff9907b88038ca87503eff343b18f30b00",
@@ -18,7 +18,7 @@
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a400d9010281825820b308d3cd60d01a5531eadaddc1e0667eff9907b88038ca87503eff343b18f30b000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a000d165a021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258401b20b93436485eb654e038a67a9c757f44a66fbeb6f2b8477376c9f52c6cd910561f5b20487238a43c4f925fee72903685bcb23713a5d9532cd4b2f667b0b309f5f6",
   "expected": "Pass"
