@@ -1855,7 +1855,7 @@ mod tests {
                     sub {
                         /// Test schema
                         SCHEMA {
-                            required credential_type: amaru_kernel::StakeCredentialKind
+                            required credential_type: amaru_kernel::CredentialKind
                         }
                     }
                 }
@@ -1863,7 +1863,7 @@ mod tests {
         };
         let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
-        assert_eq!(schemas[0].required_fields[0].type_str(), "amaru_kernel::StakeCredentialKind");
+        assert_eq!(schemas[0].required_fields[0].type_str(), "amaru_kernel::CredentialKind");
     }
 
     #[test]

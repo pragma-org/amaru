@@ -20,10 +20,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::{
-    context::WitnessSlice,
-    rules::{TransactionField, WithPosition},
-};
+use crate::{context::WitnessSlice, rules::WithPosition};
 
 #[derive(Debug, Error)]
 pub enum InvalidVerificationKeyWitness {
@@ -32,9 +29,6 @@ pub enum InvalidVerificationKeyWitness {
 
     #[error("invalid verification key witnesses: [{}]", display_collection(invalid_witnesses))]
     InvalidSignatures { invalid_witnesses: Vec<WithPosition<InvalidEd25519Signature>> },
-
-    #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
-    MalformedRewardAccount { bytes: Vec<u8>, context: TransactionField, position: usize },
 }
 
 pub fn execute(

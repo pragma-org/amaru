@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, StakeCredential, cbor};
+use amaru_kernel::{CertificatePointer, Credential, DRep, Lovelace, PoolId, cbor};
 
 use crate::state::volatile::Resettable;
 
@@ -33,7 +33,7 @@ pub enum Value {
     Update { pool: Resettable<(PoolId, CertificatePointer)>, drep: Resettable<(DRep, CertificatePointer)> },
 }
 
-pub type Key = StakeCredential;
+pub type Key = Credential;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Row {

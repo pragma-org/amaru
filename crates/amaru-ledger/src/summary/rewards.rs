@@ -110,8 +110,8 @@ certain mutations are applied to the system.
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, SafeRatio, SortedPairs, StakeCredential,
-    expect_stake_credential, floor_to_lovelace, safe_ratio,
+    Credential, Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, SafeRatio, SortedPairs,
+    floor_to_lovelace, safe_ratio,
 };
 use amaru_observability::info;
 use num::{
@@ -131,12 +131,10 @@ impl PoolState {
         safe_ratio(self.stake, total_stake)
     }
 
-    pub fn owner_stake(&self, accounts: &SortedPairs<StakeCredential, AccountState>) -> Lovelace {
-        self.parameters.owners.iter().fold(0, |total, owner| {
-            match accounts.get(&StakeCredential::AddrKeyhash(*owner)) {
-                Some(account) if account.pool == Some(self.parameters.id) => total + account.balance,
-                _ => total,
-            }
+    pub fn owner_stake(&self, accounts: &SortedPairs<Credential, AccountState>) -> Lovelace {
+        self.parameters.owners.iter().fold(0, |total, owner| match accounts.get(&Credential::KeyHash(*owner)) {
+            Some(account) if account.pool == Some(self.parameters.id) => total + account.balance,
+            _ => total,
         })
     }
 
@@ -244,13 +242,13 @@ impl PoolState {
     /// leader rewards and are therefore excluded from the member rewards.
     pub fn member_rewards(
         &self,
-        member: &StakeCredential,
+        member: &Credential,
         pool_rewards: Lovelace,
         member_stake: Lovelace,
         total_stake: Lovelace,
     ) -> Lovelace {
         // NOTE: It may be tempting when seeing the call-site of this function to refactor member
-        // to take a `Hash<CREDENTIAL>` instead of a `StakeCredential` directly to make this more uniform.
+        // to take a `Hash<CREDENTIAL>` instead of a `Credential` directly to make this more uniform.
         //
         // BUT, we know that `owners` cannot be scripts, and a script that would have the same hash
         // as a public key (which is technically near impossible, but still...) would be wrongly
@@ -258,8 +256,8 @@ impl PoolState {
         //
         // So the distinction Script/VerificationKey here *is* useful.
         let is_owner = match member {
-            StakeCredential::ScriptHash(..) => false,
-            StakeCredential::AddrKeyhash(key) => self.parameters.owners.contains(key),
+            Credential::ScriptHash(..) => false,
+            Credential::KeyHash(key) => self.parameters.owners.contains(key),
         };
 
         if is_owner {
@@ -325,10 +323,10 @@ pub struct RewardsSummary {
     pots: Pots,
 
     /// Per-account state including their rewards.
-    accounts: SortedPairs<StakeCredential, AccountState>,
+    accounts: SortedPairs<Credential, AccountState>,
 
     /// Credentials credited a leader reward, as named by the stake distribution's pool parameters.
-    leader_recipients: BTreeSet<StakeCredential>,
+    leader_recipients: BTreeSet<Credential>,
 }
 
 impl RewardsSummary {
@@ -368,7 +366,7 @@ impl RewardsSummary {
 
         let total_stake: Lovelace = global_parameters.max_lovelace_supply - pots.reserves;
 
-        let mut leader_recipients: BTreeSet<StakeCredential> = BTreeSet::new();
+        let mut leader_recipients: BTreeSet<Credential> = BTreeSet::new();
 
         let mut pools: BTreeMap<PoolId, PoolRewards> = BTreeMap::new();
 
@@ -490,7 +488,7 @@ impl RewardsSummary {
     }
 
     fn apply_member_rewards(
-        (credential, account): (&StakeCredential, &mut AccountState),
+        (credential, account): (&Credential, &mut AccountState),
         pool: &PoolState,
         pool_rewards: Option<&PoolRewards>,
         total_stake: Lovelace,
@@ -508,8 +506,8 @@ impl RewardsSummary {
 
     #[expect(clippy::too_many_arguments)]
     fn apply_leader_rewards(
-        accounts: &mut SortedPairs<StakeCredential, AccountState>,
-        leader_recipients: &mut BTreeSet<StakeCredential>,
+        accounts: &mut SortedPairs<Credential, AccountState>,
+        leader_recipients: &mut BTreeSet<Credential>,
         blocks_per_pool: &mut BTreeMap<PoolId, u64>,
         blocks_count: u64,
         available_rewards: Lovelace,
@@ -532,7 +530,7 @@ impl RewardsSummary {
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
         if rewards_leader > 0 {
-            let credential = expect_stake_credential(&pool.parameters.reward_account);
+            let credential = pool.parameters.reward_account.credential();
             leader_recipients.insert(credential);
             if let Some(st) = accounts.get_mut(&credential) {
                 st.rewards += rewards_leader;
@@ -564,7 +562,7 @@ impl RewardsSummary {
     }
 
     /// Rewards owed to each credential, whether or not that credential still has an account.
-    pub fn accounts(&self) -> &SortedPairs<StakeCredential, AccountState> {
+    pub fn accounts(&self) -> &SortedPairs<Credential, AccountState> {
         &self.accounts
     }
 
@@ -588,7 +586,10 @@ impl From<RewardsSummary> for Rewards<Computed> {
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::{CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PoolParams, RationalNumber};
+    use amaru_kernel::{
+        CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Network, PoolParams, RationalNumber,
+        RewardAccount,
+    };
 
     use super::*;
     use crate::summary::stake_distribution::{StakeDistribution, StakeSummary};
@@ -661,8 +662,8 @@ mod test {
 
     const STAKE: Lovelace = 1_000_000_000_000;
 
-    fn credential(tag: u8) -> StakeCredential {
-        StakeCredential::ScriptHash(Hash::new([tag; 28]))
+    fn credential(tag: u8) -> Credential {
+        Credential::ScriptHash(Hash::new([tag; 28]))
     }
 
     /// A pool whose reward account is `credential(tag)`, big enough and productive enough to earn a
@@ -680,8 +681,7 @@ mod test {
                 pledge: 0,
                 cost: 0,
                 margin: RationalNumber { numerator: 1, denominator: 1 },
-                // 0xF0 discriminates a script stake address on a test network.
-                reward_account: [&[0xF0], &[tag; 28][..]].concat().into(),
+                reward_account: RewardAccount::new(Network::Testnet, Credential::ScriptHash(Hash::new([tag; 28]))),
                 owners: Vec::new(),
                 relays: Vec::new(),
                 metadata: None,
@@ -690,7 +690,7 @@ mod test {
         }
     }
 
-    fn stake_summary(pool: &PoolState, accounts: BTreeMap<StakeCredential, AccountState>) -> StakeSummary {
+    fn stake_summary(pool: &PoolState, accounts: BTreeMap<Credential, AccountState>) -> StakeSummary {
         StakeSummary {
             stake_distribution: StakeDistribution {
                 epoch: Epoch::from(0),
@@ -711,7 +711,7 @@ mod test {
     fn apply_leader_rewards(
         pool: &PoolState,
         mut stake_summary: StakeSummary,
-    ) -> (SortedPairs<StakeCredential, AccountState>, BTreeSet<StakeCredential>) {
+    ) -> (SortedPairs<Credential, AccountState>, BTreeSet<Credential>) {
         let mut leader_recipients = BTreeSet::new();
         let mut blocks_per_pool = BTreeMap::from([(pool.parameters.id, 1)]);
 

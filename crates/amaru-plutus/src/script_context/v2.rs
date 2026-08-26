@@ -14,11 +14,11 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{Address, MemoizedTransactionOutput, PlutusData, StakePayload};
+use amaru_kernel::{Address, MemoizedTransactionOutput, PlutusData};
 
 use crate::{
     PlutusDataError, ToPlutusData, constr_v2,
-    script_context::{OutputReference, PlutusDatums, PlutusStakeAddress, PlutusWithdrawals, ScriptContext, TxInfo},
+    script_context::{OutputReference, PlutusDatums, PlutusWithdrawals, ScriptContext, TxInfo},
 };
 
 impl ToPlutusData<2> for ScriptContext<'_> {
@@ -83,21 +83,12 @@ impl ToPlutusData<2> for PlutusWithdrawals {
     }
 }
 
-impl ToPlutusData<2> for amaru_kernel::StakeAddress {
+impl ToPlutusData<2> for amaru_kernel::RewardAccount {
     /// In PlutusV1 and PlutusV2:
-    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
+    /// Anywhere a `Credential` is used, it is actually an enum with variants `Pointer` and `Credential`
     ///
     /// It is actually not possible (by the ledger serialization) logic to construct a StakeAdress with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self.payload() {
-            StakePayload::Key(keyhash) => constr_v2!(0, [constr_v2!(0, [keyhash])?]),
-            StakePayload::Script(script_hash) => constr_v2!(0, [constr_v2!(1, [script_hash])?]),
-        }
-    }
-}
-
-impl ToPlutusData<2> for PlutusStakeAddress {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <amaru_kernel::StakeAddress as ToPlutusData<2>>::to_plutus_data(self.as_ref())
+        constr_v2!(0, [self.credential()])
     }
 }

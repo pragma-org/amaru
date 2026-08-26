@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor};
+use amaru_kernel::{Anchor, CertificatePointer, Credential, DRepRegistration, Epoch, Lovelace, cbor};
 
 use crate::state::volatile::Resettable;
 
@@ -22,7 +22,7 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (Resettable<Box<Anchor>>, Option<DRepRegistration>);
 
-pub type Key = StakeCredential;
+pub type Key = Credential;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {

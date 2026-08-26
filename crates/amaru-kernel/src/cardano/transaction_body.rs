@@ -463,6 +463,11 @@ mod tests {
         "decode error at position 2: found duplicate elements when converting collection to a set";
         "duplicate inputs"
     )]
+    #[test_case(
+        fixture!("conway", "5d33de4097498f2b3bd437d37c6018bc84e3e3848a533b44dcfe8cfb7e9baedf"),
+        "decode error at position 9: malformed reward account: 0000";
+        "malformed reward account in withdrawals"
+    )]
     fn decode_malformed(result: Result<TransactionBody, cbor::decode::Error>, expected_error: &str) {
         assert_eq!(result.map_err(|e| e.to_string()), Err(expected_error.to_string()));
     }

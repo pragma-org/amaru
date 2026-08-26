@@ -12,49 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Certificate, ShelleyAddress, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload, Voter};
+use crate::{Certificate, Credential, RewardAccount, ShelleyAddress, Voter};
 
 pub trait HasOwnership {
     /// Returns ownership credential of a given entity, if any.
-    ///
-    /// TODO: The return type is slightly misleading; we refer to a 'StakeCredential', whereas the
-    /// underlying method mainly targets payment credentials in addresses. The reason for this side
-    /// step is that there's no 'Credential' type in Pallas unforunately, and so we just borrow the
-    /// structure of 'StakeCredential'.
-    fn owner(&self) -> StakeCredential;
+    fn owner(&self) -> Credential;
 }
 
-impl HasOwnership for StakeAddress {
-    fn owner(&self) -> StakeCredential {
-        match self.payload() {
-            StakePayload::Key(hash) => StakeCredential::AddrKeyhash(*hash),
-            StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
-        }
+impl HasOwnership for RewardAccount {
+    fn owner(&self) -> Credential {
+        self.credential()
     }
 }
 
 impl HasOwnership for ShelleyAddress {
-    fn owner(&self) -> StakeCredential {
-        match self.payment() {
-            ShelleyPaymentPart::Key(hash) => StakeCredential::AddrKeyhash(*hash),
-            ShelleyPaymentPart::Script(hash) => StakeCredential::ScriptHash(*hash),
-        }
+    fn owner(&self) -> Credential {
+        *self.payment()
     }
 }
 
 impl HasOwnership for Voter {
-    fn owner(&self) -> StakeCredential {
+    fn owner(&self) -> Credential {
         match self {
             Self::ConstitutionalCommitteeKey(hash) | Self::DRepKey(hash) | Self::StakePoolKey(hash) => {
-                StakeCredential::AddrKeyhash(*hash)
+                Credential::KeyHash(*hash)
             }
-            Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => StakeCredential::ScriptHash(*hash),
+            Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => Credential::ScriptHash(*hash),
         }
     }
 }
 
 impl HasOwnership for Certificate {
-    fn owner(&self) -> StakeCredential {
+    fn owner(&self) -> Credential {
         match self {
             Self::StakeRegistration(stake_credential)
             | Self::StakeDeregistration(stake_credential)
@@ -71,8 +60,8 @@ impl HasOwnership for Certificate {
             | Self::RegDRepCert(stake_credential, _, _)
             | Self::UnRegDRepCert(stake_credential, _)
             | Self::UpdateDRepCert(stake_credential, _) => *stake_credential,
-            Self::PoolRetirement(id, _) => StakeCredential::AddrKeyhash(*id),
-            Self::PoolRegistration(params) => StakeCredential::AddrKeyhash(params.id),
+            Self::PoolRetirement(id, _) => Credential::KeyHash(*id),
+            Self::PoolRegistration(params) => Credential::KeyHash(params.id),
         }
     }
 }

@@ -20,9 +20,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
-    GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
-    PoolParams, ProposalId, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep,
+    DRepRegistration, Epoch, GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript,
+    MemoizedTransactionOutput, Mint, PoolId, PoolParams, ProposalId, ProposalsRoots, RequiredScript, TransactionInput,
+    Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -40,9 +41,9 @@ use crate::{
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     pools: BTreeSet<PoolId>,
-    accounts: BTreeMap<StakeCredential, AccountState>,
-    dreps: BTreeMap<StakeCredential, DRepRegistration>,
-    committee: BTreeMap<StakeCredential, CCMember>,
+    accounts: BTreeMap<Credential, AccountState>,
+    dreps: BTreeMap<Credential, DRepRegistration>,
+    committee: BTreeMap<Credential, CCMember>,
     proposals: BTreeMap<ProposalId, ProposalStateSlim>,
     proposals_roots: ProposalsRoots,
     treasury: Lovelace,
@@ -61,9 +62,9 @@ impl DefaultValidationContext {
     pub fn new(
         utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         pools: BTreeSet<PoolId>,
-        accounts: BTreeMap<StakeCredential, AccountState>,
-        dreps: BTreeMap<StakeCredential, DRepRegistration>,
-        committee: BTreeMap<StakeCredential, CCMember>,
+        accounts: BTreeMap<Credential, AccountState>,
+        dreps: BTreeMap<Credential, DRepRegistration>,
+        committee: BTreeMap<Credential, CCMember>,
         proposals: BTreeMap<ProposalId, ProposalStateSlim>,
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
@@ -142,7 +143,7 @@ impl PoolsSlice for DefaultValidationContext {
 
 impl AccountsSlice for DefaultValidationContext {
     /// The block start state (`self.accounts`) with this block's changes (`self.state`) folded in
-    fn lookup(&self, credential: &StakeCredential) -> Option<AccountState> {
+    fn lookup(&self, credential: &Credential) -> Option<AccountState> {
         // deregistered in block; gone
         if self.state.accounts.unregistered.contains(credential) {
             return None;
@@ -181,9 +182,9 @@ impl AccountsSlice for DefaultValidationContext {
 
     fn register(
         &mut self,
-        credential: StakeCredential,
+        credential: Credential,
         state: AccountState,
-    ) -> Result<(), RegisterError<AccountState, StakeCredential>> {
+    ) -> Result<(), RegisterError<AccountState, Credential>> {
         if AccountsSlice::lookup(self, &credential).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, credential));
         }
@@ -193,10 +194,10 @@ impl AccountsSlice for DefaultValidationContext {
 
     fn delegate_pool(
         &mut self,
-        credential: StakeCredential,
+        credential: Credential,
         pool: PoolId,
         pointer: CertificatePointer,
-    ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
+    ) -> Result<(), DelegateError<Credential, PoolId>> {
         if !PoolsSlice::exists(self, pool) {
             return Err(DelegateError::UnknownTarget(pool));
         }
@@ -206,13 +207,13 @@ impl AccountsSlice for DefaultValidationContext {
 
     fn delegate_vote(
         &mut self,
-        credential: StakeCredential,
+        credential: Credential,
         drep: DRep,
         pointer: CertificatePointer,
-    ) -> Result<(), DelegateError<StakeCredential, DRep>> {
-        let drep_stake_credential: Option<StakeCredential> = match &drep {
-            DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
-            DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
+    ) -> Result<(), DelegateError<Credential, DRep>> {
+        let drep_stake_credential: Option<Credential> = match &drep {
+            DRep::Key(hash) => Some(Credential::KeyHash(*hash)),
+            DRep::Script(hash) => Some(Credential::ScriptHash(*hash)),
             DRep::Abstain | DRep::NoConfidence => None,
         };
         if let Some(drep_credential) = &drep_stake_credential
@@ -224,17 +225,17 @@ impl AccountsSlice for DefaultValidationContext {
         Ok(())
     }
 
-    fn unregister(&mut self, credential: StakeCredential) {
+    fn unregister(&mut self, credential: Credential) {
         self.state.accounts.unregister(credential)
     }
 
-    fn withdraw_from(&mut self, credential: StakeCredential) {
+    fn withdraw_from(&mut self, credential: Credential) {
         self.state.withdrawals.insert(credential);
     }
 }
 
 impl DRepsSlice for DefaultValidationContext {
-    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration> {
+    fn lookup(&self, credential: &Credential) -> Option<&DRepRegistration> {
         match self.state.dreps.registered.get(credential) {
             // a fresh in-block registration carries its own record; an anchor-only update has no
             // `value`, so fall through to the block-start registration.
@@ -248,10 +249,10 @@ impl DRepsSlice for DefaultValidationContext {
 
     fn register(
         &mut self,
-        drep: StakeCredential,
+        drep: Credential,
         registration: DRepRegistration,
         anchor: Option<Box<Anchor>>,
-    ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
+    ) -> Result<(), RegisterError<DRepRegistration, Credential>> {
         if DRepsSlice::lookup(self, &drep).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
         }
@@ -259,16 +260,12 @@ impl DRepsSlice for DefaultValidationContext {
         Ok(())
     }
 
-    fn update(
-        &mut self,
-        drep: StakeCredential,
-        anchor: Option<Box<Anchor>>,
-    ) -> Result<(), UpdateError<StakeCredential>> {
+    fn update(&mut self, drep: Credential, anchor: Option<Box<Anchor>>) -> Result<(), UpdateError<Credential>> {
         self.state.dreps.bind_left(drep, anchor)?;
         Ok(())
     }
 
-    fn unregister(&mut self, drep: StakeCredential, _refund: Lovelace, pointer: CertificatePointer) {
+    fn unregister(&mut self, drep: Credential, _refund: Lovelace, pointer: CertificatePointer) {
         self.state.dreps_deregistrations.insert(drep, pointer);
         self.state.dreps.unregister(drep)
     }
@@ -279,7 +276,7 @@ impl CommitteeSlice for DefaultValidationContext {
     ///
     /// Interestingly, this function may return non-elected committee members that are pending in
     /// proposals, but not yet elected.
-    fn lookup_by_cold_credential(&self, cold_credential: &StakeCredential) -> Option<CCMember> {
+    fn lookup_by_cold_credential(&self, cold_credential: &Credential) -> Option<CCMember> {
         match self.state.committee.get(cold_credential) {
             Existence::Gone => None,
             Existence::Exists(new) => {
@@ -311,7 +308,7 @@ impl CommitteeSlice for DefaultValidationContext {
     /// [haskell]: https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/libs/cardano-ledger-core/src/Cardano/Ledger/State/CertState.hs#L335-L337
     fn lookup_by_hot_credential<'iter>(
         &'iter self,
-        hot_credential: &'iter StakeCredential,
+        hot_credential: &'iter Credential,
     ) -> impl Iterator<Item = CCMember> + 'iter {
         use ConstitutionalCommitteeMemberStatus::*;
 
@@ -331,9 +328,9 @@ impl CommitteeSlice for DefaultValidationContext {
 
     fn delegate_cold_key(
         &mut self,
-        cold_credential: StakeCredential,
-        delegate: StakeCredential,
-    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
+        cold_credential: Credential,
+        delegate: Credential,
+    ) -> Result<(), DelegateError<Credential, Credential>> {
         let Some(cc_member) = self.lookup_by_cold_credential(&cold_credential) else {
             return Err(DelegateError::UnknownSource(cold_credential));
         };
@@ -351,9 +348,9 @@ impl CommitteeSlice for DefaultValidationContext {
 
     fn resign(
         &mut self,
-        cold_credential: StakeCredential,
+        cold_credential: Credential,
         _anchor: Option<Box<Anchor>>,
-    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
+    ) -> Result<(), DelegateError<Credential, Credential>> {
         let Some(cc_member) = self.lookup_by_cold_credential(&cold_credential) else {
             return Err(DelegateError::UnknownSource(cold_credential));
         };
@@ -488,7 +485,7 @@ impl BalanceSlice for DefaultValidationContext {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Proposal, Slot, TransactionPointer, any_proposal, any_proposal_id, any_rational_number, any_stake_credential,
+        Proposal, Slot, TransactionPointer, any_credential, any_proposal, any_proposal_id, any_rational_number,
         utils::tests::run_strategy,
     };
     use test_case::test_case;
@@ -496,8 +493,8 @@ mod tests {
     use super::*;
     use crate::{context::ProposalState, state::volatile::DiffBind};
 
-    fn cred(tag: u8) -> StakeCredential {
-        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    fn cred(tag: u8) -> Credential {
+        Credential::KeyHash(Hash::new([tag; 28]))
     }
 
     fn pointer() -> CertificatePointer {
@@ -511,7 +508,7 @@ mod tests {
         AccountState { deposit: 2_000_000, pool: None, drep: None, rewards }
     }
 
-    fn ctx_with(accounts: BTreeMap<StakeCredential, AccountState>) -> DefaultValidationContext {
+    fn ctx_with(accounts: BTreeMap<Credential, AccountState>) -> DefaultValidationContext {
         DefaultValidationContext { accounts, ..Default::default() }
     }
 
@@ -566,7 +563,7 @@ mod tests {
         CCMember { status: hot.map(cred).map(Into::into), valid_until: valid_until.map(Epoch::from) }
     }
 
-    fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
+    fn ctx_with_committee(committee: BTreeMap<Credential, CCMember>) -> DefaultValidationContext {
         DefaultValidationContext { committee, ..Default::default() }
     }
 
@@ -656,7 +653,7 @@ mod tests {
     )]
     #[test_case(&[], InBlock::Nothing, 2, &[]; "no members at all")]
     fn committee_lookup_by_hot_credential(
-        initial_members: &[(StakeCredential, CCMember)],
+        initial_members: &[(Credential, CCMember)],
         in_block: InBlock,
         queried: u8,
         expected_members: &[CCMember],
@@ -693,7 +690,7 @@ mod tests {
     fn proposal_acknowledgement_does_not_modify_committee_state() {
         let proposal_id = run_strategy(any_proposal_id());
 
-        let cold_credential = run_strategy(any_stake_credential());
+        let cold_credential = run_strategy(any_credential());
 
         let committee_update_adding_members = ProposalState {
             proposed_in: Default::default(),

@@ -15,17 +15,17 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, Certificate, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
+    Address, Certificate, Constitution, CostModels, Credential, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
     GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolParams, PoolVotingThresholds, Proposal, ProposalId,
-    ProtocolParamUpdate, RationalNumber, StakeAddress, StakeCredential, StakePayload, TransactionInput, Vote, Voter,
+    ProtocolParamUpdate, RationalNumber, RewardAccount, TransactionInput, Vote, Voter,
 };
 use num::Integer;
 
 use crate::{
     PlutusDataError, ToPlutusData, constr, constr_v3,
     script_context::{
-        OutputReference, PlutusDatums, PlutusMint, PlutusStakeAddress, PlutusVotes, PlutusWithdrawals, ScriptContext,
-        ScriptInfo, ScriptPurpose, TxInfo,
+        OutputReference, PlutusDatums, PlutusMint, PlutusVotes, PlutusWithdrawals, ScriptContext, ScriptInfo,
+        ScriptPurpose, TxInfo,
     },
 };
 
@@ -116,8 +116,8 @@ impl ToPlutusData<3> for MemoizedTransactionOutput {
 impl ToPlutusData<3> for DRep {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            DRep::Key(hash) => constr_v3!(0, [StakeCredential::AddrKeyhash(*hash)]),
-            DRep::Script(hash) => constr_v3!(0, [StakeCredential::ScriptHash(*hash)]),
+            DRep::Key(hash) => constr_v3!(0, [Credential::KeyHash(*hash)]),
+            DRep::Script(hash) => constr_v3!(0, [Credential::ScriptHash(*hash)]),
             DRep::Abstain => constr!(1),
             DRep::NoConfidence => constr!(2),
         }
@@ -193,16 +193,16 @@ impl ToPlutusData<3> for Voter {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Voter::ConstitutionalCommitteeScript(hash) => {
-                constr_v3!(0, [StakeCredential::ScriptHash(*hash)])
+                constr_v3!(0, [Credential::ScriptHash(*hash)])
             }
             Voter::ConstitutionalCommitteeKey(hash) => {
-                constr_v3!(0, [StakeCredential::AddrKeyhash(*hash)])
+                constr_v3!(0, [Credential::KeyHash(*hash)])
             }
             Voter::DRepScript(hash) => {
-                constr_v3!(1, [StakeCredential::ScriptHash(*hash)])
+                constr_v3!(1, [Credential::ScriptHash(*hash)])
             }
             Voter::DRepKey(hash) => {
-                constr_v3!(1, [StakeCredential::AddrKeyhash(*hash)])
+                constr_v3!(1, [Credential::KeyHash(*hash)])
             }
             Voter::StakePoolKey(hash) => constr_v3!(2, [hash]),
         }
@@ -212,21 +212,13 @@ impl ToPlutusData<3> for Voter {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<3> for Proposal {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(0, [self.deposit, Address::from_bytes(&self.reward_account).unwrap(), self.gov_action])
+        constr_v3!(0, [self.deposit, Address::Stake(self.reward_account), self.gov_action])
     }
 }
 
 #[allow(clippy::expect_used)]
 impl ToPlutusData<3> for GovernanceAction {
     /// Serializes a `GovernanceAction` to PlutusData for PlutusV3.
-    ///
-    ///
-    /// # Errors
-    ///
-    /// This will only return an error if
-    /// a treasury withdrawal is to an invalid reward address.
-    /// This can only happen if the transaction is poorly constructed,
-    /// in which case it will fail phase-one validation.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             GovernanceAction::ParameterChange(previous_action, params, guardrail) => {
@@ -238,17 +230,8 @@ impl ToPlutusData<3> for GovernanceAction {
             GovernanceAction::TreasuryWithdrawals(withdrawals, guardrail) => {
                 let withdrawals = withdrawals
                     .iter()
-                    .map(|(reward_account, amount)| {
-                        let reward_address =
-                            if let Some(Address::Stake(reward_address)) = Address::from_bytes(reward_account) {
-                                Ok(reward_address)
-                            } else {
-                                Err(PlutusDataError::Custom("invalid stake address in treasury withdrawal?".into()))
-                            }?;
-
-                        Ok((reward_address, *amount))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, _>>()?;
+                    .map(|(reward_account, amount)| (*reward_account, *amount))
+                    .collect::<BTreeMap<_, _>>();
 
                 constr_v3!(2, [withdrawals, guardrail])
             }
@@ -521,18 +504,9 @@ impl ToPlutusData<3> for PlutusVotes<'_> {
     }
 }
 
-impl ToPlutusData<3> for StakeAddress {
+impl ToPlutusData<3> for RewardAccount {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self.payload() {
-            StakePayload::Key(keyhash) => constr_v3!(0, [keyhash]),
-            StakePayload::Script(script_hash) => constr_v3!(1, [script_hash]),
-        }
-    }
-}
-
-impl ToPlutusData<3> for PlutusStakeAddress {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <amaru_kernel::StakeAddress as ToPlutusData<3>>::to_plutus_data(self.as_ref())
+        <Credential as ToPlutusData<3>>::to_plutus_data(&self.credential())
     }
 }
 

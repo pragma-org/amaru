@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Hash, Lovelace, PoolId, ProposalId,
-    ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind, size::SCRIPT,
+    AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Credential, CredentialKind, Hash, Lovelace,
+    PoolId, ProposalId, ProtocolParameters, RatificationStatus, RationalNumber, size::SCRIPT,
 };
 use amaru_observability::{debug, debug_span, error};
 use num::BigUint;
@@ -143,7 +143,7 @@ pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Res
 /// Return deposits back to reward accounts, adding leftovers to the treasury.
 pub fn pay_or_refund_accounts<'store, 'iter>(
     db: &impl TransactionalContext<'store>,
-    payouts: impl IntoIterator<Item = (&'iter StakeCredential, &'iter Lovelace)>,
+    payouts: impl IntoIterator<Item = (&'iter Credential, &'iter Lovelace)>,
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::overlay::PAY_OR_REFUND_ACCOUNTS,).in_scope(|| {
         let (leftovers, paid) = payouts.into_iter().try_fold::<_, _, Result<_, StoreError>>(
@@ -151,7 +151,7 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
             |(leftovers, paid), (account, deposit)| {
                 debug!(
                     ledger::account::PAY_OR_REFUND,
-                    credential_type = StakeCredentialKind::from(account),
+                    credential_type = CredentialKind::from(account),
                     account = account.as_hash(),
                     deposit,
                 );

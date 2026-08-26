@@ -21,7 +21,7 @@ use crate::{
     BorrowedScript, Certificate, EraHistory, EraHistoryError, GlobalParameters, HasScriptHash, Hash, Lovelace,
     MemoizedTransactionOutput, OutputReference, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusVotes,
     PlutusWithdrawals, Proposal, RedeemerEntry, RedeemerKey, RequiredSigners, ScriptContext, ScriptPurpose, TimeRange,
-    TransactionBody, TransactionId, TransactionInput, Utxos, WithdrawalError, WitnessSet, size::SCRIPT,
+    TransactionBody, TransactionId, TransactionInput, Utxos, WitnessSet, size::SCRIPT,
 };
 
 /// An opaque type that represents the `TxInfo` field used in a [`ScriptContext`].
@@ -60,9 +60,6 @@ pub enum TxInfoTranslationError {
     /// Some input was not in the provided [`Utxos`]
     #[error("missing input: {0}")]
     MissingInput(TransactionInput),
-    /// Some withdrawal is poorly constructed
-    #[error("invalid withdrawal: {0}")]
-    InvalidWithdrawal(#[from] WithdrawalError),
     /// The validity interval cannot be converted to posix time
     #[error("invalid validity interval: {0}")]
     InvalidValidityInterval(#[from] EraHistoryError),
@@ -108,7 +105,7 @@ impl<'a> TxInfo<'a> {
         let certificates: Vec<&'a Certificate> =
             tx.certificates.as_ref().map(|set| set.iter().collect()).unwrap_or_default();
 
-        let withdrawals = tx.withdrawals.as_ref().map(PlutusWithdrawals::try_from).transpose()?.unwrap_or_default();
+        let withdrawals = tx.withdrawals.as_ref().map(PlutusWithdrawals::from).unwrap_or_default();
 
         let valid_range =
             TimeRange::new(tx.validity_interval_start, tx.validity_interval_end, slot, era_history, global_parameters)?;

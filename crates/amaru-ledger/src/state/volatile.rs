@@ -15,8 +15,8 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{
-    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId,
-    Pots, ProposalId, StakeCredential, TransactionInput,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch, Lovelace,
+    Point, PoolId, Pots, ProposalId, TransactionInput,
 };
 
 mod db;
@@ -92,11 +92,11 @@ pub trait VolatileState {
     where
         Self: 'a;
     #[expect(clippy::panic)]
-    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
+    fn resolve_account<'a>(&'a self, credential: &Credential) -> Self::Account<'a> {
         panic!("VolatileState.resolve_account({credential})")
     }
     #[expect(clippy::panic)]
-    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+    fn has_withdrawal(&self, credential: &Credential) -> bool {
         panic!("VolatileState.has_withdrawal({credential})")
     }
 
@@ -105,7 +105,7 @@ pub trait VolatileState {
     where
         Self: 'a;
     #[expect(clippy::panic)]
-    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
+    fn resolve_drep<'a>(&'a self, credential: &Credential) -> Self::DRep<'a> {
         panic!("VolatileState.resolve_drep({credential})")
     }
 

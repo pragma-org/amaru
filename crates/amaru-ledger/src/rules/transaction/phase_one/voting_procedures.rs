@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Epoch, EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim, ProtocolVersion,
-    RedeemerTag, RequiredScript, StakeCredential, TransactionPointer, Voter, VotingProcedure,
+    Credential, Epoch, EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim,
+    ProtocolVersion, RedeemerTag, RequiredScript, TransactionPointer, Voter, VotingProcedure,
     protocol_version::PROTOCOL_VERSION_11, utils::string::display_map,
 };
 use itertools::Itertools;
@@ -98,7 +98,7 @@ where
             }
 
             match voter.owner() {
-                StakeCredential::ScriptHash(hash) => {
+                Credential::ScriptHash(hash) => {
                     context.require_script_witness(RequiredScript {
                         hash,
                         index: index as u32,
@@ -106,7 +106,7 @@ where
                         datum: MemoizedDatum::None,
                     });
                 }
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             }
 
             votes.into_iter().for_each(|(proposal_id, ballot)| {

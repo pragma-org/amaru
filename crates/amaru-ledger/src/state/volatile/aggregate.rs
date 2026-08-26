@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, PoolId, ProposalId, StakeCredential, TransactionInput,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch, Lovelace,
+    MemoizedTransactionOutput, PoolId, ProposalId, TransactionInput,
 };
 
 use crate::{
@@ -35,17 +35,17 @@ pub use indexed_epoch_reg::IndexedEpochReg;
 
 /// The window's accounts, indexed by credential so each one's per-fragment history is retracted
 /// exactly on stabilization and folded on read. See [`IndexedBind`].
-type Accounts = IndexedBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
+type Accounts = IndexedBind<Credential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
 
 /// The window's DReps, indexed by credential so each one's per-fragment history is retracted exactly
 /// on stabilization and folded on read. See [`IndexedBind`].
-type DReps = IndexedBind<StakeCredential, Empty, Empty, DRepRegistration>;
+type DReps = IndexedBind<Credential, Empty, Empty, DRepRegistration>;
 
 /// The window's constitutional committee, indexed by cold credential so each member's hot-key
 /// history is retracted exactly on stabilization. A member may rotate their hot key (produce then
 /// produce), so a blind collapse would lose the newer key when the older fragment stabilizes. See
 /// [`IndexedBind`].
-type Committee = IndexedBind<StakeCredential, ConstitutionalCommitteeMemberStatus, Epoch, Empty>;
+type Committee = IndexedBind<Credential, ConstitutionalCommitteeMemberStatus, Epoch, Empty>;
 
 /// For Pools, it is sufficient to count registrations or de-registrations. This is because, we only
 /// need the aggregate to know whether a pool was registered or not. Since both registrations and
@@ -66,7 +66,7 @@ pub struct VolatileAggregate {
     accounts: Accounts,
     dreps: DReps,
     committee: Committee,
-    withdrawals: BTreeSet<StakeCredential>,
+    withdrawals: BTreeSet<Credential>,
     proposals: BTreeMap<ProposalId, Arc<ProposalState>>,
     fees: Lovelace,
     donations: Lovelace,
@@ -74,7 +74,7 @@ pub struct VolatileAggregate {
 
 impl VolatileAggregate {
     /// Whether this aggregate has seen an account withdrew rewards
-    pub fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+    pub fn has_withdrawal(&self, credential: &Credential) -> bool {
         self.withdrawals.contains(credential)
     }
 
@@ -99,21 +99,21 @@ impl VolatileAggregate {
     /// This aggregate's verdict on a stake account, folding the credential's per-fragment
     /// contributions oldest to newest. Deregistration is immediate, so an `unregistered` entry is a
     /// live tombstone.
-    pub fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Existence<AccountBind<'a>> {
+    pub fn resolve_account<'a>(&'a self, credential: &Credential) -> Existence<AccountBind<'a>> {
         self.accounts.get(credential)
     }
 
     /// This aggregate's verdict on a DRep, folding the credential's per-fragment contributions
     /// oldest to newest. Deregistration is immediate, so a tombstone is live; an anchor-only update
     /// is a bind-only change that defers the registration to the layer below.
-    pub fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Existence<DRepBind<'a>> {
+    pub fn resolve_drep<'a>(&'a self, credential: &Credential) -> Existence<DRepBind<'a>> {
         self.dreps.get(credential)
     }
 
     /// This aggregate's verdict on all CC members.
     pub fn resolve_cc_members<'a>(
         &'a self,
-    ) -> impl Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> {
+    ) -> impl Iterator<Item = (&'a Credential, Existence<CommitteeMemberBind<'a>>)> {
         self.committee.iter()
     }
 

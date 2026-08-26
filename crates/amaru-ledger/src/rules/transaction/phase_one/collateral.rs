@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Address, HasOwnership, Hash, Lovelace, MemoizedTransactionOutput, ProtocolParameters, StakeCredential,
-    TransactionInput, address::byron::AddressType, cardano::value::Balance,
+    Address, Credential, HasOwnership, Hash, Lovelace, MemoizedTransactionOutput, ProtocolParameters, TransactionInput,
+    address::byron::AddressType, cardano::value::Balance,
 };
 use thiserror::Error;
 
@@ -82,8 +82,8 @@ where
 
         let witness = match &collateral_input.address {
             Address::Shelley(addr) => match addr.owner() {
-                StakeCredential::AddrKeyhash(hash) => Some(CollateralWitness::VerificationKey(hash)),
-                StakeCredential::ScriptHash(_) => None,
+                Credential::KeyHash(hash) => Some(CollateralWitness::VerificationKey(hash)),
+                Credential::ScriptHash(_) => None,
             },
             Address::Byron(byron_address) => {
                 match byron_address.address_type {

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    Constitution, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
-    RationalNumber, RewardAccount, StakeCredential, cbor, hash, utils::cbor::SerialisedAsSet,
+    Constitution, Credential, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
+    RationalNumber, RewardAccount, cbor, hash, utils::cbor::SerialisedAsSet,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -23,7 +23,7 @@ pub enum GovernanceAction {
     HardForkInitiation(Option<ProposalId>, ProtocolVersion),
     TreasuryWithdrawals(KeyValuePairs<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
     NoConfidence(Option<ProposalId>),
-    UpdateCommittee(Option<ProposalId>, Vec<StakeCredential>, KeyValuePairs<StakeCredential, Epoch>, RationalNumber),
+    UpdateCommittee(Option<ProposalId>, Vec<Credential>, KeyValuePairs<Credential, Epoch>, RationalNumber),
     NewConstitution(Option<ProposalId>, Constitution),
     Information,
 }

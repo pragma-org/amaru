@@ -22,9 +22,9 @@ use std::{
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
-    RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor,
+    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch, EraHistory,
+    Lovelace, MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
+    RatificationStatus, StakeEntry, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -100,15 +100,15 @@ const DIR_LIVE_DB: &str = "live";
 // * '@constitutional'           * Constitution                                   *
 // * 'utxo:'TransactionInput     * TransactionOutput                              *
 // * 'pool:'PoolId               * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
-// * 'acct:'StakeCredential      * (Option<PoolId>, Lovelace, Lovelace)           *
-// * 'drep:'StakeCredential      * (                                              *
+// * 'acct:'Credential      * (Option<PoolId>, Lovelace, Lovelace)           *
+// * 'drep:'Credential      * (                                              *
 // *                             *   Lovelace,                                    *
 // *                             *   Option<Anchor>,                              *
 // *                             *   CertificatePointer,                          *
 // *                             *   Option<Epoch>,                               *
 // *                             *   Option<CertificatePointer>,                  *
 // *                             * )                                              *
-// * 'comm:'StakeCredential      * (Option<StakeCredential>)                      *
+// * 'comm:'Credential      * (Option<Credential>)                      *
 // * 'prop:'ProposalId           * (ProposalPointer, Epoch, Proposal)             *
 // * 'vote:'Voter                * Ballot                                         *
 // * 'slot':slot                 * PoolId                                         *
@@ -473,21 +473,21 @@ macro_rules! impl_ReadStore_body {
 
             fn account(
                 &self,
-                credential: &StakeCredential,
+                credential: &Credential,
             ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
                 accounts::get(|key| self.db.get_pinned(key), credential)
             }
 
             fn drep(
                 &self,
-                credential: &StakeCredential,
+                credential: &Credential,
             ) -> Result<Option<scolumns::dreps::Row>, StoreError> {
                 dreps::get(|key| self.db.get_pinned(key), credential)
             }
 
             fn cc_member(
                 &self,
-                credential: &StakeCredential,
+                credential: &Credential,
             ) -> Result<Option<scolumns::cc_members::Row>, StoreError> {
                 cc_members::get(|key| self.db.get_pinned(key), credential)
             }
@@ -742,8 +742,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn update_constitutional_committee(
         &self,
         status: &ConstitutionalCommitteeStatus,
-        added: &BTreeMap<StakeCredential, Epoch>,
-        removed: &BTreeSet<StakeCredential>,
+        added: &BTreeMap<Credential, Epoch>,
+        removed: &BTreeSet<Credential>,
     ) -> Result<(), StoreError> {
         self.db.put(KEY_CONSTITUTIONAL_COMMITTEE, as_value(status)).map_err(|err| StoreError::Internal(err.into()))?;
 

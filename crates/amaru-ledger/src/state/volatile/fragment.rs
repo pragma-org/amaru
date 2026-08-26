@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
+    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep,
+    DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot,
     TransactionInput,
 };
 
@@ -56,11 +56,11 @@ pub use tests::*;
 pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
-    pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
-    pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    pub committee: DiffBind<StakeCredential, ConstitutionalCommitteeMemberStatus, Epoch, Empty>,
-    pub withdrawals: BTreeSet<StakeCredential>,
+    pub accounts: DiffBind<Credential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
+    pub dreps: DiffBind<Credential, Box<Anchor>, Empty, DRepRegistration>,
+    pub dreps_deregistrations: BTreeMap<Credential, CertificatePointer>,
+    pub committee: DiffBind<Credential, ConstitutionalCommitteeMemberStatus, Epoch, Empty>,
+    pub withdrawals: BTreeSet<Credential>,
     pub proposals: BTreeMap<ProposalId, Arc<ProposalState>>,
     pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
@@ -217,9 +217,7 @@ pub(crate) fn add_pools(
 // ---------------------------------------------------------------------------------------- Accounts
 
 pub(crate) fn add_accounts(
-    iterator: impl Iterator<
-        Item = (StakeCredential, Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>),
-    >,
+    iterator: impl Iterator<Item = (Credential, Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>)>,
 ) -> impl Iterator<Item = (accounts::Key, accounts::Value)> {
     iterator.map(|(credential, Bind { left: pool, right: drep, value: deposit })| {
         // A bound deposit denotes a (re-)registration within the window (see DiffBind::register);
@@ -235,7 +233,7 @@ pub(crate) fn add_accounts(
 // ------------------------------------------------------------------------------------------- DReps
 
 pub(crate) fn add_dreps(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<Box<Anchor>, Empty, DRepRegistration>)>,
+    iterator: impl Iterator<Item = (Credential, Bind<Box<Anchor>, Empty, DRepRegistration>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(move |(credential, Bind { left: anchor, right: _, value: registration }): (_, Bind<_, Empty, _>)| {
         (credential, (anchor, registration))
@@ -243,8 +241,8 @@ pub(crate) fn add_dreps(
 }
 
 pub(crate) fn remove_dreps(
-    iterator: impl Iterator<Item = StakeCredential>,
-    mut deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
+    iterator: impl Iterator<Item = Credential>,
+    mut deregistrations: BTreeMap<Credential, CertificatePointer>,
 ) -> impl Iterator<Item = (dreps::Key, CertificatePointer)> {
     iterator.map(move |credential| {
         #[expect(clippy::expect_used)]
@@ -258,7 +256,7 @@ pub(crate) fn remove_dreps(
 // ------------------------------------------------------------------------ Constitutional Committee
 
 pub(crate) fn add_committee(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<ConstitutionalCommitteeMemberStatus, Epoch, Empty>)>,
+    iterator: impl Iterator<Item = (Credential, Bind<ConstitutionalCommitteeMemberStatus, Epoch, Empty>)>,
 ) -> impl Iterator<Item = (cc_members::Key, cc_members::Value)> {
     iterator.map(|(credential, bind)| (credential, (bind.left, bind.right)))
 }

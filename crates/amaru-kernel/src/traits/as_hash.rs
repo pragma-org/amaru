@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, StakeCredential, Voter, size::CREDENTIAL};
+use crate::{Credential, Hash, Voter, size::CREDENTIAL};
 
 pub trait AsHash<const SIZE: usize> {
     fn as_hash(&self) -> Hash<SIZE>;
 }
 
-impl AsHash<28> for StakeCredential {
+impl AsHash<28> for Credential {
     fn as_hash(&self) -> Hash<CREDENTIAL> {
         match self {
-            Self::AddrKeyhash(hash) => *hash,
+            Self::KeyHash(hash) => *hash,
             Self::ScriptHash(hash) => *hash,
         }
     }

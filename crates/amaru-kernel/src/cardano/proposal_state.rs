@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::{Epoch, PoolId, Proposal, ProposalId, StakeCredential, Vote, cbor};
+use crate::{Credential, Epoch, PoolId, Proposal, ProposalId, Vote, cbor};
 
 // TODO: Move out of the kernel?
 //
@@ -25,8 +25,8 @@ pub struct ProposalState {
     pub procedure: Proposal,
     pub proposed_in: Epoch,
     pub expires_after: Epoch,
-    pub committee_votes: BTreeMap<StakeCredential, Vote>,
-    pub dreps_votes: BTreeMap<StakeCredential, Vote>,
+    pub committee_votes: BTreeMap<Credential, Vote>,
+    pub dreps_votes: BTreeMap<Credential, Vote>,
     pub pools_votes: BTreeMap<PoolId, Vote>,
 }
 

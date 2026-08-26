@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    Anchor, Epoch, Lovelace, StakeCredential, cbor,
+    Anchor, Credential, Epoch, Lovelace, cbor,
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
 };
 
@@ -24,7 +24,7 @@ pub struct DRepState {
     pub expiry: Epoch,
     pub anchor: Option<Box<Anchor>>,
     pub deposit: Lovelace,
-    pub delegators: BTreeSet<StakeCredential>,
+    pub delegators: BTreeSet<Credential>,
 }
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for DRepState {

@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Certificate, CertificatePointer, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, Hash, Lovelace,
-    MemoizedDatum, Network, NonEmptySet, PoolId, PoolParams, ProtocolParameters, RedeemerTag, RequiredScript,
-    StakeCredential, TransactionPointer, parse_reward_account, size::SCRIPT,
+    Certificate, CertificatePointer, Credential, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, Hash,
+    Lovelace, MemoizedDatum, Network, NonEmptySet, PoolId, PoolParams, ProtocolParameters, RedeemerTag, RequiredScript,
+    TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -32,34 +32,31 @@ use crate::{
 #[derive(Debug, Error)]
 pub enum InvalidCertificates {
     #[error("stake credential already registered: {0}")]
-    StakeCredentialAlreadyRegistered(#[from] RegisterError<AccountState, StakeCredential>),
+    StakeCredentialAlreadyRegistered(#[from] RegisterError<AccountState, Credential>),
 
     #[error("invalid stake credential pool delegation: {0}")]
-    StakeCredentialInvalidPoolDelegation(#[from] DelegateError<StakeCredential, PoolId>),
+    StakeCredentialInvalidPoolDelegation(#[from] DelegateError<Credential, PoolId>),
 
     #[error("invalid stake credential vote delegation: {0}")]
-    StakeCredentialInvalidVoteDelegation(#[from] DelegateError<StakeCredential, DRep>),
+    StakeCredentialInvalidVoteDelegation(#[from] DelegateError<Credential, DRep>),
 
     #[error("drep already registered: {0}")]
-    DRepAlreadyRegistered(#[from] RegisterError<DRepRegistration, StakeCredential>),
+    DRepAlreadyRegistered(#[from] RegisterError<DRepRegistration, Credential>),
 
     #[error("invalid drep attempted update: {0}")]
-    DRepInvalidUpdate(#[from] UpdateError<StakeCredential>),
+    DRepInvalidUpdate(#[from] UpdateError<Credential>),
 
     #[error("unknown cc member: {0}")]
-    CCMemberUnknown(#[from] UnregisterError<CCMember, StakeCredential>),
+    CCMemberUnknown(#[from] UnregisterError<CCMember, Credential>),
 
     #[error("invalid cc member hot credential delegation: {0}")]
-    CCMemberInvalidDelegation(#[from] DelegateError<StakeCredential, StakeCredential>),
+    CCMemberInvalidDelegation(#[from] DelegateError<Credential, Credential>),
 
     #[error("impossible slot arithmetic: {0}")]
     ImpossibleSlotArithmetic(#[from] EraHistoryError),
 
     #[error("pool reward account has wrong network: expected {expected:?}, actual {actual:?}")]
     PoolWrongNetwork { expected: Network, actual: Network },
-
-    #[error("pool reward account is malformed")]
-    PoolMalformedRewardAccount,
 
     #[error("pool cost too low: provided {provided}, minimum {minimum}")]
     PoolCostTooLow { provided: Lovelace, minimum: Lovelace },
@@ -77,13 +74,13 @@ pub enum InvalidCertificates {
     IncorrectDRepDeposit { provided: Lovelace, expected: Lovelace },
 
     #[error("stake credential not registered: {0:?}")]
-    StakeCredentialNotRegistered(StakeCredential),
+    StakeCredentialNotRegistered(Credential),
 
     #[error("cannot unregister a stake credential that has rewards: {credential:?} has a balance of {rewards}")]
-    StakeCredentialHasRewards { credential: StakeCredential, rewards: Lovelace },
+    StakeCredentialHasRewards { credential: Credential, rewards: Lovelace },
 
     #[error("drep not registered: {0:?}")]
-    DRepNotRegistered(StakeCredential),
+    DRepNotRegistered(Credential),
 }
 
 pub(crate) fn execute<C>(
@@ -171,8 +168,7 @@ where
                 context.require_verification_key_witness(*owner);
             }
 
-            let reward_account_network =
-                parse_reward_account(reward_account).ok_or(InvalidCertificates::PoolMalformedRewardAccount)?.1;
+            let reward_account_network = reward_account.network();
 
             if reward_account_network != network {
                 return Err(InvalidCertificates::PoolWrongNetwork {
@@ -247,8 +243,8 @@ where
             // See https://github.com/IntersectMBO/cardano-ledger/blob/81637a1c2250225fef47399dd56f80d87384df32/eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs#L698
             if deposit > 0 {
                 match credential {
-                    StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                    StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                    Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                    Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
                 };
             }
 
@@ -265,8 +261,8 @@ where
 
         Certificate::StakeDeregistration(credential) => {
             match credential {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
 
             let account = AccountsSlice::lookup(context, &credential)
@@ -284,8 +280,8 @@ where
 
         Certificate::UnReg(credential, refund) => {
             match credential {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
 
             let account = AccountsSlice::lookup(context, &credential)
@@ -307,8 +303,8 @@ where
 
         Certificate::StakeDelegation(credential, pool) => {
             match credential {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
 
             context.delegate_pool(credential, pool, pointer)?;
@@ -318,8 +314,8 @@ where
 
         Certificate::RegDRepCert(drep, deposit, anchor) => {
             match drep {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
 
             let expected = protocol_parameters.drep_deposit;
@@ -345,8 +341,8 @@ where
 
         Certificate::UnRegDRepCert(drep, refund) => {
             match drep {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
 
             let deposit = match DRepsSlice::lookup(context, &drep) {
@@ -366,8 +362,8 @@ where
 
         Certificate::UpdateDRepCert(drep, anchor) => {
             match drep {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
 
             DRepsSlice::update(context, drep, anchor)?;
@@ -377,8 +373,8 @@ where
 
         Certificate::VoteDeleg(credential, drep) => {
             match credential {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
 
             AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
@@ -388,8 +384,8 @@ where
 
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
             match cold_credential {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
             CommitteeSlice::delegate_cold_key(context, cold_credential, hot_credential)?;
             Ok(())
@@ -397,8 +393,8 @@ where
 
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
             match cold_credential {
-                StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                Credential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
+                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
             };
             CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())
@@ -444,8 +440,8 @@ fn count_lovelace_one<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
     local_pools_slice: &mut BTreeSet<PoolId>,
-    local_accounts_slice: &mut BTreeMap<StakeCredential, Lovelace>,
-    local_dreps_slice: &mut BTreeMap<StakeCredential, Lovelace>,
+    local_accounts_slice: &mut BTreeMap<Credential, Lovelace>,
+    local_dreps_slice: &mut BTreeMap<Credential, Lovelace>,
     certificate: Certificate,
 ) -> i64
 where

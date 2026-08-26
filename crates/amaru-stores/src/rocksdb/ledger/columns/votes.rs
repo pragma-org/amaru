@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{BallotId, ProposalId, StakeCredential, Voter, cbor};
+use amaru_kernel::{BallotId, Credential, ProposalId, Voter, cbor};
 pub use amaru_ledger::store::{
     StoreError,
     columns::votes::{Key, Row, Value},
@@ -35,17 +35,17 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x76, 0x6f, 0x74, 0x65];
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<BTreeSet<StakeCredential>, StoreError> {
+) -> Result<BTreeSet<Credential>, StoreError> {
     trace_span!(stores::ledger::votes::ADD).in_scope(|| {
         let mut voting_dreps = BTreeSet::new();
 
         for (key, value) in rows {
             match key.voter {
                 Voter::DRepKey(hash) => {
-                    voting_dreps.insert(StakeCredential::AddrKeyhash(hash));
+                    voting_dreps.insert(Credential::KeyHash(hash));
                 }
                 Voter::DRepScript(hash) => {
-                    voting_dreps.insert(StakeCredential::ScriptHash(hash));
+                    voting_dreps.insert(Credential::ScriptHash(hash));
                 }
                 Voter::ConstitutionalCommitteeKey(..)
                 | Voter::ConstitutionalCommitteeScript(..)
