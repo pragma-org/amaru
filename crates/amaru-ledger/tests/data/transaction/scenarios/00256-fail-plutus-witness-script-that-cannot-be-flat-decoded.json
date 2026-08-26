@@ -2,13 +2,13 @@
   "title": "plutus witness script that cannot be flat decoded",
   "description": "A transaction marked valid spending an input locked by a Plutus V3 script whose flat encoding is truncated.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "8258201dd645d794b677b09837adb4cfa00c4b1f1453608e76972e63b547adf1b356c400",
@@ -22,7 +22,7 @@
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a600d90102818258201dd645d794b677b09837adb4cfa00c4b1f1453608e76972e63b547adf1b356c4000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0049b7d3021a0002936d0b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820a71811b48f7a93cb53de690e81cc4b7b4413fcce44da3e1f82f3cbef62c716df000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584034b05c76f06e8980dc093816805d19a183f7a21d2f084b78b9c951a70f587bde5d719d9e904c0f820956711dd41120b07d008eac6d46099039af5dc504a23a0005a18200008200821907d01a000f424007d90102814342deadf5f6",
   "expected": {

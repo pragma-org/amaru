@@ -2,13 +2,13 @@
   "title": "malformed plutus witness script alongside a failing one, marked invalid",
   "description": "A transaction marked invalid spending two Plutus V3 script-locked inputs, one script truncated and the other evaluating to an error term.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820745894123a4ed67d7cf4f4a3e1c5bff7c5b9c75eff8a2747e0b8bda3022ec1fc00",
@@ -26,7 +26,7 @@
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a600d9010282825820745894123a4ed67d7cf4f4a3e1c5bff7c5b9c75eff8a2747e0b8bda3022ec1fc00825820cdfdc9dc0dc16efd0b7387584bc636c7a340377890f3e07400e8009f3214e0e9000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0049ad78021a00029dc80b58207d3dc97ee25aa26868e5784e5405b3148aecf6b4138e38286fb7e81b868db4c20dd9010281825820da69bb60b261e1345f3d68bab1897145f3cb49f3eb1e7147cb2a686ad794809b000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840ac206723ca6900ac9cfc7897c90fce1740b6b5bb87152ddc6b17a595bad6dd5983f98a071f586be2f0e783b4227fb343ef03227bd750895d5a7cbf05a78de70905a28200008200821907d01a000f42408200018200821907d01a000f424007d90102824342dead454401010061f4f6",
   "expected": {
