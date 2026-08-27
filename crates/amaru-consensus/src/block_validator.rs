@@ -61,19 +61,23 @@ pub struct BlockValidator {
 }
 
 impl BlockValidator {
-    pub fn new<S, HS>(state: State<S, HS>, vm_eval_pool: ArenaPool, chain_store: Arc<dyn ChainStore>) -> Self
+    pub fn new<S, HS>(
+        state: State<S, HS>,
+        vm_eval_pool: ArenaPool,
+        chain_store: Arc<dyn ChainStore>,
+    ) -> std::io::Result<Self>
     where
         S: Store + Send + 'static,
         HS: HistoricalStores + Send + Sync + 'static,
     {
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-        thread::spawn(move || {
+        thread::Builder::new().name("ledger".into()).spawn(move || {
             let mut ledger = LedgerThread { state, vm_eval_pool, chain_store };
             while let Some(request) = receiver.blocking_recv() {
                 ledger.handle(request);
             }
-        });
-        Self { sender }
+        })?;
+        Ok(Self { sender })
     }
 
     /// Set callback invoked when a new stake distribution is computed/available.
@@ -112,6 +116,11 @@ impl CanValidateTxs for BlockValidator {
 
 #[async_trait::async_trait]
 impl CanValidateBlocks for BlockValidator {
+    // NOTE: Requests execute once queued
+    //
+    // If this future is dropped after the request was sent, the ledger thread still
+    // applies the block and discards the result. The ledger state remains consistent;
+    // consensus re-intersects from the ledger tip on the next startup.
     async fn roll_forward_block(
         &self,
         block: Block,

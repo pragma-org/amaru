@@ -275,7 +275,7 @@ pub fn make_block_validator(
         state,
         ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size),
         chain_store,
-    ))
+    )?)
 }
 
 pub fn make_state(
