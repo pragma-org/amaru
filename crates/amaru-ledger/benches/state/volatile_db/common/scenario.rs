@@ -21,9 +21,12 @@ use amaru_ledger::{
     state::volatile::{AnchoredVolatileFragment, VolatileDB, VolatileFragment, VolatileSequence},
     store::{self, ReadStore},
 };
-use rand::Rng;
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
-use crate::common::{fixture, observed, scale::BenchScale};
+use crate::common::{
+    fixture,
+    scale::{BenchScale, MixedWeights},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scenario {
@@ -36,10 +39,16 @@ pub enum Scenario {
     Proposals,
     Votes,
     Mixed,
-    Observed,
-    /// Every collection holds exactly one entry per fragment: the worst case for per-collection
-    /// allocation overhead relative to the data carried.
     Singleton,
+}
+
+/// The average item size of the mixed workload, weighted by entity frequency.
+fn mixed_per_item_size(weights: &MixedWeights) -> usize {
+    let total_size = Scenario::round_robin()
+        .iter()
+        .map(|entity| entity.per_item_size() * entity.weight(weights) as usize)
+        .sum::<usize>();
+    total_size / weights.total() as usize
 }
 
 impl Scenario {
@@ -68,7 +77,6 @@ impl Scenario {
             Self::Proposals => "proposals",
             Self::Votes => "votes",
             Self::Mixed => "mixed",
-            Self::Observed => "observed",
             Self::Singleton => "singleton",
         }
     }
@@ -84,25 +92,27 @@ impl Scenario {
             Self::Proposals => 0xA11C_E007,
             Self::Votes => 0xA11C_E008,
             Self::Mixed => 0xA11C_E009,
-            Self::Observed => 0xA11C_E00A,
             Self::Singleton => 0xA11C_E00B,
         }
     }
 
     pub fn fmt(self, f: &mut fmt::Formatter<'_>, scale: &BenchScale) -> fmt::Result {
-        if let Self::Observed = self {
-            return write!(
-                f,
-                "{} [volatile_size={}, sample={}, sample_size={}]",
-                self.name(),
-                scale.volatile_size,
-                observed::SAMPLE_NAME,
-                observed::BLOCKS.len(),
-            );
-        }
-
         if let Self::Singleton = self {
             return write!(f, "{} [volatile_size={}, one entry per collection]", self.name(), scale.volatile_size);
+        }
+
+        if let Self::Mixed = self {
+            let per_item = mixed_per_item_size(&scale.mixed_weights);
+            return write!(
+                f,
+                "{} [block_size={}, block_fill={}%, volatile_size={}, item_size={}, total_items={}]",
+                self.name(),
+                scale.block_size,
+                scale.block_fill,
+                scale.volatile_size,
+                per_item,
+                scale.fill_target() * scale.volatile_size / per_item,
+            );
         }
 
         let per_item = self.per_item_size();
@@ -129,9 +139,7 @@ impl Scenario {
             ) -> store::Result<impl Iterator<Item = (store::columns::cc_members::Key, store::columns::cc_members::Row)>>
             {
                 match self.0 {
-                    Scenario::Committee | Scenario::Mixed | Scenario::Observed | Scenario::Singleton => {
-                        Ok(std::iter::empty())
-                    }
+                    Scenario::Committee | Scenario::Mixed | Scenario::Singleton => Ok(std::iter::empty()),
                     Scenario::Utxo
                     | Scenario::Pools
                     | Scenario::Accounts
@@ -146,7 +154,7 @@ impl Scenario {
             // required but we have no information on the account.
             fn account(&self, credential: &Credential) -> store::Result<Option<store::columns::accounts::Row>> {
                 match self.0 {
-                    Scenario::Withdrawals | Scenario::Mixed | Scenario::Observed | Scenario::Singleton => Ok(None),
+                    Scenario::Withdrawals | Scenario::Mixed | Scenario::Singleton => Ok(None),
                     Scenario::Utxo
                     | Scenario::Pools
                     | Scenario::Accounts
@@ -165,6 +173,20 @@ impl Scenario {
         }
 
         MockStore(self)
+    }
+
+    pub fn weight(self, weights: &MixedWeights) -> u64 {
+        match self {
+            Self::Utxo => weights.utxo,
+            Self::Pools => weights.pools,
+            Self::Accounts => weights.accounts,
+            Self::Withdrawals => weights.withdrawals,
+            Self::Committee => weights.committee,
+            Self::DReps => weights.dreps,
+            Self::Proposals => weights.proposals,
+            Self::Votes => weights.votes,
+            Self::Mixed | Self::Singleton => unreachable!("composite scenarios have no weight of their own"),
+        }
     }
 
     pub fn per_item_size(self) -> usize {
@@ -218,12 +240,10 @@ impl Scenario {
             Self::Votes => 70,
 
             Self::Mixed => {
-                let all = Self::round_robin();
-                let len = all.len();
-                all.iter().map(|entity| entity.per_item_size()).sum::<usize>() / len
+                unreachable!(
+                    "the mixed scenario's item size depends on the configured weights; see mixed_per_item_size"
+                )
             }
-
-            Self::Observed => unreachable!("the observed scenario replays real counts; it has no synthetic item size"),
 
             Self::Singleton => {
                 unreachable!("the singleton scenario puts one entry in every collection; it has no synthetic item size")
@@ -231,8 +251,17 @@ impl Scenario {
         }
     }
 
-    /// Populate a fragment with random content corresponding to the scenario; up to its size.
-    pub fn mut_fragment(self, fragment: &mut VolatileFragment, rng: &mut impl rand::Rng, max_size: usize) {
+    /// Populate a fragment with random content corresponding to the scenario. Single-entity
+    /// scenarios fill a whole block (the worst case for their dimension); the mixed scenario
+    /// fills to a mainnet-like size governed by `scale.block_fill`.
+    pub fn mut_fragment(
+        self,
+        fragment: &mut VolatileFragment,
+        rng: &mut impl rand::Rng,
+        fragment_ix: u64,
+        scale: &BenchScale,
+    ) {
+        let max_size = scale.block_size;
         match self {
             Self::Utxo => fill(max_size, |ix| step_fragment_utxo(fragment, rng, ix)),
             Self::Pools => fill(max_size, |ix| step_fragment_pools(fragment, rng, ix)),
@@ -242,24 +271,7 @@ impl Scenario {
             Self::DReps => fill(max_size, |ix| step_fragment_dreps(fragment, rng, ix)),
             Self::Proposals => fill(max_size, |ix| step_fragment_proposals(fragment, rng, ix)),
             Self::Votes => fill(max_size, |ix| step_fragment_votes(fragment, rng, ix)),
-            Self::Mixed => fill(max_size, |ix| {
-                let all = Self::round_robin();
-                let len = all.len();
-                match all[ix % len] {
-                    Self::Utxo => step_fragment_utxo(fragment, rng, ix / len),
-                    Self::Pools => step_fragment_pools(fragment, rng, ix / len),
-                    Self::Accounts => step_fragment_accounts(fragment, rng, ix / len),
-                    Self::Withdrawals => step_fragment_withdrawals(fragment, rng, ix / len),
-                    Self::Committee => step_fragment_committee(fragment, rng, ix / len),
-                    Self::DReps => step_fragment_dreps(fragment, rng, ix / len),
-                    Self::Proposals => step_fragment_proposals(fragment, rng, ix / len),
-                    Self::Votes => step_fragment_votes(fragment, rng, ix / len),
-                    Self::Mixed | Self::Observed | Self::Singleton => {
-                        unreachable!("composite scenario showed up in .round_robin()?")
-                    }
-                }
-            }),
-            Self::Observed => unreachable!("the observed scenario is filled per block, not by size"),
+            Self::Mixed => step_fragment_mixed(fragment, fragment_ix, scale, None),
             // One entry in every collection, regardless of the requested size.
             Self::Singleton => {
                 step_fragment_utxo(fragment, rng, 0);
@@ -306,7 +318,7 @@ impl Scenario {
                 /* Nothing to do *for now*, because we don't currently resolve voter. But
                  * eventually, we should require CC members, DReps or accounts as needed  */
             }
-            Self::Mixed | Self::Observed | Self::Singleton => Self::round_robin().iter().for_each(|scenario| {
+            Self::Mixed | Self::Singleton => Self::round_robin().iter().for_each(|scenario| {
                 assert_ne!(scenario, &Scenario::Mixed);
                 scenario.prepare_fragment(ctx, fragment);
             }),
@@ -315,10 +327,6 @@ impl Scenario {
 
     // Create a volatile database, pre-filled with data along the given dimension
     pub fn new_volatile_db(self, rng: &mut impl Rng, scale: &BenchScale) -> VolatileDB {
-        if let Self::Observed = self {
-            return observed::new_volatile_db(rng, scale.volatile_size, None);
-        }
-
         let mut db = VolatileDB::new(
             Epoch::from(0),
             MAINNET_DEFAULT_PROTOCOL_PARAMETERS.clone(),
@@ -328,7 +336,7 @@ impl Scenario {
 
         (0..scale.volatile_size).for_each(|ix| {
             let mut fragment = VolatileFragment::default();
-            self.mut_fragment(&mut fragment, rng, scale.block_size);
+            self.mut_fragment(&mut fragment, rng, ix as u64, scale);
             db.push_back(fragment.anchor(fixture::tip(rng, ix as u64), fixture::default_pool_id()));
         });
 
@@ -338,21 +346,26 @@ impl Scenario {
     // Generate a fat fragment, also filled with entities of the scenario's kind
     pub fn new_fragment(self, rng: &mut impl Rng, scale: &BenchScale) -> AnchoredVolatileFragment {
         let mut fragment = VolatileFragment::default();
-        match self {
-            Self::Observed => observed::fill_fragment(&mut fragment, rng, observed::block(scale.volatile_size)),
-            Self::Utxo
-            | Self::Pools
-            | Self::Accounts
-            | Self::Withdrawals
-            | Self::Committee
-            | Self::DReps
-            | Self::Proposals
-            | Self::Votes
-            | Self::Mixed
-            | Self::Singleton => self.mut_fragment(&mut fragment, rng, scale.block_size),
-        }
+        self.mut_fragment(&mut fragment, rng, scale.volatile_size as u64, scale);
         fragment.anchor(fixture::tip(rng, scale.volatile_size as u64), fixture::default_pool_id())
     }
+}
+
+pub fn new_mixed_volatile_db(rng: &mut impl Rng, scale: &BenchScale, only: &[Scenario]) -> VolatileDB {
+    let mut db = VolatileDB::new(
+        Epoch::from(0),
+        MAINNET_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+        GovernanceActivity::default(),
+        None,
+    );
+
+    (0..scale.volatile_size).for_each(|ix| {
+        let mut fragment = VolatileFragment::default();
+        step_fragment_mixed(&mut fragment, ix as u64, scale, Some(only));
+        db.push_back(fragment.anchor(fixture::tip(rng, ix as u64), fixture::default_pool_id()));
+    });
+
+    db
 }
 
 // ----------------------------------------------------------------------------------------- Helpers
@@ -373,6 +386,92 @@ fn fill(max_size: usize, mut next: impl FnMut(usize) -> usize) {
 }
 
 // ------------------------------------------------------------------------------------------- Steps
+
+/// How much data mixed blocks carry, in thousandths of the average block: 1000 means exactly
+/// average, 0 empty, 12375 about 12x the average. Thousandths rather than percent so the
+/// near-empty blocks keep some precision in integer arithmetic.
+///
+/// Mainnet blocks are far from uniform: many are nearly empty, and a few are huge.
+/// To reproduce that spread, we sorted 2160 mainnet blocks ([13586560, 13588719])
+/// by how much data each carried, and recorded 17 evenly-spaced samples
+/// from emptiest to fullest, rescaled so that the average stays 1000.
+///
+/// Filling each bench block to a size drawn from this table thus yields the mainnet
+/// spread while `BenchScale::fill_target` remains the *average* block size.
+const MIXED_FULLNESS_QUANTILES_PERMILLE: [u64; 17] =
+    [0, 0, 62, 109, 166, 220, 295, 383, 472, 568, 676, 798, 994, 1223, 1600, 2248, 12375];
+
+/// Pick how full one block is: land on a random point along the sorted mainnet blocks and read
+/// off how full the block at that point was (interpolating between the table's samples).
+fn mixed_fullness(rng: &mut impl Rng) -> u64 {
+    let segments = MIXED_FULLNESS_QUANTILES_PERMILLE.len() - 1;
+    let position = rng.random_range(0.0..1.0) * segments as f64;
+    let segment = (position as usize).min(segments - 1);
+    let fraction = position - segment as f64;
+    let lo = MIXED_FULLNESS_QUANTILES_PERMILLE[segment] as f64;
+    let hi = MIXED_FULLNESS_QUANTILES_PERMILLE[segment + 1] as f64;
+    (lo + (hi - lo) * fraction) as u64
+}
+
+/// Fill a fragment the way a mainnet block would be filled: first decide how big this particular
+/// block is (most are far below the average, a few well above, but never above `block_size`),
+/// then add items one at a time until that size is reached, picking each item's kind with
+/// probability proportional to its weight.
+///
+/// Every random choice is derived from `fragment_ix`, so rebuilding the same fragment
+/// with `only` limited to some kinds therefore reproduces exactly the same items for those kinds.
+fn step_fragment_mixed(
+    fragment: &mut VolatileFragment,
+    fragment_ix: u64,
+    scale: &BenchScale,
+    only: Option<&[Scenario]>,
+) {
+    let weights = &scale.mixed_weights;
+    let mut pick_rng = StdRng::seed_from_u64(Scenario::Mixed.seed() ^ fragment_ix);
+    let entities = Scenario::round_robin();
+    let total_weight = weights.total();
+    let mut counts = vec![0; entities.len()];
+    let mut content_rngs =
+        entities.iter().map(|entity| StdRng::seed_from_u64(entity.seed() ^ fragment_ix)).collect::<Vec<_>>();
+
+    let budget = (scale.fill_target() * mixed_fullness(&mut pick_rng) as usize / 1000).min(scale.block_size);
+
+    fill(budget, |_| {
+        let mut draw = pick_rng.random_range(0..total_weight);
+        let slot = entities
+            .iter()
+            .position(|entity| {
+                let weight = entity.weight(weights);
+                let picked = draw < weight;
+                draw = draw.saturating_sub(weight);
+                picked
+            })
+            .unwrap_or_else(|| unreachable!("draw exceeds the total weight"));
+
+        let entity = entities[slot];
+        let ix = counts[slot];
+        counts[slot] += 1;
+        let rng = &mut content_rngs[slot];
+
+        if only.is_none_or(|restricted| restricted.contains(&entity)) {
+            match entity {
+                Scenario::Utxo => step_fragment_utxo(fragment, rng, ix),
+                Scenario::Pools => step_fragment_pools(fragment, rng, ix),
+                Scenario::Accounts => step_fragment_accounts(fragment, rng, ix),
+                Scenario::Withdrawals => step_fragment_withdrawals(fragment, rng, ix),
+                Scenario::Committee => step_fragment_committee(fragment, rng, ix),
+                Scenario::DReps => step_fragment_dreps(fragment, rng, ix),
+                Scenario::Proposals => step_fragment_proposals(fragment, rng, ix),
+                Scenario::Votes => step_fragment_votes(fragment, rng, ix),
+                Scenario::Mixed | Scenario::Singleton => {
+                    unreachable!("composite scenario showed up in .round_robin()?")
+                }
+            };
+        }
+
+        entity.per_item_size()
+    });
+}
 
 fn step_fragment_utxo(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng, ix: usize) -> usize {
     let input = fixture::input(rng);
