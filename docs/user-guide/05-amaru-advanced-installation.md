@@ -21,14 +21,14 @@ The **Debian / RPM package** is the recommended path as it installs a dedicated 
 
 **Debian/Ubuntu:**
 ```bash
-VERSION=<latest-release> ARCH=x86_64  # check releases page for latest; also available for aarch64
+VERSION=10.11.20260807 ARCH=x86_64  # check releases page for latest; also available for aarch64
 curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
 sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
 ```
 
 **Fedora/RHEL/CentOS:**
 ```bash
-VERSION=<latest-release> ARCH=x86_64  # check releases page for latest; also available for aarch64
+VERSION=10.11.20260807 ARCH=x86_64  # check releases page for latest; also available for aarch64
 curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
 sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 ```

@@ -22,5 +22,5 @@ This path isn't needed for a quick test — see [Running on Preprod (Fast-Forwar
 | Preprod |     2     |   2GB    |     10GB      |
 
 :::note
-The Amaru process should not exceed 1GB of RSS memory under "standard" conditions. Allocating 4GB of RAM provides sufficient headroom for the process to handle the load associated with mainnet stress.
+The Amaru process should not exceed 1GB of RSS memory under standard conditions. Allocating 4GB of RAM provides sufficient headroom for the process to handle the load associated with mainnet stress.
 :::
