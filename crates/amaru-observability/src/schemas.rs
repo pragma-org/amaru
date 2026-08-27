@@ -1119,6 +1119,12 @@ define_schemas! {
             }
         }
         bootstrap {
+            /// Bootstrap completed successfully
+            public COMPLETE {
+                required duration_seconds: f64
+                required epoch: amaru_kernel::Epoch
+                required point: String
+            }
             accounts {
                 /// Existing accounts found in the store before import
                 public IS_NOT_EMPTY {}
@@ -1228,6 +1234,27 @@ define_schemas! {
                     required constitutional_committee: String
                     required hard_fork: String
                     required protocol_parameters: String
+                }
+            }
+            progress {
+                /// Start a long-running bootstrap phase
+                public START {
+                    required phase: String
+                    optional total: usize
+                }
+                /// Report non-terminal progress for a long-running bootstrap phase
+                public UPDATE {
+                    required phase: String
+                    required current: usize
+                    optional total: usize
+                    required elapsed_seconds: f64
+                }
+                /// Complete a long-running bootstrap phase
+                public COMPLETE {
+                    required phase: String
+                    required current: usize
+                    optional total: usize
+                    required elapsed_seconds: f64
                 }
             }
             proposals {

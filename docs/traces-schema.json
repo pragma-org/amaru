@@ -4,6 +4,35 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
+    "amaru::bootstrap::COMPLETE": {
+      "type": "object",
+      "properties": {
+        "duration_seconds": {
+          "type": "number"
+        },
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "point": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "duration_seconds",
+        "epoch",
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "complete",
+      "level": "TRACE",
+      "target": "amaru::bootstrap",
+      "description": "Bootstrap completed successfully",
+      "public": true
+    },
     "amaru::bootstrap::accounts::IMPORT": {
       "type": "object",
       "properties": {
@@ -425,6 +454,91 @@
       "level": "TRACE",
       "target": "amaru::bootstrap::pots",
       "description": "Import treasury/reserves/fees pots from a snapshot",
+      "public": true
+    },
+    "amaru::bootstrap::progress::COMPLETE": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "current": {
+          "type": "integer"
+        },
+        "elapsed_seconds": {
+          "type": "number"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "current",
+        "elapsed_seconds"
+      ],
+      "optional": [
+        "total"
+      ],
+      "additionalProperties": false,
+      "name": "complete",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::progress",
+      "description": "Complete a long-running bootstrap phase",
+      "public": true
+    },
+    "amaru::bootstrap::progress::START": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase"
+      ],
+      "optional": [
+        "total"
+      ],
+      "additionalProperties": false,
+      "name": "start",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::progress",
+      "description": "Start a long-running bootstrap phase",
+      "public": true
+    },
+    "amaru::bootstrap::progress::UPDATE": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "current": {
+          "type": "integer"
+        },
+        "elapsed_seconds": {
+          "type": "number"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "current",
+        "elapsed_seconds"
+      ],
+      "optional": [
+        "total"
+      ],
+      "additionalProperties": false,
+      "name": "update",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::progress",
+      "description": "Report non-terminal progress for a long-running bootstrap phase",
       "public": true
     },
     "amaru::bootstrap::proposal_roots::IMPORT": {

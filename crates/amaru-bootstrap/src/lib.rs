@@ -125,6 +125,7 @@
 pub mod aws;
 pub mod bootstrap;
 pub mod cardano_node;
+mod progress;
 
 pub use aws::{
     ARCHIVE_EXTENSION, AnonymousS3Client, DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION,

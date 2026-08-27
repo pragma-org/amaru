@@ -20,6 +20,36 @@
 pub trait ProgressBar: Send + Sync {
     fn tick(&self, size: usize);
     fn clear(&self);
+
+    /// Mark the tracked operation as successfully completed and remove its visual indicator.
+    ///
+    /// Renderers that distinguish completion from cancellation can override this method. The
+    /// default keeps existing progress bars source-compatible by treating completion as a clear.
+    fn finish(&self) {
+        self.clear();
+    }
+}
+
+/// Creates progress indicators while allowing callers to attach a stable phase name.
+///
+/// The blanket implementation preserves the existing `(length, template)` closure API. Renderers
+/// that need semantic phase names, such as structured non-terminal logging, can implement this
+/// trait directly and override [`ProgressBarFactory::create_for`].
+pub trait ProgressBarFactory {
+    fn create(&self, length: usize, template: &str) -> Box<dyn ProgressBar>;
+
+    fn create_for(&self, _phase: &'static str, length: usize, template: &str) -> Box<dyn ProgressBar> {
+        self.create(length, template)
+    }
+}
+
+impl<F> ProgressBarFactory for F
+where
+    F: Fn(usize, &str) -> Box<dyn ProgressBar>,
+{
+    fn create(&self, length: usize, template: &str) -> Box<dyn ProgressBar> {
+        self(length, template)
+    }
 }
 
 mod no_progress_bar;

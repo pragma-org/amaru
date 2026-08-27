@@ -17,7 +17,7 @@ use std::{
     fs,
     io::{self, Read},
     path::{Component, Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use amaru_kernel::{
@@ -27,7 +27,7 @@ use amaru_kernel::{
 use amaru_ledger::store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext};
 use amaru_observability::{error, info};
 use amaru_ouroboros::{BaseReadChainStore, ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
-use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+use amaru_progress_bar::ProgressBarFactory;
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
@@ -42,6 +42,7 @@ use chain_sync_client::{ChainSyncClient, from_pallas_point, from_pallas_tip};
 use crate::{
     aws::{AnonymousS3Client, S3Config},
     cardano_node::tvar::{import_state_from_tvar, import_utxo_from_tvar},
+    progress::BootstrapProgressFactory,
 };
 
 /// S3-backed snapshot descriptor used during bootstrap.
@@ -442,6 +443,7 @@ pub async fn bootstrap(
     target_epoch: Option<Epoch>,
     s3_config: S3Config,
 ) -> anyhow::Result<()> {
+    let started_at = Instant::now();
     let s3 = AnonymousS3Client::new(s3_config);
     let snapshots = bootstrap_snapshots(network, &s3, &snapshots_dir).await?;
     let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, target_epoch)?;
@@ -496,6 +498,13 @@ pub async fn bootstrap(
         third_snapshot,
     )?;
     import_packaged_blocks(&chain_db, blocks).await?;
+
+    info!(
+        bootstrap::COMPLETE,
+        duration_seconds = started_at.elapsed().as_secs_f64(),
+        epoch = imported_third_snapshot.epoch,
+        point = third_snapshot.point.clone(),
+    );
 
     Ok(())
 }
@@ -718,7 +727,11 @@ async fn import_node_snapshot_source(
     fs::create_dir_all(ledger_dir)?;
 
     let previous_accounts = if fs::exists(ledger_dir.join("live"))? {
-        let progress = TerminalProgressBar::new(0_u64, "{spinner:.green} Loading previous accounts");
+        let progress = BootstrapProgressFactory.create_for(
+            "load_previous_accounts",
+            0,
+            "{spinner:.green} Loading previous accounts",
+        );
 
         let live = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
         let previous_accounts = live
@@ -729,7 +742,7 @@ async fn import_node_snapshot_source(
 
         fs::remove_dir_all(ledger_dir.join("live"))?;
 
-        progress.clear();
+        progress.finish();
 
         previous_accounts
     } else {
@@ -792,7 +805,7 @@ fn import_node_snapshot_archive_data(
                 previous_accounts.take().ok_or_else(|| {
                     anyhow!("multiple {SNAPSHOT_STATE_FILE_NAME} in archive {}?", archive_path.display())
                 })?,
-                |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
+                BootstrapProgressFactory,
             )?);
         } else if snapshot_archive_entry_matches(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
             let (epoch, point, era_history, chain_state) = imported_state.take().ok_or_else(|| {
@@ -802,14 +815,7 @@ fn import_node_snapshot_archive_data(
                 )
             })?;
 
-            import_utxo_from_tvar(
-                &mut entry,
-                db,
-                |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
-                &point,
-                &era_history,
-                network,
-            )?;
+            import_utxo_from_tvar(&mut entry, db, BootstrapProgressFactory, &point, &era_history, network)?;
 
             return Ok((epoch, point, chain_state));
         }

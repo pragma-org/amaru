@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{NetworkName, NetworkPoint};
-use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+use amaru_progress_bar::{ProgressBar, ProgressBarFactory, TerminalProgressBar};
 use anyhow::{Context, anyhow};
 use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
 use aws_sdk_s3::{
@@ -30,6 +30,8 @@ use aws_sdk_s3::{
     primitives::{ByteStream, SdkBody},
 };
 use http_body_util::BodyExt as _;
+
+use crate::progress::BootstrapProgressFactory;
 
 /// Default S3 bucket name for Amaru bootstrap snapshots.
 pub const DEFAULT_BUCKET: &str = "cardano-ledger-snapshots";
@@ -302,7 +304,7 @@ impl AnonymousS3Client {
 
         let url = format!("{}/{key}", self.base_url);
         let response = self.http.get(&url).send().await?.error_for_status().context("download failed")?;
-        let progress = transfer_progress_bar("Downloading", response.content_length().unwrap_or(0));
+        let progress = bootstrap_transfer_progress_bar(response.content_length().unwrap_or(0));
         let mut stream = response.bytes_stream();
 
         let result: anyhow::Result<()> = async {
@@ -315,9 +317,23 @@ impl AnonymousS3Client {
             Ok(())
         }
         .await;
-        progress.clear();
+        if result.is_ok() {
+            progress.finish();
+        } else {
+            progress.clear();
+        }
         result
     }
+}
+
+fn bootstrap_transfer_progress_bar(size: u64) -> Box<dyn ProgressBar> {
+    let progress = BootstrapProgressFactory.create_for(
+        "download_snapshot",
+        usize::try_from(size).unwrap_or(usize::MAX),
+        "{spinner:.green} Downloading {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
+    );
+    progress.tick(0);
+    progress
 }
 
 fn transfer_progress_bar(action: &str, size: u64) -> TerminalProgressBar {
