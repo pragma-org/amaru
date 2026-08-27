@@ -1,0 +1,29 @@
+{
+  "title": "invalid transaction with a byron collateral input",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, with a collateral input held at a Byron address and its bootstrap witness.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820614b74f1ea1300c92bcbeed79daa3394306e8f541229cc01975e408740e7c4b700",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "8258206726f4f6afb0f52ed241457e54dbea8904e5367318893a7a22fcc18927f3354000",
+        "output": "a200582e82d818582483581c4958e32a5835b20b8d5d6842ad7288eddc3d461646b7d86d24b75449a1024101001afc54f996011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d9010281825820614b74f1ea1300c92bcbeed79daa3394306e8f541229cc01975e408740e7c4b7000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258206726f4f6afb0f52ed241457e54dbea8904e5367318893a7a22fcc18927f33540000f00a302d90102818458202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406988f91bfcf0f4b7279f3fc913fa9fb14ee02fce8376aea491a7cb261ca5c3e06ce1db197326e4be71fa7e8a86b8e94de6dd766fe4474da8b8876cac673abb085820000000000000000000000000000000000000000000000000000000000000000044a102410105a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}

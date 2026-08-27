@@ -438,6 +438,8 @@ normalizeUtxoFailure = \case
         "BabbageOutputTooSmallUTxO"
     BabbageNonDisjointRefInputs{} ->
         "BabbageNonDisjointRefInputs"
+    NoCollateralInputs{} ->
+        "NoCollateralInputs"
     UtxosFailure failure
         | "TimeTranslationPastHorizon" `Text.isInfixOf` showText failure ->
             "OutsideForecast"
@@ -507,6 +509,8 @@ normalizeGovFailure :: ConwayGovPredFailure ConwayEra -> Text
 normalizeGovFailure = \case
     ProposalReturnAccountDoesNotExist{} ->
         "ProposalReturnAccountDoesNotExist"
+    ProposalProcedureNetworkIdMismatch{} ->
+        "ProposalProcedureNetworkIdMismatch"
     TreasuryWithdrawalReturnAccountsDoNotExist{} ->
         "TreasuryWithdrawalReturnAccountsDoNotExist"
     InvalidPrevGovActionId{} ->

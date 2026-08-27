@@ -280,10 +280,12 @@ pub(super) enum Predicate {
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
     MissingVerificationKeyWitnessesUTXOW,
+    NoCollateralInputs,
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
     ProposalCantFollow,
+    ProposalProcedureNetworkIdMismatch,
     ScriptsNotPaidUTxO,
     TooManyCollateralInputs,
     ProposalReturnAccountDoesNotExist,
@@ -372,6 +374,10 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::MalformedReferenceScript(_), .. }] => {
                     Predicate::MalformedReferenceScripts
                 }
+                // The Haskelle node returns `OutputTooBigUTxO` instead of a `OutputBootAddrAttrsTooBig`
+                [WithPosition { element: InvalidOutput::BootAddrAttrsTooBig { .. }, .. }] => {
+                    Predicate::OutputTooBigUTxO
+                }
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
             PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
@@ -382,6 +388,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
                 Predicate::ProposalReturnAccountDoesNotExist
+            }
+            PhaseOneError::Proposals(InvalidProposals::ReturnAddressWrongNetwork { .. }) => {
+                Predicate::ProposalProcedureNetworkIdMismatch
             }
             PhaseOneError::Proposals(InvalidProposals::InvalidPrevGovActionId { .. }) => {
                 Predicate::InvalidPrevGovActionId
@@ -459,10 +468,10 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. }) => {
                 Predicate::IncorrectTotalCollateralField
             }
+            PhaseOneError::Collateral(InvalidCollateral::NoCollateral) => Predicate::NoCollateralInputs,
             PhaseOneError::Metadata(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Scripts(_)
-            | PhaseOneError::Collateral(_)
             | PhaseOneError::Proposals(_)
             | PhaseOneError::VotingProcedures(InvalidVotingProcedures::EraHistory(_)) => {
                 unreachable!("no predicate mapping yet for {err}")

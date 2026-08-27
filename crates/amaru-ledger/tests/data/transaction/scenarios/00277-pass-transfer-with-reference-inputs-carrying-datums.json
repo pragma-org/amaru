@@ -1,0 +1,33 @@
+{
+  "title": "transfer with reference inputs carrying datums",
+  "description": "A simple transfer referencing two unspent outputs, one carrying an inline datum and one carrying a datum hash.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258205a0d4183faa546d421d84955934d958183a8d459d78e3d995664db1d17fd6d8b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      },
+      {
+        "input": "825820cfe1e67f17bb29f9b3d7bcca3dd074507de27b06ddfe5d8f85047a1965af0f4c00",
+        "output": "a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480028201d81842182a"
+      },
+      {
+        "input": "8258202d88acddb00f1c19b3d6e9e7f872ba60a6a16791800ffe4f5eb670e8a977366000",
+        "output": "a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e84800282005820531c95817ee72f1c7de2e05abfde0bb1289f83318e37900506d7c866fd82cfa0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258205a0d4183faa546d421d84955934d958183a8d459d78e3d995664db1d17fd6d8b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4012d9010282825820cfe1e67f17bb29f9b3d7bcca3dd074507de27b06ddfe5d8f85047a1965af0f4c008258202d88acddb00f1c19b3d6e9e7f872ba60a6a16791800ffe4f5eb670e8a977366000a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840126900ac70fa2a489a4c8d626a9ac979506cdc4750233c207704a1c0fcefe1813a4088b11251e7bcc373574c8c78a4124efe1ad0b767be33743dd8113ef7c306f5f6",
+  "expected": "Pass"
+}
