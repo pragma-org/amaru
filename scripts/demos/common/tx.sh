@@ -92,6 +92,10 @@ tx_query_uses_koios() {
   [[ "$TX_QUERY_SOURCE" == "koios" ]]
 }
 
+submit_tx_response_is_duplicate() {
+  grep -qi 'transaction is a duplicate' <<<"$1"
+}
+
 # Submits a transaction to the downstream submit API with retryable rejection handling.
 submit_tx_with_retry() {
   local tx_file="$1" response_file="$2" attempt=1
@@ -109,7 +113,7 @@ submit_tx_with_retry() {
       if [[ "$status" == 2* ]]; then
         return 0
       fi
-      if grep -qi 'transaction is a duplicate' <<<"$body"; then
+      if submit_tx_response_is_duplicate "$body"; then
         echo "[submit-tx] downstream already knows this transaction; keeping claim"
         return 0
       fi
@@ -141,9 +145,10 @@ submit_tx_response_matches_id() {
 }
 
 # Submits a transaction and verifies the complete public contract used by the end-to-end test:
-# HTTP 202 and a response body containing exactly the expected transaction id. A missing-input
-# rejection is retryable because Amaru may still be catching up to the cardano-node used to select
-# the input.
+# HTTP 202 and a response body containing exactly the expected transaction id. A duplicate response
+# also completes the submission because an earlier attempt may have timed out after acceptance. A
+# missing-input rejection is retryable because Amaru may still be catching up to the cardano-node
+# used to select the input.
 submit_tx_and_expect_id() {
   local tx_file="$1" expected_tx_id="$2" response_file="$3" attempt=1
   local status body retries="$TX_SUBMIT_RETRY_LIMIT" delay="$TX_SUBMIT_RETRY_DELAY"
@@ -164,6 +169,10 @@ submit_tx_and_expect_id() {
       if [[ "$status" == 202 ]]; then
         echo "[submit-tx] HTTP 202 response did not contain the expected transaction id"
         return 1
+      fi
+      if submit_tx_response_is_duplicate "$body"; then
+        echo "[submit-tx] downstream already knows this transaction; submission is complete"
+        return 0
       fi
       if grep -qi 'missing transaction inputs' <<<"$body"; then
         echo "[submit-tx] Amaru has not indexed the input UTxO yet; waiting ${delay}s before retry"

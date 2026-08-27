@@ -596,6 +596,11 @@ runner_self_test() {
   if submit_tx_response_matches_id "${tx_id%?}0" "$work/submit.json"; then
     die "Submit API response parser accepted the wrong transaction id"
   fi
+  submit_tx_response_is_duplicate 'Transaction is a duplicate.' ||
+    die "Submit API duplicate response matcher rejected the expected response"
+  if submit_tx_response_is_duplicate 'Transaction input is missing.'; then
+    die "Submit API duplicate response matcher accepted a different rejection"
+  fi
   printf '%s\n' \
     '{"small#0":{"value":{"lovelace":2000000}},"asset#0":{"value":{"lovelace":3000000,"policy":{"token":1}}},"large#0":{"value":{"lovelace":4000000}}}' \
     >"$work/utxo.json"
@@ -613,7 +618,7 @@ runner_self_test() {
   [[ -z "$AMARU_PID" ]] || die "externally managed Amaru mode started a process"
   AMARU_MANAGED="$managed_before"
   rm -rf "$work"
-  self_test_success "response parsers, input selection, slot wait, and external Amaru mode passed"
+  self_test_success "response parsers, duplicate handling, input selection, slot wait, and external Amaru mode passed"
 }
 
 run_e2e() {

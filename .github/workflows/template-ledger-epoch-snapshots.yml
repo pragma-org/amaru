@@ -73,6 +73,15 @@ jobs:
 
       - uses: actions/checkout@v6
 
+      - name: Configure runner paths
+        shell: bash
+        run: |
+          {
+            echo "CARDANO_NODE_DB=$RUNNER_TEMP/db-${{ matrix.network.name }}"
+            echo "CARDANO_NODE_SOCKET_FILE=$RUNNER_TEMP/ipc/node.socket"
+            echo "TX_PAYMENT_SKEY=$RUNNER_TEMP/preprod-e2e-payment.skey"
+          } >> "$GITHUB_ENV"
+
       - name: Reclaim Disk Space
         run: |
           chmod +x ./scripts/cleanup-runner.sh
@@ -83,9 +92,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${{ runner.temp }}/db-${{ matrix.network.name }}"
-          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "${{ runner.temp }}/db-${{ matrix.network.name }}"
-          touch "${{ runner.temp }}/db-${{ matrix.network.name }}/clean"
+          mkdir -p "$CARDANO_NODE_DB" "$(dirname "$CARDANO_NODE_SOCKET_FILE")"
+          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "$CARDANO_NODE_DB"
+          touch "$CARDANO_NODE_DB/clean"
 
       - name: Spawn Haskell Node
         id: spawn-cardano-node
@@ -120,8 +129,8 @@ jobs:
           jq '.hasPrometheus = ["0.0.0.0", 12798]' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
           mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
           docker run -d --name cardano-node \
-            -v ${{ runner.temp }}/db-${{ matrix.network.name }}:/db \
-            -v ${{ runner.temp }}/ipc:/ipc \
+            -v "$CARDANO_NODE_DB:/db" \
+            -v "$(dirname "$CARDANO_NODE_SOCKET_FILE"):/ipc" \
             -v "./$CONFIG_DIR:/config" \
             -v "./$CONFIG_DIR:/genesis" \
             -p 3001:3001 \
@@ -203,13 +212,10 @@ jobs:
         env:
           AMARU_CHAIN_DIR: ${{ github.workspace }}/chain.${{ matrix.network.name }}.db
           AMARU_LEDGER_DIR: ${{ github.workspace }}/ledger.${{ matrix.network.name }}.db
-          CARDANO_NODE_DB: ${{ runner.temp }}/db-${{ matrix.network.name }}
-          CARDANO_NODE_SOCKET_FILE: ${{ runner.temp }}/ipc/node.socket
           CARDANO_NODE_SYNC_TIMEOUT_SECONDS: 1200
           E2E_TX_MANAGE_CARDANO_NODE: "false"
           E2E_TX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.network.name }}
           E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
-          TX_PAYMENT_SKEY: ${{ runner.temp }}/preprod-e2e-payment.skey
           TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
           TX_SYNC_TIMEOUT_SECONDS: 1200
         run: |
