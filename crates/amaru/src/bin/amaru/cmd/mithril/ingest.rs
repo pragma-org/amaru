@@ -30,7 +30,7 @@ use amaru_node::stages::{
 };
 use amaru_observability::info;
 use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
+use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use rayon::prelude::*;
 
@@ -53,7 +53,7 @@ async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     praos_chain_store: &PraosChainStore,
     consensus_parameters: Arc<ConsensusParameters>,
-    block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
+    block_validator: &BlockValidator,
     pool_summaries: &RwLock<PoolSummaries>,
     era_history: &EraHistory,
     raw_block: &RawBlock,

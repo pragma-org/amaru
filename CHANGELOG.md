@@ -44,6 +44,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
 - **amaru-observability**: field rendering is declared on the schema (`%` Display, `?` Debug, otherwise `Serialize + JsonSchema`). Call sites no longer take `%` / `?`; `@` remains for `tracing::Value` passthrough. `amaru dev traces dump` emits the JSON-sink schema of each field. `Point` traces encode as `[slot, hash, height]` with a CBOR byte-string hash ([#1263](https://github.com/pragma-org/amaru/issues/1263)).
 - **amaru-kernel**: `Hash` (and newtypes / `FixedBytes`) serialize as CBOR byte strings on the tracing path; JSON serde still uses hex. JSON/console/TUI/OTEL span sinks render those bytes as hex; OTEL logs keep byte strings.
 - **amaru**: use the `amaru-observability` crate with all other amaru crates so that all tracing events have a schema (#1266).
@@ -424,6 +425,7 @@ Other guiding principles:
 [#1082]: https://github.com/pragma-org/amaru/pull/1082
 [#1087]: https://github.com/pragma-org/amaru/pull/1087
 [#1090]: https://github.com/pragma-org/amaru/pull/1090
+[#1094]: https://github.com/pragma-org/amaru/issues/1094
 [#1095]: https://github.com/pragma-org/amaru/issues/1095
 [#1098]: https://github.com/pragma-org/amaru/pull/1098
 [#1101]: https://github.com/pragma-org/amaru/pull/1101
