@@ -13,6 +13,5 @@
 // limitations under the License.
 
 pub mod fixture;
-pub mod observed;
 pub mod scale;
 pub mod scenario;

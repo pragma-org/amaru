@@ -21,7 +21,10 @@ use std::{
 };
 
 use amaru_kernel::utils::memory::CountingAllocator;
-use common::{observed, scale::BenchScale, scenario::Scenario};
+use common::{
+    scale::BenchScale,
+    scenario::{self, Scenario},
+};
 use divan::Bencher;
 use rand::{SeedableRng, rngs::StdRng};
 
@@ -45,7 +48,7 @@ pub fn main() {
     print_configuration();
     divan::main();
     print_memory_usage();
-    print_observed_breakdown();
+    print_mixed_breakdown();
 }
 
 fn print_configuration() {
@@ -56,10 +59,15 @@ fn print_configuration() {
     let scale = BenchScale::from_env();
     let fork_point = SwitchToFork::new(Scenario::Mixed).fork_point();
 
-    let format_env_var = |var| format!("(env.{}={})", var, std::env::var(var).ok().as_deref().unwrap_or("<unset>"));
+    let format_env_var =
+        |var: &str| format!("(env.{}={})", var, std::env::var(var).ok().as_deref().unwrap_or("<unset>"));
 
     eprintln!("├─ volatile_size={} {}", scale.volatile_size, format_env_var(BenchScale::ENV_VAR_VOLATILE_SIZE));
     eprintln!("├─ block_size={} {}", scale.block_size, format_env_var(BenchScale::ENV_VAR_BLOCK_SIZE));
+    eprintln!("├─ block_fill={}% {}", scale.block_fill, format_env_var(BenchScale::ENV_VAR_BLOCK_FILL));
+    scale.mixed_weights.entries().iter().for_each(|(label, env_var, weight)| {
+        eprintln!("├─ mixed_weight_{}={} {}", label, weight, format_env_var(env_var));
+    });
     eprintln!("╰─ fork_point={} {}\n", fork_point, format_env_var(SwitchToFork::ENV_VAR_FORK_POINT));
 }
 
@@ -69,10 +77,8 @@ fn in_mebibytes(bytes: i64) -> String {
 
 fn print_memory_usage() {
     eprintln!("memory usage (volatile footprint, retained bytes)");
-    let mut scenarios = Scenario::round_robin()
-        .iter()
-        .chain([&Scenario::Mixed, &Scenario::Observed, &Scenario::Singleton])
-        .collect::<Vec<_>>();
+    let mut scenarios =
+        Scenario::round_robin().iter().chain([&Scenario::Mixed, &Scenario::Singleton]).collect::<Vec<_>>();
     let last_index = scenarios.len() - 1;
     scenarios.sort_by_key(|scenario| scenario.name());
     scenarios.iter().enumerate().for_each(|(ix, scenario)| {
@@ -85,31 +91,32 @@ fn print_memory_usage() {
     })
 }
 
-/// Attribute the observed workload's retained bytes to individual collections, by rebuilding the
-/// volatile window restricted to one collection at a time.
-fn print_observed_breakdown() {
-    if !MEMORY_USAGE.read().unwrap().contains_key(&Scenario::Observed) {
+/// Attribute the mixed workload's retained bytes to individual collections, by rebuilding the
+/// volatile window restricted to one entity at a time.
+fn print_mixed_breakdown() {
+    if !MEMORY_USAGE.read().unwrap().contains_key(&Scenario::Mixed) {
         return;
     }
 
     let scale = BenchScale::from_env();
-    let build = |only: Option<&str>| {
-        let mut rng = StdRng::seed_from_u64(Scenario::Observed.seed());
-        let (db, bytes) = retained_bytes(|| observed::new_volatile_db(&mut rng, scale.volatile_size, only));
+    let build = |only: &[Scenario]| {
+        let mut rng = StdRng::seed_from_u64(Scenario::Mixed.seed());
+        let (db, bytes) = retained_bytes(|| scenario::new_mixed_volatile_db(&mut rng, &scale, only));
         drop(db);
         bytes
     };
 
-    eprintln!("\nobserved workload breakdown (retained bytes by collection)");
-    let baseline = build(Some(""));
+    eprintln!("\nmixed workload breakdown (retained bytes by collection)");
+    let baseline = build(&[]);
     eprintln!("├─ structure={}", in_mebibytes(baseline));
-    let last_index = observed::GROUPS.len() - 1;
-    observed::GROUPS.iter().enumerate().for_each(|(ix, group)| {
+    let entities = Scenario::round_robin();
+    let last_index = entities.len() - 1;
+    entities.iter().enumerate().for_each(|(ix, entity)| {
         eprintln!(
             "{}─ {}={}",
             if ix == last_index { "╰" } else { "├" },
-            group,
-            in_mebibytes(build(Some(group)) - baseline)
+            entity.name(),
+            in_mebibytes(build(&[*entity]) - baseline)
         );
     });
 }
@@ -119,7 +126,6 @@ fn print_observed_breakdown() {
     benches::RollForward::new(Scenario::Committee),
     benches::RollForward::new(Scenario::DReps),
     benches::RollForward::new(Scenario::Mixed),
-    benches::RollForward::new(Scenario::Observed),
     benches::RollForward::new(Scenario::Pools),
     benches::RollForward::new(Scenario::Proposals),
     benches::RollForward::new(Scenario::Singleton),
@@ -138,7 +144,6 @@ fn bench_roll_forward(bencher: Bencher<'_, '_>, bench: benches::RollForward) {
     benches::SwitchToFork::new(Scenario::Committee),
     benches::SwitchToFork::new(Scenario::DReps),
     benches::SwitchToFork::new(Scenario::Mixed),
-    benches::SwitchToFork::new(Scenario::Observed),
     benches::SwitchToFork::new(Scenario::Pools),
     benches::SwitchToFork::new(Scenario::Proposals),
     benches::SwitchToFork::new(Scenario::Singleton),
@@ -155,7 +160,6 @@ fn bench_switch_to_fork(bencher: Bencher<'_, '_>, bench: benches::SwitchToFork) 
     benches::HydrateContext::new(Scenario::Committee),
     benches::HydrateContext::new(Scenario::DReps),
     benches::HydrateContext::new(Scenario::Mixed),
-    benches::HydrateContext::new(Scenario::Observed),
     benches::HydrateContext::new(Scenario::Pools),
     benches::HydrateContext::new(Scenario::Proposals),
     benches::HydrateContext::new(Scenario::Singleton),
