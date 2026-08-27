@@ -306,6 +306,7 @@ pub(super) enum Predicate {
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
+    WrongNetworkPOOL,
     WrongNetworkWithdrawal,
 }
 
@@ -447,6 +448,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
                 Predicate::StakePoolCostTooLowPOOL
             }
+            PhaseOneError::Certificates(InvalidCertificates::PoolWrongNetwork { .. }) => Predicate::WrongNetworkPOOL,
             PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
             PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {
                 Predicate::InsufficientCollateral

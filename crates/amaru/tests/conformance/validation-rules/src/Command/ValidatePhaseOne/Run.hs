@@ -498,6 +498,8 @@ normalizePoolFailure = \case
         "StakePoolRetirementWrongEpochPOOL"
     StakePoolCostTooLowPOOL{} ->
         "StakePoolCostTooLowPOOL"
+    WrongNetworkPOOL{} ->
+        "WrongNetworkPOOL"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 

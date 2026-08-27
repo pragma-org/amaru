@@ -1,0 +1,29 @@
+{
+  "title": "invalid transaction with a stake registration and pool delegation",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, carrying a combined stake registration and pool delegation certificate whose deposit is accounted for by the outputs.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582068f207a1a50bedbfc0be901465804bc93e44d244199a21f62eabb7d0076ac9ed00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "82582039ffac0ab0b6e411a585938da683f01d4165ef1bbcda4489e194ef31ce29beb000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d901028182582068f207a1a50bedbfc0be901465804bc93e44d244199a21f62eabb7d0076ac9ed000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0029f630021a0003d09004d9010281840b8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581c154512108969d53b4535459ff8581ad35072082bdc4b66550d3584131a001e84800b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd901028182582039ffac0ab0b6e411a585938da683f01d4165ef1bbcda4489e194ef31ce29beb0000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584030533f60dee47e8fba3058405e347c68d31a143fd2934ef550a0211e7e3ec9a99d37f719c77ff6e13bca060a972e9e744c1439a6675db19d2ecea76db4bde90205a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}
