@@ -1,0 +1,36 @@
+{
+  "title": "invalid transaction with a vote delegation",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, carrying a vote delegation certificate to the always-abstain DRep.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258200548397be46ff3d3d886b0af6009766b8873744322051f9ba738770965ed01f400",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820137f57afe3d883344091e5fa6c9a33f1ae9f1d89e5c74504a8ab0a5610eb8dee00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d90102818258200548397be46ff3d3d886b0af6009766b8873744322051f9ba738770965ed01f4000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d09004d901028183098200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd881020b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820137f57afe3d883344091e5fa6c9a33f1ae9f1d89e5c74504a8ab0a5610eb8dee000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584065ba3e94f9e012b442e6d1cce63c8282fc7ee2d5a42bd86ea43faaa651708b0c43a052a0725d8b3a4dd6c7739686770c83cc6947e60cc8ea62d61beb3204a60205a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}

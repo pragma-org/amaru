@@ -1,0 +1,39 @@
+{
+  "title": "drep update of a script-hash drep",
+  "description": "A DRep update certificate updates a registered script-hash DRep with no anchor, witnessed by its native script.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582098374ce1a98af77e310b5a13d65e2b1e04147148c519b341ca5c6deb5d1236db00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "dreps": [
+      {
+        "credential": "8201581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf",
+        "deposit": 500000000,
+        "registered_at": {
+          "transaction": {
+            "slot": 0,
+            "transaction_index": 0
+          },
+          "certificate_index": 0
+        },
+        "valid_until": 1000
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582098374ce1a98af77e310b5a13d65e2b1e04147148c519b341ca5c6deb5d1236db000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d901028183128201581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcff6a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258404c040091acbc17e54900e1348f95404e123b96b20bd9712d21cd8b62beb7c449ef1bc4221ae6e3dc4819ebd8077f14aa5a53eca4d5c061a258f3cbd18b87b70a01d9010281820180f5f6",
+  "expected": "Pass"
+}

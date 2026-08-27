@@ -276,6 +276,7 @@ pub(super) enum Predicate {
     MalformedReferenceScripts,
     MalformedScriptWitnesses,
     MaxTxSizeUTxO,
+    MissingScriptWitnessesUTXOW,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
     MissingVerificationKeyWitnessesUTXOW,
@@ -400,6 +401,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Scripts(InvalidScripts::ExtraneousScriptWitnesses(_)) => {
                 Predicate::ExtraneousScriptWitnessesUTXOW
             }
+            PhaseOneError::Scripts(InvalidScripts::MissingRequiredScripts(_)) => Predicate::MissingScriptWitnessesUTXOW,
             PhaseOneError::ScriptPreparation(PreparationError::MalformedScriptWitness(_)) => {
                 Predicate::MalformedScriptWitnesses
             }
