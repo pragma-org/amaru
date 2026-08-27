@@ -128,7 +128,11 @@ pub(crate) fn count_lovelace<C>(
         delta += count_lovelace_one(context, protocol_parameters, &mut pools, &mut accounts, &mut dreps, certificate);
     }
 
-    if delta > 0 { context.produce_lovelace(delta as u64) } else { context.consume_lovelace(delta as u64) }
+    if delta > 0 {
+        context.produce_lovelace(delta.unsigned_abs())
+    } else {
+        context.consume_lovelace(delta.unsigned_abs())
+    }
 }
 
 // FIXME: Perform all necessary rules validations down here.
