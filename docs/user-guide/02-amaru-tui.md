@@ -14,14 +14,14 @@ The node's version and commit hash (e.g. `10.11.20260807 (493bffb)`) are always 
 
 ## AMARU tab
 
-Shown by default when the TUI opens: node-process health, networking, and consensus ; sync progress, resource usage, peers, and logs.
+Shown by default when the TUI opens: node-process health, networking, and consensus; sync progress, resource usage, peers, and logs.
 
 ![Amaru Syncing_TUI](img/Amaru_Syncing_TUI.png)
 *Amaru TUI Syncing on Preprod*
 
 ### Sync progress
 
-While syncing, the top bar tracks progress through the current epoch: epoch number (307 / 308), ETA to the end of sync (2m56s), slots processed within the epoch (86,338 / 432,000), and overall sync percentage(99.6%).  
+While syncing, the top bar tracks progress through the current epoch: epoch number (307 / 308), ETA to the end of sync (2m56s), slots processed within the epoch (86,338 / 432,000), and overall sync percentage (99.6%).  
 When the sync is over the ETA and Percentage will disappear.
 
 ![Amaru_Mainnet TUI](img/Amaru_Mainnet_TUI.png)
@@ -42,7 +42,7 @@ One row per connected peer: connection **Dir**ection (inbound/outbound), peer ad
 - **Adopt** : Time until the local node validates and adopts the block.
 
 The `[ + ]` in the top-right lets you expand the panel to see all connected peers.  
-If a peers shows a red dot instead of a green one, it means it has not responded for some time and will soon be evicted.
+If a peer shows a red dot instead of a green one, it means it has not responded for some time and will soon be evicted.
 
 ![Amaru_Mainnet_Peers TUI](img/Amaru_Mainnet_Peers_TUI.png)
 
