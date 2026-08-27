@@ -17,6 +17,8 @@ on:
         required: true
       CARDANO_NODE_BUCKET_NAME:
         required: true
+      PREPROD_TX_PAYMENT_SKEY_BASE64:
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,6 +32,9 @@ jobs:
   snapshots:
     name: End-to-end snapshot tests
     runs-on: ubuntu-24.04
+    concurrency:
+      group: ${{ matrix.network.name == 'preprod' && 'preprod-e2e-transaction-submission' || format('ledger-epoch-snapshots-{0}-{1}', github.run_id, matrix.network.name) }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
@@ -190,6 +195,47 @@ jobs:
             --check \
             --output "metrics-report-${{ matrix.network.name }}.json" \
             --summary
+
+      - name: Run transaction submission test
+        if: ${{ matrix.network.name == 'preprod' && (inputs.network == '' || inputs.network == matrix.network.name) }}
+        timeout-minutes: 30
+        shell: bash
+        env:
+          AMARU_CHAIN_DIR: ${{ github.workspace }}/chain.${{ matrix.network.name }}.db
+          AMARU_LEDGER_DIR: ${{ github.workspace }}/ledger.${{ matrix.network.name }}.db
+          CARDANO_NODE_DB: ${{ runner.temp }}/db-${{ matrix.network.name }}
+          CARDANO_NODE_SOCKET_FILE: ${{ runner.temp }}/ipc/node.socket
+          CARDANO_NODE_SYNC_TIMEOUT_SECONDS: 1200
+          E2E_TX_MANAGE_CARDANO_NODE: "false"
+          E2E_TX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.network.name }}
+          E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
+          TX_PAYMENT_SKEY: ${{ runner.temp }}/preprod-e2e-payment.skey
+          TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
+          TX_SYNC_TIMEOUT_SECONDS: 1200
+        run: |
+          set -euo pipefail
+          trap 'rm -f "$TX_PAYMENT_SKEY"' EXIT
+          umask 077
+          printf '%s' "$TX_PAYMENT_SKEY_BASE64" | base64 --decode > "$TX_PAYMENT_SKEY"
+          test -s "$TX_PAYMENT_SKEY"
+          ./scripts/e2e/tx-submission.sh run
+
+      - name: Collect transaction submission logs
+        if: ${{ always() && matrix.network.name == 'preprod' && (inputs.network == '' || inputs.network == matrix.network.name) }}
+        shell: bash
+        run: |
+          mkdir -p e2e-tx-submission-output/logs
+          docker logs cardano-node > e2e-tx-submission-output/logs/cardano-node-docker.log 2>&1 || true
+
+      - name: Upload transaction submission artifacts
+        if: ${{ always() && matrix.network.name == 'preprod' && (inputs.network == '' || inputs.network == matrix.network.name) }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: transaction-submission-${{ matrix.network.name }}
+          path: |
+            e2e-tx-submission-output/logs
+            e2e-tx-submission-output/results
+          if-no-files-found: warn
 
       - name: Upload metrics report
         if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network.name) }}
