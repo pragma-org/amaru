@@ -105,9 +105,11 @@ table inet filter {
 
         # ct state established, related accept
         # ct state invalid drop
-        # If you need to acces your grafana dashboard 
-        # Allow all to docker :80
-        # ip daddr 172.16.0.0/12 tcp dport { 80 } accept
+        
+        # If you need to access your grafana dashboard 
+        # Which is published on "80:3000"
+        # You need to Allow forward traffic to :3000
+        # ip daddr 172.16.0.0/12 tcp dport { 3000 } accept
 
         # Allow specifics IPs to join :443
         # ip saddr { X.X.X.X, Y.Y.Y.Y } tcp dport { 443 } accept
