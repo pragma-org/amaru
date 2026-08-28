@@ -1,9 +1,7 @@
 services:
   otlp-collector:
     image: otel/opentelemetry-collector-contrib:0.133.0
-    environment:
-      - NO_PROXY=localhost,127.0.0.1
-      - no_proxy=localhost,127.0.0.1
+    restart: unless-stopped
     volumes:
       - "./otlp-collector.yml:/etc/otlp-collector.yml"
     command: ["--config", "/etc/otlp-collector.yml"]
@@ -11,8 +9,8 @@ services:
       - loki
       - tempo
     ports:
-      - "4317:4317"
-      - "8889:8889"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:8889:8889"
 
   prometheus:
     image: prom/prometheus:v3.0.1
@@ -28,26 +26,25 @@ services:
 
   loki:
     image: grafana/loki:3.7.2
+    restart: unless-stopped
     command: ["-config.file=/etc/loki/loki.yml"]
     volumes:
       - "./loki.yml:/etc/loki/loki.yml"
       - "loki-data:/loki"
-    ports:
-      - "3100:3100"
 
   tempo:
     image: grafana/tempo:2.9.1
+    restart: unless-stopped
     command: ["-config.file=/etc/tempo/tempo.yml"]
     depends_on:
       - prometheus
-    ports:
-      - "3200:3200"
     volumes:
       - "./tempo.yml:/etc/tempo/tempo.yml"
       - "tempo-data:/var/tempo"
 
   grafana:
     image: grafana/grafana:latest
+    restart: unless-stopped
     depends_on:
       - loki
       - prometheus
