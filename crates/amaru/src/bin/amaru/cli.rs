@@ -180,7 +180,7 @@ pub(crate) struct Cli {
     #[clap(long, action, env = "AMARU_WITH_JSON_TRACES")]
     pub(crate) with_json_traces: bool,
 
-    /// Export traces and metrics via OpenTelemetry (OTLP).
+    /// Export metrics, traces, and logs via OpenTelemetry (OTLP).
     #[clap(long, action, env = "AMARU_WITH_OPEN_TELEMETRY")]
     pub(crate) with_open_telemetry: bool,
 }

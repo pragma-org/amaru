@@ -2546,6 +2546,16 @@ define_schemas! {
                     required with_json_traces: bool
                     required with_colors: bool
                 }
+                /// OTLP export failed; collection may not be started for every signal
+                public EXPORT_FAILED {
+                    /// Comma-separated signals whose exporters reported failures
+                    required unavailable_signals: String
+                }
+                /// OTLP collection recovered for previously unavailable signals
+                public EXPORT_RECOVERED {
+                    /// Comma-separated signals whose exporters connected successfully again
+                    required recovered_signals: String
+                }
             }
             build {
                 /// Running binary build/version identity (package version, git commit, target).

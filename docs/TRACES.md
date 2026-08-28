@@ -3005,7 +3005,25 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `export_failed` | `TRACE` | public | OTLP export failed; collection may not be started for every signal | unavailable_signals |  |
+| `export_recovered` | `TRACE` | public | OTLP collection recovered for previously unavailable signals | recovered_signals |  |
 | `init` | `TRACE` | public | Observability stack initialization | with_open_telemetry, with_json_traces, with_colors |  |
+
+<details><summary>span: `export_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `unavailable_signals` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `export_recovered`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `recovered_signals` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `init`</summary>
 

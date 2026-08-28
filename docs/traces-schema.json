@@ -7644,6 +7644,42 @@
       "description": "A termination signal was received; the node is shutting down",
       "public": true
     },
+    "amaru::setup::observability::EXPORT_FAILED": {
+      "type": "object",
+      "properties": {
+        "unavailable_signals": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "unavailable_signals"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "export_failed",
+      "level": "TRACE",
+      "target": "amaru::setup::observability",
+      "description": "OTLP export failed; collection may not be started for every signal",
+      "public": true
+    },
+    "amaru::setup::observability::EXPORT_RECOVERED": {
+      "type": "object",
+      "properties": {
+        "recovered_signals": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recovered_signals"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "export_recovered",
+      "level": "TRACE",
+      "target": "amaru::setup::observability",
+      "description": "OTLP collection recovered for previously unavailable signals",
+      "public": true
+    },
     "amaru::setup::observability::INIT": {
       "type": "object",
       "properties": {
