@@ -325,7 +325,7 @@ cardano_node_mempool_tx_state() {
   local temporary_response=false result
 
   if [[ -z "$response_file" ]]; then
-    response_file="${TMPDIR:-/tmp}/cardano-node-mempool-$$.json"
+    response_file="$(mktemp "${TMPDIR:-/tmp}/cardano-node-mempool.XXXXXX")" || return 1
     temporary_response=true
   fi
 

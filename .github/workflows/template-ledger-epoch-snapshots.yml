@@ -35,6 +35,7 @@ jobs:
     concurrency:
       group: ${{ matrix.network.name == 'preprod' && 'preprod-e2e-transaction-submission' || format('ledger-epoch-snapshots-{0}-{1}', github.run_id, matrix.network.name) }}
       cancel-in-progress: false
+      queue: max
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +59,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: auto
       ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+      E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
       TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
@@ -215,23 +217,18 @@ jobs:
           CARDANO_NODE_SYNC_TIMEOUT_SECONDS: 1200
           E2E_TX_MANAGE_CARDANO_NODE: "false"
           E2E_TX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.network.name }}
-          E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
           TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
           TX_SYNC_TIMEOUT_SECONDS: 1200
         run: |
           set -euo pipefail
-          trap 'rm -f "$TX_PAYMENT_SKEY"' EXIT
-          umask 077
-          printf '%s' "$TX_PAYMENT_SKEY_BASE64" | base64 --decode > "$TX_PAYMENT_SKEY"
-          test -s "$TX_PAYMENT_SKEY"
           ./scripts/e2e/tx-submission.sh run
 
       - name: Collect transaction submission logs
         if: ${{ always() && matrix.network.name == 'preprod' && (inputs.network == '' || inputs.network == matrix.network.name) }}
         shell: bash
         run: |
-          mkdir -p e2e-tx-submission-output/logs
-          docker logs cardano-node > e2e-tx-submission-output/logs/cardano-node-docker.log 2>&1 || true
+          mkdir -p "$E2E_TX_WORK_DIR/logs"
+          docker logs cardano-node > "$E2E_TX_WORK_DIR/logs/cardano-node-docker.log" 2>&1 || true
 
       - name: Upload transaction submission artifacts
         if: ${{ always() && matrix.network.name == 'preprod' && (inputs.network == '' || inputs.network == matrix.network.name) }}
@@ -239,8 +236,8 @@ jobs:
         with:
           name: transaction-submission-${{ matrix.network.name }}
           path: |
-            e2e-tx-submission-output/logs
-            e2e-tx-submission-output/results
+            ${{ env.E2E_TX_WORK_DIR }}/logs
+            ${{ env.E2E_TX_WORK_DIR }}/results
           if-no-files-found: warn
 
       - name: Upload metrics report

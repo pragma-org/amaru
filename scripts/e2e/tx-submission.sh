@@ -104,13 +104,17 @@ TX_MEMPOOL_POLL_INTERVAL_SECONDS="${TX_MEMPOOL_POLL_INTERVAL_SECONDS:-1}"
 . "$COMMON_DIR/amaru.sh"
 . "$COMMON_DIR/tx.sh"
 
+E2E_FAILURE_MESSAGE=""
+
 die() {
+  E2E_FAILURE_MESSAGE="$*"
   printf '%serror:%s %s\n' "$E2E_COLOR_ERROR" "$E2E_COLOR_RESET" "$*" >&2
   exit 1
 }
 
 AMARU_PID=""
 CARDANO_NODE_PID=""
+TX_PAYMENT_SKEY_INSTALLED=false
 
 usage() {
   cat <<'EOF'
@@ -331,6 +335,25 @@ runner_prepare() {
   setup_log "fast transaction submission E2E environment is ready"
 }
 
+install_base64_payment_key() {
+  if [[ "${TX_PAYMENT_SKEY_BASE64+x}" != x ]]; then
+    return
+  fi
+  [[ -n "$TX_PAYMENT_SKEY_BASE64" ]] || die "TX_PAYMENT_SKEY_BASE64 is empty"
+  have base64 || die "base64 is required to install TX_PAYMENT_SKEY_BASE64"
+  mkdir -p "$(dirname "$TX_PAYMENT_SKEY")"
+  if ! (umask 077 && printf '%s' "$TX_PAYMENT_SKEY_BASE64" | base64 --decode >"$TX_PAYMENT_SKEY"); then
+    rm -f "$TX_PAYMENT_SKEY"
+    die "TX_PAYMENT_SKEY_BASE64 is not valid base64"
+  fi
+  if [[ ! -s "$TX_PAYMENT_SKEY" ]]; then
+    rm -f "$TX_PAYMENT_SKEY"
+    die "TX_PAYMENT_SKEY_BASE64 decoded to an empty key"
+  fi
+  TX_PAYMENT_SKEY_INSTALLED=true
+  unset TX_PAYMENT_SKEY_BASE64
+}
+
 prepare_cardano_database() {
   if [[ -d "$CARDANO_NODE_DB/immutable" ]]; then
     setup_log "using cardano-node database $CARDANO_NODE_DB"
@@ -350,7 +373,8 @@ prepare_cardano_node_config_file() {
   CARDANO_NODE_EFFECTIVE_CONFIG_FILE="$config"
   [[ "$(uname -s)" == Darwin ]] || return 0
 
-  generated="$CARDANO_NODE_CONFIG_DIR/config.e2e.json"
+  mkdir -p "$RUNDIR/generated"
+  generated="$RUNDIR/generated/cardano-config.json"
   jq '
     .TraceOptionResourceFrequency = 0
     | .TraceOptions[""].backends = (
@@ -490,6 +514,7 @@ wait_for_cardano_mempool() {
 run_transaction_test() {
   local socket address utxo_file protocol_params_file tx_body tx_signed tx_cbor
   local response_file mempool_response_file input_available_slot record tx_in lovelace tx_id mempool_state submitted_at
+  local -a network_args=()
   socket="$(cardano_node_socket_file)"
   utxo_file="$PRIVATE_DIR/utxo.json"
   protocol_params_file="$PRIVATE_DIR/protocol-params.json"
@@ -513,9 +538,12 @@ run_transaction_test() {
   IFS=$'\t' read -r tx_in lovelace <<<"$record"
   e2e_log "selected input $tx_in with $lovelace lovelace at slot $input_available_slot"
 
+  while IFS= read -r arg; do
+    network_args+=("$arg")
+  done < <(cardano_cli_network_args)
   build_drain_transaction "$tx_in" "$lovelace" "$address" "$tx_body" "$protocol_params_file"
   "$CARDANO_CLI" conway transaction sign \
-    $(cardano_cli_network_args) \
+    "${network_args[@]}" \
     --tx-body-file "$tx_body" \
     --signing-key-file "$TX_PAYMENT_SKEY" \
     --out-canonical-cbor \
@@ -558,6 +586,35 @@ run_transaction_test() {
   e2e_log "result: $RESULT_DIR/result.json"
 }
 
+write_failure_result() {
+  local status="$1" failed_at failure_message result_tmp
+  failed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  failure_message="${E2E_FAILURE_MESSAGE:-command exited without an explicit error}"
+  mkdir -p "$RESULT_DIR" || return 1
+  result_tmp="$(mktemp "$RESULT_DIR/result.XXXXXX")" || return 1
+  if ! jq -n \
+    --arg network "$NETWORK" \
+    --arg run_id "$RUN_ID" \
+    --arg error "$failure_message" \
+    --arg failed_at "$failed_at" \
+    --argjson exit_code "$status" \
+    '{
+      outcome: "failed",
+      network: $network,
+      run_id: $run_id,
+      exit_code: $exit_code,
+      error: $error,
+      failed_at: $failed_at
+    }' >"$result_tmp"; then
+    rm -f "$result_tmp"
+    return 1
+  fi
+  if ! mv "$result_tmp" "$RESULT_DIR/result.json"; then
+    rm -f "$result_tmp"
+    return 1
+  fi
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -569,8 +626,12 @@ cleanup() {
     kill "$CARDANO_NODE_PID" 2>/dev/null || true
     wait "$CARDANO_NODE_PID" 2>/dev/null || true
   fi
+  [[ "$TX_PAYMENT_SKEY_INSTALLED" == false ]] || rm -f "$TX_PAYMENT_SKEY"
   rm -rf "$PRIVATE_DIR"
   if ((status != 0)); then
+    if ! write_failure_result "$status"; then
+      e2e_warning "could not write failure result to $RESULT_DIR/result.json"
+    fi
     printf '%s[e2e] failed; logs are in %s and partial results are in %s%s\n' \
       "$E2E_COLOR_ERROR" "$LOGDIR" "$RESULT_DIR" "$E2E_COLOR_RESET" >&2
   fi
@@ -582,7 +643,8 @@ runner_self_test() {
   work="$(mktemp -d)"
   tx_id=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
   printf '"%s"\n' "$tx_id" >"$work/submit.json"
-  submit_tx_response_matches_id "$tx_id" "$work/submit.json"
+  submit_tx_response_matches_id "$tx_id" "$work/submit.json" ||
+    die "Submit API response parser rejected the expected transaction id"
   printf '{"exists":true,"txId":"%s","slot":1}\n' "$tx_id" >"$work/mempool.json"
   state="$(parse_cardano_node_mempool_tx_state "$tx_id" "$work/mempool.json")"
   [[ "$state" == present ]] || die "expected present, got $state"
@@ -601,6 +663,12 @@ runner_self_test() {
   if submit_tx_response_is_duplicate 'Transaction input is missing.'; then
     die "Submit API duplicate response matcher accepted a different rejection"
   fi
+  RESULT_DIR="$work/results" E2E_FAILURE_MESSAGE="expected failure" write_failure_result 17
+  jq -e '
+    .outcome == "failed"
+      and .exit_code == 17
+      and .error == "expected failure"
+  ' "$work/results/result.json" >/dev/null || die "failure result is not machine-readable"
   printf '%s\n' \
     '{"small#0":{"value":{"lovelace":2000000}},"asset#0":{"value":{"lovelace":3000000,"policy":{"token":1}}},"large#0":{"value":{"lovelace":4000000}}}' \
     >"$work/utxo.json"
@@ -622,10 +690,11 @@ runner_self_test() {
 }
 
 run_e2e() {
-  runner_setup
-  prepare_cardano_database
   trap cleanup EXIT
   trap 'exit 130' INT TERM
+  install_base64_payment_key
+  runner_setup
+  prepare_cardano_database
   start_cardano_node
   wait_for_cardano_node
   start_amaru

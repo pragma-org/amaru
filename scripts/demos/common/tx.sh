@@ -4,6 +4,7 @@
 TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-}"
 TX_GENERATED_COUNT="${TX_GENERATED_COUNT:-1}"
 TX_SYNC_TIMEOUT_SECONDS="${TX_SYNC_TIMEOUT_SECONDS:-14400}"
+TX_SUBMIT_HTTP_TIMEOUT_SECONDS="${TX_SUBMIT_HTTP_TIMEOUT_SECONDS:-30}"
 TX_SUBMIT_RETRY_LIMIT="${TX_SUBMIT_RETRY_LIMIT:-12}"
 TX_SUBMIT_RETRY_DELAY="${TX_SUBMIT_RETRY_DELAY:-30}"
 TX_OUTPUT_LOVELACE="${TX_OUTPUT_LOVELACE:-1000000}"
@@ -96,43 +97,6 @@ submit_tx_response_is_duplicate() {
   grep -qi 'transaction is a duplicate' <<<"$1"
 }
 
-# Submits a transaction to the downstream submit API with retryable rejection handling.
-submit_tx_with_retry() {
-  local tx_file="$1" response_file="$2" attempt=1
-  local response status body retries="$TX_SUBMIT_RETRY_LIMIT" delay="$TX_SUBMIT_RETRY_DELAY"
-  while ((attempt <= retries)); do
-    echo "[submit-tx] attempt $attempt/$retries: submitting $tx_file to the Amaru submit API at $TX_SUBMIT_API_ADDRESS"
-    if curl -sS -o "$response_file" -w '%{http_code}' \
-      -X POST -H 'Content-Type: application/cbor' \
-      --data-binary "@$tx_file" \
-      "http://$TX_SUBMIT_API_ADDRESS/api/submit/tx" >"$response_file.status"; then
-      status="$(cat "$response_file.status")"
-      body="$(cat "$response_file")"
-      echo "[submit-tx] response: HTTP $status"
-      echo "$body"
-      if [[ "$status" == 2* ]]; then
-        return 0
-      fi
-      if submit_tx_response_is_duplicate "$body"; then
-        echo "[submit-tx] downstream already knows this transaction; keeping claim"
-        return 0
-      fi
-      if grep -qi 'missing transaction inputs' <<<"$body"; then
-        echo "[submit-tx] downstream ledger does not yet contain the input UTxO; waiting ${delay}s before retry"
-      else
-        echo "[submit-tx] non-retryable rejection; aborting retries for this tx"
-        return 1
-      fi
-    else
-      echo "[submit-tx] curl failed; will retry in ${delay}s"
-    fi
-    sleep "$delay"
-    attempt=$((attempt + 1))
-  done
-  echo "[submit-tx] giving up after $retries attempts"
-  return 1
-}
-
 # Validates the successful Submit API response for a known transaction. The endpoint returns the
 # accepted transaction id as a JSON string; accepting a generic 2xx here would not prove that the
 # request body was decoded as the transaction the caller built.
@@ -144,18 +108,30 @@ submit_tx_response_matches_id() {
   ' "$response_file" >/dev/null
 }
 
-# Submits a transaction and verifies the complete public contract used by the end-to-end test:
-# HTTP 202 and a response body containing exactly the expected transaction id. A duplicate response
-# also completes the submission because an earlier attempt may have timed out after acceptance. A
-# missing-input rejection is retryable because Amaru may still be catching up to the cardano-node
-# used to select the input.
-submit_tx_and_expect_id() {
-  local tx_file="$1" expected_tx_id="$2" response_file="$3" attempt=1
-  local status body retries="$TX_SUBMIT_RETRY_LIMIT" delay="$TX_SUBMIT_RETRY_DELAY"
+submit_tx_accept_any_success() {
+  local status="$1"
+  [[ "$status" == 2* ]]
+}
 
+submit_tx_accept_expected_id() {
+  local status="$1" response_file="$2" expected_tx_id="$3"
+
+  [[ "$status" == 202 ]] || return 1
+  if submit_tx_response_matches_id "$expected_tx_id" "$response_file"; then
+    return 0
+  fi
+  echo "[submit-tx] HTTP 202 response did not contain the expected transaction id"
+  return 2
+}
+
+submit_tx_with_retry_policy() {
+  local tx_file="$1" response_file="$2" accept_response="$3" expected_tx_id="${4:-}" attempt=1
+  local status body acceptance_status retries="$TX_SUBMIT_RETRY_LIMIT" delay="$TX_SUBMIT_RETRY_DELAY" subject="$tx_file"
+
+  [[ -z "$expected_tx_id" ]] || subject="tx_id=$expected_tx_id"
   while ((attempt <= retries)); do
-    echo "[submit-tx] attempt $attempt/$retries: submitting tx_id=$expected_tx_id to the Amaru Submit API at $TX_SUBMIT_API_ADDRESS"
-    if curl --max-time "${TX_SUBMIT_HTTP_TIMEOUT_SECONDS:-30}" -sS -o "$response_file" -w '%{http_code}' \
+    echo "[submit-tx] attempt $attempt/$retries: submitting $subject to the Amaru submit API at $TX_SUBMIT_API_ADDRESS"
+    if curl --max-time "$TX_SUBMIT_HTTP_TIMEOUT_SECONDS" -sS -o "$response_file" -w '%{http_code}' \
       -X POST -H 'Content-Type: application/cbor' \
       --data-binary "@$tx_file" \
       "http://$TX_SUBMIT_API_ADDRESS/api/submit/tx" >"$response_file.status"; then
@@ -163,11 +139,12 @@ submit_tx_and_expect_id() {
       body="$(cat "$response_file")"
       echo "[submit-tx] response: HTTP $status"
       echo "$body"
-      if [[ "$status" == 202 ]] && submit_tx_response_matches_id "$expected_tx_id" "$response_file"; then
+      if "$accept_response" "$status" "$response_file" "$expected_tx_id"; then
         return 0
+      else
+        acceptance_status=$?
       fi
-      if [[ "$status" == 202 ]]; then
-        echo "[submit-tx] HTTP 202 response did not contain the expected transaction id"
+      if ((acceptance_status != 1)); then
         return 1
       fi
       if submit_tx_response_is_duplicate "$body"; then
@@ -177,17 +154,31 @@ submit_tx_and_expect_id() {
       if grep -qi 'missing transaction inputs' <<<"$body"; then
         echo "[submit-tx] Amaru has not indexed the input UTxO yet; waiting ${delay}s before retry"
       else
-        echo "[submit-tx] expected HTTP 202 for tx_id=$expected_tx_id, got HTTP $status; aborting retries"
+        echo "[submit-tx] non-retryable HTTP $status rejection; aborting retries for this transaction"
         return 1
       fi
     else
-      echo "[submit-tx] Submit API request failed; waiting ${delay}s before retry"
+      echo "[submit-tx] request failed; waiting ${delay}s before retry"
     fi
     sleep "$delay"
     attempt=$((attempt + 1))
   done
   echo "[submit-tx] giving up after $retries attempts"
   return 1
+}
+
+# Submits a transaction to the downstream Submit API and accepts any successful HTTP status.
+submit_tx_with_retry() {
+  submit_tx_with_retry_policy "$1" "$2" submit_tx_accept_any_success
+}
+
+# Submits a transaction and verifies the complete public contract used by the end-to-end test:
+# HTTP 202 and a response body containing exactly the expected transaction id. A duplicate response
+# also completes the submission because an earlier attempt may have timed out after acceptance. A
+# missing-input rejection is retryable because Amaru may still be catching up to the cardano-node
+# used to select the input.
+submit_tx_and_expect_id() {
+  submit_tx_with_retry_policy "$1" "$3" submit_tx_accept_expected_id "$2"
 }
 
 # Whether TX_PAYMENT_SKEY holds the key itself rather than a path to a file holding it, which lets a

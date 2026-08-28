@@ -10,7 +10,6 @@ CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 BUILD_PROFILE ?= release
-E2E_BUILD_PROFILE ?= dev
 DIST_DIR ?= dist
 BUILD_OUTPUT_DIR ?= $(if $(filter dev,$(BUILD_PROFILE)),debug,$(BUILD_PROFILE))
 AMARU_BIN ?= target/$(BUILD_OUTPUT_DIR)/amaru
@@ -55,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh e2e-tx-submission e2e-tx-submission-prepare
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -86,12 +85,6 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 
 refresh: ## &start Refresh chain and ledger databases from the latest Mithril snapshot, moving the current ones to *.backup
 	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(BUILD_PROFILE)" INSTALL=true REPLACE_EXISTING=true ./scripts/refresh-from-mithril
-
-e2e-tx-submission-prepare: ## &test Prepare a fast local transaction submission E2E environment
-	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(E2E_BUILD_PROFILE)" ./scripts/e2e/tx-submission.sh prepare
-
-e2e-tx-submission: ## &test Submit a transaction through Amaru and verify diffusion to cardano-node
-	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(E2E_BUILD_PROFILE)" ./scripts/e2e/tx-submission.sh run
 
 generate-traces-doc: ## &build Generate documentation for Amaru's tracing spans
 	@./scripts/generate-traces-doc
