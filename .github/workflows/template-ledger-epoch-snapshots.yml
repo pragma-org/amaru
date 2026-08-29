@@ -78,10 +78,23 @@ jobs:
       - name: Configure runner paths
         shell: bash
         run: |
+          mkdir -p "$E2E_TX_WORK_DIR" "$RUNNER_TEMP/ipc"
+          runner_identity="$(id -u):$(id -g)"
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'docker exec cardano-node cardano-cli "$@"' \
+            'status=$?' \
+            "docker exec cardano-node chown -R \"$runner_identity\" \"$E2E_TX_WORK_DIR\"" \
+            'ownership_status=$?' \
+            '((status != 0)) && exit "$status"' \
+            'exit "$ownership_status"' \
+            > "$RUNNER_TEMP/cardano-cli"
+          chmod +x "$RUNNER_TEMP/cardano-cli"
           {
+            echo "CARDANO_CLI=$RUNNER_TEMP/cardano-cli"
             echo "CARDANO_NODE_DB=$RUNNER_TEMP/db-${{ matrix.network.name }}"
             echo "CARDANO_NODE_SOCKET_FILE=$RUNNER_TEMP/ipc/node.socket"
-            echo "TX_PAYMENT_SKEY=$RUNNER_TEMP/preprod-e2e-payment.skey"
+            echo "TX_PAYMENT_SKEY=$E2E_TX_WORK_DIR/private/payment.skey"
           } >> "$GITHUB_ENV"
 
       - name: Reclaim Disk Space
@@ -130,9 +143,12 @@ jobs:
           mv "$CONFIG_DIR/topology.patched.json" "$CONFIG_DIR/topology.json"
           jq '.hasPrometheus = ["0.0.0.0", 12798]' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
           mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
+          # The container CLI receives host paths, so expose its socket and work directory at those paths too.
           docker run -d --name cardano-node \
             -v "$CARDANO_NODE_DB:/db" \
             -v "$(dirname "$CARDANO_NODE_SOCKET_FILE"):/ipc" \
+            -v "$(dirname "$CARDANO_NODE_SOCKET_FILE"):$(dirname "$CARDANO_NODE_SOCKET_FILE")" \
+            -v "$E2E_TX_WORK_DIR:$E2E_TX_WORK_DIR" \
             -v "./$CONFIG_DIR:/config" \
             -v "./$CONFIG_DIR:/genesis" \
             -p 3001:3001 \
@@ -211,14 +227,15 @@ jobs:
         if: ${{ matrix.network.name == 'preprod' && (inputs.network == '' || inputs.network == matrix.network.name) }}
         timeout-minutes: 30
         shell: bash
+        # The epoch-comparison databases intentionally stop in the past; use the E2E script's latest bootstrap instead.
         env:
-          AMARU_CHAIN_DIR: ${{ github.workspace }}/chain.${{ matrix.network.name }}.db
-          AMARU_LEDGER_DIR: ${{ github.workspace }}/ledger.${{ matrix.network.name }}.db
+          AMARU_LOG: "info,amaru::consensus=debug"
+          CARDANO_NODE_QUERY_TIMEOUT_SECONDS: 60
           CARDANO_NODE_SYNC_TIMEOUT_SECONDS: 1200
           E2E_TX_MANAGE_CARDANO_NODE: "false"
           E2E_TX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.network.name }}
           TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
-          TX_SYNC_TIMEOUT_SECONDS: 1200
+          TX_SYNC_TIMEOUT_SECONDS: 300
         run: |
           set -euo pipefail
           ./scripts/e2e/tx-submission.sh run

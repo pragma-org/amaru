@@ -265,6 +265,8 @@ wait_for_cardano_query() {
     managed_cardano_node_stopped && cardano_node_stopped_error "before answering local queries"
     sleep 1
   done
+  echo "[cardano-upstream] final local query error:" >&2
+  cardano_node_tip >/dev/null || true
   die "cardano-node socket did not answer local queries within ${timeout}s"
 }
 

@@ -73,7 +73,7 @@ MITHRIL_CLIENT_DISTRIBUTION="${MITHRIL_CLIENT_DISTRIBUTION:-2630.0}"
 MITHRIL_CLIENT_HOME="${MITHRIL_CLIENT_HOME:-$RUNDIR/tools/mithril-client}"
 MITHRIL_CLIENT="${MITHRIL_CLIENT:-$MITHRIL_CLIENT_HOME/mithril-client}"
 
-CARDANO_CLI_RELEASE_VERSION="${CARDANO_CLI_RELEASE_VERSION:-11.2.1.0}"
+CARDANO_CLI_RELEASE_VERSION="${CARDANO_CLI_RELEASE_VERSION:-11.0.0.0}"
 CARDANO_CLI_HOME="${CARDANO_CLI_HOME:-$RUNDIR/tools/cardano-cli-$CARDANO_CLI_RELEASE_VERSION}"
 CARDANO_CLI="${CARDANO_CLI:-$CARDANO_CLI_HOME/bin/cardano-cli}"
 
@@ -90,7 +90,7 @@ TX_SUBMIT_API_ADDRESS="$AMARU_SUBMIT_API_ADDRESS"
 TX_QUERY_SOURCE=local
 TX_METADATA_MESSAGE="${TX_METADATA_MESSAGE:-amaru e2e $RUN_ID}"
 TX_SYNC_TIMEOUT_SECONDS="${TX_SYNC_TIMEOUT_SECONDS:-3600}"
-TX_SYNC_POLL_INTERVAL_SECONDS="${TX_SYNC_POLL_INTERVAL_SECONDS:-5}"
+TX_SYNC_POLL_INTERVAL_SECONDS="${TX_SYNC_POLL_INTERVAL_SECONDS:-15}"
 TX_SUBMIT_RETRY_LIMIT="${TX_SUBMIT_RETRY_LIMIT:-20}"
 TX_SUBMIT_RETRY_DELAY="${TX_SUBMIT_RETRY_DELAY:-5}"
 TX_INPUT_TIMEOUT_SECONDS="${TX_INPUT_TIMEOUT_SECONDS:-900}"
@@ -137,13 +137,18 @@ EOF
 
 target_profile_dir() {
   case "$BUILD_PROFILE" in
-    dev) echo debug ;;
+    dev | test) echo debug ;;
+    release | bench) echo release ;;
     *) echo "$BUILD_PROFILE" ;;
   esac
 }
 
 amaru_binary() {
-  echo "${AMARU_NODE_BINARY:-${CARGO_TARGET_DIR:-$AMARU_DIR/target}/$(target_profile_dir)/amaru}"
+  local target_dir="${CARGO_TARGET_DIR:-$AMARU_DIR/target}"
+  if [[ -n "${CARGO_BUILD_TARGET:-}" ]]; then
+    target_dir="$target_dir/$CARGO_BUILD_TARGET"
+  fi
+  echo "${AMARU_NODE_BINARY:-$target_dir/$(target_profile_dir)/amaru}"
 }
 
 require_base_tools() {
@@ -639,7 +644,7 @@ cleanup() {
 }
 
 runner_self_test() {
-  local work tx_id state selected managed_before
+  local work tx_id state selected managed_before binary
   work="$(mktemp -d)"
   tx_id=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
   printf '"%s"\n' "$tx_id" >"$work/submit.json"
@@ -685,8 +690,11 @@ runner_self_test() {
   start_amaru >/dev/null
   [[ -z "$AMARU_PID" ]] || die "externally managed Amaru mode started a process"
   AMARU_MANAGED="$managed_before"
+  binary="$(CARGO_TARGET_DIR="$work/target" CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu BUILD_PROFILE=test amaru_binary)"
+  [[ "$binary" == "$work/target/x86_64-unknown-linux-gnu/debug/amaru" ]] ||
+    die "Amaru binary path ignored CARGO_BUILD_TARGET: $binary"
   rm -rf "$work"
-  self_test_success "response parsers, duplicate handling, input selection, slot wait, and external Amaru mode passed"
+  self_test_success "response parsers, duplicate handling, input selection, slot wait, binary path, and external Amaru mode passed"
 }
 
 run_e2e() {
