@@ -374,7 +374,7 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::MalformedReferenceScript(_), .. }] => {
                     Predicate::MalformedReferenceScripts
                 }
-                // The Haskelle node returns `OutputTooBigUTxO` instead of a `OutputBootAddrAttrsTooBig`
+                // The Haskell node returns `OutputTooBigUTxO` instead of a `OutputBootAddrAttrsTooBig`
                 [WithPosition { element: InvalidOutput::BootAddrAttrsTooBig { .. }, .. }] => {
                     Predicate::OutputTooBigUTxO
                 }
@@ -433,12 +433,11 @@ impl From<PhaseOneError> for Predicate {
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeDRepNotRegistered,
                 DelegateError::AlreadyResigned => unreachable!("only applicable to CC"),
             },
-            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
-                DelegateError::UnknownSource(_),
-            )) => Predicate::CommitteeIsUnknown,
-            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
-                DelegateError::AlreadyResigned,
-            )) => Predicate::CommitteeHasPreviouslyResigned,
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(ref e)) => match e {
+                DelegateError::UnknownSource(_) => Predicate::CommitteeIsUnknown,
+                DelegateError::AlreadyResigned => Predicate::CommitteeHasPreviouslyResigned,
+                DelegateError::UnknownTarget(_) => unreachable!("hot credentials are not pre-registered"),
+            },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
             }

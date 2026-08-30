@@ -49,10 +49,6 @@ pub enum InvalidOutput {
 
     #[error("bootstrap address attributes too big: {size} bytes, max 64")]
     BootAddrAttrsTooBig { size: usize },
-
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("uncategorized error: {0}")]
-    UncategorizedError(String),
 }
 
 /// Enum that is used to determine whether or not to allow a datum as supplemental in the context.
@@ -112,8 +108,7 @@ where
 
 fn validate_bootstrap_attributes(output: &MemoizedTransactionOutput) -> Result<(), InvalidOutput> {
     if let Address::Byron(addr) = &output.address {
-        let size: usize =
-            addr.attributes.iter().try_fold(0usize, |acc, attr| Ok::<_, InvalidOutput>(acc + attr.1.len()))?;
+        let size: usize = addr.attributes.iter().map(|attr| attr.1.len()).sum();
 
         if size > 64 {
             return Err(InvalidOutput::BootAddrAttrsTooBig { size });
