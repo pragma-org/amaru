@@ -77,6 +77,7 @@ impl Model {
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
             TelemetryEvent::PeerDisconnected => self.update_peer_disconnected(record),
+            TelemetryEvent::PeerResolved => self.update_peer_resolved(record),
             TelemetryEvent::GovernanceActivityUpdate => {
                 self.governance.dormant_epochs =
                     Some(u64::from(ledger::governance_activity::UPDATE::consecutive_dormant_epochs(record)));
@@ -242,6 +243,18 @@ impl Model {
         peer.mark_connected(record);
     }
 
+    fn update_peer_resolved(&mut self, record: &TelemetryRecord) {
+        let address = protocols::peer_selection::peer::RESOLVED::peer(record);
+        let candidate = protocols::peer_selection::peer::RESOLVED::candidate(record);
+        if candidate == address {
+            return;
+        }
+        self.resolved_candidates.insert(address.to_string(), candidate.to_string());
+        if let Some(peer) = self.peers.get_mut(address) {
+            peer.candidate = Some(candidate.to_string());
+        }
+    }
+
     fn update_peer_disconnected(&mut self, record: &TelemetryRecord) {
         let address = protocols::peer_selection::peer::DISCONNECTED::peer(record);
         if let Some(peer) = self.peers.get_mut(address) {
@@ -296,7 +309,12 @@ impl Model {
 
     fn peer_mut(&mut self, address: impl ToString, updated_at: Instant) -> &mut PeerState {
         let address = address.to_string();
-        self.peers.entry(address.clone()).or_insert_with(|| PeerState::new(address, updated_at))
+        let candidate = self.resolved_candidates.get(&address).cloned();
+        self.peers.entry(address.clone()).or_insert_with(|| {
+            let mut peer = PeerState::new(address, updated_at);
+            peer.candidate = candidate;
+            peer
+        })
     }
 
     fn upsert_proposal(&mut self, record: &TelemetryRecord, status: &str, detail: Option<String>) {

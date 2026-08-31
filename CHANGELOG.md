@@ -51,6 +51,7 @@ Other guiding principles:
 - **amaru-pure-stage**: `Effects::detach` runs an external effect without occupying the airlock. The transition is resumed with `()` immediately; when `run()` completes the interpreter applies the provided constructor and enqueues the value on the calling stage’s bulk mailbox.
 - **amaru-node**: allow embedders to disable sysinfo-backed system metrics collection through `TelemetryOptions`.
 
+- **amaru-tui**: the Peers card shows the bootstrap `PeerCandidate` next to a resolved socket address when that name came from a Host or SRV lookup.
 ### Changed
 
 - **amaru-observability**: field rendering is declared on the schema (`%` Display, `?` Debug, otherwise `Serialize + JsonSchema`). Call sites no longer take `%` / `?`; `@` remains for `tracing::Value` passthrough. `amaru dev traces dump` emits the JSON-sink schema of each field. `Point` traces encode as `[slot, hash, height]` with a CBOR byte-string hash ([#1263](https://github.com/pragma-org/amaru/issues/1263)).
