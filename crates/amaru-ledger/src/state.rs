@@ -128,6 +128,24 @@ where
     tip_update_emitter: TipUpdateEmitter,
 }
 
+impl<S: Store, HS: HistoricalStores> Drop for State<S, HS> {
+    fn drop(&mut self) {
+        // Dropping a JoinHandle detaches its worker, which may otherwise keep using snapshot stores
+        // after the ledger and even the process-wide RocksDB environment start shutting down.
+        if let Some(handle) = self.rewards_join_handle.take() {
+            join_background_thread(handle);
+        }
+    }
+}
+
+fn join_background_thread<T>(handle: JoinHandle<T>) {
+    // A synchronous callback can release the last State owner on this worker. The thread is
+    // already winding down in that case, and attempting to join it from itself would panic.
+    if handle.thread().id() != std::thread::current().id() {
+        let _ = handle.join();
+    }
+}
+
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// The last known epoch; or said differently, the epoch the volatile overlay is valid for.
     pub fn epoch(&self) -> Epoch {
