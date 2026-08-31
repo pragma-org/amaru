@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(clippy::expect_used)]
+#![expect(clippy::expect_used, clippy::panic)]
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap, VecDeque},
+    collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque},
     io::ErrorKind,
     net::SocketAddr,
     num::NonZeroUsize,
     time::Duration,
 };
 
-use amaru_kernel::{NonEmptyBytes, Peer};
+use amaru_kernel::{HeaderHash, NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
 use amaru_pure_stage::BoxFuture;
 use parking_lot::Mutex;
@@ -47,6 +47,49 @@ pub const LONG_TAIL_PAYLOAD_MIN_NANOS: u64 = 1_000_000_000;
 /// One in this many seeded samples is drawn from the long-tail bucket.
 /// Rare enough that FIFO does not stall an epoch-sized catch-up on every handful of blocks.
 pub const LONG_TAIL_PAYLOAD_EVERY: u64 = 1000;
+
+/// Splitmix salt so disconnect *times* do not share the hop-delay sample stream.
+const FAULT_TIME_SEED: u64 = 0xD15C_04EC;
+/// Splitmix salt so disconnect *picks* do not share the hop-delay sample stream.
+const FAULT_PICK_SEED: u64 = 0xC105_EED5;
+/// Bounded redraws when a close adjacent pair is required.
+const DISCONNECT_SCHEDULE_TRIES: u32 = 64;
+
+fn disconnect_schedule_times(
+    seed: u64,
+    count: u32,
+    earliest_nanos: u64,
+    latest_nanos: u64,
+    max_adjacent_gap_nanos: Option<u64>,
+) -> Vec<u64> {
+    let tries = if max_adjacent_gap_nanos.is_some() { DISCONNECT_SCHEDULE_TRIES } else { 1 };
+    for try_idx in 0..tries {
+        let times: Vec<u64> = (0..count)
+            .map(|i| {
+                delay_nanos(
+                    seed.wrapping_add(FAULT_TIME_SEED)
+                        .wrapping_add(u64::from(try_idx).wrapping_mul(0x9E3779B97F4A7C15)),
+                    u64::from(i),
+                    earliest_nanos,
+                    latest_nanos,
+                )
+            })
+            .collect();
+        if let Some(gap) = max_adjacent_gap_nanos {
+            let mut sorted = times.clone();
+            sorted.sort_unstable();
+            if sorted.windows(2).any(|pair| pair[1].saturating_sub(pair[0]) < gap) {
+                return times;
+            }
+        } else {
+            return times;
+        }
+    }
+    panic!(
+        "no disconnect schedule with an adjacent pair closer than {}ns in {DISCONNECT_SCHEDULE_TRIES} tries (count={count}, window=[{earliest_nanos}, {latest_nanos}])",
+        max_adjacent_gap_nanos.expect("retries only when a gap is required"),
+    );
+}
 
 /// Deterministic delay for sample `index` of `seed`, uniformly in `[min_nanos, max_nanos]`.
 fn delay_nanos(seed: u64, index: u64, min_nanos: u64, max_nanos: u64) -> u64 {
@@ -115,6 +158,8 @@ pub enum NetworkEvent {
     Deliver { conn: ConnectionId, data: Bytes },
     /// Closes `conn`. The world loop also heap-schedules `Close` for the peer.
     Close { conn: ConnectionId },
+    /// Fault: close one live pair, chosen when this hop pops.
+    PeerDisconnect,
 }
 
 /// Heap tokens for one `connect()`: the SYN hop and its deadline.
@@ -139,7 +184,14 @@ pub(super) struct WorldHeapEntry {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum WorldHeapItem {
     Network(NetworkEvent),
-    Graph { index: usize, reason: GraphWakeReason },
+    Graph {
+        index: usize,
+        reason: GraphWakeReason,
+    },
+    /// Copy one inventory hash into the injector serving store and enqueue `NewTip`.
+    Reveal {
+        hash: HeaderHash,
+    },
 }
 
 /// Logged form of a popped heap event. `Copy` so the log never owns heap data.
@@ -169,6 +221,8 @@ pub enum HeapLogKind {
     SendAck { conn: ConnectionId },
     Deliver { conn: ConnectionId, data_len: usize },
     Close { conn: ConnectionId },
+    PeerDisconnect,
+    Reveal { hash: HeaderHash },
     GraphWake { graph: usize, reason: GraphWakeReason },
 }
 
@@ -189,8 +243,10 @@ impl From<&WorldHeapEntry> for HeapLogEntry {
                     NetworkEvent::SendAck { conn } => HeapLogKind::SendAck { conn: *conn },
                     NetworkEvent::Deliver { conn, data } => HeapLogKind::Deliver { conn: *conn, data_len: data.len() },
                     NetworkEvent::Close { conn } => HeapLogKind::Close { conn: *conn },
+                    NetworkEvent::PeerDisconnect => HeapLogKind::PeerDisconnect,
                 },
                 WorldHeapItem::Graph { index, reason } => HeapLogKind::GraphWake { graph: *index, reason: *reason },
+                WorldHeapItem::Reveal { hash } => HeapLogKind::Reveal { hash: *hash },
             },
         }
     }
@@ -217,6 +273,8 @@ struct WorldInner {
     next_conn_id: ConnectionId,
     next_connect_id: u64,
     last_scheduled_connect: Option<ScheduledConnect>,
+    disconnect_picks: u64,
+    faulted_conns: BTreeSet<ConnectionId>,
 }
 
 struct Listener {
@@ -269,6 +327,8 @@ impl WorldConnectionProvider {
                 next_conn_id: ConnectionId::initial(),
                 next_connect_id: 0,
                 last_scheduled_connect: None,
+                disconnect_picks: 0,
+                faulted_conns: BTreeSet::new(),
             }),
         }
     }
@@ -391,6 +451,58 @@ impl WorldConnectionProvider {
     pub(super) fn take_last_scheduled_connect(&self) -> Option<ScheduledConnect> {
         self.inner.lock().last_scheduled_connect.take()
     }
+
+    /// Place `count` [`NetworkEvent::PeerDisconnect`] hops uniformly in `[earliest, latest]`.
+    ///
+    /// Times use a dedicated splitmix stream so they do not consume wire-delay samples.
+    /// When `max_adjacent_gap_nanos` is set, the whole schedule is redrawn until two adjacent
+    /// times fall inside that gap, or a bounded number of tries is exhausted.
+    pub fn schedule_peer_disconnects(
+        &self,
+        count: u32,
+        earliest_nanos: u64,
+        latest_nanos: u64,
+        max_adjacent_gap_nanos: Option<u64>,
+    ) {
+        assert!(
+            earliest_nanos <= latest_nanos,
+            "disconnect window min ({earliest_nanos}) exceeds max ({latest_nanos})"
+        );
+        if max_adjacent_gap_nanos.is_some() {
+            assert!(count >= 2, "need at least two disconnects to require a close pair");
+        }
+
+        let mut inner = self.inner.lock();
+        let times = disconnect_schedule_times(inner.seed, count, earliest_nanos, latest_nanos, max_adjacent_gap_nanos);
+        for at in times {
+            schedule_event_locked(&mut inner, at, NetworkEvent::PeerDisconnect);
+        }
+    }
+
+    /// Choose a live endpoint that has not already been faulted this run.
+    ///
+    /// Marks both ends of the pair so a later hop does not close the same connection twice.
+    pub(super) fn pick_live_connection_for_fault(&self) -> Option<ConnectionId> {
+        let mut inner = self.inner.lock();
+        let candidates: Vec<ConnectionId> =
+            inner.endpoints.keys().copied().filter(|id| !inner.faulted_conns.contains(id)).collect();
+        if candidates.is_empty() {
+            return None;
+        }
+        let mix = splitmix64(
+            inner
+                .seed
+                .wrapping_add(FAULT_PICK_SEED)
+                .wrapping_add(inner.disconnect_picks.wrapping_mul(0x9E3779B97F4A7C15)),
+        );
+        inner.disconnect_picks += 1;
+        let chosen = candidates[(mix as usize) % candidates.len()];
+        inner.faulted_conns.insert(chosen);
+        if let Some(peer) = inner.endpoints.get(&chosen).map(|endpoint| endpoint.peer_conn_id) {
+            inner.faulted_conns.insert(peer);
+        }
+        Some(chosen)
+    }
 }
 
 fn alloc_sequence_locked(inner: &mut WorldInner) -> u64 {
@@ -440,7 +552,8 @@ fn schedule_payload_locked(inner: &mut WorldInner, event: NetworkEvent) {
         | NetworkEvent::ConnectAttempt { .. }
         | NetworkEvent::ConnectTimeout { .. }
         | NetworkEvent::SendAck { .. }
-        | NetworkEvent::Close { .. } => hop,
+        | NetworkEvent::Close { .. }
+        | NetworkEvent::PeerDisconnect => hop,
     };
     schedule_event_locked(inner, time_nanos, event);
 }

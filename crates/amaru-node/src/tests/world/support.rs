@@ -24,6 +24,57 @@ use super::WorldLoop;
 
 pub(super) const SEED: u64 = 0xA11CE;
 
+/// Same env var as `amaru-sim`. Empty or unset draws a fresh seed; a value replays that run.
+pub(super) const TEST_SEED_ENV: &str = "AMARU_TEST_SEED";
+
+pub(super) fn env_test_seed() -> Option<u64> {
+    let raw = std::env::var(TEST_SEED_ENV).ok()?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(parse_test_seed(raw).unwrap_or_else(|| {
+        panic!("{TEST_SEED_ENV}={raw:?} is not a decimal or 0x-hex u64");
+    }))
+}
+
+fn parse_test_seed(raw: &str) -> Option<u64> {
+    if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).ok()
+    } else {
+        raw.parse().ok()
+    }
+}
+
+pub(super) fn draw_test_seed() -> u64 {
+    env_test_seed().unwrap_or_else(amaru_kernel::utils::tests::random_u64)
+}
+
+/// `n` fresh seeds, or a single env seed when replaying.
+pub(super) fn test_seeds(n: u32) -> Vec<u64> {
+    match env_test_seed() {
+        Some(seed) => vec![seed],
+        None => (0..n).map(|_| amaru_kernel::utils::tests::random_u64()).collect(),
+    }
+}
+
+pub(super) fn derive_seed(master: u64, tag: u64) -> u64 {
+    let mut z = master.wrapping_add(tag).wrapping_add(0x9E3779B97F4A7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+pub(super) fn seed_bytes(seed: u64) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let mut x = seed;
+    for (i, chunk) in out.as_chunks_mut::<8>().0.iter_mut().enumerate() {
+        x = derive_seed(x, i as u64 + 1);
+        *chunk = x.to_le_bytes();
+    }
+    out
+}
+
 /// Hydrate production-graph traces as typed chainsync / header-validation values.
 pub(super) fn fragment_trace_guards() -> amaru_pure_stage::DeserializerGuards {
     let mut guards = amaru_protocols::deserializers::register_deserializers();

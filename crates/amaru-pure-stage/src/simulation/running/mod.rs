@@ -651,6 +651,11 @@ impl SimulationRunning {
         expect_stage(self.stages.get(name), name, "which has no mailbox").mailbox.len()
     }
 
+    /// Capacity of each stage mailbox (the limit [`Self::enqueue_msg`] will panic on).
+    pub fn mailbox_size(&self) -> usize {
+        self.mailbox_size
+    }
+
     /// Obtain a reference to the current state of the given stage.
     /// This only works while the stage is suspended on an [`Effect::Receive`]
     /// because otherwise the state is captured by the opaque `Future` returned

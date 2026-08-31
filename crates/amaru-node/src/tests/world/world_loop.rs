@@ -46,10 +46,9 @@ use super::{
 /// World loop: pops the one physical `(time, sequence)` heap.
 ///
 /// The heap lives on [`WorldConnectionProvider`]. Network hops enqueue there;
-/// graph wakes call [`WorldConnectionProvider::schedule_item`] onto the same
-/// structure so `(time, sequence)` is global. [`SimulationRunning`] bodies live in
-/// `graphs` by index so a heap entry can name them (`WorldHeapItem::Graph`).
-/// That Vec is not a scheduler — a graph runs only when its wake is popped.
+/// graph wakes are scheduled onto the same structure so `(time, sequence)` is
+/// global. [`SimulationRunning`] bodies live in `graphs` by index. That Vec is
+/// not a scheduler — a graph runs only when its wake is popped.
 /// Completes Network UntilResolved effects only via `resume_external_box`.
 pub struct WorldLoop {
     provider: Arc<WorldConnectionProvider>,
@@ -72,6 +71,10 @@ pub struct WorldLoop {
     terminated_stages: BTreeSet<(usize, Name)>,
     /// Serve-only injector and the graph index it occupies. Owned here, not on [`SimulationRunning`].
     injector: Option<(usize, Arc<InjectorShared>)>,
+    /// Fragment hashes waiting to become [`WorldHeapItem::Reveal`] hops.
+    pending_reveals: VecDeque<HeaderHash>,
+    /// True while a [`WorldHeapItem::Reveal`] is already on the heap.
+    reveal_scheduled: bool,
 }
 
 type Completion = (usize, Name, Box<dyn SendData>);
@@ -110,6 +113,8 @@ impl WorldLoop {
             pending_recvs: BTreeMap::new(),
             terminated_stages: BTreeSet::new(),
             injector: None,
+            pending_reveals: VecDeque::new(),
+            reveal_scheduled: false,
         };
         for index in 0..world.graphs.len() {
             world.schedule_graph_if_needed(index);
@@ -145,6 +150,33 @@ impl WorldLoop {
         self.graphs[graph_idx].enqueue_msg(&manager, [ManagerMessage::new_tip(point)]);
         self.schedule_graph_if_needed(graph_idx);
         Ok(())
+    }
+
+    /// Queue fragment hashes as Reveal hops, paced by the injector mailbox.
+    pub fn schedule_reveals(&mut self, hashes: impl IntoIterator<Item = HeaderHash>) {
+        self.pending_reveals.extend(hashes);
+        self.kick_pending_reveal();
+    }
+
+    /// Place at most one Reveal on the heap, and only when the injector mailbox has room.
+    fn kick_pending_reveal(&mut self) {
+        if self.reveal_scheduled {
+            return;
+        }
+        let Some((graph_idx, injector)) = self.injector.clone() else {
+            return;
+        };
+        if self.pending_reveals.is_empty() {
+            return;
+        }
+        let manager = injector.manager();
+        if self.graphs[graph_idx].mailbox_len(&manager) >= self.graphs[graph_idx].mailbox_size() {
+            return;
+        }
+        let hash = self.pending_reveals.pop_front().expect("non-empty");
+        let now = self.provider.current_time_nanos();
+        self.provider.schedule_item(now, WorldHeapItem::Reveal { hash });
+        self.reveal_scheduled = true;
     }
 
     /// Run until no more heap events or graph wakes at-or-before horizon.
@@ -188,7 +220,12 @@ impl WorldLoop {
                     self.wake_and_run_graph(index);
                     self.schedule_graph_if_needed(index);
                 }
+                WorldHeapItem::Reveal { hash } => {
+                    self.reveal_scheduled = false;
+                    self.reveal(hash).unwrap_or_else(|e| panic!("scheduled reveal {hash}: {e}"));
+                }
             }
+            self.kick_pending_reveal();
 
             let now = std::time::Instant::now();
             if now.saturating_duration_since(last_progress) >= progress_every {
@@ -448,6 +485,10 @@ impl WorldLoop {
                 }
                 out
             }
+            NetworkEvent::PeerDisconnect => match self.provider.pick_live_connection_for_fault() {
+                Some(conn) => self.completions_for_event(&NetworkEvent::Close { conn }),
+                None => Vec::new(),
+            },
         }
     }
 
@@ -544,9 +585,19 @@ impl WorldLoop {
         }
     }
 
+    /// Simulated time of the last popped heap item (nanoseconds).
+    pub fn now_nanos(&self) -> u64 {
+        self.provider.current_time_nanos()
+    }
+
     /// Get the event log (network events and graph wakes, in pop order).
     pub fn heap_log(&self) -> Vec<HeapLogEntry> {
         self.heap_log.clone()
+    }
+
+    /// Borrow the event log without cloning.
+    pub fn heap_log_ref(&self) -> &[HeapLogEntry] {
+        &self.heap_log
     }
 
     /// Number of heap events popped so far (network hops and graph wakes).

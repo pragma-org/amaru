@@ -128,8 +128,7 @@ fn test_world_disseminates_preprod_fragment() {
         .with_peer_mix("static~1")
         .with_keep_persisted_best_chain()
         .with_trace_buffer(TraceBuffer::new_shared(50_000, 64_000_000))
-        .with_ledger_dir(primed_tmp.path().join("ledger"))
-        .with_chain_dir(primed_tmp.path().join("chain"))
+        .with_store_dirs(primed_tmp.path().join("chain"), primed_tmp.path().join("ledger"))
         .with_global_epoch_offset(offset);
     let sim_primed = build_world_node(&node_primed, connections.clone(), &handle).expect("primed node");
 
@@ -143,8 +142,7 @@ fn test_world_disseminates_preprod_fragment() {
             .with_target_upstream_peers(3)
             .with_peer_mix("static!1, shared~6")
             .with_trace_buffer(TraceBuffer::new_shared(50_000, 64_000_000))
-            .with_ledger_dir(node_tmps[i].path().join("ledger"))
-            .with_chain_dir(node_tmps[i].path().join("chain"))
+            .with_store_dirs(node_tmps[i].path().join("chain"), node_tmps[i].path().join("ledger"))
             .with_global_epoch_offset(offset);
         graphs.push(build_world_node(&node, connections.clone(), &handle).expect("catch-up node"));
     }

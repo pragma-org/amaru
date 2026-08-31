@@ -1124,6 +1124,47 @@ async fn test_connect_timeout_does_not_pair_listener() {
 }
 
 #[tokio::test]
+async fn test_peer_disconnect_closes_a_live_pair() {
+    let handle = tokio::runtime::Handle::current();
+    let provider = provider();
+    let listener_addr: SocketAddr = "127.0.0.1:9603".parse().unwrap();
+    let disconnect_at = 10_000_000;
+
+    let mut graph_a = SimulationBuilder::default().with_eval_strategy(Fifo);
+    graph_a.resources().put::<ConnectionsResource>(provider.clone());
+    let stage_a = graph_a.stage("node_a", move |_state: (), _unit: (), eff| async move {
+        let net = Network::new(&eff);
+        net.listen(listener_addr).await.unwrap();
+        let _ = net.accept(listener_addr).await;
+    });
+    let stage_a = graph_a.wire_up(stage_a, ());
+    let mut sim_a = graph_a.run(&handle);
+    sim_a.enqueue_msg(&stage_a, [()]);
+
+    let mut graph_b = SimulationBuilder::default().with_eval_strategy(Fifo);
+    graph_b.resources().put::<ConnectionsResource>(provider.clone());
+    let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| async move {
+        let net = Network::new(&eff);
+        let conn = net.connect(listener_addr.into(), Duration::from_secs(1)).await.unwrap();
+        let _ = net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap()).await;
+    });
+    let stage_b = graph_b.wire_up(stage_b, ());
+    let mut sim_b = graph_b.run(&handle);
+    sim_b.enqueue_msg(&stage_b, [()]);
+
+    provider.schedule_peer_disconnects(1, disconnect_at, disconnect_at, None);
+    let mut world = WorldLoop::new(provider, vec![sim_a, sim_b]);
+    world.run_until_horizon(disconnect_at.saturating_add(WIRE_DELAY_MAX_NANOS));
+
+    let log = world.heap_log();
+    assert!(
+        log.iter().any(|e| e.kind == HeapLogKind::PeerDisconnect && e.time_nanos == disconnect_at),
+        "fault hop must pop at the scheduled time: {log:?}"
+    );
+    assert!(log.iter().any(|e| matches!(e.kind, HeapLogKind::Close { .. })), "fault must close a live pair: {log:?}");
+}
+
+#[tokio::test]
 async fn test_send_recv_on_closed_peer_reset() {
     let handle = tokio::runtime::Handle::current();
     let provider = provider();
@@ -1266,7 +1307,7 @@ fn test_long_tail_payload_delay_is_not_uniform_over_five_slots() {
 }
 
 /// Two honest payloads sent at the same instant — one short hop, one long-tail — sit on
-/// the one physical heap at those times. Seed `7` draws that pair. Pop the short first;
+/// the one physical heap at those times. `PAYLOAD_SEED` draws that pair. Pop the short first;
 /// the long one stays on the heap. A sorted `assert_heap_log` cannot hide a missing late payload.
 #[test]
 fn test_short_and_long_tail_payloads_sit_on_one_heap() {

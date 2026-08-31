@@ -188,11 +188,13 @@ pub fn build_injector(
     source: Arc<dyn BaseReadChainStore>,
     connections: ConnectionsResource,
     listen: SocketAddr,
+    seed: u64,
     tokio_handle: &Handle,
 ) -> anyhow::Result<(SimulationRunning, Arc<InjectorShared>)> {
     let serving = Arc::new(InMemoryChainStore::new());
     let inventory = scan_inventory(source.as_ref());
     let mut stage_graph = SimulationBuilder::default()
+        .with_seed(seed)
         .with_eval_strategy(Fifo)
         .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000));
     put_serve_resources(&mut stage_graph, connections, serving.clone());
@@ -234,10 +236,12 @@ fn put_serve_resources(
 pub fn build_injector_peer(
     connections: ConnectionsResource,
     injector: SocketAddr,
+    seed: u64,
     tokio_handle: &Handle,
 ) -> anyhow::Result<SimulationRunning> {
     let store = Arc::new(InMemoryChainStore::new());
     let mut stage_graph = SimulationBuilder::default()
+        .with_seed(seed)
         .with_eval_strategy(Fifo)
         .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000));
     put_serve_resources(&mut stage_graph, connections, store);

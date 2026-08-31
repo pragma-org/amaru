@@ -18,13 +18,22 @@ use proptest::{
     test_runner,
     test_runner::{RngSeed, TestRunner},
 };
-use rand::{SeedableRng, prelude::StdRng};
+use rand::{Rng, SeedableRng, prelude::StdRng};
 
 /// Run a strategy with the default test runner, outside of a typical property test run.
 #[allow(clippy::panic)]
 pub fn run_strategy<T>(any: impl Strategy<Value = T>) -> T {
     any.new_tree(&mut TestRunner::default())
         .unwrap_or_else(|e| panic!("unable to generate random value from default test runner: {e}"))
+        .current()
+}
+
+/// Run a strategy from a fixed `u64` seed so a world/simulation test can reproduce the chain.
+#[allow(clippy::panic)]
+pub fn run_strategy_with_seed<T>(seed: u64, any: impl Strategy<Value = T>) -> T {
+    let config = test_runner::Config { rng_seed: RngSeed::Fixed(seed), ..Default::default() };
+    any.new_tree(&mut TestRunner::new(config))
+        .unwrap_or_else(|e| panic!("unable to generate random value from seed {seed:#x}: {e}"))
         .current()
 }
 
@@ -35,6 +44,11 @@ pub fn run_strategy_with_rng<T, RNG: Rng>(rng: &mut RNG, s: impl Strategy<Value 
     let config = test_runner::Config { rng_seed: RngSeed::Fixed(rng.random()), ..Default::default() };
     let mut runner = TestRunner::new(config);
     s.new_tree(&mut runner).unwrap().current()
+}
+
+/// Draw a `u64` from the thread-local CSPRNG. World tests print this so a run can be replayed.
+pub fn random_u64() -> u64 {
+    rand::rng().random()
 }
 
 /// Get some random bytes vector of the given size.

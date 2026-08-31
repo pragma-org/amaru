@@ -48,6 +48,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
+- **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 
 ### Fixed
 
@@ -58,7 +59,6 @@ Other guiding principles:
 ### Added
 
 - **amaru-node**: allow embedders to disable sysinfo-backed system metrics collection through `TelemetryOptions`.
-- **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 
 ### Changed
 

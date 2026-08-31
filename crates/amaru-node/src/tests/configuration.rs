@@ -251,15 +251,10 @@ impl NodeTestConfig {
         self
     }
 
-    /// Use an existing RocksDB ledger (bootstrap or `run_until` output) instead of a dummy temp store.
-    pub fn with_ledger_dir(mut self, ledger_dir: impl Into<PathBuf>) -> Self {
-        self.ledger_dir = Some(ledger_dir.into());
-        self
-    }
-
-    /// Use an existing RocksDB chain store instead of the in-memory store.
-    pub fn with_chain_dir(mut self, chain_dir: impl Into<PathBuf>) -> Self {
+    /// Use matching persistent RocksDB chain and ledger directories instead of in-memory/temp stores.
+    pub fn with_store_dirs(mut self, chain_dir: impl Into<PathBuf>, ledger_dir: impl Into<PathBuf>) -> Self {
         self.chain_dir = Some(chain_dir.into());
+        self.ledger_dir = Some(ledger_dir.into());
         self
     }
 
@@ -327,6 +322,10 @@ impl NodeTestConfig {
     /// This sets the ledger and chain store + the upstream peer that is
     /// used as the initial best-chain tip of the chain store.
     pub fn make_node_configuration(&self) -> anyhow::Result<Config> {
+        if self.ledger_dir.is_some() != self.chain_dir.is_some() {
+            anyhow::bail!("persistent test nodes require both chain_dir and ledger_dir");
+        }
+
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(ToString::to_string).collect(),
             network_magic: self.network_name.to_network_magic(),
