@@ -110,7 +110,7 @@ pub struct TestPrep {
     pub snapshot_candidates: BTreeSet<Peer>,
     pub ledger_candidates: BTreeSet<Peer>,
     pub peer_mix: crate::performance::PeerMix,
-    /// Mock DNS: `ResolvePeerCandidate` returns these peers (or empty if absent).
+    /// Mock DNS: `ResolvePeerCandidate` returns the first peer in the set (or `None` if absent/empty).
     pub resolve: BTreeMap<PeerCandidate, BTreeSet<Peer>>,
 }
 
@@ -166,8 +166,6 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IsStaticPeerEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::StaticPeersEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::UnresolvedStaticEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::UnresolvedSnapshotEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IngestResolvedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::ResolvePeerCandidate>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::effects::ResolvePeerCandidateResult>().boxed(),
@@ -286,11 +284,11 @@ fn setup_preload_with_mode(
                 .override_external_effect::<GenerateRandomSeed>(usize::MAX, |_| OverrideResult::handled([0x42u8; 32]));
             let resolve = prep.resolve.clone();
             running.override_external_effect::<crate::effects::ResolvePeerCandidate>(usize::MAX, move |eff| {
-                let peers = resolve.get(&eff.candidate).cloned().unwrap_or_default();
+                let peer = resolve.get(&eff.candidate).and_then(|peers| peers.iter().next().copied());
                 OverrideResult::handled(crate::effects::ResolvePeerCandidateResult {
                     candidate: eff.candidate.clone(),
                     origin: eff.origin,
-                    peers,
+                    peer,
                 })
             });
             // Peer-sharing filters: treat all candidates as shareable unless a test overrides.

@@ -7164,6 +7164,28 @@
       "description": "A peer was added to the outbound set",
       "public": true
     },
+    "amaru::protocols::peer_selection::peer::ADDRESS_REJECTED": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "address",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "address_rejected",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "An address could not be used as a Peer (not a literal IP:port, or IPv4-mapped IPv6).",
+      "public": true
+    },
     "amaru::protocols::peer_selection::peer::ADD_SKIPPED": {
       "type": "object",
       "properties": {
@@ -7305,6 +7327,54 @@
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::peer",
       "description": "A peer was removed after behaving adversarially",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::RESOLVED": {
+      "type": "object",
+      "properties": {
+        "candidate": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate",
+        "origin",
+        "peer"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "resolved",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A selected bootstrap name resolved to a single peer, ready to dial.",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::RESOLVE_FAILED": {
+      "type": "object",
+      "properties": {
+        "candidate": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "resolve_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "Name resolution for a bootstrap candidate failed (no viable address).",
       "public": true
     },
     "amaru::protocols::peer_selection::sharing::RECEIVED": {

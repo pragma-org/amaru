@@ -32,9 +32,9 @@ use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendDat
 use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerShareFlags,
-    PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams, SelectPeersParams,
-    SharedIngestResult,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, OutboundPick, PeerScores,
+    PeerShareFlags, PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams,
+    SelectPeersParams, SharedIngestResult,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -206,20 +206,12 @@ impl Performance {
         StaticPeersEffect
     }
 
-    pub fn unresolved_static() -> UnresolvedStaticEffect {
-        UnresolvedStaticEffect
-    }
-
-    pub fn unresolved_snapshot() -> UnresolvedSnapshotEffect {
-        UnresolvedSnapshotEffect
-    }
-
     pub fn ingest_resolved(
         origin: crate::performance::PeerSource,
         candidate: PeerCandidate,
-        peers: std::collections::BTreeSet<Peer>,
+        peer: Peer,
     ) -> IngestResolvedEffect {
-        IngestResolvedEffect { origin, candidate, peers }
+        IngestResolvedEffect { origin, candidate, peer }
     }
 
     pub fn shared_contains(peer: Peer) -> SharedContainsEffect {
@@ -650,7 +642,7 @@ pub struct SelectOutboundEffect {
 }
 
 impl ExternalEffectAPI for SelectOutboundEffect {
-    type Response = Vec<Peer>;
+    type Response = Vec<OutboundPick>;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -709,38 +701,10 @@ impl ExternalEffectAPI for StaticPeersEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UnresolvedStaticEffect;
-
-impl ExternalEffectAPI for UnresolvedStaticEffect {
-    type Response = std::collections::BTreeSet<PeerCandidate>;
-
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        self.wrap(|this| async move {
-            enqueue_query(&perf, |reply| PerformanceOp::UnresolvedStatic { effect: this, reply }).await
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UnresolvedSnapshotEffect;
-
-impl ExternalEffectAPI for UnresolvedSnapshotEffect {
-    type Response = std::collections::BTreeSet<PeerCandidate>;
-
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        self.wrap(|this| async move {
-            enqueue_query(&perf, |reply| PerformanceOp::UnresolvedSnapshot { effect: this, reply }).await
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IngestResolvedEffect {
     pub(crate) origin: crate::performance::PeerSource,
     pub(crate) candidate: PeerCandidate,
-    pub(crate) peers: std::collections::BTreeSet<Peer>,
+    pub(crate) peer: Peer,
 }
 
 impl ExternalEffectAPI for IngestResolvedEffect {

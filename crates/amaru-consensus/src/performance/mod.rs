@@ -53,8 +53,9 @@ pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, H
 use parking_lot::Mutex;
 pub use peer::{
     ADVERSARIAL_IMPULSE, BlockClaim, CONNECT_FAIL_IMPULSE, ClaimKind, DEFAULT_PEER_MALUS_HALF_LIFE, FetchPeerSet,
-    NEVER_CONNECTED_BONUS, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot, SHARE_MALUS_THRESHOLD,
-    SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SharedIngestResult, SourceCounts, malus_at,
+    NEVER_CONNECTED_BONUS, OutboundPick, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot,
+    SHARE_MALUS_THRESHOLD, SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SharedIngestResult, SourceCounts,
+    malus_at,
 };
 pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
 use tokio::{
@@ -137,137 +138,40 @@ impl fmt::Debug for Performance {
 ///
 /// Ops that close header/fork state reply with [`HeaderTelemetry`] for emission off this thread.
 pub(crate) enum PerformanceOp {
-    RecordIntersection {
-        effect: RecordIntersectionEffect,
-    },
-    RecordHeaderAnnouncement {
-        effect: RecordHeaderAnnouncementEffect,
-    },
-    RecordBlocksRequested {
-        effect: RecordBlocksRequestedEffect,
-    },
-    RecordBlockDelivery {
-        effect: RecordBlockDeliveryEffect,
-    },
-    RecordFetchFailure {
-        effect: RecordFetchFailureEffect,
-    },
-    RecordKeepaliveRtt {
-        effect: RecordKeepaliveRttEffect,
-    },
-    RecordAdvertisability {
-        effect: RecordAdvertisabilityEffect,
-    },
-    RecordConnectionFailure {
-        effect: RecordConnectionFailureEffect,
-    },
-    ClearPeerAvailability {
-        effect: ClearPeerAvailabilityEffect,
-    },
-    PeerAdversarial {
-        effect: PeerAdversarialEffect,
-    },
-    PruneBelow {
-        effect: PruneBelowEffect,
-        reply: oneshot::Sender<Vec<HeaderTelemetry>>,
-    },
-    SelectPeersForFetch {
-        effect: SelectPeersForFetchEffect,
-        reply: oneshot::Sender<FetchPeerSet>,
-    },
-    PeerCoversFragment {
-        effect: PeerCoversFragmentEffect,
-        reply: oneshot::Sender<bool>,
-    },
-    DirectClaimants {
-        effect: DirectClaimantsEffect,
-        reply: oneshot::Sender<Vec<(Peer, Instant, ClaimKind)>>,
-    },
-    FirstAnnouncedAt {
-        effect: FirstAnnouncedAtEffect,
-        reply: oneshot::Sender<Option<(Peer, Instant)>>,
-    },
-    RankPeersForChurn {
-        effect: RankPeersForChurnEffect,
-        reply: oneshot::Sender<Vec<(Peer, PeerScores)>>,
-    },
-    Scores {
-        effect: ScoresEffect,
-        reply: oneshot::Sender<PeerScores>,
-    },
-    ShareFlags {
-        effect: ShareFlagsEffect,
-        reply: oneshot::Sender<Option<PeerShareFlags>>,
-    },
-    Snapshot {
-        effect: SnapshotEffect,
-        reply: oneshot::Sender<Option<PeerSnapshot>>,
-    },
-    OkForSharing {
-        effect: OkForSharingEffect,
-        reply: oneshot::Sender<bool>,
-    },
-    SetLedgerCandidates {
-        effect: SetLedgerCandidatesEffect,
-    },
-    IngestSharedPeers {
-        effect: IngestSharedPeersEffect,
-        reply: oneshot::Sender<SharedIngestResult>,
-    },
-    SelectOutbound {
-        effect: SelectOutboundEffect,
-        reply: oneshot::Sender<Vec<Peer>>,
-    },
-    SelectSharePeers {
-        effect: SelectSharePeersEffect,
-        reply: oneshot::Sender<Vec<std::net::SocketAddr>>,
-    },
-    IsStaticPeer {
-        effect: IsStaticPeerEffect,
-        reply: oneshot::Sender<bool>,
-    },
-    StaticPeers {
-        effect: StaticPeersEffect,
-        reply: oneshot::Sender<std::collections::BTreeSet<Peer>>,
-    },
-    UnresolvedStatic {
-        effect: UnresolvedStaticEffect,
-        reply: oneshot::Sender<std::collections::BTreeSet<PeerCandidate>>,
-    },
-    UnresolvedSnapshot {
-        effect: UnresolvedSnapshotEffect,
-        reply: oneshot::Sender<std::collections::BTreeSet<PeerCandidate>>,
-    },
-    IngestResolved {
-        effect: IngestResolvedEffect,
-    },
-    SharedContains {
-        effect: SharedContainsEffect,
-        reply: oneshot::Sender<bool>,
-    },
-    SourceCounts {
-        effect: SourceCountsEffect,
-        reply: oneshot::Sender<SourceCounts>,
-    },
-    RecordRollback {
-        effect: RecordRollbackEffect,
-    },
-    RecordHeaderAbandoned {
-        effect: RecordHeaderAbandonedEffect,
-        reply: oneshot::Sender<Vec<HeaderTelemetry>>,
-    },
-    RecordForkStarted {
-        effect: RecordForkStartedEffect,
-        reply: oneshot::Sender<Vec<HeaderTelemetry>>,
-    },
-    RecordBlockValid {
-        effect: RecordBlockValidEffect,
-        reply: oneshot::Sender<Vec<HeaderTelemetry>>,
-    },
-    RecordBlockPruned {
-        effect: RecordBlockPrunedEffect,
-        reply: oneshot::Sender<Vec<HeaderTelemetry>>,
-    },
+    RecordIntersection { effect: RecordIntersectionEffect },
+    RecordHeaderAnnouncement { effect: RecordHeaderAnnouncementEffect },
+    RecordBlocksRequested { effect: RecordBlocksRequestedEffect },
+    RecordBlockDelivery { effect: RecordBlockDeliveryEffect },
+    RecordFetchFailure { effect: RecordFetchFailureEffect },
+    RecordKeepaliveRtt { effect: RecordKeepaliveRttEffect },
+    RecordAdvertisability { effect: RecordAdvertisabilityEffect },
+    RecordConnectionFailure { effect: RecordConnectionFailureEffect },
+    ClearPeerAvailability { effect: ClearPeerAvailabilityEffect },
+    PeerAdversarial { effect: PeerAdversarialEffect },
+    PruneBelow { effect: PruneBelowEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    SelectPeersForFetch { effect: SelectPeersForFetchEffect, reply: oneshot::Sender<FetchPeerSet> },
+    PeerCoversFragment { effect: PeerCoversFragmentEffect, reply: oneshot::Sender<bool> },
+    DirectClaimants { effect: DirectClaimantsEffect, reply: oneshot::Sender<Vec<(Peer, Instant, ClaimKind)>> },
+    FirstAnnouncedAt { effect: FirstAnnouncedAtEffect, reply: oneshot::Sender<Option<(Peer, Instant)>> },
+    RankPeersForChurn { effect: RankPeersForChurnEffect, reply: oneshot::Sender<Vec<(Peer, PeerScores)>> },
+    Scores { effect: ScoresEffect, reply: oneshot::Sender<PeerScores> },
+    ShareFlags { effect: ShareFlagsEffect, reply: oneshot::Sender<Option<PeerShareFlags>> },
+    Snapshot { effect: SnapshotEffect, reply: oneshot::Sender<Option<PeerSnapshot>> },
+    OkForSharing { effect: OkForSharingEffect, reply: oneshot::Sender<bool> },
+    SetLedgerCandidates { effect: SetLedgerCandidatesEffect },
+    IngestSharedPeers { effect: IngestSharedPeersEffect, reply: oneshot::Sender<SharedIngestResult> },
+    SelectOutbound { effect: SelectOutboundEffect, reply: oneshot::Sender<Vec<OutboundPick>> },
+    SelectSharePeers { effect: SelectSharePeersEffect, reply: oneshot::Sender<Vec<std::net::SocketAddr>> },
+    IsStaticPeer { effect: IsStaticPeerEffect, reply: oneshot::Sender<bool> },
+    StaticPeers { effect: StaticPeersEffect, reply: oneshot::Sender<std::collections::BTreeSet<Peer>> },
+    IngestResolved { effect: IngestResolvedEffect },
+    SharedContains { effect: SharedContainsEffect, reply: oneshot::Sender<bool> },
+    SourceCounts { effect: SourceCountsEffect, reply: oneshot::Sender<SourceCounts> },
+    RecordRollback { effect: RecordRollbackEffect },
+    RecordHeaderAbandoned { effect: RecordHeaderAbandonedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordForkStarted { effect: RecordForkStartedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordBlockValid { effect: RecordBlockValidEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordBlockPruned { effect: RecordBlockPrunedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
 }
 
 impl Performance {
@@ -284,8 +188,8 @@ impl Performance {
     ///
     /// This is the **only** place static/snapshot pools and the peer-mix formula are set;
     /// there is no live reconfiguration effect. Literal [`PeerCandidate::Socket`] entries
-    /// become resolved peers immediately; host/SRV names are resolved later via
-    /// [`Performance::ingest_resolved`].
+    /// become resolved peers immediately; host/SRV names are selected as candidates and
+    /// resolved just before dialling via [`Performance::ingest_resolved`].
     pub fn with_peer_sources(
         static_peers: std::collections::BTreeSet<PeerCandidate>,
         snapshot_candidates: std::collections::BTreeSet<PeerCandidate>,
@@ -482,14 +386,8 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             let result = peers.apply_static_peers();
             let _ = reply.send(result);
         }
-        PerformanceOp::UnresolvedStatic { effect: UnresolvedStaticEffect, reply } => {
-            let _ = reply.send(peers.apply_unresolved_static());
-        }
-        PerformanceOp::UnresolvedSnapshot { effect: UnresolvedSnapshotEffect, reply } => {
-            let _ = reply.send(peers.apply_unresolved_snapshot());
-        }
         PerformanceOp::IngestResolved { effect } => {
-            peers.apply_ingest_resolved(effect.origin, &effect.candidate, effect.peers);
+            peers.apply_ingest_resolved(effect.origin, &effect.candidate, effect.peer);
         }
         PerformanceOp::SharedContains { effect, reply } => {
             let result = peers.apply_shared_contains(&effect.peer);

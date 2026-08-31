@@ -24,6 +24,7 @@ test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions"]
 async-trait.workspace = true
 anyhow.workspace = true
 hex.workspace = true
+hickory-resolver.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
 pretty_assertions = { workspace = true, optional = true }

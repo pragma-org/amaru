@@ -2046,14 +2046,13 @@ define_schemas! {
                         required address: String
                         required reason: String
                     }
-                    /// A bootstrap name resolved to one or more peers.
+                    /// A selected bootstrap name resolved to a single peer, ready to dial.
                     public RESOLVED {
                         required candidate: String
                         required origin: String
-                        required peers: String
-                        required count: usize
+                        required peer: %amaru_kernel::Peer
                     }
-                    /// Name resolution for a bootstrap candidate failed or is unimplemented (SRV).
+                    /// Name resolution for a bootstrap candidate failed (no viable address).
                     public RESOLVE_FAILED {
                         required candidate: String
                         required reason: String

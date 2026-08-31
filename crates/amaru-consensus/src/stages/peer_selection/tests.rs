@@ -132,12 +132,85 @@ fn test_initialize_resolves_static_hostname() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=0", "snapshot_peers=0"])
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=1", "snapshot_peers=0"])
         .assert_and_remove(
             Level::INFO,
-            &["peer_selection.peer.resolved", r#"candidate="relay.example:3001""#, "count=1"],
+            &["peer_selection.peer.resolved", r#"candidate="relay.example:3001""#, r#"peer="10.9.9.9:3001""#],
         )
         .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="10.9.9.9:3001""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_initialize_resolves_static_srv() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use amaru_kernel::PeerCandidate;
+    use amaru_pure_stage::trace_match::tm_external_effect;
+
+    use crate::effects::ResolvePeerCandidate;
+
+    let resolved = TestPrep::peer("10.8.8.8:6000");
+    let candidate = PeerCandidate::srv("pool.example".parse().unwrap());
+    let mut prep = test_prep(&[]);
+    prep.extra_static.insert(candidate.clone());
+    prep.resolve = BTreeMap::from([(candidate.clone(), BTreeSet::from([resolved]))]);
+
+    let mut state = prep.state.clone();
+    state.outbound_peers.insert(resolved, PeerState::Connecting);
+    let msg = PeerSelectionMsg::Initialize;
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            tm_external_effect::<ResolvePeerCandidate>("ps-1"),
+            tm_send_match::<ManagerMessage>(
+                "ps-1",
+                "manager",
+                |m| matches!(m, ManagerMessage::AddPeer(p) if *p == resolved),
+            ),
+            te_state("ps-1", &state).into(),
+        ],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=1", "snapshot_peers=0"])
+        .assert_and_remove(
+            Level::INFO,
+            &["peer_selection.peer.resolved", r#"candidate="pool.example""#, r#"peer="10.8.8.8:6000""#],
+        )
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="10.8.8.8:6000""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_initialize_resolve_failure_does_not_dial() {
+    use amaru_kernel::PeerCandidate;
+    use amaru_pure_stage::trace_match::tm_external_effect;
+
+    use crate::effects::ResolvePeerCandidate;
+
+    let candidate = PeerCandidate::host("missing.example".parse().unwrap(), 3001);
+    let mut prep = test_prep(&[]);
+    prep.extra_static.insert(candidate);
+    let msg = PeerSelectionMsg::Initialize;
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            tm_external_effect::<ResolvePeerCandidate>("ps-1"),
+            te_state("ps-1", &prep.state).into(),
+        ],
+    );
+    assert_trace_does_not_contain(
+        &running,
+        &[tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_)))],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=1", "snapshot_peers=0"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 

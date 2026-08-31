@@ -320,10 +320,11 @@ pub enum DnsNameError {
 
 /// A bootstrap name that may already be a [`Peer`] or may need DNS.
 ///
-/// The variant selects the resolution path:
+/// The variant selects the resolution path (always to **one** [`Peer`] at dial time):
 /// - [`Socket`](Self::Socket): already a viable address; no lookup.
-/// - [`Host`](Self::Host): A/AAAA lookup of `host`, using `port` on every result.
-/// - [`Srv`](Self::Srv): DNS SRV lookup of `name` (targets carry their own ports).
+/// - [`Host`](Self::Host): A/AAAA lookup of `host`; first address that is a viable [`Peer`], using `port`.
+/// - [`Srv`](Self::Srv): DNS SRV lookup of `name`; records are tried in RFC 2782 priority order
+///   (lower first) and lookup stops at the first viable target address (that target's SRV port).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind")]
 pub enum PeerCandidate {
@@ -335,7 +336,8 @@ pub enum PeerCandidate {
     Host { host: DnsName, port: u16 },
     /// DNS name for CIP-0155 SRV lookup (no port in the name).
     ///
-    /// Resolution queries `_cardano._tcp.<name>` (see [`Self::cardano_srv_name`]).
+    /// Resolution queries `_cardano._tcp.<name>` (see [`Self::cardano_srv_name`]), tries SRV
+    /// records in priority order, and yields the first viable [`Peer`].
     #[serde(rename = "srv")]
     Srv { name: DnsName },
 }
