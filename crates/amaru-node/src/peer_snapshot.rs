@@ -20,6 +20,7 @@
 use std::{
     collections::BTreeSet,
     fs,
+    net::Ipv6Addr,
     num::NonZeroU16,
     path::{Path, PathBuf},
 };
@@ -33,9 +34,6 @@ use thiserror::Error;
 mod embedded {
     include!(concat!(env!("OUT_DIR"), "/embedded_peer_snapshots.rs"));
 }
-
-/// Default N2N relay port when a snapshot relay omits `port`.
-pub const DEFAULT_RELAY_PORT: NonZeroU16 = NonZeroU16::new(3001).unwrap();
 
 /// Loaded peer snapshot after validation, ready for peer selection.
 #[derive(Debug, Clone, PartialEq)]
@@ -165,14 +163,16 @@ pub fn parse_peer_snapshot_bytes(
     let mut unresolved = BTreeSet::new();
     for pool in &file.big_ledger_pools {
         for relay in &pool.relays {
-            let port = relay.port.unwrap_or(DEFAULT_RELAY_PORT).get();
-            let spec = format!("{}:{}", relay.address, port);
+            let spec = match relay.port {
+                Some(port) => format_relay_addr_port(&relay.address, port.get()),
+                None => relay.address.clone(),
+            };
             let candidate: PeerCandidate = spec.parse().map_err(|source| PeerSnapshotError::Candidate {
                 path: path.to_path_buf(),
                 spec,
                 source,
             })?;
-            if let Some(peer) = candidate.as_literal_peer() {
+            if let Some(peer) = candidate.as_peer() {
                 peers.insert(peer);
             } else {
                 unresolved.insert(candidate);
@@ -200,6 +200,13 @@ impl TryFrom<SnapshotPoint> for NetworkPoint {
         let hash = amaru_kernel::HeaderHash::new(hash);
         Ok(NetworkPoint::Specific(slot, hash))
     }
+}
+
+/// Combine a snapshot relay address with an explicit port.
+///
+/// IPv6 literals are bracketed so [`PeerCandidate`] parsing sees a socket, not an SRV name.
+fn format_relay_addr_port(address: &str, port: u16) -> String {
+    if address.parse::<Ipv6Addr>().is_ok() { format!("[{address}]:{port}") } else { format!("{address}:{port}") }
 }
 
 #[cfg(test)]
@@ -236,7 +243,7 @@ mod tests {
 }"#;
 
     #[test]
-    fn parses_relays_with_default_port_and_dedup() {
+    fn parses_relays_with_port_and_omitted_port_as_srv() {
         let snap = parse_peer_snapshot_bytes(SAMPLE.as_bytes(), Path::new("sample.json"), NetworkMagic::MAINNET)
             .expect("parse");
         assert_eq!(
@@ -255,8 +262,8 @@ mod tests {
         assert_eq!(
             snap.unresolved,
             BTreeSet::from([
-                PeerCandidate::host("relay-a.example", 3001),
-                PeerCandidate::host("relay-b.example", 3001),
+                PeerCandidate::host("relay-a.example".parse().unwrap(), 3001),
+                PeerCandidate::srv("relay-b.example".parse().unwrap()),
             ])
         );
     }
@@ -287,6 +294,21 @@ mod tests {
             parse_peer_snapshot_bytes(json.as_bytes(), Path::new("empty.json"), NetworkMagic::PREPROD).expect("parse");
         assert!(snap.peers.is_empty());
         assert_eq!(snap.pool_count, 0);
+    }
+
+    #[test]
+    fn omitted_port_on_ip_is_rejected() {
+        let json = r#"{
+              "NetworkMagic": 764824073,
+              "NodeToClientVersion": 23,
+              "Point": {"blockPointHash": "1a7f1af3e52ba8810247f7c82431113a61c2efc5435a8fe6f76c5ae6618cc92a", "blockPointSlot": 1},
+              "bigLedgerPools": [
+                {"relays": [{"address": "10.0.0.1"}]}
+              ]
+            }"#;
+        let err = parse_peer_snapshot_bytes(json.as_bytes(), Path::new("ip-no-port.json"), NetworkMagic::MAINNET)
+            .expect_err("ip needs port");
+        assert!(matches!(err, PeerSnapshotError::Candidate { .. }));
     }
 
     #[test]

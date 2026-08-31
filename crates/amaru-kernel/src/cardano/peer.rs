@@ -13,8 +13,8 @@
 // limitations under the License.
 
 //! A [`Peer`] is a viable network address, not a node identity and not a promise that dialing
-//! succeeds. An unresolved name (including an IP:port still in string form) is a
-//! [`PeerCandidate`].
+//! succeeds. A [`PeerCandidate`] is a bootstrap name that may already be a [`Peer`], a
+//! hostname+port (A/AAAA), or a DNS name for SRV lookup.
 
 use std::{
     fmt,
@@ -209,58 +209,192 @@ impl FromStr for Peer {
     }
 }
 
-/// An unresolved peer name: hostname, SRV, or an address still in string form.
+/// A DNS name used by [`PeerCandidate::Host`] and [`PeerCandidate::Srv`].
+///
+/// Labels are LDH plus optional leading `_` (SRV service/proto). No colons, brackets, or
+/// IP literals — those belong on [`Peer`] / [`PeerCandidate::Socket`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(transparent)]
+pub struct DnsName(String);
+
+const DNS_NAME_MAX: usize = 253;
+
+impl DnsName {
+    pub fn new(s: impl AsRef<str>) -> Result<Self, DnsNameError> {
+        let s = s.as_ref();
+        let s = s.strip_suffix('.').filter(|rest| !rest.is_empty()).unwrap_or(s);
+        validate_dns_name(s)?;
+        Ok(Self(s.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for DnsName {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for DnsName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for DnsName {
+    type Err = DnsNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DnsName {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Self::new(s).map_err(serde::de::Error::custom)
+    }
+}
+
+fn validate_dns_name(s: &str) -> Result<(), DnsNameError> {
+    if s.is_empty() {
+        return Err(DnsNameError::Empty);
+    }
+    if s.len() > DNS_NAME_MAX {
+        return Err(DnsNameError::TooLong);
+    }
+    if !s.is_ascii() {
+        return Err(DnsNameError::Invalid(s.to_string()));
+    }
+    if s.parse::<IpAddr>().is_ok() {
+        return Err(DnsNameError::LiteralIp(s.to_string()));
+    }
+    for label in s.split('.') {
+        validate_dns_label(label, s)?;
+    }
+    Ok(())
+}
+
+fn validate_dns_label(label: &str, name: &str) -> Result<(), DnsNameError> {
+    let b = label.as_bytes();
+    if b.is_empty() {
+        return Err(DnsNameError::EmptyLabel(name.to_string()));
+    }
+    if b.len() > 63 {
+        return Err(DnsNameError::LabelTooLong(name.to_string()));
+    }
+    let first = b[0];
+    let last = b[b.len() - 1];
+    if !dns_label_edge(first) || !dns_label_edge(last) || !b.iter().copied().all(dns_label_char) {
+        return Err(DnsNameError::Invalid(name.to_string()));
+    }
+    Ok(())
+}
+
+fn dns_label_edge(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
+}
+
+fn dns_label_char(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'-' || c == b'_'
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DnsNameError {
+    #[error("DNS name is empty")]
+    Empty,
+    #[error("DNS name is longer than 253 octets")]
+    TooLong,
+    #[error("DNS name '{0}' contains an empty label")]
+    EmptyLabel(String),
+    #[error("DNS name '{0}' has a label longer than 63 octets")]
+    LabelTooLong(String),
+    #[error("DNS name '{0}' is a literal IP address")]
+    LiteralIp(String),
+    #[error("invalid DNS name '{0}'")]
+    Invalid(String),
+}
+
+/// A bootstrap name that may already be a [`Peer`] or may need DNS.
+///
+/// The variant selects the resolution path:
+/// - [`Socket`](Self::Socket): already a viable address; no lookup.
+/// - [`Host`](Self::Host): A/AAAA lookup of `host`, using `port` on every result.
+/// - [`Srv`](Self::Srv): DNS SRV lookup of `name` (targets carry their own ports).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
 pub enum PeerCandidate {
-    /// Host or literal IP, with port (`relay.example:3001`, `10.0.0.1:6000`, `[::1]:3001`).
-    Host { host: String, port: u16 },
-    /// DNS SRV name (resolution may be implemented later).
-    Srv { name: String },
+    /// Literal IPv4/IPv6 + port. No name resolution.
+    #[serde(rename = "socket")]
+    Socket(Peer),
+    /// Hostname (not a literal IP) plus port.
+    #[serde(rename = "host")]
+    Host { host: DnsName, port: u16 },
+    /// DNS name for CIP-0155 SRV lookup (no port in the name).
+    ///
+    /// Resolution queries `_cardano._tcp.<name>` (see [`Self::cardano_srv_name`]).
+    #[serde(rename = "srv")]
+    Srv { name: DnsName },
 }
 
 impl From<Peer> for PeerCandidate {
     fn from(peer: Peer) -> Self {
-        match peer {
-            Peer::Ipv4 { address, port } => Self::Host { host: address.to_string(), port },
-            Peer::Ipv6 { address, port, .. } => Self::Host { host: address.to_string(), port },
-        }
+        Self::Socket(peer)
     }
 }
 
 impl PeerCandidate {
-    pub fn host(host: impl Into<String>, port: u16) -> Self {
-        Self::Host { host: host.into(), port }
+    pub fn socket(peer: Peer) -> Self {
+        Self::Socket(peer)
     }
 
-    pub fn srv(name: impl Into<String>) -> Self {
-        Self::Srv { name: name.into() }
+    pub fn host(host: DnsName, port: u16) -> Self {
+        Self::Host { host, port }
     }
 
-    /// If this candidate is already a literal IP:port, parse it as a [`Peer`] without DNS.
-    pub fn as_literal_peer(&self) -> Option<Peer> {
+    pub fn srv(name: DnsName) -> Self {
+        Self::Srv { name }
+    }
+
+    /// `Some` iff this candidate needs no DNS.
+    pub fn as_peer(&self) -> Option<Peer> {
         match self {
-            Self::Host { host, port } => {
-                let ip: IpAddr = host.parse().ok()?;
-                match ip {
-                    IpAddr::V4(address) => Some(Peer::Ipv4 { address, port: *port }),
-                    IpAddr::V6(address) => Peer::try_from(SocketAddrV6::new(address, *port, 0, 0)).ok(),
-                }
-            }
-            Self::Srv { .. } => None,
+            Self::Socket(peer) => Some(*peer),
+            Self::Host { .. } | Self::Srv { .. } => None,
         }
+    }
+
+    pub fn as_srv(&self) -> Option<&DnsName> {
+        match self {
+            Self::Srv { name } => Some(name),
+            Self::Socket(_) | Self::Host { .. } => None,
+        }
+    }
+
+    /// Whether this candidate requires name resolution.
+    pub fn needs_resolution(&self) -> bool {
+        !matches!(self, Self::Socket(_))
+    }
+
+    /// DNS name to query for a CIP-0155 Cardano SRV record (`_cardano._tcp.<name>`).
+    ///
+    /// The ledger / snapshot stores the domain only; the `_cardano._tcp` prefix is added here
+    /// (the registry prefix for the Cardano node, which is TCP-only). If `name` is already a
+    /// `_cardano._tcp.` query, it is returned unchanged.
+    pub fn cardano_srv_name(name: &DnsName) -> String {
+        let name = name.as_str();
+        if name.starts_with("_cardano._tcp.") { name.to_string() } else { format!("_cardano._tcp.{name}") }
     }
 }
 
 impl fmt::Display for PeerCandidate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Host { host, port } => {
-                if host.contains(':') && !host.starts_with('[') {
-                    write!(f, "[{host}]:{port}")
-                } else {
-                    write!(f, "{host}:{port}")
-                }
-            }
+            Self::Socket(peer) => write!(f, "{peer}"),
+            Self::Host { host, port } => write!(f, "{host}:{port}"),
             Self::Srv { name } => write!(f, "{name}"),
         }
     }
@@ -270,30 +404,34 @@ impl FromStr for PeerCandidate {
     type Err = PeerCandidateParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(host) = s.strip_prefix('[').and_then(|rest| rest.split_once("]:")) {
-            let (host, port) = host;
-            let port = port.parse().map_err(|_| PeerCandidateParseError::InvalidPort(s.to_string()))?;
-            return Ok(Self::Host { host: host.to_string(), port });
+        if s.is_empty() {
+            return Err(PeerCandidateParseError::Empty);
         }
-        let Some((host, port)) = s.rsplit_once(':') else {
-            return Err(PeerCandidateParseError::MissingPort(s.to_string()));
-        };
-        if host.is_empty() {
-            return Err(PeerCandidateParseError::MissingHost(s.to_string()));
+        if let Ok(addr) = SocketAddr::from_str(s) {
+            return Peer::try_from(addr).map(Self::Socket).map_err(PeerCandidateParseError::Peer);
         }
-        let port = port.parse().map_err(|_| PeerCandidateParseError::InvalidPort(s.to_string()))?;
-        Ok(Self::Host { host: host.to_string(), port })
+        if s.parse::<IpAddr>().is_ok() {
+            return Err(PeerCandidateParseError::LiteralIpMissingPort(s.to_string()));
+        }
+        if let Some((host, port)) = s.rsplit_once(':')
+            && let Ok(port) = port.parse::<u16>()
+        {
+            return Ok(Self::Host { host: DnsName::new(host)?, port });
+        }
+        Ok(Self::Srv { name: DnsName::new(s)? })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PeerCandidateParseError {
-    #[error("peer candidate '{0}' has no port")]
-    MissingPort(String),
-    #[error("peer candidate '{0}' has no host")]
-    MissingHost(String),
-    #[error("peer candidate '{0}' has an invalid port")]
-    InvalidPort(String),
+    #[error("peer candidate is empty")]
+    Empty,
+    #[error("literal IP '{0}' requires a port")]
+    LiteralIpMissingPort(String),
+    #[error(transparent)]
+    DnsName(#[from] DnsNameError),
+    #[error(transparent)]
+    Peer(#[from] PeerError),
 }
 
 #[cfg(test)]
@@ -338,9 +476,39 @@ mod tests {
     #[test]
     fn candidate_literal_and_hostname() {
         let ip: PeerCandidate = "10.0.0.1:6000".parse().unwrap();
-        assert_eq!(ip.as_literal_peer(), Some("10.0.0.1:6000".parse().unwrap()));
+        assert_eq!(ip, PeerCandidate::socket("10.0.0.1:6000".parse().unwrap()));
+        assert_eq!(ip.as_peer(), Some("10.0.0.1:6000".parse().unwrap()));
         let host: PeerCandidate = "relay-a.example:3001".parse().unwrap();
-        assert_eq!(host, PeerCandidate::host("relay-a.example", 3001));
-        assert_eq!(host.as_literal_peer(), None);
+        assert_eq!(host, PeerCandidate::host("relay-a.example".parse().unwrap(), 3001));
+        assert_eq!(host.as_peer(), None);
+        let srv: PeerCandidate = "example.com".parse().unwrap();
+        assert_eq!(srv, PeerCandidate::srv("example.com".parse().unwrap()));
+        assert_eq!(srv.as_srv().map(PeerCandidate::cardano_srv_name).as_deref(), Some("_cardano._tcp.example.com"));
+        let prefixed: PeerCandidate = "_cardano._tcp.example.com".parse().unwrap();
+        assert_eq!(
+            prefixed.as_srv().map(PeerCandidate::cardano_srv_name).as_deref(),
+            Some("_cardano._tcp.example.com")
+        );
+        assert!(srv.needs_resolution());
+        let err = PeerCandidate::from_str("10.0.0.1").unwrap_err();
+        assert!(matches!(err, PeerCandidateParseError::LiteralIpMissingPort(_)));
+    }
+
+    #[test]
+    fn candidate_rejects_mapped_v4() {
+        let err = PeerCandidate::from_str("[::ffff:127.0.0.1]:3001").unwrap_err();
+        assert!(matches!(err, PeerCandidateParseError::Peer(PeerError::MappedIpv4(_))));
+    }
+
+    #[test]
+    fn dns_name_rejects_colons_brackets_and_ips() {
+        assert!(DnsName::new("relay.example").is_ok());
+        assert!(DnsName::new("_cardano._tcp.example.com").is_ok());
+        assert!(DnsName::new("[::1]").is_err());
+        assert!(DnsName::new("example.com:3001").is_err());
+        assert!(DnsName::new("10.0.0.1").is_err());
+        assert!(DnsName::new("").is_err());
+        assert!(DnsName::new("bad..name").is_err());
+        assert!(matches!(PeerCandidate::from_str("[relay.example]:3001"), Err(PeerCandidateParseError::DnsName(_))));
     }
 }

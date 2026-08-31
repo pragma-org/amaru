@@ -134,7 +134,7 @@ pub use cardano::{
     operational_cert::OperationalCert,
     orphan_proposal::{self, OrphanProposal},
     output_reference::OutputReference,
-    peer::{Peer, PeerCandidate, PeerCandidateParseError, PeerError},
+    peer::{DnsName, DnsNameError, Peer, PeerCandidate, PeerCandidateParseError, PeerError},
     plutus_data::{self, BoundedBytes, PlutusData, PlutusDataSet, PlutusDatums},
     plutus_script::PlutusScript,
     plutus_version::{IsKnownPlutusVersion, KnownPlutusVersion, PlutusVersion, reify_plutus_version},

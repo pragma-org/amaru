@@ -325,7 +325,7 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
     let good = peer("good:1");
     let bad = peer("bad:1");
     let mut peers = PeerPerformance::with_sources(
-        BTreeSet::from([good, bad]),
+        BTreeSet::from([good, bad]).into_iter().map(amaru_kernel::PeerCandidate::from).collect(),
         BTreeSet::new(),
         BTreeSet::new(),
         PeerMix::parse("static~1").unwrap(),

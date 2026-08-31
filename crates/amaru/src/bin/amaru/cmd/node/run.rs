@@ -573,22 +573,22 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
     };
 
     let network_magic = args.network.to_network_magic();
-    let peer_snapshot_peers = match args.peer_snapshot.as_deref() {
+    let (peer_snapshot_peers, peer_snapshot_unresolved) = match args.peer_snapshot.as_deref() {
         Some(path) => {
             let snapshot = load_peer_snapshot(path, network_magic)?;
             log_loaded_snapshot(Some(path), &snapshot);
-            snapshot.peers
+            (snapshot.peers, snapshot.unresolved)
         }
         None => match load_embedded_peer_snapshot(network)? {
             Some(snapshot) => {
                 log_loaded_snapshot(None, &snapshot);
-                snapshot.peers
+                (snapshot.peers, snapshot.unresolved)
             }
             None => {
                 if PEER_SNAPSHOT_NETWORKS.contains(&network) {
                     warn!(setup::peer_snapshot::MISSING, network);
                 }
-                BTreeSet::new()
+                (BTreeSet::new(), BTreeSet::new())
             }
         },
     };
@@ -659,6 +659,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: peer_address,
         peer_snapshot_peers,
+        peer_snapshot_unresolved,
         target_upstream_peers: args.upstream_peers,
         target_downstream_peers: args.downstream_peers,
         network_magic: args.network.to_network_magic(),

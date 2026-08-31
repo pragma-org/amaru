@@ -32,7 +32,7 @@ rand = { workspace = true }
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "rt", "time"] }
+tokio = { workspace = true, features = ["sync", "rt", "time", "net"] }
 tracing-subscriber = { workspace = true, optional = true }
 
 amaru-kernel.workspace = true

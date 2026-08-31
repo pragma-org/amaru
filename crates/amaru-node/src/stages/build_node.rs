@@ -23,7 +23,7 @@ use amaru_consensus::{
     performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, Peer, Point, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
     state::State,
@@ -247,18 +247,25 @@ fn register_resources(
 
     let mut static_peers = BTreeSet::new();
     for address in &config.upstream_peers {
-        match address.parse::<Peer>() {
-            Ok(peer) => {
-                static_peers.insert(peer);
+        match address.parse::<PeerCandidate>() {
+            Ok(candidate) => {
+                static_peers.insert(candidate);
             }
             Err(reason) => {
                 warn!(protocols::peer_selection::peer::ADDRESS_REJECTED, address, reason = reason.to_string());
             }
         }
     }
+    let snapshot_candidates = config
+        .peer_snapshot_peers
+        .iter()
+        .copied()
+        .map(PeerCandidate::from)
+        .chain(config.peer_snapshot_unresolved.iter().cloned())
+        .collect();
     stage_graph.resources().put::<ResourcePerformance>(Arc::new(Performance::with_peer_sources(
         static_peers,
-        config.peer_snapshot_peers.clone(),
+        snapshot_candidates,
         Default::default(),
         config.peer_mix.clone(),
     )));

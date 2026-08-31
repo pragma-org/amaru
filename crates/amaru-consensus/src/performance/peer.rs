@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, PeerCandidate, Point};
 use amaru_observability::warn;
 use amaru_pure_stage::Instant;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -48,6 +48,23 @@ pub const SHARE_MALUS_THRESHOLD: f64 = 0.05;
 pub const OUTBOUND_MALUS_LAMBDA: f64 = 1.0;
 /// Softmax temperature for weighted outbound sampling.
 pub const OUTBOUND_PICK_TEMPERATURE: f64 = 1.0;
+
+fn split_candidates(candidates: BTreeSet<PeerCandidate>) -> (BTreeSet<Peer>, BTreeSet<PeerCandidate>) {
+    let mut peers = BTreeSet::new();
+    let mut unresolved = BTreeSet::new();
+    for candidate in candidates {
+        match candidate.as_peer() {
+            Some(peer) => {
+                peers.insert(peer);
+            }
+            None => {
+                unresolved.insert(candidate);
+            }
+        }
+    }
+    (peers, unresolved)
+}
+
 /// Bonus for peers with no Performance observation yet (never connected / unknown).
 pub const NEVER_CONNECTED_BONUS: f64 = 0.5;
 /// Upper bound on peers returned in one share response.
@@ -227,8 +244,10 @@ pub struct PeerPerformance {
     /// Admin mix formula (floors, weights, per-source malus half-lives).
     peer_mix: PeerMix,
     static_peers: BTreeSet<Peer>,
+    unresolved_static: BTreeSet<PeerCandidate>,
     shared_peers: BTreeSet<Peer>,
     snapshot_candidates: BTreeSet<Peer>,
+    unresolved_snapshot: BTreeSet<PeerCandidate>,
     ledger_candidates: BTreeSet<Peer>,
 }
 
@@ -238,13 +257,26 @@ impl PeerPerformance {
     }
 
     /// Bootstrap candidate pools and the admin mix (typically once at node start).
+    ///
+    /// [`PeerCandidate::Socket`] entries are stored as resolved [`Peer`]s immediately.
+    /// Host/SRV names wait in the unresolved sets until [`Self::apply_ingest_resolved`].
     pub fn with_sources(
-        static_peers: BTreeSet<Peer>,
-        snapshot_candidates: BTreeSet<Peer>,
+        static_peers: BTreeSet<PeerCandidate>,
+        snapshot_candidates: BTreeSet<PeerCandidate>,
         ledger_candidates: BTreeSet<Peer>,
         peer_mix: PeerMix,
     ) -> Self {
-        Self { static_peers, snapshot_candidates, ledger_candidates, peer_mix, ..Self::default() }
+        let (static_peers, unresolved_static) = split_candidates(static_peers);
+        let (snapshot_candidates, unresolved_snapshot) = split_candidates(snapshot_candidates);
+        Self {
+            static_peers,
+            unresolved_static,
+            snapshot_candidates,
+            unresolved_snapshot,
+            ledger_candidates,
+            peer_mix,
+            ..Self::default()
+        }
     }
 
     pub fn apply_set_ledger_candidates(&mut self, candidates: BTreeSet<Peer>) {
@@ -286,6 +318,29 @@ impl PeerPerformance {
 
     pub fn apply_static_peers(&self) -> BTreeSet<Peer> {
         self.static_peers.clone()
+    }
+
+    pub fn apply_unresolved_static(&self) -> BTreeSet<PeerCandidate> {
+        self.unresolved_static.clone()
+    }
+
+    pub fn apply_unresolved_snapshot(&self) -> BTreeSet<PeerCandidate> {
+        self.unresolved_snapshot.clone()
+    }
+
+    /// Record DNS results for a bootstrap candidate. Resolved addresses join the origin pool.
+    pub fn apply_ingest_resolved(&mut self, origin: PeerSource, candidate: &PeerCandidate, peers: BTreeSet<Peer>) {
+        match origin {
+            PeerSource::Static => {
+                self.unresolved_static.remove(candidate);
+                self.static_peers.extend(peers);
+            }
+            PeerSource::Snapshot => {
+                self.unresolved_snapshot.remove(candidate);
+                self.snapshot_candidates.extend(peers);
+            }
+            PeerSource::Shared | PeerSource::Ledger => {}
+        }
     }
 
     pub fn apply_shared_contains(&self, peer: &Peer) -> bool {

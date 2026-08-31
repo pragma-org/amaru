@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
-use amaru_kernel::{Peer, Point};
+use amaru_kernel::{Peer, PeerCandidate, Point};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
@@ -103,9 +106,12 @@ pub struct TestPrep {
     pub rt: Runtime,
     /// Seeded into the Performance resource at simulation start (not stage state).
     pub static_peers: BTreeSet<Peer>,
+    pub extra_static: BTreeSet<PeerCandidate>,
     pub snapshot_candidates: BTreeSet<Peer>,
     pub ledger_candidates: BTreeSet<Peer>,
     pub peer_mix: crate::performance::PeerMix,
+    /// Mock DNS: `ResolvePeerCandidate` returns these peers (or empty if absent).
+    pub resolve: BTreeMap<PeerCandidate, BTreeSet<Peer>>,
 }
 
 impl TestPrep {
@@ -134,9 +140,11 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
         state,
         rt: crate::stages::test_utils::test_runtime(),
         static_peers,
+        extra_static: BTreeSet::new(),
         snapshot_candidates,
         ledger_candidates: BTreeSet::new(),
         peer_mix,
+        resolve: BTreeMap::new(),
     }
 }
 
@@ -158,6 +166,12 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IsStaticPeerEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::StaticPeersEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::UnresolvedStaticEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::UnresolvedSnapshotEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::IngestResolvedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::effects::ResolvePeerCandidate>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::effects::ResolvePeerCandidateResult>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<PeerCandidate>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SourceCountsEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IngestSharedPeersEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SetLedgerCandidatesEffect>().boxed(),
@@ -245,8 +259,13 @@ fn setup_preload_with_mode(
         |resources| {
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::with_peer_sources(
-                    prep.static_peers.clone(),
-                    prep.snapshot_candidates.clone(),
+                    prep.static_peers
+                        .iter()
+                        .copied()
+                        .map(PeerCandidate::from)
+                        .chain(prep.extra_static.iter().cloned())
+                        .collect(),
+                    prep.snapshot_candidates.iter().copied().map(PeerCandidate::from).collect(),
                     prep.ledger_candidates.clone(),
                     prep.peer_mix.clone(),
                 ),
@@ -265,6 +284,15 @@ fn setup_preload_with_mode(
             // NOTE: This makes peer selection's random choices fully deterministic in tests.
             running
                 .override_external_effect::<GenerateRandomSeed>(usize::MAX, |_| OverrideResult::handled([0x42u8; 32]));
+            let resolve = prep.resolve.clone();
+            running.override_external_effect::<crate::effects::ResolvePeerCandidate>(usize::MAX, move |eff| {
+                let peers = resolve.get(&eff.candidate).cloned().unwrap_or_default();
+                OverrideResult::handled(crate::effects::ResolvePeerCandidateResult {
+                    candidate: eff.candidate.clone(),
+                    origin: eff.origin,
+                    peers,
+                })
+            });
             // Peer-sharing filters: treat all candidates as shareable unless a test overrides.
             running.override_external_effect::<crate::performance::OkForSharingEffect>(usize::MAX, |_| {
                 OverrideResult::handled(true)

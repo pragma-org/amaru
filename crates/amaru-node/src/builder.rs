@@ -209,11 +209,11 @@ impl NodeBuilder {
             bail!("at least one upstream peer is required");
         }
 
-        let peer_snapshot_peers = if self.load_embedded_peer_snapshot {
-            load_embedded_peer_snapshot(self.network)
-                .context("load embedded peer snapshot")?
-                .map(|s| s.peers)
-                .unwrap_or_default()
+        let (peer_snapshot_peers, peer_snapshot_unresolved) = if self.load_embedded_peer_snapshot {
+            match load_embedded_peer_snapshot(self.network).context("load embedded peer snapshot")? {
+                Some(s) => (s.peers, s.unresolved),
+                None => Default::default(),
+            }
         } else {
             Default::default()
         };
@@ -230,6 +230,7 @@ impl NodeBuilder {
             chain_store: StoreType::RocksDb(RocksDbConfig::new(self.chain_dir)),
             upstream_peers,
             peer_snapshot_peers,
+            peer_snapshot_unresolved,
             network_magic: self.network.to_network_magic(),
             listen_address: self.listen_address,
             migrate_chain_db: self.migrate_chain_db,

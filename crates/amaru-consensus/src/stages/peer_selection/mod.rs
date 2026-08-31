@@ -30,8 +30,8 @@ use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
 
 pub use crate::performance::{DEFAULT_PEER_MIX, PeerMix, PeerMixParseError};
 use crate::{
-    effects::{GenerateRandomSeed, Ledger, LedgerOps},
-    performance::{Performance, SelectOutboundParams, SharedIngestResult},
+    effects::{GenerateRandomSeed, Ledger, LedgerOps, ResolvePeerCandidate, ResolvePeerCandidateResult},
+    performance::{PeerSource, Performance, SelectOutboundParams, SharedIngestResult},
 };
 
 const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
@@ -85,13 +85,18 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// messages and the child stage.
 ///
 /// - **Initialize**: Required at startup. Logs
-///   `"peer_selection.connect_initial"`. For every `static_peers` entry: sends
-///   `ManagerMessage::AddPeer` and records it as `PeerState::Connecting` in
-///   `outbound_peers`. Then calls `regulate_peers` so snapshot (and later ledger)
-///   candidates can fill any remaining outbound deficit. Unconditionally wires a
-///   new child stage `"peer-selection/ledger-check"` (via `eff.stage` + `eff.wire_up`
-///   with `LedgerCheck::new(eff.me())`, no supervision) and sends `()` to kick it off;
+///   `"peer_selection.connect_initial"`. For every resolved static [`Peer`]: sends
+///   `ManagerMessage::AddPeer` and records it as `PeerState::Connecting`. Host/SRV
+///   static and snapshot candidates are started with [`ResolvePeerCandidate`] via
+///   [`Effects::detach`](amaru_pure_stage::Effects::detach). Then `regulate_peers`
+///   fills remaining outbound slots. Unconditionally wires a new child stage
+///   `"peer-selection/ledger-check"` (via `eff.stage` + `eff.wire_up` with
+///   `LedgerCheck::new(eff.me())`, no supervision) and sends `()` to kick it off;
 ///   "failure in ledger-check shall tear down the node".
+///
+/// - **Resolved**: DNS result for a bootstrap candidate. Ingests addresses into
+///   Performance (static or snapshot origin), logs `peer_selection.peer.resolved`,
+///   dials new peers, then `regulate_peers`.
 ///
 /// - **Adversarial**: Debug-logs `peer_selection.peer.adversarial`. Delegates to
 ///   `ban_peer`: removes the peer from `inbound_peers` (if present;
@@ -294,6 +299,8 @@ pub enum PeerSelectionMsg {
     SharePeersResult { peer: Peer, peers: Vec<SocketAddr> },
     /// Server-side peer-sharing: select addresses to advertise to `peer` and reply on `reply_to`.
     ShareRequest { peer: Peer, amount: u8, reply_to: StageRef<SharePeersReply> },
+    /// DNS result for a bootstrap [`amaru_kernel::PeerCandidate`].
+    Resolved(ResolvePeerCandidateResult),
 }
 
 impl PeerSelectionMsg {
@@ -550,6 +557,15 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::AddPeer(p)).await;
                 state.outbound_peers.insert(p, PeerState::Connecting);
             }
+            let unresolved_static = eff.external(Performance::unresolved_static()).await;
+            for candidate in unresolved_static {
+                eff.detach(ResolvePeerCandidate::new(candidate, PeerSource::Static), PeerSelectionMsg::Resolved).await;
+            }
+            let unresolved_snapshot = eff.external(Performance::unresolved_snapshot()).await;
+            for candidate in unresolved_snapshot {
+                eff.detach(ResolvePeerCandidate::new(candidate, PeerSource::Snapshot), PeerSelectionMsg::Resolved)
+                    .await;
+            }
             // Fill remaining outbound slots via mix + quality selection in Performance.
             state.regulate_peers(&eff).await;
             // NOTE: no supervision, failure in ledger-check shall tear down the node.
@@ -731,6 +747,25 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             let count = selected.len();
             info!(protocols::peer_selection::sharing::SENT, peer, peers = peers_list, requested = amount, count,);
             eff.send(&reply_to, SharePeersReply { peers: selected }).await;
+        }
+        PeerSelectionMsg::Resolved(ResolvePeerCandidateResult { candidate, origin, peers }) => {
+            let peers_list = peers.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+            info!(
+                protocols::peer_selection::peer::RESOLVED,
+                candidate = candidate.to_string(),
+                origin = origin.as_str(),
+                peers = peers_list,
+                count = peers.len(),
+            );
+            eff.external(Performance::ingest_resolved(origin, candidate, peers.clone())).await;
+            for peer in peers {
+                if !state.outbound_peers.contains_key(&peer) {
+                    info!(protocols::peer_selection::peer::ADDED, peer, was_banned = false);
+                    eff.send(&state.manager, ManagerMessage::AddPeer(peer)).await;
+                    state.outbound_peers.insert(peer, PeerState::Connecting);
+                }
+            }
+            state.regulate_peers(&eff).await;
         }
     }
     state

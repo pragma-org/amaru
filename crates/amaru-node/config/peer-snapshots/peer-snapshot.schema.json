@@ -85,7 +85,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 65535,
-          "description": "TCP port (must be non-zero). When omitted, Amaru defaults to 3001."
+          "description": "TCP port (must be non-zero) for a single-host A/AAAA or IP relay. When omitted, `address` is a CIP-0155 multi-host SRV name (`_cardano._tcp.<address>`)."
         }
       }
     }

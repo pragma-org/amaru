@@ -2046,6 +2046,18 @@ define_schemas! {
                         required address: String
                         required reason: String
                     }
+                    /// A bootstrap name resolved to one or more peers.
+                    public RESOLVED {
+                        required candidate: String
+                        required origin: String
+                        required peers: String
+                        required count: usize
+                    }
+                    /// Name resolution for a bootstrap candidate failed or is unimplemented (SRV).
+                    public RESOLVE_FAILED {
+                        required candidate: String
+                        required reason: String
+                    }
                     /// A peer reconnected while a previous connection was still registered;
                     /// the older connection is dropped. Direction ∈ {inbound, outbound}.
                     public RECONNECTED {
