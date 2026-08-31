@@ -51,6 +51,12 @@ Other guiding principles:
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 
+### Added
+
+- **amaru / amaru-node**: allow operators to select the OTLP providers constructed at startup with
+  `AMARU_OPEN_TELEMETRY_SIGNALS`; it accepts any comma-separated subset of `metrics`, `traces`, and `logs`, and defaults
+  to all three signals for backward compatibility.
+
 ### Fixed
 
 - **amaru-node**: the stake-distribution callback no longer holds a strong `Resources` handle, so dropping a node graph closes its dummy RocksDB ledgers instead of leaking file descriptors across simulation runs.

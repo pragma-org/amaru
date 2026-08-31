@@ -17,7 +17,7 @@ use std::{process::ExitCode, time::Duration};
 use amaru::{
     exit::install_termination_signals,
     lifecycle::{RUNTIME_SHUTDOWN_TIMEOUT, set_signal_stderr_enabled},
-    observability::{Color, LocalTelemetry, ObservabilityHints, OpenTelemetryHandle, setup_observability},
+    observability::{Color, LocalTelemetry, ObservabilityHints, OpenTelemetryHandle, try_setup_observability},
     panic::panic_handler,
     version,
 };
@@ -91,13 +91,14 @@ fn try_main() -> anyhow::Result<()> {
             metrics_observer: Some(tui.metrics_observer()),
             capture_layer: Some(tui.tracing_layer()),
         });
-        let handle = setup_observability(
+        let handle = try_setup_observability(
             with_open_telemetry,
             with_json_traces,
             local,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
-        );
+        )
+        .inspect_err(|error| eprintln!("amaru: failed to configure observability: {error}"))?;
         // Record precise binary identity in operator logs as soon as tracing is live.
         version::log_build_version();
         handle

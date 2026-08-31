@@ -17,6 +17,7 @@ extern crate self as amaru_observability;
 pub mod field;
 pub mod json_format;
 pub mod layers;
+pub mod open_telemetry;
 pub mod otel_log_bridge;
 pub mod otel_trace_arrays;
 mod record_fields;
@@ -39,6 +40,7 @@ pub use layers::{
     CborAwareMakeVisitor, CborConsoleEventFormat, CborDiagVisitor, CborToStringVisit, HideTagFields,
     console_field_formatter,
 };
+pub use open_telemetry::{AMARU_OPEN_TELEMETRY_SIGNALS, OpenTelemetrySignals, ParseOpenTelemetrySignalsError};
 pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;
 pub use otel_trace_arrays::CborTraceArrayLayer;
