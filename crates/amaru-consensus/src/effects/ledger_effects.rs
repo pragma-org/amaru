@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
-use amaru_kernel::{ConsensusParameters, EraHistory, Header, Point, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, Header, PeerCandidate, Point, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
@@ -53,7 +53,7 @@ pub trait LedgerOps: Send + Sync {
     /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
     /// 2025), so it should be called with care. Please cache the result, it
     /// only changes meaningfully once per epoch.
-    fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>>;
+    fn registered_relay_candidates(&self) -> BoxFuture<'_, Result<BTreeSet<PeerCandidate>, BlockValidationError>>;
 }
 
 /// Implementation of LedgerOps using amaru_pure_stage::Effects.
@@ -102,8 +102,8 @@ impl LedgerOps for Ledger {
         self.effects.external(VolatileTipEffect)
     }
 
-    fn registered_relay_socket_addrs(&self) -> BoxFuture<'_, Result<BTreeSet<SocketAddr>, BlockValidationError>> {
-        self.effects.external(RegisteredRelaySocketAddrsEffect)
+    fn registered_relay_candidates(&self) -> BoxFuture<'_, Result<BTreeSet<PeerCandidate>, BlockValidationError>> {
+        self.effects.external(RegisteredRelayCandidatesEffect)
     }
 }
 
@@ -345,19 +345,19 @@ impl ExternalEffectAPI for VolatileTipEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RegisteredRelaySocketAddrsEffect;
+pub struct RegisteredRelayCandidatesEffect;
 
-impl ExternalEffectAPI for RegisteredRelaySocketAddrsEffect {
-    type Response = Result<BTreeSet<SocketAddr>, BlockValidationError>;
+impl ExternalEffectAPI for RegisteredRelayCandidatesEffect {
+    type Response = Result<BTreeSet<PeerCandidate>, BlockValidationError>;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let stake_pools = resources
                 .get::<ResourceHasStakePools>()
-                .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasStakePools resource")
+                .expect("RegisteredRelayCandidatesEffect requires a ResourceHasStakePools resource")
                 .clone();
-            stake_pools.registered_relay_socket_addrs()
+            stake_pools.registered_relay_candidates()
         })
     }
 }

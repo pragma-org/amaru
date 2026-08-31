@@ -394,12 +394,12 @@ fn outbound_selection_skips_excluded_unresolved_host() {
 }
 
 #[test]
-fn ingest_resolved_moves_name_into_origin_pool() {
+fn note_dial_keeps_hostname_in_pool_and_marks_origin() {
     use std::collections::BTreeSet;
 
     use amaru_kernel::PeerCandidate;
 
-    use crate::performance::PeerSource;
+    use crate::performance::{OutboundPick, PeerMix, PeerSource, SelectOutboundParams};
 
     let host = PeerCandidate::host("relay.example".parse().unwrap(), 3001);
     let resolved = peer("10.9.9.9:3001");
@@ -407,12 +407,17 @@ fn ingest_resolved_moves_name_into_origin_pool() {
         BTreeSet::from([host.clone()]),
         BTreeSet::new(),
         BTreeSet::new(),
-        crate::performance::PeerMix::parse("static~1").unwrap(),
+        PeerMix::parse("static~1").unwrap(),
     );
-    assert_eq!(peers.apply_unresolved_static(), BTreeSet::from([host.clone()]));
-    peers.apply_ingest_resolved(PeerSource::Static, &host, resolved);
-    assert!(peers.apply_unresolved_static().is_empty());
+    peers.apply_note_dial(PeerSource::Static, &host, resolved);
     assert!(peers.apply_is_static_peer(&resolved));
+    let picked = peers.apply_select_outbound(SelectOutboundParams {
+        open: 1,
+        excluded: BTreeSet::new(),
+        seed: [0x42; 32],
+        now: t(1),
+    });
+    assert_eq!(picked, vec![OutboundPick { candidate: host, origin: PeerSource::Static }]);
 }
 
 #[test]

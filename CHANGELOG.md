@@ -47,7 +47,7 @@ Other guiding principles:
 
 ### Added
 
-- **amaru-kernel**: `PeerCandidate` is `Socket` (already a `Peer`), `Host` (hostname+port, A/AAAA) or `Srv` (DNS name). `Host`/`Srv` names are a validated [`DnsName`] (no colons, brackets, or IP literals). The mix selects a candidate first; name resolution runs just before dialling and yields at most one `Peer`. Host lookup takes the first viable A/AAAA; SRV lookup tries `_cardano._tcp.<name>` in RFC 2782 priority order and stops at the first viable target address. A snapshot/ledger relay with no port is a CIP-0155 SRV name, not hostname:3001.
+- **amaru-kernel**: `PeerCandidate` is `Socket` (already a `Peer`), `Host` (hostname+port, A/AAAA) or `Srv` (DNS name). `Host`/`Srv` names are a validated [`DnsName`] (no colons, brackets, or IP literals). Outbound mix pools are `PeerCandidate`s (static included); Host/SRV names are resolved on each dial so DNS changes are picked up. Host lookup takes the first viable A/AAAA; SRV lookup tries `_cardano._tcp.<name>` in RFC 2782 priority order and stops at the first viable target address. Ledger relays pass through as candidates (socket, hostname+port, or CIP-0155 SRV when the port is omitted).
 - **amaru-pure-stage**: `Effects::detach` runs an external effect without occupying the airlock. The transition is resumed with `()` immediately; when `run()` completes the interpreter applies the provided constructor and enqueues the value on the calling stage’s bulk mailbox.
 - **amaru-node**: allow embedders to disable sysinfo-backed system metrics collection through `TelemetryOptions`.
 

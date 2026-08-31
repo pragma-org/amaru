@@ -29,7 +29,7 @@ use tokio::runtime::Runtime;
 use super::*;
 pub use crate::stages::test_utils::TraceMatch;
 use crate::{
-    effects::{GenerateRandomSeed, RegisteredRelaySocketAddrsEffect, TipEffect, VolatileTipEffect},
+    effects::{GenerateRandomSeed, RegisteredRelayCandidatesEffect, TipEffect, VolatileTipEffect},
     stages::test_utils::{Logs, SimulationRunMode, run_simulation_with, start_in_era},
 };
 
@@ -108,7 +108,7 @@ pub struct TestPrep {
     pub static_peers: BTreeSet<Peer>,
     pub extra_static: BTreeSet<PeerCandidate>,
     pub snapshot_candidates: BTreeSet<Peer>,
-    pub ledger_candidates: BTreeSet<Peer>,
+    pub ledger_candidates: BTreeSet<PeerCandidate>,
     pub peer_mix: crate::performance::PeerMix,
     /// Mock DNS: `ResolvePeerCandidate` returns the first peer in the set (or `None` if absent/empty).
     pub resolve: BTreeMap<PeerCandidate, BTreeSet<Peer>>,
@@ -121,7 +121,7 @@ impl TestPrep {
 
     /// Seed ledger candidates for the Performance resource installed in [`setup_preload`].
     pub fn with_ledger(mut self, names: &[&str]) -> Self {
-        self.ledger_candidates = names.iter().map(|n| Self::peer(n)).collect();
+        self.ledger_candidates = names.iter().map(|n| PeerCandidate::from(Self::peer(n))).collect();
         self
     }
 }
@@ -165,8 +165,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectOutboundEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IsStaticPeerEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::StaticPeersEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::IngestResolvedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::NoteDialEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::ResolvePeerCandidate>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::effects::ResolvePeerCandidateResult>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerCandidate>().boxed(),
@@ -275,7 +274,7 @@ fn setup_preload_with_mode(
             running
                 .override_external_effect::<VolatileTipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
             running.override_external_effect::<TipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
-            running.override_external_effect::<RegisteredRelaySocketAddrsEffect>(usize::MAX, |_| {
+            running.override_external_effect::<RegisteredRelayCandidatesEffect>(usize::MAX, |_| {
                 OverrideResult::handled(Ok(BTreeSet::new()))
             });
 

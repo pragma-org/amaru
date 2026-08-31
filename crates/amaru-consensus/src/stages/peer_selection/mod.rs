@@ -76,6 +76,8 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// - `inbound_peers`: `BTreeMap<Peer, Connection>` (downstream tracking).
 /// - `outbound_peers`: `BTreeMap<Peer, PeerState>` (`Connecting` or `Connected(Connection)`).
 /// - `pending_resolve`: Host/SRV candidates currently being resolved (count toward occupancy).
+/// - `bound`: Host/SRV candidates whose current outbound dial came from them (excluded from mix
+///   until that peer leaves outbound, so the name can be resolved again later).
 /// - `share_reply`: contramap of this stage accepting [`ShareResult`] (shared by all
 ///   peer-sharing initiators; scheduling lives on each initiator with its connection).
 ///
@@ -86,19 +88,18 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// messages and the child stage.
 ///
 /// - **Initialize**: Required at startup. Logs
-///   `"peer_selection.connect_initial"`. For every resolved static [`Peer`]: sends
-///   `ManagerMessage::AddPeer` and records it as `PeerState::Connecting`. Host/SRV
-///   names are **not** resolved here — they are selected by the mix and resolved
-///   just before dialling. Then `regulate_peers` fills remaining outbound slots.
+///   `"peer_selection.connect_initial"`. Then `regulate_peers` fills outbound slots
+///   from the mix (static included). Host/SRV names are resolved just before
+///   dialling and remain in their source pool so a later pick re-resolves.
 ///   Unconditionally wires a new child stage `"peer-selection/ledger-check"`
 ///   (via `eff.stage` + `eff.wire_up` with `LedgerCheck::new(eff.me())`, no
 ///   supervision) and sends `()` to kick it off; "failure in ledger-check shall
 ///   tear down the node".
 ///
 /// - **Resolved**: DNS result for a selected bootstrap candidate (at most one
-///   [`Peer`]). On success, ingests that address into Performance, dials it, then
-///   `regulate_peers`. On failure, drops the pending resolve and does not refill
-///   immediately (avoids a tight resolve loop).
+///   [`Peer`]). On success, notes the dial origin for malus, dials that address,
+///   then `regulate_peers`. The candidate stays in its pool. On failure, drops the
+///   pending resolve and does not refill immediately (avoids a tight resolve loop).
 ///
 /// - **Adversarial**: Debug-logs `peer_selection.peer.adversarial`. Delegates to
 ///   `ban_peer`: removes the peer from `inbound_peers` (if present;
@@ -170,7 +171,7 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// - Uses `Ledger::new(eff.clone())` (from `crate::effects`).
 /// - Queries `volatile_tip().block_height()`.
 /// - If insufficient height delta: `reschedule_check`.
-/// - Queries `registered_relay_socket_addrs()`, maps to `Peer::from_addr`.
+/// - Queries `registered_relay_candidates()`, writes [`PeerCandidate`]s (sockets, hostnames, SRV).
 /// - On error: warns `"failed to get ledger entries"`, reschedules.
 /// - On success: writes the set into Performance via `set_ledger_candidates` (not via the
 ///   parent mailbox), then sends payload-free `PeerSelectionMsg::Regulate` so the parent
@@ -235,6 +236,8 @@ pub struct PeerSelection {
     outbound_peers: BTreeMap<Peer, PeerState>,
     /// Host/SRV candidates with an in-flight [`ResolvePeerCandidate`] (not yet dialled).
     pending_resolve: BTreeSet<PeerCandidate>,
+    /// Host/SRV candidates currently bound to an outbound [`Peer`] (re-resolved after unbind).
+    bound: BTreeMap<PeerCandidate, Peer>,
     /// Contramap target for peer-sharing replies ([`ShareResult`] → [`PeerSelectionMsg::SharePeersResult`]).
     /// Ignored in [`PartialEq`] (lazily wired, test-unstable name).
     share_reply: StageRef<ShareResult>,
@@ -251,6 +254,7 @@ impl PartialEq for PeerSelection {
             && self.inbound_peers == other.inbound_peers
             && self.outbound_peers == other.outbound_peers
             && self.pending_resolve == other.pending_resolve
+            && self.bound == other.bound
         // share_reply intentionally omitted
     }
 }
@@ -339,6 +343,7 @@ impl PeerSelection {
             inbound_peers: BTreeMap::new(),
             outbound_peers: BTreeMap::new(),
             pending_resolve: BTreeSet::new(),
+            bound: BTreeMap::new(),
             share_reply: StageRef::blackhole(),
         }
     }
@@ -376,6 +381,7 @@ impl PeerSelection {
             );
             send_remove = true;
             refill_outbound = true;
+            self.unbind_peer(&peer);
         }
 
         if send_remove {
@@ -428,6 +434,26 @@ impl PeerSelection {
         }
     }
 
+    fn unbind_peer(&mut self, peer: &Peer) {
+        self.bound.retain(|_, bound| bound != peer);
+    }
+
+    async fn start_dial(
+        &mut self,
+        candidate: PeerCandidate,
+        origin: crate::performance::PeerSource,
+        peer: Peer,
+        eff: &Effects<PeerSelectionMsg>,
+    ) {
+        eff.external(Performance::note_dial(origin, candidate.clone(), peer)).await;
+        if candidate.needs_resolution() {
+            self.bound.insert(candidate, peer);
+        }
+        info!(protocols::peer_selection::peer::ADDED, peer, was_banned = false);
+        eff.send(&self.manager, ManagerMessage::AddPeer(peer)).await;
+        self.outbound_peers.insert(peer, PeerState::Connecting);
+    }
+
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
         let target_upstream_peers = self.target_upstream_peers;
         let outbound = self.outbound_peers.len() + self.pending_resolve.len();
@@ -444,6 +470,7 @@ impl PeerSelection {
             excluded.insert(PeerCandidate::from(p));
         }
         excluded.extend(self.pending_resolve.iter().cloned());
+        excluded.extend(self.bound.keys().cloned());
         let picked =
             eff.external(Performance::select_outbound(SelectOutboundParams { open, excluded, seed, now })).await;
         for pick in picked {
@@ -452,9 +479,7 @@ impl PeerSelection {
                     if self.outbound_peers.contains_key(&peer) {
                         continue;
                     }
-                    info!(protocols::peer_selection::peer::ADDED, peer, was_banned = false);
-                    eff.send(&self.manager, ManagerMessage::AddPeer(peer)).await;
-                    self.outbound_peers.insert(peer, PeerState::Connecting);
+                    self.start_dial(pick.candidate, pick.origin, peer, eff).await;
                 }
                 None => {
                     if !self.pending_resolve.insert(pick.candidate.clone()) {
@@ -573,13 +598,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 static_peers = counts.static_peers,
                 snapshot_peers = counts.snapshot_candidates
             );
-            let static_peers = eff.external(Performance::static_peers()).await;
-            for p in static_peers {
-                eff.send(&state.manager, ManagerMessage::AddPeer(p)).await;
-                state.outbound_peers.insert(p, PeerState::Connecting);
-            }
-            // Fill remaining outbound slots via mix + quality selection in Performance.
-            // Host/SRV names are selected here and resolved just before dialling.
+            // Mix includes static sockets and names; Host/SRV are resolved just before dialling
+            // and stay in their pool so a later pick re-resolves.
             state.regulate_peers(&eff).await;
             // NOTE: no supervision, failure in ledger-check shall tear down the node.
             let ledger_check = eff
@@ -730,6 +750,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 .entered();
                 entry.remove();
                 drop(span);
+                state.unbind_peer(&peer);
                 state.clear_availability_if_gone(&peer, &eff).await;
                 state.regulate_peers(&eff).await;
             }
@@ -738,6 +759,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             let now = eff.clock().await;
             eff.external(Performance::record_connection_failure(peer, now)).await;
             state.outbound_peers.remove(&peer);
+            state.unbind_peer(&peer);
             state.clear_availability_if_gone(&peer, &eff).await;
             state.regulate_peers(&eff).await;
         }
@@ -772,12 +794,14 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 origin = origin.as_str(),
                 peer,
             );
-            eff.external(Performance::ingest_resolved(origin, candidate, peer)).await;
-            if !state.outbound_peers.contains_key(&peer) && !state.cooldowns.is_cooling(&peer) {
-                info!(protocols::peer_selection::peer::ADDED, peer, was_banned = false);
-                eff.send(&state.manager, ManagerMessage::AddPeer(peer)).await;
-                state.outbound_peers.insert(peer, PeerState::Connecting);
+            if state.cooldowns.is_cooling(&peer) {
+                return state;
             }
+            if state.outbound_peers.contains_key(&peer) {
+                state.regulate_peers(&eff).await;
+                return state;
+            }
+            state.start_dial(candidate, origin, peer, &eff).await;
             state.regulate_peers(&eff).await;
         }
     }
@@ -810,7 +834,7 @@ async fn get_ledger_candidates_inner(mut state: LedgerCheck, _msg: (), eff: Effe
     if current_height < state.last_height + state.min_height_change {
         return reschedule_check(state, eff).await;
     }
-    let ledger_entries = ledger.registered_relay_socket_addrs().await;
+    let ledger_entries = ledger.registered_relay_candidates().await;
     let ledger_entries = match ledger_entries {
         Ok(entries) => entries,
         Err(error) => {
@@ -818,20 +842,6 @@ async fn get_ledger_candidates_inner(mut state: LedgerCheck, _msg: (), eff: Effe
             return reschedule_check(state, eff).await;
         }
     };
-    let ledger_entries = ledger_entries
-        .into_iter()
-        .filter_map(|entry| match Peer::try_from(entry) {
-            Ok(peer) => Some(peer),
-            Err(reason) => {
-                warn!(
-                    protocols::peer_selection::peer::ADDRESS_REJECTED,
-                    address = entry.to_string(),
-                    reason = reason.to_string()
-                );
-                None
-            }
-        })
-        .collect();
     // Keep the large candidate set out of the parent stage mailbox / TraceBuffer path.
     eff.external(Performance::set_ledger_candidates(ledger_entries)).await;
     eff.send(&state.stage, PeerSelectionMsg::Regulate).await;

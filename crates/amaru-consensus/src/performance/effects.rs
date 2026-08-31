@@ -182,7 +182,7 @@ impl Performance {
         OkForSharingEffect { peer, now }
     }
 
-    pub fn set_ledger_candidates(candidates: std::collections::BTreeSet<Peer>) -> SetLedgerCandidatesEffect {
+    pub fn set_ledger_candidates(candidates: std::collections::BTreeSet<PeerCandidate>) -> SetLedgerCandidatesEffect {
         SetLedgerCandidatesEffect { candidates }
     }
 
@@ -202,16 +202,8 @@ impl Performance {
         IsStaticPeerEffect { peer }
     }
 
-    pub fn static_peers() -> StaticPeersEffect {
-        StaticPeersEffect
-    }
-
-    pub fn ingest_resolved(
-        origin: crate::performance::PeerSource,
-        candidate: PeerCandidate,
-        peer: Peer,
-    ) -> IngestResolvedEffect {
-        IngestResolvedEffect { origin, candidate, peer }
+    pub fn note_dial(origin: crate::performance::PeerSource, candidate: PeerCandidate, peer: Peer) -> NoteDialEffect {
+        NoteDialEffect { origin, candidate, peer }
     }
 
     pub fn shared_contains(peer: Peer) -> SharedContainsEffect {
@@ -605,7 +597,7 @@ impl ExternalEffectAPI for OkForSharingEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SetLedgerCandidatesEffect {
-    pub(crate) candidates: std::collections::BTreeSet<Peer>,
+    pub(crate) candidates: std::collections::BTreeSet<PeerCandidate>,
 }
 
 impl ExternalEffectAPI for SetLedgerCandidatesEffect {
@@ -687,33 +679,19 @@ impl ExternalEffectAPI for IsStaticPeerEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StaticPeersEffect;
-
-impl ExternalEffectAPI for StaticPeersEffect {
-    type Response = std::collections::BTreeSet<Peer>;
-
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        self.wrap(|this| async move {
-            enqueue_query(&perf, |reply| PerformanceOp::StaticPeers { effect: this, reply }).await
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IngestResolvedEffect {
+pub struct NoteDialEffect {
     pub(crate) origin: crate::performance::PeerSource,
     pub(crate) candidate: PeerCandidate,
     pub(crate) peer: Peer,
 }
 
-impl ExternalEffectAPI for IngestResolvedEffect {
+impl ExternalEffectAPI for NoteDialEffect {
     type Response = ();
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let perf = require_perf(&resources);
-            enqueue(&perf, PerformanceOp::IngestResolved { effect: self.as_ref().clone() });
+            enqueue(&perf, PerformanceOp::NoteDial { effect: self.as_ref().clone() });
         })
     }
 }

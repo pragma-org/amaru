@@ -95,6 +95,8 @@ fn test_initialize_adds_static_peers() {
     );
 
     logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=2", "snapshot_peers=0"])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="10.0.0.1:1""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="10.0.0.2:2""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -115,6 +117,7 @@ fn test_initialize_resolves_static_hostname() {
 
     let mut state = prep.state.clone();
     state.outbound_peers.insert(resolved, PeerState::Connecting);
+    state.bound.insert(candidate.clone(), resolved);
     let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -158,6 +161,7 @@ fn test_initialize_resolves_static_srv() {
 
     let mut state = prep.state.clone();
     state.outbound_peers.insert(resolved, PeerState::Connecting);
+    state.bound.insert(candidate.clone(), resolved);
     let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -1265,7 +1269,7 @@ fn test_share_candidate_pool_excludes_ledger_and_snapshot() {
     let mut peers = PeerPerformance::with_sources(
         BTreeSet::from([static_p]).into_iter().map(amaru_kernel::PeerCandidate::from).collect(),
         BTreeSet::from([snap]).into_iter().map(amaru_kernel::PeerCandidate::from).collect(),
-        BTreeSet::from([ledger]),
+        BTreeSet::from([ledger]).into_iter().map(amaru_kernel::PeerCandidate::from).collect(),
         crate::performance::PeerMix::default(),
     );
     peers.apply_ingest_shared_peers(&static_p, &["10.0.0.4:3001".parse().unwrap()]);

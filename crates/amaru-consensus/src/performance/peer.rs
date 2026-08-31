@@ -49,22 +49,6 @@ pub const OUTBOUND_MALUS_LAMBDA: f64 = 1.0;
 /// Softmax temperature for weighted outbound sampling.
 pub const OUTBOUND_PICK_TEMPERATURE: f64 = 1.0;
 
-fn split_candidates(candidates: BTreeSet<PeerCandidate>) -> (BTreeSet<Peer>, BTreeSet<PeerCandidate>) {
-    let mut peers = BTreeSet::new();
-    let mut unresolved = BTreeSet::new();
-    for candidate in candidates {
-        match candidate.as_peer() {
-            Some(peer) => {
-                peers.insert(peer);
-            }
-            None => {
-                unresolved.insert(candidate);
-            }
-        }
-    }
-    (peers, unresolved)
-}
-
 /// Bonus for peers with no Performance observation yet (never connected / unknown).
 pub const NEVER_CONNECTED_BONUS: f64 = 0.5;
 /// Upper bound on peers returned in one share response.
@@ -250,12 +234,14 @@ pub struct PeerPerformance {
     peers: BTreeMap<Peer, PeerState>,
     /// Admin mix formula (floors, weights, per-source malus half-lives).
     peer_mix: PeerMix,
-    static_peers: BTreeSet<Peer>,
-    unresolved_static: BTreeSet<PeerCandidate>,
-    shared_peers: BTreeSet<Peer>,
-    snapshot_candidates: BTreeSet<Peer>,
-    unresolved_snapshot: BTreeSet<PeerCandidate>,
-    ledger_candidates: BTreeSet<Peer>,
+    static_peers: BTreeSet<PeerCandidate>,
+    shared_peers: BTreeSet<PeerCandidate>,
+    snapshot_candidates: BTreeSet<PeerCandidate>,
+    ledger_candidates: BTreeSet<PeerCandidate>,
+    /// Origin of a dialed [`Peer`], for malus half-life after Host/SRV resolution.
+    peer_origin: BTreeMap<Peer, PeerSource>,
+    /// Last address obtained for a candidate; used only to score Host/SRV on later picks.
+    last_peer: BTreeMap<PeerCandidate, Peer>,
 }
 
 impl PeerPerformance {
@@ -265,29 +251,18 @@ impl PeerPerformance {
 
     /// Bootstrap candidate pools and the admin mix (typically once at node start).
     ///
-    /// [`PeerCandidate::Socket`] entries are stored as resolved [`Peer`]s immediately.
-    /// Host/SRV names stay in the unresolved sets until a successful resolve at dial time
-    /// ([`Self::apply_ingest_resolved`]).
+    /// All four sources are [`PeerCandidate`] sets. Host/SRV names stay in the pool and are
+    /// resolved again each time they are selected (DNS can change).
     pub fn with_sources(
         static_peers: BTreeSet<PeerCandidate>,
         snapshot_candidates: BTreeSet<PeerCandidate>,
-        ledger_candidates: BTreeSet<Peer>,
+        ledger_candidates: BTreeSet<PeerCandidate>,
         peer_mix: PeerMix,
     ) -> Self {
-        let (static_peers, unresolved_static) = split_candidates(static_peers);
-        let (snapshot_candidates, unresolved_snapshot) = split_candidates(snapshot_candidates);
-        Self {
-            static_peers,
-            unresolved_static,
-            snapshot_candidates,
-            unresolved_snapshot,
-            ledger_candidates,
-            peer_mix,
-            ..Self::default()
-        }
+        Self { static_peers, snapshot_candidates, ledger_candidates, peer_mix, ..Self::default() }
     }
 
-    pub fn apply_set_ledger_candidates(&mut self, candidates: BTreeSet<Peer>) {
+    pub fn apply_set_ledger_candidates(&mut self, candidates: BTreeSet<PeerCandidate>) {
         self.ledger_candidates = candidates;
     }
 
@@ -306,14 +281,15 @@ impl PeerPerformance {
                     continue;
                 }
             };
+            let candidate = PeerCandidate::from(peer);
             if &peer == from
-                || self.static_peers.contains(&peer)
-                || self.snapshot_candidates.contains(&peer)
-                || self.ledger_candidates.contains(&peer)
+                || self.static_peers.contains(&candidate)
+                || self.snapshot_candidates.contains(&candidate)
+                || self.ledger_candidates.contains(&candidate)
             {
                 continue;
             }
-            if self.shared_peers.insert(peer) {
+            if self.shared_peers.insert(candidate) {
                 added += 1;
             }
         }
@@ -321,62 +297,47 @@ impl PeerPerformance {
     }
 
     pub fn apply_is_static_peer(&self, peer: &Peer) -> bool {
-        self.static_peers.contains(peer)
-    }
-
-    pub fn apply_static_peers(&self) -> BTreeSet<Peer> {
-        self.static_peers.clone()
-    }
-
-    pub fn apply_unresolved_static(&self) -> BTreeSet<PeerCandidate> {
-        self.unresolved_static.clone()
-    }
-
-    pub fn apply_unresolved_snapshot(&self) -> BTreeSet<PeerCandidate> {
-        self.unresolved_snapshot.clone()
-    }
-
-    /// Record a successful just-in-time resolve: the name leaves the unresolved set and the
-    /// single [`Peer`] joins the origin pool.
-    pub fn apply_ingest_resolved(&mut self, origin: PeerSource, candidate: &PeerCandidate, peer: Peer) {
-        match origin {
-            PeerSource::Static => {
-                self.unresolved_static.remove(candidate);
-                self.static_peers.insert(peer);
-            }
-            PeerSource::Snapshot => {
-                self.unresolved_snapshot.remove(candidate);
-                self.snapshot_candidates.insert(peer);
-            }
-            PeerSource::Shared | PeerSource::Ledger => {}
-        }
+        self.canonical_source(peer) == Some(PeerSource::Static)
     }
 
     pub fn apply_shared_contains(&self, peer: &Peer) -> bool {
-        self.shared_peers.contains(peer)
+        self.shared_peers.contains(&PeerCandidate::from(*peer))
     }
 
     pub fn apply_source_counts(&self) -> SourceCounts {
         SourceCounts {
-            static_peers: self.static_peers.len() + self.unresolved_static.len(),
+            static_peers: self.static_peers.len(),
             shared_peers: self.shared_peers.len(),
-            snapshot_candidates: self.snapshot_candidates.len() + self.unresolved_snapshot.len(),
+            snapshot_candidates: self.snapshot_candidates.len(),
             ledger_candidates: self.ledger_candidates.len(),
+        }
+    }
+
+    /// Remember a dial so Host/SRV names keep their source half-life and later picks can score
+    /// against the last address, without replacing the candidate in its pool.
+    pub fn apply_note_dial(&mut self, origin: PeerSource, candidate: &PeerCandidate, peer: Peer) {
+        self.last_peer.insert(candidate.clone(), peer);
+        match self.peer_origin.get(&peer) {
+            Some(existing) if *existing <= origin => {}
+            _ => {
+                self.peer_origin.insert(peer, origin);
+            }
         }
     }
 
     /// Canonical origin: static > shared > snapshot > ledger.
     pub fn canonical_source(&self, peer: &Peer) -> Option<PeerSource> {
-        if self.static_peers.contains(peer) {
+        let socket = PeerCandidate::from(*peer);
+        if self.static_peers.contains(&socket) {
             Some(PeerSource::Static)
-        } else if self.shared_peers.contains(peer) {
+        } else if self.shared_peers.contains(&socket) {
             Some(PeerSource::Shared)
-        } else if self.snapshot_candidates.contains(peer) {
+        } else if self.snapshot_candidates.contains(&socket) {
             Some(PeerSource::Snapshot)
-        } else if self.ledger_candidates.contains(peer) {
+        } else if self.ledger_candidates.contains(&socket) {
             Some(PeerSource::Ledger)
         } else {
-            None
+            self.peer_origin.get(peer).copied()
         }
     }
 
@@ -468,50 +429,37 @@ impl PeerPerformance {
 
     fn share_candidate_pool(&self) -> BTreeSet<Peer> {
         let mut pool = BTreeSet::new();
-        for p in &self.static_peers {
-            pool.insert(*p);
-        }
+        pool.extend(self.static_peers.iter().filter_map(PeerCandidate::as_peer));
+        pool.extend(self.shared_peers.iter().filter_map(PeerCandidate::as_peer));
         for p in self.peers.keys() {
-            // Outbound peers that are not ledger/snapshot-derived appear via canonical static/shared only;
-            // also include any peer we have scores for that is static or shared.
             if self.canonical_source(p) == Some(PeerSource::Static)
                 || self.canonical_source(p) == Some(PeerSource::Shared)
             {
                 pool.insert(*p);
             }
         }
-        for p in &self.shared_peers {
-            pool.insert(*p);
-        }
-        pool.retain(|p| !self.ledger_candidates.contains(p) && !self.snapshot_candidates.contains(p));
+        pool.retain(|p| {
+            let socket = PeerCandidate::from(*p);
+            !self.ledger_candidates.contains(&socket) && !self.snapshot_candidates.contains(&socket)
+        });
         pool
     }
 
     fn eligible_for_source(&self, source: PeerSource, excluded: &BTreeSet<PeerCandidate>) -> Vec<PeerCandidate> {
-        let (resolved, unresolved): (&BTreeSet<Peer>, Option<&BTreeSet<PeerCandidate>>) = match source {
-            PeerSource::Static => (&self.static_peers, Some(&self.unresolved_static)),
-            PeerSource::Shared => (&self.shared_peers, None),
-            PeerSource::Snapshot => (&self.snapshot_candidates, Some(&self.unresolved_snapshot)),
-            PeerSource::Ledger => (&self.ledger_candidates, None),
+        let pool = match source {
+            PeerSource::Static => &self.static_peers,
+            PeerSource::Shared => &self.shared_peers,
+            PeerSource::Snapshot => &self.snapshot_candidates,
+            PeerSource::Ledger => &self.ledger_candidates,
         };
-        let mut out: Vec<PeerCandidate> = resolved
-            .iter()
-            .filter(|p| self.canonical_source(p) == Some(source))
-            .map(|p| PeerCandidate::from(*p))
-            .filter(|c| !excluded.contains(c))
-            .collect();
-        if let Some(unresolved) = unresolved {
-            out.extend(unresolved.iter().filter(|c| !excluded.contains(*c)).cloned());
-        }
-        out
+        pool.iter().filter(|c| !excluded.contains(*c)).cloned().collect()
     }
 
     fn outbound_weights_for(&self, candidates: &[PeerCandidate], now: Instant) -> Vec<OutboundWeight> {
         candidates
             .iter()
             .map(|candidate| {
-                let Some(peer) = candidate.as_peer() else {
-                    // Host/SRV have no Performance row until a successful dial.
+                let Some(peer) = candidate.as_peer().or_else(|| self.last_peer.get(candidate).copied()) else {
                     return OutboundWeight {
                         candidate: candidate.clone(),
                         weight: outbound_sampling_weight(NEVER_CONNECTED_BONUS),

@@ -163,8 +163,7 @@ pub(crate) enum PerformanceOp {
     SelectOutbound { effect: SelectOutboundEffect, reply: oneshot::Sender<Vec<OutboundPick>> },
     SelectSharePeers { effect: SelectSharePeersEffect, reply: oneshot::Sender<Vec<std::net::SocketAddr>> },
     IsStaticPeer { effect: IsStaticPeerEffect, reply: oneshot::Sender<bool> },
-    StaticPeers { effect: StaticPeersEffect, reply: oneshot::Sender<std::collections::BTreeSet<Peer>> },
-    IngestResolved { effect: IngestResolvedEffect },
+    NoteDial { effect: NoteDialEffect },
     SharedContains { effect: SharedContainsEffect, reply: oneshot::Sender<bool> },
     SourceCounts { effect: SourceCountsEffect, reply: oneshot::Sender<SourceCounts> },
     RecordRollback { effect: RecordRollbackEffect },
@@ -186,14 +185,13 @@ impl Performance {
 
     /// Start the worker with outbound candidate sources and mix.
     ///
-    /// This is the **only** place static/snapshot pools and the peer-mix formula are set;
-    /// there is no live reconfiguration effect. Literal [`PeerCandidate::Socket`] entries
-    /// become resolved peers immediately; host/SRV names are selected as candidates and
-    /// resolved just before dialling via [`Performance::ingest_resolved`].
+    /// This is the **only** place static/snapshot/ledger pools and the peer-mix formula are set;
+    /// there is no live reconfiguration effect. Pools are [`PeerCandidate`]s; Host/SRV names are
+    /// resolved on demand each time they are selected.
     pub fn with_peer_sources(
         static_peers: std::collections::BTreeSet<PeerCandidate>,
         snapshot_candidates: std::collections::BTreeSet<PeerCandidate>,
-        ledger_candidates: std::collections::BTreeSet<Peer>,
+        ledger_candidates: std::collections::BTreeSet<PeerCandidate>,
         peer_mix: PeerMix,
     ) -> Self {
         let (tx, mut rx) = unbounded_channel::<PerformanceOp>();
@@ -382,12 +380,8 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             let result = peers.apply_is_static_peer(&effect.peer);
             let _ = reply.send(result);
         }
-        PerformanceOp::StaticPeers { effect: StaticPeersEffect, reply } => {
-            let result = peers.apply_static_peers();
-            let _ = reply.send(result);
-        }
-        PerformanceOp::IngestResolved { effect } => {
-            peers.apply_ingest_resolved(effect.origin, &effect.candidate, effect.peer);
+        PerformanceOp::NoteDial { effect } => {
+            peers.apply_note_dial(effect.origin, &effect.candidate, effect.peer);
         }
         PerformanceOp::SharedContains { effect, reply } => {
             let result = peers.apply_shared_contains(&effect.peer);
