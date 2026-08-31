@@ -123,40 +123,48 @@ eta_hint() {
 }
 
 wait_for_downstream_slot() {
-  local target_slot="$1"
-  local timeout="$TX_SYNC_TIMEOUT_SECONDS"
-  local start now elapsed downstream remaining prev_down prev_t poll_interval eta
-  validate_amaru_runtime_network "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}" "downstream"
+  wait_for_amaru_slot \
+    "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}" \
+    "downstream" \
+    "$1" \
+    "$TX_SYNC_TIMEOUT_SECONDS"
+}
+
+# Waits until an Amaru process has adopted a target slot according to its structured log.
+wait_for_amaru_slot() {
+  local log="$1" label="$2" target_slot="$3" timeout="${4:-$TX_SYNC_TIMEOUT_SECONDS}"
+  local start now elapsed adopted remaining prev_adopted prev_t poll_interval eta
+  validate_amaru_runtime_network "$log" "$label"
   poll_interval="$(sync_poll_interval_seconds)"
   start="$(date +%s)"
-  prev_down=""
+  prev_adopted=""
   prev_t=""
-  echo "[submit-tx] waiting for downstream Amaru to reach selected input availability slot ${target_slot} (timeout: ${timeout}s)..."
+  echo "[submit-tx] waiting for $label Amaru to reach selected input availability slot ${target_slot} (timeout: ${timeout}s)..."
   while true; do
     now="$(date +%s)"
     elapsed=$(( now - start ))
-    downstream="$(downstream_adopted_slot)"
-    if [[ -n "$downstream" ]]; then
-      remaining=$(( target_slot - downstream ))
+    adopted="$(adopted_slot_from_log "$log")"
+    if [[ -n "$adopted" ]]; then
+      remaining=$(( target_slot - adopted ))
       eta=""
       if (( remaining <= 0 )); then
-        echo "[submit-tx] downstream Amaru reached slot ${downstream}; selected input UTxO should be available"
+        echo "[submit-tx] $label Amaru reached slot ${adopted}; selected input UTxO should be available"
         return 0
       fi
-      if [[ -n "$prev_down" && -n "$prev_t" && "$now" -gt "$prev_t" ]]; then
+      if [[ -n "$prev_adopted" && -n "$prev_t" && "$now" -gt "$prev_t" ]]; then
         local d_slots d_secs
-        d_slots=$(( downstream - prev_down ))
+        d_slots=$(( adopted - prev_adopted ))
         d_secs=$(( now - prev_t ))
         eta="$(eta_hint "$remaining" "$d_slots" "$d_secs" "$poll_interval")"
       fi
-      printf '[submit-tx] elapsed=%ss target=%s downstream=%s remaining=%s%s\n' "$elapsed" "$target_slot" "$downstream" "$remaining" "$eta"
-      prev_down="$downstream"
+      printf '[submit-tx] elapsed=%ss target=%s %s=%s remaining=%s%s\n' "$elapsed" "$target_slot" "$label" "$adopted" "$remaining" "$eta"
+      prev_adopted="$adopted"
       prev_t="$now"
     else
-      echo "[submit-tx] elapsed=${elapsed}s target=${target_slot} downstream=? (still initializing)"
+      echo "[submit-tx] elapsed=${elapsed}s target=${target_slot} ${label}=? (still initializing)"
     fi
     if (( elapsed > timeout )); then
-      die "downstream Amaru did not reach selected input availability slot ${target_slot} within ${timeout}s (last downstream slot: ${downstream:-unknown})"
+      die "$label Amaru did not reach selected input availability slot ${target_slot} within ${timeout}s (last adopted slot: ${adopted:-unknown})"
     fi
     sleep "$poll_interval"
   done

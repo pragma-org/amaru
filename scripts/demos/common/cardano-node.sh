@@ -150,7 +150,7 @@ download_official_cardano_node_config() {
   done <<< "$files"
 
   mkdir -p "$CARDANO_NODE_CONFIG_DIR"
-  fd --hidden --no-ignore --type f . "$tmp_dir" | while IFS= read -r file_name; do
+  find "$tmp_dir" -type f | while IFS= read -r file_name; do
     local relative target
     relative="${file_name#"$tmp_dir"/}"
     target="$CARDANO_NODE_CONFIG_DIR/$relative"
@@ -163,6 +163,10 @@ download_official_cardano_node_config() {
 
 cardano_node_socket_file() {
   echo "$CARDANO_NODE_SOCKET_FILE"
+}
+
+cardano_node_database_dir() {
+  echo "${CARDANO_NODE_DB:-$CARDANO_NODE_CONFIG_DIR/db}"
 }
 
 cardano_node_bundled_peer_snapshot_file() {
@@ -227,6 +231,18 @@ cardano_node_effective_topology_file() {
   echo "${CARDANO_NODE_EFFECTIVE_TOPOLOGY_FILE:-$(cardano_node_topology_file)}"
 }
 
+managed_cardano_node_stopped() {
+  [[ -n "${CARDANO_NODE_PID:-}" ]] && ! kill -0 "$CARDANO_NODE_PID" 2>/dev/null
+}
+
+cardano_node_stopped_error() {
+  local phase="$1" log_hint=""
+  if [[ -n "${CARDANO_NODE_LOG_FILE:-}" ]]; then
+    log_hint="; see $CARDANO_NODE_LOG_FILE"
+  fi
+  die "cardano-node stopped $phase$log_hint"
+}
+
 # Waits until the configured Cardano node socket is available.
 wait_for_cardano_socket() {
   local socket
@@ -234,6 +250,7 @@ wait_for_cardano_socket() {
   local timeout="${CARDANO_NODE_SOCKET_TIMEOUT_SECONDS:-1800}"
   for (( elapsed = 0; elapsed < timeout; elapsed++ )); do
     [[ -S "$socket" ]] && return 0
+    managed_cardano_node_stopped && cardano_node_stopped_error "before creating its socket"
     sleep 1
   done
   die "cardano-node socket not found: $socket"
@@ -245,8 +262,11 @@ wait_for_cardano_query() {
     if cardano_node_tip >/dev/null 2>&1; then
       return 0
     fi
+    managed_cardano_node_stopped && cardano_node_stopped_error "before answering local queries"
     sleep 1
   done
+  echo "[cardano-upstream] final local query error:" >&2
+  cardano_node_tip >/dev/null || true
   die "cardano-node socket did not answer local queries within ${timeout}s"
 }
 
@@ -264,6 +284,7 @@ wait_for_cardano_sync_progress() {
         echo "[cardano-upstream] waiting for cardano-node sync progress: ${progress}%/${threshold}%"
       fi
     fi
+    managed_cardano_node_stopped && cardano_node_stopped_error "before reaching the requested sync progress"
     sleep 1
   done
   die "cardano-node did not reach ${threshold}% sync progress within ${timeout}s"
@@ -280,6 +301,52 @@ cardano_node_tip() {
 # Queries the current Cardano node tip slot.
 cardano_node_tip_slot() {
   cardano_node_tip | jq -r '.slot // empty'
+}
+
+# Parses the JSON returned by `query tx-mempool tx-exists`, verifies that it describes the expected
+# transaction, and prints either "present" or "absent". Any schema or transaction-id mismatch is an
+# error rather than an implicit absence.
+parse_cardano_node_mempool_tx_state() {
+  local expected_tx_id="$1" response_file="$2"
+
+  jq -er --arg expected_tx_id "$expected_tx_id" '
+    if type != "object"
+      or (.txId | type) != "string"
+      or (.txId | ascii_downcase) != ($expected_tx_id | ascii_downcase)
+      or (.exists | type) != "boolean"
+    then error("unexpected tx-mempool response")
+    elif .exists then "present"
+    else "absent"
+    end
+  ' "$response_file"
+}
+
+# Queries whether a transaction has diffused into the connected cardano-node mempool.
+cardano_node_mempool_tx_state() {
+  local tx_id="$1" response_file="${2:-}"
+  local temporary_response=false result
+
+  if [[ -z "$response_file" ]]; then
+    response_file="$(mktemp "${TMPDIR:-/tmp}/cardano-node-mempool.XXXXXX")" || return 1
+    temporary_response=true
+  fi
+
+  if ! "$CARDANO_CLI" conway query tx-mempool \
+    $(cardano_cli_network_args) \
+    --socket-path "$(cardano_node_socket_file)" \
+    tx-exists "$tx_id" \
+    --output-json >"$response_file"; then
+    [[ "$temporary_response" == false ]] || rm -f "$response_file"
+    return 1
+  fi
+
+  if parse_cardano_node_mempool_tx_state "$tx_id" "$response_file"; then
+    result=0
+  else
+    result=$?
+  fi
+  [[ "$temporary_response" == false ]] || rm -f "$response_file"
+  return "$result"
 }
 
 # Returns whether the demo uses a public upstream peer instead of a local cardano-node.
@@ -430,7 +497,7 @@ run_cardano_upstream() {
   "$CARDANO_NODE" run \
     --config "$(cardano_node_config_file)" \
     --topology "$(cardano_node_effective_topology_file)" \
-    --database-path "$CARDANO_NODE_CONFIG_DIR/db" \
+    --database-path "$(cardano_node_database_dir)" \
     --socket-path "$(cardano_node_socket_file)" \
     --port "$UPSTREAM_PORT" \
     2>&1 | tee "$LOGDIR/cardano-upstream.log"
