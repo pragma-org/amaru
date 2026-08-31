@@ -26,3 +26,4 @@ pub mod in_memory_connection_provider;
 pub mod node;
 pub mod nodes;
 pub mod setup;
+pub mod world;

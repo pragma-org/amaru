@@ -163,7 +163,7 @@ impl BaseReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
         let inner = self.inner.lock().unwrap();
-        get_next_best_chain(&inner.chain, point)
+        successor_on_best_chain(&inner.chain, point, |hash| inner.headers.get(hash).and_then(Header::parent))
     }
 
     #[expect(clippy::unwrap_used)]
@@ -357,7 +357,7 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        get_next_best_chain(&self.chain, point)
+        successor_on_best_chain(&self.chain, point, |hash| self.headers.get(hash).and_then(Header::parent))
     }
 
     fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
@@ -448,6 +448,18 @@ fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {
             Point::Specific(slot, _, _) => p.slot_or_default() > *slot,
         })
         .copied()
+}
+
+fn successor_on_best_chain(
+    chain: &[Point],
+    point: &Point,
+    parent_of: impl Fn(&HeaderHash) -> Option<HeaderHash>,
+) -> Option<Point> {
+    let next = get_next_best_chain(chain, point)?;
+    match point {
+        Point::Origin => Some(next),
+        Point::Specific(_, hash, _) => parent_of(&next.hash()).is_some_and(|parent| parent == *hash).then_some(next),
+    }
 }
 
 impl DiagnosticChainStore for InMemoryChainStore {

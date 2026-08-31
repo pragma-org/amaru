@@ -107,13 +107,21 @@ where
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
-        let mut readopts = ReadOptions::default();
-        readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
-        let slot = next_best_chain_start_slot(point);
-        let prefix = [&CHAIN_PREFIX[..], &slot.to_be_bytes()].concat();
-        let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
-
-        if let Some(Ok((_k, v))) = iter.next() { from_cbor::<NetworkTip>(v.as_ref()).map(Point::from) } else { None }
+        match point {
+            Point::Origin => {
+                let mut readopts = ReadOptions::default();
+                readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
+                let prefix = [&CHAIN_PREFIX[..], &0u64.to_be_bytes()].concat();
+                let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
+                iter.next()
+                    .and_then(|kv| kv.ok())
+                    .and_then(|(_k, v)| from_cbor::<NetworkTip>(v.as_ref()).map(Point::from))
+            }
+            Point::Specific(_, hash, _) => self.get_children(hash).into_iter().find_map(|child| {
+                let header = self.load_header(&child)?;
+                self.is_on_best_chain(header.point().into()).then_some(header.point())
+            }),
+        }
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
@@ -233,13 +241,4 @@ pub(crate) fn decode_opcert_key(key: &[u8]) -> Result<(Slot, HeaderHash), StoreE
 pub(crate) fn opcert_key(header: &Header) -> Vec<u8> {
     let slot = u64::from(header.slot()).to_be_bytes();
     [&OPCERT_PREFIX[..], &header.pool_id()[..], &slot[..], &header.hash()[..]].concat()
-}
-
-/// Return the next slot to look for when iterating over the best chain starting from the given point.
-/// If the point is Origin, the slot is 0 by definition.
-fn next_best_chain_start_slot(point: &Point) -> u64 {
-    match point {
-        Point::Specific(slot, _, _) => u64::from(*slot) + 1,
-        Point::Origin => 0,
-    }
 }

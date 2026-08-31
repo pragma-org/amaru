@@ -22,7 +22,7 @@ use crate::{
     sender::StageRefExtra,
     simulation::{
         SimulationRunning,
-        running::{AssertStage, DeliverMessageResult, LogTermination},
+        running::{DeliverMessageResult, skip_if_terminated},
         state::{StageData, StageState},
     },
     trace_buffer::TerminationReason,
@@ -174,10 +174,9 @@ pub fn resume_call_send_internal(
     to: Name,
     msg: Box<dyn SendData>,
 ) -> anyhow::Result<bool> {
-    let Some(data_from) = sim.stages.get_mut(&from).log_termination(&from) else {
+    let Some(data_from) = skip_if_terminated(sim.stages.get_mut(&from), &from) else {
         return Ok(false);
     };
-    let data_from = data_from.assert_stage("which cannot receive call effects");
     let Some(StageEffect::Call(_, _, CallExtra::Scheduled(id))) = data_from.waiting.as_ref() else {
         tracing::warn!(stage = %from, "stage was not waiting for a call effect, but {:?}", data_from.waiting);
         anyhow::bail!("stage was not waiting for a call effect, but {:?}", data_from.waiting);
@@ -209,7 +208,7 @@ pub fn resume_call_send_internal(
             return;
         };
         let wakeup = resume_call_internal(
-            data_from.assert_stage("which cannot wait"),
+            data_from,
             &mut |name, response| {
                 sim.runnable.push_back((name, response));
             },

@@ -29,7 +29,8 @@
 //! 2. **Refuse to run** if either directory already contains files — bootstrap
 //!    always starts from empty dirs (remove them manually, e.g. with
 //!    `amaru node rm`, if you want a clean start).
-//! 3. Call [`bootstrap()`] with an optional target epoch and an [`S3Config`]
+//! 3. Call [`bootstrap()`] with store paths, the snapshot cache directory
+//!    ([`default_snapshots_dir`]), an optional target epoch, and an [`S3Config`]
 //!    (defaults point at the public Amaru snapshot CDN).
 //!
 //! Equivalent library usage:
@@ -46,6 +47,7 @@
 //! let global = network.as_global_parameters().cloned().expect("known network");
 //! let ledger_dir = PathBuf::from(default_ledger_dir(network));
 //! let chain_dir = PathBuf::from(default_chain_dir(network));
+//! let snapshots_dir = PathBuf::from(default_snapshots_dir(network));
 //!
 //! // Caller must ensure ledger_dir and chain_dir are empty or missing.
 //! bootstrap(
@@ -53,6 +55,7 @@
 //!     &global,
 //!     ledger_dir,
 //!     chain_dir,
+//!     snapshots_dir,          // `snapshots/<network>/`; reuses archives already on disk
 //!     /* target_epoch */ None, // latest window available on the CDN
 //!     S3Config::default(),     // or override bucket / public_url
 //! )
@@ -70,6 +73,7 @@
 //! | `--network` | `NetworkName` |
 //! | `--epoch` | `target_epoch: Option<Epoch>` — epoch Amaru should **start from**; needs three prior consecutive snapshots |
 //! | `--ledger-dir` / `--chain-dir` | `ledger_dir` / `chain_dir` |
+//! | (CWD) `snapshots/<network>/` | `snapshots_dir` — [`default_snapshots_dir`] |
 //! | `--s3-bucket`, `--s3-endpoint`, `--s3-region`, `--s3-public-url` | [`S3Config`] |
 //!
 //! # What [`bootstrap()`] does
@@ -81,8 +85,8 @@
 //!    [`S3Config::public_url`]), using `<network>/index.json`.
 //! 2. Selects the required three-epoch window (latest available, or the window
 //!    that allows starting at `target_epoch` when set).
-//! 3. Downloads `.tar.zst` archives into [`default_snapshots_dir`]
-//!    (`snapshots/<network>/`), reusing files already on disk when present.
+//! 3. Downloads `.tar.zst` archives into `snapshots_dir` (CLI: [`default_snapshots_dir`],
+//!    `snapshots/<network>/`), reusing files already on disk when present.
 //! 4. Imports the three snapshots into the **ledger** RocksDB directory in order.
 //! 5. Creates the **chain** store, seeds chain state from the newest snapshot,
 //!    and imports packaged bootstrap blocks so consensus can attach at the tip.

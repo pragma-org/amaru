@@ -811,6 +811,66 @@ fn test_adversarial_static_outbound_does_not_readd_while_connected() {
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
+#[test]
+fn test_outbound_retry_drops_dead_conn_before_reconnect() {
+    let mut prep = test_prep(&[]);
+    let p = TestPrep::peer("3.3.3.3:3");
+    let mut ids = ConnectionId::initial();
+    let id0 = ids.get_and_increment();
+    let id1 = ids.get_and_increment();
+    let conn0 = Connection::new(id0, true, false);
+    let conn1 = Connection::new(id1, true, false);
+
+    prep.state.outbound_peers.insert(p.clone(), PeerState::Connected(conn0));
+    let start = prep.state.clone();
+    let after_death = {
+        let mut s = start.clone();
+        s.outbound_peers.insert(p.clone(), PeerState::Connecting);
+        s
+    };
+    let after_reconnect = {
+        let mut s = start.clone();
+        s.outbound_peers.insert(p.clone(), PeerState::Connected(conn1));
+        s
+    };
+
+    let died = PeerSelectionMsg::Disconnected(p.clone(), id0, ConnectionDirection::Outbound, true);
+    let connected = PeerSelectionMsg::Connected(p.clone(), conn1, ConnectionDirection::Outbound, false);
+    let (running, _guards, mut logs) = setup_preload(&prep, [died.clone(), connected.clone()]);
+
+    let p_dead = p.clone();
+    let p_live = p.clone();
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("ps-1", &start).into(),
+            te_input("ps-1", &died).into(),
+            te_clear_peer_availability("ps-1", p.clone()).into(),
+            te_state("ps-1", &after_death).into(),
+            te_input("ps-1", &connected).into(),
+            te_clock_suspend("ps-1").into(),
+            te_record_advertisability("ps-1", p.clone(), false, sim_t0()).into(),
+            tm_state(
+                "ps-1",
+                move |s: &PeerSelection| {
+                    s == &after_reconnect
+                        && matches!(s.outbound_peers.get(&p_live), Some(PeerState::Connected(c)) if c.id == id1)
+                        && !s.outbound_peers.values().any(|st| matches!(st, PeerState::Connected(c) if c.id == id0))
+                },
+                "dead conn gone; replacement accepted",
+            ),
+        ],
+    );
+    assert_trace_does_not_contain(
+        &running,
+        &[
+            te_send("ps-1", "manager", ManagerMessage::Disconnect(p_dead.clone(), id0)).into(),
+            te_send("ps-1", "manager", ManagerMessage::AddPeer(p_dead)).into(),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
 // ---------------------------------------------------------------------------
 // Double-remove (Adversarial twice)
 // ---------------------------------------------------------------------------

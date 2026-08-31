@@ -21,7 +21,7 @@
 use std::{fmt, time::Duration};
 
 use crate::{
-    EPOCH, Effect, ExternalEffect, Name, SendData, serde::SendDataValue, simulation::SimulationRunning,
+    EPOCH, Effect, ExternalEffect, Name, SendData, StageResponse, serde::SendDataValue, simulation::SimulationRunning,
     trace_buffer::TraceEntry,
 };
 
@@ -298,6 +298,78 @@ pub fn tm_external_effect_match<'a, T: ExternalEffect>(
     )
 }
 
+/// Matches `Suspend(External)` whose effect downcasts to `T`, on any stage.
+///
+/// Use [`tm_external_effect`] when the stage name is known. This is the generic
+/// form when only the effect type matters.
+pub fn tm_external_effect_any<T: ExternalEffect>() -> TraceMatch<'static> {
+    tm_external_effect_any_match::<T>(|_| true)
+}
+
+/// Matches `Suspend(External)` whose effect casts to `T` **and** `predicate` holds,
+/// regardless of `at_stage`.
+pub fn tm_external_effect_any_match<'a, T: ExternalEffect>(
+    predicate: impl Fn(&T) -> bool + Send + 'a,
+) -> TraceMatch<'a> {
+    let description = format!("ExternalEffect<{}>(any stage)", std::any::type_name::<T>());
+    TraceMatch::Property(
+        Box::new(move |entry| {
+            let TraceEntry::Suspend(Effect::External { effect, .. }) = entry else {
+                return false;
+            };
+            let Some(typed) = effect.cast_ref::<T>() else {
+                return false;
+            };
+            predicate(typed)
+        }),
+        description,
+    )
+}
+
+/// Matches any [`TraceEntry::Resume`].
+pub fn tm_resume() -> TraceMatch<'static> {
+    TraceMatch::Property(Box::new(|entry| matches!(entry, TraceEntry::Resume { .. })), "Resume".to_string())
+}
+
+/// Matches a [`TraceEntry::Resume`] with [`StageResponse::Unit`].
+pub fn tm_resume_unit(stage: impl AsRef<str>) -> TraceMatch<'static> {
+    TraceEntry::resume(stage, StageResponse::Unit).into()
+}
+
+/// Matches a [`TraceEntry::Resume`] whose external response equals `response`.
+pub fn tm_resume_external(stage: impl AsRef<str>, response: impl SendData) -> TraceMatch<'static> {
+    TraceEntry::resume(stage, StageResponse::ExternalResponse(Box::new(response))).into()
+}
+
+/// Matches `Resume { stage, ExternalResponse(T) }` when `predicate` holds on `T`.
+pub fn tm_resume_external_match<'a, T: SendData>(
+    stage: impl AsRef<str>,
+    predicate: impl Fn(&T) -> bool + Send + 'a,
+) -> TraceMatch<'a> {
+    let stage_name = Name::from(stage.as_ref());
+    let description = format!("Resume(stage: {:?}, ExternalResponse<{}>)", stage_name, std::any::type_name::<T>());
+    TraceMatch::Property(
+        Box::new(move |entry| {
+            let TraceEntry::Resume { stage, response: StageResponse::ExternalResponse(response) } = entry else {
+                return false;
+            };
+            if stage != &stage_name {
+                return false;
+            }
+            let Ok(typed) = response.as_ref().cast_ref::<T>() else {
+                return false;
+            };
+            predicate(typed)
+        }),
+        description,
+    )
+}
+
+/// Exact `Suspend(External)` counterpart of the `te_effect` constructors.
+pub fn tm_effect(at_stage: impl AsRef<str>, effect: impl ExternalEffect) -> TraceMatch<'static> {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(effect))).into()
+}
+
 pub fn tm_clock(instant: Duration) -> TraceMatch<'static> {
     let description = format!("Clock({:?})", instant);
     TraceMatch::Property(
@@ -330,12 +402,19 @@ pub fn tm_clock_between(min: Duration, max: Duration) -> TraceMatch<'static> {
 // Assertion helpers
 // =============================================================================
 
-fn collect_filtered_trace(running: &SimulationRunning) -> Vec<TraceEntry> {
+fn collect_trace_filter(running: &SimulationRunning, filter: &[TraceMatch<'_>]) -> Vec<TraceEntry> {
     let mut tb = running.trace_buffer().lock();
-    let trace: Vec<_> =
-        tb.iter_entries().filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e)).collect();
+    let trace: Vec<_> = tb.iter_entries().map(|(_, e)| e).filter(|e| !filter.iter().any(|f| f == e)).collect();
     tb.clear();
     trace
+}
+
+/// Asserts that the trace, after dropping actual entries that match `filter`,
+/// exactly equals `expected`.
+#[track_caller]
+pub fn assert_trace_match_filter(running: &SimulationRunning, expected: &[TraceMatch<'_>], filter: &[TraceMatch<'_>]) {
+    let trace = collect_trace_filter(running, filter);
+    pretty_assertions::assert_eq!(trace, expected);
 }
 
 /// Asserts that the filtered trace (excluding `Resume` entries) exactly equals
@@ -345,8 +424,7 @@ fn collect_filtered_trace(running: &SimulationRunning) -> Vec<TraceEntry> {
 /// `From` impl) or a property matcher.
 #[track_caller]
 pub fn assert_trace_match(running: &SimulationRunning, expected: &[TraceMatch<'_>]) {
-    let trace = collect_filtered_trace(running);
-    pretty_assertions::assert_eq!(trace, expected);
+    assert_trace_match_filter(running, expected, &[tm_resume()]);
 }
 
 /// Asserts that the filtered trace contains the given sequence of
@@ -358,7 +436,7 @@ pub fn assert_trace_match(running: &SimulationRunning, expected: &[TraceMatch<'_
 #[track_caller]
 #[expect(clippy::panic)]
 pub fn assert_trace_contains(running: &SimulationRunning, expected: &[TraceMatch<'_>]) {
-    let trace = collect_filtered_trace(running);
+    let trace = collect_trace_filter(running, &[tm_resume()]);
     let mut i = 0usize;
 
     for entry in &trace {
@@ -385,7 +463,7 @@ pub fn assert_trace_contains(running: &SimulationRunning, expected: &[TraceMatch
 #[track_caller]
 #[expect(clippy::panic)]
 pub fn assert_trace_does_not_contain(running: &SimulationRunning, forbidden: &[TraceMatch<'_>]) {
-    let trace = collect_filtered_trace(running);
+    let trace = collect_trace_filter(running, &[tm_resume()]);
 
     for entry in &trace {
         for f in forbidden {

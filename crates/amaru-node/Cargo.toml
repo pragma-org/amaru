@@ -90,6 +90,7 @@ tracing-subscriber.workspace = true
 xz.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
+amaru-bootstrap.workspace = true
 amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-iter-borrow.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }

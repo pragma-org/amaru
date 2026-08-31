@@ -455,6 +455,7 @@ dependencies = [
 name = "amaru-node"
 version = "0.1.0"
 dependencies = [
+ "amaru-bootstrap",
  "amaru-consensus",
  "amaru-deps",
  "amaru-iter-borrow",

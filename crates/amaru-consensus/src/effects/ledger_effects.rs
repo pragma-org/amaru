@@ -209,6 +209,10 @@ impl ValidateHeaderEffect {
         Self { header: header.clone(), trace_context: Default::default() }
     }
 
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
     pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
         self.trace_context = trace_context.clone();
         self

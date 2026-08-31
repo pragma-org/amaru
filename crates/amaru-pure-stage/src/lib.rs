@@ -51,9 +51,10 @@ pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};
 pub use time::{Clock, EPOCH, Instant};
 pub use trace_buffer::TerminationReason;
 pub use trace_match::{
-    TraceMatch, assert_trace_contains, assert_trace_does_not_contain, assert_trace_match, tm_add_stage, tm_clock,
-    tm_clock_between, tm_external_effect, tm_external_effect_match, tm_input, tm_send, tm_state, tm_terminate,
-    tm_terminated,
+    TraceMatch, assert_trace_contains, assert_trace_does_not_contain, assert_trace_match, assert_trace_match_filter,
+    tm_add_stage, tm_clock, tm_clock_between, tm_effect, tm_external_effect, tm_external_effect_any,
+    tm_external_effect_any_match, tm_external_effect_match, tm_input, tm_resume, tm_resume_external,
+    tm_resume_external_match, tm_resume_unit, tm_send, tm_state, tm_terminate, tm_terminated,
 };
 pub use types::{
     BLACKHOLE_NAME, BoxFuture, Name, OrTerminateWith, PRIORITY_MAILBOX_SIZE, SendData, TryInStage, Void, err, warn,

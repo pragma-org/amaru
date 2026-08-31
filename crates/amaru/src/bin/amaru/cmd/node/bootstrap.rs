@@ -20,7 +20,7 @@ use std::{
 use amaru::{
     aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Config},
     bootstrap::bootstrap,
-    default_chain_dir, default_ledger_dir,
+    default_chain_dir, default_ledger_dir, default_snapshots_dir,
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{Epoch, GlobalParameters, NetworkName, utils::path::relative_path};
@@ -172,6 +172,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         &global_parameters,
         ledger_dir,
         chain_dir,
+        default_snapshots_dir(network).into(),
         args.epoch,
         S3Config {
             bucket: args.s3_bucket,

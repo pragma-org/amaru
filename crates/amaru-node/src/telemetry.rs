@@ -143,6 +143,14 @@ impl Telemetry {
         if with_otlp { Self::install_otlp(format, options) } else { Self::install_local(format) }
     }
 
+    fn accept_already_set(result: Result<(), impl std::fmt::Display>, what: &str) -> anyhow::Result<()> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(_) if tracing::dispatcher::has_been_set() => Ok(()),
+            Err(e) => Err(anyhow!("{what}: {e}")),
+        }
+    }
+
     /// Install a local fmt / JSON subscriber without OTLP export.
     ///
     /// [`LogFormat::Ansi`] colours stderr; [`LogFormat::Json`] is exclusive with
@@ -196,22 +204,26 @@ impl Telemetry {
 
         let fmt_filter = rust_log_filter();
         if format.is_json() {
-            tracing_subscriber::registry()
-                .with(otel_layer)
-                .with(CborTraceArrayLayer::new())
-                .with(log_bridge)
-                .with(CborJsonSpanLayer::new())
-                .with(json_fmt_layer(std::io::stdout).with_filter(fmt_filter))
-                .try_init()
-                .context("init OTLP+JSON tracing subscriber")?;
+            Self::accept_already_set(
+                tracing_subscriber::registry()
+                    .with(otel_layer)
+                    .with(CborTraceArrayLayer::new())
+                    .with(log_bridge)
+                    .with(CborJsonSpanLayer::new())
+                    .with(json_fmt_layer(std::io::stdout).with_filter(fmt_filter))
+                    .try_init(),
+                "init OTLP+JSON tracing subscriber",
+            )?;
         } else {
-            tracing_subscriber::registry()
-                .with(otel_layer)
-                .with(CborTraceArrayLayer::new())
-                .with(log_bridge)
-                .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(fmt_filter))
-                .try_init()
-                .context("init OTLP+fmt tracing subscriber")?;
+            Self::accept_already_set(
+                tracing_subscriber::registry()
+                    .with(otel_layer)
+                    .with(CborTraceArrayLayer::new())
+                    .with(log_bridge)
+                    .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(fmt_filter))
+                    .try_init(),
+                "init OTLP+fmt tracing subscriber",
+            )?;
         }
 
         let meter = Arc::new(Meter::from(meter_provider.meter(METRICS_METER_NAME)));
@@ -265,16 +277,20 @@ impl Drop for Telemetry {
 fn init_fmt_subscriber(format: LogFormat) -> anyhow::Result<()> {
     let filter = rust_log_filter();
     if format.is_json() {
-        tracing_subscriber::registry()
-            .with(CborJsonSpanLayer::new())
-            .with(json_fmt_layer(std::io::stdout).with_filter(filter))
-            .try_init()
-            .map_err(|e| anyhow!("init JSON tracing subscriber: {e}"))?;
+        Telemetry::accept_already_set(
+            tracing_subscriber::registry()
+                .with(CborJsonSpanLayer::new())
+                .with(json_fmt_layer(std::io::stdout).with_filter(filter))
+                .try_init(),
+            "init JSON tracing subscriber",
+        )?;
     } else {
-        tracing_subscriber::registry()
-            .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(filter))
-            .try_init()
-            .map_err(|e| anyhow!("init fmt tracing subscriber: {e}"))?;
+        Telemetry::accept_already_set(
+            tracing_subscriber::registry()
+                .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(filter))
+                .try_init(),
+            "init fmt tracing subscriber",
+        )?;
     }
     Ok(())
 }

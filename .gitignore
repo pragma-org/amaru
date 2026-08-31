@@ -19,6 +19,11 @@ target/
 # Default database location for the consensus
 /*chain.*.db/
 
+# WorldLoop preprod fragment stores (produced by bootstrap + run_until; too large to commit)
+crates/amaru-node/tests/fixtures/world-preprod-fragment/bootstrap/
+crates/amaru-node/tests/fixtures/world-preprod-fragment/primed/
+crates/amaru-node/tests/fixtures/world-preprod-fragment/.populate.lock
+
 # Insta not-yet reviewed snapshots
 *.snap.new
 

@@ -205,9 +205,6 @@ impl NodeBuilder {
         if upstream_peers.is_empty() && self.use_default_peer_if_empty {
             upstream_peers.push(default_peer_for_network(self.network).to_string());
         }
-        if upstream_peers.is_empty() {
-            bail!("at least one upstream peer is required");
-        }
 
         let (peer_snapshot_peers, peer_snapshot_unresolved) = if self.load_embedded_peer_snapshot {
             match load_embedded_peer_snapshot(self.network).context("load embedded peer snapshot")? {
@@ -217,6 +214,10 @@ impl NodeBuilder {
         } else {
             Default::default()
         };
+
+        if upstream_peers.is_empty() && peer_snapshot_peers.is_empty() {
+            bail!("at least one static upstream peer or snapshot peer is required");
+        }
 
         let mut config = Config {
             ledger_config: LedgerConfig {
