@@ -17,7 +17,7 @@ use std::{borrow::Borrow, collections::BTreeSet, iter::FusedIterator, slice};
 use super::small_buffer::SmallBuffer;
 
 #[derive(Debug, Clone)]
-enum SetStorage<T: Ord, const N: usize> {
+enum SetStorage<T> {
     Small(SmallBuffer<T>),
     Tree(BTreeSet<T>),
 }
@@ -25,8 +25,8 @@ enum SetStorage<T: Ord, const N: usize> {
 /// A sorted set which stores up to `N` values in a single flat allocation before permanently
 /// promoting to a [`BTreeSet`].
 #[derive(Debug, Clone)]
-pub struct CompactSet<T: Ord, const N: usize> {
-    storage: SetStorage<T, N>,
+pub struct CompactSet<T, const N: usize> {
+    storage: SetStorage<T>,
 }
 
 /// Content-based equality: a promoted set equals a small one holding the same values.
@@ -131,11 +131,23 @@ impl<T: Ord, const N: usize> Default for CompactSet<T, N> {
 
 impl<T: Ord, const N: usize> FromIterator<T> for CompactSet<T, N> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut set = Self::new();
-        for value in iter {
-            set.insert(value);
+        let iter = iter.into_iter();
+        let (lower, _) = iter.size_hint();
+        // NOTE: Duplicate handling
+        //
+        // The lower bound counts duplicates, so a duplicate-heavy iterator with at most N
+        // distinct values lands (permanently) in the tree. Call sites collect from other
+        // maps/sets, whose elements are already unique, so lower > N means the result
+        // outgrows the small regime anyway and we skip the promotion rebuild.
+        if lower > N {
+            Self { storage: SetStorage::Tree(iter.collect()) }
+        } else {
+            let mut set = Self { storage: SetStorage::Small(SmallBuffer::with_capacity(lower)) };
+            for value in iter {
+                set.insert(value);
+            }
+            set
         }
-        set
     }
 }
 

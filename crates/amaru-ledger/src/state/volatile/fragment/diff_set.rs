@@ -39,11 +39,6 @@ impl<K: Ord, V, const PRODUCED: usize, const CONSUMED: usize> Default for DiffSe
 }
 
 impl<K: Ord, V, const PRODUCED: usize, const CONSUMED: usize> DiffSet<K, V, PRODUCED, CONSUMED> {
-    /// Borrow all keys and values in this diff.
-    pub fn as_refs(&self) -> DiffSet<&K, &V> {
-        DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
-    }
-
     /// Lookup the state associated to a key, if any. Returns `Existence::Unknown` if the state
     /// cannot be determined from the available data.
     pub fn get<'a>(&'a self, k: &K) -> Existence<&'a V> {
