@@ -17,6 +17,7 @@ use amaru::{
     observability::{Color, ObservabilityHints},
 };
 use amaru_kernel::GlobalParameters;
+use amaru_node::telemetry::OtelSignal;
 use amaru_tui as tui;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
@@ -177,12 +178,23 @@ pub(crate) struct Cli {
     pub(crate) color: Color,
 
     /// Emit trace events as structured JSON instead of human-readable text.
-    #[clap(long, action, env = "AMARU_WITH_JSON_TRACES")]
+    #[clap(long, global = true, action, env = "AMARU_WITH_JSON_TRACES")]
     pub(crate) with_json_traces: bool,
 
     /// Export metrics, traces, and logs via OpenTelemetry (OTLP).
-    #[clap(long, action, env = "AMARU_WITH_OPEN_TELEMETRY")]
+    #[clap(long, global = true, action, env = "AMARU_WITH_OPEN_TELEMETRY")]
     pub(crate) with_open_telemetry: bool,
+
+    /// Select which OpenTelemetry signals to export.
+    #[clap(
+        long,
+        global = true,
+        env = "AMARU_OPEN_TELEMETRY_SIGNALS",
+        default_value = "metrics,traces,logs",
+        value_delimiter = ',',
+        value_name = "SIGNALS"
+    )]
+    pub(crate) open_telemetry_signals: Vec<OtelSignal>,
 }
 
 pub(crate) fn command(version: &'static str) -> clap::Command {

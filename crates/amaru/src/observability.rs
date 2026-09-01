@@ -22,6 +22,7 @@ use std::{
 };
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
+use amaru_node::telemetry::{OpenTelemetryProviders, OtelSignals};
 use amaru_observability::{
     CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
     CborTraceArrayLayer, TelemetryCaptureLayer, console_field_formatter, info,
@@ -37,13 +38,8 @@ use amaru_observability::{
     },
     warn,
 };
-use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
-use opentelemetry_sdk::{
-    Resource,
-    logs::SdkLoggerProvider,
-    metrics::{SdkMeterProvider, Temporality},
-    trace::SdkTracerProvider,
-};
+use opentelemetry::{KeyValue, metrics::MeterProvider, trace::TracerProvider};
+use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
@@ -63,17 +59,19 @@ static OTEL_EXPORT_REPORTER: OnceLock<OtelExportReporter> = OnceLock::new();
 // -----------------------------------------------------------------------------
 
 /// Registry → OTEL trace layer.
-type AfterTrace<S> = Layered<OpenTelemetryFilter<S>, S>;
+type AfterTrace<S> = Layered<Option<OpenTelemetryFilter<S>>, S>;
 
 /// After trace: upgrade CBOR homogeneous arrays on spans to `Value::Array`.
 type AfterTraceArrays<S> = Layered<CborTraceArrayLayer, AfterTrace<S>>;
 
 type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, AfterTraceArrays<S>>;
 
-type LogBridgeFilter<S> = Filtered<
-    CborOtelLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
-    OtelErrorFilter,
-    AfterTraceArrays<S>,
+type LogBridgeFilter<S> = Option<
+    Filtered<
+        CborOtelLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
+        OtelErrorFilter,
+        AfterTraceArrays<S>,
+    >,
 >;
 
 type OpenTelemetryFilter<S> =
@@ -117,7 +115,11 @@ impl TracingSubscriber<Registry> {
 
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>, log_bridge: LogBridgeFilter<Registry>) {
+    pub fn with_open_telemetry(
+        &mut self,
+        layer: Option<OpenTelemetryFilter<Registry>>,
+        log_bridge: LogBridgeFilter<Registry>,
+    ) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
                 *self = TracingSubscriber::WithOpenTelemetry(
@@ -313,86 +315,38 @@ pub fn new_resource(hints: &impl ObservabilityHints) -> Resource {
     Resource::builder().with_attributes(attributes).build()
 }
 
-#[expect(clippy::panic)]
-#[expect(clippy::expect_used)]
 pub fn setup_open_telemetry(
     subscriber: &mut TracingSubscriber<Registry>,
     resource: Resource,
-) -> (OpenTelemetryHandle, DelayedWarning) {
-    let service_name = resource
-        .get(&Key::from(SERVICE_NAME))
-        .expect("missing 'service_name' on the provided OTLP resource")
-        .as_str()
-        .to_string();
+    signals: OtelSignals,
+) -> anyhow::Result<(OpenTelemetryHandle, DelayedWarning)> {
+    let providers = OpenTelemetryProviders::try_new(resource, &signals)?;
+    let meter =
+        providers.meter_provider().map(|provider| Meter::from(provider.meter(METRICS_METER_NAME))).unwrap_or_default();
 
-    let traces_provider = SdkTracerProvider::builder()
-        .with_resource(resource.clone())
-        .with_batch_exporter(
-            opentelemetry_otlp::SpanExporter::builder()
-                .with_tonic()
-                .build()
-                .unwrap_or_else(|e| panic!("failed to setup opentelemetry span exporter: {e}")),
-        )
-        .build();
-
-    let logs_provider = SdkLoggerProvider::builder()
-        .with_resource(resource.clone())
-        .with_batch_exporter(
-            opentelemetry_otlp::LogExporter::builder()
-                .with_tonic()
-                .build()
-                .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}")),
-        )
-        .build();
-
-    let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_tonic()
-        .with_temporality(Temporality::default())
-        .build()
-        .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
-
-    let meter_provider = SdkMeterProvider::builder()
-        .with_resource(resource.clone())
-        .with_reader(opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build())
-        .build();
-
-    // Subscriber
-    let (default_filter, warning) = new_trace_filter();
-
-    let opentelemetry_layer = tracing_opentelemetry::layer()
-        .with_tracer(traces_provider.tracer(service_name))
-        .with_level(true)
-        .with_target(true)
-        .with_filter(default_filter);
+    let (opentelemetry_layer, warning) = if let Some(provider) = providers.tracer_provider() {
+        let (filter, warning) = new_trace_filter();
+        let layer = tracing_opentelemetry::layer()
+            .with_tracer(provider.tracer(providers.service_name().to_string()))
+            .with_level(true)
+            .with_target(true)
+            .with_filter(filter);
+        (Some(layer), warning)
+    } else {
+        (None, None)
+    };
 
     // Logs: project-owned bridge so CBOR field payloads become nested AnyValue maps/lists.
-    let log_bridge = CborOtelLogBridge::new(&logs_provider).with_filter(new_trace_filter().0);
+    let (log_bridge, logs_warning) = if let Some(provider) = providers.logger_provider() {
+        let (filter, warning) = new_trace_filter();
+        (Some(CborOtelLogBridge::new(provider).with_filter(filter)), warning)
+    } else {
+        (None, None)
+    };
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
 
-    (
-        OpenTelemetryHandle {
-            meter: Meter::from(meter_provider.meter(METRICS_METER_NAME)),
-            teardown: Box::new(|| teardown_open_telemetry(traces_provider, meter_provider, logs_provider)),
-        },
-        warning,
-    )
-}
-
-fn teardown_open_telemetry(
-    tracing: SdkTracerProvider,
-    meter: SdkMeterProvider,
-    logs: SdkLoggerProvider,
-) -> anyhow::Result<()> {
-    // Shut down the providers so that it flushes any remaining spans.
-    // The process lifecycle layer applies an outer timeout around this teardown.
-    use anyhow::Context as _;
-
-    tracing.shutdown().context("failed to shutdown OpenTelemetry tracer provider")?;
-    meter.shutdown().context("failed to shutdown OpenTelemetry meter provider")?;
-    logs.shutdown().context("failed to shutdown OpenTelemetry log provider")?;
-
-    Ok(())
+    Ok((OpenTelemetryHandle { meter, teardown: Box::new(|| Ok(providers.shutdown()?)) }, warning.or(logs_warning)))
 }
 
 // -----------------------------------------------------------------------------
@@ -670,17 +624,31 @@ pub struct LocalTelemetry {
     pub capture_layer: Option<TelemetryCaptureLayer>,
 }
 
+#[expect(clippy::panic)]
 pub fn setup_observability(
     with_open_telemetry: bool,
+    open_telemetry_signals: OtelSignals,
     with_json_traces: bool,
     local: Option<LocalTelemetry>,
     color: bool,
     hints: &impl ObservabilityHints,
 ) -> OpenTelemetryHandle {
+    try_setup_observability(with_open_telemetry, open_telemetry_signals, with_json_traces, local, color, hints)
+        .unwrap_or_else(|error| panic!("failed to configure observability: {error}"))
+}
+
+pub fn try_setup_observability(
+    with_open_telemetry: bool,
+    open_telemetry_signals: OtelSignals,
+    with_json_traces: bool,
+    local: Option<LocalTelemetry>,
+    color: bool,
+    hints: &impl ObservabilityHints,
+) -> anyhow::Result<OpenTelemetryHandle> {
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { mut meter, teardown }, warning_otlp) = if with_open_telemetry {
-        setup_open_telemetry(&mut subscriber, new_resource(hints))
+        setup_open_telemetry(&mut subscriber, new_resource(hints), open_telemetry_signals)?
     } else {
         (OpenTelemetryHandle::default(), None)
     };
@@ -704,7 +672,7 @@ pub fn setup_observability(
 
     info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color,);
 
-    OpenTelemetryHandle { meter, teardown }
+    Ok(OpenTelemetryHandle { meter, teardown })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

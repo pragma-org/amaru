@@ -44,18 +44,23 @@ Other guiding principles:
 - **amaru-kernel**: `PeerCandidate` is `Socket` (already a `Peer`), `Host` (hostname+port, A/AAAA) or `Srv` (DNS name). `Host`/`Srv` names are a validated [`DnsName`] (no colons, brackets, or IP literals). Outbound mix pools are `PeerCandidate`s (static included); Host/SRV names are resolved on each dial so DNS changes are picked up. Host lookup takes the first viable A/AAAA; SRV lookup tries `_cardano._tcp.<name>` in RFC 2782 priority order and stops at the first viable target address. Ledger relays pass through as candidates (socket, hostname+port, or CIP-0155 SRV when the port is omitted).
 - **amaru-pure-stage**: `Effects::detach` runs an external effect without occupying the airlock. The transition is resumed with `()` immediately; when `run()` completes the interpreter applies the provided constructor and enqueues the value on the calling stage’s bulk mailbox.
 - **amaru-tui**: the Peers card shows the bootstrap `PeerCandidate` next to a resolved socket address when that name came from a Host or SRV lookup.
+- **amaru / amaru-node**: allow operators to select the OTLP providers constructed at startup with
+  `--open-telemetry-signals` or `AMARU_OPEN_TELEMETRY_SIGNALS`; it accepts any comma-separated subset of `metrics`,
+  `traces`, and `logs`, and defaults to all three signals for backward compatibility.
 
 ### Changed
 
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
+- **amaru-node**: `Telemetry::install` no longer reads `AMARU_OPEN_TELEMETRY_SIGNALS`; embedders that select OTLP signals must pass `TelemetryOptions` to `install_with_options`.
 
 ### Fixed
 
 - **amaru-node**: the stake-distribution callback no longer holds a strong `Resources` handle, so dropping a node graph closes its dummy RocksDB ledgers instead of leaking file descriptors across simulation runs.
 - **amaru**: replace repeated low-level OpenTelemetry export errors with batched state-transition messages: one warning listing unavailable signals, one info listing recovered signals, and a fresh warning after a later failure.
 - **amaru-bootstrap**: emit phase lifecycle events and periodic progress heartbeats when bootstrap runs without a terminal, so redirected and service logs no longer appear stuck during long imports.
+- **amaru-node**: attempt to flush and shut down every configured OpenTelemetry provider even when an earlier provider reports an error.
 
 ## [v10.11.20260827](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260827)
 

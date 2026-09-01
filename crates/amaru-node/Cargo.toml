@@ -60,7 +60,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus.workspace = true
-amaru-kernel = { workspace = true, features = ["tracing", "clap"] }
+amaru-kernel = { workspace = true, features = ["tracing"] }
 amaru-ledger.workspace = true
 amaru-mempool.workspace = true
 amaru-metrics.workspace = true

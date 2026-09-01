@@ -266,6 +266,32 @@ fn color_option_accepts_all_variants() -> anyhow::Result<()> {
 }
 
 #[test]
+fn open_telemetry_signals_option_is_global() -> anyhow::Result<()> {
+    let amaru = cargo_bin("amaru");
+    let output =
+        Command::new(amaru).args(["dev", "traces", "dump", "--open-telemetry-signals", "traces", "--help"]).output()?;
+
+    assert!(output.status.success(), "global --open-telemetry-signals should be accepted after a subcommand");
+    Ok(())
+}
+
+#[test]
+fn open_telemetry_signals_option_reads_its_environment_variable() -> anyhow::Result<()> {
+    let amaru = cargo_bin("amaru");
+    let output = Command::new(amaru)
+        .args(["dev", "traces", "dump", "--compact"])
+        .env("AMARU_OPEN_TELEMETRY_SIGNALS", "unknown")
+        .output()?;
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("invalid value 'unknown'"),
+        "invalid environment value should be reported by clap"
+    );
+    Ok(())
+}
+
+#[test]
 fn no_short_options_on_dump_chain_db() -> anyhow::Result<()> {
     let help = amaru_help(&["dev", "chain", "dump"])?;
     assert!(!help.contains("  -H"), "dump should not have -H short option");

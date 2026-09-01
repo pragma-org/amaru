@@ -36,7 +36,6 @@ clap_complete.workspace = true
 clap_mangen.workspace = true
 hex.workspace = true
 indoc.workspace = true
-opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true

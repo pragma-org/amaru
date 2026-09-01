@@ -14,9 +14,10 @@
 
 //! Embedder-facing observability install helpers.
 //!
-//! Used by thin programs such as the `run_until` example so OTLP metrics/traces
-//! can be enabled without the product CLI. When OTLP is on, process/build gauges
-//! are collected by default; [`TelemetryOptions`] can disable their sysinfo poller.
+//! Used by thin programs such as the `run_until` example so OTLP metrics, traces,
+//! and logs can be enabled without the product CLI. When OTLP metrics are on,
+//! process/build gauges are collected by default; [`TelemetryOptions`] can disable
+//! their sysinfo poller.
 //!
 //! Console, JSON, and OTEL log/trace layers are the same CBOR-aware formatters
 //! as the product binary (`CborConsoleEventFormat`, `CborJsonEventFormat`,
@@ -38,12 +39,7 @@ use std::{env, sync::Arc};
 use amaru_metrics::{METRICS_METER_NAME, Meter};
 use anyhow::{Context, anyhow};
 use opentelemetry::{KeyValue, metrics::MeterProvider as _, trace::TracerProvider as _};
-use opentelemetry_sdk::{
-    Resource,
-    logs::SdkLoggerProvider,
-    metrics::{SdkMeterProvider, Temporality},
-    trace::SdkTracerProvider,
-};
+use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tokio::task::JoinHandle;
 use tracing::Subscriber;
@@ -57,6 +53,13 @@ use crate::{
         CborTraceArrayLayer, console_field_formatter,
     },
     system_metrics::{BuildIdentity, track_system_metrics},
+};
+
+mod open_telemetry;
+
+pub use open_telemetry::{
+    BuildOpenTelemetryProvidersError, OpenTelemetryProviders, OtelSignal, OtelSignals,
+    ShutdownOpenTelemetryProvidersError,
 };
 
 const DEFAULT_SERVICE_NAME: &str = "amaru";
@@ -79,15 +82,17 @@ pub enum LogFormat {
 }
 
 /// Optional behavior for [`Telemetry::install_with_options`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelemetryOptions {
     /// Whether OTLP telemetry starts the sysinfo-backed process and host metrics poller.
     pub collect_system_metrics: bool,
+    /// OpenTelemetry signals to export when OTLP is enabled.
+    pub open_telemetry_signals: OtelSignals,
 }
 
 impl Default for TelemetryOptions {
     fn default() -> Self {
-        Self { collect_system_metrics: true }
+        Self { collect_system_metrics: true, open_telemetry_signals: OtelSignals::default() }
     }
 }
 
@@ -161,46 +166,35 @@ impl Telemetry {
     }
 
     fn install_otlp(format: LogFormat, options: TelemetryOptions) -> anyhow::Result<Self> {
+        let signals = &options.open_telemetry_signals;
         let resource = build_resource();
-        let service_name = resource
-            .get(&opentelemetry::Key::from_static_str(SERVICE_NAME))
-            .map(|v| v.as_str().to_string())
-            .unwrap_or_else(|| DEFAULT_SERVICE_NAME.to_string());
+        let providers = OpenTelemetryProviders::try_new(resource, signals)?;
+        let meter = Arc::new(
+            providers
+                .meter_provider()
+                .map(|provider| Meter::from(provider.meter(METRICS_METER_NAME)))
+                .unwrap_or_default(),
+        );
 
-        let traces_provider = SdkTracerProvider::builder()
-            .with_resource(resource.clone())
-            .with_batch_exporter(
-                opentelemetry_otlp::SpanExporter::builder().with_tonic().build().context("build OTLP span exporter")?,
-            )
-            .build();
-
-        let logs_provider = SdkLoggerProvider::builder()
-            .with_resource(resource.clone())
-            .with_batch_exporter(
-                opentelemetry_otlp::LogExporter::builder().with_tonic().build().context("build OTLP log exporter")?,
-            )
-            .build();
-
-        let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-            .with_tonic()
-            .with_temporality(Temporality::default())
-            .build()
-            .context("build OTLP metric exporter")?;
-
-        let meter_provider = SdkMeterProvider::builder()
-            .with_resource(resource)
-            .with_reader(opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build())
-            .build();
-
-        let otel_layer = tracing_opentelemetry::layer()
-            .with_tracer(traces_provider.tracer(service_name))
-            .with_level(true)
-            .with_target(true)
-            .with_filter(amaru_trace_filter()?);
+        let otel_layer = providers
+            .tracer_provider()
+            .map(|provider| {
+                amaru_trace_filter().map(|filter| {
+                    tracing_opentelemetry::layer()
+                        .with_tracer(provider.tracer(providers.service_name().to_string()))
+                        .with_level(true)
+                        .with_target(true)
+                        .with_filter(filter)
+                })
+            })
+            .transpose()?;
 
         // Project-owned bridge so CBOR field payloads become nested AnyValue maps/lists
         // (or scalars) instead of opaque bytes / diagnostic text.
-        let log_bridge = CborOtelLogBridge::new(&logs_provider).with_filter(amaru_trace_filter()?);
+        let log_bridge = providers
+            .logger_provider()
+            .map(|provider| amaru_trace_filter().map(|filter| CborOtelLogBridge::new(provider).with_filter(filter)))
+            .transpose()?;
 
         let fmt_filter = rust_log_filter();
         if format.is_json() {
@@ -226,21 +220,15 @@ impl Telemetry {
             )?;
         }
 
-        let meter = Arc::new(Meter::from(meter_provider.meter(METRICS_METER_NAME)));
         // Same process/build gauges as the product binary so e2e compare-metrics
         // sees the full supported set when OTLP is enabled.
-        let system_metrics = if options.collect_system_metrics {
+        let system_metrics = if signals.0.contains(&OtelSignal::Metrics) && options.collect_system_metrics {
             track_system_metrics(Arc::clone(&meter), BuildIdentity::default()).context("start system metrics")?
         } else {
             None
         };
 
-        let teardown = Box::new(move || {
-            traces_provider.shutdown().map_err(|e| anyhow!("trace provider shutdown: {e}"))?;
-            meter_provider.shutdown().map_err(|e| anyhow!("meter provider shutdown: {e}"))?;
-            logs_provider.shutdown().map_err(|e| anyhow!("log provider shutdown: {e}"))?;
-            Ok(())
-        });
+        let teardown = Box::new(move || Ok(providers.shutdown()?));
 
         Ok(Self { meter, system_metrics, teardown: Some(teardown) })
     }
