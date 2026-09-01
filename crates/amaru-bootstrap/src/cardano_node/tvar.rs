@@ -34,7 +34,7 @@ use amaru_ledger::{
     store::{Columns, Store, TransactionalContext},
 };
 use amaru_observability::info;
-use amaru_progress_bar::ProgressBar;
+use amaru_progress_bar::ProgressBarFactory;
 use anyhow::anyhow;
 
 use super::{extract_snapshot_chain_state_after_ledger, mempack, parse_state_snapshot_prefix};
@@ -53,7 +53,7 @@ pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
 ) -> anyhow::Result<(Epoch, Point, Option<ChainState>)>
 where
     S: Store,
-    F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
+    F: ProgressBarFactory,
     State: Read,
     Utxo: Read,
 {
@@ -64,26 +64,25 @@ where
         global_parameters,
         nonce_tail,
         previous_accounts,
-        with_progress,
+        &with_progress,
     )?;
 
-    import_utxo_from_tvar(utxo_file, db, with_progress, &point, &era_history, network)?;
+    import_utxo_from_tvar(utxo_file, db, &with_progress, &point, &era_history, network)?;
 
     Ok((epoch, point, chain_state))
 }
 
-pub(crate) fn import_state_from_tvar<S, F, State>(
+pub(crate) fn import_state_from_tvar<S, State>(
     db: &S,
     state_file: &mut State,
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<Credential>,
-    with_progress: F,
+    with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<(Epoch, Point, EraHistory, Option<ChainState>)>
 where
     S: Store,
-    F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
     State: Read,
 {
     let mut decoder = LazyDecoder::new(state_file);
@@ -109,34 +108,32 @@ where
     Ok((epoch, point, parsed_snapshot.era_history, chain_state))
 }
 
-pub(crate) fn import_utxo_from_tvar<S, F, Utxo>(
+pub(crate) fn import_utxo_from_tvar<S, Utxo>(
     utxo_file: &mut Utxo,
     db: &S,
-    with_progress: F,
+    with_progress: &impl ProgressBarFactory,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
 ) -> anyhow::Result<()>
 where
     S: Store,
-    F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
     Utxo: Read,
 {
     let mut decoder = LazyDecoder::new(utxo_file);
     import_tvar_utxo(&mut decoder, db, with_progress, point, era_history, network)
 }
 
-fn import_tvar_utxo<S, F>(
+fn import_tvar_utxo<S>(
     decoder: &mut LazyDecoder<'_>,
     db: &S,
-    with_progress: F,
+    with_progress: &impl ProgressBarFactory,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
 ) -> anyhow::Result<()>
 where
     S: Store,
-    F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
 {
     let protocol_parameters = db.protocol_parameters()?;
 
@@ -147,7 +144,8 @@ where
 
     let estimated_size = size.unwrap_or(network.estimated_utxo_size());
 
-    let progress = with_progress(
+    let progress = with_progress.create_for(
+        "import_utxo",
         estimated_size,
         "{spinner:.green} Importing UTxO entries {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
     );
@@ -225,7 +223,7 @@ where
         }
     }
 
-    progress.clear();
+    progress.finish();
     info!(bootstrap::import::UTXO, size = actual_size);
 
     Ok(())

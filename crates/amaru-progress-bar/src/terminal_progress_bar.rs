@@ -38,6 +38,11 @@ impl TerminalProgressBar {
     pub fn boxed(self) -> Box<dyn ProgressBar> {
         Box::new(self)
     }
+
+    /// Finish a terminal progress bar that is shared with progress-reporting callbacks.
+    pub fn finish_and_clear(&self) {
+        self.inner.finish_and_clear();
+    }
 }
 
 impl ProgressBar for TerminalProgressBar {
@@ -45,7 +50,7 @@ impl ProgressBar for TerminalProgressBar {
         self.inner.inc(size as u64);
     }
 
-    fn clear(&self) {
-        self.inner.finish_and_clear();
+    fn clear(self: Box<Self>) {
+        self.finish_and_clear();
     }
 }

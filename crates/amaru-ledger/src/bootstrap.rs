@@ -32,7 +32,7 @@ use amaru_kernel::{
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
 };
 use amaru_observability::{info, warn};
-use amaru_progress_bar::ProgressBar;
+use amaru_progress_bar::ProgressBarFactory;
 use anyhow::anyhow;
 
 use crate::{
@@ -161,7 +161,7 @@ fn import_rewards(
     decoder: &mut LazyDecoder<'_>,
     db: &impl Store,
     rewards_size: usize,
-    with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+    with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<u64> {
     let (progress, unclaimed_rewards) = decoder.stream_map(
         |d| {
@@ -172,7 +172,8 @@ fn import_rewards(
         },
         |length| {
             (
-                with_progress(
+                with_progress.create_for(
+                    "import_rewards",
                     length.map(|size| size as usize).unwrap_or(rewards_size),
                     "{spinner:.green} Importing rewards {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
                 ),
@@ -192,7 +193,7 @@ fn import_rewards(
         },
     )?;
 
-    progress.clear();
+    progress.finish();
     Ok(unclaimed_rewards)
 }
 
@@ -202,7 +203,7 @@ fn import_accounts(
     point: &Point,
     network: NetworkName,
     mut recently_unregistered_accounts: BTreeSet<Credential>,
-    with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+    with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<ImportedAccounts> {
     if db.iter_accounts()?.next().is_some() {
         warn!(bootstrap::accounts::IS_NOT_EMPTY);
@@ -220,7 +221,8 @@ fn import_accounts(
                 NetworkName::Testnet(_) => 1,
             });
             (
-                with_progress(
+                with_progress.create_for(
+                    "import_accounts",
                     estimated_size,
                     "{spinner:.green} Importing accounts {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
                 ),
@@ -246,7 +248,7 @@ fn import_accounts(
         },
     )?;
 
-    progress.clear();
+    progress.finish();
 
     info!(bootstrap::accounts::IMPORT, size);
 
@@ -290,14 +292,15 @@ fn import_default_account_deposits(
     db: &impl Store,
     point: &Point,
     default_deposit: Lovelace,
-    with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+    with_progress: &impl ProgressBarFactory,
     mut accounts: Vec<(Credential, NodeAccount)>,
 ) -> anyhow::Result<()> {
     if accounts.is_empty() {
         return Ok(());
     }
 
-    let progress = with_progress(
+    let progress = with_progress.create_for(
+        "adjust_account_deposits",
         accounts.len(),
         "{spinner:.green} Adjusting default account deposits {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
     );
@@ -307,7 +310,7 @@ fn import_default_account_deposits(
 
     save_bootstrap_account_batches(db, awaiting, |size| progress.tick(size))?;
 
-    progress.clear();
+    progress.finish();
     Ok(())
 }
 
@@ -326,7 +329,7 @@ fn decode_initial_snapshot(
     expected_epoch: Epoch,
     network: NetworkName,
     era_history: &EraHistory,
-    with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+    with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<InitialSnapshot> {
     let epoch: Epoch = decoder.with_decoder(|d| decode_initial_snapshot_prefix(d, expected_epoch))?;
 
@@ -355,7 +358,7 @@ fn decode_initial_snapshot(
     let governance_activity = GovernanceActivity { consecutive_dormant_epochs: u64::from(dormant_epoch) as u32 };
     info!(bootstrap::governance_activity::IMPORT, dormant_epochs = governance_activity.consecutive_dormant_epochs);
 
-    let pool_state_progress = with_progress(0, "{spinner:.green} Reading pool state");
+    let pool_state_progress = with_progress.create_for("read_pool_state", 0, "{spinner:.green} Reading pool state");
     // Pool parameters contain protocol-version-sensitive byte strings, but the snapshot's
     // protocol version appears later in the payload. Keep the encoded pool state until then.
     let raw_pool_state: Vec<u8> = decoder.with_decoder(|d| {
@@ -363,19 +366,22 @@ fn decode_initial_snapshot(
         d.skip()?;
         Ok(d.input()[start..d.position()].to_vec())
     })?;
-    pool_state_progress.clear();
+    pool_state_progress.finish();
 
     let ImportedAccounts { recently_unregistered_accounts, awaiting_default_deposit, account_len } =
         import_accounts(decoder, db, point, network, previous_accounts, with_progress)
             .map_err(|err| anyhow!("decode accounts: {err}"))?;
 
-    let remaining_state_progress = with_progress(0, "{spinner:.green} Reading remaining ledger state");
+    let remaining_state_progress =
+        with_progress.create_for("read_ledger_state", 0, "{spinner:.green} Reading remaining ledger state");
 
     decoder.skip()?; // dsPtrs
     decoder.skip()?; // dsFutureGenDelegs
     decoder.skip()?; // dsGenDelegs
+    remaining_state_progress.increment();
 
     skip_embedded_utxo(decoder).map_err(|err| anyhow!("skip embedded utxo: {err}"))?;
+    remaining_state_progress.increment();
 
     decoder.skip().map_err(|err| anyhow!("decode deposited: {err}"))?;
     let fees: i64 = decoder.decode().map_err(|err| anyhow!("decode fees: {err}"))?;
@@ -410,6 +416,7 @@ fn decode_initial_snapshot(
             minimum_version: e.minimum_version,
         },
     )?;
+    remaining_state_progress.increment();
 
     import_default_account_deposits(
         db,
@@ -422,6 +429,7 @@ fn decode_initial_snapshot(
     let (pools, pools_updates, pools_retirements) =
         decode_node_pool_state(&mut cbor::Decoder::new(&raw_pool_state), network, protocol_parameters.protocol_version)
             .map_err(|err| anyhow!("{}", format_pool_state_decode_error(err)))?;
+    remaining_state_progress.increment();
 
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
@@ -431,6 +439,7 @@ fn decode_initial_snapshot(
     decoder.skip()?; // DRep distr
     decoder.skip()?; // DRep state
     decoder.skip()?; // Pool distr
+    remaining_state_progress.increment();
 
     let (enacted_proposals, SerialisedAsSet(expired_proposals)): (
         Vec<ProposalState>,
@@ -446,12 +455,14 @@ fn decode_initial_snapshot(
             Ok((enacted, expired))
         })
         .map_err(|err| anyhow!("decode ratify state: {err}"))?;
+    remaining_state_progress.increment();
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
     decoder.skip()?;
 
     // Epoch State / Ledger State / UTxO State / utxosDonation
     let donations: u64 = decoder.decode()?;
+    remaining_state_progress.increment();
 
     // Epoch State / Snapshots
     decoder.begin_array()?;
@@ -460,6 +471,7 @@ fn decode_initial_snapshot(
     skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Go
     decoder.skip()?; // Epoch State / Snapshots / Fee
     decoder.skip()?; // Epoch State / NonMyopic
+    remaining_state_progress.increment();
 
     let is_complete = decoder
         .with_decoder(|d| {
@@ -481,8 +493,9 @@ fn decode_initial_snapshot(
             Ok(is_complete)
         })
         .map_err(|err| anyhow!("decode rewards update: {err}"))?;
+    remaining_state_progress.increment();
 
-    remaining_state_progress.clear();
+    remaining_state_progress.finish();
 
     let (delta_treasury, delta_reserves, unclaimed_rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
@@ -543,7 +556,7 @@ pub fn import_initial_snapshot(
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
-    with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+    with_progress: impl ProgressBarFactory,
 ) -> anyhow::Result<Epoch> {
     let mut decoder = LazyDecoder::new(reader);
     import_initial_snapshot_with_decoder(
@@ -553,7 +566,7 @@ pub fn import_initial_snapshot(
         point,
         era_history,
         network,
-        with_progress,
+        &with_progress,
     )
 }
 
@@ -567,7 +580,7 @@ pub fn import_initial_snapshot_with_decoder(
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
-    with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+    with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<Epoch> {
     let tip = point.slot_or_default();
     let expected_epoch = era_history.slot_to_epoch(tip, tip)?;
@@ -604,7 +617,7 @@ pub fn import_initial_snapshot_with_decoder(
         expected_epoch,
         network,
         era_history,
-        &with_progress,
+        with_progress,
     )?;
 
     import_protocol_parameters(db, &protocol_parameters)?;

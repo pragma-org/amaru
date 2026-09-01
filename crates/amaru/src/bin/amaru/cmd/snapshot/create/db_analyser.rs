@@ -126,7 +126,7 @@ impl TrackedProgress {
                 if let Ok(s) = s.lock()
                     && let Some(pb) = s.bar.as_ref()
                 {
-                    pb.tick(0);
+                    pb.refresh();
                 }
                 thread::sleep(std::time::Duration::from_millis(100));
             }
@@ -206,7 +206,11 @@ where
                                 ));
                             }
                             if let Some(pb) = s.bar.as_ref() {
-                                pb.tick(done.map(|d| d as usize).unwrap_or(0));
+                                if let Some(done) = done {
+                                    pb.tick(done as usize);
+                                } else {
+                                    pb.refresh();
+                                }
                             }
                         }
                         continue;
