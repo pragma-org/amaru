@@ -91,6 +91,28 @@ impl TokioInner {
             trace_buffer: TraceBuffer::new_shared(0, 0),
         }
     }
+
+    fn push_handle(&self, handle: JoinHandle<()>) {
+        let mut handles = self.handles.lock();
+        reap_finished_handles(&mut handles);
+        handles.push(handle);
+    }
+}
+
+fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>) {
+    handles.retain_mut(|handle| {
+        if !handle.is_finished() {
+            return true;
+        }
+        let mut cx = Context::from_waker(Waker::noop());
+        match handle.poll_unpin(&mut cx) {
+            Poll::Ready(Ok(())) => {}
+            Poll::Ready(Err(err)) if err.is_cancelled() => {}
+            Poll::Ready(Err(err)) => tracing::error!("detached task failed: {err:?}"),
+            Poll::Pending => return true,
+        }
+        false
+    });
 }
 
 struct TokioClock;
@@ -506,6 +528,32 @@ async fn interpreter(
                     tokio::task::yield_now().await;
                 }
                 StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
+            }
+            StageEffect::Detach(effect, inject) => {
+                tracing::debug!("stage `{name}` detach effect: {:?}", effect);
+                let now = tokio::time::Instant::now();
+                if now.duration_since(last_yield) > Duration::from_millis(100) {
+                    last_yield = now;
+                    tokio::task::yield_now().await;
+                }
+                let resources = inner.resources.clone();
+                let target = name.clone();
+                let inject = inject.into_inner();
+                let inner2 = inner.clone();
+                let handle = tokio::spawn(async move {
+                    let result = effect.run(resources).await;
+                    let msg = inject(result);
+                    let tx = inner2.senders.lock().get(&target).cloned();
+                    if let Some(tx) = tx {
+                        if tx.send(msg).await.is_err() {
+                            tracing::debug!(stage = %target, "detach result dropped: stage gone");
+                        }
+                    } else {
+                        tracing::debug!(stage = %target, "detach result dropped: unknown stage");
+                    }
+                });
+                inner.push_handle(handle);
+                StageResponse::ExternalResponse(Box::new(()))
             }
             StageEffect::Terminate => {
                 tracing::warn!("stage `{name}` terminated");

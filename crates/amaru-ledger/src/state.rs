@@ -17,7 +17,6 @@ use std::{
     cmp::max,
     collections::{BTreeMap, BTreeSet, VecDeque},
     mem,
-    net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
     thread::JoinHandle,
@@ -321,13 +320,13 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         self.volatile.view_back().map(|fragment| fragment.tip())
     }
 
-    /// Get the registered relay socket addresses from the stable store.
+    /// Get registered relay candidates from the stable store (sockets, hostnames, and SRV names).
     ///
     /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
     /// 2025), so it should be called with care. Please cache the result, it
     /// only changes meaningfully once per epoch.
     #[expect(clippy::unwrap_used)]
-    pub fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, StateError> {
+    pub fn registered_relay_candidates(&self) -> Result<BTreeSet<amaru_kernel::PeerCandidate>, StateError> {
         let db = self.stable.lock().unwrap();
         Ok(crate::registered_relay_addrs::collect_from_read_store(&*db)?)
     }

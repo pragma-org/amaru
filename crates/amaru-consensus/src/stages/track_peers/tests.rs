@@ -52,9 +52,9 @@ use crate::{
 fn test_new_peer() {
     let prep = test_prep();
     let state = prep.state.clone();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Initialize,
@@ -79,13 +79,13 @@ fn test_new_peer() {
 #[test]
 fn test_initialize_resets_established_session() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let header = &prep.headers[1];
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Point::Origin, Point::Origin);
-    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), header.clone(), header.point());
+    state.insert_peer(peer, prep.conn_id, Point::Origin, Point::Origin);
+    state.push_deferred_for_tests(peer, prep.conn_id, prep.handler.clone(), header.clone(), header.point());
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Initialize,
@@ -107,15 +107,15 @@ fn test_initialize_resets_established_session() {
 #[test]
 fn test_terminated_purges_upstream_and_deferred() {
     let prep = test_prep_with_max_peer_lead(0);
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = &prep.headers[1];
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
-    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), header.clone(), header.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
+    state.push_deferred_for_tests(peer, prep.conn_id, prep.handler.clone(), header.clone(), header.point());
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Terminated,
@@ -144,24 +144,24 @@ fn test_terminated_purges_upstream_and_deferred() {
 #[test]
 fn test_terminated_only_purges_matching_connection() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let mut other_id = ConnectionId::initial();
     let conn_a = other_id.get_and_increment();
     let conn_b = other_id.get_and_increment();
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), conn_a, Point::Origin, Point::Origin);
-    state.insert_peer(peer.clone(), conn_b, prep.headers[0].point(), prep.headers[0].point());
+    state.insert_peer(peer, conn_a, Point::Origin, Point::Origin);
+    state.insert_peer(peer, conn_b, prep.headers[0].point(), prep.headers[0].point());
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: conn_a,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Terminated,
     });
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), conn_b, prep.headers[0].point(), prep.headers[0].point());
+    expected.insert_peer(peer, conn_b, prep.headers[0].point(), prep.headers[0].point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
@@ -185,7 +185,7 @@ fn test_intersect_found_missing_header_sends_done() {
     let current = Point::Specific(1u64.into(), HeaderHash::from([1u8; 32]), BlockHeight::from(1));
     let tip = current;
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: Peer::new("peer1"),
+        peer: Peer::for_test(3001),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::IntersectFound(current, tip),
@@ -218,14 +218,14 @@ fn test_intersect_found_tracks_peer() {
     let current = header.point();
     let tip = prep.headers[1].point();
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: Peer::new("peer1"),
+        peer: Peer::for_test(3001),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::IntersectFound(current, tip),
     });
 
     let mut expected = state.clone();
-    expected.insert_peer(Peer::new("peer1"), prep.conn_id, header.point(), tip);
+    expected.insert_peer(Peer::for_test(3001), prep.conn_id, header.point(), tip);
 
     let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(slice::from_ref(header)));
@@ -249,7 +249,7 @@ fn test_intersect_found_tracks_peer() {
 #[test]
 fn test_reconnect_intersect_then_roll_forward() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let mut ids = ConnectionId::initial();
     let conn0 = ids.get_and_increment();
     let conn1 = ids.get_and_increment();
@@ -259,35 +259,35 @@ fn test_reconnect_intersect_then_roll_forward() {
     let intersect = intersect_header.point();
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), conn0, stale.point(), stale.point());
+    state.insert_peer(peer, conn0, stale.point(), stale.point());
 
     let terminated = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: conn0,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Terminated,
     });
     let initialize = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: conn1,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Initialize,
     });
     let intersect_found = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: conn1,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::IntersectFound(intersect, stale.point()),
     });
     let roll_forward = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: conn1,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(next_header, EraName::Conway), stale.point()),
     });
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), conn1, next_header.point(), stale.point());
+    expected.insert_peer(peer, conn1, next_header.point(), stale.point());
 
     let (running, _guards, mut logs) = setup_base(
         &prep.rt_handle(),
@@ -305,7 +305,7 @@ fn test_reconnect_intersect_then_roll_forward() {
         &running,
         &[
             te_input("tp-1", &terminated).into(),
-            te_clear_peer_availability("tp-1", peer.clone()).into(),
+            te_clear_peer_availability("tp-1", peer).into(),
             te_input("tp-1", &initialize).into(),
             te_input("tp-1", &intersect_found).into(),
             te_load_point("tp-1", intersect.hash()).into(),
@@ -319,7 +319,7 @@ fn test_reconnect_intersect_then_roll_forward() {
     logs.assert_and_remove(Level::INFO, &["chainsync.terminated"])
         .assert_and_remove(Level::INFO, &["chainsync.initialized"])
         .assert_and_remove(Level::INFO, &["chainsync.intersect_found"])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -329,7 +329,7 @@ fn test_intersect_not_found_untracked_sends_done() {
     let prep = test_prep();
     let state = prep.state.clone();
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: Peer::new("peer1"),
+        peer: Peer::for_test(3001),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::IntersectNotFound(Point::Origin),
@@ -356,10 +356,10 @@ fn test_intersect_not_found_untracked_sends_done() {
 #[test]
 fn test_intersect_not_found_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Point::Origin, Point::Origin);
+    state.insert_peer(peer, prep.conn_id, Point::Origin, Point::Origin);
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer,
         conn_id: prep.conn_id,
@@ -391,9 +391,9 @@ fn test_roll_forward_unknown_peer_removes_peer() {
     let state = prep.state.clone();
     let header = &prep.headers[0];
     let child = &prep.headers[1];
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), child.point()),
@@ -412,7 +412,7 @@ fn test_roll_forward_unknown_peer_removes_peer() {
             te_state("tp-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Unknown peer"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -421,21 +421,21 @@ fn test_roll_forward_unknown_peer_removes_peer() {
 #[test]
 fn test_roll_forward_known_peer_header_already_stored() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = &prep.headers[1];
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.point()),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), prep.conn_id, header.point(), header.point());
+    expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
 
     let received_at = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) =
@@ -450,7 +450,7 @@ fn test_roll_forward_known_peer_header_already_stored() {
             te_get_nonces("tp-1", header.hash()).into(),
             te_record_header_announcement(
                 "tp-1",
-                peer.clone(),
+                peer,
                 header.point(),
                 header.parent_hash(),
                 received_at,
@@ -463,7 +463,7 @@ fn test_roll_forward_known_peer_header_already_stored() {
     );
     logs.assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="already_stored""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="duplicate_header""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="duplicate_header""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -476,21 +476,21 @@ fn test_roll_forward_known_peer_header_already_stored() {
 #[test]
 fn test_roll_forward_stored_header_missing_nonces_revalidates() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = &prep.headers[1];
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.point()),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), prep.conn_id, header.point(), header.point());
+    expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
 
     // Header present but nonces absent, as after a bootstrap import.
     let received_at = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
@@ -508,7 +508,7 @@ fn test_roll_forward_stored_header_missing_nonces_revalidates() {
             te_store_validated_header("tp-1", header.clone()).into(),
             te_record_header_announcement(
                 "tp-1",
-                peer.clone(),
+                peer,
                 header.point(),
                 header.parent_hash(),
                 received_at,
@@ -520,28 +520,28 @@ fn test_roll_forward_stored_header_missing_nonces_revalidates() {
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
 fn test_roll_forward_known_peer_new_header_forwards_tip() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = &prep.headers[1];
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.point()),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), prep.conn_id, header.point(), header.point());
+    expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
 
     let received_at = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
@@ -557,7 +557,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_store_validated_header("tp-1", header.clone()).into(),
             te_record_header_announcement(
                 "tp-1",
-                peer.clone(),
+                peer,
                 header.point(),
                 header.parent_hash(),
                 received_at,
@@ -569,7 +569,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -577,21 +577,21 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
 #[test]
 fn test_roll_forward_accepts_empty_slots_in_the_past() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = make_block_header(2, parent.slot().as_u64() + 130, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), prep.conn_id, header.point(), header.point());
+    expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
@@ -608,7 +608,7 @@ fn test_roll_forward_accepts_empty_slots_in_the_past() {
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -616,10 +616,10 @@ fn test_roll_forward_accepts_empty_slots_in_the_past() {
 #[test]
 fn test_roll_forward_invalid_variant_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(
@@ -630,7 +630,7 @@ fn test_roll_forward_invalid_variant_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
@@ -651,10 +651,10 @@ fn test_roll_forward_invalid_variant_removes_peer() {
 #[test]
 fn test_roll_forward_invalid_cbor_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(
@@ -665,7 +665,7 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
@@ -686,12 +686,12 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
 #[test]
 fn test_roll_forward_invalid_parent_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let wrong_parent = HeaderHash::from([9u8; 32]);
     let header = make_block_header(2, 2, Some(wrong_parent));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
@@ -699,7 +699,7 @@ fn test_roll_forward_invalid_parent_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -714,7 +714,7 @@ fn test_roll_forward_invalid_parent_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header parent"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -723,11 +723,11 @@ fn test_roll_forward_invalid_parent_removes_peer() {
 #[test]
 fn test_roll_forward_invalid_height_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = make_block_header(3, 2, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
@@ -735,7 +735,7 @@ fn test_roll_forward_invalid_height_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -750,7 +750,7 @@ fn test_roll_forward_invalid_height_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header height"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -759,11 +759,11 @@ fn test_roll_forward_invalid_height_removes_peer() {
 #[test]
 fn test_roll_forward_invalid_point_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = make_block_header(2, parent.slot().into(), Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), parent.point()),
@@ -771,7 +771,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -786,7 +786,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header point"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -795,11 +795,11 @@ fn test_roll_forward_invalid_point_removes_peer() {
 #[test]
 fn test_roll_forward_header_validation_failure_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = &prep.headers[1];
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.point()),
@@ -807,7 +807,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), header.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
     // Use empty store so evolve_nonce fails (unknown parent), exercising the real validate_header fn failure path.
     let (running, _guards, mut logs) =
@@ -819,7 +819,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             });
         });
 
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -844,14 +844,14 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
 #[test]
 fn test_roll_forward_header_slot_too_far_future_adversarial() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
     let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
     // Parent at "now" so the header is within the foreseeable horizon of `current`.
     let parent = make_block_header(1, curr_slot, None);
     let header = make_block_header(2, curr_slot + 10, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
@@ -859,11 +859,11 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), header.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "ahead of local time"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -885,12 +885,12 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 #[test]
 fn test_roll_forward_slot_past_time_horizon_is_adversarial() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     // Default test era rounds the stability window up to a full epoch (86400 slots).
     let header = make_block_header(2, parent.slot().as_u64() + 100_000, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
@@ -898,7 +898,7 @@ fn test_roll_forward_slot_past_time_horizon_is_adversarial() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -924,27 +924,27 @@ fn test_roll_forward_slot_past_time_horizon_is_adversarial() {
 #[test]
 fn test_roll_forward_header_slot_near_future_defers() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
     let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
     let parent = make_block_header(1, curr_slot, None);
     // one second ahead of sim clock → near-future defer
     let header = make_block_header(2, curr_slot + 1, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), header.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
     logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="clock_skew""#])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // Clock-skew defers, then sim advances and RecheckLedgerHeight processes the header.
     assert_trace_contains(
@@ -969,11 +969,11 @@ fn test_roll_forward_header_slot_near_future_defers() {
 #[test]
 fn test_roll_forward_stake_dist_far_ahead_rejects() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let header = &prep.headers[1];
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.point()),
@@ -981,7 +981,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), header.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
     // More than one epoch beyond known max_epoch (start-2) → adversarial, not defer.
     let far_epoch = prep.start_times.epoch;
@@ -996,7 +996,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
             });
         });
 
-    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -1019,22 +1019,22 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
 #[test]
 fn test_roll_backward_updates_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let header = &prep.headers[0];
     let current = header.point();
     let tip = current;
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollBackward(current, tip),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Point::Origin, Point::Origin);
+    state.insert_peer(peer, prep.conn_id, Point::Origin, Point::Origin);
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), prep.conn_id, header.point(), tip);
+    expected.insert_peer(peer, prep.conn_id, header.point(), tip);
 
     let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) =
@@ -1063,11 +1063,11 @@ fn test_roll_backward_updates_peer() {
 #[test]
 fn test_roll_backward_unknown_peer_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let header = &prep.headers[0];
     let current = header.point();
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollBackward(current, Point::Origin),
@@ -1096,10 +1096,10 @@ fn test_roll_backward_unknown_peer_removes_peer() {
 #[test]
 fn test_roll_backward_unknown_point_removes_peer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let current = Point::Specific(1u64.into(), HeaderHash::from([1u8; 32]), BlockHeight::from(1));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollBackward(current, Point::Origin),
@@ -1107,7 +1107,7 @@ fn test_roll_backward_unknown_point_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Point::Origin, Point::Origin);
+    state.insert_peer(peer, prep.conn_id, Point::Origin, Point::Origin);
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
@@ -1132,15 +1132,15 @@ fn test_roll_backward_unknown_point_removes_peer() {
 fn test_roll_forward_defers_request_next() {
     // Use max_peer_lead = 0 so any header taller than the known ledger height triggers defer.
     let prep = test_prep_with_max_peer_lead(0);
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let header = prep.headers[0].clone();
     let tip = header.point();
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Point::Origin, tip);
+    state.insert_peer(peer, prep.conn_id, Point::Origin, tip);
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), tip),
@@ -1157,7 +1157,7 @@ fn test_roll_forward_defers_request_next() {
         Level::DEBUG,
         &["chainsync.header_deferred", r#"reason="ledger_height""#, "header_height=1", "ledger_height=0", "limit=1"],
     )
-    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 
     assert_trace_match(
@@ -1184,26 +1184,26 @@ fn test_roll_forward_defers_request_next() {
 #[test]
 fn test_pipelined_headers_after_height_defer() {
     let prep = test_prep_with_max_peer_lead(0);
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let h1 = prep.headers[1].clone();
     let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
 
     let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.point()),
     });
     let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.point()),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), h2.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), h2.point());
 
     let sid = height_recheck_schedule_id();
 
@@ -1219,8 +1219,8 @@ fn test_pipelined_headers_after_height_defer() {
 
     logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="ledger_height""#, "limit=2"])
         .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="follow_up""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_match(
         &running,
@@ -1248,15 +1248,15 @@ fn test_pipelined_headers_after_height_defer() {
 #[test]
 fn test_height_defer_recheck_when_ledger_advances() {
     let prep = test_prep_with_max_peer_lead(0);
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let header = prep.headers[0].clone();
     let tip = header.point();
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Point::Origin, tip);
+    state.insert_peer(peer, prep.conn_id, Point::Origin, tip);
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), tip),
@@ -1281,7 +1281,7 @@ fn test_height_defer_recheck_when_ledger_advances() {
 
     logs.assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="ledger_height""#])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 
     assert_trace_contains(
@@ -1315,7 +1315,7 @@ fn test_height_defer_recheck_when_ledger_advances() {
 #[test]
 fn test_pipelined_headers_after_slot_near_future_defer() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
     let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
     let parent = make_block_header(1, curr_slot, None);
@@ -1324,20 +1324,20 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
     let h2 = make_block_header(3, curr_slot + 2, Some(h1.hash()));
 
     let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.point()),
     });
     let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.point()),
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), h2.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), h2.point());
 
     let (running, _guards, mut logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], build_store(&[]), |running| {
@@ -1354,8 +1354,8 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h1_hash])
         .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="clock_skew""#, &h2_hash])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h2_hash])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // First header clock-skew defers; second is FollowUp; recheck may drain both before run ends.
     assert_trace_contains(
@@ -1376,19 +1376,19 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
 #[test]
 fn test_pipelined_stake_defer_and_wake_sequence() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let h1 = prep.headers[1].clone();
     let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
 
     let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.point()),
     });
     let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.point()),
@@ -1397,7 +1397,7 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
     let wake = TrackPeersMsg::StakeDistUpdated(prep.start_times.epoch);
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), h2.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), h2.point());
 
     let slot1 = h1.slot();
     // One epoch ahead of known max_epoch (start-2) → defer, not reject.
@@ -1430,8 +1430,8 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
         .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="follow_up""#, &h2_hash])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h1_hash])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#, &h2_hash])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
-        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+        .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // h1 stake-deferred after RN; h2 is FollowUp (peer already deferred); wake reprocesses both in order.
     assert_trace_contains(
@@ -1480,16 +1480,16 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
 #[test]
 fn test_recheck_deferred_survives_purge_shrinking_the_list() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let wrong_parent = HeaderHash::from([9u8; 32]);
     let h1 = make_block_header(2, 2, Some(wrong_parent));
     let h2 = make_block_header(3, 3, Some(h1.hash()));
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), parent.point());
-    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), h1.clone(), h1.point());
-    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), h2.clone(), h2.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
+    state.push_deferred_for_tests(peer, prep.conn_id, prep.handler.clone(), h1.clone(), h1.point());
+    state.push_deferred_for_tests(peer, prep.conn_id, prep.handler.clone(), h2.clone(), h2.point());
 
     let msg = TrackPeersMsg::RecheckLedgerHeight;
 
@@ -1520,19 +1520,19 @@ fn test_recheck_deferred_survives_purge_shrinking_the_list() {
 #[test]
 fn test_redeferred_header_keeps_blocking_follow_ups() {
     let prep = test_prep();
-    let peer = Peer::new("peer1");
+    let peer = Peer::for_test(3001);
     let parent = &prep.headers[0];
     let h1 = prep.headers[1].clone();
     let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
 
     let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.point()),
     });
     let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
+        peer,
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.point()),
@@ -1544,7 +1544,7 @@ fn test_redeferred_header_keeps_blocking_follow_ups() {
     let second_target = prep.start_times.epoch;
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.point(), h2.point());
+    state.insert_peer(peer, prep.conn_id, parent.point(), h2.point());
 
     let slot1 = h1.slot();
     let (running, _guards, mut logs) = setup_base(
@@ -1574,8 +1574,8 @@ fn test_redeferred_header_keeps_blocking_follow_ups() {
     )
     .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="follow_up""#, &h2_hash])
     .assert_and_remove(Level::DEBUG, &["chainsync.header_deferred", r#"reason="stake_distribution""#, &h1_hash])
-    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
-    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="peer1""#])
+    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+    .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_contains(
         &running,

@@ -312,7 +312,7 @@ impl Default for ManagerConfig {
 
 impl Manager {
     async fn add_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
-        let state = self.peers.entry(peer.clone()).or_default();
+        let state = self.peers.entry(peer).or_default();
         match &state.outbound {
             OutboundState::Connected { .. } | OutboundState::Scheduled { .. } => {
                 info!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "already_connected_or_scheduled");
@@ -418,12 +418,12 @@ impl Manager {
             ConnectionDirection::Inbound => Role::Responder,
             ConnectionDirection::Outbound => Role::Initiator,
         };
-        let connection = eff.supervise(connection, ManagerMessage::ConnectionDied(peer.clone(), conn_id, role));
+        let connection = eff.supervise(connection, ManagerMessage::ConnectionDied(peer, conn_id, role));
         let connection = eff
             .wire_up(
                 connection,
                 connection::Connection::new(
-                    peer.clone(),
+                    peer,
                     conn_id,
                     role,
                     self.config,
@@ -462,7 +462,7 @@ impl Manager {
             full_duplex,
             advertisable
         );
-        let peer_state = self.peers.entry(peer.clone()).or_default();
+        let peer_state = self.peers.entry(peer).or_default();
         let accept_this = match direction {
             ConnectionDirection::Outbound => {
                 if matches!(peer_state.outbound, OutboundState::Connected { .. }) {
@@ -485,7 +485,7 @@ impl Manager {
             eff.send(
                 &self.peer_selection,
                 PeerSelectionNotify::Connected {
-                    peer: peer.clone(),
+                    peer,
                     conn_id,
                     direction,
                     full_duplex_capable,
@@ -522,7 +522,7 @@ impl Manager {
             eff.send(
                 &self.peer_selection,
                 PeerSelectionNotify::Disconnected {
-                    peer: peer.clone(),
+                    peer,
                     conn_id,
                     direction: ConnectionDirection::Inbound,
                     will_retry: false,
@@ -537,7 +537,7 @@ impl Manager {
             eff.send(
                 &self.peer_selection,
                 PeerSelectionNotify::Disconnected {
-                    peer: peer.clone(),
+                    peer,
                     conn_id,
                     direction: ConnectionDirection::Outbound,
                     will_retry: false,
@@ -584,11 +584,11 @@ impl Manager {
                         } else {
                             peer_state.outbound = OutboundState::None;
                         }
-                        eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer: peer.clone() }).await;
+                        eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer }).await;
                     } else {
                         info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "reconnect_scheduled");
                         peer_state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
-                        self.connect(peer.clone(), false, eff).await;
+                        self.connect(peer, false, eff).await;
                     }
                 }
             }
@@ -606,7 +606,7 @@ impl Manager {
                 conn_id = conn_id.as_u64()
             );
             if role == Role::Initiator {
-                self.connect(peer.clone(), false, eff).await;
+                self.connect(peer, false, eff).await;
             }
             // inbound pre-HS deaths require no further action (peer entry is only created on HS success)
         }
@@ -629,7 +629,7 @@ impl Manager {
                     if !conn.may_initiate {
                         continue;
                     }
-                    contacted.push(conn.peer.clone());
+                    contacted.push(conn.peer);
                     eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
                 }
             }

@@ -22,7 +22,7 @@ use std::{
 };
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, ConnectionProvider};
 use amaru_pure_stage::BoxFuture;
 use parking_lot::Mutex;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};
@@ -99,46 +99,36 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 return Poll::Pending;
             };
 
+            let peer = Peer::try_from(pending.initiator_addr)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+
             // Register the responder's endpoint, the initiator is already registered in connect().
             let conn_id = inner.register_endpoint(pending.responder_endpoint);
 
             // Set the initiator's peer_conn_id to the responder's conn_id
             *pending.initiator_peer_conn_id_slot.lock() = Some(conn_id);
 
-            tracing::debug!("accepted in-memory connection from {} with id {conn_id}", pending.initiator_addr);
-            Poll::Ready(Ok((Peer::from_addr(&pending.initiator_addr), conn_id)))
+            tracing::debug!("accepted in-memory connection from {peer} with id {conn_id}");
+            Poll::Ready(Ok((peer, conn_id)))
         }))
     }
 
-    /// Connect to one of the given addresses. If a listener for the target address is already registered,
+    /// Connect to a peer. If a listener for that address is already registered,
     /// the connection is established immediately.
     ///
     /// This creates 2 connection endpoints with shared read / write queues.
-    ///
-    fn connect(&self, addr: Vec<SocketAddr>, _timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+    fn connect(&self, peer: Peer, _timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
         let inner = self.inner.clone();
         let provider = self.clone();
-        tracing::debug!("InMemoryConnectionProvider::connect called for {addr:?}");
+        let target_addr = SocketAddr::from(peer);
+        tracing::debug!("InMemoryConnectionProvider::connect called for {peer}");
 
         Box::pin(std::future::poll_fn(move |cx| {
-            if addr.is_empty() {
-                return Poll::Ready(Err(std::io::Error::other("no addresses provided")));
-            }
-
-            // Find an address that has a listener
-            let target_addr = {
-                let listeners = inner.listeners.lock();
-                addr.iter().copied().find(|a| listeners.contains_key(a))
-            };
-
-            let Some(target_addr) = target_addr else {
-                // No listener for any address yet, register wakers for all addresses
-                let mut wakers = inner.connect_wakers.lock();
-                for a in &addr {
-                    wakers.entry(*a).or_default().push(cx.waker().clone());
-                }
+            let has_listener = inner.listeners.lock().contains_key(&target_addr);
+            if !has_listener {
+                inner.connect_wakers.lock().entry(target_addr).or_default().push(cx.waker().clone());
                 return Poll::Pending;
-            };
+            }
 
             // Create bidirectional channel pair using VecDeque
             let initiator_to_responder = Arc::new(Mutex::new(VecDeque::new()));
@@ -184,20 +174,6 @@ impl ConnectionProvider for InMemoryConnectionProvider {
             tracing::debug!("connected to {target_addr} with id {conn_id}");
             Poll::Ready(Ok(conn_id))
         }))
-    }
-
-    /// Connect to a given peer, at a list of SocketAddr.
-    fn connect_addrs(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        let inner = self.inner.clone();
-        Box::pin(async move {
-            let addrs = addr.to_socket_addrs().map_err(std::io::Error::other)?;
-            let provider = InMemoryConnectionProvider { inner };
-            provider.connect(addrs, timeout).await
-        })
     }
 
     /// Send a message to the connection peer:
@@ -398,7 +374,7 @@ struct PendingConnect {
     /// The endpoint for the accepting (responder) side.
     responder_endpoint: ConnectionEndpoint,
     /// The address of the connecting (initiator) side.
-    /// This identifies the downstream peer.
+    /// This identifies the downstream peer
     initiator_addr: SocketAddr,
     /// Shared slot to set the initiator's peer_conn_id when the responder is registered.
     initiator_peer_conn_id_slot: Arc<Mutex<Option<ConnectionId>>>,
@@ -504,7 +480,8 @@ mod tests {
         provider.listen(listener_addr).await?;
 
         // Connect from initiator side
-        let initiator_conn_id = provider.connect(vec![listener_addr], Duration::from_secs(1)).await?;
+        let initiator_conn_id =
+            provider.connect(Peer::try_from(listener_addr).unwrap(), Duration::from_secs(1)).await?;
 
         // Accept on responder side
         let (_peer, responder_conn_id) = provider.accept(listener_addr).await?;
@@ -537,7 +514,8 @@ mod tests {
         let listener_addr: SocketAddr = "127.0.0.1:9001".parse().unwrap();
 
         provider.listen(listener_addr).await?;
-        let initiator_conn_id = provider.connect(vec![listener_addr], Duration::from_secs(1)).await?;
+        let initiator_conn_id =
+            provider.connect(Peer::try_from(listener_addr).unwrap(), Duration::from_secs(1)).await?;
         let (_peer, responder_conn_id) = provider.accept(listener_addr).await?;
 
         // Send multiple messages
@@ -568,8 +546,9 @@ mod tests {
         let provider_clone = provider.clone();
 
         // Start connect first (will wait for listener)
-        let connect_handle =
-            tokio::spawn(async move { provider_clone.connect(vec![listener_addr], Duration::from_secs(10)).await });
+        let connect_handle = tokio::spawn(async move {
+            provider_clone.connect(Peer::try_from(listener_addr).unwrap(), Duration::from_secs(10)).await
+        });
 
         // Give connect a moment to start
         tokio::task::yield_now().await;

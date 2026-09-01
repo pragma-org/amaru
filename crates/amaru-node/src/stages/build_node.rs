@@ -23,14 +23,15 @@ use amaru_consensus::{
     performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, Peer, Point, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
     state::State,
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::Meter;
-use amaru_network::connection::TokioConnections;
+use amaru_network::{connection::TokioConnections, resolve::init_resolver};
+use amaru_observability::warn;
 use amaru_ouroboros::{
     BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
 };
@@ -65,6 +66,7 @@ use crate::{
 ///
 /// For the common embedding path prefer [`crate::NodeBuilder`].
 pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<NodeRunning> {
+    init_resolver()?;
     let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default()
@@ -244,10 +246,27 @@ fn register_resources(
 
     stage_graph.resources().put::<ResourceMeter>(meter);
 
-    let static_peers: BTreeSet<Peer> = config.upstream_peers.iter().map(|s| Peer::new(s)).collect();
+    let mut static_peers = BTreeSet::new();
+    for address in &config.upstream_peers {
+        match address.parse::<PeerCandidate>() {
+            Ok(candidate) => {
+                static_peers.insert(candidate);
+            }
+            Err(reason) => {
+                warn!(protocols::peer_selection::peer::ADDRESS_REJECTED, address, reason = reason.to_string());
+            }
+        }
+    }
+    let snapshot_candidates = config
+        .peer_snapshot_peers
+        .iter()
+        .copied()
+        .map(PeerCandidate::from)
+        .chain(config.peer_snapshot_unresolved.iter().cloned())
+        .collect();
     stage_graph.resources().put::<ResourcePerformance>(Arc::new(Performance::with_peer_sources(
         static_peers,
-        config.peer_snapshot_peers.clone(),
+        snapshot_candidates,
         Default::default(),
         config.peer_mix.clone(),
     )));

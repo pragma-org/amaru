@@ -14,11 +14,10 @@
 
 use std::{
     collections::BTreeSet,
-    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{Block, Point, Transaction};
+use amaru_kernel::{Block, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     rules::block::BlockValidation,
     state::State,
@@ -135,11 +134,11 @@ where
     S: Store + Send,
     HS: HistoricalStores + Send + Sync + 'static,
 {
-    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+    fn registered_relay_candidates(&self) -> Result<BTreeSet<PeerCandidate>, BlockValidationError> {
         #[expect(clippy::unwrap_used)]
         {
             let state = self.state.lock().unwrap();
-            state.registered_relay_socket_addrs().map_err(|e| BlockValidationError::new(anyhow!(e)))
+            state.registered_relay_candidates().map_err(|e| BlockValidationError::new(anyhow!(e)))
         }
     }
 }

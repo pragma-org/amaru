@@ -134,7 +134,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 InitiatorResult::Initialize => None,
                 InitiatorResult::NoBlocks => {
                     let (_, _, id, cr, _) = self.queue.pop_front().expect("queue must not be empty");
-                    eff.send(&cr, Blocks::NoBlocks(id, self.peer.clone())).await;
+                    eff.send(&cr, Blocks::NoBlocks(id, self.peer)).await;
                     self.queue.front()
                 }
                 InitiatorResult::Block(body) => {
@@ -150,7 +150,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                             }
                             *remaining_blocks -= 1;
                             let id = *id;
-                            eff.send(cr, Blocks::Block(id, self.peer.clone(), network_block)).await;
+                            eff.send(cr, Blocks::Block(id, self.peer, network_block)).await;
                         } else {
                             warn!(protocols::blockfetch::initiator::PROTOCOL_VIOLATION, reason = "no_pending_request");
                             return eff.terminate().await;

@@ -2763,10 +2763,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `add_skipped` | `TRACE` | public | A peer was not added to the outbound set. Reason ∈ {already_added, too_many_inbound}. | peer, reason |  |
 | `added` | `TRACE` | public | A peer was added to the outbound set | peer, was_banned |  |
+| `address_rejected` | `TRACE` | public | A candidate address was rejected and will not be used as a Peer. | address, reason |  |
 | `connected` | `TRACE` | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
 | `disconnected` | `TRACE` | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
 | `reconnected` | `TRACE` | public | A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}. | peer, direction, conn_id |  |
 | `removed` | `TRACE` | public | A peer was removed after behaving adversarially | peer, direction, peer_state, is_static |  |
+| `resolve_failed` | `TRACE` | public | Name resolution for a bootstrap candidate failed (no viable address). | candidate, reason |  |
+| `resolved` | `TRACE` | public | A selected bootstrap name resolved to a single peer, ready to dial. | candidate, origin, peer |  |
 
 <details><summary>span: `add_skipped`</summary>
 
@@ -2783,6 +2786,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
 | `was_banned` | `boolean` | ✓ |
+
+</details>
+
+<details><summary>span: `address_rejected`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `address` | `string` | ✓ |
+| `reason` | `string` | ✓ |
 
 </details>
 
@@ -2827,6 +2839,25 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `direction` | `string` | ✓ |
 | `peer_state` | `string` | ✓ |
 | `is_static` | `boolean` | ✓ |
+
+</details>
+
+<details><summary>span: `resolve_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `candidate` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `resolved`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `candidate` | `string` | ✓ |
+| `origin` | `string` | ✓ |
+| `peer` | `string` | ✓ |
 
 </details>
 

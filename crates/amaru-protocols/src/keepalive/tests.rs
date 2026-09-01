@@ -49,7 +49,7 @@ fn test_keepalive_with_node() {
     let connection = network.wire_up(
         connection,
         connection::Connection::new(
-            Peer::new("upstream"),
+            Peer::for_test(3005),
             conn_id,
             Role::Initiator,
             ManagerConfig::default(),

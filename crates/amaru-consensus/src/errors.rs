@@ -151,19 +151,13 @@ pub struct ValidationFailed {
 
 impl Display for ValidationFailed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "validation failed for peer {}: {}", self.peer.name, self.error)
+        write!(f, "validation failed for peer {}: {}", self.peer, self.error)
     }
 }
 
 impl ValidationFailed {
     pub fn new(peer: &Peer, error: ConsensusError) -> Self {
-        Self { peer: peer.clone(), error }
-    }
-}
-
-impl From<ConsensusError> for ValidationFailed {
-    fn from(error: ConsensusError) -> Self {
-        Self { peer: Peer::new(""), error }
+        Self { peer: *peer, error }
     }
 }
 
@@ -214,7 +208,7 @@ impl Display for ProcessingFailed {
         write!(
             f,
             "processing failed for peer {}: {}",
-            self.peer.clone().map(|p| p.name).unwrap_or("n/a".to_string()),
+            self.peer.map(|p| p.to_string()).unwrap_or_else(|| "n/a".to_string()),
             self.error
         )
     }
@@ -222,7 +216,7 @@ impl Display for ProcessingFailed {
 
 impl ProcessingFailed {
     pub fn new(peer: &Peer, error: anyhow::Error) -> Self {
-        Self { peer: Some(peer.clone()), error }
+        Self { peer: Some(*peer), error }
     }
 
     pub fn from(error: anyhow::Error) -> Self {

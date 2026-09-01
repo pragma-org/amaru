@@ -92,6 +92,8 @@ pub struct Model {
     pub epoch_overlay_exists: bool,
     pub rewards_ready: bool,
     pub peers: BTreeMap<String, PeerState>,
+    /// `peer.resolved` cache: dial address → bootstrap name (omitted when the candidate was already a Peer).
+    resolved_candidates: BTreeMap<String, String>,
     pub logs: LogBuffer,
     pub system_sample: Option<SystemSample>,
     pub block_rate: RateCounter,
@@ -136,6 +138,7 @@ impl Model {
             epoch_overlay_exists: false,
             rewards_ready: false,
             peers: BTreeMap::default(),
+            resolved_candidates: BTreeMap::default(),
             logs: LogBuffer::default(),
             system_sample: None,
             block_rate: RateCounter::new(config.block_sample_capacity),
@@ -411,6 +414,118 @@ mod tests {
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
         assert_eq!(peer.last_rtt_micros, Some(12_345));
+    }
+
+    #[test]
+    fn caches_resolved_candidate_for_later_peer_row() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::RESOLVED,
+            protocols::peer_selection::peer::RESOLVED::FIELD_CANDIDATE => "relay.example:3001",
+            protocols::peer_selection::peer::RESOLVED::FIELD_ORIGIN => "static",
+            protocols::peer_selection::peer::RESOLVED::FIELD_PEER => "10.9.9.9:3001",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::CONNECTED,
+            protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.9.9.9:3001",
+            protocols::peer_selection::peer::CONNECTED::FIELD_CONN_ID => 1u64,
+            protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+        )));
+
+        let peer = model.peers.get("10.9.9.9:3001").expect("peer must exist");
+        assert_eq!(peer.candidate_label(), Some("relay.example:3001"));
+    }
+
+    #[test]
+    fn resolved_socket_candidate_is_not_shown() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::RESOLVED,
+            protocols::peer_selection::peer::RESOLVED::FIELD_CANDIDATE => "10.9.9.9:3001",
+            protocols::peer_selection::peer::RESOLVED::FIELD_ORIGIN => "static",
+            protocols::peer_selection::peer::RESOLVED::FIELD_PEER => "10.9.9.9:3001",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::keepalive::peer::ROUND_TRIP,
+            protocols::keepalive::peer::ROUND_TRIP::FIELD_PEER => "10.9.9.9:3001",
+            protocols::keepalive::peer::ROUND_TRIP::FIELD_ROUND_TRIP_MICROS => 1_000u64,
+        )));
+
+        let peer = model.peers.get("10.9.9.9:3001").expect("peer must exist");
+        assert_eq!(peer.candidate, None);
+        assert_eq!(peer.candidate_label(), None);
+    }
+
+    #[test]
+    fn resolved_candidate_updates_an_existing_peer_row() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::CONNECTED,
+            protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.8.8.8:6000",
+            protocols::peer_selection::peer::CONNECTED::FIELD_CONN_ID => 1u64,
+            protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::RESOLVED,
+            protocols::peer_selection::peer::RESOLVED::FIELD_CANDIDATE => "pool.example",
+            protocols::peer_selection::peer::RESOLVED::FIELD_ORIGIN => "snapshot",
+            protocols::peer_selection::peer::RESOLVED::FIELD_PEER => "10.8.8.8:6000",
+        )));
+
+        let peer = model.peers.get("10.8.8.8:6000").expect("peer must exist");
+        assert_eq!(peer.candidate_label(), Some("pool.example"));
+    }
+
+    #[test]
+    fn resolved_cache_survives_peer_prune() {
+        let mut model = Model::new(
+            Config { peer_inactivity_timeout: Duration::from_secs(30), ..Config::default() },
+            fixture_startup_context(),
+        );
+        let first = Instant::now();
+        let later = first + Duration::from_secs(31);
+
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            first,
+            protocols::peer_selection::peer::RESOLVED,
+            protocols::peer_selection::peer::RESOLVED::FIELD_CANDIDATE => "relay.example:3001",
+            protocols::peer_selection::peer::RESOLVED::FIELD_ORIGIN => "static",
+            protocols::peer_selection::peer::RESOLVED::FIELD_PEER => "10.9.9.9:3001",
+        )));
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            first,
+            protocols::peer_selection::peer::CONNECTED,
+            protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.9.9.9:3001",
+            protocols::peer_selection::peer::CONNECTED::FIELD_CONN_ID => 1u64,
+            protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+        )));
+        model.handle_message(metric(
+            later,
+            MetricsEvent::SystemMetrics(SystemMetrics { process_memory_bytes: 1, ..SystemMetrics::default() }),
+        ));
+        assert!(!model.peers.contains_key("10.9.9.9:3001"));
+
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            later,
+            protocols::peer_selection::peer::CONNECTED,
+            protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.9.9.9:3001",
+            protocols::peer_selection::peer::CONNECTED::FIELD_CONN_ID => 2u64,
+            protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+        )));
+
+        let peer = model.peers.get("10.9.9.9:3001").expect("peer must exist");
+        assert_eq!(peer.candidate_label(), Some("relay.example:3001"));
     }
 
     #[test]

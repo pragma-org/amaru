@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
-use amaru_kernel::{Peer, Point};
+use amaru_kernel::{Peer, PeerCandidate, Point};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
@@ -26,7 +29,7 @@ use tokio::runtime::Runtime;
 use super::*;
 pub use crate::stages::test_utils::TraceMatch;
 use crate::{
-    effects::{GenerateRandomSeed, RegisteredRelaySocketAddrsEffect, TipEffect, VolatileTipEffect},
+    effects::{GenerateRandomSeed, RegisteredRelayCandidatesEffect, TipEffect, VolatileTipEffect},
     stages::test_utils::{Logs, SimulationRunMode, run_simulation_with, start_in_era},
 };
 
@@ -103,19 +106,22 @@ pub struct TestPrep {
     pub rt: Runtime,
     /// Seeded into the Performance resource at simulation start (not stage state).
     pub static_peers: BTreeSet<Peer>,
+    pub extra_static: BTreeSet<PeerCandidate>,
     pub snapshot_candidates: BTreeSet<Peer>,
-    pub ledger_candidates: BTreeSet<Peer>,
+    pub ledger_candidates: BTreeSet<PeerCandidate>,
     pub peer_mix: crate::performance::PeerMix,
+    /// Mock DNS: `ResolvePeerCandidate` returns the first peer in the set (or `None` if absent/empty).
+    pub resolve: BTreeMap<PeerCandidate, BTreeSet<Peer>>,
 }
 
 impl TestPrep {
     pub fn peer(name: &str) -> Peer {
-        Peer::new(name)
+        name.parse().unwrap_or_else(|e| panic!("test peer {name:?} must be a literal IP:port: {e}"))
     }
 
     /// Seed ledger candidates for the Performance resource installed in [`setup_preload`].
     pub fn with_ledger(mut self, names: &[&str]) -> Self {
-        self.ledger_candidates = names.iter().map(|n| Peer::new(n)).collect();
+        self.ledger_candidates = names.iter().map(|n| PeerCandidate::from(Self::peer(n))).collect();
         self
     }
 }
@@ -126,17 +132,19 @@ pub fn test_prep(static_names: &[&str]) -> TestPrep {
 
 pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
-    let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| Peer::new(n)).collect();
-    let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| Peer::new(n)).collect();
+    let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| TestPrep::peer(n)).collect();
+    let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| TestPrep::peer(n)).collect();
     let peer_mix = crate::performance::PeerMix::default();
     let state = PeerSelection::new(manager, 3, 10, COOLDOWN_SECS);
     TestPrep {
         state,
         rt: crate::stages::test_utils::test_runtime(),
         static_peers,
+        extra_static: BTreeSet::new(),
         snapshot_candidates,
         ledger_candidates: BTreeSet::new(),
         peer_mix,
+        resolve: BTreeMap::new(),
     }
 }
 
@@ -157,7 +165,10 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectOutboundEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IsStaticPeerEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::StaticPeersEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::NoteDialEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::effects::ResolvePeerCandidate>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::effects::ResolvePeerCandidateResult>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<PeerCandidate>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SourceCountsEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IngestSharedPeersEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SetLedgerCandidatesEffect>().boxed(),
@@ -245,8 +256,13 @@ fn setup_preload_with_mode(
         |resources| {
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::with_peer_sources(
-                    prep.static_peers.clone(),
-                    prep.snapshot_candidates.clone(),
+                    prep.static_peers
+                        .iter()
+                        .copied()
+                        .map(PeerCandidate::from)
+                        .chain(prep.extra_static.iter().cloned())
+                        .collect(),
+                    prep.snapshot_candidates.iter().copied().map(PeerCandidate::from).collect(),
                     prep.ledger_candidates.clone(),
                     prep.peer_mix.clone(),
                 ),
@@ -258,13 +274,22 @@ fn setup_preload_with_mode(
             running
                 .override_external_effect::<VolatileTipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
             running.override_external_effect::<TipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
-            running.override_external_effect::<RegisteredRelaySocketAddrsEffect>(usize::MAX, |_| {
+            running.override_external_effect::<RegisteredRelayCandidatesEffect>(usize::MAX, |_| {
                 OverrideResult::handled(Ok(BTreeSet::new()))
             });
 
             // NOTE: This makes peer selection's random choices fully deterministic in tests.
             running
                 .override_external_effect::<GenerateRandomSeed>(usize::MAX, |_| OverrideResult::handled([0x42u8; 32]));
+            let resolve = prep.resolve.clone();
+            running.override_external_effect::<crate::effects::ResolvePeerCandidate>(usize::MAX, move |eff| {
+                let peer = resolve.get(&eff.candidate).and_then(|peers| peers.iter().next().copied());
+                OverrideResult::handled(crate::effects::ResolvePeerCandidateResult {
+                    candidate: eff.candidate.clone(),
+                    origin: eff.origin,
+                    peer,
+                })
+            });
             // Peer-sharing filters: treat all candidates as shareable unless a test overrides.
             running.override_external_effect::<crate::performance::OkForSharingEffect>(usize::MAX, |_| {
                 OverrideResult::handled(true)

@@ -96,7 +96,7 @@ impl Default for NodeTestConfig {
             mempool: Arc::new(InMemoryMempool::default()),
             connections: Arc::new(InMemoryConnectionProvider::default()),
             chain_length: 10,
-            upstream_peers: vec![Peer::new("127.0.0.1:3001")],
+            upstream_peers: vec![Peer::for_test(3001)],
             listen_address: "127.0.0.1:3000".to_string(),
             mailbox_size: 10000,
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::default())),
@@ -118,7 +118,7 @@ impl NodeTestConfig {
         Self::default()
             .with_chain_length(INITIATOR_BLOCKS_NB)
             .with_txs(INITIATOR_TXS_NB)
-            .with_upstream_peer(Peer::new("127.0.0.1:3001"))
+            .with_upstream_peer(Peer::for_test(3001))
             .with_listen_address("127.0.0.1:3000")
             .with_node_type(NodeUnderTest)
     }
@@ -261,7 +261,7 @@ impl NodeTestConfig {
     /// used as the initial best-chain tip of the chain store.
     pub fn make_node_configuration(&self) -> anyhow::Result<Config> {
         let mut config = Config {
-            upstream_peers: self.upstream_peers.iter().map(|p| p.name.clone()).collect(),
+            upstream_peers: self.upstream_peers.iter().map(ToString::to_string).collect(),
             network_magic: self.network_name.to_network_magic(),
             ..Default::default()
         };

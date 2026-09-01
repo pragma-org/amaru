@@ -21,8 +21,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Credential, Epoch, GlobalParameters, Hash, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Nonce, Peer,
-    Point, RawBlock, Slot, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
+    Credential, Epoch, GlobalParameters, Hash, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Nonce, Point,
+    RawBlock, Slot, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
 };
 use amaru_ledger::store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext};
 use amaru_observability::{error, info};
@@ -257,9 +257,9 @@ async fn fetch_headers_from_point(
 ) -> anyhow::Result<Vec<Vec<u8>>> {
     let peer_client =
         PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.inspect_err(|err| {
-            error!(bootstrap::peer::FAILED_TO_CONNECT, peer = Peer::new(peer_address), reason = err.to_string());
+            error!(bootstrap::peer::FAILED_TO_CONNECT, peer = peer_address, reason = err.to_string());
         })?;
-    let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
+    let mut client = ChainSyncClient::new(peer_address, peer_client.chainsync, vec![point]);
     let intersection = client.find_intersection().await?;
 
     info!(bootstrap::headers::FETCH, requested_point = point, intersection, headers_per_point);

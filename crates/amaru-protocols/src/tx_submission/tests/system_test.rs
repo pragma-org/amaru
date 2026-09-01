@@ -56,7 +56,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
     let connection = network.wire_up(
         connection,
         connection::Connection::new(
-            Peer::new("upstream"),
+            Peer::for_test(3005),
             conn_id,
             Role::Initiator,
             ManagerConfig::default(),

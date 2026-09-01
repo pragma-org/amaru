@@ -156,12 +156,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
             };
             eff.send(
                 &self.pipeline,
-                ChainSyncInitiatorMsg {
-                    peer: self.peer.clone(),
-                    conn_id: self.conn_id,
-                    handler: self.me.clone(),
-                    msg: input,
-                },
+                ChainSyncInitiatorMsg { peer: self.peer, conn_id: self.conn_id, handler: self.me.clone(), msg: input },
             )
             .await;
             Ok((action, self))

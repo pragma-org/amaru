@@ -239,7 +239,7 @@ define_schemas! {
                 /// Find chain intersection point with peer
                 public FIND_INTERSECTION {
                     tags: bootstrap
-                    required peer: %amaru_kernel::Peer
+                    required peer: String
                     required intersection_slot: amaru_kernel::Slot
                 }
                 /// Received a new tip from an upstream peer
@@ -1208,7 +1208,7 @@ define_schemas! {
             peer {
                 /// Failed to connect to a peer while bootstrapping
                 public FAILED_TO_CONNECT {
-                    required peer: %amaru_kernel::Peer
+                    required peer: String
                     required reason: String
                 }
             }
@@ -2041,6 +2041,22 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required reason: String
                     }
+                    /// A candidate address was rejected and will not be used as a Peer.
+                    public ADDRESS_REJECTED {
+                        required address: String
+                        required reason: String
+                    }
+                    /// A selected bootstrap name resolved to a single peer, ready to dial.
+                    public RESOLVED {
+                        required candidate: String
+                        required origin: String
+                        required peer: %amaru_kernel::Peer
+                    }
+                    /// Name resolution for a bootstrap candidate failed (no viable address).
+                    public RESOLVE_FAILED {
+                        required candidate: String
+                        required reason: String
+                    }
                     /// A peer reconnected while a previous connection was still registered;
                     /// the older connection is dropped. Direction ∈ {inbound, outbound}.
                     public RECONNECTED {
@@ -2620,10 +2636,8 @@ define_schemas! {
                 LISTEN {}
                 /// Accept a connection
                 ACCEPT {}
-                /// Connect to addresses
+                /// Connect to a peer
                 CONNECT {}
-                /// Connect to multiple addresses
-                CONNECT_ADDRS {}
                 /// Send data over connection
                 SEND {}
                 /// Receive data from connection
@@ -2646,13 +2660,9 @@ define_schemas! {
                 ACCEPTED {
                     required peer_addr: String
                 }
-                /// Established a TCP connection to one of the given addresses
+                /// Established a TCP connection to a peer
                 CONNECTED {
-                    required addresses: Vec<String>
-                }
-                /// Resolved a peer specification into socket addresses
-                RESOLVED {
-                    required addresses: Vec<String>
+                    required peer: %amaru_kernel::Peer
                 }
             }
         }

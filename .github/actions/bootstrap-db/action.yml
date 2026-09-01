@@ -28,11 +28,11 @@ runs:
         path: |
           ./ledger.${{ inputs.network }}.db
           ./chain.${{ inputs.network }}.db
-        # If the ledger or chain store serialisation format changes and become
-        # incompatible, it is necessary to bump the index below to invalidate
-        # the cached bootstrap databases and recompute them from scratch
-        # (i.e. Full bootstrap below).
-        key: bootstrap-state-${{ runner.os }}-${{ inputs.network }}-${{ inputs.cache-version }}
+        # Epoch is part of the key so a "latest" bootstrap (nightly) cannot
+        # overwrite a pinned-epoch cache used by e2e snapshot tests.
+        # Bump cache-version when the ledger or chain store serialisation
+        # format changes and cached databases become incompatible.
+        key: bootstrap-state-${{ runner.os }}-${{ inputs.network }}-${{ inputs.cache-version }}-${{ inputs.epoch || 'latest' }}
 
     - name: Bootstrap Amaru from scratch
       if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -55,4 +55,4 @@ runs:
         path: |
           ./ledger.${{ inputs.network }}.db
           ./chain.${{ inputs.network }}.db
-        key: bootstrap-state-${{ runner.os }}-${{ inputs.network }}-${{ inputs.cache-version }}
+        key: bootstrap-state-${{ runner.os }}-${{ inputs.network }}-${{ inputs.cache-version }}-${{ inputs.epoch || 'latest' }}

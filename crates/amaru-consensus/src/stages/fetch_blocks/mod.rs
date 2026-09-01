@@ -416,7 +416,7 @@ impl FetchBlocks {
         let response = self.fetch_started_at.map(|started| now.saturating_since(started)).unwrap_or(Duration::ZERO);
         let bytes = network_block.raw_block().len() as u64;
         eff.external(Performance::record_block_delivery(
-            peer.clone(),
+            peer,
             point.hash(),
             block.header.block_height(),
             block.header.parent_hash(),
@@ -445,7 +445,7 @@ impl FetchBlocks {
         }
 
         // Accepted ordered body: do not count this peer as a timeout failure.
-        self.fetch_contributors.insert(peer.clone());
+        self.fetch_contributors.insert(peer);
 
         store
             .store_block(&point.hash(), &network_block.raw_block())
@@ -489,7 +489,7 @@ impl FetchBlocks {
         if req_id != self.req_id || self.missing.is_none() {
             return;
         }
-        if !self.fetch_settled.insert(peer.clone()) {
+        if !self.fetch_settled.insert(peer) {
             // Already scored for this request (duplicate NoBlocks).
             return;
         }
@@ -656,8 +656,7 @@ async fn cleanup_replies(mut state: Cleanup, msg: Blocks, eff: Effects<Blocks>) 
                     return state;
                 }
             };
-            eff.send(&state.block_source, BlockSourceMsg::BlockReceived { peer: peer.clone(), tip: header.point() })
-                .await;
+            eff.send(&state.block_source, BlockSourceMsg::BlockReceived { peer, tip: header.point() }).await;
             if id >= state.curr_id {
                 eff.send(&state.fetch, FetchBlocksMsg::Block(peer, network_block)).await;
             }

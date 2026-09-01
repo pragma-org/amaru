@@ -30,6 +30,9 @@ pub enum Blocked {
     /// The given stages are suspended on effects other than [`Effect::Receive`]
     /// while none are suspended on [`Effect::Send`]. The given number of
     /// external effects are currently unresolved.
+    ///
+    /// `stages` may be empty when every stage is on [`Effect::Receive`] but
+    /// detached externals are still in flight (the airlock is free; `run()` is not).
     Busy { external_effects: usize, stages: Vec<Name> },
     /// The given stage has terminated.
     Terminated(Name),

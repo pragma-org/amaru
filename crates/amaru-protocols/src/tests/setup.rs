@@ -28,7 +28,7 @@ use amaru_observability::tracing;
 use amaru_ouroboros_traits::{
     BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource,
     DiagnosticChainStore, HasStakePools, Mempool, MockBlockValidator, MockCanValidateTxs, ResourceMempool,
-    ToSocketAddrs, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
+    has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -130,16 +130,8 @@ impl ConnectionProvider for FailingConnectionProvider {
         })
     }
 
-    fn connect(&self, addr: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        self.inner.connect(addr, timeout)
-    }
-
-    fn connect_addrs(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        self.inner.connect_addrs(addr, timeout)
+    fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+        self.inner.connect(peer, timeout)
     }
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {

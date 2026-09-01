@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr};
+use std::collections::BTreeSet;
+
+use amaru_kernel::PeerCandidate;
 
 use crate::BlockValidationError;
 
 pub trait HasStakePools: Send + Sync {
-    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError>;
+    fn registered_relay_candidates(&self) -> Result<BTreeSet<PeerCandidate>, BlockValidationError>;
 }
 
 pub struct MockHasStakePools;
 
 impl HasStakePools for MockHasStakePools {
-    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+    fn registered_relay_candidates(&self) -> Result<BTreeSet<PeerCandidate>, BlockValidationError> {
         Ok(Default::default())
     }
 }

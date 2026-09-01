@@ -41,6 +41,8 @@ impl MeanMicros {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PeerState {
     pub address: String,
+    /// Bootstrap name this address was resolved from, if that name was not already a socket address.
+    pub candidate: Option<String>,
     pub inbound: bool,
     pub outbound: bool,
     pub connected: bool,
@@ -60,6 +62,7 @@ impl PeerState {
     pub fn new(address: String, updated_at: Instant) -> Self {
         Self {
             address,
+            candidate: None,
             inbound: false,
             outbound: false,
             connected: false,
@@ -147,5 +150,10 @@ impl PeerState {
 
     pub fn mean_adopt_block_micros(&self) -> Option<u64> {
         self.adopt_block.mean()
+    }
+
+    /// Name to show beside the socket address, if this peer came from a Host/SRV candidate.
+    pub fn candidate_label(&self) -> Option<&str> {
+        self.candidate.as_deref().filter(|candidate| *candidate != self.address)
     }
 }

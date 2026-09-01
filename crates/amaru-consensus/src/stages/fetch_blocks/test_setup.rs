@@ -40,7 +40,7 @@ use crate::stages::{
 };
 
 pub fn test_peer() -> Peer {
-    Peer::new("test-peer")
+    Peer::for_test(3009)
 }
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {

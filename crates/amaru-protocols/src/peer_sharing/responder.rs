@@ -145,8 +145,7 @@ impl StageState<State, Responder> for PeerSharingResponder {
                         }
                     };
                     self.awaiting = Some(amount);
-                    eff.send(&self.manager, ManagerMessage::ShareRequest { peer: self.peer.clone(), amount, reply_to })
-                        .await;
+                    eff.send(&self.manager, ManagerMessage::ShareRequest { peer: self.peer, amount, reply_to }).await;
                     Ok((None, self))
                 }
                 .instrument(span)
