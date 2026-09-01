@@ -228,6 +228,40 @@ The pre-generation is currently done using Haskell libraries that are shared
 with the Cardano node. In the future this step should be moved to Rust and
 happen during test-time, rather than be pre-generated.
 
+The in-process world simulator (`amaru-node` `tests/world`) already generates
+header spines in Rust (`any_headers_chain`). Those trees are not valid Conway
+ledger blocks. That is why world tests split **generated** vs **recorded**
+chain data (next subsection). Generated suites are the ones we expect to shrink.
+
+### World tests: generated vs recorded chains
+
+World tests run production `build_node` graphs over a discrete-event network.
+Chain *data* comes in two kinds, kept in separate modules:
+
+1. **Generated** (`tests/world/generated.rs`). Synthetic header trees. These
+   cover topology, peer sharing, delay, and interleavings. They may stub
+   `ValidateHeaderEffect` and `ValidateBlockEffect`. They must not claim that
+   the ledger accepted the chain. `cmp_tip` here is chain-selection geometry,
+   not Conway validity.
+
+2. **Recorded** (`tests/world/real_data.rs`). Fragments taken from a live
+   network (today: preprod `run_until` after bootstrap). Snapshots sit at the
+   end of an epoch, so `run_until` stops at the first block of `latest + 2`
+   and the fragment is the whole following epoch, not the few blocks until
+   that epoch begins. The production graph is used as-is; only
+   `ConnectionsResource` is replaced by the simulated network. World startup
+   does not realign the chain store to the ledger tip: the goal is the
+   primed store's persisted best chain (marked-valid blocks), which must
+   reach every honest node. Header crypto, block application, and store I/O
+   are real. These tests are few, fixture-bound, and are the gate that
+   generated suites are not lying about adoption.
+
+Rule: if the chain is generated, stub validation and shrink; if the chain
+came off the network, replace only the wire.
+
+(The world loop and connection-provider tests are neither kind: they exercise
+the discrete-event engine with no chain data.)
+
 ### Properties to test for
 
 The main property of the consensus protocol can be found
@@ -235,6 +269,12 @@ The main property of the consensus protocol can be found
 
 Currently we only check that "honest nodes promptly selects the best valid
 chain that has propagated to it" without checking any time-bounds.
+
+Recorded-data world tests add production header validation on a real fragment.
+Generated world tests can assert time-bounded catch-up (P-join on a quiescent
+network) without claiming Praos Δ, common prefix, chain growth, or live
+minting. Those paper time properties need honest block production, which the
+single-injector setup does not represent.
 
 The history of the test execution that the simulator produces includes the
 times of each message sent into and out of the system under test, which would

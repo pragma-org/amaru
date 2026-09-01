@@ -86,6 +86,19 @@ fn rocksdb_chain_store_can_check_if_block_exists() {
 }
 
 #[test]
+#[should_panic(expected = "chain-store integrity failure")]
+fn load_header_with_validity_rejects_blob_under_wrong_hash() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let stored = make_header(1, 0, None);
+    let requested = make_header(2, 1, None).hash();
+
+    store.db.put([&HEADER_PREFIX[..], &requested[..]].concat(), to_cbor(&stored)).unwrap();
+
+    let _ = store.load_header_with_validity(&requested);
+}
+
+#[test]
 fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
     with_db(|db| {
         let nonexistent_hash: HeaderHash = random_bytes(HEADER).as_slice().into();
@@ -656,6 +669,22 @@ fn next_best_chain_returns_none_given_point_is_tip() {
         let tip_header = store.load_header(&tip).unwrap();
 
         assert!(store.next_best_chain(&tip_header.point()).is_none());
+    });
+}
+
+#[test]
+fn next_best_chain_does_not_jump_a_gap_to_a_non_child() {
+    with_db(|store| {
+        let h0 = make_header(1, 10, None);
+        let h1 = make_header(2, 20, Some(h0.hash()));
+        let h2 = make_header(3, 30, Some(h1.hash()));
+        store.store_header(&h0).unwrap();
+        store.store_header(&h1).unwrap();
+        store.store_header(&h2).unwrap();
+        store.roll_forward_chain(&h0.point()).unwrap();
+        store.roll_forward_chain(&h2.point()).unwrap();
+
+        assert!(store.next_best_chain(&h0.point()).is_none(), "a later best-chain slot is not the successor of h0");
     });
 }
 

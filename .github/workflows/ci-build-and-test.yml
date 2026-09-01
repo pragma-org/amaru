@@ -43,6 +43,7 @@ jobs:
       runner: ubuntu-24.04-arm
       target: aarch64-unknown-linux-gnu
       cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+      nocapture: true
 
   build-macos-aarch64:
     name: Build/Test aarch64/macos
@@ -60,6 +61,7 @@ jobs:
       target: x86_64-pc-windows-msvc
       command: test --tests --workspace --profile dev-debug
       cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+      nocapture: true
 
   build-wasm32:
     name: Build wasm32

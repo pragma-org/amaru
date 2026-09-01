@@ -16,7 +16,7 @@
 use std::{
     any::{Any, TypeId, type_name},
     collections::HashMap,
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -93,6 +93,28 @@ impl Resources {
             .map(|x| *x)
             .map_err(|_| anyhow::anyhow!("Resource of type `{}` not found", type_name::<T>()))
     }
+
+    /// A weak handle that does not keep the collection alive.
+    ///
+    /// Use this when a resource (for example a ledger callback stored inside
+    /// `BlockValidator`) must update the collection without forming an `Arc` cycle.
+    pub fn downgrade(&self) -> WeakResources {
+        WeakResources(Arc::downgrade(&self.0))
+    }
+}
+
+/// Weak counterpart of [`Resources`]. [`WeakResources::put`] is a no-op after the graph is dropped.
+#[derive(Clone)]
+#[expect(clippy::disallowed_types)]
+pub struct WeakResources(Weak<RwLock<HashMap<TypeId, Box<dyn Any + Send + Sync>>>>);
+
+impl WeakResources {
+    /// Insert `resource` if the collection is still alive.
+    pub fn put<T: Any + Send + Sync>(&self, resource: T) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.write().insert(TypeId::of::<T>(), Box::new(resource));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -113,5 +135,18 @@ mod tests {
 
         assert_eq!(resources.take::<u32>().unwrap(), 43);
         assert_eq!(resources.take::<u32>().unwrap_err().to_string(), "Resource of type `u32` not found");
+    }
+
+    #[test]
+    fn weak_put_does_not_keep_resources_alive() {
+        let token = Arc::new(());
+        let resources = Resources::default();
+        resources.put(token.clone());
+        let weak = resources.downgrade();
+        assert_eq!(Arc::strong_count(&token), 2);
+        drop(resources);
+        assert_eq!(Arc::strong_count(&token), 1);
+        weak.put(1u8);
+        assert_eq!(Arc::strong_count(&token), 1);
     }
 }

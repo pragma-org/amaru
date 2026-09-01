@@ -14,8 +14,10 @@
 
 use std::{
     fmt::{Debug, Formatter},
+    path::PathBuf,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use amaru_kernel::{
@@ -36,7 +38,7 @@ use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use parking_lot::Mutex;
 
 use crate::{
-    stages::config::{Config, StoreType},
+    stages::config::{Config, MaxExtraLedgerSnapshots, StoreType},
     tests::{
         Action,
         configuration::NodeType::{NodeUnderTest, UpstreamNode},
@@ -66,7 +68,30 @@ pub struct NodeTestConfig {
     pub actions: Vec<Action>,
     pub node_type: NodeType,
     pub network_name: NetworkName,
+    /// When set, `make_node_configuration` opens this RocksDB ledger instead of a dummy temp store.
+    pub ledger_dir: Option<PathBuf>,
+    /// When set, `make_node_configuration` opens this RocksDB chain store instead of the in-memory store.
+    pub chain_dir: Option<PathBuf>,
+    /// Simulation clock offset so production header validation sees fragment slots as not-in-the-future.
+    pub global_epoch_offset: Option<Duration>,
+    /// When set, overrides [`Config::target_upstream_peers`] (production default is 3).
+    pub target_upstream_peers: Option<usize>,
+    /// When true, `build_node` does not rewind the chain store to the ledger tip.
+    pub keep_persisted_best_chain: bool,
+    /// When set, overrides [`Config::peer_mix`] (production default includes shared/snapshot/ledger).
+    pub peer_mix: Option<String>,
+    /// Keeps a dummy ledger tempdir alive until the last node graph holding it is dropped.
+    dummy_ledger: Arc<Mutex<Option<Arc<tempfile::TempDir>>>>,
 }
+
+impl NodeTestConfig {
+    pub(crate) fn dummy_ledger_dir(&self) -> Option<Arc<tempfile::TempDir>> {
+        self.dummy_ledger.lock().clone()
+    }
+}
+
+/// Lives in the graph `Resources` so the dummy ledger directory outlives `NodeTestConfig`.
+pub(crate) struct DummyLedgerDir(#[expect(dead_code)] pub Arc<tempfile::TempDir>);
 
 impl Debug for NodeTestConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -78,6 +103,12 @@ impl Debug for NodeTestConfig {
             .field("seed", &self.seed)
             .field("actions", &self.actions)
             .field("node_type", &self.node_type)
+            .field("ledger_dir", &self.ledger_dir)
+            .field("chain_dir", &self.chain_dir)
+            .field("global_epoch_offset", &self.global_epoch_offset)
+            .field("target_upstream_peers", &self.target_upstream_peers)
+            .field("keep_persisted_best_chain", &self.keep_persisted_best_chain)
+            .field("peer_mix", &self.peer_mix)
             .finish()
     }
 }
@@ -104,6 +135,13 @@ impl Default for NodeTestConfig {
             actions: Vec::new(),
             network_name: NetworkName::Preprod,
             node_type: NodeUnderTest,
+            ledger_dir: None,
+            chain_dir: None,
+            global_epoch_offset: None,
+            target_upstream_peers: None,
+            keep_persisted_best_chain: false,
+            peer_mix: None,
+            dummy_ledger: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -225,6 +263,42 @@ impl NodeTestConfig {
         self
     }
 
+    /// Use matching persistent RocksDB chain and ledger directories instead of in-memory/temp stores.
+    pub fn with_store_dirs(mut self, chain_dir: impl Into<PathBuf>, ledger_dir: impl Into<PathBuf>) -> Self {
+        self.chain_dir = Some(chain_dir.into());
+        self.ledger_dir = Some(ledger_dir.into());
+        self
+    }
+
+    /// Place the simulation clock so Praos slot checks treat `offset` as "now" at t=0.
+    pub fn with_global_epoch_offset(mut self, offset: Duration) -> Self {
+        self.global_epoch_offset = Some(offset);
+        self
+    }
+
+    /// Cap outbound peers. World tests set this to 1 for isolation (one intended hop).
+    /// Dest-keyed pairing still completes `Connected` only for the connect that targeted
+    /// that listener; this cap is not what prevents a relay from stealing the handshake.
+    pub fn with_target_upstream_peers(mut self, n: usize) -> Self {
+        self.target_upstream_peers = Some(n);
+        self
+    }
+
+    /// Leave the chain store's best-chain pointer as persisted (no startup realign).
+    ///
+    /// Sets [`crate::Config::realign_chain_store`] false so a primed store keeps serving
+    /// its already-validated best chain.
+    pub fn with_keep_persisted_best_chain(mut self) -> Self {
+        self.keep_persisted_best_chain = true;
+        self
+    }
+
+    /// Restrict outbound candidate sources (e.g. `static~1` for a one-hop world test).
+    pub fn with_peer_mix(mut self, mix: impl Into<String>) -> Self {
+        self.peer_mix = Some(mix.into());
+        self
+    }
+
     /// Given a list of block headers:
     ///
     /// - Store them in the chain store.
@@ -260,6 +334,10 @@ impl NodeTestConfig {
     /// This sets the ledger and chain store + the upstream peer that is
     /// used as the initial best-chain tip of the chain store.
     pub fn make_node_configuration(&self) -> anyhow::Result<Config> {
+        if self.ledger_dir.is_some() != self.chain_dir.is_some() {
+            anyhow::bail!("persistent test nodes require both chain_dir and ledger_dir");
+        }
+
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(ToString::to_string).collect(),
             network_magic: self.network_name.to_network_magic(),
@@ -269,57 +347,74 @@ impl NodeTestConfig {
         config.ledger_config.era_history = self.era_history().clone();
         config.ledger_config.network = self.network_name;
         config.listen_address = self.listen_address.clone();
-
-        // Bootstrap a temp RocksDB ledger store whose tip matches the chain store's anchor.
-        // This ensures that build_node's initialize_chain_store won't reset the
-        // chain store's best_chain_hash (only the anchor will be set, which is already
-        // the same as the ledger tip).
-        let chain_anchor = self
-            .chain_store
-            .load_header(&self.chain_store.get_anchor_hash())
-            .map(|h| h.point())
-            .unwrap_or(Point::Origin);
-
-        // The tempdir is leaked so it survives for the duration of the test process;
-        // Config (and the Ledger it bootstraps) only sees the path.
-        let ledger_dir = tempfile::tempdir()?.keep();
-        let ledger_store_config = RocksDbConfig::new(ledger_dir);
-        {
-            let store = RocksDB::empty(&ledger_store_config)?;
-            let governance_activity = GovernanceActivity::default();
-            let pp = self.protocol_parameters();
-            let tx = store.create_transaction();
-            tx.save(
-                self.era_history(),
-                pp,
-                Some(governance_activity),
-                &chain_anchor,
-                None,
-                Columns::empty(),
-                Columns::empty(),
-                std::iter::empty(),
-            )?;
-            tx.set_protocol_parameters(pp)?;
-            tx.set_governance_activity(governance_activity)?;
-            // A bootstrapped ledger always has a constitution; these tests never propose one, so
-            // any anchor will do and there is no guardrails script to enforce.
-            tx.set_constitution(&Constitution {
-                anchor: Anchor {
-                    url: MaxString128::from_str("https://example.com").map_err(anyhow::Error::msg)?,
-                    content_hash: [0; 32].into(),
-                },
-                guardrail_script: None,
-            })?;
-            tx.commit()?;
-            // initial_stake_distributions needs snapshots at most_recent, most_recent - 1, and
-            // most_recent - 2; take three so that for_epoch(0) and for_epoch(1) both succeed.
-            store.next_snapshot(Epoch::from(0u64))?;
-            store.next_snapshot(Epoch::from(1u64))?;
-            store.next_snapshot(Epoch::from(2u64))?;
+        if let Some(n) = self.target_upstream_peers {
+            config.target_upstream_peers = n;
+        }
+        config.realign_chain_store = !self.keep_persisted_best_chain;
+        if let Some(mix) = &self.peer_mix {
+            config.peer_mix = mix.parse().map_err(|e| anyhow::anyhow!("invalid peer-mix `{mix}`: {e}"))?;
         }
 
-        config.ledger_config.ledger_store = ledger_store_config;
-        config.chain_store = StoreType::InMem(self.chain_store.clone());
+        if let Some(ledger_dir) = &self.ledger_dir {
+            config.ledger_config.ledger_store = RocksDbConfig::new(ledger_dir.clone());
+            config.ledger_config.max_extra_ledger_snapshots = MaxExtraLedgerSnapshots::All;
+        } else {
+            // Bootstrap a temp RocksDB ledger store whose tip matches the chain store's anchor.
+            // This ensures that build_node's initialize_chain_store won't reset the
+            // chain store's best_chain_hash (only the anchor will be set, which is already
+            // the same as the ledger tip).
+            let chain_anchor = self
+                .chain_store
+                .load_header(&self.chain_store.get_anchor_hash())
+                .map(|h| h.point())
+                .unwrap_or(Point::Origin);
+
+            // Hold the TempDir in `dummy_ledger` (and later graph Resources) so Windows can
+            // delete it after RocksDB closes, instead of leaking a directory per node.
+            let tmp = tempfile::tempdir()?;
+            let ledger_store_config = RocksDbConfig::new(tmp.path().to_path_buf());
+            {
+                let store = RocksDB::empty(&ledger_store_config)?;
+                let governance_activity = GovernanceActivity::default();
+                let pp = self.protocol_parameters();
+                let tx = store.create_transaction();
+                tx.save(
+                    self.era_history(),
+                    pp,
+                    Some(governance_activity),
+                    &chain_anchor,
+                    None,
+                    Columns::empty(),
+                    Columns::empty(),
+                    std::iter::empty(),
+                )?;
+                tx.set_protocol_parameters(pp)?;
+                tx.set_governance_activity(governance_activity)?;
+                // A bootstrapped ledger always has a constitution; these tests never propose one, so
+                // any anchor will do and there is no guardrails script to enforce.
+                tx.set_constitution(&Constitution {
+                    anchor: Anchor {
+                        url: MaxString128::from_str("https://example.com").map_err(anyhow::Error::msg)?,
+                        content_hash: [0; 32].into(),
+                    },
+                    guardrail_script: None,
+                })?;
+                tx.commit()?;
+                // initial_stake_distributions needs snapshots at most_recent, most_recent - 1, and
+                // most_recent - 2; take three so that for_epoch(0) and for_epoch(1) both succeed.
+                store.next_snapshot(Epoch::from(0u64))?;
+                store.next_snapshot(Epoch::from(1u64))?;
+                store.next_snapshot(Epoch::from(2u64))?;
+            }
+
+            config.ledger_config.ledger_store = ledger_store_config;
+            *self.dummy_ledger.lock() = Some(Arc::new(tmp));
+        }
+
+        config.chain_store = match &self.chain_dir {
+            Some(chain_dir) => StoreType::RocksDb(RocksDbConfig::new(chain_dir.clone())),
+            None => StoreType::InMem(self.chain_store.clone()),
+        };
         Ok(config)
     }
 }

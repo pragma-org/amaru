@@ -186,7 +186,7 @@ mod tests {
 
     use amaru_kernel::{
         Credential, Epoch, Hash, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_credential, any_rational_number, any_vote_ref,
-        into_safe_ratio,
+        into_safe_ratio, utils::tests::assert_strategy_sometimes_fails,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
@@ -283,17 +283,17 @@ mod tests {
         }
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
-        #[test]
-        #[should_panic]
-        fn prop_tally_is_sometimes_greater_than_0((epoch, votes, committee) in any_tally()) {
-            let result = committee.tally(
-                epoch,
-                votes,
-            );
-            prop_assert!(result == SafeRatio::zero());
-        }
+    #[test]
+    fn prop_tally_is_sometimes_greater_than_0() {
+        assert_strategy_sometimes_fails(
+            any_tally(),
+            ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+            |(epoch, votes, committee)| {
+                let result = committee.tally(epoch, votes);
+                prop_assert!(result == SafeRatio::zero());
+                Ok(())
+            },
+        );
     }
 
     proptest! {
@@ -358,17 +358,17 @@ mod tests {
         }
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
-        #[test]
-        #[should_panic]
-        fn prop_tally_sometimes_see_inactive_members((epoch, _, committee) in any_tally()) {
-            let active_members = committee.active_members(epoch);
-            prop_assert_eq!(
-                active_members.values().collect::<BTreeSet<_>>(),
-                committee.voters(),
-            );
-        }
+    #[test]
+    fn prop_tally_sometimes_see_inactive_members() {
+        assert_strategy_sometimes_fails(
+            any_tally(),
+            ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+            |(epoch, _, committee)| {
+                let active_members = committee.active_members(epoch);
+                prop_assert_eq!(active_members.values().collect::<BTreeSet<_>>(), committee.voters());
+                Ok(())
+            },
+        );
     }
     pub fn any_tally()
     -> impl Strategy<Value = (Epoch, BTreeMap<Credential, &'static Vote>, Rc<ConstitutionalCommittee>)> {

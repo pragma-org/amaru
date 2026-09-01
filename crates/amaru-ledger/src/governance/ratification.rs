@@ -469,7 +469,7 @@ mod tests {
 
     #[cfg(all(test, not(target_os = "windows")))]
     mod internal {
-        use amaru_kernel::any_proposal_pointer;
+        use amaru_kernel::{any_proposal_pointer, utils::tests::assert_strategy_sometimes_fails};
         use proptest::{prelude::*, test_runner::RngSeed};
 
         use super::*;
@@ -485,24 +485,30 @@ mod tests {
             }
         }
 
-        proptest! {
-            #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
-            #[test]
-            #[should_panic]
-            fn prop_proposal_pointer_sometimes_min_epoch(pointer in any_proposal_pointer(u64::MAX)) {
-                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
-                prop_assert!(epoch != Epoch::from(MIN_ARBITRARY_EPOCH));
-            }
+        #[test]
+        fn prop_proposal_pointer_sometimes_min_epoch() {
+            assert_strategy_sometimes_fails(
+                any_proposal_pointer(u64::MAX),
+                ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+                |pointer| {
+                    let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                    prop_assert!(epoch != Epoch::from(MIN_ARBITRARY_EPOCH));
+                    Ok(())
+                },
+            );
         }
 
-        proptest! {
-            #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
-            #[test]
-            #[should_panic]
-            fn prop_proposal_pointer_sometimes_max_epoch(pointer in any_proposal_pointer(u64::MAX)) {
-                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
-                prop_assert!(epoch != Epoch::from(MAX_ARBITRARY_EPOCH));
-            }
+        #[test]
+        fn prop_proposal_pointer_sometimes_max_epoch() {
+            assert_strategy_sometimes_fails(
+                any_proposal_pointer(u64::MAX),
+                ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+                |pointer| {
+                    let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                    prop_assert!(epoch != Epoch::from(MAX_ARBITRARY_EPOCH));
+                    Ok(())
+                },
+            );
         }
     }
 }

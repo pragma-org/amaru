@@ -239,7 +239,8 @@ pub enum SiblingInsertError<T> {
 mod tests {
     use std::{collections::BTreeSet, rc::Rc};
 
-    use proptest::{collection, prelude::*};
+    use amaru_kernel::utils::tests::assert_strategy_sometimes_panics;
+    use proptest::{collection, prelude::*, test_runner::RngSeed};
 
     use super::{ProposalsEnactError, ProposalsTree};
 
@@ -307,13 +308,15 @@ mod tests {
         }
     }
 
-    proptest! {
-        #[test]
-        #[should_panic]
-        fn prop_cannot_insert_already_existing_element((mut tree, next, any_parent) in any_proposals_tree()) {
-            #[expect(unused_must_use)]
-            tree.insert(Rc::new(next - 1), any_parent);
-        }
+    #[test]
+    fn prop_cannot_insert_already_existing_element() {
+        assert_strategy_sometimes_panics(
+            any_proposals_tree(),
+            ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+            |(mut tree, next, any_parent)| {
+                let _ = tree.insert(Rc::new(next - 1), any_parent);
+            },
+        );
     }
 
     // Construct a proposal tree (possibly empty), where siblings have arbitrary parents. The tree

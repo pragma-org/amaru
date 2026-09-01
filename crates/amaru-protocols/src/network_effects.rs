@@ -179,6 +179,12 @@ pub struct ConnectError {
     error: String,
 }
 
+impl ConnectError {
+    pub fn new(peer: Peer, error: impl Display) -> Self {
+        Self { peer, error: error.to_string() }
+    }
+}
+
 impl Display for ConnectError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ConnectError { peer, error } = self;
@@ -210,6 +216,12 @@ impl ExternalEffectAPI for SendEffect {
 pub struct SendError {
     conn: ConnectionId,
     error: String,
+}
+
+impl SendError {
+    pub fn new(conn: ConnectionId, error: impl Display) -> Self {
+        Self { conn, error: error.to_string() }
+    }
 }
 
 impl Display for SendError {
@@ -246,6 +258,12 @@ impl ExternalEffectAPI for RecvEffect {
 pub struct ReceiveError {
     conn: ConnectionId,
     error: String,
+}
+
+impl ReceiveError {
+    pub fn new(conn: ConnectionId, error: impl Display) -> Self {
+        Self { conn, error: error.to_string() }
+    }
 }
 
 impl Display for ReceiveError {

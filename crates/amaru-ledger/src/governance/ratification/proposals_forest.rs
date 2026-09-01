@@ -737,6 +737,7 @@ mod tests {
         Slot, TransactionPointer, any_constitution, any_constitutional_committee_update, any_gov_action,
         any_proposal_enum, any_proposal_id, any_proposal_pointer, any_protocol_params_update, any_protocol_version,
         any_reward_account,
+        utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
 
@@ -825,46 +826,49 @@ mod tests {
         }
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(14), ..ProptestConfig::default() })]
-        #[test]
-        #[should_panic]
-        fn prop_compass_sometimes_yield_constitutional_committee(
-            DebugAsDisplay(forest) in any_proposals_forest(),
-        ) {
-            let mut compass = forest.new_compass();
-            while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                prop_assert!(!proposal.is_committee_member_update())
-            }
-        }
+    #[test]
+    fn prop_compass_sometimes_yield_constitutional_committee() {
+        assert_strategy_sometimes_fails(
+            any_proposals_forest(),
+            ProptestConfig { rng_seed: RngSeed::Fixed(14), ..ProptestConfig::default() },
+            |DebugAsDisplay(forest)| {
+                let mut compass = forest.new_compass();
+                while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                    prop_assert!(!proposal.is_committee_member_update())
+                }
+                Ok(())
+            },
+        );
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
-        #[test]
-        #[should_panic]
-        fn prop_compass_sometimes_yield_treasury_withdrawals(
-            DebugAsDisplay(forest) in any_proposals_forest(),
-        ) {
-            let mut compass = forest.new_compass();
-            while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                prop_assert!(!matches!(proposal, ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(..))));
-            }
-        }
+    #[test]
+    fn prop_compass_sometimes_yield_treasury_withdrawals() {
+        assert_strategy_sometimes_fails(
+            any_proposals_forest(),
+            ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+            |DebugAsDisplay(forest)| {
+                let mut compass = forest.new_compass();
+                while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                    prop_assert!(!matches!(proposal, ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(..))));
+                }
+                Ok(())
+            },
+        );
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
-        #[test]
-        #[should_panic]
-        fn prop_compass_sometimes_yield_parameter_changes(
-            DebugAsDisplay(forest) in any_proposals_forest(),
-        ) {
-            let mut compass = forest.new_compass();
-            while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                prop_assert!(!matches!(proposal, ProposalEnum::ProtocolParameters(..)));
-            }
-        }
+    #[test]
+    fn prop_compass_sometimes_yield_parameter_changes() {
+        assert_strategy_sometimes_fails(
+            any_proposals_forest(),
+            ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+            |DebugAsDisplay(forest)| {
+                let mut compass = forest.new_compass();
+                while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                    prop_assert!(!matches!(proposal, ProposalEnum::ProtocolParameters(..)));
+                }
+                Ok(())
+            },
+        );
     }
 
     proptest! {
@@ -993,16 +997,15 @@ mod tests {
         }
     }
 
-    proptest! {
-        #[test]
-        #[should_panic]
-        fn prop_cannot_insert_root(
-            (DebugAsDisplay(mut forest), root) in any_grown_proposals_forest(),
-            action in any_gov_action(),
-            proposed_in in any_proposal_pointer(u64::MAX),
-        ) {
-            let _ = forest.insert(&ERA_HISTORY, Rc::new(root), proposed_in, action);
-        }
+    #[test]
+    fn prop_cannot_insert_root() {
+        assert_strategy_sometimes_panics(
+            (any_grown_proposals_forest(), any_gov_action(), any_proposal_pointer(u64::MAX)),
+            ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+            |((DebugAsDisplay(mut forest), root), action, proposed_in)| {
+                let _ = forest.insert(&ERA_HISTORY, Rc::new(root), proposed_in, action);
+            },
+        );
     }
 
     proptest! {

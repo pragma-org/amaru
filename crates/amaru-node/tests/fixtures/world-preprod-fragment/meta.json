@@ -1,0 +1,9 @@
+{
+  "network": "preprod",
+  "index_source": "https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/preprod/index.json",
+  "latest_snapshot_point": "130982398.6b78e3cbc65e4cc9ca036c03ab125697b9a31954f55219bf7ad5397d63286c43",
+  "latest_snapshot_epoch": 306,
+  "target_epoch": 308,
+  "produced_by": "crates/amaru-node/examples/run_until.rs",
+  "fragment_head": "130982572.fc787e2c9da9901e54bffd63f9e96f98bddd6e528def909f24b9c5da3afbb865(5052858)"
+}
