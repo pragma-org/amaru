@@ -40,6 +40,12 @@ on:
         type: string
         default: ""
 
+      nocapture:
+        description: "Pass --nocapture and RUST_BACKTRACE=1 so libtest prints stdout/stderr live"
+        required: false
+        type: boolean
+        default: false
+
 jobs:
   cargo-test:
     runs-on: ${{ inputs.runner }}
@@ -70,8 +76,20 @@ jobs:
           fi
 
           COMMAND="${{ inputs.command }}"
+          EXTRA=()
 
-          cargo $COMMAND --locked --target "${{ inputs.target }}"
+          if [[ "${{ inputs.nocapture }}" == "true" ]]; then
+            export RUST_BACKTRACE=1
+            # Panic backtraces only: anyhow Debug otherwise injects "Stack backtrace:"
+            # into tracing captures and breaks log assertions.
+            export RUST_LIB_BACKTRACE=0
+            # `--locked --target` must stay cargo flags; libtest args go after `--`.
+            case "$COMMAND" in
+              test|test\ *) EXTRA=(-- --nocapture) ;;
+            esac
+          fi
+
+          cargo $COMMAND --locked --target "${{ inputs.target }}" "${EXTRA[@]}"
 
       - name: Upload test artifacts on failure
         if: failure()

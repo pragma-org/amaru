@@ -55,7 +55,11 @@ pub fn build_world_node(
     let global_parameters = config.global_parameters().clone();
 
     build_node(&config, &global_parameters, Arc::new(Meter::default()), &mut stage_graph)?;
+    let dummy_ledger = node_config.dummy_ledger_dir();
     stage_graph.resources().put::<ConnectionsResource>(node_config.connections);
+    if let Some(tmp) = dummy_ledger {
+        stage_graph.resources().put(crate::tests::configuration::DummyLedgerDir(tmp));
+    }
 
     Ok(stage_graph.run(tokio_handle))
 }

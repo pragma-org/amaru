@@ -92,17 +92,19 @@ struct LogEntry {
     line: String,
 }
 
-fn parse_level(line: &str) -> Level {
-    let Some(word) = line.split_whitespace().nth(1) else {
-        panic!("invalid log line: {:?}", line);
-    };
-    match word {
-        "ERROR" => Level::ERROR,
-        "WARN" => Level::WARN,
-        "INFO" => Level::INFO,
-        "DEBUG" => Level::DEBUG,
-        "TRACE" => Level::TRACE,
-        _ => panic!("invalid log level: {:?}", word),
+/// Level of a console-formatted tracing line, or `None` for continuations.
+///
+/// [`CborConsoleEventFormat`] emits `timestamp LEVEL target: …`. Debug of an `anyhow::Error`
+/// (when a backtrace was captured) appends extra lines like `Stack backtrace:` into the same
+/// writer; those are not log events.
+fn parse_level(line: &str) -> Option<Level> {
+    match line.split_whitespace().nth(1)? {
+        "ERROR" => Some(Level::ERROR),
+        "WARN" => Some(Level::WARN),
+        "INFO" => Some(Level::INFO),
+        "DEBUG" => Some(Level::DEBUG),
+        "TRACE" => Some(Level::TRACE),
+        _ => None,
     }
 }
 
@@ -126,7 +128,7 @@ impl Logs {
             .split('\n')
             .filter(|line| !line.is_empty())
             .filter_map(|line| {
-                let level = parse_level(line);
+                let level = parse_level(line)?;
                 is_relevant(level, parse_target(line)).then(|| LogEntry { level, line: line.to_string() })
             })
             .collect();
@@ -368,3 +370,29 @@ pub fn start_in_era() -> StartTimes {
 pub use amaru_pure_stage::TraceMatch;
 // Re-export the external effect matchers for convenient use in stage tests.
 pub use amaru_pure_stage::{tm_external_effect, tm_external_effect_match};
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    #[test]
+    fn logs_skip_backtrace_continuation_lines() {
+        let mut writer = BufferWriter::new();
+        writer
+            .write_all(
+                b"2026-09-01T00:00:00.000000Z  WARN amaru_consensus::stages::validate_block: block.invalid error=mock\n",
+            )
+            .unwrap();
+        writer.write_all(b"Stack backtrace:\n").unwrap();
+        writer.write_all(b"   0: anyhow::error::capture\n").unwrap();
+        let mut logs = writer.logs();
+        logs.assert_and_remove(Level::WARN, &["block.invalid"]).assert_no_remaining_at([
+            Level::DEBUG,
+            Level::INFO,
+            Level::WARN,
+            Level::ERROR,
+        ]);
+    }
+}

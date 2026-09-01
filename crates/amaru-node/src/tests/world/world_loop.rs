@@ -31,6 +31,7 @@ use amaru_protocols::{
     network_effects::{
         AcceptEffect, AcceptError, ConnectEffect, ConnectError, ReceiveError, RecvEffect, SendEffect, SendError,
     },
+    store_effects::{RollForwardChainEffect, SetBestChainTipEffect, SwitchToForkEffect},
 };
 use amaru_pure_stage::{
     Effect, Instant, Name, SendData,
@@ -75,7 +76,12 @@ pub struct WorldLoop {
     pending_reveals: VecDeque<HeaderHash>,
     /// True while a [`WorldHeapItem::Reveal`] is already on the heap.
     reveal_scheduled: bool,
+    /// Set when a graph resumes a store effect that writes the best-chain pointer.
+    best_chain_tip_updated: bool,
 }
+
+/// Same-timestamp heap pops before we treat the world as livelocked.
+const SAME_TIME_POP_LIMIT: u32 = 50_000;
 
 type Completion = (usize, Name, Box<dyn SendData>);
 
@@ -115,6 +121,7 @@ impl WorldLoop {
             injector: None,
             pending_reveals: VecDeque::new(),
             reveal_scheduled: false,
+            best_chain_tip_updated: false,
         };
         for index in 0..world.graphs.len() {
             world.schedule_graph_if_needed(index);
@@ -198,9 +205,46 @@ impl WorldLoop {
     ) {
         let mut last_progress = std::time::Instant::now();
         progress(self);
+        self.drive_until_horizon(horizon_nanos, |this| {
+            let now = std::time::Instant::now();
+            if now.saturating_duration_since(last_progress) >= progress_every {
+                progress(this);
+                last_progress = now;
+            }
+        });
+        progress(self);
+    }
+
+    /// Run until horizon, invoking `on_tip` only after a graph resumes a store effect
+    /// that writes the best-chain pointer (`RollForwardChain`, `SwitchToFork`, or
+    /// `SetBestChainTip`).
+    pub fn run_until_horizon_on_best_chain_tip(&mut self, horizon_nanos: u64, mut on_tip: impl FnMut(&Self)) {
+        self.drive_until_horizon(horizon_nanos, |this| {
+            if this.best_chain_tip_updated {
+                this.best_chain_tip_updated = false;
+                on_tip(this);
+            }
+        });
+    }
+
+    fn drive_until_horizon(&mut self, horizon_nanos: u64, mut after_event: impl FnMut(&mut Self)) {
+        let mut last_pop_time = None;
+        let mut same_time_pops = 0u32;
         while let Some(entry) = self.provider.pop_at_or_before(horizon_nanos) {
             if self.cancelled.remove(&entry.sequence) {
                 continue;
+            }
+
+            if last_pop_time == Some(entry.time_nanos) {
+                same_time_pops += 1;
+                assert!(
+                    same_time_pops < SAME_TIME_POP_LIMIT,
+                    "world livelock: {same_time_pops} events at t={}ns (graph/network not making progress)",
+                    entry.time_nanos
+                );
+            } else {
+                last_pop_time = Some(entry.time_nanos);
+                same_time_pops = 0;
             }
 
             self.provider.set_time(entry.time_nanos);
@@ -226,14 +270,8 @@ impl WorldLoop {
                 }
             }
             self.kick_pending_reveal();
-
-            let now = std::time::Instant::now();
-            if now.saturating_duration_since(last_progress) >= progress_every {
-                progress(self);
-                last_progress = now;
-            }
+            after_event(self);
         }
-        progress(self);
     }
 
     fn schedule_graph_if_needed(&mut self, index: usize) {
@@ -264,15 +302,18 @@ impl WorldLoop {
     fn wake_and_run_graph(&mut self, index: usize) {
         let time_nanos = self.provider.current_time_nanos();
         let graph = &mut self.graphs[index];
-        // Instant Ord uses duration_since_global_epoch. A zero-offset max_time
-        // misses waits scheduled with the graph's epoch offset and reschedules
-        // the same Sleeping wake forever.
+        // Instant Ord uses duration_since_global_epoch. Skip due waits by their own Instant
+        // first; reconstructing world time from sim_elapsed can miss a due wakeup and
+        // reschedule the same Sleeping wake forever.
+        if let Some(wakeup) = graph.next_wakeup()
+            && instant_nanos(wakeup) <= time_nanos
+        {
+            graph.skip_to_next_wakeup(Some(wakeup));
+        }
         let graph_now = graph.now();
-        let instant = graph_now - graph_now.sim_elapsed() + Duration::from_nanos(time_nanos);
-        let clock_behind = instant_nanos(graph_now) < time_nanos;
-        let wakeup_due = graph.next_wakeup().is_some_and(|t| instant_nanos(t) <= time_nanos);
-        if clock_behind || wakeup_due {
-            graph.skip_to_next_wakeup(Some(instant));
+        if instant_nanos(graph_now) < time_nanos {
+            let world_now = graph_now - graph_now.sim_elapsed() + Duration::from_nanos(time_nanos);
+            graph.skip_to_next_wakeup(Some(world_now));
         }
         self.run_graph_until_clock(index);
     }
@@ -300,8 +341,12 @@ impl WorldLoop {
 
     fn on_external(&mut self, graph_idx: usize, effect: Effect) {
         let posted = classify_network(&effect);
+        let set_best_chain = is_best_chain_write(&effect);
         if let Some(Blocked::Terminated(name)) = self.graphs[graph_idx].handle_effect(effect) {
             self.drop_pending_for_terminated(graph_idx, &name);
+        }
+        if set_best_chain {
+            self.best_chain_tip_updated = true;
         }
         kick_external(&mut self.graphs[graph_idx]);
         if let Some(posted) = posted {
@@ -634,6 +679,16 @@ impl WorldLoop {
 
 fn instant_nanos(instant: Instant) -> u64 {
     u64::try_from(instant.sim_elapsed().as_nanos()).expect("sim time fits u64")
+}
+
+fn is_best_chain_write(effect: &Effect) -> bool {
+    use std::any::Any;
+
+    let Effect::External { effect: eff, .. } = effect else {
+        return false;
+    };
+    let any = &**eff as &dyn Any;
+    any.is::<RollForwardChainEffect>() || any.is::<SwitchToForkEffect>() || any.is::<SetBestChainTipEffect>()
 }
 
 fn classify_network(effect: &Effect) -> Option<Posted> {

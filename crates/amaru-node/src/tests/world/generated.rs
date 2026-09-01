@@ -21,7 +21,7 @@
 //!
 //! Every run prints `seed=0x…`. Replay with `AMARU_TEST_SEED=<that value>`.
 
-use std::{env::var, net::SocketAddr, sync::Arc, time::Duration};
+use std::{env::var, net::SocketAddr, sync::Arc};
 
 use amaru_consensus::{
     effects::{GenerateRandomSeed, ValidateBlockEffect, ValidateHeaderEffect},
@@ -290,8 +290,11 @@ fn run_p_join_quiescent_chain(
     world.schedule_reveals(headers.iter().map(IsHeader::hash));
     let head_point = head.point();
     let mut adopted_at = None;
-    world.run_until_horizon_with(horizon_nanos, Duration::ZERO, |world| {
-        if adopted_at.is_none() && p_join_nodes_adopted_head(world, &head_point) {
+    world.run_until_horizon_on_best_chain_tip(horizon_nanos, |world| {
+        if adopted_at.is_some() {
+            return;
+        }
+        if p_join_nodes_adopted_head(world, &head_point) {
             adopted_at = Some((world.now_nanos(), p_join_wire_summary(world.heap_log_ref())));
         }
     });

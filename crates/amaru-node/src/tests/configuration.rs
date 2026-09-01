@@ -80,7 +80,18 @@ pub struct NodeTestConfig {
     pub keep_persisted_best_chain: bool,
     /// When set, overrides [`Config::peer_mix`] (production default includes shared/snapshot/ledger).
     pub peer_mix: Option<String>,
+    /// Keeps a dummy ledger tempdir alive until the last node graph holding it is dropped.
+    dummy_ledger: Arc<Mutex<Option<Arc<tempfile::TempDir>>>>,
 }
+
+impl NodeTestConfig {
+    pub(crate) fn dummy_ledger_dir(&self) -> Option<Arc<tempfile::TempDir>> {
+        self.dummy_ledger.lock().clone()
+    }
+}
+
+/// Lives in the graph `Resources` so the dummy ledger directory outlives `NodeTestConfig`.
+pub(crate) struct DummyLedgerDir(#[expect(dead_code)] pub Arc<tempfile::TempDir>);
 
 impl Debug for NodeTestConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -130,6 +141,7 @@ impl Default for NodeTestConfig {
             target_upstream_peers: None,
             keep_persisted_best_chain: false,
             peer_mix: None,
+            dummy_ledger: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -357,10 +369,10 @@ impl NodeTestConfig {
                 .map(|h| h.point())
                 .unwrap_or(Point::Origin);
 
-            // The tempdir is leaked so it survives for the duration of the test process;
-            // Config (and the Ledger it bootstraps) only sees the path.
-            let ledger_dir = tempfile::tempdir()?.keep();
-            let ledger_store_config = RocksDbConfig::new(ledger_dir);
+            // Hold the TempDir in `dummy_ledger` (and later graph Resources) so Windows can
+            // delete it after RocksDB closes, instead of leaking a directory per node.
+            let tmp = tempfile::tempdir()?;
+            let ledger_store_config = RocksDbConfig::new(tmp.path().to_path_buf());
             {
                 let store = RocksDB::empty(&ledger_store_config)?;
                 let governance_activity = GovernanceActivity::default();
@@ -396,6 +408,7 @@ impl NodeTestConfig {
             }
 
             config.ledger_config.ledger_store = ledger_store_config;
+            *self.dummy_ledger.lock() = Some(Arc::new(tmp));
         }
 
         config.chain_store = match &self.chain_dir {
