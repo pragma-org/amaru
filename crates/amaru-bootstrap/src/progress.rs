@@ -65,6 +65,25 @@ impl StructuredProgressBar {
             elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
         );
     }
+
+    fn cancel(&self) {
+        let current = self.state().cancel();
+        if let Some(current) = current {
+            info!(
+                bootstrap::progress::CANCEL,
+                phase = self.phase.to_owned(),
+                current,
+                total = @self.total,
+                elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
+            );
+        }
+    }
+}
+
+impl Drop for StructuredProgressBar {
+    fn drop(&mut self) {
+        self.cancel();
+    }
 }
 
 impl ProgressBar for StructuredProgressBar {
@@ -76,16 +95,7 @@ impl ProgressBar for StructuredProgressBar {
     }
 
     fn clear(self: Box<Self>) {
-        let current = self.state().cancel();
-        if let Some(current) = current {
-            info!(
-                bootstrap::progress::CANCEL,
-                phase = self.phase.to_owned(),
-                current,
-                total = @self.total,
-                elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
-            );
-        }
+        self.cancel();
     }
 
     fn finish(self: Box<Self>) {
@@ -148,7 +158,21 @@ impl ProgressState {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc::sync_channel;
+
+    use amaru_observability::{TelemetryCaptureLayer, tracing, tracing_subscriber};
+    use tracing_subscriber::prelude::*;
+
     use super::*;
+
+    fn capture_progress_events(run: impl FnOnce()) -> Vec<String> {
+        let (tx, rx) = sync_channel(8);
+        let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
+
+        tracing::subscriber::with_default(subscriber, run);
+
+        rx.try_iter().map(|record| record.name).collect()
+    }
 
     #[test]
     fn tracks_updates_and_always_reports_final_position() {
@@ -173,5 +197,28 @@ mod tests {
         state.cancel();
 
         assert_eq!(state.finish(), None);
+    }
+
+    #[test]
+    fn dropping_an_unfinished_progress_bar_cancels_it() {
+        let events = capture_progress_events(|| {
+            let progress = StructuredProgressBar::new("test", Some(10));
+            progress.tick(3);
+        });
+
+        assert_eq!(events, ["progress.start", "progress.cancel"]);
+    }
+
+    #[test]
+    fn terminal_calls_do_not_emit_an_additional_cancel_on_drop() {
+        let cleared = capture_progress_events(|| {
+            Box::new(StructuredProgressBar::new("test", Some(10))).clear();
+        });
+        assert_eq!(cleared, ["progress.start", "progress.cancel"]);
+
+        let finished = capture_progress_events(|| {
+            Box::new(StructuredProgressBar::new("test", Some(10))).finish();
+        });
+        assert_eq!(finished, ["progress.start", "progress.complete"]);
     }
 }

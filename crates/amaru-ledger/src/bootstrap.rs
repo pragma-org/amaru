@@ -566,7 +566,7 @@ pub fn import_initial_snapshot(
         point,
         era_history,
         network,
-        with_progress,
+        &with_progress,
     )
 }
 
@@ -580,7 +580,7 @@ pub fn import_initial_snapshot_with_decoder(
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
-    with_progress: impl ProgressBarFactory,
+    with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<Epoch> {
     let tip = point.slot_or_default();
     let expected_epoch = era_history.slot_to_epoch(tip, tip)?;
@@ -617,7 +617,7 @@ pub fn import_initial_snapshot_with_decoder(
         expected_epoch,
         network,
         era_history,
-        &with_progress,
+        with_progress,
     )?;
 
     import_protocol_parameters(db, &protocol_parameters)?;

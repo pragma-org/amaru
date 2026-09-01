@@ -799,7 +799,7 @@ fn import_node_snapshot_archive_data(
                 previous_accounts.take().ok_or_else(|| {
                     anyhow!("multiple {SNAPSHOT_STATE_FILE_NAME} in archive {}?", archive_path.display())
                 })?,
-                BootstrapProgressFactory,
+                &BootstrapProgressFactory,
             )?);
         } else if snapshot_archive_entry_matches(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
             let (epoch, point, era_history, chain_state) = imported_state.take().ok_or_else(|| {
@@ -809,7 +809,7 @@ fn import_node_snapshot_archive_data(
                 )
             })?;
 
-            import_utxo_from_tvar(&mut entry, db, BootstrapProgressFactory, &point, &era_history, network)?;
+            import_utxo_from_tvar(&mut entry, db, &BootstrapProgressFactory, &point, &era_history, network)?;
 
             return Ok((epoch, point, chain_state));
         }

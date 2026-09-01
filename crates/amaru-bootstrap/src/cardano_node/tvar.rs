@@ -53,7 +53,7 @@ pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
 ) -> anyhow::Result<(Epoch, Point, Option<ChainState>)>
 where
     S: Store,
-    F: ProgressBarFactory + Copy,
+    F: ProgressBarFactory,
     State: Read,
     Utxo: Read,
 {
@@ -64,26 +64,25 @@ where
         global_parameters,
         nonce_tail,
         previous_accounts,
-        with_progress,
+        &with_progress,
     )?;
 
-    import_utxo_from_tvar(utxo_file, db, with_progress, &point, &era_history, network)?;
+    import_utxo_from_tvar(utxo_file, db, &with_progress, &point, &era_history, network)?;
 
     Ok((epoch, point, chain_state))
 }
 
-pub(crate) fn import_state_from_tvar<S, F, State>(
+pub(crate) fn import_state_from_tvar<S, State>(
     db: &S,
     state_file: &mut State,
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<Credential>,
-    with_progress: F,
+    with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<(Epoch, Point, EraHistory, Option<ChainState>)>
 where
     S: Store,
-    F: ProgressBarFactory + Copy,
     State: Read,
 {
     let mut decoder = LazyDecoder::new(state_file);
@@ -109,34 +108,32 @@ where
     Ok((epoch, point, parsed_snapshot.era_history, chain_state))
 }
 
-pub(crate) fn import_utxo_from_tvar<S, F, Utxo>(
+pub(crate) fn import_utxo_from_tvar<S, Utxo>(
     utxo_file: &mut Utxo,
     db: &S,
-    with_progress: F,
+    with_progress: &impl ProgressBarFactory,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
 ) -> anyhow::Result<()>
 where
     S: Store,
-    F: ProgressBarFactory + Copy,
     Utxo: Read,
 {
     let mut decoder = LazyDecoder::new(utxo_file);
     import_tvar_utxo(&mut decoder, db, with_progress, point, era_history, network)
 }
 
-fn import_tvar_utxo<S, F>(
+fn import_tvar_utxo<S>(
     decoder: &mut LazyDecoder<'_>,
     db: &S,
-    with_progress: F,
+    with_progress: &impl ProgressBarFactory,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
 ) -> anyhow::Result<()>
 where
     S: Store,
-    F: ProgressBarFactory + Copy,
 {
     let protocol_parameters = db.protocol_parameters()?;
 
