@@ -16,8 +16,12 @@
 //!
 //! Yields at most one [`Peer`]. Host lookups take the first viable A/AAAA. SRV lookups try records
 //! in RFC 2782 priority order (lower first) and stop at the first viable target address.
+//!
+//! SRV uses the system DNS resolver, which [`init_resolver`] loads at Tokio node start. A missing
+//! or unreadable system config is fatal there; lookup failures remain per-candidate.
 
 use std::{
+    fmt,
     net::{IpAddr, SocketAddr},
     sync::OnceLock,
 };
@@ -25,6 +29,33 @@ use std::{
 use amaru_kernel::{DnsName, Peer, PeerCandidate};
 use amaru_observability::warn;
 use hickory_resolver::{TokioResolver, proto::rr::rdata::SRV};
+
+static RESOLVER: OnceLock<TokioResolver> = OnceLock::new();
+
+/// System DNS configuration could not be loaded (`/etc/resolv.conf` or the Windows registry).
+#[derive(Debug)]
+pub struct ResolverInitError {
+    message: String,
+}
+
+impl fmt::Display for ResolverInitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "failed to load system DNS configuration: {}", self.message)
+    }
+}
+
+impl std::error::Error for ResolverInitError {}
+
+/// Load the system DNS resolver. Must succeed before any SRV lookup; the Tokio node calls this
+/// at start so a missing or unreadable resolver config aborts instead of starving later dials.
+pub fn init_resolver() -> Result<(), ResolverInitError> {
+    if RESOLVER.get().is_some() {
+        return Ok(());
+    }
+    let builder = TokioResolver::builder_tokio().map_err(|error| ResolverInitError { message: error.to_string() })?;
+    let _ = RESOLVER.set(builder.build());
+    Ok(())
+}
 
 /// Resolve a bootstrap candidate to at most one dialable [`Peer`].
 pub async fn resolve_peer_candidate(candidate: &PeerCandidate) -> Option<Peer> {
@@ -65,26 +96,14 @@ fn ordered_usable_srv(records: impl IntoIterator<Item = SrvChoice>) -> Vec<SrvCh
     records
 }
 
-fn resolver() -> Option<&'static TokioResolver> {
-    static RESOLVER: OnceLock<Option<TokioResolver>> = OnceLock::new();
-    RESOLVER
-        .get_or_init(|| match TokioResolver::builder_tokio() {
-            Ok(builder) => Some(builder.build()),
-            Err(_) => None,
-        })
-        .as_ref()
+#[expect(clippy::expect_used)]
+fn resolver() -> &'static TokioResolver {
+    RESOLVER.get().expect("init_resolver must succeed before SRV lookups")
 }
 
 async fn resolve_srv(name: &DnsName) -> Option<Peer> {
     let query = PeerCandidate::cardano_srv_name(name);
-    let Some(resolver) = resolver() else {
-        warn!(
-            protocols::peer_selection::peer::RESOLVE_FAILED,
-            candidate = query.as_str(),
-            reason = "DNS resolver is unavailable"
-        );
-        return None;
-    };
+    let resolver = resolver();
     let lookup = match resolver.srv_lookup(query.as_str()).await {
         Ok(lookup) => lookup,
         Err(error) => {
@@ -178,6 +197,12 @@ mod tests {
     fn first_viable_peer_none_when_all_rejected() {
         let mapped = SocketAddr::from((Ipv6Addr::from_str("::ffff:10.0.0.1").unwrap(), 3001));
         assert_eq!(first_viable_peer([mapped]), None);
+    }
+
+    #[test]
+    fn init_resolver_loads_system_config() {
+        init_resolver().expect("test hosts have a system DNS resolver");
+        init_resolver().expect("init_resolver is idempotent");
     }
 
     #[test]

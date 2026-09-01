@@ -197,16 +197,21 @@ fn test_initialize_resolve_failure_does_not_dial() {
 
     let candidate = PeerCandidate::host("missing.example".parse().unwrap(), 3001);
     let mut prep = test_prep(&[]);
-    prep.extra_static.insert(candidate);
+    prep.extra_static.insert(candidate.clone());
     let msg = PeerSelectionMsg::Initialize;
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    // UntilSleeping: a failed lookup arms a delayed Regulate; UntilBlocked would
+    // keep advancing that retry timer forever under a frozen DNS override.
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
+
+    let mut state = prep.state.clone();
+    state.resolve_backoff.insert(candidate, sim_at(RESOLUTION_RETRY_DELAY));
 
     assert_trace_contains(
         &running,
         &[
             te_input("ps-1", &msg).into(),
             tm_external_effect::<ResolvePeerCandidate>("ps-1"),
-            te_state("ps-1", &prep.state).into(),
+            te_state("ps-1", &state).into(),
         ],
     );
     assert_trace_does_not_contain(

@@ -48,7 +48,10 @@ pub trait LedgerOps: Send + Sync {
 
     fn volatile_tip(&self) -> BoxFuture<'static, Point>;
 
-    /// Get the registered relay socket addresses from the stable store.
+    /// Get registered relay candidates from the stable store.
+    ///
+    /// Entries may be socket addresses, hostnames, or SRV names; they are not
+    /// necessarily dialable until resolved.
     ///
     /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
     /// 2025), so it should be called with care. Please cache the result, it

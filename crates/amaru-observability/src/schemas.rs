@@ -2041,7 +2041,7 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required reason: String
                     }
-                    /// An address could not be used as a Peer (not a literal IP:port, or IPv4-mapped IPv6).
+                    /// A candidate address was rejected and will not be used as a Peer.
                     public ADDRESS_REJECTED {
                         required address: String
                         required reason: String

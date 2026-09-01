@@ -617,13 +617,13 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         network = args.network,
         peer_address = peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
         peer_snapshot = args.peer_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| {
-            if peer_snapshot_peers.is_empty() {
+            if peer_snapshot_peers.is_empty() && peer_snapshot_unresolved.is_empty() {
                 "none".to_string()
             } else {
                 format!("embedded{}", embedded_configs_commit().map(|sha| format!("@{sha}")).unwrap_or_default())
             }
         }),
-        peer_snapshot_relays = peer_snapshot_peers.len(),
+        peer_snapshot_relays = peer_snapshot_peers.len() + peer_snapshot_unresolved.len(),
         pid_file = args.pid_file.clone().unwrap_or_default().display().to_string(),
         submit_api_address = args.submit_api_address.as_deref().unwrap_or("disabled"),
         trace_buffer_min_entries,
@@ -678,7 +678,8 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 }
 
 fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru_node::peer_snapshot::PeerSnapshot) {
-    if snapshot.peers.is_empty() {
+    let relays = snapshot.peers.len() + snapshot.unresolved.len();
+    if relays == 0 {
         warn!(
             setup::peer_snapshot::EMPTY,
             path = path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
@@ -692,7 +693,7 @@ fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru_node::peer_snapshot
             point = snapshot.point,
             node_to_client_version = snapshot.node_to_client_version,
             pools = snapshot.pool_count,
-            relays = snapshot.peers.len(),
+            relays,
             configs_commit = embedded_configs_commit().unwrap_or("unknown")
         );
     }

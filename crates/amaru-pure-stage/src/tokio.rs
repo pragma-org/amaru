@@ -91,6 +91,28 @@ impl TokioInner {
             trace_buffer: TraceBuffer::new_shared(0, 0),
         }
     }
+
+    fn push_handle(&self, handle: JoinHandle<()>) {
+        let mut handles = self.handles.lock();
+        reap_finished_handles(&mut handles);
+        handles.push(handle);
+    }
+}
+
+fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>) {
+    handles.retain_mut(|handle| {
+        if !handle.is_finished() {
+            return true;
+        }
+        let mut cx = Context::from_waker(Waker::noop());
+        match handle.poll_unpin(&mut cx) {
+            Poll::Ready(Ok(())) => {}
+            Poll::Ready(Err(err)) if err.is_cancelled() => {}
+            Poll::Ready(Err(err)) => tracing::error!("detached task failed: {err:?}"),
+            Poll::Pending => return true,
+        }
+        false
+    });
 }
 
 struct TokioClock;
@@ -530,7 +552,7 @@ async fn interpreter(
                         tracing::debug!(stage = %target, "detach result dropped: unknown stage");
                     }
                 });
-                inner.handles.lock().push(handle);
+                inner.push_handle(handle);
                 StageResponse::ExternalResponse(Box::new(()))
             }
             StageEffect::Terminate => {

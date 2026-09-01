@@ -99,15 +99,16 @@ impl ConnectionProvider for InMemoryConnectionProvider {
                 return Poll::Pending;
             };
 
+            let peer = Peer::try_from(pending.initiator_addr)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+
             // Register the responder's endpoint, the initiator is already registered in connect().
             let conn_id = inner.register_endpoint(pending.responder_endpoint);
 
             // Set the initiator's peer_conn_id to the responder's conn_id
             *pending.initiator_peer_conn_id_slot.lock() = Some(conn_id);
 
-            tracing::debug!("accepted in-memory connection from {} with id {conn_id}", pending.initiator_addr);
-            let peer = Peer::try_from(pending.initiator_addr)
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+            tracing::debug!("accepted in-memory connection from {peer} with id {conn_id}");
             Poll::Ready(Ok((peer, conn_id)))
         }))
     }

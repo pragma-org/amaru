@@ -7183,7 +7183,7 @@
       "name": "address_rejected",
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::peer",
-      "description": "An address could not be used as a Peer (not a literal IP:port, or IPv4-mapped IPv6).",
+      "description": "A candidate address was rejected and will not be used as a Peer.",
       "public": true
     },
     "amaru::protocols::peer_selection::peer::ADD_SKIPPED": {

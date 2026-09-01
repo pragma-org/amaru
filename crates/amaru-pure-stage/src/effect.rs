@@ -1191,7 +1191,7 @@ impl Effect {
     pub fn assert_external<Eff: ExternalEffect + PartialEq>(&self, at_stage: impl AsRef<Name>, effect: &Eff) {
         let at_stage = at_stage.as_ref();
         match self {
-            Effect::External { at_stage: a, effect: e } | Effect::Detach { at_stage: a, effect: e }
+            Effect::External { at_stage: a, effect: e }
                 if a == at_stage && &**e as &dyn SendData == effect as &dyn SendData => {}
             _ => panic!("unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}", at_stage),
         }

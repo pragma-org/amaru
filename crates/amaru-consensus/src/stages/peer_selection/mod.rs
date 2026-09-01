@@ -35,6 +35,8 @@ use crate::{
 };
 
 const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
+/// Backoff after a failed Host/SRV lookup before that candidate may be picked again.
+const RESOLUTION_RETRY_DELAY: Duration = Duration::from_secs(30);
 /// Delay after outbound connect before the first peer-sharing request.
 pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_millis(100);
 /// Interval between subsequent peer-sharing requests on a live outbound connection.
@@ -78,6 +80,7 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// - `pending_resolve`: Host/SRV candidates currently being resolved (count toward occupancy).
 /// - `bound`: Host/SRV candidates whose current outbound dial came from them (excluded from mix
 ///   until that peer leaves outbound, so the name can be resolved again later).
+/// - `resolve_backoff`: failed Host/SRV lookups excluded until the given instant.
 /// - `share_reply`: contramap of this stage accepting [`ShareResult`] (shared by all
 ///   peer-sharing initiators; scheduling lives on each initiator with its connection).
 ///
@@ -98,8 +101,10 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 ///
 /// - **Resolved**: DNS result for a selected bootstrap candidate (at most one
 ///   [`Peer`]). On success, notes the dial origin for malus, dials that address,
-///   then `regulate_peers`. The candidate stays in its pool. On failure, drops the
-///   pending resolve and does not refill immediately (avoids a tight resolve loop).
+///   then `regulate_peers`. The candidate stays in its pool. On failure, the
+///   candidate is held in `resolve_backoff` for 30s, other slots are refilled
+///   immediately, and a delayed [`PeerSelectionMsg::Regulate`] is armed if the
+///   outbound target is still short.
 ///
 /// - **Adversarial**: Debug-logs `peer_selection.peer.adversarial`. Delegates to
 ///   `ban_peer`: removes the peer from `inbound_peers` (if present;
@@ -238,6 +243,8 @@ pub struct PeerSelection {
     pending_resolve: BTreeSet<PeerCandidate>,
     /// Host/SRV candidates currently bound to an outbound [`Peer`] (re-resolved after unbind).
     bound: BTreeMap<PeerCandidate, Peer>,
+    /// Failed Host/SRV lookups that must not be re-selected until the stored instant.
+    resolve_backoff: BTreeMap<PeerCandidate, Instant>,
     /// Contramap target for peer-sharing replies ([`ShareResult`] → [`PeerSelectionMsg::SharePeersResult`]).
     /// Ignored in [`PartialEq`] (lazily wired, test-unstable name).
     share_reply: StageRef<ShareResult>,
@@ -255,6 +262,7 @@ impl PartialEq for PeerSelection {
             && self.outbound_peers == other.outbound_peers
             && self.pending_resolve == other.pending_resolve
             && self.bound == other.bound
+            && self.resolve_backoff == other.resolve_backoff
         // share_reply intentionally omitted
     }
 }
@@ -344,6 +352,7 @@ impl PeerSelection {
             outbound_peers: BTreeMap::new(),
             pending_resolve: BTreeSet::new(),
             bound: BTreeMap::new(),
+            resolve_backoff: BTreeMap::new(),
             share_reply: StageRef::blackhole(),
         }
     }
@@ -471,6 +480,8 @@ impl PeerSelection {
         }
         excluded.extend(self.pending_resolve.iter().cloned());
         excluded.extend(self.bound.keys().cloned());
+        self.resolve_backoff.retain(|_, until| *until > now);
+        excluded.extend(self.resolve_backoff.keys().cloned());
         let picked =
             eff.external(Performance::select_outbound(SelectOutboundParams { open, excluded, seed, now })).await;
         for pick in picked {
@@ -786,6 +797,12 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         PeerSelectionMsg::Resolved(ResolvePeerCandidateResult { candidate, origin, peer }) => {
             state.pending_resolve.remove(&candidate);
             let Some(peer) = peer else {
+                let now = eff.clock().await;
+                state.resolve_backoff.insert(candidate, now + RESOLUTION_RETRY_DELAY);
+                state.regulate_peers(&eff).await;
+                if state.outbound_peers.len() + state.pending_resolve.len() < state.target_upstream_peers {
+                    eff.schedule_at(PeerSelectionMsg::Regulate, now + RESOLUTION_RETRY_DELAY).await;
+                }
                 return state;
             };
             info!(

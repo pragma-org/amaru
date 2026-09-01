@@ -186,10 +186,9 @@ impl ConnectionProvider for TokioConnections {
                 drop(rx);
 
                 debug!(network::connection::ACCEPTED, peer_addr = peer_addr.to_string());
-                let id = inner.connections.lock().add_connection(Connection::new(stream, inner.read_buf_size)?);
-
                 let peer = Peer::try_from(peer_addr)
                     .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+                let id = inner.connections.lock().add_connection(Connection::new(stream, inner.read_buf_size)?);
                 Ok((peer, id))
             }
             .instrument(debug_span!(network::connection::ACCEPT,)),

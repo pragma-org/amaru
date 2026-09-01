@@ -385,10 +385,15 @@ impl PeerCandidate {
     ///
     /// The ledger / snapshot stores the domain only; the `_cardano._tcp` prefix is added here
     /// (the registry prefix for the Cardano node, which is TCP-only). If `name` is already a
-    /// `_cardano._tcp.` query, it is returned unchanged.
+    /// `_cardano._tcp.` query (matched case-insensitively), it is returned unchanged.
     pub fn cardano_srv_name(name: &DnsName) -> String {
+        const PREFIX: &str = "_cardano._tcp.";
         let name = name.as_str();
-        if name.starts_with("_cardano._tcp.") { name.to_string() } else { format!("_cardano._tcp.{name}") }
+        if name.len() >= PREFIX.len() && name[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+            name.to_string()
+        } else {
+            format!("{PREFIX}{name}")
+        }
     }
 }
 
@@ -491,6 +496,8 @@ mod tests {
             prefixed.as_srv().map(PeerCandidate::cardano_srv_name).as_deref(),
             Some("_cardano._tcp.example.com")
         );
+        let upper: PeerCandidate = "_CARDANO._TCP.example.com".parse().unwrap();
+        assert_eq!(upper.as_srv().map(PeerCandidate::cardano_srv_name).as_deref(), Some("_CARDANO._TCP.example.com"));
         assert!(srv.needs_resolution());
         let err = PeerCandidate::from_str("10.0.0.1").unwrap_err();
         assert!(matches!(err, PeerCandidateParseError::LiteralIpMissingPort(_)));
