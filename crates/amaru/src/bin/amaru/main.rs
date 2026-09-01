@@ -59,6 +59,7 @@ fn try_main() -> anyhow::Result<()> {
 
     let color_enabled = Color::is_enabled(cli.color);
     let with_open_telemetry = cli.with_open_telemetry;
+    let open_telemetry_signals = cli.open_telemetry_signals.into();
     let with_json_traces = cli.with_json_traces;
     let skip_logging = cli.command.skip_logging();
     let tui_settings = cli.command.tui_settings();
@@ -93,12 +94,13 @@ fn try_main() -> anyhow::Result<()> {
         });
         let handle = try_setup_observability(
             with_open_telemetry,
+            open_telemetry_signals,
             with_json_traces,
             local,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
         )
-        .inspect_err(|error| eprintln!("amaru: failed to configure observability: {error}"))?;
+        .context("failed to configure observability")?;
         // Record precise binary identity in operator logs as soon as tracing is live.
         version::log_build_version();
         handle

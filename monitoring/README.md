@@ -5,13 +5,14 @@ Amaru emits metrics, logs, and spans through [OpenTelemetry](https://opentelemet
 To turn on monitoring, use the following CLI options when running the application:
 
 - `--with-open-telemetry` (or env variable `AMARU_WITH_OPEN_TELEMETRY`) to export OpenTelemetry metrics, logs, and spans
+- `--open-telemetry-signals` (or env variable `AMARU_OPEN_TELEMETRY_SIGNALS`) to select the signals to export
 - `--with-json-traces` (or env variable `AMARU_WITH_JSON_TRACES`) to enable JSON traces on stdout
 
-By default, enabling OpenTelemetry exports all three signals. Set `AMARU_OPEN_TELEMETRY_SIGNALS` to a comma-separated
-subset of `metrics`, `traces`, and `logs` to construct and export only those signals. For example:
+By default, enabling OpenTelemetry exports all three signals. Set `--open-telemetry-signals` to a comma-separated subset
+of `metrics`, `traces`, and `logs` to construct and export only those signals. For example:
 
 ```console
-AMARU_WITH_OPEN_TELEMETRY=true AMARU_OPEN_TELEMETRY_SIGNALS=traces amaru node run
+amaru --with-open-telemetry --open-telemetry-signals traces node run
 ```
 
 Disabled signal providers are not constructed, so their signal-specific endpoints do not need to be available. An
@@ -142,8 +143,8 @@ Application metrics are exported by the collector at `http://localhost:8889/metr
 
 Amaru recognizes the following environment variables for its OpenTelemetry configuration:
 
-- `AMARU_OPEN_TELEMETRY_SIGNALS`: Selects a comma-separated subset of `metrics`, `traces`, and `logs`. Defaults to
-  `metrics,traces,logs`.
+- `AMARU_OPEN_TELEMETRY_SIGNALS`: Environment equivalent of `--open-telemetry-signals`. Selects a comma-separated subset
+  of `metrics`, `traces`, and `logs`. Defaults to `metrics,traces,logs`.
 - `OTEL_SERVICE_NAME`: Sets the [service.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-name) key used to identify metrics, logs, and spans. Defaults to `amaru`.
 - `OTEL_SERVICE_INSTANCE_ID`: Sets the [service.instance.id](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-instance-id) key used to identify this specific amaru instance
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the OTLP/gRPC endpoint used to send metrics, logs, and spans. Defaults to `http://localhost:4317`

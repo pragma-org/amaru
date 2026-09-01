@@ -22,9 +22,10 @@ use std::{
 };
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
+use amaru_node::telemetry::{OpenTelemetryProviders, OtelSignals};
 use amaru_observability::{
     CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
-    CborTraceArrayLayer, OpenTelemetrySignals, TelemetryCaptureLayer, console_field_formatter, info,
+    CborTraceArrayLayer, TelemetryCaptureLayer, console_field_formatter, info,
     tracing::{Metadata, Subscriber, level_filters::LevelFilter, span, subscriber::Interest},
     tracing_opentelemetry,
     tracing_subscriber::{
@@ -37,13 +38,8 @@ use amaru_observability::{
     },
     warn,
 };
-use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
-use opentelemetry_sdk::{
-    Resource,
-    logs::SdkLoggerProvider,
-    metrics::{SdkMeterProvider, Temporality},
-    trace::SdkTracerProvider,
-};
+use opentelemetry::{KeyValue, metrics::MeterProvider, trace::TracerProvider};
+use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
@@ -319,73 +315,19 @@ pub fn new_resource(hints: &impl ObservabilityHints) -> Resource {
     Resource::builder().with_attributes(attributes).build()
 }
 
-#[expect(clippy::panic)]
 pub fn setup_open_telemetry(
     subscriber: &mut TracingSubscriber<Registry>,
     resource: Resource,
-) -> (OpenTelemetryHandle, DelayedWarning) {
-    let signals = OpenTelemetrySignals::from_env()
-        .unwrap_or_else(|error| panic!("failed to configure OpenTelemetry signals: {error}"));
-    setup_open_telemetry_with_signals(subscriber, resource, signals)
-}
+    signals: OtelSignals,
+) -> anyhow::Result<(OpenTelemetryHandle, DelayedWarning)> {
+    let providers = OpenTelemetryProviders::try_new(resource, &signals)?;
+    let meter =
+        providers.meter_provider().map(|provider| Meter::from(provider.meter(METRICS_METER_NAME))).unwrap_or_default();
 
-#[expect(clippy::panic)]
-#[expect(clippy::expect_used)]
-pub fn setup_open_telemetry_with_signals(
-    subscriber: &mut TracingSubscriber<Registry>,
-    resource: Resource,
-    signals: OpenTelemetrySignals,
-) -> (OpenTelemetryHandle, DelayedWarning) {
-    let service_name = resource
-        .get(&Key::from(SERVICE_NAME))
-        .expect("missing 'service_name' on the provided OTLP resource")
-        .as_str()
-        .to_string();
-
-    let traces_provider = signals.traces().then(|| {
-        SdkTracerProvider::builder()
-            .with_resource(resource.clone())
-            .with_batch_exporter(
-                opentelemetry_otlp::SpanExporter::builder()
-                    .with_tonic()
-                    .build()
-                    .unwrap_or_else(|e| panic!("failed to setup opentelemetry span exporter: {e}")),
-            )
-            .build()
-    });
-
-    let logs_provider = signals.logs().then(|| {
-        SdkLoggerProvider::builder()
-            .with_resource(resource.clone())
-            .with_batch_exporter(
-                opentelemetry_otlp::LogExporter::builder()
-                    .with_tonic()
-                    .build()
-                    .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}")),
-            )
-            .build()
-    });
-
-    let (meter, meter_provider) = if signals.metrics() {
-        let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-            .with_tonic()
-            .with_temporality(Temporality::default())
-            .build()
-            .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
-
-        let provider = SdkMeterProvider::builder()
-            .with_resource(resource.clone())
-            .with_reader(opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build())
-            .build();
-        (Meter::from(provider.meter(METRICS_METER_NAME)), Some(provider))
-    } else {
-        (Meter::default(), None)
-    };
-
-    let (opentelemetry_layer, warning) = if let Some(provider) = traces_provider.as_ref() {
+    let (opentelemetry_layer, warning) = if let Some(provider) = providers.tracer_provider() {
         let (filter, warning) = new_trace_filter();
         let layer = tracing_opentelemetry::layer()
-            .with_tracer(provider.tracer(service_name))
+            .with_tracer(provider.tracer(providers.service_name().to_string()))
             .with_level(true)
             .with_target(true)
             .with_filter(filter);
@@ -395,7 +337,7 @@ pub fn setup_open_telemetry_with_signals(
     };
 
     // Logs: project-owned bridge so CBOR field payloads become nested AnyValue maps/lists.
-    let (log_bridge, logs_warning) = if let Some(provider) = logs_provider.as_ref() {
+    let (log_bridge, logs_warning) = if let Some(provider) = providers.logger_provider() {
         let (filter, warning) = new_trace_filter();
         (Some(CborOtelLogBridge::new(provider).with_filter(filter)), warning)
     } else {
@@ -404,35 +346,7 @@ pub fn setup_open_telemetry_with_signals(
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
 
-    (
-        OpenTelemetryHandle {
-            meter,
-            teardown: Box::new(|| teardown_open_telemetry(traces_provider, meter_provider, logs_provider)),
-        },
-        warning.or(logs_warning),
-    )
-}
-
-fn teardown_open_telemetry(
-    tracing: Option<SdkTracerProvider>,
-    meter: Option<SdkMeterProvider>,
-    logs: Option<SdkLoggerProvider>,
-) -> anyhow::Result<()> {
-    // Shut down the providers so that it flushes any remaining spans.
-    // The process lifecycle layer applies an outer timeout around this teardown.
-    use anyhow::Context as _;
-
-    if let Some(provider) = tracing {
-        provider.shutdown().context("failed to shutdown OpenTelemetry tracer provider")?;
-    }
-    if let Some(provider) = meter {
-        provider.shutdown().context("failed to shutdown OpenTelemetry meter provider")?;
-    }
-    if let Some(provider) = logs {
-        provider.shutdown().context("failed to shutdown OpenTelemetry log provider")?;
-    }
-
-    Ok(())
+    Ok((OpenTelemetryHandle { meter, teardown: Box::new(|| Ok(providers.shutdown()?)) }, warning.or(logs_warning)))
 }
 
 // -----------------------------------------------------------------------------
@@ -713,17 +627,19 @@ pub struct LocalTelemetry {
 #[expect(clippy::panic)]
 pub fn setup_observability(
     with_open_telemetry: bool,
+    open_telemetry_signals: OtelSignals,
     with_json_traces: bool,
     local: Option<LocalTelemetry>,
     color: bool,
     hints: &impl ObservabilityHints,
 ) -> OpenTelemetryHandle {
-    try_setup_observability(with_open_telemetry, with_json_traces, local, color, hints)
+    try_setup_observability(with_open_telemetry, open_telemetry_signals, with_json_traces, local, color, hints)
         .unwrap_or_else(|error| panic!("failed to configure observability: {error}"))
 }
 
 pub fn try_setup_observability(
     with_open_telemetry: bool,
+    open_telemetry_signals: OtelSignals,
     with_json_traces: bool,
     local: Option<LocalTelemetry>,
     color: bool,
@@ -732,8 +648,7 @@ pub fn try_setup_observability(
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { mut meter, teardown }, warning_otlp) = if with_open_telemetry {
-        let signals = OpenTelemetrySignals::from_env()?;
-        setup_open_telemetry_with_signals(&mut subscriber, new_resource(hints), signals)
+        setup_open_telemetry(&mut subscriber, new_resource(hints), open_telemetry_signals)?
     } else {
         (OpenTelemetryHandle::default(), None)
     };
