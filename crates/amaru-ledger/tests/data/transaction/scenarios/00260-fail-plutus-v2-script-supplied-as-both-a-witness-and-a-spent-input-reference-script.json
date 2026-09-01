@@ -1,0 +1,31 @@
+{
+  "title": "plutus v2 script supplied as both a witness and a spent input reference script",
+  "description": "Spends a script-locked input that carries its own PlutusV2 script as a reference script, while also supplying the same script in the witness set.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820c7489d4070383385c6a883c82ffa1da62e52e6829a4b8f0a665d3e1fe3b3d4cd00",
+        "output": "a400581d7052c6af0c9b744b4eecce838538a52ceb155038b3de68e2bb2fa8fc37011a0098968002820058209e1199a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88b03d8184a82024746010000222499"
+      },
+      {
+        "input": "8258207f5807677f367cde6895e9d4a8ce157078741999bc638182b3205edf79f24a7600",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d9010281825820c7489d4070383385c6a883c82ffa1da62e52e6829a4b8f0a665d3e1fe3b3d4cd000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00895440021a000f42400b58204801a5208cacaa93c99dc76d1d5fb8b85cf662ffcb73389a7b8f138a741100250dd90102818258207f5807677f367cde6895e9d4a8ce157078741999bc638182b3205edf79f24a76000f00a404d9010281182a05a18200008200821907d01a000f424000d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258400165845ad447e80eca4ea130de9f50e9e8318bf6fe598fcfe3e2d54c40f24072311d13d1975ab0b7d98ba8b189b2608b0dd6882a6240711b17480bcb0ce0210306d90102814746010000222499f5f6",
+  "expected": {
+    "predicate": "ExtraneousScriptWitnessesUTXOW"
+  }
+}

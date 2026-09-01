@@ -17,8 +17,8 @@ use std::{
     error::Error,
     io::{self, IsTerminal},
     str::FromStr,
-    sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{OnceLock, mpsc},
+    time::{Duration, Instant},
 };
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
@@ -54,7 +54,9 @@ const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
 const DEFAULT_AMARU_TRACE_FILTER: &str = "error,amaru=debug,amaru_pure_stage=warn";
 
-const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
+const OTEL_EXPORT_TRANSITION_DELAY: Duration = Duration::from_secs(5);
+
+static OTEL_EXPORT_REPORTER: OnceLock<OtelExportReporter> = OnceLock::new();
 
 // -----------------------------------------------------------------------------
 // TracingSubscriber
@@ -70,25 +72,22 @@ type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, AfterTraceArrays<S>>;
 
 type LogBridgeFilter<S> = Filtered<
     CborOtelLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
-    ThrottledEnvFilter,
+    OtelErrorFilter,
     AfterTraceArrays<S>,
 >;
 
 type OpenTelemetryFilter<S> =
-    Filtered<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, ThrottledEnvFilter, S>;
+    Filtered<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, OtelErrorFilter, S>;
 
 /// Registry (or OTEL stack) with structured JSON span-field bag.
 type WithJsonSpanFields<S> = Layered<CborJsonSpanLayer, S>;
 
 type JsonLayer<S> = Layered<JsonFilter<S>, WithJsonSpanFields<S>>;
 
-type JsonFilter<S> = Filtered<
-    Layer<WithJsonSpanFields<S>, CborJsonFields, CborJsonEventFormat>,
-    ThrottledEnvFilter,
-    WithJsonSpanFields<S>,
->;
+type JsonFilter<S> =
+    Filtered<Layer<WithJsonSpanFields<S>, CborJsonFields, CborJsonEventFormat>, OtelErrorFilter, WithJsonSpanFields<S>>;
 
-type LocalTelemetryFilter<S> = Filtered<TelemetryCaptureLayer, ThrottledEnvFilter, S>;
+type LocalTelemetryFilter<S> = Filtered<TelemetryCaptureLayer, OtelErrorFilter, S>;
 
 type LocalTelemetryLayer<S> = Layered<LocalTelemetryFilter<S>, S>;
 
@@ -400,66 +399,200 @@ fn teardown_open_telemetry(
 // ENV FILTER
 // -----------------------------------------------------------------------------
 
-/// Wraps an [`EnvFilter`] and rate-limits events emitted by OpenTelemetry SDK
-/// internals (target `opentelemetry*`) to at most one per `throttle_ms`
-/// milliseconds. This prevents the console from being flooded with
-/// `BatchSpanProcessor.ExportError` messages whenever the OTLP endpoint is
-/// temporarily unreachable.
-pub struct ThrottledEnvFilter {
+/// Wraps an [`EnvFilter`] and replaces repeated OpenTelemetry SDK errors with
+/// one actionable Amaru warning.
+pub struct OtelErrorFilter {
     inner: EnvFilter,
-    last_otel_event: AtomicU64,
-    throttle_ms: u64,
+    reporter: OtelExportReporter,
 }
 
-impl ThrottledEnvFilter {
-    fn new(inner: EnvFilter, throttle_ms: u64) -> Self {
-        Self { inner, last_otel_event: AtomicU64::new(0), throttle_ms }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OtelSignal {
+    Metrics,
+    Traces,
+    Logs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OtelExportTransition {
+    Failed(OtelSignal),
+    Recovered(OtelSignal),
+}
+
+impl OtelSignal {
+    const ALL: [Self; 3] = [Self::Metrics, Self::Traces, Self::Logs];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Metrics => "metrics",
+            Self::Traces => "traces",
+            Self::Logs => "logs",
+        }
     }
 
-    /// Returns true for events emitted by the OpenTelemetry SDK itself.
-    /// These are the ones we want to throttle to avoid log flooding when the
-    /// OTLP endpoint is unreachable.
-    fn is_otel_internal(meta: &Metadata<'_>) -> bool {
-        meta.target().starts_with("opentelemetry")
+    fn index(self) -> usize {
+        match self {
+            Self::Metrics => 0,
+            Self::Traces => 1,
+            Self::Logs => 2,
+        }
     }
 }
 
-impl<S: Subscriber> Filter<S> for ThrottledEnvFilter {
+impl OtelErrorFilter {
+    fn new(inner: EnvFilter, reporter: OtelExportReporter) -> Self {
+        Self { inner, reporter }
+    }
+
+    fn is_otel_export_error(meta: &Metadata<'_>) -> bool {
+        meta.level() == &amaru_observability::tracing::Level::ERROR
+            && meta.target().starts_with("opentelemetry")
+            && (meta.name().ends_with("ExportError") || meta.name().ends_with("ExportFailed"))
+    }
+
+    fn is_otel_export_success(meta: &Metadata<'_>) -> bool {
+        meta.level() == &amaru_observability::tracing::Level::DEBUG
+            && meta.target().starts_with("opentelemetry")
+            && meta.name().ends_with("ExportSucceeded")
+    }
+
+    fn otel_signal(meta: &Metadata<'_>) -> OtelSignal {
+        if meta.name().contains("Log") {
+            OtelSignal::Logs
+        } else if meta.name().contains("Span") || meta.name().contains("Trace") {
+            OtelSignal::Traces
+        } else {
+            OtelSignal::Metrics
+        }
+    }
+
+    fn report_otel_export_failure(&self, meta: &Metadata<'_>) {
+        self.reporter.report(OtelExportTransition::Failed(Self::otel_signal(meta)));
+    }
+
+    fn report_otel_export_recovery(&self, meta: &Metadata<'_>) {
+        self.reporter.report(OtelExportTransition::Recovered(Self::otel_signal(meta)));
+    }
+}
+
+#[derive(Debug, Clone)]
+struct OtelExportReporter {
+    /// The reporter thread owns all mutable transition state; filters only send observations.
+    sender: mpsc::Sender<OtelExportTransition>,
+}
+
+impl OtelExportReporter {
+    fn start() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let _reporter_thread = std::thread::Builder::new()
+            .name("amaru-otel-reporter".into())
+            .spawn(move || run_otel_export_reporter(receiver));
+        Self { sender }
+    }
+
+    fn report(&self, transition: OtelExportTransition) {
+        let _ = self.sender.send(transition);
+    }
+}
+
+fn run_otel_export_reporter(receiver: mpsc::Receiver<OtelExportTransition>) {
+    let mut current_failures = [false; 3];
+    let mut reported_failures = [false; 3];
+    let mut deadline: Option<Instant> = None;
+
+    loop {
+        let received = match deadline {
+            Some(deadline) => receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())),
+            None => match receiver.recv() {
+                Ok(transition) => Ok(transition),
+                Err(_) => break,
+            },
+        };
+
+        match received {
+            Ok(OtelExportTransition::Failed(signal)) => {
+                current_failures[signal.index()] = true;
+            }
+            Ok(OtelExportTransition::Recovered(signal)) => {
+                current_failures[signal.index()] = false;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+
+        if current_failures == reported_failures {
+            deadline = None;
+            continue;
+        }
+
+        let now = Instant::now();
+        let Some(report_at) = deadline else {
+            deadline = Some(now + OTEL_EXPORT_TRANSITION_DELAY);
+            continue;
+        };
+        if report_at > now {
+            continue;
+        }
+
+        let (failures, recoveries) = otel_export_changes(&current_failures, &reported_failures);
+        reported_failures = current_failures;
+        deadline = None;
+
+        if !failures.is_empty() {
+            let unavailable_signals = otlp_signals(&failures);
+            warn!(setup::observability::EXPORT_FAILED, unavailable_signals);
+        }
+        if !recoveries.is_empty() {
+            let recovered_signals = otlp_signals(&recoveries);
+            info!(setup::observability::EXPORT_RECOVERED, recovered_signals);
+        }
+    }
+}
+
+fn otel_export_changes(current: &[bool; 3], reported: &[bool; 3]) -> (Vec<OtelSignal>, Vec<OtelSignal>) {
+    let has_new_failure =
+        OtelSignal::ALL.into_iter().any(|signal| current[signal.index()] && !reported[signal.index()]);
+    let failures = if has_new_failure {
+        OtelSignal::ALL.into_iter().filter(|signal| current[signal.index()]).collect()
+    } else {
+        Vec::new()
+    };
+    let recoveries =
+        OtelSignal::ALL.into_iter().filter(|signal| !current[signal.index()] && reported[signal.index()]).collect();
+    (failures, recoveries)
+}
+
+fn otlp_signals(signals: &[OtelSignal]) -> String {
+    signals.iter().map(|signal| signal.as_str()).collect::<Vec<_>>().join(",")
+}
+
+impl<S: Subscriber> Filter<S> for OtelErrorFilter {
     fn enabled(&self, meta: &Metadata<'_>, cx: &Context<'_, S>) -> bool {
-        if !<EnvFilter as Filter<S>>::enabled(&self.inner, meta, cx) {
+        if Self::is_otel_export_error(meta) {
+            self.report_otel_export_failure(meta);
             return false;
         }
-        if Self::is_otel_internal(meta) {
-            // If the system clock is before the Unix epoch, allow the event
-            // through rather than freezing throttling forever at timestamp 0.
-            let Some(now) = SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|d| d.as_millis() as u64) else {
-                return true;
-            };
-            // Use fetch_update so the read-check-write is one atomic step.
-            // A race between threads that both observe an elapsed throttle period
-            // may let a small number of extra events through (false positives), but
-            // that is acceptable — we only need best-effort throttling here.
-            return self
-                .last_otel_event
-                .try_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
-                    (now.saturating_sub(last) >= self.throttle_ms).then_some(now)
-                })
-                .is_ok();
+        if Self::is_otel_export_success(meta) {
+            self.report_otel_export_recovery(meta);
+            return false;
+        }
+        if !<EnvFilter as Filter<S>>::enabled(&self.inner, meta, cx) {
+            return false;
         }
         true
     }
 
     fn callsite_enabled(&self, meta: &'static Metadata<'static>) -> Interest {
-        // For OTel internal events, force per-call evaluation so that the
-        // throttle in `enabled` is never bypassed by callsite caching.
-        if Self::is_otel_internal(meta) {
+        // Force per-call evaluation so export state transitions cannot bypass
+        // the replacement messages through callsite caching.
+        if Self::is_otel_export_error(meta) || Self::is_otel_export_success(meta) {
             return Interest::sometimes();
         }
         <EnvFilter as Filter<S>>::callsite_enabled(&self.inner, meta)
     }
 
     fn max_level_hint(&self) -> Option<LevelFilter> {
-        <EnvFilter as Filter<S>>::max_level_hint(&self.inner)
+        <EnvFilter as Filter<S>>::max_level_hint(&self.inner).map(|level| level.max(LevelFilter::DEBUG))
     }
 
     fn on_new_span(&self, attrs: &span::Attributes<'_>, id: &span::Id, ctx: Context<'_, S>) {
@@ -483,7 +616,7 @@ impl<S: Subscriber> Filter<S> for ThrottledEnvFilter {
     }
 }
 
-fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedWarning) {
+fn new_default_filter(var: &str, default: &str) -> (OtelErrorFilter, DelayedWarning) {
     let (filter, warning) = match EnvFilter::try_from_env(var) {
         Ok(filter) => {
             let var = var.to_string();
@@ -518,14 +651,15 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
             (filter, Some(warning))
         }
     };
-    (ThrottledEnvFilter::new(filter, OTEL_ERROR_THROTTLE_MS), warning)
+    let reporter = OTEL_EXPORT_REPORTER.get_or_init(OtelExportReporter::start);
+    (OtelErrorFilter::new(filter, reporter.clone()), warning)
 }
 
-fn new_log_filter() -> (ThrottledEnvFilter, DelayedWarning) {
+fn new_log_filter() -> (OtelErrorFilter, DelayedWarning) {
     new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER)
 }
 
-fn new_trace_filter() -> (ThrottledEnvFilter, DelayedWarning) {
+fn new_trace_filter() -> (OtelErrorFilter, DelayedWarning) {
     new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER)
 }
 
@@ -618,16 +752,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn otel_target_is_recognised_as_internal() {
+    fn otel_export_error_is_recognised() {
         // Use the actual tracing machinery to produce `Metadata` with a known
-        // target and level, then check `is_otel_internal` on it.
+        // target, level, and operation name, then classify it.
         static CHECK: Mutex<Option<bool>> = Mutex::new(None);
 
         struct CaptureMeta;
         impl tracing::Subscriber for CaptureMeta {
             fn enabled(&self, meta: &tracing::Metadata<'_>) -> bool {
-                if meta.target().starts_with("opentelemetry") {
-                    *CHECK.lock().unwrap() = Some(ThrottledEnvFilter::is_otel_internal(meta));
+                if meta.name() == "BatchLogProcessor.ExportError" {
+                    *CHECK.lock().unwrap() = Some(OtelErrorFilter::is_otel_export_error(meta));
                 }
                 true
             }
@@ -642,21 +776,21 @@ mod tests {
         }
 
         tracing::subscriber::with_default(CaptureMeta, || {
-            tracing::event!(target: "opentelemetry_sdk::internal", tracing::Level::ERROR, "test");
+            tracing::event!(name: "BatchLogProcessor.ExportError", target: "opentelemetry_sdk", tracing::Level::ERROR, "test");
         });
 
         assert_eq!(*CHECK.lock().unwrap(), Some(true));
     }
 
     #[test]
-    fn non_otel_target_is_not_recognised_as_internal() {
+    fn non_otel_target_is_not_recognised_as_export_error() {
         static CHECK: Mutex<Option<bool>> = Mutex::new(None);
 
         struct CaptureMeta;
         impl tracing::Subscriber for CaptureMeta {
             fn enabled(&self, meta: &tracing::Metadata<'_>) -> bool {
                 if meta.target() == "amaru::stages" {
-                    *CHECK.lock().unwrap() = Some(ThrottledEnvFilter::is_otel_internal(meta));
+                    *CHECK.lock().unwrap() = Some(OtelErrorFilter::is_otel_export_error(meta));
                 }
                 true
             }
@@ -678,68 +812,69 @@ mod tests {
     }
 
     #[test]
-    fn first_otel_event_is_allowed() {
-        // last_otel_event starts at 0, so the first event always passes.
-        let filter = ThrottledEnvFilter::new(EnvFilter::try_new("error").unwrap(), 1_000);
+    fn otel_errors_are_suppressed_after_scheduling_one_warning() {
+        let (reporter, transitions) = test_reporter();
+        let filter = OtelErrorFilter::new(EnvFilter::try_new("error").unwrap(), reporter);
         let seen = count_events(filter, || {
-            tracing::event!(target: "opentelemetry_sdk::internal", tracing::Level::ERROR, "test");
-        });
-        assert_eq!(seen, 1);
-    }
-
-    #[test]
-    fn second_otel_event_within_throttle_is_rejected() {
-        let filter = ThrottledEnvFilter::new(EnvFilter::try_new("error").unwrap(), 1_000);
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-        // Pre-load `last_otel_event` as if an event was just allowed.
-        filter.last_otel_event.store(now, Ordering::Relaxed);
-
-        let seen = count_events(filter, || {
-            tracing::event!(target: "opentelemetry_sdk::internal", tracing::Level::ERROR, "test");
+            tracing::event!(name: "BatchLogProcessor.ExportError", target: "opentelemetry_sdk", tracing::Level::ERROR, "first");
+            tracing::event!(name: "BatchSpanProcessor.ExportError", target: "opentelemetry_sdk", tracing::Level::ERROR, "second");
         });
         assert_eq!(seen, 0);
+        assert_eq!(transitions.recv().unwrap(), OtelExportTransition::Failed(OtelSignal::Logs));
+        assert_eq!(transitions.recv().unwrap(), OtelExportTransition::Failed(OtelSignal::Traces));
     }
 
     #[test]
-    fn otel_event_after_throttle_period_is_allowed() {
-        let throttle_ms = 1_000u64;
-        let filter = ThrottledEnvFilter::new(EnvFilter::try_new("error").unwrap(), throttle_ms);
-        let past = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64 - throttle_ms - 1;
-        filter.last_otel_event.store(past, Ordering::Relaxed);
+    fn successful_exports_batch_recovery_and_allow_a_later_failure_warning() {
+        let available = [false; 3];
+        let traces_and_logs_unavailable = [false, true, true];
 
+        assert_eq!(
+            otel_export_changes(&traces_and_logs_unavailable, &available),
+            (vec![OtelSignal::Traces, OtelSignal::Logs], vec![])
+        );
+        assert_eq!(
+            otel_export_changes(&available, &traces_and_logs_unavailable),
+            (vec![], vec![OtelSignal::Traces, OtelSignal::Logs])
+        );
+        assert_eq!(otel_export_changes(&[false, false, true], &available), (vec![OtelSignal::Logs], vec![]));
+    }
+
+    #[test]
+    fn non_error_otel_event_is_not_suppressed() {
+        let filter = OtelErrorFilter::new(EnvFilter::try_new("debug").unwrap(), test_reporter().0);
         let seen = count_events(filter, || {
-            tracing::event!(target: "opentelemetry_sdk::internal", tracing::Level::ERROR, "test");
+            tracing::event!(name: "BatchLogProcessor.ExportError", target: "opentelemetry_sdk", tracing::Level::WARN, "test");
         });
         assert_eq!(seen, 1);
     }
 
     #[test]
-    fn non_otel_event_is_not_throttled() {
-        let filter = ThrottledEnvFilter::new(EnvFilter::try_new("debug").unwrap(), 1_000);
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-        filter.last_otel_event.store(now, Ordering::Relaxed);
-
+    fn unrelated_otel_error_is_not_suppressed() {
+        let filter = OtelErrorFilter::new(EnvFilter::try_new("error").unwrap(), test_reporter().0);
         let seen = count_events(filter, || {
-            // Non-otel target — throttle must not apply.
-            tracing::debug!(target: "amaru::stages", "test");
+            tracing::event!(name: "TracerProvider.GlobalSetFailed", target: "opentelemetry", tracing::Level::ERROR, "test");
         });
         assert_eq!(seen, 1);
     }
 
     #[test]
-    fn throttle_period_advances_after_allowed_event() {
-        let filter = ThrottledEnvFilter::new(EnvFilter::try_new("error").unwrap(), 100);
-        // Emit two events in rapid succession; only the first should be seen.
+    fn non_otel_error_is_not_suppressed() {
+        let filter = OtelErrorFilter::new(EnvFilter::try_new("error").unwrap(), test_reporter().0);
         let seen = count_events(filter, || {
-            tracing::event!(target: "opentelemetry_sdk::internal", tracing::Level::ERROR, "first");
-            tracing::event!(target: "opentelemetry_sdk::internal", tracing::Level::ERROR, "second");
+            tracing::error!(target: "amaru::stages", "test");
         });
         assert_eq!(seen, 1);
     }
 
     // HELPERS
 
-    /// Builds a subscriber that wraps a `ThrottledEnvFilter` and counts how
+    fn test_reporter() -> (OtelExportReporter, mpsc::Receiver<OtelExportTransition>) {
+        let (sender, receiver) = mpsc::channel();
+        (OtelExportReporter { sender }, receiver)
+    }
+
+    /// Builds a subscriber that wraps an `OtelErrorFilter` and counts how
     /// many events pass the filter.  Installing it as the default inside a
     /// closure keeps tests independent even when run in parallel.
     struct CountingLayer {
@@ -754,7 +889,7 @@ mod tests {
 
     /// Runs `f` with a subscriber that applies `filter` and returns the number
     /// of events that were seen by the inner layer.
-    fn count_events<F: FnOnce()>(filter: ThrottledEnvFilter, f: F) -> usize {
+    fn count_events<F: FnOnce()>(filter: OtelErrorFilter, f: F) -> usize {
         let count = Arc::new(AtomicUsize::new(0));
         let subscriber =
             tracing_subscriber::registry().with(CountingLayer { count: Arc::clone(&count) }.with_filter(filter));
