@@ -14,16 +14,21 @@
 
 use std::{collections::BTreeSet, net::SocketAddr};
 
+use async_trait::async_trait;
+
 use crate::BlockValidationError;
 
+#[expect(clippy::double_must_use)]
+#[async_trait]
 pub trait HasStakePools: Send + Sync {
-    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError>;
+    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError>;
 }
 
 pub struct MockHasStakePools;
 
+#[async_trait]
 impl HasStakePools for MockHasStakePools {
-    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
         Ok(Default::default())
     }
 }

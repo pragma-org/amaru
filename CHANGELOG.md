@@ -39,6 +39,10 @@ Other guiding principles:
 
 ## v10.11.20260903 _[unreleased; planned for 2026-09-03]_
 
+### Changed
+
+- **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
+
 ### Fixed
 
 - **amaru**: replace repeated low-level OpenTelemetry export errors with batched state-transition messages: one warning listing unavailable signals, one info listing recovered signals, and a fresh warning after a later failure.
@@ -51,7 +55,6 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
 - **amaru-observability**: field rendering is declared on the schema (`%` Display, `?` Debug, otherwise `Serialize + JsonSchema`). Call sites no longer take `%` / `?`; `@` remains for `tracing::Value` passthrough. `amaru dev traces dump` emits the JSON-sink schema of each field. `Point` traces encode as `[slot, hash, height]` with a CBOR byte-string hash ([#1263](https://github.com/pragma-org/amaru/issues/1263)).
 - **amaru-kernel**: `Hash` (and newtypes / `FixedBytes`) serialize as CBOR byte strings on the tracing path; JSON serde still uses hex. JSON/console/TUI/OTEL span sinks render those bytes as hex; OTEL logs keep byte strings.
 - **amaru**: use the `amaru-observability` crate with all other amaru crates so that all tracing events have a schema (#1266).

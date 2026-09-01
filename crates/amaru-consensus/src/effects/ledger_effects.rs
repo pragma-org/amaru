@@ -139,12 +139,12 @@ impl ExternalEffectAPI for ValidateTxEffect {
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
+        self.wrap(|this| async move {
             let validator = resources
                 .get::<ResourceTxValidation>()
                 .expect("ValidateTxEffect requires a ResourceTxValidation resource")
                 .clone();
-            validator.validate_tx(&self.tx)
+            validator.validate_tx(&this.tx).await
         })
     }
 }
@@ -283,7 +283,7 @@ impl ExternalEffectAPI for SwitchToForkEffect {
                     .clone();
 
                 // Find the intersection with the current ledger tip
-                let ledger_tip = validator.tip();
+                let ledger_tip = validator.tip().await;
                 let tip_hash = tip.hash();
 
                 let fork_point = match store
@@ -301,7 +301,7 @@ impl ExternalEffectAPI for SwitchToForkEffect {
                     }
                 };
 
-                validator.switch_to_fork(&fork_point, &tip)
+                validator.switch_to_fork(&fork_point, &tip).await
             }
             .with_context(trace_context.context())
         })
@@ -316,12 +316,12 @@ impl ExternalEffectAPI for TipEffect {
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
+        self.wrap(|_| async move {
             let ledger = resources
                 .get::<ResourceBlockValidation>()
                 .expect("TipEffect requires a ResourceBlockValidation resource")
                 .clone();
-            ledger.tip()
+            ledger.tip().await
         })
     }
 }
@@ -334,12 +334,15 @@ impl ExternalEffectAPI for VolatileTipEffect {
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
+        self.wrap(|_| async move {
             let ledger = resources
                 .get::<ResourceBlockValidation>()
                 .expect("VolatileTipPointEffect requires a ResourceBlockValidation resource")
                 .clone();
-            ledger.volatile_tip().unwrap_or_else(|| ledger.tip())
+            match ledger.volatile_tip().await {
+                Some(tip) => tip,
+                None => ledger.tip().await,
+            }
         })
     }
 }
@@ -352,12 +355,12 @@ impl ExternalEffectAPI for RegisteredRelaySocketAddrsEffect {
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
+        self.wrap(|_| async move {
             let stake_pools = resources
                 .get::<ResourceHasStakePools>()
                 .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasStakePools resource")
                 .clone();
-            stake_pools.registered_relay_socket_addrs()
+            stake_pools.registered_relay_socket_addrs().await
         })
     }
 }

@@ -133,7 +133,7 @@ impl CanValidateBlocks for MockBlockValidator {
         Ok(Ok(Default::default()))
     }
 
-    fn switch_to_fork(&self, fork_point: &Point, to: &Point) -> Result<ForkSwitchOutcome, BlockValidationError> {
+    async fn switch_to_fork(&self, fork_point: &Point, to: &Point) -> Result<ForkSwitchOutcome, BlockValidationError> {
         let mut inner = self.inner.lock();
         if inner.rollback_fails {
             return Err(BlockValidationError::new(anyhow::anyhow!("mock rollback failed")));
@@ -180,11 +180,11 @@ impl CanValidateBlocks for MockBlockValidator {
         Ok(ForkSwitchOutcome::Completed { metrics: Default::default() })
     }
 
-    fn tip(&self) -> Point {
+    async fn tip(&self) -> Point {
         self.inner.lock().tip
     }
 
-    fn volatile_tip(&self) -> Option<Point> {
+    async fn volatile_tip(&self) -> Option<Point> {
         let inner = self.inner.lock();
         inner.contains.last().copied()
     }
