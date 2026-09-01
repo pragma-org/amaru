@@ -221,7 +221,7 @@ impl S3Client {
             .await
             .map(|_| ())
             .map_err(Into::into);
-        progress.clear();
+        progress.finish_and_clear();
         result
     }
 
@@ -332,7 +332,7 @@ fn bootstrap_transfer_progress_bar(size: u64) -> Box<dyn ProgressBar> {
         usize::try_from(size).unwrap_or(usize::MAX),
         "{spinner:.green} Downloading {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
     );
-    progress.tick(0);
+    progress.refresh();
     progress
 }
 
@@ -343,7 +343,7 @@ fn transfer_progress_bar(action: &str, size: u64) -> TerminalProgressBar {
             "{{spinner:.green}} {action} {{bytes_per_sec:>10}} {{bar:40.green}} [{{bytes:>10}}/{{total_bytes:<10}}] ({{eta}} remaining)"
         ),
     );
-    progress.tick(0);
+    progress.refresh();
     progress
 }
 

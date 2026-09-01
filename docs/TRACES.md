@@ -242,9 +242,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `cancel` | `TRACE` | public | Cancel a long-running bootstrap phase | phase, current, elapsed_seconds | total |
 | `complete` | `TRACE` | public | Complete a long-running bootstrap phase | phase, current, elapsed_seconds | total |
 | `start` | `TRACE` | public | Start a long-running bootstrap phase | phase | total |
 | `update` | `TRACE` | public | Report non-terminal progress for a long-running bootstrap phase | phase, current, elapsed_seconds | total |
+
+<details><summary>span: `cancel`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `phase` | `string` | ✓ |
+| `current` | `integer` | ✓ |
+| `elapsed_seconds` | `number` | ✓ |
+| `total` | `integer` |  |
+
+</details>
 
 <details><summary>span: `complete`</summary>
 

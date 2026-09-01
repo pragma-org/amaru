@@ -70,7 +70,7 @@ impl FeedbackReceiver for MithrilFeedbackReceiver {
                 MithrilEventCardanoDatabase::ImmutableDownloadCompleted { .. }
                 | MithrilEventCardanoDatabase::AncillaryDownloadCompleted { .. } => {
                     if let Some(pb) = self.cardano_database_pb.lock().await.as_ref() {
-                        pb.tick(1);
+                        pb.increment();
                     }
                 }
                 _ => {}
@@ -84,7 +84,7 @@ impl FeedbackReceiver for MithrilFeedbackReceiver {
             }
             MithrilEvent::CertificateValidated { .. } | MithrilEvent::CertificateFetchedFromCache { .. } => {
                 if let Some(pb) = self.certificate_validation_pb.lock().await.as_ref() {
-                    pb.tick(1);
+                    pb.increment();
                 }
             }
             MithrilEvent::CertificateChainValidated { .. } => {

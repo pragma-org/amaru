@@ -23,5 +23,5 @@ pub fn no_progress_bar(_length: usize, _template: &str) -> Box<dyn ProgressBar> 
 
 impl ProgressBar for NoProgressBar {
     fn tick(&self, _size: usize) {}
-    fn clear(&self) {}
+    fn clear(self: Box<Self>) {}
 }

@@ -456,6 +456,37 @@
       "description": "Import treasury/reserves/fees pots from a snapshot",
       "public": true
     },
+    "amaru::bootstrap::progress::CANCEL": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "current": {
+          "type": "integer"
+        },
+        "elapsed_seconds": {
+          "type": "number"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "current",
+        "elapsed_seconds"
+      ],
+      "optional": [
+        "total"
+      ],
+      "additionalProperties": false,
+      "name": "cancel",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::progress",
+      "description": "Cancel a long-running bootstrap phase",
+      "public": true
+    },
     "amaru::bootstrap::progress::COMPLETE": {
       "type": "object",
       "properties": {

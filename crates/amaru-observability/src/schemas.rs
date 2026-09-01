@@ -1249,6 +1249,13 @@ define_schemas! {
                     optional total: usize
                     required elapsed_seconds: f64
                 }
+                /// Cancel a long-running bootstrap phase
+                public CANCEL {
+                    required phase: String
+                    required current: usize
+                    optional total: usize
+                    required elapsed_seconds: f64
+                }
                 /// Complete a long-running bootstrap phase
                 public COMPLETE {
                     required phase: String

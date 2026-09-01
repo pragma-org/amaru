@@ -17,7 +17,7 @@ use std::{
     fs,
     io::{self, Read},
     path::{Component, Path, PathBuf},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use amaru_kernel::{
@@ -27,13 +27,15 @@ use amaru_kernel::{
 use amaru_ledger::store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext};
 use amaru_observability::{error, info};
 use amaru_ouroboros::{BaseReadChainStore, ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
-use amaru_progress_bar::ProgressBarFactory;
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use serde::{Deserialize, Serialize};
 use tar::Archive;
-use tokio::{fs as async_fs, time::timeout};
+use tokio::{
+    fs as async_fs,
+    time::{Instant, timeout},
+};
 use zstd::Decoder as ZstdDecoder;
 
 mod chain_sync_client;
@@ -727,12 +729,6 @@ async fn import_node_snapshot_source(
     fs::create_dir_all(ledger_dir)?;
 
     let previous_accounts = if fs::exists(ledger_dir.join("live"))? {
-        let progress = BootstrapProgressFactory.create_for(
-            "load_previous_accounts",
-            0,
-            "{spinner:.green} Loading previous accounts",
-        );
-
         let live = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
         let previous_accounts = live
             .iter_accounts()?
@@ -741,8 +737,6 @@ async fn import_node_snapshot_source(
             .collect();
 
         fs::remove_dir_all(ledger_dir.join("live"))?;
-
-        progress.finish();
 
         previous_accounts
     } else {

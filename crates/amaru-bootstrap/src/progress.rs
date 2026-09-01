@@ -14,25 +14,21 @@
 
 use std::{
     io::{self, IsTerminal},
-    sync::{Arc, Mutex, Weak},
-    thread,
-    time::{Duration, Instant},
+    sync::Mutex,
+    time::Duration,
 };
 
 use amaru_observability::info;
 use amaru_progress_bar::{ProgressBar, ProgressBarFactory, TerminalProgressBar};
+use tokio::time::Instant;
 
-const LOG_INTERVAL: Duration = Duration::from_secs(30);
+const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Selects an interactive progress bar or structured progress events for bootstrap work.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BootstrapProgressFactory;
 
 impl ProgressBarFactory for BootstrapProgressFactory {
-    fn create(&self, length: usize, template: &str) -> Box<dyn ProgressBar> {
-        self.create_for("bootstrap", length, template)
-    }
-
     fn create_for(&self, phase: &'static str, length: usize, template: &str) -> Box<dyn ProgressBar> {
         if io::stderr().is_terminal() {
             TerminalProgressBar::new(length as u64, template).boxed()
@@ -43,10 +39,6 @@ impl ProgressBarFactory for BootstrapProgressFactory {
 }
 
 struct StructuredProgressBar {
-    inner: Arc<StructuredProgress>,
-}
-
-struct StructuredProgress {
     phase: &'static str,
     total: Option<usize>,
     started_at: Instant,
@@ -57,13 +49,9 @@ impl StructuredProgressBar {
     fn new(phase: &'static str, total: Option<usize>) -> Self {
         let started_at = Instant::now();
         info!(bootstrap::progress::START, phase = phase.to_owned(), total = @total);
-        let inner = Arc::new(StructuredProgress { phase, total, started_at, state: Mutex::new(ProgressState::new()) });
-        spawn_heartbeat(Arc::downgrade(&inner));
-        Self { inner }
+        Self { phase, total, started_at, state: Mutex::new(ProgressState::new()) }
     }
-}
 
-impl StructuredProgress {
     fn state(&self) -> std::sync::MutexGuard<'_, ProgressState> {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -81,67 +69,71 @@ impl StructuredProgress {
 
 impl ProgressBar for StructuredProgressBar {
     fn tick(&self, size: usize) {
-        self.inner.state().advance(size);
+        let current = self.state().advance(size, self.started_at.elapsed());
+        if let Some(current) = current {
+            self.emit_update(current);
+        }
     }
 
-    fn clear(&self) {
-        self.inner.state().cancel();
+    fn clear(self: Box<Self>) {
+        let current = self.state().cancel();
+        if let Some(current) = current {
+            info!(
+                bootstrap::progress::CANCEL,
+                phase = self.phase.to_owned(),
+                current,
+                total = @self.total,
+                elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
+            );
+        }
     }
 
-    fn finish(&self) {
-        let current = self.inner.state().finish();
+    fn finish(self: Box<Self>) {
+        let current = self.state().finish();
         if let Some(current) = current {
             info!(
                 bootstrap::progress::COMPLETE,
-                phase = self.inner.phase.to_owned(),
+                phase = self.phase.to_owned(),
                 current,
-                total = @self.inner.total,
-                elapsed_seconds = self.inner.started_at.elapsed().as_secs_f64(),
+                total = @self.total,
+                elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
             );
         }
     }
 }
 
-fn spawn_heartbeat(progress: Weak<StructuredProgress>) {
-    let _heartbeat = thread::Builder::new().name("amaru-bootstrap-progress".to_owned()).spawn(move || {
-        loop {
-            thread::sleep(LOG_INTERVAL);
-            let Some(progress) = progress.upgrade() else {
-                break;
-            };
-            let state = progress.state();
-            match state.snapshot() {
-                Some(current) => progress.emit_update(current),
-                None => break,
-            }
-        }
-    });
-}
-
 struct ProgressState {
     current: usize,
     finished: bool,
+    last_emitted_at: Duration,
 }
 
 impl ProgressState {
     fn new() -> Self {
-        Self { current: 0, finished: false }
+        Self { current: 0, finished: false, last_emitted_at: Duration::ZERO }
     }
 
-    fn advance(&mut self, size: usize) {
+    fn advance(&mut self, size: usize, elapsed: Duration) -> Option<usize> {
         if self.finished {
-            return;
+            return None;
         }
 
         self.current = self.current.saturating_add(size);
+        if size == 0 || elapsed.saturating_sub(self.last_emitted_at) < LOG_INTERVAL {
+            return None;
+        }
+
+        self.last_emitted_at = elapsed;
+        Some(self.current)
     }
 
-    fn snapshot(&self) -> Option<usize> {
-        (!self.finished).then_some(self.current)
-    }
+    fn cancel(&mut self) -> Option<usize> {
+        if self.finished {
+            return None;
+        }
 
-    fn cancel(&mut self) {
         self.finished = true;
+        Some(self.current)
     }
 
     fn finish(&mut self) -> Option<usize> {
@@ -162,21 +154,22 @@ mod tests {
     fn tracks_updates_and_always_reports_final_position() {
         let mut state = ProgressState::new();
 
-        state.advance(10);
-        state.advance(5);
-        assert_eq!(state.snapshot(), Some(15));
-        state.advance(7);
-        assert_eq!(state.finish(), Some(22));
+        assert_eq!(state.advance(10, Duration::ZERO), None);
+        assert_eq!(state.advance(5, LOG_INTERVAL - Duration::from_millis(1)), None);
+        assert_eq!(state.advance(7, LOG_INTERVAL), Some(22));
+        assert_eq!(state.advance(3, LOG_INTERVAL + Duration::from_secs(1)), None);
+        assert_eq!(state.advance(4, LOG_INTERVAL + LOG_INTERVAL), Some(29));
+
+        assert_eq!(state.finish(), Some(29));
         assert_eq!(state.finish(), None);
-        state.advance(1);
-        assert_eq!(state.snapshot(), None);
+        assert_eq!(state.advance(1, LOG_INTERVAL + LOG_INTERVAL + LOG_INTERVAL), None);
     }
 
     #[test]
     fn cancellation_does_not_report_completion() {
         let mut state = ProgressState::new();
 
-        state.advance(10);
+        state.advance(10, Duration::ZERO);
         state.cancel();
 
         assert_eq!(state.finish(), None);

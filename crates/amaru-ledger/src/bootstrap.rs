@@ -378,8 +378,10 @@ fn decode_initial_snapshot(
     decoder.skip()?; // dsPtrs
     decoder.skip()?; // dsFutureGenDelegs
     decoder.skip()?; // dsGenDelegs
+    remaining_state_progress.increment();
 
     skip_embedded_utxo(decoder).map_err(|err| anyhow!("skip embedded utxo: {err}"))?;
+    remaining_state_progress.increment();
 
     decoder.skip().map_err(|err| anyhow!("decode deposited: {err}"))?;
     let fees: i64 = decoder.decode().map_err(|err| anyhow!("decode fees: {err}"))?;
@@ -414,6 +416,7 @@ fn decode_initial_snapshot(
             minimum_version: e.minimum_version,
         },
     )?;
+    remaining_state_progress.increment();
 
     import_default_account_deposits(
         db,
@@ -426,6 +429,7 @@ fn decode_initial_snapshot(
     let (pools, pools_updates, pools_retirements) =
         decode_node_pool_state(&mut cbor::Decoder::new(&raw_pool_state), network, protocol_parameters.protocol_version)
             .map_err(|err| anyhow!("{}", format_pool_state_decode_error(err)))?;
+    remaining_state_progress.increment();
 
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
@@ -435,6 +439,7 @@ fn decode_initial_snapshot(
     decoder.skip()?; // DRep distr
     decoder.skip()?; // DRep state
     decoder.skip()?; // Pool distr
+    remaining_state_progress.increment();
 
     let (enacted_proposals, SerialisedAsSet(expired_proposals)): (
         Vec<ProposalState>,
@@ -450,12 +455,14 @@ fn decode_initial_snapshot(
             Ok((enacted, expired))
         })
         .map_err(|err| anyhow!("decode ratify state: {err}"))?;
+    remaining_state_progress.increment();
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
     decoder.skip()?;
 
     // Epoch State / Ledger State / UTxO State / utxosDonation
     let donations: u64 = decoder.decode()?;
+    remaining_state_progress.increment();
 
     // Epoch State / Snapshots
     decoder.begin_array()?;
@@ -464,6 +471,7 @@ fn decode_initial_snapshot(
     skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Go
     decoder.skip()?; // Epoch State / Snapshots / Fee
     decoder.skip()?; // Epoch State / NonMyopic
+    remaining_state_progress.increment();
 
     let is_complete = decoder
         .with_decoder(|d| {
@@ -485,6 +493,7 @@ fn decode_initial_snapshot(
             Ok(is_complete)
         })
         .map_err(|err| anyhow!("decode rewards update: {err}"))?;
+    remaining_state_progress.increment();
 
     remaining_state_progress.finish();
 
