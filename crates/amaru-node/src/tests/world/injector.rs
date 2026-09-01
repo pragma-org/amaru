@@ -262,7 +262,7 @@ pub fn build_injector_peer(
     );
     let manager_ref = manager.without_state();
     stage_graph
-        .preload(&manager_ref, [ManagerMessage::AddPeer(Peer::new(&injector.to_string()))])
+        .preload(&manager_ref, [ManagerMessage::AddPeer(Peer::try_from(injector)?)])
         .map_err(|_| anyhow::anyhow!("failed to preload injector peer AddPeer"))?;
     Ok(stage_graph.run(tokio_handle))
 }

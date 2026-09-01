@@ -25,7 +25,7 @@ use std::{
 };
 
 use amaru_kernel::{HeaderHash, Peer};
-use amaru_ouroboros::{ConnectionId, ToSocketAddrs};
+use amaru_ouroboros::ConnectionId;
 use amaru_protocols::{
     manager::ManagerMessage,
     network_effects::{
@@ -94,7 +94,7 @@ struct PendingConnect {
 }
 
 enum Posted {
-    Connect { stage: Name, addr: ToSocketAddrs },
+    Connect { stage: Name, peer: Peer },
     Accept { stage: Name, listener: SocketAddr },
     Send { stage: Name, conn: ConnectionId },
     Recv { stage: Name, conn: ConnectionId, bytes: NonZeroUsize },
@@ -356,25 +356,16 @@ impl WorldLoop {
 
     fn track_or_complete(&mut self, graph_idx: usize, posted: Posted) {
         match posted {
-            Posted::Connect { stage, addr } => {
-                let addrs = addr.clone().to_socket_addrs().unwrap_or_default();
-                if let Some(target) = addrs.first().copied() {
-                    let scheduled = self.provider.take_last_scheduled_connect().expect("connect scheduled a hop");
-                    self.pending_connects.entry(target).or_default().push_back(PendingConnect {
-                        graph_idx,
-                        stage,
-                        id: scheduled.id,
-                        attempt_seq: scheduled.attempt_seq,
-                        timeout_seq: scheduled.timeout_seq,
-                    });
-                } else {
-                    self.resume((
-                        graph_idx,
-                        stage,
-                        Box::new(Err::<ConnectionId, ConnectError>(ConnectError::new(addr, "connection refused")))
-                            as Box<dyn SendData>,
-                    ));
-                }
+            Posted::Connect { stage, peer } => {
+                let target = SocketAddr::from(peer);
+                let scheduled = self.provider.take_last_scheduled_connect().expect("connect scheduled a hop");
+                self.pending_connects.entry(target).or_default().push_back(PendingConnect {
+                    graph_idx,
+                    stage,
+                    id: scheduled.id,
+                    attempt_seq: scheduled.attempt_seq,
+                    timeout_seq: scheduled.timeout_seq,
+                });
             }
             Posted::Accept { stage, listener } => {
                 self.pending_accepts.entry(listener).or_default().push_back((graph_idx, stage));
@@ -471,7 +462,7 @@ impl WorldLoop {
                         pending.graph_idx,
                         pending.stage,
                         Box::new(Err::<ConnectionId, ConnectError>(ConnectError::new(
-                            (*target).into(),
+                            loopback_peer(*target),
                             "connection refused",
                         ))) as Box<dyn SendData>,
                     )]
@@ -485,7 +476,7 @@ impl WorldLoop {
                 vec![(
                     pending.graph_idx,
                     pending.stage,
-                    Box::new(Err::<ConnectionId, ConnectError>(ConnectError::new((*target).into(), "timed out")))
+                    Box::new(Err::<ConnectionId, ConnectError>(ConnectError::new(loopback_peer(*target), "timed out")))
                         as Box<dyn SendData>,
                 )]
             }
@@ -502,7 +493,7 @@ impl WorldLoop {
                     self.pending_accepts.remove(listener);
                 }
                 if let Some((graph_idx, stage_name)) = waiting {
-                    let peer = Peer::from_addr(initiator_addr);
+                    let peer = loopback_peer(*initiator_addr);
                     vec![(
                         graph_idx,
                         stage_name,
@@ -697,6 +688,10 @@ impl WorldLoop {
     }
 }
 
+fn loopback_peer(addr: SocketAddr) -> Peer {
+    Peer::try_from(addr).expect("world sim uses unmapped IPv4")
+}
+
 fn instant_nanos(instant: Instant) -> u64 {
     u64::try_from(instant.sim_elapsed().as_nanos()).expect("sim time fits u64")
 }
@@ -719,7 +714,7 @@ fn classify_network(effect: &Effect) -> Option<Posted> {
     };
     let eff_any = &**eff as &dyn Any;
     if let Some(connect) = eff_any.downcast_ref::<ConnectEffect>() {
-        Some(Posted::Connect { stage: at_stage.clone(), addr: connect.addr.clone() })
+        Some(Posted::Connect { stage: at_stage.clone(), peer: connect.peer })
     } else if let Some(accept) = eff_any.downcast_ref::<AcceptEffect>() {
         Some(Posted::Accept { stage: at_stage.clone(), listener: accept.listener_addr })
     } else if let Some(send) = eff_any.downcast_ref::<SendEffect>() {

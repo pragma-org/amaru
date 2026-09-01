@@ -180,8 +180,8 @@ pub struct ConnectError {
 }
 
 impl ConnectError {
-    pub fn new(addr: ToSocketAddrs, error: impl Display) -> Self {
-        Self { addr, error: error.to_string() }
+    pub fn new(peer: Peer, error: impl Display) -> Self {
+        Self { peer, error: error.to_string() }
     }
 }
 

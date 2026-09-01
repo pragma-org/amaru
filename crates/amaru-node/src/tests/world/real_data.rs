@@ -52,7 +52,7 @@ fn test_world_disseminates_preprod_fragment() {
     use std::cmp::Ordering;
 
     use amaru_consensus::stages::select_chain::cmp_tip;
-    use amaru_kernel::{IsHeader, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Peer};
+    use amaru_kernel::{IsHeader, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
     use amaru_ouroboros::BaseReadChainStore;
     use amaru_protocols::store_effects::{ResourceHeaderStore, ResourceParameters};
 
@@ -134,7 +134,11 @@ fn test_world_disseminates_preprod_fragment() {
 
     let mut graphs = vec![sim_primed];
     for (i, listen) in node_addrs.iter().enumerate() {
-        let upstream = if i == 0 { Peer::new(&listen_primed) } else { Peer::new(&node_addrs[i - 1]) };
+        let upstream = if i == 0 {
+            listen_primed.parse().expect("primed listen is an IPv4 socket")
+        } else {
+            node_addrs[i - 1].parse().expect("node listen is an IPv4 socket")
+        };
         let node = NodeTestConfig::default()
             .with_upstream_peer(upstream)
             .with_listen_address(listen)

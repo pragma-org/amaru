@@ -572,8 +572,7 @@ impl SimulationRunning {
 
     fn handle_detach(&mut self, at_stage: Name, effect: Box<dyn ExternalEffect>) -> Option<Blocked> {
         let dist = effect.simulated_duration_dist();
-        let data =
-            self.stages.get_mut(&at_stage).log_termination(&at_stage)?.assert_stage("which cannot emit detach effects");
+        let data = skip_if_terminated(self.stages.get_mut(&at_stage), &at_stage)?;
         let inject = resume_detach_internal(data, &mut |name, response| {
             tracing::debug!(%name, ?response, "enqueuing stage");
             self.runnable.push_back((name, response));

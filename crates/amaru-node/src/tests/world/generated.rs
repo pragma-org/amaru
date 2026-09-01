@@ -86,7 +86,7 @@ fn test_world_owns_production_nodes_boot_connect_exchange() {
 
     let listen_a = "127.0.0.1:9311";
     let listen_b = "127.0.0.1:9310";
-    let peer_a = Peer::new(listen_a);
+    let peer_a = listen_a.parse().expect("listen_a is an IPv4 socket");
 
     let node_a = NodeTestConfig::default()
         .with_no_upstream_peers()
@@ -257,7 +257,11 @@ fn run_p_join_quiescent_chain(
 
     let mut graphs = vec![injector];
     for (i, listen) in node_addrs.iter().enumerate() {
-        let upstream = if i == 0 { Peer::new(&injector_addr.to_string()) } else { Peer::new(&node_addrs[i - 1]) };
+        let upstream = if i == 0 {
+            Peer::try_from(injector_addr).expect("injector is IPv4 loopback")
+        } else {
+            node_addrs[i - 1].parse().expect("node listen is an IPv4 socket")
+        };
         let node = NodeTestConfig::default()
             .with_upstream_peer(upstream)
             .with_listen_address(listen)

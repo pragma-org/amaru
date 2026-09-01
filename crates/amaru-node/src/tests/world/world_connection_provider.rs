@@ -24,7 +24,7 @@ use std::{
 };
 
 use amaru_kernel::{HeaderHash, NonEmptyBytes, Peer};
-use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, ConnectionProvider};
 use amaru_pure_stage::BoxFuture;
 use parking_lot::Mutex;
 use tokio_util::bytes::{Bytes, BytesMut};
@@ -641,35 +641,19 @@ impl ConnectionProvider for WorldConnectionProvider {
         Box::pin(std::future::pending())
     }
 
-    fn connect(&self, addrs: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+    fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+        let target = SocketAddr::from(peer);
         let mut inner = self.inner.lock();
         inner.last_scheduled_connect = None;
-        if let Some(target) = addrs.first().copied() {
-            let id = inner.next_connect_id;
-            inner.next_connect_id += 1;
-            let attempt_seq = schedule_wire_locked(&mut inner, NetworkEvent::ConnectAttempt { target, id });
-            let timeout_nanos = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
-            let timeout_at = inner.current_time_nanos.saturating_add(timeout_nanos);
-            let timeout_seq =
-                schedule_event_locked(&mut inner, timeout_at, NetworkEvent::ConnectTimeout { target, id });
-            inner.last_scheduled_connect = Some(ScheduledConnect { id, attempt_seq, timeout_seq });
-        }
+        let id = inner.next_connect_id;
+        inner.next_connect_id += 1;
+        let attempt_seq = schedule_wire_locked(&mut inner, NetworkEvent::ConnectAttempt { target, id });
+        let timeout_nanos = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
+        let timeout_at = inner.current_time_nanos.saturating_add(timeout_nanos);
+        let timeout_seq = schedule_event_locked(&mut inner, timeout_at, NetworkEvent::ConnectTimeout { target, id });
+        inner.last_scheduled_connect = Some(ScheduledConnect { id, attempt_seq, timeout_seq });
         drop(inner);
         Box::pin(std::future::pending())
-    }
-
-    fn connect_addrs(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        match addr.to_socket_addrs() {
-            Ok(addrs) => self.connect(addrs, timeout),
-            Err(e) => {
-                let msg = e.to_string();
-                Box::pin(async move { Err(std::io::Error::other(msg)) })
-            }
-        }
     }
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {
