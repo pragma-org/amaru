@@ -276,13 +276,16 @@ pub(super) enum Predicate {
     MalformedReferenceScripts,
     MalformedScriptWitnesses,
     MaxTxSizeUTxO,
+    MissingScriptWitnessesUTXOW,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
     MissingVerificationKeyWitnessesUTXOW,
+    NoCollateralInputs,
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
     ProposalCantFollow,
+    ProposalProcedureNetworkIdMismatch,
     ScriptsNotPaidUTxO,
     TooManyCollateralInputs,
     ProposalReturnAccountDoesNotExist,
@@ -305,6 +308,7 @@ pub(super) enum Predicate {
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
+    WrongNetworkPOOL,
     WrongNetworkWithdrawal,
 }
 
@@ -370,6 +374,10 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::MalformedReferenceScript(_), .. }] => {
                     Predicate::MalformedReferenceScripts
                 }
+                // The Haskell node returns `OutputTooBigUTxO` instead of a `OutputBootAddrAttrsTooBig`
+                [WithPosition { element: InvalidOutput::BootAddrAttrsTooBig { .. }, .. }] => {
+                    Predicate::OutputTooBigUTxO
+                }
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
             PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
@@ -380,6 +388,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
                 Predicate::ProposalReturnAccountDoesNotExist
+            }
+            PhaseOneError::Proposals(InvalidProposals::ReturnAddressWrongNetwork { .. }) => {
+                Predicate::ProposalProcedureNetworkIdMismatch
             }
             PhaseOneError::Proposals(InvalidProposals::InvalidPrevGovActionId { .. }) => {
                 Predicate::InvalidPrevGovActionId
@@ -400,6 +411,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Scripts(InvalidScripts::ExtraneousScriptWitnesses(_)) => {
                 Predicate::ExtraneousScriptWitnessesUTXOW
             }
+            PhaseOneError::Scripts(InvalidScripts::MissingRequiredScripts(_)) => Predicate::MissingScriptWitnessesUTXOW,
             PhaseOneError::ScriptPreparation(PreparationError::MalformedScriptWitness(_)) => {
                 Predicate::MalformedScriptWitnesses
             }
@@ -421,12 +433,11 @@ impl From<PhaseOneError> for Predicate {
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeDRepNotRegistered,
                 DelegateError::AlreadyResigned => unreachable!("only applicable to CC"),
             },
-            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
-                DelegateError::UnknownSource(_),
-            )) => Predicate::CommitteeIsUnknown,
-            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
-                DelegateError::AlreadyResigned,
-            )) => Predicate::CommitteeHasPreviouslyResigned,
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(ref e)) => match e {
+                DelegateError::UnknownSource(_) => Predicate::CommitteeIsUnknown,
+                DelegateError::AlreadyResigned => Predicate::CommitteeHasPreviouslyResigned,
+                DelegateError::UnknownTarget(_) => unreachable!("hot credentials are not pre-registered"),
+            },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
             }
@@ -445,6 +456,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
                 Predicate::StakePoolCostTooLowPOOL
             }
+            PhaseOneError::Certificates(InvalidCertificates::PoolWrongNetwork { .. }) => Predicate::WrongNetworkPOOL,
             PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
             PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {
                 Predicate::InsufficientCollateral
@@ -455,10 +467,10 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. }) => {
                 Predicate::IncorrectTotalCollateralField
             }
+            PhaseOneError::Collateral(InvalidCollateral::NoCollateral) => Predicate::NoCollateralInputs,
             PhaseOneError::Metadata(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Scripts(_)
-            | PhaseOneError::Collateral(_)
             | PhaseOneError::Proposals(_)
             | PhaseOneError::VotingProcedures(InvalidVotingProcedures::EraHistory(_)) => {
                 unreachable!("no predicate mapping yet for {err}")

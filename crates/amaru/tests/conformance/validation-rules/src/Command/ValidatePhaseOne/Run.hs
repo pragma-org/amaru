@@ -385,6 +385,8 @@ normalizeUtxowFailure expectedHint = \case
         "ExtraneousScriptWitnessesUTXOW"
     MissingVKeyWitnessesUTXOW{} ->
         "MissingVerificationKeyWitnessesUTXOW"
+    MissingScriptWitnessesUTXOW{} ->
+        "MissingScriptWitnessesUTXOW"
     MissingTxBodyMetadataHash{} ->
         "MissingTxBodyMetadataHash"
     MissingTxMetadata{} ->
@@ -436,6 +438,8 @@ normalizeUtxoFailure = \case
         "BabbageOutputTooSmallUTxO"
     BabbageNonDisjointRefInputs{} ->
         "BabbageNonDisjointRefInputs"
+    NoCollateralInputs{} ->
+        "NoCollateralInputs"
     UtxosFailure failure
         | "TimeTranslationPastHorizon" `Text.isInfixOf` showText failure ->
             "OutsideForecast"
@@ -496,6 +500,8 @@ normalizePoolFailure = \case
         "StakePoolRetirementWrongEpochPOOL"
     StakePoolCostTooLowPOOL{} ->
         "StakePoolCostTooLowPOOL"
+    WrongNetworkPOOL{} ->
+        "WrongNetworkPOOL"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
@@ -503,6 +509,8 @@ normalizeGovFailure :: ConwayGovPredFailure ConwayEra -> Text
 normalizeGovFailure = \case
     ProposalReturnAccountDoesNotExist{} ->
         "ProposalReturnAccountDoesNotExist"
+    ProposalProcedureNetworkIdMismatch{} ->
+        "ProposalProcedureNetworkIdMismatch"
     TreasuryWithdrawalReturnAccountsDoNotExist{} ->
         "TreasuryWithdrawalReturnAccountsDoNotExist"
     InvalidPrevGovActionId{} ->

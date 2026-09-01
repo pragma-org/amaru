@@ -1,0 +1,32 @@
+{
+  "title": "invalid transaction with a re-registration of an existing pool",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, carrying a registration certificate for an already-registered stake pool.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582017bfb441ac3612f52a33dfde0673fac58b8edd40891d9a32c9bde63c785685f800",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "82582032eb00be0419786fb275df07011c692f3cb61e7921db61d34e046af9d958633f00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d901028182582017bfb441ac3612f52a33dfde0673fac58b8edd40891d9a32c9bde63c785685f8000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d09004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820beb4f4682ecd5ff2fdc7fb5e0ead8b8ce8596a4de2242ad8d4c988499762e0c9001a1443fd00d81e820001581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd901028182582032eb00be0419786fb275df07011c692f3cb61e7921db61d34e046af9d958633f000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584092232cc1d5a11b278e6baed8b4017df5f567b022afba2ff6a2665a61e05a29cbcad2250301197827d03688223ffd394eeb92dc8b88f8fd37638c7ea81b94020305a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}

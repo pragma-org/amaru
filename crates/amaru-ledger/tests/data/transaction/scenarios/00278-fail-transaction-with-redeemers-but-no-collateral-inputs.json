@@ -1,0 +1,27 @@
+{
+  "title": "transaction with redeemers but no collateral inputs",
+  "description": "A transaction spending a Plutus V3 input with a spend redeemer, declaring no collateral inputs.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820fd6f78254f114651b577d4670b917be24c08b611ca24dfc99d9a88b3b240bb9400",
+        "output": "a200581d70186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820fd6f78254f114651b577d4670b917be24c08b611ca24dfc99d9a88b3b240bb94000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bba205a18200008200821907d01a000f424007d901028146450101002499f5f6",
+  "expected": {
+    "predicate": "NoCollateralInputs"
+  }
+}

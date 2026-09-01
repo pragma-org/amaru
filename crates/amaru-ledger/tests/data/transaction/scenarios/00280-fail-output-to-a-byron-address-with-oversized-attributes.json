@@ -1,0 +1,27 @@
+{
+  "title": "output to a byron address with oversized attributes",
+  "description": "A transaction with an output locked at a Byron address carrying 99 bytes of address attributes.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258201cb8c5d008d86e4ece720de3638d33e293ae677dcaf66b9918e7b65b40e57abf00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a300d90102818258201cb8c5d008d86e4ece720de3638d33e293ae677dcaf66b9918e7b65b40e57abf000182a200589382d818588983581c149ad4b736608c56aa72fba87b7f72343fed0f0b78b2fd39b5eff808a201586258605be51343581011594d82a1e32dfc2c5e0ab8be4a32aab4fbf3bcf9e17991a53c5be51343581011594d82a1e32dfc2c5e0ab8be4a32aab4fbf3bcf9e17991a53c5be51343581011594d82a1e32dfc2c5e0ab8be4a32aab4fbf3bcf9e17991a53c024101001ac21b9f30011a001e8480a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002ab980021a00030d40a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258408ad528fc0406623878b06f5a7f170d7d1d896e4e29eb8a0758baf97419cf7c3c22af5b0fc8131ddefad9f7502d7c2cdf6a723254ab3d0792d89f479f1ba4d00ef5f6",
+  "expected": {
+    "predicate": "OutputTooBigUTxO"
+  }
+}

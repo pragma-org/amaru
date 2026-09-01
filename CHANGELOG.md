@@ -80,10 +80,10 @@ Other guiding principles:
 - **amaru-ledger**: do not re-encode locally submitted transactions to obtain their size.
 - **amaru-protocols**: preserve bytes of transactions flowing through the mempool.
 - **amaru-tui**: tweak block dissemination metrics headers (fetch → select, sync → fetch)
-- **amaru-ledger**: Do not validate disjoint input sets in protocol version 11+. Similarly, do not allow non-disjoin input sets in PV3, regardless of protocol version.
 - **amaru-kernel**: decode reward accounts as a network tag plus stake credential, rejecting malformed reward accounts at deserialization.
 - **amaru-ledger**: Do not validate disjoint input sets in protocol version 11+. Similarly, do not allow non-disjoint input sets in PV3, regardless of protocol version.
 - **amaru-ledger**: do not allow the same script to exist in both the witness set and in a reference input
+- **amaru-ledger**: fix a panic when an `is_valid=false` transaction's certificates net to a negative value
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 

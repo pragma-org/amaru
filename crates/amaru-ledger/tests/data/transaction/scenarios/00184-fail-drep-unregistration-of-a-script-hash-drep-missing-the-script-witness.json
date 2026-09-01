@@ -1,0 +1,41 @@
+{
+  "title": "drep unregistration of a script-hash drep missing the script witness",
+  "description": "A DRep unregistration certificate deregisters a registered script-hash DRep, but the witness set carries no script.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258208eb2c0684f549d1933b962302cf68719ed51dcedaab520a337d408827d36677a00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "dreps": [
+      {
+        "credential": "8201581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf",
+        "deposit": 500000000,
+        "registered_at": {
+          "transaction": {
+            "slot": 0,
+            "transaction_index": 0
+          },
+          "certificate_index": 0
+        },
+        "valid_until": 1000
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258208eb2c0684f549d1933b962302cf68719ed51dcedaab520a337d408827d36677a000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a1e16a300021a00030d4004d901028183118201581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf1a1dcd6500a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258403566bddfefc221e0b1853ff65ffafc41181508ff9d0d3070aae366805d4cdb0f6af84c1278dc458bb58316fe8bdaa4dcace59cbe1ab711f2c7b944d1d0959b00f5f6",
+  "expected": {
+    "predicate": "MissingScriptWitnessesUTXOW"
+  }
+}

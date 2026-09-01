@@ -1,0 +1,29 @@
+{
+  "title": "invalid transaction with a plutus v3 script returning a non-unit constant",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script evaluates to an integer constant instead of unit.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258203db77d9b497b59d8ec805f50618c30237c90264ae9d0c914989d74b7cd3691ef00",
+        "output": "a200581d7049f6f6d2511a9db9de8187fc949823362f31ada7d5b0adc7e556c3b5011a004c4b40"
+      },
+      {
+        "input": "825820aacc105ea48630896628f619fdc256b4b49c83751d4db13b9c083158deae5cef00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d90102818258203db77d9b497b59d8ec805f50618c30237c90264ae9d0c914989d74b7cd3691ef000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820aacc105ea48630896628f619fdc256b4b49c83751d4db13b9c083158deae5cef000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840dfa046fd307ba3f9a957619b8e2135bdc05cb0e2ec69b1800a412fc04b4ab7c29c5f375dc9e6399903ced118acc0990867de2e1dea549145593b833d8857780b05a18200008200821907d01a000f424007d90102814746010100248151f4f6",
+  "expected": "Pass"
+}
