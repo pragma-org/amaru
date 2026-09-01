@@ -85,7 +85,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         let message_type = input.message_type().to_string();
-        let peer = self.peer.clone();
+        let peer = self.peer;
 
         async move {
             let mempool = MemoryPool::new(eff.clone());
