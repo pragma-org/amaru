@@ -19,7 +19,7 @@
 
 mod compact_map;
 mod compact_set;
-mod small_buffer;
+mod small_sorted_buffer;
 
 pub use compact_map::{CompactMap, CompactMapIntoIter, CompactMapIter, Entry, OccupiedEntry, VacantEntry};
 pub use compact_set::{CompactSet, CompactSetIntoIter, CompactSetIter};

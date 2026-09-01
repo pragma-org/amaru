@@ -19,11 +19,11 @@ use std::{
     slice,
 };
 
-use super::small_buffer::SmallBuffer;
+use super::small_sorted_buffer::SmallSortedBuffer;
 
 #[derive(Debug, Clone)]
 enum MapStorage<K, V> {
-    Small(SmallBuffer<(K, V)>),
+    Small(SmallSortedBuffer<(K, V)>),
     Tree(BTreeMap<K, V>),
 }
 
@@ -45,7 +45,7 @@ impl<K: Ord, V: Eq, const N: usize> Eq for CompactMap<K, V, N> {}
 
 impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
     pub fn new() -> Self {
-        Self { storage: MapStorage::Small(SmallBuffer::new()) }
+        Self { storage: MapStorage::Small(SmallSortedBuffer::new()) }
     }
 
     pub fn len(&self) -> usize {
@@ -65,10 +65,9 @@ impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
         Q: Ord + ?Sized,
     {
         match &self.storage {
-            MapStorage::Small(entries) => entries
-                .binary_search_by(|(candidate, _)| candidate.borrow().cmp(key))
-                .ok()
-                .and_then(|index| entries.get(index).map(|(_, value)| value)),
+            MapStorage::Small(entries) => {
+                entries.get_by(|(candidate, _)| candidate.borrow().cmp(key)).map(|(_, value)| value)
+            }
             MapStorage::Tree(entries) => entries.get(key),
         }
     }
@@ -115,10 +114,15 @@ impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
         }
     }
 
-    /// Move all small entries into the tree, permanently. No-op when already tree-backed.
-    fn promote(&mut self) {
+    /// Move all small entries into the tree, permanently, and return it. No-op when already
+    /// tree-backed.
+    fn promote(&mut self) -> &mut BTreeMap<K, V> {
         if let MapStorage::Small(entries) = &mut self.storage {
             self.storage = MapStorage::Tree(entries.take().into_iter().collect());
+        }
+        match &mut self.storage {
+            MapStorage::Tree(entries) => entries,
+            MapStorage::Small(_) => unreachable!("promotion always ends in tree storage"),
         }
     }
 
@@ -128,10 +132,9 @@ impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
         Q: Ord + ?Sized,
     {
         match &mut self.storage {
-            MapStorage::Small(entries) => entries
-                .binary_search_by(|(candidate, _)| candidate.borrow().cmp(key))
-                .ok()
-                .and_then(|index| entries.remove(index).map(|(_, value)| value)),
+            MapStorage::Small(entries) => {
+                entries.remove_by(|(candidate, _)| candidate.borrow().cmp(key)).map(|(_, value)| value)
+            }
             MapStorage::Tree(entries) => entries.remove(key),
         }
     }
@@ -159,27 +162,27 @@ pub enum Entry<'a, K, V, const N: usize> {
 pub struct OccupiedEntry<'a, K, V>(OccupiedInner<'a, K, V>);
 
 enum OccupiedInner<'a, K, V> {
-    Small { entries: &'a mut SmallBuffer<(K, V)>, index: usize },
+    Small { entries: &'a mut SmallSortedBuffer<(K, V)>, index: usize },
     Tree(btree_map::OccupiedEntry<'a, K, V>),
 }
 
 impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     pub fn get(&self) -> &V {
         match &self.0 {
-            OccupiedInner::Small { entries, index } => match entries.get(*index) {
-                Some((_, value)) => value,
-                None => unreachable!("occupied entries hold a valid index"),
-            },
+            OccupiedInner::Small { entries, index } => {
+                let (_, value) = &entries[*index];
+                value
+            }
             OccupiedInner::Tree(entry) => entry.get(),
         }
     }
 
     pub fn get_mut(&mut self) -> &mut V {
         match &mut self.0 {
-            OccupiedInner::Small { entries, index } => match entries.get_mut(*index) {
-                Some((_, value)) => value,
-                None => unreachable!("occupied entries hold a valid index"),
-            },
+            OccupiedInner::Small { entries, index } => {
+                let (_, value) = entries.get_at_mut(*index);
+                value
+            }
             OccupiedInner::Tree(entry) => entry.get_mut(),
         }
     }
@@ -187,10 +190,10 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// Convert the entry into a mutable reference bound to the map's lifetime.
     pub fn into_mut(self) -> &'a mut V {
         match self.0 {
-            OccupiedInner::Small { entries, index } => match entries.get_mut(index) {
-                Some((_, value)) => value,
-                None => unreachable!("occupied entries hold a valid index"),
-            },
+            OccupiedInner::Small { entries, index } => {
+                let (_, value) = entries.get_at_mut(index);
+                value
+            }
             OccupiedInner::Tree(entry) => entry.into_mut(),
         }
     }
@@ -203,10 +206,7 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// Remove the entry from the map, returning its value.
     pub fn remove(self) -> V {
         match self.0 {
-            OccupiedInner::Small { entries, index } => match entries.remove(index) {
-                Some((_, value)) => value,
-                None => unreachable!("occupied entries hold a valid index"),
-            },
+            OccupiedInner::Small { entries, index } => entries.remove_at(index).1,
             OccupiedInner::Tree(entry) => entry.remove(),
         }
     }
@@ -226,18 +226,15 @@ impl<'a, K: Ord, V, const N: usize> VacantEntry<'a, K, V, N> {
         match self.0 {
             VacantInner::Small { map, key, index } => {
                 if map.len() >= N {
-                    map.promote();
+                    return map.promote().entry(key).or_insert(value);
                 }
 
                 match &mut map.storage {
                     MapStorage::Small(entries) => {
-                        entries.insert(index, (key, value));
-                        match entries.get_mut(index) {
-                            Some((_, value)) => value,
-                            None => unreachable!("value was just inserted at this index"),
-                        }
+                        let (_, value) = entries.insert_at(index, (key, value));
+                        value
                     }
-                    MapStorage::Tree(entries) => entries.entry(key).or_insert(value),
+                    MapStorage::Tree(_) => unreachable!("vacant small entries only exist on small storage"),
                 }
             }
             VacantInner::Tree(entry) => entry.insert(value),
@@ -262,7 +259,7 @@ impl<K: Ord, V, const N: usize> FromIterator<(K, V)> for CompactMap<K, V, N> {
         if lower > N {
             Self { storage: MapStorage::Tree(iter.collect()) }
         } else {
-            let mut map = Self { storage: MapStorage::Small(SmallBuffer::with_capacity(lower)) };
+            let mut map = Self { storage: MapStorage::Small(SmallSortedBuffer::with_capacity(lower)) };
             for (key, value) in iter {
                 map.insert(key, value);
             }
