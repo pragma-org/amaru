@@ -14,11 +14,11 @@
 
 use std::{borrow::Borrow, collections::BTreeSet, iter::FusedIterator, slice};
 
-use super::small_buffer::SmallBuffer;
+use super::small_sorted_buffer::SmallSortedBuffer;
 
 #[derive(Debug, Clone)]
 enum SetStorage<T> {
-    Small(SmallBuffer<T>),
+    Small(SmallSortedBuffer<T>),
     Tree(BTreeSet<T>),
 }
 
@@ -40,7 +40,7 @@ impl<T: Ord, const N: usize> Eq for CompactSet<T, N> {}
 
 impl<T: Ord, const N: usize> CompactSet<T, N> {
     pub fn new() -> Self {
-        Self { storage: SetStorage::Small(SmallBuffer::new()) }
+        Self { storage: SetStorage::Small(SmallSortedBuffer::new()) }
     }
 
     pub fn len(&self) -> usize {
@@ -60,42 +60,34 @@ impl<T: Ord, const N: usize> CompactSet<T, N> {
         Q: Ord + ?Sized,
     {
         match &self.storage {
-            SetStorage::Small(entries) => entries.binary_search_by(|candidate| candidate.borrow().cmp(value)).is_ok(),
+            SetStorage::Small(entries) => entries.get_by(|candidate| candidate.borrow().cmp(value)).is_some(),
             SetStorage::Tree(entries) => entries.contains(value),
         }
     }
 
     pub fn insert(&mut self, value: T) -> bool {
-        let small_search = match &self.storage {
-            SetStorage::Small(entries) => Some(entries.binary_search_by(|candidate| candidate.cmp(&value))),
-            SetStorage::Tree(_) => None,
-        };
-
-        match small_search {
-            Some(Ok(_)) => false,
-            Some(Err(index)) => {
-                if self.len() >= N {
-                    self.promote();
-                }
-                match &mut self.storage {
-                    SetStorage::Small(entries) => {
-                        entries.insert(index, value);
-                        true
+        if let SetStorage::Small(entries) = &mut self.storage {
+            match entries.binary_search_by(|candidate| candidate.cmp(&value)) {
+                Ok(_) => return false,
+                Err(index) => {
+                    if entries.len() < N {
+                        entries.insert_at(index, value);
+                        return true;
                     }
-                    SetStorage::Tree(entries) => entries.insert(value),
                 }
             }
-            None => match &mut self.storage {
-                SetStorage::Tree(entries) => entries.insert(value),
-                SetStorage::Small(_) => unreachable!("storage cannot change between search and borrow"),
-            },
         }
+        self.promote().insert(value)
     }
 
-    /// Move all small values into the tree, permanently. No-op when already tree-backed.
-    fn promote(&mut self) {
+    /// Move all small values into the tree, permanently, and return it.
+    fn promote(&mut self) -> &mut BTreeSet<T> {
         if let SetStorage::Small(entries) = &mut self.storage {
             self.storage = SetStorage::Tree(entries.take().into_iter().collect());
+        }
+        match &mut self.storage {
+            SetStorage::Tree(entries) => entries,
+            SetStorage::Small(_) => unreachable!("promotion always ends in tree storage"),
         }
     }
 
@@ -105,11 +97,7 @@ impl<T: Ord, const N: usize> CompactSet<T, N> {
         Q: Ord + ?Sized,
     {
         match &mut self.storage {
-            SetStorage::Small(entries) => entries
-                .binary_search_by(|candidate| candidate.borrow().cmp(value))
-                .ok()
-                .and_then(|index| entries.remove(index))
-                .is_some(),
+            SetStorage::Small(entries) => entries.remove_by(|candidate| candidate.borrow().cmp(value)).is_some(),
             SetStorage::Tree(entries) => entries.remove(value),
         }
     }
@@ -142,7 +130,7 @@ impl<T: Ord, const N: usize> FromIterator<T> for CompactSet<T, N> {
         if lower > N {
             Self { storage: SetStorage::Tree(iter.collect()) }
         } else {
-            let mut set = Self { storage: SetStorage::Small(SmallBuffer::with_capacity(lower)) };
+            let mut set = Self { storage: SetStorage::Small(SmallSortedBuffer::with_capacity(lower)) };
             for value in iter {
                 set.insert(value);
             }
