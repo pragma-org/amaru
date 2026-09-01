@@ -388,6 +388,10 @@ impl WorldLoop {
                         stage,
                         Box::new(Err::<(), SendError>(SendError::new(conn, "connection reset"))) as Box<dyn SendData>,
                     ));
+                    // Peer is already gone. Tear this half down too so a parked mux reader
+                    // is not left on UntilResolved until a delayed Close hop, and the muxer
+                    // is not left waiting for Written after the writer dies.
+                    self.fail_pending_and_close(conn);
                 }
             }
             Posted::Recv { stage, conn, bytes } => {
@@ -513,7 +517,12 @@ impl WorldLoop {
                     if self.pending_sends.get(conn).is_some_and(|q| q.is_empty()) {
                         self.pending_sends.remove(conn);
                     }
-                    vec![(graph_idx, stage_name, Box::new(Ok::<(), SendError>(())) as Box<dyn SendData>)]
+                    let result = if self.provider.can_send(*conn) {
+                        Ok(())
+                    } else {
+                        Err(SendError::new(*conn, "connection reset"))
+                    };
+                    vec![(graph_idx, stage_name, Box::new(result) as Box<dyn SendData>)]
                 } else {
                     Vec::new()
                 }
@@ -524,8 +533,12 @@ impl WorldLoop {
             }
             NetworkEvent::Close { conn } => {
                 let peer = self.provider.close_endpoint(*conn);
-                let out = fail_pending_on(&mut self.pending_sends, &mut self.pending_recvs, *conn);
+                // RST is visible on both halves at once. Failing only `conn` leaves the
+                // survivor's in-flight send to complete via SendAck (false Ok) and the
+                // muxer to start another write that never gets Written.
+                let mut out = fail_pending_on(&mut self.pending_sends, &mut self.pending_recvs, *conn);
                 if let Some(peer) = peer {
+                    out.extend(fail_pending_on(&mut self.pending_sends, &mut self.pending_recvs, peer));
                     self.provider.schedule_wire(NetworkEvent::Close { conn: peer });
                 }
                 out
@@ -535,6 +548,13 @@ impl WorldLoop {
                 None => Vec::new(),
             },
         }
+    }
+
+    fn fail_pending_and_close(&mut self, conn: ConnectionId) {
+        for completion in fail_pending_on(&mut self.pending_sends, &mut self.pending_recvs, conn) {
+            self.resume(completion);
+        }
+        let _ = self.provider.close_endpoint(conn);
     }
 
     fn resume(&mut self, (graph_idx, stage_name, result): Completion) {

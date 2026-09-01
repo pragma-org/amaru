@@ -593,6 +593,69 @@ async fn test_close_fails_peer_recv() {
     assert!(recv_err.lock().as_ref().is_some_and(|s| s.contains("connection closed")));
 }
 
+/// After the far endpoint is gone, a later send must error and the world must settle.
+///
+/// Closing only the dropped half used to leave the survivor's muxer to ack the last
+/// write, start another, then hit `connection reset` without `Written` — the P-join hang.
+#[tokio::test]
+async fn test_send_after_peer_close_errors_and_settles() {
+    let handle = tokio::runtime::Handle::current();
+    let provider = provider();
+    let listener_addr: SocketAddr = "127.0.0.1:9410".parse().unwrap();
+    let send_err = observed::<String>();
+    let send_err_b = send_err.clone();
+    let recv_err = observed::<String>();
+    let recv_err_a = recv_err.clone();
+    let (_initiator, responder) = pair_ids();
+    let t_connected = wire_delay_nanos(SEED, 0);
+    provider.schedule_event_at(t_connected.saturating_add(1_000_000), NetworkEvent::Close { conn: responder });
+
+    let mut graph_a = SimulationBuilder::default().with_eval_strategy(Fifo);
+    graph_a.resources().put::<ConnectionsResource>(provider.clone());
+    let stage_a = graph_a.stage("node_a", move |_state: (), _unit: (), eff| {
+        let recv_err_a = recv_err_a.clone();
+        async move {
+            let net = Network::new(&eff);
+            net.listen(listener_addr).await.unwrap();
+            let (_peer, conn) = net.accept(listener_addr).await.unwrap();
+            let err = net.recv(conn, NonZeroUsize::new(1).unwrap()).await.unwrap_err();
+            set_observed(&recv_err_a, err.to_string());
+        }
+    });
+    let stage_a = graph_a.wire_up(stage_a, ());
+    let mut sim_a = graph_a.run(&handle);
+    sim_a.enqueue_msg(&stage_a, [()]);
+
+    let mut graph_b = SimulationBuilder::default().with_eval_strategy(Fifo);
+    graph_b.resources().put::<ConnectionsResource>(provider.clone());
+    let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| {
+        let send_err_b = send_err_b.clone();
+        async move {
+            let net = Network::new(&eff);
+            let conn = net.connect(listener_addr.into(), Duration::from_secs(1)).await.unwrap();
+            eff.wait(Duration::from_millis(10)).await;
+            let err = net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap()).await.unwrap_err();
+            set_observed(&send_err_b, err.to_string());
+        }
+    });
+    let stage_b = graph_b.wire_up(stage_b, ());
+    let mut sim_b = graph_b.run(&handle);
+    sim_b.enqueue_msg(&stage_b, [()]);
+
+    let mut world = WorldLoop::new(provider, vec![sim_a, sim_b]);
+    world.run_to_completion();
+    assert!(
+        send_err.lock().as_ref().is_some_and(|s| s.contains("connection reset") || s.contains("connection closed")),
+        "survivor send after peer close: {:?}",
+        send_err.lock()
+    );
+    assert!(
+        recv_err.lock().as_ref().is_some_and(|s| s.contains("connection reset") || s.contains("connection closed")),
+        "dropped-side recv: {:?}",
+        recv_err.lock()
+    );
+}
+
 /// A graph that terminates while a same-conn Deliver is still on the heap must
 /// drop that stage's pending recv. The Deliver still pops and logs; WorldLoop
 /// must not resume the gone stage. Live `heap_contents` / `heap_log`, not a
