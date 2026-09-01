@@ -141,7 +141,7 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
         .map(|peer| {
             NodeTestConfig::default()
                 .with_no_upstream_peers()
-                .with_listen_address(&peer.name)
+                .with_listen_address(&peer.to_string())
                 .with_chain_length(run_config.generated_chain_depth)
                 .with_actions(get_peer_actions(actions, peer))
                 .with_validated_blocks(get_headers(actions, peer))
@@ -164,9 +164,9 @@ pub fn node_configs(run_config: &RunConfig, actions: &GeneratedActions) -> Vec<N
         .iter()
         .map(|peer| {
             NodeTestConfig::default()
-                .with_listen_address(&peer.name)
+                .with_listen_address(&peer.to_string())
                 .with_chain_length(run_config.generated_chain_depth)
-                .with_upstream_peer(Peer::new(listen_address))
+                .with_upstream_peer(listen_address.parse().expect("listen address is a peer"))
                 .with_validated_blocks(vec![actions.get_anchor()])
                 .with_node_type(DownstreamNode)
         })

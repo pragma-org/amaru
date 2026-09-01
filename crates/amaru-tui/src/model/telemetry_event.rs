@@ -36,6 +36,7 @@ pub enum TelemetryEvent {
     NewGovernanceUpdates,
     PeerConnected,
     PeerDisconnected,
+    PeerResolved,
     PotsLoad,
     ProposalActive,
     ProposalDrop,
@@ -97,6 +98,8 @@ impl TelemetryEvent {
             Some(Self::PeerConnected)
         } else if protocols::peer_selection::peer::DISCONNECTED::matches(&record.target, &record.name) {
             Some(Self::PeerDisconnected)
+        } else if protocols::peer_selection::peer::RESOLVED::matches(&record.target, &record.name) {
+            Some(Self::PeerResolved)
         } else if ledger::governance_activity::UPDATE::matches(&record.target, &record.name) {
             Some(Self::GovernanceActivityUpdate)
         } else if ledger::epoch_transition::NEW_GOVERNANCE_UPDATES::matches(&record.target, &record.name) {

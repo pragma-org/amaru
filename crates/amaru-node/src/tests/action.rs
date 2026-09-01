@@ -22,7 +22,7 @@ use std::fmt::{Display, Formatter};
 use amaru_kernel::{Hash, Header, HeaderHash, IsHeader, NetworkPoint, Peer, Slot, make_header, size::HEADER};
 use hex::FromHexError;
 
-/// A single roll-forward or rollback step from one peer.
+/// A single roll-forward or rollback step from one peer
 ///
 /// JSON is kept compact so a failing simulation can dump a list of actions as a unit-test fixture.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -59,8 +59,8 @@ impl Action {
 
     pub fn set_peer(mut self, peer: &Peer) -> Self {
         match &mut self {
-            Action::RollForward { peer: p, .. } => *p = peer.clone(),
-            Action::Rollback { peer: p, .. } => *p = peer.clone(),
+            Action::RollForward { peer: p, .. } => *p = *peer,
+            Action::Rollback { peer: p, .. } => *p = *peer,
         }
         self
     }
@@ -164,10 +164,10 @@ impl<'de> serde::Deserialize<'de> for Action {
         let helper = ActionHelper::deserialize(deserializer)?;
         match helper {
             ActionHelper::RollForward { peer, header } => {
-                Ok(Action::RollForward { peer: Peer::new(&peer), header: header.0 })
+                Ok(Action::RollForward { peer: peer.parse().map_err(serde::de::Error::custom)?, header: header.0 })
             }
             ActionHelper::Rollback { peer, rollback_point } => {
-                Ok(Action::Rollback { peer: Peer::new(&peer), rollback_point })
+                Ok(Action::Rollback { peer: peer.parse().map_err(serde::de::Error::custom)?, rollback_point })
             }
         }
     }

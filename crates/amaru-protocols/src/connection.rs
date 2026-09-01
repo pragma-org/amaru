@@ -171,7 +171,7 @@ pub async fn stage(
 ) -> Connection {
     let message_type = msg.message_type().to_string();
     let Params { conn_id, role, .. } = params;
-    let peer = params.peer.clone();
+    let peer = params.peer;
 
     async move {
         let state = match (state, msg) {
@@ -263,7 +263,7 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
     eff.send(
         &params.pipeline,
         ChainSyncInitiatorMsg {
-            peer: params.peer.clone(),
+            peer: params.peer,
             conn_id: params.conn_id,
             handler: StageRef::blackhole(),
             msg: InitiatorResult::Terminated,
@@ -273,10 +273,10 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
 }
 
 async fn do_initialize(Params { conn_id, role, magic, peer, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {
+    let peer = *peer;
     let muxer = eff.stage("mux", mux::stage).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
-    let muxer =
-        eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role, peer.clone())).await;
+    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role, peer)).await;
 
     let handshake_result = eff.me_ref().contramap(ConnectionMessage::Handshake);
 
@@ -331,6 +331,7 @@ async fn do_handshake(
     handshake_result: HandshakeResult,
     eff: Effects<ConnectionMessage>,
 ) -> State {
+    let peer = *peer;
     let (version_number, version_data) = match handshake_result {
         HandshakeResult::Accepted(version_number, version_data) => (version_number, version_data),
         HandshakeResult::Refused(refuse_reason) => {
@@ -351,7 +352,7 @@ async fn do_handshake(
     eff.send(
         manager,
         ManagerMessage::HandshakeComplete {
-            peer: peer.clone(),
+            peer,
             stage: eff.me(),
             conn_id: *conn_id,
             role: *role,
@@ -364,7 +365,7 @@ async fn do_handshake(
 
     let keepalive = register_keepalive(
         *role,
-        peer.clone(),
+        peer,
         *conn_id,
         muxer.clone(),
         &eff,
@@ -373,10 +374,10 @@ async fn do_handshake(
     .await;
     let tx_submission = register_tx_submission(
         *role,
-        peer.clone(),
+        peer,
         muxer.clone(),
         &eff,
-        TxOrigin::Remote(peer.clone()),
+        TxOrigin::Remote(peer),
         mempool_stage.clone(),
         config.tx_submission_params,
         era_history.clone(),
@@ -387,7 +388,7 @@ async fn do_handshake(
     if *role == Role::Initiator {
         let chainsync_initiator = register_chainsync_initiator(
             &muxer,
-            peer.clone(),
+            peer,
             *conn_id,
             pipeline_ref,
             &eff,
@@ -396,7 +397,7 @@ async fn do_handshake(
         .await;
         let blockfetch_initiator = register_blockfetch_initiator(
             &muxer,
-            peer.clone(),
+            peer,
             *conn_id,
             &eff,
             ConnectionMessage::ChildDied(ChildId::BlockFetch),
@@ -404,7 +405,7 @@ async fn do_handshake(
         .await;
         let peer_sharing_initiator = register_peer_sharing_initiator(
             &muxer,
-            peer.clone(),
+            peer,
             *conn_id,
             &eff,
             ConnectionMessage::ChildDied(ChildId::PeerSharing),
@@ -427,7 +428,7 @@ async fn do_handshake(
         let chainsync_responder = register_chainsync_responder(
             &muxer,
             upstream,
-            peer.clone(),
+            peer,
             *conn_id,
             &eff,
             ConnectionMessage::ChildDied(ChildId::ChainSync),
@@ -437,7 +438,7 @@ async fn do_handshake(
             register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
         let peer_sharing_responder = register_peer_sharing_responder(
             &muxer,
-            peer.clone(),
+            peer,
             manager.clone(),
             &eff,
             ConnectionMessage::ChildDied(ChildId::PeerSharing),
@@ -556,7 +557,7 @@ mod tests {
     fn test_connection(state: State) -> Connection {
         Connection {
             params: Params {
-                peer: Peer::new("test-peer"),
+                peer: Peer::for_test(3009),
                 conn_id: ConnectionId::initial(),
                 role: Role::Initiator,
                 config: ManagerConfig::default(),

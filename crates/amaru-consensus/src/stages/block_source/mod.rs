@@ -149,7 +149,7 @@ impl BlockSource {
                 *validity = BlockValidity::Valid(*height);
             } else {
                 for p in std::mem::take(peers) {
-                    eff.send(&self.invalid_peer_sink, PeerSelectionMsg::adversarial(p.clone())).await;
+                    eff.send(&self.invalid_peer_sink, PeerSelectionMsg::adversarial(p)).await;
                 }
                 *validity = BlockValidity::Invalid(*height);
             }

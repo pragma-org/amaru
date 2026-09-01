@@ -22,11 +22,14 @@ use rand::Rng;
 /// effect is *issued*, not when its `Future` later completes. Real CPU time is never used as `δ`.
 ///
 /// - [`DurationDist::Zero`], [`DurationDist::Constant`], [`DurationDist::Uniform`]: `δ` is
-///   known at issue time. The simulator enqueues a wakeup at `now + δ` immediately. The
-///   stage resumes only once that time has been reached *and* the effect result is available.
-/// - [`DurationDist::UntilResolved`]: there is no `δ`. The stage stays suspended until the
-///   effect `Future` is resolved. This is how a later world runner delivers a network receive
-///   at a time of its choosing.
+///   known at issue time. The simulator enqueues a wakeup at `now + δ` immediately. For
+///   [`Effects::external`](crate::Effects::external) the stage resumes only once that time has
+///   been reached *and* the effect result is available. For [`Effects::detach`](crate::Effects::detach)
+///   the airlock is acked immediately; `δ` delays mailbox delivery of the mapped result.
+/// - [`DurationDist::UntilResolved`]: there is no `δ`. A blocking external keeps the stage
+///   suspended until the effect `Future` is resolved. A detached external leaves the stage
+///   free; the result is enqueued when the future completes. This is how a later world runner
+///   delivers a network receive at a time of its choosing.
 ///
 /// Start every effect at [`DurationDist::Zero`]. Pick [`DurationDist::UntilResolved`] for
 /// completions the simulation drives; pick a sampled variant for local work (store, validation, …).

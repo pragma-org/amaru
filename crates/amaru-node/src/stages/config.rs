@@ -24,7 +24,7 @@ use std::{
 use amaru_consensus::performance::PeerMix;
 use amaru_kernel::{
     ConsensusParameters, EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
-    PREPROD_GLOBAL_PARAMETERS, Peer,
+    PREPROD_GLOBAL_PARAMETERS, Peer, PeerCandidate,
 };
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
@@ -46,6 +46,8 @@ pub struct Config {
     pub upstream_peers: Vec<String>,
     /// Big-ledger relays from a Cardano peer snapshot file (`--peer-snapshot`).
     pub peer_snapshot_peers: BTreeSet<Peer>,
+    /// Snapshot relays that still need DNS (hostname or SRV).
+    pub peer_snapshot_unresolved: BTreeSet<PeerCandidate>,
     pub target_upstream_peers: usize,
     pub target_downstream_peers: usize,
     /// Outbound source mix formula (EDR-031); default prefers static floor then shared/snapshot/ledger.
@@ -134,6 +136,7 @@ impl Default for Config {
             chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
             peer_snapshot_peers: BTreeSet::new(),
+            peer_snapshot_unresolved: BTreeSet::new(),
             target_upstream_peers: DEFAULT_UPSTREAM_PEERS,
             target_downstream_peers: DEFAULT_DOWNSTREAM_PEERS,
             peer_mix: PeerMix::default(),

@@ -26,15 +26,15 @@
 
 use std::{sync::Arc, time::Duration};
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, PeerCandidate, Point};
 use amaru_protocols::metrics_effects::ResourceMeter;
 use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendData};
 use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerShareFlags,
-    PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams, SelectPeersParams,
-    SharedIngestResult,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, OutboundPick, PeerScores,
+    PeerShareFlags, PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams,
+    SelectPeersParams, SharedIngestResult,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -182,7 +182,7 @@ impl Performance {
         OkForSharingEffect { peer, now }
     }
 
-    pub fn set_ledger_candidates(candidates: std::collections::BTreeSet<Peer>) -> SetLedgerCandidatesEffect {
+    pub fn set_ledger_candidates(candidates: std::collections::BTreeSet<PeerCandidate>) -> SetLedgerCandidatesEffect {
         SetLedgerCandidatesEffect { candidates }
     }
 
@@ -202,8 +202,8 @@ impl Performance {
         IsStaticPeerEffect { peer }
     }
 
-    pub fn static_peers() -> StaticPeersEffect {
-        StaticPeersEffect
+    pub fn note_dial(origin: crate::performance::PeerSource, candidate: PeerCandidate, peer: Peer) -> NoteDialEffect {
+        NoteDialEffect { origin, candidate, peer }
     }
 
     pub fn shared_contains(peer: Peer) -> SharedContainsEffect {
@@ -597,7 +597,7 @@ impl ExternalEffectAPI for OkForSharingEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SetLedgerCandidatesEffect {
-    pub(crate) candidates: std::collections::BTreeSet<Peer>,
+    pub(crate) candidates: std::collections::BTreeSet<PeerCandidate>,
 }
 
 impl ExternalEffectAPI for SetLedgerCandidatesEffect {
@@ -634,7 +634,7 @@ pub struct SelectOutboundEffect {
 }
 
 impl ExternalEffectAPI for SelectOutboundEffect {
-    type Response = Vec<Peer>;
+    type Response = Vec<OutboundPick>;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -679,15 +679,19 @@ impl ExternalEffectAPI for IsStaticPeerEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StaticPeersEffect;
+pub struct NoteDialEffect {
+    pub(crate) origin: crate::performance::PeerSource,
+    pub(crate) candidate: PeerCandidate,
+    pub(crate) peer: Peer,
+}
 
-impl ExternalEffectAPI for StaticPeersEffect {
-    type Response = std::collections::BTreeSet<Peer>;
+impl ExternalEffectAPI for NoteDialEffect {
+    type Response = ();
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        self.wrap(|this| async move {
-            enqueue_query(&perf, |reply| PerformanceOp::StaticPeers { effect: this, reply }).await
+        self.wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::NoteDial { effect: self.as_ref().clone() });
         })
     }
 }

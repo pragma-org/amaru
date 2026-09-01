@@ -246,7 +246,7 @@ fn roll_forward(peer: String) {
 }
 
 fn roll_forward_with_display_expressions(peer: String) {
-    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer = peer.clone());
+    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer = peer);
     let _guard = _span.enter();
 }
 

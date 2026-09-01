@@ -122,7 +122,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         let message_type = input.message_type().to_string();
-        let peer = self.peer.clone();
+        let peer = self.peer;
 
         async move {
             let mempool = MemoryPool::new(eff.clone());
@@ -662,7 +662,7 @@ mod tests {
         let mempool = new_mempool();
         let txs = create_transactions(1);
         let (_, mut initiator) = TxSubmissionInitiator::new(
-            Peer::new("peer"),
+            Peer::for_test(3006),
             StageRef::blackhole(),
             StageRef::blackhole(),
             Arc::new(EraHistory::default()),
@@ -683,7 +683,7 @@ mod tests {
         let mempool = new_mempool();
         let txs = create_transactions(1);
         let (_, mut initiator) = TxSubmissionInitiator::new(
-            Peer::new("peer"),
+            Peer::for_test(3006),
             StageRef::blackhole(),
             StageRef::blackhole(),
             Arc::new(EraHistory::default()),
@@ -938,7 +938,7 @@ mod tests {
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         run_stage_and_return_state_with(
             TxSubmissionInitiator::new(
-                Peer::new("peer"),
+                Peer::for_test(3006),
                 StageRef::named_for_tests("muxer"),
                 StageRef::blackhole(),
                 Arc::new(EraHistory::default()),

@@ -37,11 +37,11 @@ pub fn random_walk<R: Rng>(
     result: &mut BTreeMap<Peer, Vec<Action>>,
 ) {
     if !result.contains_key(peer) {
-        result.insert(peer.clone(), vec![]);
+        result.insert(*peer, vec![]);
     }
 
     if let Some(actions) = result.get_mut(peer) {
-        actions.push(Action::RollForward { peer: peer.clone(), header: tree.value.clone() })
+        actions.push(Action::RollForward { peer: *peer, header: tree.value.clone() })
     }
 
     // Process the children in a random order based on a the rng
@@ -57,7 +57,7 @@ pub fn random_walk<R: Rng>(
     if let Some(parent) = parent_header
         && let Some(actions) = result.get_mut(peer)
     {
-        let rollback = Action::Rollback { peer: peer.clone(), rollback_point: parent.point().to_network_point() };
+        let rollback = Action::Rollback { peer: *peer, rollback_point: parent.point().to_network_point() };
         if actions.last().map(|h| h.hash()) != Some(rollback.hash()) {
             actions.push(rollback)
         }
@@ -84,7 +84,7 @@ pub fn generate_random_walks(seed: u64, generated_tree: &GeneratedTree, peers: &
         for action in actions_per_peer.get(peer_1).cloned().unwrap_or_default() {
             duplicate_actions.push(action.set_peer(peer_2));
         }
-        actions_per_peer.insert(peer_2.clone(), duplicate_actions);
+        actions_per_peer.insert(*peer_2, duplicate_actions);
     }
 
     // Truncate actions to avoid a final list of rollbacks to the root of the tree
@@ -107,7 +107,7 @@ pub struct GeneratedActions {
 impl GeneratedActions {
     pub fn set_actions(&mut self, actions: Vec<Action>) {
         let actions_per_peer = actions.into_iter().fold(BTreeMap::<Peer, Vec<Action>>::new(), |mut acc, action| {
-            acc.entry(action.peer().clone()).or_default().push(action);
+            acc.entry(*action.peer()).or_default().push(action);
             acc
         });
         self.actions_per_peer = actions_per_peer;
@@ -352,7 +352,7 @@ mod tests {
     fn test_generate_random_walks() {
         let seed = 45;
         let tree = generate_tree_of_headers(seed, 10);
-        let peers = (1..=3).map(|i| Peer::new(&format!("peer-{i}"))).collect::<Vec<_>>();
+        let peers = (1..=3).map(|i| Peer::for_test(3000 + i)).collect::<Vec<_>>();
         let generated_actions = generate_random_walks(seed, &tree, &peers);
         let statistics = generated_actions.statistics();
 
@@ -368,7 +368,7 @@ mod tests {
             .map(|actions| {
                 actions
                     .iter()
-                    .map(|a: &Action| a.clone().set_peer(&Peer::new("unused")))
+                    .map(|a: &Action| a.clone().set_peer(&Peer::for_test(3010)))
                     .collect::<Vec<_>>()
                     .list_to_string(",\n")
             })

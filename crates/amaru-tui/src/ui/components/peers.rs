@@ -18,6 +18,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Rect},
     style::{Color, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Cell, Row, Table},
 };
 
@@ -141,7 +142,7 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
             Color::Rgb(244, 86, 86)
         })),
         Cell::from(direction).style(Style::default().fg(accent_primary(mode))),
-        Cell::from(peer.address.clone()).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(peer_address_line(peer)),
         Cell::from(can_duplex).style(Style::default().fg(muted_color())),
         Cell::from(rtt).style(Style::default().fg(emphasis_white_color())),
         Cell::from(slot_start_to_header).style(Style::default().fg(emphasis_white_color())),
@@ -153,4 +154,14 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
         Cell::from(adopt_block).style(Style::default().fg(emphasis_white_color())),
     ])
     .style(striped_row_style(index))
+}
+
+fn peer_address_line(peer: &PeerState) -> Line<'static> {
+    let address = Span::styled(peer.address.clone(), Style::default().fg(emphasis_white_color()));
+    match peer.candidate_label() {
+        Some(candidate) => {
+            Line::from(vec![address, Span::styled(format!(" ({candidate})"), Style::default().fg(muted_color()))])
+        }
+        None => Line::from(address),
+    }
 }

@@ -59,7 +59,7 @@ fn test_against_node() {
     network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
-    let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator, Peer::new("handshake-test")));
+    let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator, Peer::for_test(3008)));
 
     let (output, mut rx) = network.output::<handshake::HandshakeResult>("handshake_result", 10);
 
@@ -128,7 +128,7 @@ fn test_against_node_with_tokio() {
     network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
     let mux = network.stage("mux", mux::stage);
-    let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator, Peer::new("handshake-test")));
+    let mux = network.wire_up(mux, mux::State::new(conn_id, &[], Role::Initiator, Peer::for_test(3008)));
 
     let (output, mut rx) = network.output::<handshake::HandshakeResult>("handshake_result", 10);
 

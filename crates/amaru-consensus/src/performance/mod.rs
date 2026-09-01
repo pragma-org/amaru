@@ -45,7 +45,7 @@ use std::{
     time::Duration,
 };
 
-use amaru_kernel::Peer;
+use amaru_kernel::{Peer, PeerCandidate};
 use amaru_observability::{error, warn};
 use amaru_pure_stage::Instant;
 pub use effects::*;
@@ -53,8 +53,9 @@ pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, H
 use parking_lot::Mutex;
 pub use peer::{
     ADVERSARIAL_IMPULSE, BlockClaim, CONNECT_FAIL_IMPULSE, ClaimKind, DEFAULT_PEER_MALUS_HALF_LIFE, FetchPeerSet,
-    NEVER_CONNECTED_BONUS, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot, SHARE_MALUS_THRESHOLD,
-    SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SharedIngestResult, SourceCounts, malus_at,
+    NEVER_CONNECTED_BONUS, OutboundPick, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot,
+    SHARE_MALUS_THRESHOLD, SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SharedIngestResult, SourceCounts,
+    malus_at,
 };
 pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
 use tokio::{
@@ -159,10 +160,10 @@ pub(crate) enum PerformanceOp {
     OkForSharing { effect: OkForSharingEffect, reply: oneshot::Sender<bool> },
     SetLedgerCandidates { effect: SetLedgerCandidatesEffect },
     IngestSharedPeers { effect: IngestSharedPeersEffect, reply: oneshot::Sender<SharedIngestResult> },
-    SelectOutbound { effect: SelectOutboundEffect, reply: oneshot::Sender<Vec<Peer>> },
+    SelectOutbound { effect: SelectOutboundEffect, reply: oneshot::Sender<Vec<OutboundPick>> },
     SelectSharePeers { effect: SelectSharePeersEffect, reply: oneshot::Sender<Vec<std::net::SocketAddr>> },
     IsStaticPeer { effect: IsStaticPeerEffect, reply: oneshot::Sender<bool> },
-    StaticPeers { effect: StaticPeersEffect, reply: oneshot::Sender<std::collections::BTreeSet<Peer>> },
+    NoteDial { effect: NoteDialEffect },
     SharedContains { effect: SharedContainsEffect, reply: oneshot::Sender<bool> },
     SourceCounts { effect: SourceCountsEffect, reply: oneshot::Sender<SourceCounts> },
     RecordRollback { effect: RecordRollbackEffect },
@@ -184,12 +185,13 @@ impl Performance {
 
     /// Start the worker with outbound candidate sources and mix.
     ///
-    /// This is the **only** place static/snapshot pools and the peer-mix formula are set;
-    /// there is no live reconfiguration effect.
+    /// This is the **only** place static/snapshot/ledger pools and the peer-mix formula are set;
+    /// there is no live reconfiguration effect. Pools are [`PeerCandidate`]s; Host/SRV names are
+    /// resolved on demand each time they are selected.
     pub fn with_peer_sources(
-        static_peers: std::collections::BTreeSet<Peer>,
-        snapshot_candidates: std::collections::BTreeSet<Peer>,
-        ledger_candidates: std::collections::BTreeSet<Peer>,
+        static_peers: std::collections::BTreeSet<PeerCandidate>,
+        snapshot_candidates: std::collections::BTreeSet<PeerCandidate>,
+        ledger_candidates: std::collections::BTreeSet<PeerCandidate>,
         peer_mix: PeerMix,
     ) -> Self {
         let (tx, mut rx) = unbounded_channel::<PerformanceOp>();
@@ -282,7 +284,7 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             peers.apply_intersection(effect.peer, effect.current, effect.parent, effect.at);
         }
         PerformanceOp::RecordHeaderAnnouncement { effect } => {
-            peers.apply_header_announcement(effect.peer.clone(), effect.header, effect.parent, effect.at);
+            peers.apply_header_announcement(effect.peer, effect.header, effect.parent, effect.at);
             headers.apply_header_received(effect.peer, effect.header, effect.at, effect.slot_start_to_header_micros);
         }
         PerformanceOp::RecordBlocksRequested { effect } => {
@@ -378,9 +380,8 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             let result = peers.apply_is_static_peer(&effect.peer);
             let _ = reply.send(result);
         }
-        PerformanceOp::StaticPeers { effect: StaticPeersEffect, reply } => {
-            let result = peers.apply_static_peers();
-            let _ = reply.send(result);
+        PerformanceOp::NoteDial { effect } => {
+            peers.apply_note_dial(effect.origin, &effect.candidate, effect.peer);
         }
         PerformanceOp::SharedContains { effect, reply } => {
             let result = peers.apply_shared_contains(&effect.peer);

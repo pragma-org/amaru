@@ -35,7 +35,7 @@ impl<T: Debug> fmt::Debug for Tracked<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Tracked::Wrapped(e) => write!(f, "{:?}", e),
-            Tracked::CaughtUp { peer, .. } => f.debug_struct("CaughtUp").field("peer", &peer.name).finish(),
+            Tracked::CaughtUp { peer, .. } => f.debug_struct("CaughtUp").field("peer", peer).finish(),
         }
     }
 }
@@ -63,13 +63,13 @@ impl fmt::Debug for ChainSyncEvent {
         match self {
             ChainSyncEvent::RollForward { peer, raw_header, tip, span: _ } => f
                 .debug_struct("RollForward")
-                .field("peer", &peer.name)
+                .field("peer", peer)
                 .field("tip", &tip)
                 .field("raw_header", &hex::encode(&raw_header[..raw_header.len().min(32)]))
                 .finish(),
             ChainSyncEvent::Rollback { peer, rollback_point, tip, span: _ } => f
                 .debug_struct("Rollback")
-                .field("peer", &peer.name)
+                .field("peer", peer)
                 .field("rollback_point", &rollback_point)
                 .field("tip", &tip)
                 .finish(),
@@ -96,8 +96,8 @@ pub enum DecodedChainSyncEvent {
 impl DecodedChainSyncEvent {
     pub fn peer(&self) -> Peer {
         match self {
-            DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
-            DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
+            DecodedChainSyncEvent::RollForward { peer, .. } => *peer,
+            DecodedChainSyncEvent::Rollback { peer, .. } => *peer,
         }
     }
 
@@ -112,13 +112,11 @@ impl DecodedChainSyncEvent {
 impl fmt::Debug for DecodedChainSyncEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DecodedChainSyncEvent::RollForward { peer, header, .. } => f
-                .debug_struct("RollForward")
-                .field("peer", &peer.name)
-                .field("header", &header.hash().to_string())
-                .finish(),
+            DecodedChainSyncEvent::RollForward { peer, header, .. } => {
+                f.debug_struct("RollForward").field("peer", peer).field("header", &header.hash().to_string()).finish()
+            }
             DecodedChainSyncEvent::Rollback { peer, rollback_point, .. } => {
-                f.debug_struct("Rollback").field("peer", &peer.name).field("rollback_point", &rollback_point).finish()
+                f.debug_struct("Rollback").field("peer", peer).field("rollback_point", &rollback_point).finish()
             }
         }
     }
@@ -210,9 +208,9 @@ pub enum BlockValidationResult {
 impl BlockValidationResult {
     pub fn peer(&self) -> Peer {
         match self {
-            BlockValidationResult::BlockValidated { peer, .. } => peer.clone(),
-            BlockValidationResult::BlockValidationFailed { peer, .. } => peer.clone(),
-            BlockValidationResult::RolledBackTo { peer, .. } => peer.clone(),
+            BlockValidationResult::BlockValidated { peer, .. } => *peer,
+            BlockValidationResult::BlockValidationFailed { peer, .. } => *peer,
+            BlockValidationResult::RolledBackTo { peer, .. } => *peer,
         }
     }
 }

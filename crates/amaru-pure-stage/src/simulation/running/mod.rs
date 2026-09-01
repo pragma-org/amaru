@@ -31,7 +31,7 @@ use tokio::{runtime::Handle, select, sync::watch};
 use crate::{
     BLACKHOLE_NAME, BoxFuture, DurationDist, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
     ScheduleId, SendData, StageRef, StageResponse,
-    effect::{CallExtra, CanSupervise, ScheduleIds, StageEffect},
+    effect::{CallExtra, CanSupervise, InjectFn, ScheduleIds, StageEffect},
     effect_box::EffectBox,
     simulation::{
         blocked::{Blocked, SendBlock},
@@ -40,9 +40,9 @@ use crate::{
         running::{
             resume::{
                 resume_add_stage_internal, resume_call_internal, resume_call_send_internal,
-                resume_cancel_schedule_internal, resume_clock_internal, resume_external_internal,
-                resume_receive_internal, resume_schedule_internal, resume_send_internal, resume_wait_internal,
-                resume_wire_stage_internal,
+                resume_cancel_schedule_internal, resume_clock_internal, resume_detach_internal,
+                resume_external_internal, resume_receive_internal, resume_schedule_internal, resume_send_internal,
+                resume_wait_internal, resume_wire_stage_internal,
             },
             scheduled_runnables::ScheduledRunnables,
         },
@@ -93,6 +93,13 @@ pub struct SimulationRunning {
     pending_computations: BTreeMap<Name, BoxFuture<'static, Box<dyn SendData>>>,
     /// In-flight external effects: `δ` is scheduled when the effect is issued; the result may arrive later.
     external_inflight: BTreeMap<Name, PendingExternal>,
+    /// Detached `run()` futures, keyed independently of the stage (many may be in flight).
+    pending_detach_computations: BTreeMap<u64, BoxFuture<'static, Box<dyn SendData>>>,
+    /// In-flight detaches: `δ` delays mailbox delivery; the stage is not parked on the airlock.
+    detach_inflight: BTreeMap<u64, PendingDetach>,
+    next_detach_id: u64,
+    /// Detach results that could not yet be delivered because the bulk mailbox was full.
+    undelivered_detaches: VecDeque<(Name, Box<dyn SendData>)>,
     /// Drives still-pending `run()` futures to completion when a sampled deadline fires.
     tokio_handle: Handle,
     /// When true, AddStage/WireStage effects (dynamic child stage creation via `eff.stage` + `eff.wire_up`)
@@ -111,6 +118,21 @@ struct PendingExternal {
     time_ready: bool,
     /// When time is ready and no result is stored, poll/`block_on` the scheduled `run()`.
     /// `false` for [`DurationDist::UntilResolved`]: the world runner owns completion.
+    force_on_ready: bool,
+    dist: DurationDist,
+}
+
+enum ReadyComputation {
+    Blocking((Name, Box<dyn SendData>)),
+    Detach((u64, Box<dyn SendData>)),
+}
+
+/// A detached external effect whose `δ` delays mailbox delivery, not the airlock ack.
+struct PendingDetach {
+    at_stage: Name,
+    inject: Option<InjectFn>,
+    result: Option<Box<dyn SendData>>,
+    time_ready: bool,
     force_on_ready: bool,
     dist: DurationDist,
 }
@@ -155,6 +177,10 @@ impl SimulationRunning {
             termination,
             pending_computations: BTreeMap::new(),
             external_inflight: BTreeMap::new(),
+            pending_detach_computations: BTreeMap::new(),
+            detach_inflight: BTreeMap::new(),
+            next_detach_id: 0,
+            undelivered_detaches: VecDeque::new(),
             tokio_handle,
             virtual_child_stages: false,
         }
@@ -178,7 +204,7 @@ impl SimulationRunning {
 
     /// Return true if there are any effects to be run.
     pub fn has_effects(&self) -> bool {
-        !self.pending_computations.is_empty()
+        !self.pending_computations.is_empty() || !self.pending_detach_computations.is_empty()
     }
 
     /// Install a breakpoint that will be hit when an effect matching the given predicate is encountered.
@@ -339,6 +365,32 @@ impl SimulationRunning {
         self.external_inflight.insert(at_stage, PendingExternal { result: None, time_ready, force_on_ready, dist });
     }
 
+    /// Sample `δ` for a detach: the airlock is already free; `δ` delays mailbox delivery.
+    fn begin_detach(&mut self, at_stage: Name, dist: DurationDist) -> u64 {
+        let id = self.next_detach_id;
+        self.next_detach_id += 1;
+        let delta = dist.sample(&mut self.duration_rng);
+        let force_on_ready = delta.is_some();
+        let time_ready = match delta {
+            None => true,
+            Some(d) if d.is_zero() => true,
+            Some(delta) => {
+                let now = self.clock.now(self.global_epoch_offset);
+                let schedule_id = self.schedule_ids.next_at(now + delta);
+                self.schedule_wakeup(schedule_id, move |sim| {
+                    if let Some(pending) = sim.detach_inflight.get_mut(&id) {
+                        pending.time_ready = true;
+                    }
+                    sim.try_deliver_detach(id);
+                });
+                false
+            }
+        };
+        self.detach_inflight
+            .insert(id, PendingDetach { at_stage, inject: None, result: None, time_ready, force_on_ready, dist });
+        id
+    }
+
     /// Offer the computed result of an in-flight external effect. Resumes the stage if
     /// the scheduled time has already been reached (or there was no `δ`).
     fn provide_external_result(&mut self, at_stage: Name, result: Box<dyn SendData>) {
@@ -382,21 +434,155 @@ impl SimulationRunning {
         self.provide_external_result(at_stage.clone(), result);
     }
 
-    fn poll_ready_computations(
-        pending: &mut BTreeMap<Name, BoxFuture<'static, Box<dyn SendData>>>,
+    fn poll_ready_computations<K: Clone + Ord>(
+        pending: &mut BTreeMap<K, BoxFuture<'static, Box<dyn SendData>>>,
         cx: &mut Context<'_>,
-    ) -> Option<(Name, Box<dyn SendData>)> {
-        let names: Vec<Name> = pending.keys().cloned().collect();
-        for name in names {
-            let Some(fut) = pending.get_mut(&name) else {
+    ) -> Option<(K, Box<dyn SendData>)> {
+        let keys: Vec<K> = pending.keys().cloned().collect();
+        for key in keys {
+            let Some(fut) = pending.get_mut(&key) else {
                 continue;
             };
             match std::future::Future::poll(fut.as_mut(), cx) {
                 Poll::Ready(result) => {
-                    pending.remove(&name);
-                    return Some((name, result));
+                    pending.remove(&key);
+                    return Some((key, result));
                 }
                 Poll::Pending => {}
+            }
+        }
+        None
+    }
+
+    fn provide_detach_result(&mut self, id: u64, raw: Box<dyn SendData>) {
+        let Some(pending) = self.detach_inflight.get_mut(&id) else {
+            tracing::debug!(id, "detach result ignored: stage already terminated");
+            return;
+        };
+        let inject = pending.inject.take().expect("detach inject installed before run()");
+        pending.result = Some(inject(raw));
+        self.try_deliver_detach(id);
+    }
+
+    fn force_detach_computation(&mut self, id: u64) {
+        let Some(mut fut) = self.pending_detach_computations.remove(&id) else {
+            return;
+        };
+        let (timeout, at_stage) = {
+            let pending = self.detach_inflight.get(&id).expect("inflight present when forcing");
+            (pending.dist.force_timeout().expect("force only for sampled DurationDist"), pending.at_stage.clone())
+        };
+        let result = match std::future::Future::poll(fut.as_mut(), &mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(result) => result,
+            Poll::Pending => match self.tokio_handle.block_on(async { tokio::time::timeout(timeout, fut).await }) {
+                Ok(result) => result,
+                Err(_elapsed) => {
+                    panic!("detach effect on `{at_stage}` exceeded force timeout {timeout:?}")
+                }
+            },
+        };
+        self.provide_detach_result(id, result);
+    }
+
+    fn try_deliver_detach(&mut self, id: u64) {
+        let Some(pending) = self.detach_inflight.get(&id) else {
+            return;
+        };
+        if !pending.time_ready {
+            return;
+        }
+        if pending.result.is_none() && pending.force_on_ready {
+            self.force_detach_computation(id);
+            return;
+        }
+        if pending.result.is_none() {
+            return;
+        }
+        let pending = self.detach_inflight.remove(&id).expect("just checked");
+        self.pending_detach_computations.remove(&id);
+        self.deliver_detach_message(pending.at_stage, pending.result.expect("just checked"));
+    }
+
+    fn deliver_detach_message(&mut self, at_stage: Name, msg: Box<dyn SendData>) {
+        match deliver_message(&mut self.stages, self.mailbox_size, at_stage.clone(), msg) {
+            DeliverMessageResult::Delivered(_) => {}
+            DeliverMessageResult::Full(_, msg) => {
+                self.undelivered_detaches.push_back((at_stage, msg));
+            }
+            DeliverMessageResult::NotFound => {
+                tracing::debug!(name = %at_stage, "detach result dropped: stage gone");
+            }
+        }
+    }
+
+    fn flush_undelivered_detaches(&mut self) {
+        let mut parked = VecDeque::new();
+        while let Some((name, msg)) = self.undelivered_detaches.pop_front() {
+            match deliver_message(&mut self.stages, self.mailbox_size, name.clone(), msg) {
+                DeliverMessageResult::Delivered(_) => {}
+                DeliverMessageResult::Full(_, msg) => {
+                    parked.push_back((name, msg));
+                    parked.append(&mut self.undelivered_detaches);
+                    break;
+                }
+                DeliverMessageResult::NotFound => {
+                    tracing::debug!(name = %name, "detach result dropped: stage gone");
+                }
+            }
+        }
+        self.undelivered_detaches = parked;
+    }
+
+    fn apply_external_overrides(
+        &mut self,
+        mut effect: Box<dyn ExternalEffect>,
+    ) -> Result<Box<dyn ExternalEffect>, Box<dyn SendData>> {
+        let mut idx = 0;
+        while idx < self.overrides.len() {
+            use override_external_effect::OverrideResult::*;
+            let over = &mut self.overrides[idx];
+            match over.transform(effect) {
+                NoMatch(effect2) => {
+                    effect = effect2;
+                    idx += 1;
+                }
+                Handled(msg) => {
+                    if over.register_use_and_get_removal() {
+                        self.overrides.remove(idx);
+                    }
+                    return Err(msg);
+                }
+                Replaced(effect2) => {
+                    effect = effect2;
+                    if over.register_use_and_get_removal() {
+                        self.overrides.remove(idx);
+                    } else {
+                        idx += 1;
+                    }
+                }
+            }
+        }
+        Ok(effect)
+    }
+
+    fn handle_detach(&mut self, at_stage: Name, effect: Box<dyn ExternalEffect>) -> Option<Blocked> {
+        let dist = effect.simulated_duration_dist();
+        let data =
+            self.stages.get_mut(&at_stage).log_termination(&at_stage)?.assert_stage("which cannot emit detach effects");
+        let inject = resume_detach_internal(data, &mut |name, response| {
+            tracing::debug!(%name, ?response, "enqueuing stage");
+            self.runnable.push_back((name, response));
+        })
+        .expect("detach effect is always runnable");
+        let id = self.begin_detach(at_stage.clone(), dist);
+        if let Some(pending) = self.detach_inflight.get_mut(&id) {
+            pending.inject = Some(inject);
+        }
+        match self.apply_external_overrides(effect) {
+            Err(msg) => self.provide_detach_result(id, msg),
+            Ok(effect) => {
+                self.pending_detach_computations.insert(id, effect.run(self.resources.clone()));
+                self.try_deliver_detach(id);
             }
         }
         None
@@ -563,35 +749,64 @@ impl SimulationRunning {
     /// When external effects are currently unresolved, await either the resolution of an effect
     /// or the arrival of a new external input message.
     pub async fn await_external_effect(&mut self) -> Option<Name> {
-        if self.pending_computations.is_empty() {
+        if self.pending_computations.is_empty() && self.pending_detach_computations.is_empty() {
             return None;
         }
-        if let Some((name, result)) =
-            Self::poll_ready_computations(&mut self.pending_computations, &mut Context::from_waker(Waker::noop()))
-        {
-            self.provide_external_result(name.clone(), result);
+        if let Some(name) = self.take_ready_computation(&mut Context::from_waker(Waker::noop())) {
             return Some(name);
         }
-        if self.pending_computations.is_empty() {
+        if self.pending_computations.is_empty() && self.pending_detach_computations.is_empty() {
             return None;
         }
 
         let pending = &mut self.pending_computations;
+        let pending_detach = &mut self.pending_detach_computations;
         let inputs = &mut self.inputs;
         let ready = select! {
             env = inputs.next() => {
                 inputs.put_back(env);
                 None
             }
-            ready = std::future::poll_fn(|cx| match Self::poll_ready_computations(pending, cx) {
-                Some(ready) => Poll::Ready(Some(ready)),
-                None if pending.is_empty() => Poll::Ready(None),
-                None => Poll::Pending,
+            ready = std::future::poll_fn(|cx| {
+                if let Some(ready) = Self::poll_ready_computations(pending, cx) {
+                    return Poll::Ready(Some(ReadyComputation::Blocking(ready)));
+                }
+                if let Some(ready) = Self::poll_ready_computations(pending_detach, cx) {
+                    return Poll::Ready(Some(ReadyComputation::Detach(ready)));
+                }
+                if pending.is_empty() && pending_detach.is_empty() {
+                    Poll::Ready(None)
+                } else {
+                    Poll::Pending
+                }
             }) => ready,
         };
-        let (name, result) = ready?;
-        self.provide_external_result(name.clone(), result);
-        Some(name)
+        Some(self.finish_ready_computation(ready?))
+    }
+
+    fn take_ready_computation(&mut self, cx: &mut Context<'_>) -> Option<Name> {
+        if let Some(ready) = Self::poll_ready_computations(&mut self.pending_computations, cx) {
+            return Some(self.finish_ready_computation(ReadyComputation::Blocking(ready)));
+        }
+        if let Some(ready) = Self::poll_ready_computations(&mut self.pending_detach_computations, cx) {
+            return Some(self.finish_ready_computation(ReadyComputation::Detach(ready)));
+        }
+        None
+    }
+
+    fn finish_ready_computation(&mut self, ready: ReadyComputation) -> Name {
+        match ready {
+            ReadyComputation::Blocking((name, result)) => {
+                self.provide_external_result(name.clone(), result);
+                name
+            }
+            ReadyComputation::Detach((id, result)) => {
+                let name =
+                    self.detach_inflight.get(&id).map(|p| p.at_stage.clone()).unwrap_or_else(|| BLACKHOLE_NAME.clone());
+                self.provide_detach_result(id, result);
+                name
+            }
+        }
     }
 
     /// Wait for a message to be enqueued via an external input to the simulation.
@@ -704,6 +919,7 @@ impl SimulationRunning {
 
     pub fn receive_inputs(&mut self) {
         self.try_inputs();
+        self.flush_undelivered_detaches();
         let receiving = self
             .stages
             .iter()
@@ -715,6 +931,7 @@ impl SimulationRunning {
             // ignore all errors since this is a purely optimistic wake-up
             resume_receive_internal(self, &name).ok();
         }
+        self.flush_undelivered_detaches();
     }
 
     fn run_effect(&mut self) -> Option<Blocked> {
@@ -927,38 +1144,18 @@ impl SimulationRunning {
                 resume_cancel_schedule_internal(data, run, cancelled)
                     .expect("cancel_schedule effect is always runnable");
             }
-            Effect::External { at_stage, mut effect } => {
-                let mut idx = 0;
-                while idx < self.overrides.len() {
-                    use override_external_effect::OverrideResult::*;
-                    let over = &mut self.overrides[idx];
-                    match over.transform(effect) {
-                        NoMatch(effect2) => {
-                            effect = effect2;
-                            idx += 1;
-                        }
-                        Handled(msg) => {
-                            if over.register_use_and_get_removal() {
-                                self.overrides.remove(idx);
-                            }
-                            self.provide_external_result(at_stage, msg);
-                            return None;
-                        }
-                        Replaced(effect2) => {
-                            effect = effect2;
-                            if over.register_use_and_get_removal() {
-                                self.overrides.remove(idx);
-                            } else {
-                                idx += 1;
-                            }
-                        }
-                    }
+            Effect::External { at_stage, effect } => match self.apply_external_overrides(effect) {
+                Err(msg) => {
+                    self.provide_external_result(at_stage, msg);
+                    return None;
                 }
-                let resources = self.resources.clone();
-                let name = at_stage.clone();
-                self.pending_computations.insert(name.clone(), effect.run(resources));
-                self.try_deliver_external(&name);
-            }
+                Ok(effect) => {
+                    let name = at_stage.clone();
+                    self.pending_computations.insert(name.clone(), effect.run(self.resources.clone()));
+                    self.try_deliver_external(&name);
+                }
+            },
+            Effect::Detach { at_stage, effect } => return self.handle_detach(at_stage, effect),
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
                 let (supervised_by, msg) = self.terminate_stage(at_stage.clone(), TerminationReason::Voluntary)?;
@@ -1048,6 +1245,16 @@ impl SimulationRunning {
         self.runnable.retain(|(n, _)| n != &at_stage);
         self.external_inflight.remove(&at_stage);
         self.pending_computations.remove(&at_stage);
+        let drop_ids: Vec<u64> = self
+            .detach_inflight
+            .iter()
+            .filter_map(|(id, pending)| (pending.at_stage == at_stage).then_some(*id))
+            .collect();
+        for id in drop_ids {
+            self.detach_inflight.remove(&id);
+            self.pending_detach_computations.remove(&id);
+        }
+        self.undelivered_detaches.retain(|(n, _)| n != &at_stage);
 
         let runnable = &mut self.runnable;
         let run = &mut |name, response| {
@@ -1499,6 +1706,10 @@ pub enum InputsResult {
 fn block_reason(sim: &SimulationRunning) -> Blocked {
     debug_assert!(sim.runnable.is_empty(), "runnable must be empty");
     if sim.stages.values().filter_map(|d| d.waiting.as_ref()).all(|v| matches!(v, StageEffect::Receive)) {
+        let unresolved_detaches = sim.detach_inflight.len();
+        if unresolved_detaches > 0 && sim.next_wakeup().is_none() {
+            return Blocked::Busy { stages: Vec::new(), external_effects: unresolved_detaches };
+        }
         if let Some(next_wakeup) = sim.next_wakeup() {
             return Blocked::Sleeping { next_wakeup };
         } else {
@@ -1526,7 +1737,10 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
     }
 
     if !busy.is_empty() {
-        Blocked::Busy { stages: busy, external_effects: sim.pending_computations.len() }
+        Blocked::Busy {
+            stages: busy,
+            external_effects: sim.pending_computations.len() + sim.pending_detach_computations.len(),
+        }
     } else if !sleep.is_empty() {
         Blocked::Sleeping { next_wakeup: sim.next_wakeup().expect("stages are waiting for a wait effect") }
     } else if !send.is_empty() {

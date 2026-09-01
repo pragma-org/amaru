@@ -179,7 +179,7 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                     }
                     self.in_flight = false;
                     if let Some(reply_to) = self.reply_to.as_ref() {
-                        eff.send(reply_to, ShareResult { peer: self.peer.clone(), peers }).await;
+                        eff.send(reply_to, ShareResult { peer: self.peer, peers }).await;
                     }
                     // Next request after the configured interval (same reply_to until stage ends).
                     self.arm_timer(self.interval, eff).await?;

@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr};
+use std::collections::BTreeSet;
 
+use amaru_kernel::PeerCandidate;
 use async_trait::async_trait;
 
 use crate::BlockValidationError;
@@ -21,14 +22,14 @@ use crate::BlockValidationError;
 #[expect(clippy::double_must_use)]
 #[async_trait]
 pub trait HasStakePools: Send + Sync {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError>;
+    async fn registered_relay_candidates(&self) -> Result<BTreeSet<PeerCandidate>, BlockValidationError>;
 }
 
 pub struct MockHasStakePools;
 
 #[async_trait]
 impl HasStakePools for MockHasStakePools {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+    async fn registered_relay_candidates(&self) -> Result<BTreeSet<PeerCandidate>, BlockValidationError> {
         Ok(Default::default())
     }
 }

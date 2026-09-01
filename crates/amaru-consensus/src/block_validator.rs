@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr, sync::Arc, thread};
+use std::{collections::BTreeSet, sync::Arc, thread};
 
-use amaru_kernel::{Block, Point, Transaction};
+use amaru_kernel::{Block, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     rules::block::BlockValidation,
     state::State,
@@ -47,7 +47,7 @@ enum LedgerRequest {
     Tip(oneshot::Sender<Point>),
     VolatileTip(oneshot::Sender<Option<Point>>),
     ValidateTx(Box<Transaction>, oneshot::Sender<Result<(), TransactionValidationError>>),
-    RegisteredRelaySocketAddrs(oneshot::Sender<Result<BTreeSet<SocketAddr>, BlockValidationError>>),
+    RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
 }
 
@@ -182,8 +182,8 @@ impl CanValidateBlocks for BlockValidator {
 
 #[async_trait::async_trait]
 impl HasStakePools for BlockValidator {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
-        self.request(LedgerRequest::RegisteredRelaySocketAddrs).await.map_err(|_| terminated())?
+    async fn registered_relay_candidates(&self) -> Result<BTreeSet<PeerCandidate>, BlockValidationError> {
+        self.request(LedgerRequest::RegisteredRelayCandidates).await.map_err(|_| terminated())?
     }
 }
 
@@ -214,10 +214,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send + Sync + 'static> LedgerThread
             LedgerRequest::ValidateTx(tx, reply) => {
                 let _ = reply.send(self.validate_tx(&tx));
             }
-            LedgerRequest::RegisteredRelaySocketAddrs(reply) => {
-                let _ = reply.send(
-                    self.state.registered_relay_socket_addrs().map_err(|e| BlockValidationError::new(anyhow!(e))),
-                );
+            LedgerRequest::RegisteredRelayCandidates(reply) => {
+                let _ = reply
+                    .send(self.state.registered_relay_candidates().map_err(|e| BlockValidationError::new(anyhow!(e))));
             }
             LedgerRequest::SetOnStakeDistUpdated(callback) => {
                 self.state.set_on_stake_dist_updated(callback);

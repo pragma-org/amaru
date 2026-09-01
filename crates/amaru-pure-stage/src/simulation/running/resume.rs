@@ -269,6 +269,25 @@ pub fn resume_external_internal(
     Ok(())
 }
 
+/// Ack a [`StageEffect::Detach`]: resume the airlock with `()` and return the inject function
+/// so the interpreter can apply it when `run()` completes.
+pub fn resume_detach_internal(
+    data: &mut StageData,
+    run: &mut dyn FnMut(Name, StageResponse),
+) -> anyhow::Result<crate::effect::InjectFn> {
+    let waiting_for =
+        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
+
+    if !matches!(waiting_for, StageEffect::Detach(_, _)) {
+        anyhow::bail!("stage `{}` was not waiting for a detach effect, but {:?}", data.name, waiting_for)
+    }
+
+    let Some(StageEffect::Detach(_, inject)) = data.waiting.take() else { unreachable!("checked above") };
+
+    run(data.name.clone(), StageResponse::ExternalResponse(Box::new(())));
+    Ok(inject.into_inner())
+}
+
 pub fn resume_add_stage_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),

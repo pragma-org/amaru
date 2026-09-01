@@ -207,7 +207,7 @@ async fn start_initiator_with_configuration(
 ) -> anyhow::Result<(TokioRunning, Arc<Notify>)> {
     tracing::info!("Creating the initiator");
     let addr = configuration.addr;
-    let peer = Peer::from_addr(&addr);
+    let peer = Peer::try_from(addr).expect("test listen address is a peer");
     let mut initiator_network = TokioBuilder::default();
 
     // create stages
@@ -239,7 +239,7 @@ async fn start_initiator_with_configuration(
 
     tracing::info!("Start the initiator");
     let running_initiator = initiator_network.run(Handle::current());
-    initiator_sender.send(ManagerMessage::AddPeer(peer.clone())).await.unwrap();
+    initiator_sender.send(ManagerMessage::AddPeer(peer)).await.unwrap();
 
     Ok((running_initiator, notify))
 }

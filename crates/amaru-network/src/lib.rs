@@ -13,4 +13,4 @@
 // limitations under the License.
 
 pub mod connection;
-pub mod socket_addr;
+pub mod resolve;

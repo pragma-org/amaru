@@ -14,13 +14,15 @@
 
 mod ledger_effects;
 mod random_effects;
+mod resolve;
 mod store_effects;
 
 pub use amaru_protocols::metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};
 pub use ledger_effects::{
-    Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation, ResourceConsensusParameters,
+    Ledger, LedgerOps, RegisteredRelayCandidatesEffect, ResourceBlockValidation, ResourceConsensusParameters,
     ResourceEraHistory, ResourceHasStakePools, ResourcePoolSummaries, ResourceTxValidation, SwitchToForkEffect,
     TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
 };
 pub use random_effects::GenerateRandomSeed;
+pub use resolve::{ResolvePeerCandidate, ResolvePeerCandidateResult};
 pub use store_effects::{FindBestCandidate, find_best_candidate};

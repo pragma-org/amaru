@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, NetworkPoint, Peer, Point, Slot};
+use amaru_kernel::{BlockHeight, NetworkPoint, Point, Slot};
 use amaru_observability::{Instrument, debug_span, error};
 use pallas_network::miniprotocols::{
     Point as PallasPoint,
@@ -40,14 +40,15 @@ pub(crate) fn from_pallas_tip(tip: &PallasTip) -> Point {
 
 /// Handles chain synchronization network operations
 pub struct ChainSyncClient {
-    pub peer: Peer,
+    /// Original connect string (hostname or IP:port), not a resolved peer address.
+    pub peer: String,
     chain_sync: Client<HeaderContent>,
     intersection: Vec<NetworkPoint>,
 }
 
 impl ChainSyncClient {
-    pub fn new(peer: Peer, chain_sync: Client<HeaderContent>, intersection: Vec<NetworkPoint>) -> Self {
-        Self { peer, chain_sync, intersection }
+    pub fn new(peer: impl Into<String>, chain_sync: Client<HeaderContent>, intersection: Vec<NetworkPoint>) -> Self {
+        Self { peer: peer.into(), chain_sync, intersection }
     }
 
     pub async fn find_intersection(&mut self) -> Result<NetworkPoint, ChainSyncClientError> {
