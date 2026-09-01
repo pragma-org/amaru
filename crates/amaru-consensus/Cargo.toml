@@ -24,7 +24,6 @@ test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions"]
 async-trait.workspace = true
 anyhow.workspace = true
 hex.workspace = true
-hickory-resolver.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
 pretty_assertions = { workspace = true, optional = true }
@@ -33,7 +32,7 @@ rand = { workspace = true }
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "rt", "time", "net"] }
+tokio = { workspace = true, features = ["sync", "rt", "time"] }
 tracing-subscriber = { workspace = true, optional = true }
 
 amaru-kernel.workspace = true
@@ -49,6 +48,7 @@ amaru-pure-stage.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true
+amaru-network.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
