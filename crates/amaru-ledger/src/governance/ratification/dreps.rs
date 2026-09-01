@@ -184,6 +184,7 @@ mod tests {
 
     use amaru_kernel::{
         DRep, Epoch, ProposalEnum, SafeRatio, Vote, any_drep_voting_thresholds, any_proposal_enum, any_vote_ref,
+        utils::tests::assert_strategy_sometimes_fails,
     };
     use num::One;
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
@@ -238,14 +239,17 @@ mod tests {
         }
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
-        #[test]
-        #[should_panic]
-        fn prop_generated_dreps_are_sometimes_expired((epoch, _, _, stake_distribution) in any_tally()) {
-            let n = stake_distribution.dreps.values().filter(|drep| !drep.is_active(epoch)).count();
-            prop_assert_eq!(n, 0, "no expired dreps")
-        }
+    #[test]
+    fn prop_generated_dreps_are_sometimes_expired() {
+        assert_strategy_sometimes_fails(
+            any_tally(),
+            ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
+            |(epoch, _, _, stake_distribution)| {
+                let n = stake_distribution.dreps.values().filter(|drep| !drep.is_active(epoch)).count();
+                prop_assert_eq!(n, 0, "no expired dreps");
+                Ok(())
+            },
+        );
     }
 
     pub fn any_tally()
