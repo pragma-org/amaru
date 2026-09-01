@@ -19,34 +19,38 @@ use std::ops::Deref;
 /// Derefs to a slice for reads; mutations go through the inherent methods, which preserve
 /// ordering and grow exactly rather than amortized growth.
 #[derive(Debug, Clone)]
-pub(crate) struct SmallBuffer<T> {
+pub(super) struct SmallBuffer<T> {
     entries: Vec<T>,
 }
 
 impl<T> SmallBuffer<T> {
-    pub(crate) fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self { entries: Vec::new() }
     }
 
-    pub(crate) fn insert(&mut self, index: usize, value: T) {
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self { entries: Vec::with_capacity(capacity) }
+    }
+
+    pub(super) fn insert(&mut self, index: usize, value: T) {
         self.entries.reserve_exact(1);
         self.entries.insert(index, value);
     }
 
-    pub(crate) fn remove(&mut self, index: usize) -> Option<T> {
+    pub(super) fn remove(&mut self, index: usize) -> Option<T> {
         (index < self.entries.len()).then(|| self.entries.remove(index))
     }
 
     /// Mutable access to a single entry; the caller must not reorder it relative to its neighbours.
-    pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+    pub(super) fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         self.entries.get_mut(index)
     }
 
-    pub(crate) fn take(&mut self) -> Vec<T> {
+    pub(super) fn take(&mut self) -> Vec<T> {
         std::mem::take(&mut self.entries)
     }
 
-    pub(crate) fn into_vec(self) -> Vec<T> {
+    pub(super) fn into_vec(self) -> Vec<T> {
         self.entries
     }
 }

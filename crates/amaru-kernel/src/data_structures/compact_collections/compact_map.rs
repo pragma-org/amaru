@@ -22,7 +22,7 @@ use std::{
 use super::small_buffer::SmallBuffer;
 
 #[derive(Debug, Clone)]
-enum MapStorage<K: Ord, V, const N: usize> {
+enum MapStorage<K, V> {
     Small(SmallBuffer<(K, V)>),
     Tree(BTreeMap<K, V>),
 }
@@ -30,8 +30,8 @@ enum MapStorage<K: Ord, V, const N: usize> {
 /// A sorted map which stores up to `N` entries in a single flat allocation before permanently
 /// promoting to a [`BTreeMap`].
 #[derive(Debug, Clone)]
-pub struct CompactMap<K: Ord, V, const N: usize> {
-    storage: MapStorage<K, V, N>,
+pub struct CompactMap<K, V, const N: usize> {
+    storage: MapStorage<K, V>,
 }
 
 /// Content-based equality: a promoted map equals a small one holding the same entries.
@@ -150,20 +150,20 @@ impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
 }
 
 /// A view into a single entry in a [`CompactMap`], which is either occupied or vacant.
-pub enum Entry<'a, K: Ord, V, const N: usize> {
-    Occupied(OccupiedEntry<'a, K, V, N>),
+pub enum Entry<'a, K, V, const N: usize> {
+    Occupied(OccupiedEntry<'a, K, V>),
     Vacant(VacantEntry<'a, K, V, N>),
 }
 
 /// A view into an occupied entry in a [`CompactMap`].
-pub struct OccupiedEntry<'a, K: Ord, V, const N: usize>(OccupiedInner<'a, K, V, N>);
+pub struct OccupiedEntry<'a, K, V>(OccupiedInner<'a, K, V>);
 
-enum OccupiedInner<'a, K: Ord, V, const N: usize> {
+enum OccupiedInner<'a, K, V> {
     Small { entries: &'a mut SmallBuffer<(K, V)>, index: usize },
     Tree(btree_map::OccupiedEntry<'a, K, V>),
 }
 
-impl<'a, K: Ord, V, const N: usize> OccupiedEntry<'a, K, V, N> {
+impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     pub fn get(&self) -> &V {
         match &self.0 {
             OccupiedInner::Small { entries, index } => match entries.get(*index) {
@@ -213,9 +213,9 @@ impl<'a, K: Ord, V, const N: usize> OccupiedEntry<'a, K, V, N> {
 }
 
 /// A view into a vacant entry in a [`CompactMap`].
-pub struct VacantEntry<'a, K: Ord, V, const N: usize>(VacantInner<'a, K, V, N>);
+pub struct VacantEntry<'a, K, V, const N: usize>(VacantInner<'a, K, V, N>);
 
-enum VacantInner<'a, K: Ord, V, const N: usize> {
+enum VacantInner<'a, K, V, const N: usize> {
     Small { map: &'a mut CompactMap<K, V, N>, key: K, index: usize },
     Tree(btree_map::VacantEntry<'a, K, V>),
 }
@@ -253,11 +253,21 @@ impl<K: Ord, V, const N: usize> Default for CompactMap<K, V, N> {
 
 impl<K: Ord, V, const N: usize> FromIterator<(K, V)> for CompactMap<K, V, N> {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
-        let mut map = Self::new();
-        for (key, value) in iter {
-            map.insert(key, value);
+        let iter = iter.into_iter();
+        let (lower, _) = iter.size_hint();
+        // NOTE: Duplicate handling
+        //
+        // See CompactSet::from_iter: keys are unique at every call site, so lower > N means
+        // the result outgrows the small regime and we skip the promotion rebuild.
+        if lower > N {
+            Self { storage: MapStorage::Tree(iter.collect()) }
+        } else {
+            let mut map = Self { storage: MapStorage::Small(SmallBuffer::with_capacity(lower)) };
+            for (key, value) in iter {
+                map.insert(key, value);
+            }
+            map
         }
-        map
     }
 }
 
