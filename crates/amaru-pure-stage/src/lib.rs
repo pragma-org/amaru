@@ -40,7 +40,7 @@ pub use effect::{
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;
-pub use resources::Resources;
+pub use resources::{Resources, WeakResources};
 pub use sender::{CallError, SendError, Sender};
 pub use serde::{
     DeserializerGuard, DeserializerGuards, serialize_external_effect::register_effect_deserializer,

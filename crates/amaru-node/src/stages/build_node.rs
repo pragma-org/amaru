@@ -172,7 +172,6 @@ pub fn build_node(
         config.mempool.clone(),
         config,
     );
-    let resources = stage_builder.resources().clone();
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
     let node_stages = build_stage_graph(
@@ -186,6 +185,9 @@ pub fn build_node(
     );
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
+    // Weak: the callback is stored on `block_validator`, which lives in these same
+    // resources. A strong capture would leak every node (RocksDB FDs included).
+    let resources = stage_builder.resources().downgrade();
     block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
         let max_epoch = summaries.max_epoch();
         resources.put::<ResourcePoolSummaries>(Arc::new(summaries));

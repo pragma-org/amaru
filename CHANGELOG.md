@@ -52,6 +52,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-node**: the stake-distribution callback no longer holds a strong `Resources` handle, so dropping a node graph closes its dummy RocksDB ledgers instead of leaking file descriptors across simulation runs.
 - **amaru**: replace repeated low-level OpenTelemetry export errors with batched state-transition messages: one warning listing unavailable signals, one info listing recovered signals, and a fresh warning after a later failure.
 
 ## [v10.11.20260827](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260827)
