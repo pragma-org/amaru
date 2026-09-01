@@ -152,16 +152,13 @@ impl OpenTelemetryProviders {
 
     /// Flush and shut down every constructed provider.
     pub fn shutdown(self) -> Result<(), ShutdownOpenTelemetryProvidersError> {
-        if let Some(provider) = self.traces {
-            provider.shutdown().map_err(ShutdownOpenTelemetryProvidersError::Traces)?;
-        }
-        if let Some(provider) = self.metrics {
-            provider.shutdown().map_err(ShutdownOpenTelemetryProvidersError::Metrics)?;
-        }
-        if let Some(provider) = self.logs {
-            provider.shutdown().map_err(ShutdownOpenTelemetryProvidersError::Logs)?;
-        }
-        Ok(())
+        use ShutdownOpenTelemetryProvidersError as ShutdownError;
+
+        let traces = shutdown_provider(self.traces, SdkTracerProvider::shutdown, ShutdownError::Traces);
+        let metrics = shutdown_provider(self.metrics, SdkMeterProvider::shutdown, ShutdownError::Metrics);
+        let logs = shutdown_provider(self.logs, SdkLoggerProvider::shutdown, ShutdownError::Logs);
+
+        traces.and(metrics).and(logs)
     }
 }
 
@@ -187,4 +184,15 @@ pub enum ShutdownOpenTelemetryProvidersError {
     Metrics(#[source] OTelSdkError),
     #[error("failed to shut down OpenTelemetry log provider")]
     Logs(#[source] OTelSdkError),
+}
+
+fn shutdown_provider<P>(
+    provider: Option<P>,
+    shutdown: fn(&P) -> Result<(), OTelSdkError>,
+    map_error: fn(OTelSdkError) -> ShutdownOpenTelemetryProvidersError,
+) -> Result<(), ShutdownOpenTelemetryProvidersError> {
+    match provider {
+        Some(provider) => shutdown(&provider).map_err(map_error),
+        None => Ok(()),
+    }
 }
