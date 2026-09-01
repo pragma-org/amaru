@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::Transaction;
+use async_trait::async_trait;
 
 use crate::mempool::TransactionValidationError;
 
@@ -22,16 +23,19 @@ pub type ResourceTxValidation = Arc<dyn CanValidateTxs>;
 
 /// This trait abstract over the possibility to validate transactions.
 /// Concretely speaking this will be done by the ledger.
+#[expect(clippy::double_must_use)]
+#[async_trait]
 pub trait CanValidateTxs: Send + Sync {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
+    async fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
 }
 
 /// A simple function can be used to implement the validation trait
+#[async_trait]
 impl<F> CanValidateTxs for F
 where
     F: Fn(&Transaction) -> Result<(), TransactionValidationError> + Send + Sync,
 {
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
+    async fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
         self(tx)
     }
 }
@@ -40,8 +44,9 @@ where
 #[derive(Clone, Debug, Default)]
 pub struct MockCanValidateTxs;
 
+#[async_trait]
 impl CanValidateTxs for MockCanValidateTxs {
-    fn validate_tx(&self, _tx: &Transaction) -> Result<(), TransactionValidationError> {
+    async fn validate_tx(&self, _tx: &Transaction) -> Result<(), TransactionValidationError> {
         Ok(())
     }
 }

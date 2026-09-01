@@ -224,7 +224,7 @@ fn register_resources(
     chain_store: Arc<dyn ChainStore>,
     global_parameters: &GlobalParameters,
     pool_summaries: PoolSummaries,
-    block_validator: Arc<BlockValidator<RocksDB, RocksDBHistoricalStores>>,
+    block_validator: Arc<BlockValidator>,
     consensus_parameters: Arc<ConsensusParameters>,
     era_history: EraHistory,
     meter: Arc<Meter>,
@@ -289,12 +289,12 @@ pub fn make_block_validator(
     config: &LedgerConfig,
     state: State<RocksDB, RocksDBHistoricalStores>,
     chain_store: Arc<dyn ChainStore>,
-) -> anyhow::Result<BlockValidator<RocksDB, RocksDBHistoricalStores>> {
+) -> anyhow::Result<BlockValidator> {
     Ok(BlockValidator::new(
         state,
         ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size),
         chain_store,
-    ))
+    )?)
 }
 
 pub fn make_state(

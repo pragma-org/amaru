@@ -27,14 +27,20 @@ pub trait CanValidateBlocks: Send + Sync {
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
-    fn switch_to_fork(&self, fork_point: &Point, to: &Point) -> Result<ForkSwitchOutcome, BlockValidationError>;
+    async fn switch_to_fork(&self, fork_point: &Point, to: &Point) -> Result<ForkSwitchOutcome, BlockValidationError>;
 
-    fn tip(&self) -> Point;
+    async fn tip(&self) -> Point;
 
     /// The chain tip of the volatile in-memory ledger view, if any (`VolatileDB::view_back`).
     /// When `None`, the applied ledger tip is entirely in stable storage.
-    fn volatile_tip(&self) -> Option<Point>;
+    async fn volatile_tip(&self) -> Option<Point>;
 }
+
+/// Error returned when the thread owning the ledger state is no longer running, so requests can
+/// no longer be serviced. Recoverable from a `BlockValidationError` through `downcast_ref`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("the ledger thread has terminated")]
+pub struct LedgerThreadTerminated;
 
 /// A block that failed to apply during a fork switch, with a rendered reason.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

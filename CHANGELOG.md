@@ -47,6 +47,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 
 ### Fixed
@@ -442,6 +443,7 @@ Other guiding principles:
 [#1082]: https://github.com/pragma-org/amaru/pull/1082
 [#1087]: https://github.com/pragma-org/amaru/pull/1087
 [#1090]: https://github.com/pragma-org/amaru/pull/1090
+[#1094]: https://github.com/pragma-org/amaru/issues/1094
 [#1095]: https://github.com/pragma-org/amaru/issues/1095
 [#1098]: https://github.com/pragma-org/amaru/pull/1098
 [#1101]: https://github.com/pragma-org/amaru/pull/1101
