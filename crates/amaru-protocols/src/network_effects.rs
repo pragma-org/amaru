@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_ouroboros::{ConnectionId, ConnectionsResource, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, ConnectionsResource};
 use amaru_pure_stage::{BoxFuture, DurationDist, Effects, ExternalEffectAPI, Resources, SendData};
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
@@ -40,8 +40,7 @@ pub trait NetworkOps {
 
     fn accept(&self, listener_addr: SocketAddr) -> BoxFuture<'static, Result<(Peer, ConnectionId), AcceptError>>;
 
-    fn connect(&self, addr: ToSocketAddrs, timeout: Duration)
-    -> BoxFuture<'static, Result<ConnectionId, ConnectError>>;
+    fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, ConnectError>>;
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, Result<(), SendError>>;
 
@@ -67,12 +66,8 @@ impl<T> NetworkOps for Network<'_, T> {
         self.0.external(AcceptEffect { listener_addr })
     }
 
-    fn connect(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, Result<ConnectionId, ConnectError>> {
-        self.0.external(ConnectEffect { addr, timeout })
+    fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, ConnectError>> {
+        self.0.external(ConnectEffect { peer, timeout })
     }
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, Result<(), SendError>> {
@@ -157,7 +152,7 @@ impl Display for AcceptError {
 }
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectEffect {
-    pub addr: ToSocketAddrs,
+    pub peer: Peer,
     pub timeout: Duration,
 }
 
@@ -171,23 +166,23 @@ impl ExternalEffectAPI for ConnectEffect {
             let resource =
                 resources.get::<ConnectionsResource>().expect("ConnectEffect requires a ConnectionsResource").clone();
             resource
-                .connect_addrs(this.addr.clone(), this.timeout)
+                .connect(this.peer, this.timeout)
                 .await
-                .map_err(|e| ConnectError { addr: this.addr, error: format!("{e}") })
+                .map_err(|e| ConnectError { peer: this.peer, error: format!("{e}") })
         })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectError {
-    addr: ToSocketAddrs,
+    peer: Peer,
     error: String,
 }
 
 impl Display for ConnectError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ConnectError { addr, error } = self;
-        write!(f, "ConnectError on {addr:?}: {error}")
+        let ConnectError { peer, error } = self;
+        write!(f, "ConnectError on {peer}: {error}")
     }
 }
 
@@ -296,11 +291,8 @@ impl Display for CloseError {
 #[cfg(test)]
 pub async fn create_connection(conn: &dyn amaru_ouroboros::ConnectionProvider) -> anyhow::Result<ConnectionId> {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        use amaru_network::socket_addr::resolve;
-
-        let addr = ToSocketAddrs::String(std::env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()));
-        let addr = resolve(addr).await?;
-        Ok(conn.connect(addr, Duration::from_secs(5)).await?)
+        let peer: Peer = std::env::var("PEER").unwrap_or_else(|_| "127.0.0.1:3000".to_string()).parse()?;
+        Ok(conn.connect(peer, Duration::from_secs(5)).await?)
     })
     .await?
 }

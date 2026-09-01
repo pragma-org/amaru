@@ -2636,10 +2636,8 @@ define_schemas! {
                 LISTEN {}
                 /// Accept a connection
                 ACCEPT {}
-                /// Connect to addresses
+                /// Connect to a peer
                 CONNECT {}
-                /// Connect to multiple addresses
-                CONNECT_ADDRS {}
                 /// Send data over connection
                 SEND {}
                 /// Receive data from connection
@@ -2662,13 +2660,9 @@ define_schemas! {
                 ACCEPTED {
                     required peer_addr: String
                 }
-                /// Established a TCP connection to one of the given addresses
+                /// Established a TCP connection to a peer
                 CONNECTED {
-                    required addresses: Vec<String>
-                }
-                /// Resolved a peer specification into socket addresses
-                RESOLVED {
-                    required addresses: Vec<String>
+                    required peer: %amaru_kernel::Peer
                 }
             }
         }

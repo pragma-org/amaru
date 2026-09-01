@@ -111,7 +111,7 @@ impl Worker {
 }
 
 async fn worker_stage(state: Worker, peer: Peer, eff: Effects<Peer>) -> Worker {
-    let result = Network::new(&eff).connect(peer.into(), state.connection_timeout).await;
+    let result = Network::new(&eff).connect(peer, state.connection_timeout).await;
     eff.send(&state.connector, ConnectorMsg::WorkerDone { peer, result, worker: eff.me() }).await;
     state
 }
@@ -189,7 +189,7 @@ mod tests {
 
         let next = running.run_until_blocked().assert_breakpoint("connect");
         let next_stage = next.at_stage().clone();
-        next.assert_external(&next_stage, &ConnectEffect { addr: peers[DEFAULT_PARALLEL_CONNECTION].into(), timeout });
+        next.assert_external(&next_stage, &ConnectEffect { peer: peers[DEFAULT_PARALLEL_CONNECTION], timeout });
     }
 
     #[test]
@@ -220,7 +220,7 @@ mod tests {
         let eff = running.run_until_blocked().assert_breakpoint("connect");
         let at = eff.at_stage().clone();
         assert!(at.as_str().starts_with("connect-worker-0-"), "expected first worker, got {at}");
-        eff.assert_external(&at, &ConnectEffect { addr: peer.into(), timeout });
+        eff.assert_external(&at, &ConnectEffect { peer, timeout });
     }
 
     #[test]

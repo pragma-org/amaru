@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, 
 
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_observability::{Instrument, debug, debug_span, info};
-use amaru_ouroboros::{ConnectionId, ConnectionProvider, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionId, ConnectionProvider};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
 use parking_lot::Mutex;
@@ -30,8 +30,6 @@ use tokio::{
     sync::{Mutex as AsyncMutex, mpsc},
     task::JoinHandle,
 };
-
-use crate::socket_addr::resolve;
 
 pub struct Connection {
     peer_addr: SocketAddr,
@@ -120,9 +118,10 @@ impl TokioConnections {
     }
 }
 
-async fn connect(addresses: Vec<SocketAddr>, resource: Arc<Inner>, timeout: Duration) -> std::io::Result<ConnectionId> {
-    let stream = tokio::time::timeout(timeout, TcpStream::connect(&*addresses)).await??;
-    debug!(network::connection::CONNECTED, addresses = addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+async fn connect(peer: Peer, resource: Arc<Inner>, timeout: Duration) -> std::io::Result<ConnectionId> {
+    let addr = SocketAddr::from(peer);
+    let stream = tokio::time::timeout(timeout, TcpStream::connect(addr)).await??;
+    debug!(network::connection::CONNECTED, peer);
     let mut connections = resource.connections.lock();
     let id = connections.add_connection(Connection::new(stream, resource.read_buf_size)?);
     Ok(id)
@@ -197,23 +196,8 @@ impl ConnectionProvider for TokioConnections {
         )
     }
 
-    fn connect(&self, addr: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        Box::pin(connect(addr, self.inner.clone(), timeout).instrument(debug_span!(network::connection::CONNECT,)))
-    }
-
-    fn connect_addrs(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        let resource = self.inner.clone();
-        Box::pin(
-            async move {
-                let addr = resolve(addr).await?;
-                connect(addr, resource, timeout).await
-            }
-            .instrument(debug_span!(network::connection::CONNECT_ADDRS,)),
-        )
+    fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
+        Box::pin(connect(peer, self.inner.clone(), timeout).instrument(debug_span!(network::connection::CONNECT,)))
     }
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {
@@ -328,7 +312,7 @@ mod tests {
 
         // Use TokioConnections to connect to the listener.
         let connections = TokioConnections::new(1024);
-        let connection_id = connections.connect(vec![addr], Duration::from_secs(1)).await?;
+        let connection_id = connections.connect(Peer::try_from(addr)?, Duration::from_secs(1)).await?;
         connections.send(connection_id, non_empty(b"ping")).await?;
         let reply = connections.recv(connection_id, const { NonZeroUsize::new(4).unwrap() }).await?;
         assert_eq!(reply.as_ref(), b"pong");

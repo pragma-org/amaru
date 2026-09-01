@@ -12,8 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod to_socket_addrs;
-pub use to_socket_addrs::*;
-
 mod connection_provider;
 pub use connection_provider::*;

@@ -23,8 +23,6 @@ use std::{
 
 use amaru_kernel::{NonEmptyBytes, Peer};
 
-use crate::ToSocketAddrs;
-
 /// A trait for providing network connections.
 /// This is used to abstract over different network implementations, such as TCP,
 /// or in-memory connections for testing.
@@ -33,13 +31,7 @@ pub trait ConnectionProvider: Send + Sync + 'static {
 
     fn accept(&self, listener_addr: SocketAddr) -> BoxFuture<'static, std::io::Result<(Peer, ConnectionId)>>;
 
-    fn connect(&self, addr: Vec<SocketAddr>, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
-
-    fn connect_addrs(
-        &self,
-        addr: ToSocketAddrs,
-        timeout: Duration,
-    ) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
+    fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>>;
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>>;
 
