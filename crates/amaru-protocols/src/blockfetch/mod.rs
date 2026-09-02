@@ -23,10 +23,7 @@ use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
 // Re-export types
 pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
 pub use messages::Message;
-pub use pipelined::{
-    BLOCKFETCH_AGENCY_TIMEOUT, BLOCKFETCH_MAX_BLOCK_WIRE_BYTES, BLOCKFETCH_PIPELINE_N, blockfetch_pipeline_max_buffer,
-    register_blockfetch_initiator_pipelined,
-};
+pub use pipelined::{BLOCKFETCH_PIPELINE_N, register_blockfetch_initiator_pipelined};
 pub use responder::{BlockFetchResponder, StreamBlocks, responder};
 
 use crate::{

@@ -164,12 +164,6 @@ impl<M, Rem> Session<M, Rem> {
         list::describe::<Rem>()
     }
 
-    /// Underlying [`Effects`] for local decisions. Do not use this to send
-    /// protocol messages; that bypasses the remainder.
-    pub fn inner(&self) -> &Effects<M> {
-        &self.effects
-    }
-
     pub fn me(&self) -> StageRef<M>
     where
         M: SendData,
@@ -429,7 +423,8 @@ impl<M, Rem: FmtPar> fmt::Debug for Session<M, Rem> {
 type After<Rem, E, I> = <<Rem as Select<E, I>>::Rest as Clean>::Out;
 
 /// Describe `State + Receive<In> → remainder` without constructing values.
-pub fn describe_receive<S, In>() -> String
+#[cfg(test)]
+pub(crate) fn describe_receive<S, In>() -> String
 where
     S: OnReceive<In>,
     S::Then: FmtPar,
