@@ -534,7 +534,8 @@ pub mod tests {
             | MuxMessage::Buffer(..)
             | MuxMessage::FromNetwork(..)
             | MuxMessage::Written
-            | MuxMessage::Terminate => {}
+            | MuxMessage::Terminate
+            | MuxMessage::SetSduTimeout(_) => {}
         }
         log
     }
