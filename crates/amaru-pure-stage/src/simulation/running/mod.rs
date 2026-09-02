@@ -15,6 +15,7 @@
 #![expect(clippy::wildcard_enum_match_arm, clippy::panic, clippy::expect_used)]
 
 use std::{
+    any::type_name,
     collections::{BTreeMap, VecDeque},
     mem::replace,
     sync::Arc,
@@ -33,6 +34,7 @@ use crate::{
     ScheduleId, SendData, StageRef, StageResponse,
     effect::{CallExtra, CanSupervise, InjectFn, ScheduleIds, StageEffect},
     effect_box::EffectBox,
+    serde::{SendDataValue, to_cbor},
     simulation::{
         Externals, Run, TimeAdvance,
         blocked::{Blocked, SendBlock},
@@ -65,7 +67,7 @@ mod scheduled_runnables;
 /// effect is interpreted; inspect it with [`Self::breakpoint_effect`], drop the
 /// guard, then `run` again. World-driven [`DurationDist::UntilResolved`]
 /// results are injected with [`Self::complete_external`] (blocking) or
-/// [`Self::complete_detach`] (detached; oldest unfinished on that stage).
+/// [`Self::complete_detach`] (detached; selected by effect type and predicate).
 pub struct SimulationRunning {
     stages: BTreeMap<Name, StageData>,
     stage_count: usize,
@@ -145,6 +147,7 @@ enum ReadyComputation {
 /// A detached external effect whose `δ` delays mailbox delivery, not the airlock ack.
 struct PendingDetach {
     at_stage: Name,
+    issued: SendDataValue,
     inject: Option<InjectFn>,
     result: Option<Box<dyn SendData>>,
     time_ready: bool,
@@ -392,7 +395,7 @@ impl SimulationRunning {
     }
 
     /// Sample `δ` for a detach: the airlock is already free; `δ` delays mailbox delivery.
-    fn begin_detach(&mut self, at_stage: Name, dist: DurationDist) -> u64 {
+    fn begin_detach(&mut self, at_stage: Name, dist: DurationDist, issued: SendDataValue) -> u64 {
         let id = self.next_detach_id;
         self.next_detach_id += 1;
         let delta = dist.sample(&mut self.duration_rng);
@@ -412,8 +415,10 @@ impl SimulationRunning {
                 false
             }
         };
-        self.detach_inflight
-            .insert(id, PendingDetach { at_stage, inject: None, result: None, time_ready, force_on_ready, dist });
+        self.detach_inflight.insert(
+            id,
+            PendingDetach { at_stage, issued, inject: None, result: None, time_ready, force_on_ready, dist },
+        );
         id
     }
 
@@ -604,6 +609,7 @@ impl SimulationRunning {
 
     fn handle_detach(&mut self, at_stage: Name, effect: Box<dyn ExternalEffect>) -> Option<Blocked> {
         let dist = effect.simulated_duration_dist();
+        let issued = SendDataValue::from(&*effect as &dyn SendData);
         let data =
             self.stages.get_mut(&at_stage).log_termination(&at_stage)?.assert_stage("which cannot emit detach effects");
         let inject = resume_detach_internal(data, &mut |name, response| {
@@ -611,7 +617,7 @@ impl SimulationRunning {
             self.runnable.push_back((name, response));
         })
         .expect("detach effect is always runnable");
-        let id = self.begin_detach(at_stage.clone(), dist);
+        let id = self.begin_detach(at_stage.clone(), dist, issued);
         if let Some(pending) = self.detach_inflight.get_mut(&id) {
             pending.inject = Some(inject);
         }
@@ -944,21 +950,43 @@ impl SimulationRunning {
     /// detached external effect. `inject` still runs; the mapped message is enqueued on the
     /// stage’s bulk mailbox. The corresponding `run()` future is dropped.
     ///
-    /// Completes the oldest unfinished detach for `at_stage` (lowest id). The next
-    /// [`Self::run`] delivers it like any other mailbox message.
+    /// Selects the unique unfinished detach of type `T` at `at_stage` for which `matches`
+    /// is true. Completions are independent of issue order. The next [`Self::run`] delivers
+    /// the mapped message like any other mailbox message.
     ///
     /// # Panics
     ///
-    /// Panics if `at_stage` has no unfinished in-flight detach.
-    pub fn complete_detach(&mut self, at_stage: impl AsRef<Name>, result: impl SendData) {
+    /// Panics if no unfinished detach matches, or if more than one does.
+    pub fn complete_detach<T: ExternalEffectAPI + serde::de::DeserializeOwned>(
+        &mut self,
+        at_stage: impl AsRef<Name>,
+        matches: impl Fn(&T) -> bool,
+        result: T::Response,
+    ) {
         let at_stage = at_stage.as_ref().clone();
-        let id = self
-            .detach_inflight
-            .iter()
-            .find_map(|(id, pending)| {
-                (pending.at_stage == at_stage && pending.result.is_none() && pending.inject.is_some()).then_some(*id)
-            })
-            .unwrap_or_else(|| panic!("stage `{at_stage}` has no in-flight detach to complete"));
+        let want = type_name::<T>();
+        let mut found = None;
+        for (id, pending) in &self.detach_inflight {
+            if pending.at_stage != at_stage || pending.result.is_some() || pending.inject.is_none() {
+                continue;
+            }
+            if pending.issued.typetag != want {
+                continue;
+            }
+            let Ok(typed) = cbor4ii::serde::from_slice::<T>(&to_cbor(&pending.issued.value)) else {
+                continue;
+            };
+            if !matches(&typed) {
+                continue;
+            }
+            if let Some(prev) = found.replace(*id) {
+                panic!(
+                    "stage `{at_stage}` has multiple in-flight {want} detaches matching the predicate (ids {prev} and {id})"
+                );
+            }
+        }
+        let id =
+            found.unwrap_or_else(|| panic!("stage `{at_stage}` has no in-flight {want} detach matching the predicate"));
         self.pending_detach_computations.remove(&id);
         self.provide_detach_result(id, Box::new(result));
     }
