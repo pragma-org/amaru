@@ -23,7 +23,7 @@ use crate::{
     accept::{self, PullAccept},
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
-    connection::{self, ConnectionMessage},
+    connection::{self, ConnectionMessage, LocalUse},
     network_effects::{ConnectError, Network, NetworkOps},
     peer_sharing::{SharePeersReply, ShareResult},
     protocol::Role,
@@ -117,10 +117,10 @@ pub enum ManagerMessage {
         full_duplex: bool,
         advertisable: bool,
     },
-    /// Record the desired local use for a live connection.
-    ///
-    /// The connection stage does not currently reconcile `actual_use`.
-    SetLocalUse { peer: Peer, conn_id: ConnectionId, local_use: crate::connection::LocalUse },
+    /// Ask a live connection to converge toward this local use.
+    SetLocalUse { peer: Peer, conn_id: ConnectionId, local_use: LocalUse },
+    /// Connection finished converging; used to update `may_initiate`.
+    LocalUseApplied { peer: Peer, conn_id: ConnectionId, local_use: LocalUse },
 }
 
 impl ManagerMessage {
@@ -139,6 +139,7 @@ impl ManagerMessage {
             ManagerMessage::Accepted(..) => "Accepted",
             ManagerMessage::HandshakeComplete { .. } => "HandshakeComplete",
             ManagerMessage::SetLocalUse { .. } => "SetLocalUse",
+            ManagerMessage::LocalUseApplied { .. } => "LocalUseApplied",
         }
     }
 
@@ -226,8 +227,7 @@ struct Connection {
     direction: ConnectionDirection,
     /// Whether we may initiate mini-protocols on this connection.
     ///
-    /// This is false while the handshake is ongoing and may remain
-    /// false afterwards, e.g. if inbound and not full-duplex capable.
+    /// False until [`ManagerMessage::LocalUseApplied`] reports [`LocalUse::Diffusion`].
     may_initiate: bool,
     full_duplex_capable: bool,
 }
@@ -501,16 +501,8 @@ impl Manager {
                 },
             )
             .await;
-            self.connections.insert(
-                conn_id,
-                Connection {
-                    stage,
-                    direction,
-                    full_duplex_capable,
-                    peer,
-                    may_initiate: role == Role::Initiator || full_duplex,
-                },
-            );
+            self.connections
+                .insert(conn_id, Connection { stage, direction, full_duplex_capable, peer, may_initiate: false });
         } else {
             info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer, conn_id = conn_id.as_u64());
             eff.send(&stage, ConnectionMessage::Disconnect).await;
@@ -760,6 +752,11 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                         local_use = format!("{local_use:?}")
                     );
                     eff.send(&connection.stage, ConnectionMessage::SetLocalUse(local_use)).await;
+                }
+            }
+            ManagerMessage::LocalUseApplied { peer: _, conn_id, local_use } => {
+                if let Some(connection) = manager.connections.get_mut(&conn_id) {
+                    connection.may_initiate = local_use == LocalUse::Diffusion;
                 }
             }
         }
