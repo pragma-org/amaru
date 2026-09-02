@@ -51,7 +51,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
-- **amaru-ledger**: the ledger state no longer uses locks: the stable store and the in-memory stake distributions are owned directly by `State`. The rewards background task receives its snapshot handles by value and returns the rotated stake distribution through its join handle instead of writing into shared state; `HistoricalStores::for_epoch` snapshots are now `'static`, `RatificationContext` takes `&StakeDistribution` in place of the removed `StakeDistributionView`, and `StateError::FailedToAcquireStakeDistrLock` is gone. ([#1094][])
+- **amaru-ledger**: the ledger state no longer uses locks: the stable store and the in-memory stake distributions are owned directly by `State`. The rewards background task receives its snapshot handles by value and returns the rotated stake distribution through its join handle instead of writing into shared state; `HistoricalStores::for_epoch` snapshots are now `'static`, `RatificationContext` takes `&StakeDistribution` in place of the removed `StakeDistributionView`, and `StateError::FailedToAcquireStakeDistrLock` is gone. ([#1094][], [#1309][])
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 - **amaru-node**: `Telemetry::install` no longer reads `AMARU_OPEN_TELEMETRY_SIGNALS`; embedders that select OTLP signals must pass `TelemetryOptions` to `install_with_options`.
@@ -461,3 +461,4 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
+[#1309]: https://github.com/pragma-org/amaru/pull/1309
