@@ -476,7 +476,7 @@ mod test {
     use crate::{
         Effect, Instant, SendData, StageGraph, StageGraphRunning, StageResponse, TryInStage,
         serde::SendDataValue,
-        simulation::SimulationBuilder,
+        simulation::{Run, SimulationBuilder},
         trace_buffer::{TerminationReason, TraceBuffer, TraceEntry},
     };
 
@@ -528,11 +528,11 @@ mod test {
         let mut sim = network.run(rt.handle());
 
         sim.enqueue_msg(&stage, [Some(1)]);
-        sim.run_until_blocked();
+        sim.run(Run::skip_wakeups());
         assert_eq!(*sim.get_state(&stage).unwrap(), 1);
 
         sim.enqueue_msg(&stage, [None]);
-        sim.run_until_blocked();
+        sim.run(Run::skip_wakeups());
         assert!(sim.is_terminated());
 
         pretty_assertions::assert_eq!(
@@ -566,11 +566,11 @@ mod test {
         let mut sim = network.run(rt.handle());
 
         sim.enqueue_msg(&stage, [Ok(1)]);
-        sim.run_until_blocked();
+        sim.run(Run::skip_wakeups());
         assert_eq!(*sim.get_state(&stage).unwrap(), 1);
 
         sim.enqueue_msg(&stage, [Err(2)]);
-        sim.run_until_blocked();
+        sim.run(Run::skip_wakeups());
         assert!(sim.is_terminated());
 
         let two_sec = Instant::at_offset(Duration::from_secs(2), Duration::ZERO);

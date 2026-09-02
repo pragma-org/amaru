@@ -94,7 +94,7 @@ pub(super) fn peer_saw_roll_forward(world: &WorldLoop, graph: usize, hash: &amar
 
 pub(super) fn tm_chainsync_roll_forward_of(hash: amaru_kernel::HeaderHash) -> TraceMatch<'static> {
     TraceMatch::Property(
-        Box::new(move |entry| entry_chainsync_roll_forward_hash(entry) == Some(hash)),
+        Box::new(move |src| src.entry().is_some_and(|entry| entry_chainsync_roll_forward_hash(entry) == Some(hash))),
         format!("chainsync RollForward {hash}"),
     )
 }
@@ -183,7 +183,7 @@ pub(super) fn entry_chainsync_roll_forward_hash(entry: &TraceEntry) -> Option<am
 
 pub(super) fn tm_chainsync_roll_forward() -> TraceMatch<'static> {
     TraceMatch::Property(
-        Box::new(|entry| entry_chainsync_roll_forward_hash(entry).is_some()),
+        Box::new(|src| src.entry().is_some_and(|entry| entry_chainsync_roll_forward_hash(entry).is_some())),
         "chainsync RollForward".to_string(),
     )
 }
