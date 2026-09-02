@@ -66,28 +66,28 @@ impl<T: Ord, const N: usize> CompactSet<T, N> {
     }
 
     pub fn insert(&mut self, value: T) -> bool {
-        if let SetStorage::Small(entries) = &mut self.storage {
-            match entries.binary_search_by(|candidate| candidate.cmp(&value)) {
-                Ok(_) => return false,
-                Err(index) => {
-                    if entries.len() < N {
-                        entries.insert_at(index, value);
-                        return true;
-                    }
+        match &mut self.storage {
+            SetStorage::Small(entries) => match entries.binary_search_by(|candidate| candidate.cmp(&value)) {
+                Ok(_) => false,
+                Err(index) if entries.len() < N => {
+                    entries.insert_at(index, value);
+                    true
                 }
-            }
+                Err(_) => self.promote().insert(value),
+            },
+            SetStorage::Tree(entries) => entries.insert(value),
         }
-        self.promote().insert(value)
     }
 
     /// Move all small values into the tree, permanently, and return it.
     fn promote(&mut self) -> &mut BTreeSet<T> {
-        if let SetStorage::Small(entries) = &mut self.storage {
-            self.storage = SetStorage::Tree(entries.take().into_iter().collect());
-        }
-        match &mut self.storage {
-            SetStorage::Tree(entries) => entries,
-            SetStorage::Small(_) => unreachable!("promotion always ends in tree storage"),
+        loop {
+            match &mut self.storage {
+                SetStorage::Tree(entries) => return entries,
+                SetStorage::Small(entries) => {
+                    self.storage = SetStorage::Tree(entries.take().into_iter().collect());
+                }
+            }
         }
     }
 
