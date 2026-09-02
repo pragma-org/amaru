@@ -100,7 +100,7 @@ pub async fn register_tx_submission(
     } else {
         let (state, stage) =
             responder::TxSubmissionResponder::new(peer, muxer.clone(), params, origin, mempool_stage, era_history);
-        let tx_submission = eff.stage("tx_submission", responder::responder()).await;
+        let tx_submission = eff.stage("tx_submission-responder", responder::responder()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
         (tx_submission.contramap(Inputs::<ResponderLocalIn>::Network), None)

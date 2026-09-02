@@ -115,6 +115,7 @@ enum State {
 struct Established {
     desired_use: LocalUse,
     actual_use: LocalUse,
+    duplex: bool,
     version_number: VersionNumber,
     version_data: VersionData,
     muxer: StageRef<MuxMessage>,
@@ -140,6 +141,8 @@ pub enum ChildId {
     ChainSync,
     BlockFetch,
     PeerSharing,
+    /// Any eager responder instance. Death is always unexpected (reset in place, do not stop).
+    Responder,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -230,7 +233,7 @@ pub async fn stage(
             }
             (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
             (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
-                do_handshake(&params, muxer, params.pipeline.clone(), handshake, handshake_result, eff).await
+                do_handshake(&params, muxer, handshake, handshake_result, eff).await
             }
             (State::Established(s), ConnectionMessage::FetchBlocks { from, through, id, cr }) => {
                 if !s.stopping.contains(&ChildId::BlockFetch)
@@ -341,7 +344,7 @@ async fn do_initialize(Params { conn_id, role, magic, peer, .. }: &Params, eff: 
                 handshake::HandshakeInitiator::new(
                     muxer.clone(),
                     handshake_result,
-                    VersionTable::v11_and_above(*magic, true, true),
+                    VersionTable::v11_and_above(*magic, false, true),
                 ),
             )
             .await
@@ -376,13 +379,13 @@ async fn do_initialize(Params { conn_id, role, magic, peer, .. }: &Params, eff: 
 }
 
 async fn do_handshake(
-    Params { role, peer, conn_id, manager, era_history, mempool_stage, config, .. }: &Params,
+    params: &Params,
     muxer: StageRef<MuxMessage>,
-    pipeline_ref: StageRef<ChainSyncInitiatorMsg>,
     handshake: StageRef<Inputs<Void>>,
     handshake_result: HandshakeResult,
     eff: Effects<ConnectionMessage>,
 ) -> State {
+    let Params { role, peer, conn_id, manager, .. } = params;
     let peer = *peer;
     let (version_number, version_data) = match handshake_result {
         HandshakeResult::Accepted(version_number, version_data) => (version_number, version_data),
@@ -397,8 +400,7 @@ async fn do_handshake(
     };
 
     let full_duplex_capable = version_data.is_full_duplex_capable();
-    // TODO: this needs to change once we actually start supporting full duplex mode
-    let full_duplex = false;
+    let full_duplex = full_duplex_capable;
     let advertisable = version_data.is_advertisable();
 
     eff.send(
@@ -417,38 +419,19 @@ async fn do_handshake(
 
     eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
 
-    let keepalive_initiator = register_keepalive(
-        *role,
-        peer,
-        *conn_id,
-        muxer.clone(),
-        &eff,
-        ConnectionMessage::ChildDied(ChildId::KeepAlive),
-    )
-    .await;
-    let tx_submission_initiator = register_tx_submission(
-        *role,
-        peer,
-        muxer.clone(),
-        &eff,
-        TxOrigin::Remote(peer),
-        mempool_stage.clone(),
-        config.tx_submission_params,
-        era_history.clone(),
-        ConnectionMessage::ChildDied(ChildId::TxSubmission),
-    )
-    .await;
-
     let local_use = LocalUse::default_for_role(*role);
+    let run_initiators = *role == Role::Initiator || full_duplex;
+    let run_responders = *role == Role::Responder || full_duplex;
     let mut established = Established {
         desired_use: local_use,
-        actual_use: local_use,
+        actual_use: LocalUse::None,
+        duplex: full_duplex,
         version_number,
         version_data,
         muxer: muxer.clone(),
         handshake,
-        keepalive_initiator,
-        tx_submission_initiator,
+        keepalive_initiator: None,
+        tx_submission_initiator: None,
         chainsync_initiator: None,
         blockfetch_initiator: None,
         peer_sharing_initiator: None,
@@ -458,77 +441,62 @@ async fn do_handshake(
         stopping: BTreeSet::new(),
     };
 
-    if *role == Role::Initiator {
-        established.chainsync_initiator = Some(
-            register_chainsync_initiator(
-                &muxer,
-                peer,
-                *conn_id,
-                pipeline_ref,
-                &eff,
-                ConnectionMessage::ChildDied(ChildId::ChainSync),
-            )
-            .await,
-        );
-        established.blockfetch_initiator = Some(if let Some(n) = config.blockfetch_pipeline_n {
-            register_blockfetch_initiator_pipelined(
-                &muxer,
-                peer,
-                n,
-                &eff,
-                ConnectionMessage::ChildDied(ChildId::BlockFetch),
-            )
-            .await
-        } else {
-            register_blockfetch_initiator(
-                &muxer,
-                peer,
-                *conn_id,
-                &eff,
-                ConnectionMessage::ChildDied(ChildId::BlockFetch),
-            )
-            .await
-        });
-        established.peer_sharing_initiator = Some(
-            register_peer_sharing_initiator(
-                &muxer,
-                peer,
-                *conn_id,
-                &eff,
-                ConnectionMessage::ChildDied(ChildId::PeerSharing),
-            )
-            .await,
-        );
+    if run_responders {
+        established = register_responders(established, params, &eff).await;
+    }
+    if run_initiators && local_use > LocalUse::None {
+        established = start_initiators(established, params, &eff).await;
     } else {
-        let store = Store::new(eff.clone());
-        let upstream = store.get_best_chain_tip().await;
-        established.chainsync_responder = Some(
-            register_chainsync_responder(
-                &muxer,
-                upstream,
-                peer,
-                *conn_id,
-                &eff,
-                ConnectionMessage::ChildDied(ChildId::ChainSync),
-            )
-            .await,
-        );
-        established.blockfetch_responder =
-            Some(register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await);
-        established.peer_sharing_responder = Some(
+        established.actual_use = local_use;
+        notify_local_use(&established, params, &eff).await;
+    }
+    State::Established(established)
+}
+
+async fn register_responders(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
+    let Params { peer, conn_id, manager, era_history, mempool_stage, config, .. } = params;
+    let died = ConnectionMessage::ChildDied(ChildId::Responder);
+    let _ = register_keepalive(Role::Responder, *peer, *conn_id, s.muxer.clone(), eff, died).await;
+    let _ = register_tx_submission(
+        Role::Responder,
+        *peer,
+        s.muxer.clone(),
+        eff,
+        TxOrigin::Remote(*peer),
+        mempool_stage.clone(),
+        config.tx_submission_params,
+        era_history.clone(),
+        ConnectionMessage::ChildDied(ChildId::Responder),
+    )
+    .await;
+    let store = Store::new(eff.clone());
+    let upstream = store.get_best_chain_tip().await;
+    s.chainsync_responder = Some(
+        register_chainsync_responder(
+            &s.muxer,
+            upstream,
+            *peer,
+            *conn_id,
+            eff,
+            ConnectionMessage::ChildDied(ChildId::Responder),
+        )
+        .await,
+    );
+    s.blockfetch_responder =
+        Some(register_blockfetch_responder(&s.muxer, eff, ConnectionMessage::ChildDied(ChildId::Responder)).await);
+    if s.version_data.is_advertisable() {
+        s.peer_sharing_responder = Some(
             register_peer_sharing_responder(
-                &muxer,
-                peer,
+                &s.muxer,
+                *peer,
                 manager.clone(),
-                &eff,
-                ConnectionMessage::ChildDied(ChildId::PeerSharing),
+                eff,
+                ConnectionMessage::ChildDied(ChildId::Responder),
             )
             .await,
         );
     }
-
-    eff.send(manager, ManagerMessage::LocalUseApplied { peer, conn_id: *conn_id, local_use }).await;
-    State::Established(established)
+    s
 }
 
 async fn converge_use(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
@@ -537,7 +505,7 @@ async fn converge_use(mut s: Established, params: &Params, eff: &Effects<Connect
     }
     if s.desired_use < s.actual_use {
         begin_stop(s, params, eff).await
-    } else if s.desired_use > s.actual_use && params.role == Role::Initiator {
+    } else if s.desired_use > s.actual_use && (params.role == Role::Initiator || s.duplex) {
         start_initiators(s, params, eff).await
     } else if s.desired_use != s.actual_use {
         s.actual_use = s.desired_use;
@@ -620,14 +588,14 @@ async fn on_expected_stop(
             mux::install_done_trap(&s.muxer, PROTO_N2N_PEER_SHARE.erase(), eff, ConnectionMessage::ChildDied(child))
                 .await;
         }
-        ChildId::Mux | ChildId::Handshake => {}
+        ChildId::Mux | ChildId::Handshake | ChildId::Responder => {}
     }
 
     if s.stopping.is_empty() {
         eff.clear_timeout_at(STOP_TIMEOUT_SLOT).await;
         s.actual_use = s.desired_use;
         notify_local_use(&s, params, eff).await;
-        if params.role == Role::Initiator && s.desired_use > LocalUse::None {
+        if s.desired_use > LocalUse::None && (params.role == Role::Initiator || s.duplex) {
             return start_initiators(s, params, eff).await;
         }
     }

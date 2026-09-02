@@ -1495,3 +1495,62 @@ fn test_churn_skips_static_peers() {
     );
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
+
+fn duplex_conn() -> Connection {
+    Connection::new(ConnectionId::initial(), true, true)
+}
+
+#[test]
+fn test_regulate_promotes_duplex_inbound_instead_of_dial() {
+    let mut prep = test_prep(&["10.0.0.1:1"]);
+    prep.state.target_upstream_peers = 1;
+    let inbound = TestPrep::peer("8.8.8.8:8");
+    prep.state.inbound_peers.insert(inbound, duplex_conn());
+    let after = {
+        let mut s = prep.state.clone();
+        s.inbound_peers.insert(inbound, duplex_conn().with_local_use(LocalUse::Diffusion));
+        s
+    };
+
+    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::Regulate);
+    assert_trace_contains(
+        &running,
+        &[
+            te_send(
+                "ps-1",
+                "manager",
+                ManagerMessage::SetLocalUse {
+                    peer: inbound,
+                    conn_id: ConnectionId::initial(),
+                    local_use: LocalUse::Diffusion,
+                },
+            )
+            .into(),
+            te_state("ps-1", &after).into(),
+        ],
+    );
+    assert_trace_does_not_contain(
+        &running,
+        &[tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_)))],
+    );
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_using_inbound_counts_toward_upstream_target() {
+    let mut prep = test_prep(&["10.0.0.1:1"]);
+    prep.state.target_upstream_peers = 1;
+    let inbound = TestPrep::peer("8.8.8.8:8");
+    prep.state.inbound_peers.insert(inbound, duplex_conn().with_local_use(LocalUse::Diffusion));
+    let start = prep.state.clone();
+
+    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::Regulate);
+    assert_trace_contains(&running, &[te_state("ps-1", &start).into(), te_state("ps-1", &start).into()]);
+    assert_trace_does_not_contain(
+        &running,
+        &[tm_send_match::<ManagerMessage>("ps-1", "manager", |m| {
+            matches!(m, ManagerMessage::AddPeer(_) | ManagerMessage::SetLocalUse { .. })
+        })],
+    );
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}

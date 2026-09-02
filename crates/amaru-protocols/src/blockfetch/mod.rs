@@ -103,7 +103,7 @@ pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
     tombstone: M,
 ) -> StageRef<StreamBlocks> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;
-    let blockfetch = eff.stage("blockfetch", responder()).await;
+    let blockfetch = eff.stage("blockfetch-responder", responder()).await;
     let blockfetch = eff.supervise(blockfetch, tombstone);
     let blockfetch = eff.wire_up(blockfetch, BlockFetchResponder::new(muxer.clone())).await;
     eff.send(

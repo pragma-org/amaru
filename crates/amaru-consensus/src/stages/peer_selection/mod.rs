@@ -515,6 +515,7 @@ impl PeerSelection {
                     PeerState::Connected(conn) => conn.local_use == LocalUse::Diffusion,
                 })
                 .count()
+            + self.inbound_peers.values().filter(|conn| conn.local_use == LocalUse::Diffusion).count()
     }
 
     fn using_peers(&self) -> Vec<Peer> {
@@ -534,6 +535,20 @@ impl PeerSelection {
         self.churn_timer = Some(id);
     }
 
+    fn connection_mut(&mut self, peer: Peer, conn_id: ConnectionId) -> Option<&mut Connection> {
+        if let Some(PeerState::Connected(conn)) = self.outbound_peers.get_mut(&peer)
+            && conn.id == conn_id
+        {
+            return Some(conn);
+        }
+        if let Some(conn) = self.inbound_peers.get_mut(&peer)
+            && conn.id == conn_id
+        {
+            return Some(conn);
+        }
+        None
+    }
+
     async fn demote_to_maintenance(
         &mut self,
         peer: Peer,
@@ -542,10 +557,10 @@ impl PeerSelection {
         until: Instant,
         eff: &Effects<PeerSelectionMsg>,
     ) -> bool {
-        let Some(PeerState::Connected(conn)) = self.outbound_peers.get_mut(&peer) else {
+        let Some(conn) = self.connection_mut(peer, conn_id) else {
             return false;
         };
-        if conn.id != conn_id || conn.local_use != LocalUse::Diffusion {
+        if conn.local_use != LocalUse::Diffusion {
             return false;
         }
         conn.local_use = LocalUse::Maintenance;
@@ -564,10 +579,10 @@ impl PeerSelection {
         if self.using_occupancy() >= self.target_upstream_peers {
             return;
         }
-        let Some(PeerState::Connected(conn)) = self.outbound_peers.get_mut(&peer) else {
+        let Some(conn) = self.connection_mut(peer, conn_id) else {
             return;
         };
-        if conn.id != conn_id || conn.local_use != LocalUse::Maintenance {
+        if conn.local_use == LocalUse::Diffusion {
             return;
         }
         conn.local_use = LocalUse::Diffusion;
@@ -606,6 +621,30 @@ impl PeerSelection {
         }
     }
 
+    async fn promote_duplex_inbounds(&mut self, now: Instant, eff: &Effects<PeerSelectionMsg>) {
+        let candidates: Vec<(Peer, ConnectionId)> = self
+            .inbound_peers
+            .iter()
+            .filter_map(|(peer, conn)| {
+                if conn.full_duplex
+                    && conn.local_use != LocalUse::Diffusion
+                    && !self.demoted_until.get(peer).is_some_and(|until| *until > now)
+                    && !self.cooldowns.is_cooling(peer)
+                {
+                    Some((*peer, conn.id))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (peer, conn_id) in candidates {
+            if self.using_occupancy() >= self.target_upstream_peers {
+                break;
+            }
+            self.try_promote(peer, conn_id, now, eff).await;
+        }
+    }
+
     async fn promote_eligible_maintenance(&mut self, now: Instant, eff: &Effects<PeerSelectionMsg>) {
         let candidates: Vec<(Peer, ConnectionId)> = self
             .outbound_peers
@@ -630,6 +669,7 @@ impl PeerSelection {
 
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
         let now = eff.clock().await;
+        self.promote_duplex_inbounds(now, eff).await;
         self.promote_eligible_maintenance(now, eff).await;
         let target_upstream_peers = self.target_upstream_peers;
         let outbound = self.using_occupancy();
@@ -642,6 +682,12 @@ impl PeerSelection {
         let now = eff.clock().await;
         let mut excluded: BTreeSet<PeerCandidate> =
             self.outbound_peers.keys().copied().map(PeerCandidate::from).collect();
+        excluded.extend(
+            self.inbound_peers
+                .iter()
+                .filter(|(_, conn)| conn.local_use == LocalUse::Diffusion)
+                .map(|(peer, _)| PeerCandidate::from(*peer)),
+        );
         for p in self.cooldowns.cooling_peers() {
             excluded.insert(PeerCandidate::from(p));
         }

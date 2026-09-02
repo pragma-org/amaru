@@ -81,7 +81,7 @@ mod register {
         eff: &Effects<ConnectionMessage>,
         tombstone: ConnectionMessage,
     ) -> StageRef<ResponderMessage> {
-        let chainsync = eff.stage("chainsync", responder()).await;
+        let chainsync = eff.stage("chainsync-responder", responder()).await;
         let chainsync = eff.supervise(chainsync, tombstone);
         let chainsync = eff.wire_up(chainsync, ChainSyncResponder::new(upstream, peer, conn_id, muxer.clone())).await;
         eff.send(

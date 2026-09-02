@@ -232,10 +232,10 @@ mod negotiation_tests {
     }
 
     #[test]
-    fn outbound_offer_remains_initiator_only() {
-        let table = VersionTable::v11_and_above(NetworkMagic::PREPROD, true, true);
+    fn outbound_offer_is_duplex() {
+        let table = VersionTable::v11_and_above(NetworkMagic::PREPROD, false, true);
         for data in table.values.values() {
-            assert!(data.initiator_only_diffusion_mode());
+            assert!(!data.initiator_only_diffusion_mode());
         }
     }
 
