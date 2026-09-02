@@ -51,7 +51,7 @@ use crate::{
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     setup_logging();
     let (responder, addr, responder_done) = start_responder().await?;
-    let (initiator, initiator_done) = start_initiator_at(addr).await?;
+    let (initiator, initiator_done, _) = start_initiator_at(addr).await?;
 
     wait_for_termination(responder_done, initiator_done).await?;
     check_state(initiator, responder)?;
@@ -63,7 +63,7 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
     setup_logging();
     let addr = ephemeral_localhost_addr()?;
     tracing::info!("starting test at address {}", addr);
-    let (initiator, initiator_done) = start_initiator_with_configuration(
+    let (initiator, initiator_done, _) = start_initiator_with_configuration(
         Configuration::initiator().with_addr(addr).with_reconnect_delay(Duration::from_millis(500)),
     )
     .await?;
@@ -83,7 +83,7 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     // the initiator doesn't start synchronizing right away
     let (responder, addr, _) =
         start_responder_with_configuration(Configuration::responder().with_slow_manager()).await?;
-    let (initiator, initiator_done) = start_initiator_with_configuration(
+    let (initiator, initiator_done, initiator_sender) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
             .with_reconnect_delay(Duration::from_millis(1000))
@@ -102,6 +102,8 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     tracing::info!("restart the responder at address {}", addr);
     let responder_configuration = Configuration::responder().with_addr(addr);
     let (responder, _, responder_done) = start_responder_with_configuration(responder_configuration).await?;
+    let peer = Peer::try_from(addr).expect("test listen address is a peer");
+    initiator_sender.send(ManagerMessage::AddPeer(peer)).await.unwrap();
 
     // Both the initiator and the responder should eventually terminate with the same state
     tracing::info!("wait for termination");
@@ -128,7 +130,7 @@ async fn test_accept_stage_supervised_restart() -> anyhow::Result<()> {
         start_responder_with_failing_accept(Configuration::responder(), 1, 1).await?;
 
     // Start an initiator that will connect to the responder
-    let (initiator, initiator_done) = start_initiator_with_configuration(
+    let (initiator, initiator_done, _) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
             .with_reconnect_delay(Duration::from_millis(500))
@@ -195,7 +197,9 @@ async fn start_responder_with_configuration(
 
 /// Create and start an initiator node that connects to the given port.
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
-async fn start_initiator_at(addr: impl Into<Option<SocketAddr>>) -> anyhow::Result<(TokioRunning, Arc<Notify>)> {
+async fn start_initiator_at(
+    addr: impl Into<Option<SocketAddr>>,
+) -> anyhow::Result<(TokioRunning, Arc<Notify>, amaru_pure_stage::Sender<ManagerMessage>)> {
     let addr = addr.into().unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3000)));
     start_initiator_with_configuration(Configuration::initiator().with_addr(addr)).await
 }
@@ -204,7 +208,7 @@ async fn start_initiator_at(addr: impl Into<Option<SocketAddr>>) -> anyhow::Resu
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
 async fn start_initiator_with_configuration(
     configuration: Configuration,
-) -> anyhow::Result<(TokioRunning, Arc<Notify>)> {
+) -> anyhow::Result<(TokioRunning, Arc<Notify>, amaru_pure_stage::Sender<ManagerMessage>)> {
     tracing::info!("Creating the initiator");
     let addr = configuration.addr;
     let peer = Peer::try_from(addr).expect("test listen address is a peer");
@@ -241,7 +245,7 @@ async fn start_initiator_with_configuration(
     let running_initiator = initiator_network.run(Handle::current());
     initiator_sender.send(ManagerMessage::AddPeer(peer)).await.unwrap();
 
-    Ok((running_initiator, notify))
+    Ok((running_initiator, notify, initiator_sender))
 }
 
 /// Create and start a responder node that uses the manager's supervised accept stage.
