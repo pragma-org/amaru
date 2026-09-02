@@ -56,7 +56,11 @@ pub const SDU_TIMEOUT_HANDSHAKE: Duration = Duration::from_secs(10);
 pub const SDU_TIMEOUT_ESTABLISHED: Duration = Duration::from_secs(30);
 
 const HEADER_LEADING_EDGE: NonZeroUsize = NonZeroUsize::MIN;
-const HEADER_REST: NonZeroUsize = NonZeroUsize::new(7).expect("7 is non-zero");
+const HEADER_REST: NonZeroUsize = const {
+    let ret = NonZeroUsize::new(7).expect("non-zero");
+    assert!(matches!(HEADER_LEADING_EDGE.checked_add(ret.get()), Some(HEADER_LEN)));
+    ret
+};
 
 /// microseconds part of the wall clock time
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -375,10 +379,19 @@ async fn read_segment(
 
         let now = eff.clock().await;
         let remaining = sdu_timeout.saturating_sub(now.saturating_since(started));
-        let payload_timeout = Some(remaining.max(Duration::from_nanos(1)));
+        if remaining.is_zero() {
+            error!(
+                protocols::mux::FAILED,
+                peer,
+                role = role.to_string(),
+                operation = "recv_data",
+                error = "sdu timeout (no time left for payload)"
+            );
+            return eff.terminate().await;
+        }
 
         let data = Network::new(&eff)
-            .recv(conn, header.length.into(), payload_timeout)
+            .recv(conn, header.length.into(), Some(remaining))
             .or_terminate_with(&eff, async |err| {
                 error!(
                     protocols::mux::FAILED,
