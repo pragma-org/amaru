@@ -128,7 +128,9 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
                 self.pending_close = true;
                 (None, self)
             }
-            (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
+            (this, input) => {
+                anyhow::bail!("invalid state: {:?} <- {:?} (pending_close={})", this, input, self.pending_close)
+            }
         })
     }
 

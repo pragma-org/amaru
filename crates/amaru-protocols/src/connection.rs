@@ -204,7 +204,7 @@ pub async fn stage(
             }
             (State::Established(s), ConnectionMessage::ChildDied(child)) if s.stopping.contains(&child) => {
                 info!(
-                    protocols::connection::CHILD_DIED,
+                    protocols::connection::CHILD_STOPPED,
                     peer = &params.peer,
                     conn_id = conn_id.as_u64(),
                     child = format!("{child:?}")
@@ -537,8 +537,8 @@ async fn converge_use(mut s: Established, params: &Params, eff: &Effects<Connect
 }
 
 async fn begin_stop(mut s: Established, _params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
-    let drop_diffusion = s.actual_use == LocalUse::Diffusion && s.desired_use <= LocalUse::Maintenance;
-    let drop_maintenance = s.desired_use == LocalUse::None;
+    let drop_diffusion = s.actual_use >= LocalUse::Diffusion && s.desired_use < LocalUse::Diffusion;
+    let drop_maintenance = s.actual_use >= LocalUse::Maintenance && s.desired_use < LocalUse::Maintenance;
 
     if drop_diffusion {
         if let Some(cs) = &s.chainsync_initiator {

@@ -1896,6 +1896,12 @@ define_schemas! {
                     required conn_id: u64
                     required child: String
                 }
+                /// A mini-protocol stage running on a connection stopped upon request
+                public CHILD_STOPPED {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                    required child: String
+                }
                 /// The peer refused our proposed protocol versions
                 public HANDSHAKE_REFUSED {
                     required reason: String

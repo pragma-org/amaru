@@ -97,53 +97,23 @@ pub struct Outcome<S, R, E> {
 
 impl<S, R, E> Outcome<S, R, E> {
     pub fn send(self, send: S) -> Self {
-        Self {
-            send: Some(send),
-            result: self.result,
-            terminate_with: self.terminate_with,
-            want_next: self.want_next,
-            finished: self.finished,
-        }
+        Self { send: Some(send), ..self }
     }
 
     pub fn result(self, done: R) -> Self {
-        Self {
-            send: self.send,
-            result: Some(done),
-            terminate_with: self.terminate_with,
-            want_next: self.want_next,
-            finished: self.finished,
-        }
+        Self { result: Some(done), ..self }
     }
 
     pub fn want_next(self) -> Self {
-        Self {
-            send: self.send,
-            result: self.result,
-            terminate_with: self.terminate_with,
-            want_next: true,
-            finished: self.finished,
-        }
+        Self { want_next: true, ..self }
     }
 
     pub fn terminate_with(self, e: E) -> Self {
-        Self {
-            send: self.send,
-            result: self.result,
-            terminate_with: Some(e),
-            want_next: self.want_next,
-            finished: self.finished,
-        }
+        Self { terminate_with: Some(e), ..self }
     }
 
     pub fn finish(self) -> Self {
-        Self {
-            send: self.send,
-            result: self.result,
-            terminate_with: self.terminate_with,
-            want_next: self.want_next,
-            finished: true,
-        }
+        Self { finished: true, ..self }
     }
 
     pub fn without_result(self) -> Outcome<S, Void, E> {
