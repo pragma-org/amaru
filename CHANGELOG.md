@@ -51,6 +51,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-protocols**: mux times SDU assembly and send: unbounded wait for the first header byte, then 10s during the first Handshake and 30s afterwards for the rest of that SDU. Overflow of that timer tears the bearer down.
 - **amaru-protocols**: handshake combines version data as in the node-to-node spec: network magics must match, `initiatorOnlyDiffusionMode` and `query` are OR, `peerSharing` is AND. The initiator checks that `MsgAcceptVersion` carries that agreed record. Outbound connections still offer initiator-only diffusion (duplex is not advertised until both halves run).
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 

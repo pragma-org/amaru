@@ -364,6 +364,8 @@ async fn do_handshake(
     )
     .await;
 
+    eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
+
     let keepalive = register_keepalive(
         *role,
         peer,

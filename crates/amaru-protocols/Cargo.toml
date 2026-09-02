@@ -30,6 +30,7 @@ amaru-observability.workspace = true
 amaru-ouroboros-traits = { "workspace" = true, features = ["test-utils"] }
 amaru-ouroboros.workspace = true
 amaru-pure-stage.workspace = true
+tokio = { workspace = true, features = ["time"] }
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true

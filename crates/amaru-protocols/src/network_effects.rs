@@ -42,9 +42,19 @@ pub trait NetworkOps {
 
     fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, Result<ConnectionId, ConnectError>>;
 
-    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, Result<(), SendError>>;
+    fn send(
+        &self,
+        conn: ConnectionId,
+        data: NonEmptyBytes,
+        timeout: Option<Duration>,
+    ) -> BoxFuture<'static, Result<(), SendError>>;
 
-    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, Result<NonEmptyBytes, ReceiveError>>;
+    fn recv(
+        &self,
+        conn: ConnectionId,
+        bytes: NonZeroUsize,
+        timeout: Option<Duration>,
+    ) -> BoxFuture<'static, Result<NonEmptyBytes, ReceiveError>>;
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), CloseError>>;
 }
@@ -70,12 +80,22 @@ impl<T> NetworkOps for Network<'_, T> {
         self.0.external(ConnectEffect { peer, timeout })
     }
 
-    fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, Result<(), SendError>> {
-        self.0.external(SendEffect { conn, data })
+    fn send(
+        &self,
+        conn: ConnectionId,
+        data: NonEmptyBytes,
+        timeout: Option<Duration>,
+    ) -> BoxFuture<'static, Result<(), SendError>> {
+        self.0.external(SendEffect { conn, data, timeout })
     }
 
-    fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, Result<NonEmptyBytes, ReceiveError>> {
-        self.0.external(RecvEffect { conn, bytes })
+    fn recv(
+        &self,
+        conn: ConnectionId,
+        bytes: NonZeroUsize,
+        timeout: Option<Duration>,
+    ) -> BoxFuture<'static, Result<NonEmptyBytes, ReceiveError>> {
+        self.0.external(RecvEffect { conn, bytes, timeout })
     }
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), CloseError>> {
@@ -190,6 +210,7 @@ impl Display for ConnectError {
 pub struct SendEffect {
     pub conn: ConnectionId,
     pub data: NonEmptyBytes,
+    pub timeout: Option<Duration>,
 }
 
 impl ExternalEffectAPI for SendEffect {
@@ -201,7 +222,17 @@ impl ExternalEffectAPI for SendEffect {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("SendEffect requires a ConnectionsResource").clone();
-            resource.send(this.conn, this.data).await.map_err(|e| SendError { conn: this.conn, error: format!("{e}") })
+            let send = resource.send(this.conn, this.data);
+            let result = match this.timeout {
+                None => send.await,
+                Some(limit) => match tokio::time::timeout(limit, send).await {
+                    Ok(r) => r,
+                    Err(_) => {
+                        return Err(SendError { conn: this.conn, error: format!("sdu timeout ({limit:?})") });
+                    }
+                },
+            };
+            result.map_err(|e| SendError { conn: this.conn, error: format!("{e}") })
         })
     }
 }
@@ -223,6 +254,17 @@ impl Display for SendError {
 pub struct RecvEffect {
     pub conn: ConnectionId,
     pub bytes: NonZeroUsize,
+    pub timeout: Option<Duration>,
+}
+
+impl RecvEffect {
+    pub(crate) fn leading_edge(conn: ConnectionId) -> Self {
+        Self { conn, bytes: NonZeroUsize::MIN, timeout: None }
+    }
+
+    pub(crate) fn assembly(conn: ConnectionId, bytes: NonZeroUsize, timeout: Duration) -> Self {
+        Self { conn, bytes, timeout: Some(timeout) }
+    }
 }
 
 impl ExternalEffectAPI for RecvEffect {
@@ -234,10 +276,17 @@ impl ExternalEffectAPI for RecvEffect {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("RecvEffect requires a ConnectionsResource").clone();
-            resource
-                .recv(this.conn, this.bytes)
-                .await
-                .map_err(|e| ReceiveError { conn: this.conn, error: format!("{e}") })
+            let recv = resource.recv(this.conn, this.bytes);
+            let result = match this.timeout {
+                None => recv.await,
+                Some(limit) => match tokio::time::timeout(limit, recv).await {
+                    Ok(r) => r,
+                    Err(_) => {
+                        return Err(ReceiveError::sdu_timeout(this.conn, limit));
+                    }
+                },
+            };
+            result.map_err(|e| ReceiveError { conn: this.conn, error: format!("{e}") })
         })
     }
 }
@@ -246,6 +295,12 @@ impl ExternalEffectAPI for RecvEffect {
 pub struct ReceiveError {
     conn: ConnectionId,
     error: String,
+}
+
+impl ReceiveError {
+    pub(crate) fn sdu_timeout(conn: ConnectionId, limit: Duration) -> Self {
+        Self { conn, error: format!("sdu timeout ({limit:?})") }
+    }
 }
 
 impl Display for ReceiveError {
