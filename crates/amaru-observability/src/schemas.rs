@@ -1888,6 +1888,9 @@ define_schemas! {
                         required conn_id: u64
                         required peer: %amaru_kernel::Peer
                         required role: String
+                        required local_use: String
+                        required duplex: bool
+                        required stopping: u64
                     }
                 }
                 /// A mini-protocol stage running on a connection died

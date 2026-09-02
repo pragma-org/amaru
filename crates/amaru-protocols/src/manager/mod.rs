@@ -271,6 +271,10 @@ pub struct ManagerConfig {
     /// BlockFetch initiator pipeline depth. `1` drives the lock-step typestate
     /// instance; values greater than 1 wrap N instances in the CIP-0164 pipeliner.
     pub blockfetch_pipeline_n: NonZeroU8,
+    /// Last-to-finish bound when stopping the diffusion initiator group.
+    pub diffusion_stop_timeout: Duration,
+    /// Last-to-finish bound when stopping the maintenance initiator group.
+    pub maintenance_stop_timeout: Duration,
 }
 
 impl ManagerConfig {
@@ -314,6 +318,8 @@ impl Default for ManagerConfig {
             accept_interval: Duration::from_millis(100),
             tx_submission_params: ResponderParams::default(),
             blockfetch_pipeline_n: NonZeroU8::MIN,
+            diffusion_stop_timeout: Duration::from_secs(300),
+            maintenance_stop_timeout: Duration::from_secs(120),
         }
     }
 }
