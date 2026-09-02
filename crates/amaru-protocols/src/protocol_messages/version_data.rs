@@ -40,6 +40,18 @@ impl VersionData {
         VersionData { network_magic, initiator_only_diffusion_mode, peer_sharing, query }
     }
 
+    pub fn network_magic(&self) -> NetworkMagic {
+        self.network_magic
+    }
+
+    pub fn initiator_only_diffusion_mode(&self) -> bool {
+        self.initiator_only_diffusion_mode
+    }
+
+    pub fn query(&self) -> bool {
+        self.query
+    }
+
     /// Returns whether this peer can act as both initiator and responder (full duplex).
     /// See initiator_only_diffusion_mode in the handshake spec.
     pub fn is_full_duplex_capable(&self) -> bool {
@@ -49,6 +61,27 @@ impl VersionData {
     /// Whether the remote peer is willing to be advertised via peer sharing (`peer_sharing == 1`).
     pub fn is_advertisable(&self) -> bool {
         self.peer_sharing == PEER_SHARING_ENABLED
+    }
+
+    /// Combine two version-data records for the same NTN version (v14/v15 rules).
+    ///
+    /// `networkMagic` must match. `initiatorOnlyDiffusionMode` and `query` are OR;
+    /// `peerSharing` is 1 only if both offers are 1.
+    pub(crate) fn combine(&self, other: &Self) -> Result<Self, &'static str> {
+        if self.network_magic != other.network_magic {
+            return Err("network magic mismatch");
+        }
+        let peer_sharing = if self.peer_sharing == PEER_SHARING_ENABLED && other.peer_sharing == PEER_SHARING_ENABLED {
+            PEER_SHARING_ENABLED
+        } else {
+            PEER_SHARING_DISABLED
+        };
+        Ok(Self {
+            network_magic: self.network_magic,
+            initiator_only_diffusion_mode: self.initiator_only_diffusion_mode || other.initiator_only_diffusion_mode,
+            peer_sharing,
+            query: self.query || other.query,
+        })
     }
 }
 
