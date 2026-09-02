@@ -80,36 +80,46 @@ struct Params {
     manager: StageRef<ManagerMessage>,
 }
 
+/// Local use of a bearer: which initiator groups we intend to run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub enum LocalUse {
+    None,
+    Maintenance,
+    Diffusion,
+}
+
+impl LocalUse {
+    pub fn default_for_role(role: Role) -> Self {
+        match role {
+            Role::Initiator => Self::Diffusion,
+            Role::Responder => Self::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum State {
     Initial,
     Handshake { muxer: StageRef<MuxMessage>, handshake: StageRef<Inputs<Void>> },
-    Initiator(StateInitiator),
-    Responder(StateResponder),
+    Established(Established),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct StateInitiator {
-    chainsync_initiator: StageRef<chainsync::InitiatorMessage>,
-    blockfetch_initiator: StageRef<blockfetch::BlockFetchMessage>,
-    peer_sharing_initiator: StageRef<PeerSharingMessage>,
+struct Established {
+    desired_use: LocalUse,
+    actual_use: LocalUse,
     version_number: VersionNumber,
     version_data: VersionData,
     muxer: StageRef<MuxMessage>,
     handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct StateResponder {
-    chainsync_responder: StageRef<chainsync::ResponderMessage>,
-    muxer: StageRef<MuxMessage>,
-    handshake: StageRef<Inputs<Void>>,
-    keepalive: StageRef<HandlerMessage>,
-    tx_submission: StageRef<HandlerMessage>,
-    blockfetch_responder: StageRef<StreamBlocks>,
-    peer_sharing_responder: StageRef<crate::peer_sharing::ResponderMessage>,
+    chainsync_initiator: Option<StageRef<chainsync::InitiatorMessage>>,
+    blockfetch_initiator: Option<StageRef<blockfetch::BlockFetchMessage>>,
+    peer_sharing_initiator: Option<StageRef<PeerSharingMessage>>,
+    chainsync_responder: Option<StageRef<chainsync::ResponderMessage>>,
+    blockfetch_responder: Option<StageRef<StreamBlocks>>,
+    peer_sharing_responder: Option<StageRef<crate::peer_sharing::ResponderMessage>>,
 }
 
 /// Identity of a supervised child stage of a connection.
@@ -145,6 +155,8 @@ pub enum ConnectionMessage {
     NewTip(Point, TraceContext),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
+    /// Peer selection (or default after handshake) wants this local use.
+    SetLocalUse(LocalUse),
 }
 
 impl ConnectionMessage {
@@ -157,6 +169,7 @@ impl ConnectionMessage {
             ConnectionMessage::RequestSharePeers { .. } => "RequestSharePeers",
             ConnectionMessage::NewTip(_, _) => "NewTip",
             ConnectionMessage::ChildDied(_) => "ChildDied",
+            ConnectionMessage::SetLocalUse(_) => "SetLocalUse",
         }
     }
 
@@ -192,28 +205,32 @@ pub async fn stage(
             (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
                 do_handshake(&params, muxer, params.pipeline.clone(), handshake, handshake_result, eff).await
             }
-            (State::Initiator(s), ConnectionMessage::FetchBlocks { from, through, id, cr }) => {
-                eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, id, cr }).await;
-                State::Initiator(s)
+            (State::Established(s), ConnectionMessage::FetchBlocks { from, through, id, cr }) => {
+                if let Some(blockfetch) = &s.blockfetch_initiator {
+                    eff.send(blockfetch, BlockFetchMessage::RequestRange { from, through, id, cr }).await;
+                }
+                State::Established(s)
             }
             (
-                State::Initiator(s),
+                State::Established(s),
                 ConnectionMessage::RequestSharePeers { amount, initial_delay, interval, reply_to },
             ) => {
-                eff.send(
-                    &s.peer_sharing_initiator,
-                    PeerSharingMessage::Start { amount, initial_delay, interval, reply_to },
-                )
-                .await;
-                State::Initiator(s)
+                if let Some(ps) = &s.peer_sharing_initiator {
+                    eff.send(ps, PeerSharingMessage::Start { amount, initial_delay, interval, reply_to }).await;
+                }
+                State::Established(s)
             }
-            (State::Responder(s), ConnectionMessage::NewTip(tip, trace_context)) => {
-                eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip, trace_context)).await;
-                State::Responder(s)
+            (State::Established(s), ConnectionMessage::NewTip(tip, trace_context)) => {
+                if let Some(cs) = &s.chainsync_responder {
+                    eff.send(cs, chainsync::ResponderMessage::NewTip(tip, trace_context)).await;
+                }
+                State::Established(s)
             }
-            (State::Initiator(s), ConnectionMessage::NewTip(_, _)) => {
-                // don't propagate new tip messages when using the initiator side of a connection.
-                State::Initiator(s)
+            (State::Established(mut s), ConnectionMessage::SetLocalUse(desired)) => {
+                s.desired_use = desired;
+                // Starting extra groups on a duplex bearer is a later PR. Stopping is MsgDone.
+                // This commit only records the intent so later commits can converge actual_use.
+                State::Established(s)
             }
             (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {
                 // The peer might be still connecting. In that case we reschedule the message
@@ -229,6 +246,10 @@ pub async fn stage(
             }
             (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::NewTip(_, _)) => {
                 // The peer might be still connecting. Reschedule the NewTip message.
+                eff.schedule_after(msg, params.config.reconnect_delay).await;
+                state
+            }
+            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::SetLocalUse(_)) => {
                 eff.schedule_after(msg, params.config.reconnect_delay).await;
                 state
             }
@@ -252,10 +273,10 @@ pub async fn stage(
 /// purge signal must be sent explicitly here whenever an initiator session may have been started.
 async fn teardown(state: State, params: &Params, eff: &Effects<ConnectionMessage>) -> Connection {
     match state {
-        State::Initiator(..) => {
+        State::Established(s) if s.chainsync_initiator.is_some() => {
             notify_chainsync_terminated(params, eff).await;
         }
-        State::Initial | State::Handshake { .. } | State::Responder(_) => {}
+        State::Initial | State::Handshake { .. } | State::Established(_) => {}
     }
     eff.terminate().await
 }
@@ -388,17 +409,37 @@ async fn do_handshake(
     )
     .await;
 
+    let local_use = LocalUse::default_for_role(*role);
+    let mut established = Established {
+        desired_use: local_use,
+        actual_use: local_use,
+        version_number,
+        version_data,
+        muxer: muxer.clone(),
+        handshake,
+        keepalive,
+        tx_submission,
+        chainsync_initiator: None,
+        blockfetch_initiator: None,
+        peer_sharing_initiator: None,
+        chainsync_responder: None,
+        blockfetch_responder: None,
+        peer_sharing_responder: None,
+    };
+
     if *role == Role::Initiator {
-        let chainsync_initiator = register_chainsync_initiator(
-            &muxer,
-            peer,
-            *conn_id,
-            pipeline_ref,
-            &eff,
-            ConnectionMessage::ChildDied(ChildId::ChainSync),
-        )
-        .await;
-        let blockfetch_initiator = if let Some(n) = config.blockfetch_pipeline_n {
+        established.chainsync_initiator = Some(
+            register_chainsync_initiator(
+                &muxer,
+                peer,
+                *conn_id,
+                pipeline_ref,
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::ChainSync),
+            )
+            .await,
+        );
+        established.blockfetch_initiator = Some(if let Some(n) = config.blockfetch_pipeline_n {
             register_blockfetch_initiator_pipelined(
                 &muxer,
                 peer,
@@ -416,59 +457,46 @@ async fn do_handshake(
                 ConnectionMessage::ChildDied(ChildId::BlockFetch),
             )
             .await
-        };
-        let peer_sharing_initiator = register_peer_sharing_initiator(
-            &muxer,
-            peer,
-            *conn_id,
-            &eff,
-            ConnectionMessage::ChildDied(ChildId::PeerSharing),
-        )
-        .await;
-        State::Initiator(StateInitiator {
-            chainsync_initiator,
-            blockfetch_initiator,
-            peer_sharing_initiator,
-            version_number,
-            version_data,
-            muxer,
-            handshake,
-            keepalive,
-            tx_submission,
-        })
+        });
+        established.peer_sharing_initiator = Some(
+            register_peer_sharing_initiator(
+                &muxer,
+                peer,
+                *conn_id,
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::PeerSharing),
+            )
+            .await,
+        );
     } else {
         let store = Store::new(eff.clone());
         let upstream = store.get_best_chain_tip().await;
-        let chainsync_responder = register_chainsync_responder(
-            &muxer,
-            upstream,
-            peer,
-            *conn_id,
-            &eff,
-            ConnectionMessage::ChildDied(ChildId::ChainSync),
-        )
-        .await;
-        let blockfetch_responder =
-            register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
-        let peer_sharing_responder = register_peer_sharing_responder(
-            &muxer,
-            peer,
-            manager.clone(),
-            &eff,
-            ConnectionMessage::ChildDied(ChildId::PeerSharing),
-        )
-        .await;
-
-        State::Responder(StateResponder {
-            chainsync_responder,
-            blockfetch_responder,
-            peer_sharing_responder,
-            muxer,
-            handshake,
-            keepalive,
-            tx_submission,
-        })
+        established.chainsync_responder = Some(
+            register_chainsync_responder(
+                &muxer,
+                upstream,
+                peer,
+                *conn_id,
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::ChainSync),
+            )
+            .await,
+        );
+        established.blockfetch_responder =
+            Some(register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await);
+        established.peer_sharing_responder = Some(
+            register_peer_sharing_responder(
+                &muxer,
+                peer,
+                manager.clone(),
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::PeerSharing),
+            )
+            .await,
+        );
     }
+
+    State::Established(established)
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
