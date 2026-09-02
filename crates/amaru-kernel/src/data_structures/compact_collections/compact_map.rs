@@ -117,12 +117,13 @@ impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
     /// Move all small entries into the tree, permanently, and return it. No-op when already
     /// tree-backed.
     fn promote(&mut self) -> &mut BTreeMap<K, V> {
-        if let MapStorage::Small(entries) = &mut self.storage {
-            self.storage = MapStorage::Tree(entries.take().into_iter().collect());
-        }
-        match &mut self.storage {
-            MapStorage::Tree(entries) => entries,
-            MapStorage::Small(_) => unreachable!("promotion always ends in tree storage"),
+        loop {
+            match &mut self.storage {
+                MapStorage::Tree(entries) => return entries,
+                MapStorage::Small(entries) => {
+                    self.storage = MapStorage::Tree(entries.take().into_iter().collect());
+                }
+            }
         }
     }
 
