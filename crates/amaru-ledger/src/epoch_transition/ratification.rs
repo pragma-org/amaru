@@ -403,15 +403,11 @@ fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, sync::Mutex};
-
     use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, any_proposal_id};
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
 
     use super::*;
-    use crate::{
-        state::StakeDistributionView, store::columns::proposals, summary::stake_distribution::StakeDistribution,
-    };
+    use crate::{store::columns::proposals, summary::stake_distribution::StakeDistribution};
 
     fn empty_stake_distribution(epoch: Epoch) -> StakeDistribution {
         StakeDistribution {
@@ -447,11 +443,11 @@ mod tests {
 
         let withdrawal_account = ratified.proposal.reward_account.credential();
 
-        let distributions = Mutex::new(VecDeque::from([empty_stake_distribution(epoch)]));
+        let distribution = empty_stake_distribution(epoch);
         let ctx = RatificationContext {
             epoch,
             treasury: 1_000_000_000,
-            stake_distribution: StakeDistributionView::new(distributions.lock().unwrap(), epoch).unwrap(),
+            stake_distribution: &distribution,
             protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             pruned_proposals: BTreeMap::from([(Rc::new(ratified_id), RatificationStatus::Ratified)]),
             withdrawals: BTreeMap::from([(withdrawal_account, 70_000)]),

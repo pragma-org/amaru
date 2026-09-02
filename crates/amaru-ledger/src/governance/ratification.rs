@@ -25,7 +25,6 @@ use num::Zero;
 use tracing::{Span, field};
 
 use crate::{
-    state::StakeDistributionView,
     store::{Snapshot, StoreError},
     summary::stake_distribution::StakeDistribution,
 };
@@ -51,7 +50,7 @@ pub struct RatificationContext<'distr> {
     pub treasury: Lovelace,
 
     /// The computed stake distribution for the epoch
-    pub stake_distribution: StakeDistributionView<'distr>,
+    pub stake_distribution: &'distr StakeDistribution,
 
     /// Last enacted protocol parameters for this epoch.
     pub protocol_parameters: ProtocolParameters,
@@ -88,7 +87,7 @@ pub enum RatificationInternalError {
 impl<'distr> RatificationContext<'distr> {
     pub fn new(
         snapshot: impl Snapshot,
-        stake_distribution: StakeDistributionView<'distr>,
+        stake_distribution: &'distr StakeDistribution,
         protocol_parameters: ProtocolParameters,
         treasury: Lovelace,
     ) -> Result<Self, StoreError> {
@@ -183,7 +182,7 @@ impl<'distr> RatificationContext<'distr> {
                     };
 
                     Self::new_ratify_span(&id, proposal).in_scope(|| {
-                        if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution) {
+                        if self.is_accepted_by_everyone(&id, proposal, self.stake_distribution) {
                             // NOTE: The .clone() on the proposal is necessary so we can drop the
                             // immutable borrow on the forest. It only happens when a proposal is
                             // ratified, though.
