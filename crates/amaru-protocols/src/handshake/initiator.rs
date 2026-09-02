@@ -21,7 +21,10 @@ use crate::{
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_HANDSHAKE, ProtocolState, StageState, miniprotocol, outcome,
     },
-    protocol_messages::{handshake::HandshakeResult, version_data::VersionData, version_table::VersionTable},
+    protocol_messages::{
+        handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
+        version_table::VersionTable,
+    },
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -89,16 +92,18 @@ impl StageState<State, Initiator> for HandshakeInitiator {
                     eff.send(&self.connection, handshake_result).await;
                     (None, self)
                 }
+                InitiatorResult::Accept(version_number, version_data) => {
+                    let result = crate::handshake::verify_accept(&self.our_versions, version_number, version_data);
+                    debug!(protocols::handshake::initiator::CONCLUSION, handshake_result = format!("{result:?}"));
+                    eff.send(&self.connection, result).await;
+                    (None, self)
+                }
                 InitiatorResult::SimOpen(version_table) => {
                     debug!(
                         protocols::handshake::initiator::SIMULTANEOUS_OPEN,
                         version_table = format!("{version_table:?}")
                     );
-                    let result = crate::handshake::compute_negotiation_result(
-                        crate::protocol::Role::Initiator,
-                        self.our_versions.clone(),
-                        version_table,
-                    );
+                    let result = crate::handshake::compute_negotiation_result(&self.our_versions, &version_table);
                     eff.send(&self.connection, result).await;
                     (None, self)
                 }
@@ -135,10 +140,9 @@ impl ProtocolState<Initiator> for State {
                 // TCP simultaneous open
                 (outcome().result(InitiatorResult::SimOpen(version_table)), Self::Done)
             }
-            Message::Accept(version_number, version_data) => (
-                outcome().result(InitiatorResult::Conclusion(HandshakeResult::Accepted(version_number, version_data))),
-                Self::Done,
-            ),
+            Message::Accept(version_number, version_data) => {
+                (outcome().result(InitiatorResult::Accept(version_number, version_data)), Self::Done)
+            }
             Message::Refuse(refuse_reason) => {
                 (outcome().result(InitiatorResult::Conclusion(HandshakeResult::Refused(refuse_reason))), Self::Done)
             }
@@ -161,6 +165,7 @@ impl ProtocolState<Initiator> for State {
 #[derive(Debug, PartialEq)]
 pub enum InitiatorResult {
     Propose,
+    Accept(VersionNumber, VersionData),
     Conclusion(HandshakeResult),
     SimOpen(VersionTable<VersionData>),
 }
@@ -169,6 +174,7 @@ impl InitiatorResult {
     pub fn message_type(&self) -> &str {
         match self {
             Self::Propose => "Propose",
+            Self::Accept(..) => "Accept",
             Self::Conclusion(_) => "Conclusion",
             Self::SimOpen(_) => "SimOpen",
         }

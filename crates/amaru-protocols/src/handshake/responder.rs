@@ -78,11 +78,7 @@ impl StageState<State, Responder> for HandshakeResponder {
         let version_table = input.0.to_string();
 
         async move {
-            let result = crate::handshake::compute_negotiation_result(
-                crate::protocol::Role::Responder,
-                self.our_versions.clone(),
-                input.0,
-            );
+            let result = crate::handshake::compute_negotiation_result(&self.our_versions, &input.0);
             eff.send(&self.connection, result.clone()).await;
             Ok((Some(result.into()), self))
         }
