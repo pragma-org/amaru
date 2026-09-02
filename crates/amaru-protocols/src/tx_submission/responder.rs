@@ -1105,7 +1105,8 @@ mod tests {
                 | MuxMessage::Buffer(..)
                 | MuxMessage::FromNetwork(..)
                 | MuxMessage::Written
-                | MuxMessage::Terminate => panic!("unexpected mux message: {msg:?}"),
+                | MuxMessage::Terminate
+                | MuxMessage::SetSduTimeout(_) => panic!("unexpected mux message: {msg:?}"),
             }
             state
         });

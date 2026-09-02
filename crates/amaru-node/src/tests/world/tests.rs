@@ -121,7 +121,7 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
             net.listen(listener_addr).await.unwrap();
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
             let msg_len = NonZeroUsize::new("hello from B".len()).unwrap();
-            let bytes = net.recv(conn, msg_len).await.unwrap();
+            let bytes = net.recv(conn, msg_len, None).await.unwrap();
             set_observed(&received_a, bytes.as_ref().to_vec());
         }
     });
@@ -136,7 +136,7 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
         let msg = NonEmptyBytes::try_from(Bytes::from("hello from B")).unwrap();
-        net.send(conn, msg).await.unwrap();
+        net.send(conn, msg, None).await.unwrap();
     });
     let stage_b = stage_graph_b.wire_up(stage_b, ());
     let mut sim_b = stage_graph_b.run(&handle);
@@ -202,7 +202,7 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
         tm_effect("node_b-1", ConnectEffect { peer: peer_addr(listener_addr), timeout: Duration::from_secs(1) }),
         tm_clock(Duration::from_nanos(t_connected)),
         tm_resume_external("node_b-1", Ok::<ConnectionId, ConnectError>(initiator)),
-        tm_effect("node_b-1", SendEffect { conn: initiator, data: msg.clone() }),
+        tm_effect("node_b-1", SendEffect { conn: initiator, data: msg.clone(), timeout: None }),
         tm_resume_external("node_b-1", Ok::<(), SendError>(())),
         tm_state("node_b-1", &()),
     ]);
@@ -213,7 +213,7 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
                 "node_a-1",
                 Ok::<(Peer, ConnectionId), AcceptError>((peer_addr(initiator_sock), responder)),
             ),
-            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(12).unwrap() }),
+            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(12).unwrap(), timeout: None }),
         ]);
         if t_deliver > t_accepted {
             expected.extend([tm_clock(Duration::from_nanos(t_deliver))]);
@@ -229,7 +229,7 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
                 "node_a-1",
                 Ok::<(Peer, ConnectionId), AcceptError>((peer_addr(initiator_sock), responder)),
             ),
-            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(12).unwrap() }),
+            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(12).unwrap(), timeout: None }),
             tm_resume_external("node_a-1", Ok::<NonEmptyBytes, ReceiveError>(msg)),
             tm_state("node_a-1", &()),
         ]);
@@ -288,7 +288,7 @@ async fn test_pending_connect_matches_listener() {
                 let net = Network::new(&eff);
                 net.listen(addr).await.unwrap();
                 let (_peer, conn) = net.accept(addr).await.unwrap();
-                let bytes = net.recv(conn, NonZeroUsize::new(3).unwrap()).await.unwrap();
+                let bytes = net.recv(conn, NonZeroUsize::new(3).unwrap(), None).await.unwrap();
                 set_observed(&slot, bytes.as_ref().to_vec());
             }
         });
@@ -304,7 +304,7 @@ async fn test_pending_connect_matches_listener() {
         let stage = graph.stage(name, move |_state: (), _unit: (), eff| async move {
             let net = Network::new(&eff);
             let conn = net.connect(peer_addr(addr), Duration::from_secs(1)).await.unwrap();
-            net.send(conn, NonEmptyBytes::try_from(Bytes::from(payload)).unwrap()).await.unwrap();
+            net.send(conn, NonEmptyBytes::try_from(Bytes::from(payload)).unwrap(), None).await.unwrap();
         });
         let stage = graph.wire_up(stage, ());
         let mut sim = graph.run(&handle);
@@ -342,7 +342,7 @@ async fn test_listen_before_connect_attempt_arrives() {
     let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
-        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ok")).unwrap()).await.unwrap();
+        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ok")).unwrap(), None).await.unwrap();
     });
     let stage_b = graph_b.wire_up(stage_b, ());
     let mut sim_b = graph_b.run(&handle);
@@ -356,7 +356,7 @@ async fn test_listen_before_connect_attempt_arrives() {
             let net = Network::new(&eff);
             net.listen(listener_addr).await.unwrap();
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
-            let bytes = net.recv(conn, NonZeroUsize::new(2).unwrap()).await.unwrap();
+            let bytes = net.recv(conn, NonZeroUsize::new(2).unwrap(), None).await.unwrap();
             set_observed(&received_a, bytes.as_ref().to_vec());
         }
     });
@@ -398,7 +398,7 @@ async fn test_listen_before_connect_attempt_arrives() {
         tm_effect("node_a-1", AcceptEffect { listener_addr }),
         tm_clock(Duration::from_nanos(t_attempt)),
         tm_resume_external("node_b-1", Ok::<ConnectionId, ConnectError>(initiator)),
-        tm_effect("node_b-1", SendEffect { conn: initiator, data: msg.clone() }),
+        tm_effect("node_b-1", SendEffect { conn: initiator, data: msg.clone(), timeout: None }),
         tm_resume_external("node_b-1", Ok::<(), SendError>(())),
         tm_state("node_b-1", &()),
     ]);
@@ -409,7 +409,7 @@ async fn test_listen_before_connect_attempt_arrives() {
                 "node_a-1",
                 Ok::<(Peer, ConnectionId), AcceptError>((peer_addr(initiator_sock), responder)),
             ),
-            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(2).unwrap() }),
+            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(2).unwrap(), timeout: None }),
         ]);
         if t_deliver > t_accepted {
             expected.extend([tm_clock(Duration::from_nanos(t_deliver))]);
@@ -425,7 +425,7 @@ async fn test_listen_before_connect_attempt_arrives() {
                 "node_a-1",
                 Ok::<(Peer, ConnectionId), AcceptError>((peer_addr(initiator_sock), responder)),
             ),
-            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(2).unwrap() }),
+            tm_effect("node_a-1", RecvEffect { conn: responder, bytes: NonZeroUsize::new(2).unwrap(), timeout: None }),
             tm_resume_external("node_a-1", Ok::<NonEmptyBytes, ReceiveError>(msg)),
             tm_state("node_a-1", &()),
         ]);
@@ -451,7 +451,7 @@ async fn test_send_before_accept_delivers() {
             net.listen(listener_addr).await.unwrap();
             eff.wait(Duration::from_nanos(10_000_000)).await;
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
-            let bytes = net.recv(conn, NonZeroUsize::new(4).unwrap()).await.unwrap();
+            let bytes = net.recv(conn, NonZeroUsize::new(4).unwrap(), None).await.unwrap();
             set_observed(&received_a, bytes.as_ref().to_vec());
         }
     });
@@ -464,7 +464,7 @@ async fn test_send_before_accept_delivers() {
     let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
-        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ping")).unwrap()).await.unwrap();
+        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ping")).unwrap(), None).await.unwrap();
     });
     let stage_b = graph_b.wire_up(stage_b, ());
     let mut sim_b = graph_b.run(&handle);
@@ -529,9 +529,9 @@ async fn test_mux_recv_header_then_leftover_body() {
             let net = Network::new(&eff);
             net.listen(listener_addr).await.unwrap();
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
-            let head = net.recv(conn, NonZeroUsize::new(2).unwrap()).await.unwrap();
+            let head = net.recv(conn, NonZeroUsize::new(2).unwrap(), None).await.unwrap();
             set_observed(&header_a, head.as_ref().to_vec());
-            let rest = net.recv(conn, NonZeroUsize::new(4).unwrap()).await.unwrap();
+            let rest = net.recv(conn, NonZeroUsize::new(4).unwrap(), None).await.unwrap();
             set_observed(&body_a, rest.as_ref().to_vec());
         }
     });
@@ -544,7 +544,7 @@ async fn test_mux_recv_header_then_leftover_body() {
     let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
-        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ABCDEF")).unwrap()).await.unwrap();
+        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ABCDEF")).unwrap(), None).await.unwrap();
     });
     let stage_b = graph_b.wire_up(stage_b, ());
     let mut sim_b = graph_b.run(&handle);
@@ -573,7 +573,7 @@ async fn test_close_fails_peer_recv() {
             let net = Network::new(&eff);
             net.listen(listener_addr).await.unwrap();
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
-            let err = net.recv(conn, NonZeroUsize::new(1).unwrap()).await.unwrap_err();
+            let err = net.recv(conn, NonZeroUsize::new(1).unwrap(), None).await.unwrap_err();
             set_observed(&recv_err_a, err.to_string());
         }
     });
@@ -622,7 +622,7 @@ async fn test_send_after_peer_close_errors_and_settles() {
             let net = Network::new(&eff);
             net.listen(listener_addr).await.unwrap();
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
-            let err = net.recv(conn, NonZeroUsize::new(1).unwrap()).await.unwrap_err();
+            let err = net.recv(conn, NonZeroUsize::new(1).unwrap(), None).await.unwrap_err();
             set_observed(&recv_err_a, err.to_string());
         }
     });
@@ -638,7 +638,7 @@ async fn test_send_after_peer_close_errors_and_settles() {
             let net = Network::new(&eff);
             let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
             eff.wait(Duration::from_millis(10)).await;
-            let err = net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap()).await.unwrap_err();
+            let err = net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap(), None).await.unwrap_err();
             set_observed(&send_err_b, err.to_string());
         }
     });
@@ -687,7 +687,7 @@ async fn test_terminate_drops_pending_before_later_deliver() {
                     let received_a = received_a.clone();
                     async move {
                         let net = Network::new(&eff);
-                        let bytes = net.recv(conn, NonZeroUsize::new(4).unwrap()).await.unwrap();
+                        let bytes = net.recv(conn, NonZeroUsize::new(4).unwrap(), None).await.unwrap();
                         set_observed(&received_a, bytes.as_ref().to_vec());
                     }
                 })
@@ -707,7 +707,7 @@ async fn test_terminate_drops_pending_before_later_deliver() {
     let stage_b = graph_b.stage("sender", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
-        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ping")).unwrap()).await.unwrap();
+        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ping")).unwrap(), None).await.unwrap();
     });
     let stage_b = graph_b.wire_up(stage_b, ());
     let mut sim_b = graph_b.run(&handle);
@@ -781,7 +781,7 @@ async fn test_terminate_does_not_drop_other_graph_same_stage_name() {
                     let received0_a = received0_a.clone();
                     async move {
                         let net = Network::new(&eff);
-                        let bytes = net.recv(conn, NonZeroUsize::new(4).unwrap()).await.unwrap();
+                        let bytes = net.recv(conn, NonZeroUsize::new(4).unwrap(), None).await.unwrap();
                         set_observed(&received0_a, bytes.as_ref().to_vec());
                     }
                 })
@@ -809,7 +809,7 @@ async fn test_terminate_does_not_drop_other_graph_same_stage_name() {
                     let received1_a = received1_a.clone();
                     async move {
                         let net = Network::new(&eff);
-                        let bytes = net.recv(conn, NonZeroUsize::new(5).unwrap()).await.unwrap();
+                        let bytes = net.recv(conn, NonZeroUsize::new(5).unwrap(), None).await.unwrap();
                         set_observed(&received1_a, bytes.as_ref().to_vec());
                     }
                 })
@@ -828,7 +828,7 @@ async fn test_terminate_does_not_drop_other_graph_same_stage_name() {
     let stage2 = graph2.stage("sender0", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener0), Duration::from_secs(1)).await.unwrap();
-        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ping")).unwrap()).await.unwrap();
+        net.send(conn, NonEmptyBytes::try_from(Bytes::from("ping")).unwrap(), None).await.unwrap();
     });
     let stage2 = graph2.wire_up(stage2, ());
     let mut sim2 = graph2.run(&handle);
@@ -839,7 +839,7 @@ async fn test_terminate_does_not_drop_other_graph_same_stage_name() {
     let stage3 = graph3.stage("sender1", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener1), Duration::from_secs(1)).await.unwrap();
-        net.send(conn, NonEmptyBytes::try_from(Bytes::from("hello")).unwrap()).await.unwrap();
+        net.send(conn, NonEmptyBytes::try_from(Bytes::from("hello")).unwrap(), None).await.unwrap();
     });
     let stage3 = graph3.wire_up(stage3, ());
     let mut sim3 = graph3.run(&handle);
@@ -1213,7 +1213,7 @@ async fn test_peer_disconnect_closes_a_live_pair() {
     let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
-        let _ = net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap()).await;
+        let _ = net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap(), None).await;
     });
     let stage_b = graph_b.wire_up(stage_b, ());
     let mut sim_b = graph_b.run(&handle);
@@ -1249,7 +1249,7 @@ async fn test_send_recv_on_closed_peer_reset() {
             let net = Network::new(&eff);
             net.listen(listener_addr).await.unwrap();
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
-            set_observed(&recv_err_a, net.recv(conn, NonZeroUsize::new(1).unwrap()).await.is_err());
+            set_observed(&recv_err_a, net.recv(conn, NonZeroUsize::new(1).unwrap(), None).await.is_err());
         }
     });
     let stage_a = graph_a.wire_up(stage_a, ());
@@ -1267,7 +1267,7 @@ async fn test_send_recv_on_closed_peer_reset() {
             eff.wait(Duration::from_nanos(1)).await;
             set_observed(
                 &send_err_b,
-                net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap()).await.is_err(),
+                net.send(conn, NonEmptyBytes::try_from(Bytes::from("x")).unwrap(), None).await.is_err(),
             );
         }
     });
@@ -1297,7 +1297,7 @@ async fn test_latency_is_one_to_five_ms() {
             let net = Network::new(&eff);
             net.listen(listener_addr).await.unwrap();
             let (_peer, conn) = net.accept(listener_addr).await.unwrap();
-            let bytes = net.recv(conn, NonZeroUsize::new(1).unwrap()).await.unwrap();
+            let bytes = net.recv(conn, NonZeroUsize::new(1).unwrap(), None).await.unwrap();
             set_observed(&received_a, bytes.as_ref().to_vec());
         }
     });
@@ -1310,7 +1310,7 @@ async fn test_latency_is_one_to_five_ms() {
     let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| async move {
         let net = Network::new(&eff);
         let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
-        net.send(conn, NonEmptyBytes::try_from(Bytes::from("z")).unwrap()).await.unwrap();
+        net.send(conn, NonEmptyBytes::try_from(Bytes::from("z")).unwrap(), None).await.unwrap();
     });
     let stage_b = graph_b.wire_up(stage_b, ());
     let mut sim_b = graph_b.run(&handle);
