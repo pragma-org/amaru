@@ -261,13 +261,13 @@ fn simulation_complete_detach_injects_world_result() {
     running.run(Run::default()).assert_busy(std::iter::empty::<&str>()).assert_external_effects(1);
 
     // World owns completion: 99 is not `7 * 2`, so the `run()` future must have been dropped.
-    running.complete_detach(work.name(), 99u32);
+    running.complete_detach::<UntilDouble>(work.name(), |_| true, 99);
     running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![99]);
 }
 
 #[test]
-fn simulation_complete_detach_is_fifo_per_stage() {
+fn simulation_complete_detach_out_of_issue_order() {
     let _guards = guards();
     let mut network = SimulationBuilder::default();
     let work = network.stage("work", async |state: State, msg: Msg, eff| {
@@ -287,10 +287,34 @@ fn simulation_complete_detach_is_fifo_per_stage() {
     running.enqueue_msg(&work, [Msg::Go(0)]);
     running.run(Run::default()).assert_busy(std::iter::empty::<&str>()).assert_external_effects(2);
 
-    running.complete_detach(work.name(), 10u32);
-    running.complete_detach(work.name(), 20u32);
+    running.complete_detach::<UntilDouble>(work.name(), |e| e.0 == 2, 20);
+    running.complete_detach::<UntilDouble>(work.name(), |e| e.0 == 1, 10);
     running.run(Run::skip_wakeups()).assert_idle();
-    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![10, 20]);
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![20, 10]);
+}
+
+#[test]
+#[should_panic(expected = "multiple in-flight")]
+fn simulation_complete_detach_ambiguous_panics() {
+    let _guards = guards();
+    let mut network = SimulationBuilder::default();
+    let work = network.stage("work", async |state: State, msg: Msg, eff| {
+        match msg {
+            Msg::Go(_) => {
+                eff.detach(UntilDouble(1), Msg::Done).await;
+                eff.detach(UntilDouble(2), Msg::Done).await;
+            }
+            Msg::Done(v) => eff.send(&state.output, v).await,
+        }
+        state
+    });
+    let (output, _rx) = network.output("output", 10);
+    let work = network.wire_up(work, State { output, acked: 0 });
+    let mut running = network.run(test_runtime().handle());
+
+    running.enqueue_msg(&work, [Msg::Go(0)]);
+    running.run(Run::default()).assert_busy(std::iter::empty::<&str>()).assert_external_effects(2);
+    running.complete_detach::<UntilDouble>(work.name(), |_| true, 0);
 }
 
 #[test]
@@ -316,7 +340,7 @@ fn simulation_complete_detach_still_waits_for_sampled_delta() {
     assert_eq!(wakeup.sim_elapsed(), Duration::from_secs(10));
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![0]);
 
-    running.complete_detach(work.name(), 99u32);
+    running.complete_detach::<ConstDouble>(work.name(), |_| true, 99);
     running.run(Run::default()).assert_sleeping();
     assert!(rx.drain().collect::<Vec<_>>().is_empty());
 
