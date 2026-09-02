@@ -118,6 +118,8 @@ pub enum ManagerMessage {
         full_duplex: bool,
         advertisable: bool,
     },
+    /// Ask a live connection to converge toward this local use.
+    SetLocalUse { peer: Peer, conn_id: ConnectionId, local_use: crate::connection::LocalUse },
 }
 
 impl ManagerMessage {
@@ -135,6 +137,7 @@ impl ManagerMessage {
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
             ManagerMessage::Accepted(..) => "Accepted",
             ManagerMessage::HandshakeComplete { .. } => "HandshakeComplete",
+            ManagerMessage::SetLocalUse { .. } => "SetLocalUse",
         }
     }
 
@@ -171,9 +174,8 @@ impl ManagerMessage {
 /// An outbound connection is initiated by sending `ManagerMessage::AddPeer`. The manager will
 /// then try to connect to that peer until successful or retries exhausted. After a successful
 /// connection and handshake, the manager notifies `peer_selection` about the new connection.
-/// When the connection dies, the manager will inform `peer_selection` about the disconnection
-/// and then try to reconnect until successful or retries exhausted unless connections to this
-/// peer have died thrice within [`ManagerConfig::three_strike_window`].
+/// When the connection dies, the manager notifies `peer_selection` and does **not** redial.
+/// Peer selection decides whether to `AddPeer` again.
 ///
 /// ## Behavioural contracts
 ///
@@ -210,13 +212,10 @@ enum OutboundState {
     },
 }
 
-const MAX_OUTBOUND_DEATHS_TRACKED: usize = 2;
-
 #[derive(Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PeerState {
     outbound: OutboundState,
     inbound: Option<ConnectionId>,
-    outbound_death_times: [Option<Instant>; MAX_OUTBOUND_DEATHS_TRACKED],
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -266,7 +265,6 @@ pub struct ManagerConfig {
     pub reconnect_delay: Duration,
     pub connect_retries: u16,
     pub accept_interval: Duration,
-    pub three_strike_window: Duration,
     pub tx_submission_params: ResponderParams,
     /// When `Some`, the BlockFetch initiator uses N lock-step typestate instances
     /// and a fused pipeline cursor. `None` keeps the lock-step `miniprotocol` handler.
@@ -312,7 +310,6 @@ impl Default for ManagerConfig {
             reconnect_delay: Duration::from_secs(2),
             connect_retries: 3,
             accept_interval: Duration::from_millis(100),
-            three_strike_window: Duration::from_secs(60),
             tx_submission_params: ResponderParams::default(),
             blockfetch_pipeline_n: None,
         }
@@ -580,30 +577,17 @@ impl Manager {
                 ConnectionDirection::Outbound => {
                     assert_eq!(peer_state.outbound, OutboundState::Connected { conn_id });
                     assert_eq!(role, Role::Initiator);
-                    let now = eff.clock().await;
-                    let times = &mut peer_state.outbound_death_times;
-                    // rotate to the left, so the oldest is in last position, then replace last with current time
-                    times.rotate_left(1);
-                    if let Some(oldest) = times[const { MAX_OUTBOUND_DEATHS_TRACKED - 1 }].replace(now)
-                        && now.saturating_since(oldest) < self.config.three_strike_window
-                    {
-                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "retries_suppressed");
-                        if peer_state.inbound.is_none() {
-                            self.peers.remove(&peer);
-                        } else {
-                            peer_state.outbound = OutboundState::None;
-                        }
-                        eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer }).await;
+                    info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "peer_selection_redial");
+                    if peer_state.inbound.is_none() {
+                        self.peers.remove(&peer);
                     } else {
-                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "reconnect_scheduled");
-                        peer_state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
-                        self.connect(peer, false, eff).await;
+                        peer_state.outbound = OutboundState::None;
                     }
                 }
             }
             eff.send(
                 &self.peer_selection,
-                PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry: role == Role::Initiator },
+                PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry: false },
             )
             .await;
         } else {
@@ -615,7 +599,13 @@ impl Manager {
                 conn_id = conn_id.as_u64()
             );
             if role == Role::Initiator {
-                self.connect(peer, false, eff).await;
+                if let Some(state) = self.peers.get_mut(&peer) {
+                    state.outbound = OutboundState::None;
+                    if state.inbound.is_none() {
+                        self.peers.remove(&peer);
+                    }
+                }
+                eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer }).await;
             }
             // inbound pre-HS deaths require no further action (peer entry is only created on HS success)
         }
@@ -772,6 +762,11 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;
+            }
+            ManagerMessage::SetLocalUse { peer: _, conn_id, local_use } => {
+                if let Some(connection) = manager.connections.get(&conn_id) {
+                    eff.send(&connection.stage, ConnectionMessage::SetLocalUse(local_use)).await;
+                }
             }
         }
         manager
