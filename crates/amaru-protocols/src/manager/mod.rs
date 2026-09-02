@@ -270,6 +270,10 @@ pub struct ManagerConfig {
     /// When `Some`, the BlockFetch initiator uses N lock-step typestate instances
     /// and a fused pipeline cursor. `None` keeps the lock-step `miniprotocol` handler.
     pub blockfetch_pipeline_n: Option<NonZeroUsize>,
+    /// Last-to-finish bound when stopping the diffusion initiator group.
+    pub diffusion_stop_timeout: Duration,
+    /// Last-to-finish bound when stopping the maintenance initiator group.
+    pub maintenance_stop_timeout: Duration,
 }
 
 impl ManagerConfig {
@@ -313,6 +317,8 @@ impl Default for ManagerConfig {
             accept_interval: Duration::from_millis(100),
             tx_submission_params: ResponderParams::default(),
             blockfetch_pipeline_n: None,
+            diffusion_stop_timeout: Duration::from_secs(300),
+            maintenance_stop_timeout: Duration::from_secs(120),
         }
     }
 }

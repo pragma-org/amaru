@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{Instrument, TraceContext, debug_span, error, info};
@@ -44,8 +44,6 @@ use crate::{
     tx_submission::{self, register_tx_submission},
 };
 
-const DIFFUSION_STOP_TIMEOUT: Duration = Duration::from_secs(300);
-const MAINTENANCE_STOP_TIMEOUT: Duration = Duration::from_secs(120);
 const STOP_TIMEOUT_SLOT: u64 = 1;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -100,6 +98,14 @@ impl LocalUse {
         match role {
             Role::Initiator => Self::Diffusion,
             Role::Responder => Self::None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Maintenance => "maintenance",
+            Self::Diffusion => "diffusion",
         }
     }
 }
@@ -200,6 +206,10 @@ pub async fn stage(
     let message_type = msg.message_type().to_string();
     let Params { conn_id, role, .. } = params;
     let peer = params.peer;
+    let (local_use, duplex, stopping) = match &state {
+        State::Established(s) => (s.actual_use.as_str(), s.duplex, s.stopping.len() as u64),
+        State::Initial | State::Handshake { .. } => ("negotiating", false, 0),
+    };
 
     async move {
         let state = match (state, msg) {
@@ -296,6 +306,9 @@ pub async fn stage(
         conn_id = conn_id.as_u64(),
         peer,
         role = role.to_string(),
+        local_use,
+        duplex,
+        stopping,
     ))
     .await
 }
@@ -551,7 +564,8 @@ async fn begin_stop(mut s: Established, params: &Params, eff: &Effects<Connectio
         return s;
     }
 
-    let timeout = if drop_diffusion { DIFFUSION_STOP_TIMEOUT } else { MAINTENANCE_STOP_TIMEOUT };
+    let timeout =
+        if drop_diffusion { params.config.diffusion_stop_timeout } else { params.config.maintenance_stop_timeout };
     eff.set_timeout_at(STOP_TIMEOUT_SLOT, timeout, ConnectionMessage::StopTimeout).await;
     s
 }
