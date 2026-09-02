@@ -2114,6 +2114,12 @@ define_schemas! {
                     ADVERSARIAL {
                         required peer: %amaru_kernel::Peer
                     }
+                    /// Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}.
+                    public DEMOTED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required reason: String
+                    }
                 }
                 ledger {
                     /// Look for peer candidates registered as relays in the ledger

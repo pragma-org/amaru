@@ -26,7 +26,7 @@ use crate::stages::{
         TestPrep, cooldown_duration, cooldown_instant, first_schedule_id, first_static_schedule_id,
         peer_selection_stage, second_schedule_id_at, setup, setup_preload, setup_preload_until_sleeping, sim_at,
         sim_t0, static_cooldown_instant, te_cancel_schedule, te_clear_peer_availability, te_clock, te_clock_suspend,
-        te_is_static_peer, te_peer_adversarial, te_random_seed, te_record_advertisability,
+        te_is_static_peer, te_peer_adversarial, te_random_seed, te_rank_peers_for_churn, te_record_advertisability,
         te_record_connection_failure, te_schedule, te_send, test_prep, test_prep_with_snapshot,
         tm_add_stage_starts_with, with_single_cooldown,
     },
@@ -35,6 +35,10 @@ use crate::stages::{
 
 fn conn() -> Connection {
     Connection::new(ConnectionId::initial(), true, false)
+}
+
+fn using_conn() -> Connection {
+    conn().with_local_use(LocalUse::Diffusion)
 }
 
 // ---------------------------------------------------------------------------
@@ -46,7 +50,7 @@ fn test_initialize_empty_static() {
     let prep = test_prep(&[]);
     let state = prep.state.clone();
     let msg = PeerSelectionMsg::Initialize;
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
     // On Initialize we create the "peer-selection/ledger-check" child.
     // We assert the key observable effects + the INFO log.
@@ -80,7 +84,7 @@ fn test_initialize_adds_static_peers() {
     state.outbound_peers.insert(p1, PeerState::Connecting);
     state.outbound_peers.insert(p2, PeerState::Connecting);
 
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
     // target_upstream_peers is 3 and only 2 static peers exist, so regulate draws a seed
     // but finds no further candidates.
@@ -119,7 +123,7 @@ fn test_initialize_resolves_static_hostname() {
     state.outbound_peers.insert(resolved, PeerState::Connecting);
     state.bound.insert(candidate.clone(), resolved);
     let msg = PeerSelectionMsg::Initialize;
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
     assert_trace_contains(
         &running,
@@ -163,7 +167,7 @@ fn test_initialize_resolves_static_srv() {
     state.outbound_peers.insert(resolved, PeerState::Connecting);
     state.bound.insert(candidate.clone(), resolved);
     let msg = PeerSelectionMsg::Initialize;
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
     assert_trace_contains(
         &running,
@@ -227,7 +231,7 @@ fn test_initialize_resolve_failure_does_not_dial() {
 fn test_initialize_fills_from_snapshot() {
     let prep = test_prep_with_snapshot(&[], &["10.0.2.1:1", "10.0.2.2:2", "10.0.2.3:3"]);
     let msg = PeerSelectionMsg::Initialize;
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
     assert_trace_contains(
         &running,
@@ -576,7 +580,7 @@ fn test_connected_outbound() {
     let msg = PeerSelectionMsg::Connected(p, conn(), ConnectionDirection::Outbound, false);
     let after = {
         let mut s = state.clone();
-        s.outbound_peers.insert(p, PeerState::Connected(conn()));
+        s.outbound_peers.insert(p, PeerState::Connected(using_conn()));
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -610,7 +614,7 @@ fn test_connected_outbound_starts_peer_sharing() {
     let msg = PeerSelectionMsg::Connected(p, conn(), ConnectionDirection::Outbound, true);
     let after = {
         let mut s = state.clone();
-        s.outbound_peers.insert(p, PeerState::Connected(conn()));
+        s.outbound_peers.insert(p, PeerState::Connected(using_conn()));
         s
     };
     let p_send = p;
@@ -650,7 +654,7 @@ fn test_share_peers_result_records_shared_peers() {
     let learned = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(9, 9, 9, 9), 3001));
     let learned_peer = TestPrep::peer("9.9.9.9:3001");
     let mut prep = test_prep(&[]);
-    prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
+    prep.state.outbound_peers.insert(p, PeerState::Connected(using_conn()));
     let reply = PeerSelectionMsg::SharePeersResult { peer: p, peers: vec![learned] };
     let (running, _guards, mut logs) = setup(&prep, reply.clone());
     assert_trace_contains(
@@ -773,8 +777,8 @@ fn test_outbound_retry_drops_dead_conn_before_reconnect() {
     let mut ids = ConnectionId::initial();
     let id0 = ids.get_and_increment();
     let id1 = ids.get_and_increment();
-    let conn0 = Connection::new(id0, true, false);
-    let conn1 = Connection::new(id1, true, false);
+    let conn0 = Connection::new(id0, true, false).with_local_use(LocalUse::Diffusion);
+    let conn1 = Connection::new(id1, true, false).with_local_use(LocalUse::Diffusion);
 
     prep.state.outbound_peers.insert(p, PeerState::Connected(conn0));
     let start = prep.state.clone();
@@ -820,7 +824,7 @@ fn test_outbound_retry_drops_dead_conn_before_reconnect() {
 fn test_adversarial_static_outbound_does_not_readd_while_connected() {
     let mut prep = test_prep(&["10.0.9.1:1"]);
     let p = TestPrep::peer("10.0.9.1:1");
-    prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
+    prep.state.outbound_peers.insert(p, PeerState::Connected(using_conn()));
     let start = prep.state.clone();
     let sid = first_static_schedule_id();
     let after_ban = {
@@ -1012,7 +1016,7 @@ fn test_adversarial_inbound_only() {
 fn test_disconnected_outbound_connected_normal() {
     let mut prep = test_prep(&[]);
     let p = TestPrep::peer("8.8.8.8:8");
-    prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
+    prep.state.outbound_peers.insert(p, PeerState::Connected(using_conn()));
     let state = prep.state.clone();
     let after = {
         let mut s = state.clone();
@@ -1121,7 +1125,7 @@ fn test_disconnected_outbound_peer_also_in_inbound() {
     let mut prep = test_prep(&[]);
     let p = TestPrep::peer("7.7.7.7:7");
     prep.state.inbound_peers.insert(p, conn());
-    prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
+    prep.state.outbound_peers.insert(p, PeerState::Connected(using_conn()));
 
     let (running, _guards, mut logs) =
         setup(&prep, PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound));
@@ -1342,8 +1346,8 @@ fn test_share_request_replies_with_selected_peers() {
     let static_a_s = static_a.to_string();
     let static_b_s = static_b.to_string();
     let mut prep = test_prep(&[static_a_s.as_str(), static_b_s.as_str()]);
-    prep.state.outbound_peers.insert(static_a, PeerState::Connected(conn()));
-    prep.state.outbound_peers.insert(static_b, PeerState::Connected(conn()));
+    prep.state.outbound_peers.insert(static_a, PeerState::Connected(using_conn()));
+    prep.state.outbound_peers.insert(static_b, PeerState::Connected(using_conn()));
 
     let reply_to: StageRef<SharePeersReply> = StageRef::named_for_tests("share_reply");
     let msg = PeerSelectionMsg::ShareRequest { peer: requester, amount: 10, reply_to: reply_to.clone() };
@@ -1377,7 +1381,7 @@ fn test_share_request_excludes_requester_and_respects_amount() {
     let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
     let mut prep = test_prep(&name_refs);
     for p in &peers {
-        prep.state.outbound_peers.insert(*p, PeerState::Connected(conn()));
+        prep.state.outbound_peers.insert(*p, PeerState::Connected(using_conn()));
     }
     let requester = peers[0];
     let reply_to: StageRef<SharePeersReply> = StageRef::named_for_tests("share_reply");
@@ -1398,4 +1402,125 @@ fn test_share_request_excludes_requester_and_respects_amount() {
         &["peer_selection.sharing.sent", r#"peer="10.0.0.1:3001""#, "requested=2", "count=2"],
     )
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_churn_demotes_worst_non_static_without_malus() {
+    // UntilSleeping: Churn re-arms a ~3300s timer; UntilBlocked would follow it forever.
+    let mut prep = test_prep(&[]);
+    let a = TestPrep::peer("1.1.1.1:1");
+    let b = TestPrep::peer("2.2.2.2:2");
+    let c = TestPrep::peer("3.3.3.3:3");
+    for p in [a, b, c] {
+        prep.state.outbound_peers.insert(p, PeerState::Connected(using_conn()));
+    }
+    let start = prep.state.clone();
+    let after = {
+        let mut s = start.clone();
+        s.outbound_peers.insert(a, PeerState::Connected(using_conn().with_local_use(LocalUse::Maintenance)));
+        s.demoted_until.insert(a, sim_t0() + CHURN_REPROMOTE_DELAY);
+        s
+    };
+
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [PeerSelectionMsg::Churn]);
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("ps-1", &start).into(),
+            te_input("ps-1", &PeerSelectionMsg::Churn).into(),
+            te_clock_suspend("ps-1").into(),
+            te_rank_peers_for_churn("ps-1", vec![a, b, c], sim_t0()).into(),
+            te_is_static_peer("ps-1", a).into(),
+            te_send(
+                "ps-1",
+                "manager",
+                ManagerMessage::SetLocalUse {
+                    peer: a,
+                    conn_id: ConnectionId::initial(),
+                    local_use: LocalUse::Maintenance,
+                },
+            )
+            .into(),
+            te_state("ps-1", &after).into(),
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[te_record_connection_failure("ps-1", a, sim_t0()).into()]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.demoted", r#"peer="1.1.1.1:1""#, r#"reason="churn""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_uninteresting_demotes_without_malus() {
+    let mut prep = test_prep(&[]);
+    let p = TestPrep::peer("8.8.8.8:8");
+    prep.state.outbound_peers.insert(p, PeerState::Connected(using_conn()));
+    let start = prep.state.clone();
+    let after = {
+        let mut s = start.clone();
+        s.outbound_peers.insert(p, PeerState::Connected(using_conn().with_local_use(LocalUse::Maintenance)));
+        s.demoted_until.insert(p, sim_t0() + UNINTERESTING_RETRY);
+        s
+    };
+    let msg = PeerSelectionMsg::Uninteresting { peer: p, conn_id: ConnectionId::initial(), after_rollback: false };
+
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("ps-1", &start).into(),
+            te_input("ps-1", &msg).into(),
+            te_clock_suspend("ps-1").into(),
+            te_send(
+                "ps-1",
+                "manager",
+                ManagerMessage::SetLocalUse {
+                    peer: p,
+                    conn_id: ConnectionId::initial(),
+                    local_use: LocalUse::Maintenance,
+                },
+            )
+            .into(),
+            te_state("ps-1", &after).into(),
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[te_record_connection_failure("ps-1", p, sim_t0()).into()]);
+    logs.assert_and_remove(
+        Level::INFO,
+        &["peer_selection.peer.demoted", r#"peer="8.8.8.8:8""#, r#"reason="uninteresting""#],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_churn_skips_static_peers() {
+    // UntilSleeping: Churn re-arms a ~3300s timer; UntilBlocked would follow it forever.
+    let mut prep = test_prep(&["10.0.0.1:1"]);
+    let static_p = TestPrep::peer("10.0.0.1:1");
+    prep.state.outbound_peers.insert(static_p, PeerState::Connected(using_conn()));
+    let start = prep.state.clone();
+
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [PeerSelectionMsg::Churn]);
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("ps-1", &start).into(),
+            te_input("ps-1", &PeerSelectionMsg::Churn).into(),
+            te_is_static_peer("ps-1", static_p).into(),
+            te_state("ps-1", &start).into(),
+        ],
+    );
+    assert_trace_does_not_contain(
+        &running,
+        &[te_send(
+            "ps-1",
+            "manager",
+            ManagerMessage::SetLocalUse {
+                peer: static_p,
+                conn_id: ConnectionId::initial(),
+                local_use: LocalUse::Maintenance,
+            },
+        )
+        .into()],
+    );
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
