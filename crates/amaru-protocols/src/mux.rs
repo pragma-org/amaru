@@ -375,10 +375,19 @@ async fn read_segment(
 
         let now = eff.clock().await;
         let remaining = sdu_timeout.saturating_sub(now.saturating_since(started));
-        let payload_timeout = Some(remaining.max(Duration::from_nanos(1)));
+        if remaining.is_zero() {
+            error!(
+                protocols::mux::FAILED,
+                peer,
+                role = role.to_string(),
+                operation = "recv_data",
+                error = "sdu timeout (no time left for payload)"
+            );
+            return eff.terminate().await;
+        }
 
         let data = Network::new(&eff)
-            .recv(conn, header.length.into(), payload_timeout)
+            .recv(conn, header.length.into(), Some(remaining))
             .or_terminate_with(&eff, async |err| {
                 error!(
                     protocols::mux::FAILED,
