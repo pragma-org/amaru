@@ -940,17 +940,7 @@ impl SimulationRunning {
     /// Panics if the stage does not exist (including after it has terminated) or is not waiting
     /// for an external effect.
     pub fn complete_external(&mut self, at_stage: impl AsRef<Name>, result: impl SendData) {
-        let at_stage = at_stage.as_ref().clone();
-        {
-            let data = self.stages.get_mut(&at_stage).unwrap_or_else(|| panic!("stage `{at_stage}` does not exist"));
-            let data = data.assert_stage("which cannot receive external effects");
-            assert!(
-                matches!(data.waiting, Some(StageEffect::External(_))),
-                "stage `{at_stage}` was not waiting for an external effect, but {:?}",
-                data.waiting
-            );
-        }
-        self.provide_external_result(at_stage, Box::new(result));
+        self.complete_external_box(at_stage, Box::new(result));
     }
 
     /// Like [`Self::complete_external`], but takes an already-boxed [`SendData`] payload.

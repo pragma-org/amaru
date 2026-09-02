@@ -400,7 +400,6 @@ async fn do_handshake(
             register_blockfetch_initiator_pipelined(
                 &muxer,
                 peer,
-                *conn_id,
                 n,
                 &eff,
                 ConnectionMessage::ChildDied(ChildId::BlockFetch),

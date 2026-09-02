@@ -21,7 +21,6 @@
 use std::{num::NonZeroUsize, time::Duration};
 
 use amaru_kernel::{NetworkPoint, NonEmptyBytes, Peer, RawBlock, cardano::network_block::NetworkBlock, cbor};
-use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{
     DeserializerGuards, Effects, StageRef, define_role, define_role_tag, err, make_states, on_receive,
     typestate::prelude::*,
@@ -558,7 +557,6 @@ async fn issue_want_next(state: &mut Handler, eff: &Effects<Inputs<super::BlockF
 pub async fn register_blockfetch_initiator_pipelined<M: amaru_pure_stage::SendData>(
     muxer: &StageRef<MuxMessage>,
     peer: Peer,
-    _conn_id: ConnectionId,
     n: NonZeroUsize,
     eff: &Effects<M>,
     tombstone: M,

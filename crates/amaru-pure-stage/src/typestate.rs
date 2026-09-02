@@ -43,11 +43,10 @@ pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
 };
-pub use list::{CanFinish, Clean, Cons, FmtPar, Here, In, Nil, Select, Skip, Then, There};
+pub use list::{CanFinish, Clean, Cons, FmtPar, Here, Nil, Select, Then};
 pub use role::{Role, RoleTag};
 pub use session::{
-    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, describe_receive,
-    initial_state,
+    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, initial_state,
 };
 
 pub mod prelude {

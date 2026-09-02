@@ -134,28 +134,12 @@ impl<Req> Pipeline<Req> {
         }
     }
 
-    pub fn n(&self) -> usize {
-        self.n
-    }
-
-    pub fn send_idx(&self) -> usize {
-        self.send_idx
-    }
-
     pub fn recv_idx(&self) -> usize {
         self.recv_idx
     }
 
     pub fn mark_registered(&mut self) {
         self.registered = true;
-    }
-
-    pub fn is_registered(&self) -> bool {
-        self.registered
-    }
-
-    pub fn is_closed(&self) -> bool {
-        self.closed
     }
 
     /// `WantNext` is legal iff the mux is registered, no pull is in flight, and
@@ -281,7 +265,7 @@ mod tests {
         let mut p = n2();
         assert_eq!(p.try_admit("A"), Admit::Instance(0, "A"));
         assert_eq!(p.try_admit("B"), Admit::Instance(1, "B"));
-        assert_eq!(p.send_idx(), 0);
+        assert_eq!(p.send_idx, 0);
         assert_eq!(p.try_admit("C"), Admit::Slack);
         assert_eq!(p.try_admit("D"), Admit::ReplacedSlack("C"));
     }
@@ -341,7 +325,7 @@ mod tests {
         assert_eq!(p.try_inject_close(), CloseHint::Already);
         assert_eq!(p.on_close(), CloseHint::Already);
         assert_eq!(p.on_credit(1, SwitchCredit::Terminated).unwrap(), CursorHint::None);
-        assert!(p.is_closed());
+        assert!(p.closed);
         assert_eq!(p.try_admit("X"), Admit::Dropped);
     }
 
