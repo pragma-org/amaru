@@ -267,7 +267,7 @@ pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
     tombstone: M,
 ) -> StageRef<Void> {
     let mux = MuxClient::new(muxer.clone(), PROTO_N2N_BLOCK_FETCH.responder().erase());
-    let blockfetch = eff.stage("blockfetch", instance).await;
+    let blockfetch = eff.stage("blockfetch-responder", instance).await;
     let blockfetch = eff.supervise(blockfetch, tombstone);
     let blockfetch = eff.wire_up(blockfetch, Instance::new(mux, peer)).await;
     eff.send(
