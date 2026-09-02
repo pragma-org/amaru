@@ -52,8 +52,7 @@ pub enum PeerSelectionNotify {
     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
     /// or network error).
     ///
-    /// If the connection was outbound then it may be retried, leading to either
-    /// `ConnectFailed` or `Connected`.
+    /// The connection is gone. Outbound redial is a peer-selection `Dial`, not a manager retry.
     Disconnected { peer: Peer, conn_id: ConnectionId, direction: ConnectionDirection, will_retry: bool },
 
     /// An outbound connection attempt has failed (e.g. connection timeout, handshake refusal, network error)
@@ -68,7 +67,7 @@ pub enum PeerSelectionNotify {
 pub enum ManagerMessage {
     /// Start outgoing connection attempts to the given peer until successful or retries exhausted.
     ///
-    /// If the connection succeeds then future disconnection will first lead to retries before giving up.
+    /// After a successful session dies, peer selection issues a new `Dial`; the manager does not redial.
     AddPeer(Peer),
     /// Remove a peer and terminate all of its connections.
     RemovePeer(Peer),
@@ -763,8 +762,14 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;
             }
-            ManagerMessage::SetLocalUse { peer: _, conn_id, local_use } => {
+            ManagerMessage::SetLocalUse { peer, conn_id, local_use } => {
                 if let Some(connection) = manager.connections.get(&conn_id) {
+                    info!(
+                        protocols::manager::peer::SET_LOCAL_USE,
+                        peer,
+                        conn_id = conn_id.as_u64(),
+                        local_use = format!("{local_use:?}")
+                    );
                     eff.send(&connection.stage, ConnectionMessage::SetLocalUse(local_use)).await;
                 }
             }

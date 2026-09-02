@@ -2622,6 +2622,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `duplicate_terminated` | `TRACE` | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
 | `handshake_completed` | `TRACE` | public | The handshake completed on a connection | peer, conn_id, full_duplex_capable, full_duplex, advertisable |  |
 | `remove` | `TRACE` | public | A peer was removed from the manager | peer |  |
+| `set_local_use` | `TRACE` | public | Local use of a connection was changed | peer, conn_id, local_use |  |
 
 <details><summary>span: `accepted`</summary>
 
@@ -2757,6 +2758,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `set_local_use`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `local_use` | `string` | ✓ |
 
 </details>
 

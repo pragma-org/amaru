@@ -89,7 +89,7 @@ pub enum LocalUse {
 }
 
 impl LocalUse {
-    pub fn default_for_role(role: Role) -> Self {
+    fn default_for_role(role: Role) -> Self {
         match role {
             Role::Initiator => Self::Diffusion,
             Role::Responder => Self::None,
@@ -228,8 +228,6 @@ pub async fn stage(
             }
             (State::Established(mut s), ConnectionMessage::SetLocalUse(desired)) => {
                 s.desired_use = desired;
-                // Starting extra groups on a duplex bearer is a later PR. Stopping is MsgDone.
-                // This commit only records the intent so later commits can converge actual_use.
                 State::Established(s)
             }
             (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {

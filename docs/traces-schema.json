@@ -7181,6 +7181,32 @@
       "description": "A peer was removed from the manager",
       "public": true
     },
+    "amaru::protocols::manager::peer::SET_LOCAL_USE": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "local_use": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "local_use"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "set_local_use",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "Local use of a connection was changed",
+      "public": true
+    },
     "amaru::protocols::mux::EMPTY_SEGMENT": {
       "type": "object",
       "properties": {

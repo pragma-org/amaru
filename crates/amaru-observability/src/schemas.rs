@@ -2002,6 +2002,12 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required error: String
                     }
+                    /// Local use of a connection was changed
+                    public SET_LOCAL_USE {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required local_use: String
+                    }
                 }
                 listen {
                     tags: setup
