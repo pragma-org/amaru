@@ -44,9 +44,9 @@ Other guiding principles:
 - **amaru-kernel**: `PeerCandidate` is `Socket` (already a `Peer`), `Host` (hostname+port, A/AAAA) or `Srv` (DNS name). `Host`/`Srv` names are a validated [`DnsName`] (no colons, brackets, or IP literals). Outbound mix pools are `PeerCandidate`s (static included); Host/SRV names are resolved on each dial so DNS changes are picked up. Host lookup takes the first viable A/AAAA; SRV lookup tries `_cardano._tcp.<name>` in RFC 2782 priority order and stops at the first viable target address. Ledger relays pass through as candidates (socket, hostname+port, or CIP-0155 SRV when the port is omitted).
 - **amaru-pure-stage**: `Effects::detach` runs an external effect without occupying the airlock. The transition is resumed with `()` immediately; when `run()` completes the interpreter applies the provided constructor and enqueues the value on the calling stage’s bulk mailbox.
 - **amaru-tui**: the Peers card shows the bootstrap `PeerCandidate` next to a resolved socket address when that name came from a Host or SRV lookup.
-- **amaru / amaru-node**: allow operators to select the OTLP providers constructed at startup with
-  `--open-telemetry-signals` or `AMARU_OPEN_TELEMETRY_SIGNALS`; it accepts any comma-separated subset of `metrics`,
-  `traces`, and `logs`, and defaults to all three signals for backward compatibility.
+- **amaru**: allow operators to select the OTLP providers constructed at startup with
+  `--with-open-telemetry=<SIGNALS>` or `AMARU_WITH_OPEN_TELEMETRY=<SIGNALS>`; it accepts any comma-separated subset of
+  `metrics`, `traces`, and `logs`, and defaults to all three signals when enabled without a value.
 
 ### Changed
 

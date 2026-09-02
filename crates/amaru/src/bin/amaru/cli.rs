@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::str::FromStr;
+
 use amaru::{
     lifecycle::Runnable,
     observability::{Color, ObservabilityHints},
 };
 use amaru_kernel::GlobalParameters;
-use amaru_node::telemetry::OtelSignal;
+use amaru_node::telemetry::{OtelSignal, OtelSignals};
 use amaru_tui as tui;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
@@ -165,6 +167,37 @@ impl ObservabilityHints for Command {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) enum OpenTelemetryConfig {
+    Disabled,
+    Enabled(OtelSignals),
+}
+
+impl OpenTelemetryConfig {
+    pub(crate) fn into_parts(self) -> (bool, OtelSignals) {
+        match self {
+            Self::Disabled => (false, OtelSignals::default()),
+            Self::Enabled(signals) => (true, signals),
+        }
+    }
+}
+
+impl FromStr for OpenTelemetryConfig {
+    type Err = &'static str;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "true" | "t" | "yes" | "y" | "on" | "1" => Ok(Self::Enabled(OtelSignals::default())),
+            "false" | "f" | "no" | "n" | "off" | "0" => Ok(Self::Disabled),
+            _ => value
+                .split(',')
+                .map(OtelSignal::from_str)
+                .collect::<Result<Vec<_>, _>>()
+                .map(|signals| Self::Enabled(signals.into())),
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru")]
 #[clap(bin_name = "amaru")]
@@ -181,20 +214,17 @@ pub(crate) struct Cli {
     #[clap(long, global = true, action, env = "AMARU_WITH_JSON_TRACES")]
     pub(crate) with_json_traces: bool,
 
-    /// Export metrics, traces, and logs via OpenTelemetry (OTLP).
-    #[clap(long, global = true, action, env = "AMARU_WITH_OPEN_TELEMETRY")]
-    pub(crate) with_open_telemetry: bool,
-
-    /// Select which OpenTelemetry signals to export.
+    /// Export OpenTelemetry signals via OTLP; without a value, export all signals.
     #[clap(
-        long,
+        long = "with-open-telemetry",
         global = true,
-        env = "AMARU_OPEN_TELEMETRY_SIGNALS",
-        default_value = "metrics,traces,logs",
-        value_delimiter = ',',
+        env = "AMARU_WITH_OPEN_TELEMETRY",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
         value_name = "SIGNALS"
     )]
-    pub(crate) open_telemetry_signals: Vec<OtelSignal>,
+    pub(crate) open_telemetry: Option<OpenTelemetryConfig>,
 }
 
 pub(crate) fn command(version: &'static str) -> clap::Command {
