@@ -50,7 +50,7 @@ pub use responder::{HandshakeResponder, responder};
 ///
 /// On `query`, the result carries **our** table (the responder sends `MsgQueryReply` with its own
 /// offer; the initiator only concludes locally). Simultaneous open uses the same combination.
-pub fn compute_negotiation_result(
+pub(crate) fn compute_negotiation_result(
     ours: &VersionTable<VersionData>,
     theirs: &VersionTable<VersionData>,
 ) -> HandshakeResult {

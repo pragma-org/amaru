@@ -63,7 +63,7 @@ impl VersionData {
         self.peer_sharing == PEER_SHARING_ENABLED
     }
 
-    /// Combine two version-data records for the same NTN version (v14/v15 rules).
+    /// Combine two version-data records for the same NTN version.
     ///
     /// `networkMagic` must match. `initiatorOnlyDiffusionMode` and `query` are OR;
     /// `peerSharing` is 1 only if both offers are 1.
