@@ -2860,6 +2860,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `added` | `TRACE` | public | A peer was added to the outbound set | peer, was_banned |  |
 | `address_rejected` | `TRACE` | public | A candidate address was rejected and will not be used as a Peer. | address, reason |  |
 | `connected` | `TRACE` | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
+| `demoted` | `TRACE` | public | Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}. | peer, conn_id, reason |  |
 | `disconnected` | `TRACE` | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
 | `reconnected` | `TRACE` | public | A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}. | peer, direction, conn_id |  |
 | `removed` | `TRACE` | public | A peer was removed after behaving adversarially | peer, direction, peer_state, is_static |  |
@@ -2902,6 +2903,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `direction` | `string` | ✓ |
 | `full_duplex_capable` | `boolean` | ✓ |
 | `full_duplex` | `boolean` | ✓ |
+
+</details>
+
+<details><summary>span: `demoted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
 
 </details>
 

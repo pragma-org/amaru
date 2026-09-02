@@ -161,6 +161,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PeerAdversarialEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordAdvertisabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordConnectionFailureEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RankPeersForChurnEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::OkForSharingEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectOutboundEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
@@ -190,6 +191,13 @@ pub fn te_peer_adversarial(at_stage: &str, peer: Peer) -> TraceEntry {
 
 pub fn te_is_static_peer(at_stage: &str, peer: Peer) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::performance::Performance::is_static_peer(peer))))
+}
+
+pub fn te_rank_peers_for_churn(at_stage: &str, candidates: Vec<Peer>, at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::rank_peers_for_churn(candidates, at)),
+    ))
 }
 
 pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {

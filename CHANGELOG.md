@@ -56,6 +56,8 @@ Other guiding principles:
 ### Changed
 
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
+- **amaru-protocols**: connection stage is one Established session with `LocalUse` (None / Maintenance / Diffusion). The manager no longer redials on drop; peer selection refills outbound slots. `SetLocalUse` is recorded (group stop/start lands next).
+- **amaru-consensus**: peer selection churns ~20%/h of Using peers (worst first, skip static) with `SetLocalUse(Maintenance)` and does not increment malus. ChainSync `IntersectNotFound` is uninteresting-as-upstream (retry after 120s), not adversarial.
 - **amaru-consensus**: after an outbound handshake, peer selection sends `SetLocalUse(Diffusion)` so fetch and share follow actual local use. Peer-sharing cadence is 300s then 900s (blueprint defaults).
 - **amaru-protocols**: `LocalUseApplied` is the source of `may_initiate`; fetch and share route only to connections whose local use is Diffusion.
 - **amaru-protocols**: `SetLocalUse` stops initiator groups with `MsgDone` (last-to-finish; 300s diffusion / 120s maintenance). Expected child death installs a mux done-trap; unexpected death still tears the bearer. Responders reset in place after `MsgDone`.

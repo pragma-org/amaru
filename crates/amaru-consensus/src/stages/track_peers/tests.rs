@@ -325,12 +325,14 @@ fn test_reconnect_intersect_then_roll_forward() {
 }
 
 #[test]
-fn test_intersect_not_found_untracked_sends_done() {
+fn test_intersect_not_found_untracked_notifies_uninteresting() {
     let prep = test_prep();
     let state = prep.state.clone();
+    let peer = Peer::for_test(3001);
+    let conn_id = prep.conn_id;
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: Peer::for_test(3001),
-        conn_id: prep.conn_id,
+        peer,
+        conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::IntersectNotFound(Point::Origin),
     });
@@ -341,7 +343,8 @@ fn test_intersect_not_found_untracked_sends_done() {
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Uninteresting { peer, conn_id, after_rollback: false })
+                .into(),
             te_state("tp-1", &state).into(),
         ],
     );
@@ -373,7 +376,12 @@ fn test_intersect_not_found_removes_peer() {
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done).into(),
+            te_send(
+                "tp-1",
+                "peer_selection",
+                PeerSelectionMsg::Uninteresting { peer, conn_id: prep.conn_id, after_rollback: false },
+            )
+            .into(),
             te_state("tp-1", &expected).into(),
         ],
     );

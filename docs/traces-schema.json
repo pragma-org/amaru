@@ -7443,6 +7443,32 @@
       "description": "A connection has been established and the handshake completed successfully.",
       "public": true
     },
+    "amaru::protocols::peer_selection::peer::DEMOTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "demoted",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}.",
+      "public": true
+    },
     "amaru::protocols::peer_selection::peer::DISCONNECTED": {
       "type": "object",
       "properties": {
