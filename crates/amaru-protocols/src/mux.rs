@@ -577,8 +577,8 @@ impl std::fmt::Debug for PerProto {
 impl PerProto {
     pub fn new(handler: StageRef<HandlerMessage>, frame: Frame, max_buffer: usize) -> Self {
         Self {
-            incoming: BytesMut::with_capacity(max_buffer),
-            outgoing: BytesMut::with_capacity(max_buffer),
+            incoming: BytesMut::new(),
+            outgoing: BytesMut::new(),
             sent_bytes: 0,
             notifiers: VecDeque::new(),
             handler,
@@ -664,8 +664,8 @@ mod tests {
     use amaru_ouroboros::ConnectionsResource;
     use amaru_ouroboros_traits::ConnectionProvider;
     use amaru_pure_stage::{
-        Effect, StageGraph,
-        simulation::{Blocked, SimulationBuilder, SimulationRunning},
+        Effect, ExternalEffect, Name, StageGraph,
+        simulation::{Blocked, Run, SimulationBuilder, SimulationRunning},
         tokio::TokioBuilder,
         trace_buffer::TraceBuffer,
     };
@@ -680,7 +680,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        network_effects::{RecvEffect, SendEffect},
+        network_effects::{ReceiveError, RecvEffect, SendEffect, SendError},
         protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_TEST, Responder},
     };
 
@@ -692,6 +692,36 @@ mod tests {
 
     fn test_peer() -> Peer {
         Peer::for_test(3007)
+    }
+
+    #[expect(clippy::wildcard_enum_match_arm)]
+    fn external<T: ExternalEffect>(effect: &Effect) -> &T {
+        match effect {
+            Effect::External { effect, .. } => {
+                effect.cast_ref::<T>().unwrap_or_else(|| panic!("expected {}", std::any::type_name::<T>()))
+            }
+            other => panic!("expected External, got {other:?}"),
+        }
+    }
+
+    fn wire_child_name(
+        running: &SimulationRunning,
+        parent: &Name,
+        initial: (ConnectionId, StageRef<MuxMessage>, Role, Peer),
+    ) -> Name {
+        let hit = running.breakpoint_effect();
+        #[expect(clippy::wildcard_enum_match_arm)]
+        match hit.effect() {
+            Effect::WireStage { at_stage, name, initial_state, .. } => {
+                assert_eq!(at_stage, parent);
+                let got = initial_state
+                    .cast_ref::<(ConnectionId, StageRef<MuxMessage>, Role, Peer)>()
+                    .expect("wire-up initial state");
+                assert_eq!(got, &initial);
+                name.clone()
+            }
+            other => panic!("expected WireStage, got {other:?}"),
+        }
     }
 
     async fn s<F: Future>(f: F)
@@ -737,7 +767,7 @@ mod tests {
         let mut running = graph.run(&tokio::runtime::Handle::current());
         let join_handle = tokio::spawn(async move {
             loop {
-                let blocked = running.run_until_blocked();
+                let blocked = running.run(Run::skip_wakeups());
                 eprintln!("{blocked:?}");
                 match blocked {
                     Blocked::Idle => running.await_external_input().await,
@@ -846,13 +876,10 @@ mod tests {
                 max_buffer: 1024,
             }],
         );
-        let spawn1 = running.run_until_blocked().assert_breakpoint("spawn");
-        let writer = spawn1.extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator, test_peer())).clone();
-        running.handle_effect(spawn1);
-
-        let spawn2 = running.run_until_blocked().assert_breakpoint("spawn");
-        let reader = spawn2.extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator, test_peer())).clone();
-        running.handle_effect(spawn2);
+        running.run(Run::skip_wakeups()).assert_breakpoint("spawn");
+        let writer = wire_child_name(running, mux.name(), (conn_id, (*mux).clone(), Role::Initiator, test_peer()));
+        running.run(Run::skip_wakeups()).assert_breakpoint("spawn");
+        let reader = wire_child_name(running, mux.name(), (conn_id, (*mux).clone(), Role::Initiator, test_peer()));
 
         {
             let mux_name = mux.name().clone();
@@ -864,15 +891,28 @@ mod tests {
             );
         }
 
-        running
-            .run_until_blocked()
-            .assert_breakpoint("recv")
-            .assert_external(&reader, &RecvEffect { conn: conn_id, bytes: HEADER_LEN });
-        let registered = running.run_until_blocked().assert_breakpoint("mux");
-        registered.assert_send(&mux, &chain_sync, HandlerMessage::Registered(PROTO_TEST.erase()));
-        running.handle_effect(registered);
+        running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+        {
+            let hit = running.breakpoint_effect();
+            let got = external::<RecvEffect>(hit.effect());
+            assert_eq!(got, &RecvEffect { conn: conn_id, bytes: HEADER_LEN });
+        }
+        running.discard_breakpoint();
+        running.run(Run::skip_wakeups()).assert_breakpoint("mux");
+        {
+            let hit = running.breakpoint_effect();
+            let Effect::Send { to, msg, .. } = hit.effect() else {
+                panic!("expected send, got {:?}", hit.effect());
+            };
+            assert_eq!(to, chain_sync.name());
+            assert_eq!(
+                msg.cast_ref::<HandlerMessage>().expect("HandlerMessage"),
+                &HandlerMessage::Registered(PROTO_TEST.erase())
+            );
+        }
+        running.interpret_breakpoint();
         running.enqueue_msg(&mux, [MuxMessage::WantNext(PROTO_TEST.erase())]);
-        running.run_until_blocked().assert_busy([&reader]);
+        running.run(Run::skip_wakeups()).assert_busy([&reader]);
 
         // send a message towards the network
         let send_msg = |running: &mut SimulationRunning,
@@ -890,14 +930,15 @@ mod tests {
         };
 
         let assert_send = |running: &mut SimulationRunning, data: &[(usize, u8)], proto_id: ProtocolId<Initiator>| {
-            running.run_until_blocked().assert_breakpoint("send").extract_external::<SendEffect>(&writer).assert_frame(
-                conn_id,
-                proto_id.erase(),
-                data,
-            );
+            running.run(Run::skip_wakeups()).assert_breakpoint("send");
+            {
+                let hit = running.breakpoint_effect();
+                external::<SendEffect>(hit.effect()).assert_frame(conn_id, proto_id.erase(), data);
+            }
         };
         let resume_send = |running: &mut SimulationRunning| {
-            running.resume_external::<SendEffect>(&writer, Ok(())).unwrap();
+            running.discard_breakpoint();
+            running.complete_external(&writer, Ok::<(), SendError>(()));
         };
         let assert_and_resume_send =
             |running: &mut SimulationRunning, data: &[(usize, u8)], proto_id: ProtocolId<Initiator>| {
@@ -905,9 +946,16 @@ mod tests {
                 resume_send(running);
             };
         let assert_respond = |running: &mut SimulationRunning, sent: &StageRef<Sent>| {
-            let mux_sent = running.run_until_blocked().assert_breakpoint("mux");
-            mux_sent.assert_send(&mux, sent, Sent);
-            running.handle_effect(mux_sent);
+            running.run(Run::skip_wakeups()).assert_breakpoint("mux");
+            {
+                let hit = running.breakpoint_effect();
+                let Effect::Send { to, msg, .. } = hit.effect() else {
+                    panic!("expected send, got {:?}", hit.effect());
+                };
+                assert_eq!(to, sent.name());
+                assert_eq!(msg.cast_ref::<Sent>().expect("Sent"), &Sent);
+            }
+            running.interpret_breakpoint();
         };
 
         // start write but don't let the writer finish yet
@@ -940,29 +988,43 @@ mod tests {
         let recv_msg =
             |running: &mut SimulationRunning, proto_id: ProtocolId<Responder>, bytes: &[u8], recv: &[&[u8]]| {
                 let mut msg = Header::encode(proto_id, bytes, Timestamp::now()).into_inner();
-                running
-                    .resume_external::<RecvEffect>(&reader, Ok(msg.split_to(HEADER_LEN.get()).try_into().unwrap()))
-                    .unwrap();
+                running.discard_breakpoint();
+                running.complete_external(
+                    &reader,
+                    Ok::<NonEmptyBytes, ReceiveError>(msg.split_to(HEADER_LEN.get()).try_into().unwrap()),
+                );
                 let msg = NonEmptyBytes::new(msg).unwrap();
-                running
-                    .run_until_blocked()
-                    .assert_breakpoint("recv")
-                    .assert_external(&reader, &RecvEffect { conn: conn_id, bytes: msg.len() });
-                running.resume_external::<RecvEffect>(&reader, Ok(msg)).unwrap();
+                running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+                {
+                    let hit = running.breakpoint_effect();
+                    assert_eq!(external::<RecvEffect>(hit.effect()), &RecvEffect { conn: conn_id, bytes: msg.len() });
+                }
+                running.discard_breakpoint();
+                running.complete_external(&reader, Ok::<NonEmptyBytes, ReceiveError>(msg));
                 for recv in recv {
                     if recv.is_empty() {
-                        running.run_until_blocked().assert_breakpoint("recv").assert_external(&reader, &recv_header);
+                        running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+                        {
+                            let hit = running.breakpoint_effect();
+                            assert_eq!(external::<RecvEffect>(hit.effect()), &recv_header);
+                        }
                         continue;
                     }
-                    running.run_until_blocked().assert_breakpoint("mux").assert_send(
-                        &mux,
-                        &chain_sync,
-                        HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(recv).unwrap()),
-                    );
-                    running.resume_send(&mux, &chain_sync, None).unwrap();
+                    running.run(Run::skip_wakeups()).assert_breakpoint("mux");
+                    {
+                        let hit = running.breakpoint_effect();
+                        let Effect::Send { to, msg, .. } = hit.effect() else {
+                            panic!("expected send, got {:?}", hit.effect());
+                        };
+                        assert_eq!(to, chain_sync.name());
+                        assert_eq!(
+                            msg.cast_ref::<HandlerMessage>().expect("HandlerMessage"),
+                            &HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(recv).unwrap())
+                        );
+                    }
+                    running.interpret_breakpoint();
                     running.enqueue_msg(&mux, [MuxMessage::WantNext(proto_id.initiator().erase())]);
                 }
-                // running.run_until_blocked().assert_busy([&reader]);
             };
 
         // send CBOR 1 followed by incomplete CBOR; "recv" effect always happens second
@@ -972,7 +1034,7 @@ mod tests {
 
         // test buffer size violation
         recv_msg(running, PROTO_HANDSHAKE.responder(), &[1, 2, 3], &[]);
-        running.run_until_blocked().assert_terminated(mux.name());
+        running.run(Run::skip_wakeups()).assert_terminated(mux.name());
 
         drop_guard.defuse();
     }

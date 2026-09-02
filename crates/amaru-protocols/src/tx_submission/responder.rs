@@ -804,7 +804,7 @@ mod tests {
     };
     use amaru_pure_stage::{
         StageGraph,
-        simulation::{Blocked, SimulationBuilder, SimulationRunning},
+        simulation::{Blocked, Externals, Run, SimulationBuilder, SimulationRunning, TimeAdvance},
         stage_ref::StageStateRef,
     };
     use tokio::runtime::Runtime;
@@ -1156,7 +1156,7 @@ mod tests {
     }
 
     fn pump_without_advancing(h: &mut TimeoutHarness) -> Blocked {
-        h.running.run_until_blocked_or_time_incl_effects(h.running.now())
+        h.running.run(Run { time: TimeAdvance::Until(h.running.now()), externals: Externals::Resolve })
     }
 
     fn feed(h: &mut TimeoutHarness, msg: Message) {
@@ -1181,7 +1181,7 @@ mod tests {
         let txs = create_transactions(1);
         init_and_request_txs(&mut h, &txs);
 
-        h.running.run_until_blocked_incl_effects().assert_terminated("tx_sub");
+        h.running.run(Run::skip_and_resolve()).assert_terminated("tx_sub");
     }
 
     #[test]
@@ -1199,7 +1199,7 @@ mod tests {
         assert!(responder.inflight_timeout_id.is_none(), "ReplyTxs must cancel the inflight timer");
         assert!(!responder.has_inflight());
 
-        h.running.run_until_blocked_incl_effects().assert_idle();
+        h.running.run(Run::skip_and_resolve()).assert_idle();
         assert!(h.running.get_state(&h.tx_sub).is_some(), "cancelled timer must not terminate the stage");
     }
 

@@ -129,12 +129,12 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
 mod tests {
     use amaru_pure_stage::{
         Effect, StageGraph,
-        simulation::{SimulationBuilder, running::OverrideResult},
+        simulation::{Run, SimulationBuilder, running::OverrideResult},
         stage_ref::StageStateRef,
     };
 
     use super::*;
-    use crate::network_effects::ConnectEffect;
+    use crate::network_effects::{ConnectEffect, ConnectError};
 
     fn setup_connector(
         timeout: Duration,
@@ -164,15 +164,22 @@ mod tests {
             running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay: Duration::ZERO }]);
         }
 
-        let mut connect_effects = Vec::new();
+        let mut workers = Vec::new();
         for _ in 0..DEFAULT_PARALLEL_CONNECTION {
-            let eff = running.run_until_blocked().assert_breakpoint("connect");
-            connect_effects.push(eff);
+            running.run(Run::skip_wakeups()).assert_breakpoint("connect");
+            {
+                let hit = running.breakpoint_effect();
+                let Effect::External { at_stage, effect } = hit.effect() else {
+                    panic!("expected ConnectEffect, got {:?}", hit.effect());
+                };
+                assert!(effect.is::<ConnectEffect>(), "expected ConnectEffect, got {effect:?}");
+                workers.push(at_stage.clone());
+            }
         }
 
         // Pool is full: connector queued the 11th peer; 10 workers are mid-connect.
         running
-            .run_until_blocked()
+            .run(Run::skip_wakeups())
             .assert_busy((0..DEFAULT_PARALLEL_CONNECTION).map(|i| format!("connect-worker-{i}")));
 
         let state = running.get_state(&connector).expect("connector idle after dispatching");
@@ -180,16 +187,22 @@ mod tests {
         assert_eq!(state.pending.front(), Some(&peers[DEFAULT_PARALLEL_CONNECTION]));
         assert_eq!(state.workers_created, DEFAULT_PARALLEL_CONNECTION);
         assert!(state.idle.is_empty());
-        assert_eq!(connect_effects.len(), DEFAULT_PARALLEL_CONNECTION);
+        assert_eq!(workers.len(), DEFAULT_PARALLEL_CONNECTION);
 
         // Complete one worker: the pending peer should get a worker and hit connect.
-        let first = connect_effects.remove(0);
-        let worker_name = first.at_stage().clone();
-        running.resume_external::<ConnectEffect>(&worker_name, Ok(ConnectionId::initial())).unwrap();
+        let worker_name = workers.remove(0);
+        running.complete_external(&worker_name, Ok::<ConnectionId, ConnectError>(ConnectionId::initial()));
 
-        let next = running.run_until_blocked().assert_breakpoint("connect");
-        let next_stage = next.at_stage().clone();
-        next.assert_external(&next_stage, &ConnectEffect { peer: peers[DEFAULT_PARALLEL_CONNECTION], timeout });
+        running.run(Run::skip_wakeups()).assert_breakpoint("connect");
+        {
+            let hit = running.breakpoint_effect();
+            let Effect::External { at_stage, effect } = hit.effect() else {
+                panic!("expected ConnectEffect, got {:?}", hit.effect());
+            };
+            let got = effect.cast_ref::<ConnectEffect>().expect("ConnectEffect");
+            assert_eq!(got, &ConnectEffect { peer: peers[DEFAULT_PARALLEL_CONNECTION], timeout });
+            assert!(at_stage.as_str().starts_with("connect-worker-"));
+        }
     }
 
     #[test]
@@ -208,8 +221,8 @@ mod tests {
         let delay = Duration::from_secs(2);
         running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay }]);
 
-        // run_until_blocked advances sleep; use sleeping_or_blocked so the delay is visible.
-        let sleeping_until = running.run_until_sleeping_or_blocked().assert_sleeping();
+        // skip_wakeups advances sleep; default stops so the delay is visible.
+        let sleeping_until = running.run(Run::default()).assert_sleeping();
         let state = running.get_state(&connector).expect("connector idle during delay");
         assert_eq!(state.workers_created, 0);
         assert!(state.pending.is_empty());
@@ -217,10 +230,16 @@ mod tests {
 
         assert!(running.skip_to_next_wakeup(Some(sleeping_until)), "expected to wake up connector");
 
-        let eff = running.run_until_blocked().assert_breakpoint("connect");
-        let at = eff.at_stage().clone();
-        assert!(at.as_str().starts_with("connect-worker-0-"), "expected first worker, got {at}");
-        eff.assert_external(&at, &ConnectEffect { peer, timeout });
+        running.run(Run::skip_wakeups()).assert_breakpoint("connect");
+        {
+            let hit = running.breakpoint_effect();
+            let Effect::External { at_stage, effect } = hit.effect() else {
+                panic!("expected ConnectEffect, got {:?}", hit.effect());
+            };
+            assert!(at_stage.as_str().starts_with("connect-worker-0-"), "expected first worker, got {at_stage}");
+            let got = effect.cast_ref::<ConnectEffect>().expect("ConnectEffect");
+            assert_eq!(got, &ConnectEffect { peer, timeout });
+        }
     }
 
     #[test]
@@ -235,7 +254,7 @@ mod tests {
 
         let peer = Peer::for_test(4000);
         running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay: Duration::ZERO }]);
-        running.run_until_blocked_incl_effects().assert_idle();
+        running.run(Run::skip_and_resolve()).assert_idle();
 
         let msgs: Vec<_> = rx.drain().collect();
         assert_eq!(msgs, vec![ManagerMessage::ConnectionResult(peer, Ok(conn_id))]);

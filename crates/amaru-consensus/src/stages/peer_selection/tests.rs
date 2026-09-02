@@ -18,7 +18,10 @@
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
-use amaru_pure_stage::trace_match::{assert_trace_contains, assert_trace_does_not_contain, tm_send_match};
+use amaru_pure_stage::{
+    simulation::Run,
+    trace_match::{assert_trace_contains, assert_trace_does_not_contain, tm_send_match},
+};
 
 use super::*;
 use crate::stages::{
@@ -883,7 +886,7 @@ fn test_reban_later_deadline_survives_early_timer() {
     assert_eq!(running.now(), intermediate);
 
     running.enqueue_msg(peer_selection_stage(), [PeerSelectionMsg::adversarial(p)]);
-    running.run_until_blocked_incl_effects();
+    running.run(Run::skip_and_resolve());
 
     assert_trace_contains(
         &running,

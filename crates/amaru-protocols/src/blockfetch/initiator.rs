@@ -70,7 +70,20 @@ impl std::fmt::Debug for Blocks {
 /// Message that can be sent by an internal stage to request blocks for range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
-    RequestRange { from: Point, through: Point, id: u64, cr: StageRef<Blocks> },
+    RequestRange {
+        from: Point,
+        through: Point,
+        id: u64,
+        cr: StageRef<Blocks>,
+    },
+    /// Terminal close. The lock-step initiator ignores this until a reset-after-`StDone`
+    /// path exists. The pipelined handler sends one wire `ClientDone` after drain.
+    Close,
+    /// Agency timer for one pipelined instance (`slot` is the instance index).
+    /// The lock-step initiator ignores this.
+    Timeout {
+        slot: u64,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -114,6 +127,17 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 self.queue.truncate(1);
                 self.queue.push_back((from, through, id, cr, MAX_FETCHED_BLOCKS));
                 Ok((action, self))
+            }
+            BlockFetchMessage::Close => {
+                amaru_observability::tracing::debug!(peer = %self.peer, "ignoring BlockFetch Close (no reset-after-StDone)");
+                Ok((None, self))
+            }
+            BlockFetchMessage::Timeout { .. } => {
+                amaru_observability::tracing::debug!(
+                    peer = %self.peer,
+                    "ignoring BlockFetch Timeout (lock-step has no agency timer)"
+                );
+                Ok((None, self))
             }
         }
     }

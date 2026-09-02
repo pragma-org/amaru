@@ -26,7 +26,7 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{
     Effect, Resources, StageGraphRunning,
-    simulation::{Blocked, SimulationRunning},
+    simulation::{Blocked, Run, SimulationRunning},
     trace_buffer::TraceBuffer,
 };
 use futures_util::FutureExt;
@@ -99,14 +99,14 @@ impl Node {
     #[expect(clippy::panic)]
     pub fn run_until_blocked(&mut self) {
         let _span = self.enter_span();
-        match self.running.run_until_blocked() {
-            Blocked::Breakpoint(name, effect) => {
+        match self.running.run(Run::skip_wakeups()) {
+            Blocked::Breakpoint(name) => {
                 if name.as_str() == "chainsync_registered" {
                     tracing::info!("Node {} chainsync registered", self.node_id());
                     self.initialized = true
                 }
                 self.running.clear_breakpoint("chainsync_registered");
-                self.running.handle_effect(effect);
+                self.running.run(Run::skip_wakeups());
             }
             Blocked::Sleeping { .. } => {
                 panic!("Node {} should not be sleeping", self.node_id());
@@ -119,24 +119,19 @@ impl Node {
         }
     }
 
-    /// Run an effect on the node if possible.
+    /// Drive this node until it is blocked (Idle/Busy/Sleeping/Terminated).
     #[expect(clippy::panic)]
     pub fn run_effect(&mut self) {
         let _span = self.enter_span();
-        match self.running.try_effect() {
-            Ok(effect) => {
-                self.running.handle_effect(effect);
-            }
-            Err(Blocked::Sleeping { .. }) => {
-                // Advance clock to next wakeup
+        match self.running.run(Run::default()) {
+            Blocked::Sleeping { .. } => {
                 self.running.skip_to_next_wakeup(None);
             }
-            Err(Blocked::Idle) | Err(Blocked::Busy { .. }) | Err(Blocked::Terminated(_)) => {}
-            Err(Blocked::Deadlock(_)) => {
+            Blocked::Idle | Blocked::Busy { .. } | Blocked::Terminated(_) => {}
+            Blocked::Deadlock(_) => {
                 panic!("Deadlock detected");
             }
-            Err(Blocked::Breakpoint(name, ..)) => {
-                // A breakpoint might have been set but is not handled. Warn the user.
+            Blocked::Breakpoint(name) => {
                 tracing::warn!("The breakpoint {name} is not handled");
             }
         }
