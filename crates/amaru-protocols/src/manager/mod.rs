@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info};
@@ -268,6 +268,9 @@ pub struct ManagerConfig {
     pub accept_interval: Duration,
     pub three_strike_window: Duration,
     pub tx_submission_params: ResponderParams,
+    /// When `Some`, the BlockFetch initiator uses N lock-step typestate instances
+    /// and a fused pipeline cursor. `None` keeps the lock-step `miniprotocol` handler.
+    pub blockfetch_pipeline_n: Option<NonZeroUsize>,
 }
 
 impl ManagerConfig {
@@ -295,6 +298,11 @@ impl ManagerConfig {
         self.tx_submission_params = params;
         self
     }
+
+    pub fn with_blockfetch_pipeline_n(mut self, n: Option<NonZeroUsize>) -> Self {
+        self.blockfetch_pipeline_n = n;
+        self
+    }
 }
 
 impl Default for ManagerConfig {
@@ -306,6 +314,7 @@ impl Default for ManagerConfig {
             accept_interval: Duration::from_millis(100),
             three_strike_window: Duration::from_secs(60),
             tx_submission_params: ResponderParams::default(),
+            blockfetch_pipeline_n: None,
         }
     }
 }

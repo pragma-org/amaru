@@ -18,7 +18,10 @@ use amaru_kernel::{NetworkMagic, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::ConnectionsResource;
 use amaru_pure_stage::{
-    Effect, StageGraph, simulation::SimulationBuilder, tokio::TokioBuilder, trace_buffer::TraceBuffer,
+    Effect, StageGraph,
+    simulation::{Run, SimulationBuilder},
+    tokio::TokioBuilder,
+    trace_buffer::TraceBuffer,
 };
 use futures_util::StreamExt;
 use tokio::runtime::Runtime;
@@ -92,9 +95,9 @@ fn test_against_node() {
     running
         .breakpoint("output", move |eff| matches!(eff, Effect::External { at_stage, .. } if at_stage == output.name()));
 
-    let output = running.run_until_blocked_incl_effects().assert_breakpoint("output");
-    running.handle_effect(output);
-    rt.block_on(running.await_external_effect()).unwrap();
+    running.run(Run::skip_and_resolve()).assert_breakpoint("output");
+    running.run(Run::skip_and_resolve());
+    rt.block_on(running.await_external_effect());
     let result = rx.try_next().unwrap();
     assert_eq!(
         result,

@@ -18,7 +18,7 @@ use amaru_pure_stage::{
     BLACKHOLE_NAME, Effect as Eff, Effects, Instant, Name, OutputEffect, ScheduleId, ScheduleIds, SendData, StageGraph,
     StageRef, StageResponse as Resp, UnknownExternalEffect,
     serde::SendDataValue,
-    simulation::SimulationBuilder,
+    simulation::{Run, SimulationBuilder},
     tokio::TokioBuilder,
     trace_buffer::{TerminationReason, TraceBuffer, TraceEntry as E},
 };
@@ -78,7 +78,7 @@ fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
     graph(&mut network);
 
     let mut sim = network.run(rt.handle());
-    sim.run_until_blocked_incl_effects().assert_terminated("trigger");
+    sim.run(Run::skip_and_resolve()).assert_terminated("trigger");
 
     guard.defuse();
 

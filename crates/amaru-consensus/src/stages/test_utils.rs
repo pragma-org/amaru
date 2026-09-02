@@ -20,7 +20,7 @@ use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, Slot};
 use amaru_observability::{CborConsoleEventFormat, console_field_formatter};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, Resources, SendData, StageGraph, TerminationReason,
-    simulation::{SimulationBuilder, SimulationRunning},
+    simulation::{Run, SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use parking_lot::Mutex;
@@ -194,8 +194,8 @@ pub fn tm_state<'a, T: SendData>(
     property: &'a str,
 ) -> TraceMatch<'a> {
     TraceMatch::Property(
-        Box::new(move |e| {
-            let TraceEntry::State { stage, state } = e else {
+        Box::new(move |src| {
+            let Some(TraceEntry::State { stage, state }) = src.entry() else {
                 return false;
             };
             stage.as_str() == at_stage && state.cast_ref::<T>().is_ok_and(&prop)
@@ -335,10 +335,10 @@ where
 
     match mode {
         SimulationRunMode::UntilBlocked => {
-            running.run_until_blocked_incl_effects();
+            running.run(Run::skip_and_resolve());
         }
         SimulationRunMode::UntilSleeping => {
-            while let amaru_pure_stage::simulation::Blocked::Busy { .. } = running.run_until_sleeping_or_blocked() {
+            while let amaru_pure_stage::simulation::Blocked::Busy { .. } = running.run(Run::default()) {
                 rt.block_on(running.await_external_effect());
             }
         }

@@ -54,6 +54,7 @@ use crate::{
     stage_ref::StageStateRef,
     stagegraph::StageGraphRunning,
     time::Clock,
+    timeouts::TimeoutHeap,
     trace_buffer::TraceBuffer,
 };
 
@@ -290,6 +291,7 @@ impl StageGraph for TokioBuilder {
 enum PriorityMessage {
     /// Due self-scheduled message; bypasses the bulk mpsc mailbox.
     Scheduled(Box<dyn SendData>, ScheduleId, watch::Receiver<bool>),
+    TimeoutFired(u64),
     TimerCancelled(ScheduleId),
     Tombstone(Box<dyn SendData>),
 }
@@ -319,6 +321,7 @@ fn run_stage_boxed(
         let mut cancel_senders = BTreeMap::<ScheduleId, watch::Sender<bool>>::new();
         // Armed schedules not yet consumed by receive (matches simulation `scheduled_pending`).
         let mut scheduled_pending: usize = 0;
+        let mut timeouts = TimeoutHeap::default();
 
         let tb = DropGuard::new(inner.trace_buffer.clone(), |tb| {
             // ensure that Aborted is traced when this Future is dropped
@@ -342,6 +345,13 @@ fn run_stage_boxed(
                         match msg {
                             PriorityMessage::Scheduled(msg, id, cancelation) => {
                                 scheduled.push((id, msg, cancelation));
+                            }
+                            PriorityMessage::TimeoutFired(slot) => {
+                                if timeouts.fire(slot)
+                                    && let Some(msg) = timeouts.take_due()
+                                {
+                                    msgs.push((msg, None));
+                                }
                             }
                             PriorityMessage::TimerCancelled(_id) => {
                                 // Cancel won before the timer fired; free the outstanding budget.
@@ -389,9 +399,11 @@ fn run_stage_boxed(
                     &mut timers,
                     &mut cancel_senders,
                     &mut scheduled_pending,
+                    &mut timeouts,
                     f,
                 )
                 .await;
+                tokio_rearm_timeouts(&inner, &mut timeouts, &mut timers, &stage_name);
                 match result {
                     Some(st) => state = st,
                     None => {
@@ -431,6 +443,29 @@ fn mk_sender<Msg: SendData>(stage: &StageRef<Msg>, inner: &TokioInner) -> Sender
     }))
 }
 
+fn tokio_rearm_timeouts(
+    inner: &TokioInner,
+    timeouts: &mut TimeoutHeap,
+    timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
+    _name: &Name,
+) {
+    if timeouts.has_due() || timeouts.armed_is_current_min() {
+        return;
+    }
+    let _ = timeouts.armed.take();
+    let Some((slot, when)) = timeouts.min_slot() else {
+        return;
+    };
+    let id = inner.schedule_ids.next_at(when);
+    timeouts.armed = Some((id, slot));
+    let sleep = tokio::time::sleep_until(when.to_tokio());
+    timers.push(Box::pin(async move {
+        sleep.await;
+        PriorityMessage::TimeoutFired(slot)
+    }));
+}
+
+#[expect(clippy::too_many_arguments)]
 async fn interpreter(
     inner: &Arc<TokioInner>,
     effect: &EffectBox,
@@ -438,6 +473,7 @@ async fn interpreter(
     timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
     cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
     scheduled_pending: &mut usize,
+    timeouts: &mut TimeoutHeap,
     mut stage: BoxFuture<'static, Box<dyn SendData>>,
 ) -> Option<Box<dyn SendData>> {
     let mut last_yield = tokio::time::Instant::now();
@@ -613,6 +649,17 @@ async fn interpreter(
                 } else {
                     StageResponse::CancelScheduleResponse(false)
                 }
+            }
+            StageEffect::SetTimeout { slot, delay, msg } => {
+                let now = inner.clock.now(inner.global_epoch_offset);
+                timeouts.set(slot, now + delay, msg);
+                tokio_rearm_timeouts(inner, timeouts, timers, name);
+                StageResponse::Unit
+            }
+            StageEffect::ClearTimeout { slot } => {
+                timeouts.clear(slot);
+                tokio_rearm_timeouts(inner, timeouts, timers, name);
+                StageResponse::Unit
             }
         };
         tb().push_resume(name, &resp);

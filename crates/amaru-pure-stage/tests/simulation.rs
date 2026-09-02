@@ -14,7 +14,6 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -24,13 +23,15 @@ use std::{
 };
 
 use amaru_pure_stage::{
-    Effect, ExternalEffect, Instant, Name, OrTerminateWith, OutputEffect, PRIORITY_MAILBOX_SIZE, Receiver, Resources,
-    ScheduleId, SendData, StageGraph, StageGraphRunning, StageRef, StageResponse, UnknownExternalEffect,
-    serde::SendDataValue,
-    simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
+    BoxFuture, DurationDist, Effect, ExternalEffectAPI, Instant, OrTerminateWith, OutputEffect, PRIORITY_MAILBOX_SIZE,
+    Receiver, Resources, ScheduleId, SendData, StageGraph, StageGraphRunning, StageRef, assert_effect_match,
+    assert_trace_contains,
+    simulation::{RandStdRng, Run, SimulationBuilder, running::OverrideResult},
+    tm_add_stage, tm_call, tm_external_effect, tm_send, tm_wire_stage,
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use rand::{SeedableRng, rngs::StdRng};
+use tokio::runtime::Builder;
 use tracing_subscriber::EnvFilter;
 
 #[expect(clippy::expect_used)]
@@ -39,12 +40,24 @@ fn test_runtime() -> &'static tokio::runtime::Runtime {
     RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"))
 }
 
+/// World-owned park: `run()` never completes; the test injects `()` via `complete_external`.
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Park;
+
+impl ExternalEffectAPI for Park {
+    type Response = ();
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+
+    fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap(|_| std::future::pending())
+    }
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct State(u32, StageRef<u32>);
 
 #[test]
 fn basic() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
     let mut network = SimulationBuilder::default();
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
@@ -55,25 +68,10 @@ fn basic() {
     let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(test_runtime().handle());
 
-    // first check that the stages start out suspended on Receive
-    running.try_effect().unwrap_err().assert_idle();
+    running.run(Run::default()).assert_idle();
 
-    // then insert some input and check reaction
     running.enqueue_msg(&basic, [1]);
-    running.resume_receive(&basic).unwrap();
-    running.effect().assert_send(&basic, &output, 2u32);
-    running.resume_send(&basic, &output, Some(2u32)).unwrap();
-    running.effect().assert_receive(&basic);
-
-    running.resume_receive(&output).unwrap();
-    let ext = running.effect().extract_external::<OutputEffect<u32>>(&output);
-    assert_eq!(&*ext, &OutputEffect::fake(output.name().clone(), 2u32).0);
-    let result = rt.block_on(ext.run(Resources::default()));
-    // this check is also done when resuming, just want to show how to do it here
-    assert_eq!(&*result, &() as &dyn SendData);
-    running.resume_external_box(&output, result).unwrap();
-    running.effect().assert_receive(&output);
-
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 }
 
@@ -100,7 +98,7 @@ fn automatic() {
     let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&in_ref, [1, 2, 3]);
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4, 7]);
 
     let trace = trace_buffer.lock().hydrate_without_timestamps();
@@ -166,8 +164,11 @@ fn automatic() {
 
 #[test]
 fn breakpoint() {
+    let _guard = amaru_pure_stage::register_data_deserializer::<u32>();
+    let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let std_rng = StdRng::from_seed([0; 32]);
-    let mut network = SimulationBuilder::default().with_eval_strategy(RandStdRng(std_rng));
+    let mut network =
+        SimulationBuilder::default().with_trace_buffer(trace_buffer).with_eval_strategy(RandStdRng(std_rng));
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
         eff.send(&state.1, state.0).await;
@@ -176,32 +177,31 @@ fn breakpoint() {
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.clone()));
     let mut running = network.run(test_runtime().handle());
-    let rt = tokio::runtime::Runtime::new().unwrap();
 
     running.enqueue_msg(&basic, [1, 2, 3]);
-    let output_for_assert = output.clone();
-    running.breakpoint("send4", move |eff| {
-        matches!(
-            eff,
-            Effect::Send { from, to, msg, .. }
-                if from == basic.name() &&
-                    to == output.name() &&
-                    *msg == Box::new(4u32) as Box<dyn SendData>
-        )
-    });
-    running.run_until_blocked().assert_breakpoint("send4");
-    // OutputEffect is Zero: run() is forced when issued. Depending on the eval
-    // strategy, the output stage's resume may already have been processed or still
-    // sit on the runnable queue.
-    assert_eq!(rt.block_on(running.await_external_effect()), None);
-    match running.try_effect() {
-        Ok(effect) => {
-            effect.assert_receive(&output_for_assert);
-            running.try_effect().unwrap_err().assert_deadlock(["basic-1"]);
+    let basic_name = basic.name().clone();
+    let output_name = output.name().clone();
+    running.breakpoint("send4", {
+        let basic_name = basic_name.clone();
+        let output_name = output_name.clone();
+        move |eff| {
+            matches!(
+                eff,
+                Effect::Send { from, to, msg, .. }
+                    if from == &basic_name &&
+                        to == &output_name &&
+                        *msg == Box::new(4u32) as Box<dyn SendData>
+            )
         }
-        Err(blocked) => blocked.assert_deadlock(["basic-1"]),
+    });
+    running.run(Run::skip_wakeups()).assert_breakpoint("send4");
+    {
+        let hit = running.breakpoint_effect();
+        assert_effect_match(hit.effect(), tm_send(basic_name.as_str(), output_name.as_str(), 4u32));
     }
-    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
+    assert_trace_contains(&running, &[tm_send(basic_name.as_str(), output_name.as_str(), 4u32)]);
+    running.run(Run::skip_and_resolve()).assert_idle();
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4, 7]);
 }
 
 #[test]
@@ -235,7 +235,7 @@ fn overrides() {
             OverrideResult::no_match(eff)
         }
     });
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 7]);
     assert_eq!(count.load(Ordering::Relaxed), 1);
 
@@ -255,9 +255,8 @@ fn backpressure() {
 
     let pressure = network.stage("pressure", async |mut state, msg: u32, eff| {
         state += msg;
-        // we need to place an effect that we can install a breakpoint on
-        // other than Receive, because that is automatically resumed upon sending
-        eff.clock().await;
+        // Park so further sends fill the mailbox (size 1) and then block.
+        let () = eff.external(Park).await;
         state
     });
 
@@ -267,34 +266,22 @@ fn backpressure() {
     let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&sender, [1]);
-    running.breakpoint("pressure", {
-        let pressure = pressure.clone();
-        move |eff| matches!(eff, Effect::Clock { at_stage: a } if a == pressure.name())
-    });
+    running.run(Run::default()).assert_busy([pressure.name()]);
 
-    let sender_name = sender.name().clone();
-    running.breakpoint("send", move |eff| matches!(eff, Effect::Receive { at_stage } if *at_stage == sender_name));
-
-    let broken = running.run_until_blocked().assert_breakpoint("pressure");
-    assert_eq!(broken, Effect::Clock { at_stage: pressure.name().clone() });
-
-    running.run_until_blocked().assert_breakpoint("send");
     running.enqueue_msg(&sender, [2]);
-    running.resume_receive(&sender).unwrap();
+    running.run(Run::default()).assert_busy([pressure.name()]);
 
-    running.run_until_blocked().assert_breakpoint("send");
     running.enqueue_msg(&sender, [3]);
-    running.resume_receive(&sender).unwrap();
+    running.run(Run::default()).assert_busy([pressure.name()]);
+    assert_eq!(running.mailbox_len(&pressure), 1);
+    assert_eq!(running.get_state(&sender), None, "sender must be blocked on Send");
 
-    // backpressure is here: "send" breakpoint is not yet hit because waiting to send to `pressure`
-    running.run_until_blocked().assert_busy([pressure.name()]);
-    running.handle_effect(broken);
-
-    running.clear_breakpoint("pressure");
-
-    running.run_until_blocked().assert_breakpoint("send");
-    running.run_until_blocked().assert_idle();
-
+    running.complete_external(pressure.name(), ());
+    running.run(Run::default()).assert_busy([pressure.name()]);
+    running.complete_external(pressure.name(), ());
+    running.run(Run::default()).assert_busy([pressure.name()]);
+    running.complete_external(pressure.name(), ());
+    running.run(Run::default()).assert_idle();
     assert_eq!(*running.get_state(&pressure).unwrap(), 7);
 }
 
@@ -324,17 +311,14 @@ fn schedule_delivered_despite_full_bulk_mailbox() {
         move |eff| matches!(eff, Effect::Clock { at_stage } if at_stage == stage.name())
     });
 
-    // Run until schedule is registered and clock is hit; due schedule may already be in priority.
-    let clock_eff = running.run_until_blocked().assert_breakpoint("clock");
+    running.run(Run::skip_wakeups()).assert_breakpoint("clock");
 
     // Fill bulk mailbox while stage is suspended on clock.
     running.enqueue_msg(&stage, [1u32]);
     assert_eq!(running.mailbox_len(&stage), 1);
 
-    // Resume clock; stage finishes msg 0. Next receives must prefer priority (99) over bulk (1).
     running.clear_breakpoint("clock");
-    running.handle_effect(clock_eff);
-    running.run_until_blocked().assert_idle();
+    running.run(Run::skip_wakeups()).assert_idle();
 
     let state = running.get_state(&stage).unwrap();
     assert!(state.contains(&99), "scheduled control message must be delivered: {state:?}");
@@ -366,7 +350,7 @@ fn schedule_cap_panics_at_limit_plus_one() {
 
     running.enqueue_msg(&stage, [0u32]);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        running.run_until_blocked();
+        running.run(Run::skip_wakeups());
     }));
     assert!(result.is_err(), "expected panic when exceeding configured priority mailbox size");
 }
@@ -401,13 +385,61 @@ fn cancel_schedule_frees_priority_slot() {
 
     running.enqueue_msg(&stage, [0u32]);
     // Stop at Sleeping so far-future schedules are not delivered yet.
-    running.run_until_sleeping_or_blocked().assert_sleeping();
+    running.run(Run::default()).assert_sleeping();
     assert!(running.get_state(&stage).unwrap().is_some());
 
     running.enqueue_msg(&stage, [1u32]);
-    running.run_until_sleeping_or_blocked().assert_sleeping();
+    running.run(Run::default()).assert_sleeping();
     // No panic and state cleared after successful cancel+reschedule.
     assert!(running.get_state(&stage).unwrap().is_none());
+}
+
+#[test]
+fn set_timeout_replaces_and_clear_timeout_cancels() {
+    let mut network = SimulationBuilder::default();
+    let stage = network.stage("stage", async |state: Vec<u32>, msg: u32, eff| match msg {
+        0 => {
+            eff.set_timeout(Duration::from_secs(10), 1).await;
+            eff.set_timeout(Duration::from_secs(10), 2).await;
+            state
+        }
+        3 => {
+            eff.clear_timeout().await;
+            state
+        }
+        n => {
+            let mut state = state;
+            state.push(n);
+            state
+        }
+    });
+    let stage = network.wire_up(stage, Vec::new());
+    let rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let mut running = network.run(rt.handle());
+
+    running.enqueue_msg(&stage, [0u32]);
+    running.run(Run::default()).assert_sleeping();
+    running.enqueue_msg(&stage, [3u32]);
+    running.run(Run::skip_wakeups()).assert_idle();
+    assert!(running.get_state(&stage).unwrap().is_empty());
+    assert!(!running.skip_to_next_wakeup(None));
+}
+
+#[test]
+fn many_timeout_slots_do_not_overflow_priority_mailbox() {
+    let mut network = SimulationBuilder::default().with_priority_mailbox_size(PRIORITY_MAILBOX_SIZE);
+    let stage = network.stage("stage", async |state: (), msg: u32, eff| {
+        if msg == 0 {
+            for i in 0..300u32 {
+                eff.set_timeout_at(i as u64, Duration::from_secs(60), 1000 + i).await;
+            }
+        }
+        state
+    });
+    let stage = network.wire_up(stage, ());
+    let mut running = network.run(test_runtime().handle());
+    running.enqueue_msg(&stage, [0u32]);
+    running.run(Run::default()).assert_sleeping();
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -429,13 +461,13 @@ fn clock() {
 
     running.enqueue_msg(&basic, [42]);
     let now = running.now();
-    running.run_until_blocked().assert_idle();
+    running.run(Run::skip_wakeups()).assert_idle();
     let later = running.now();
     assert_eq!(running.get_state(&basic).unwrap(), &State2::Full(42u32, now, later));
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
 
     running.enqueue_msg(&basic, [43]);
-    let wakeup = running.run_until_blocked_or_time(later + Duration::from_millis(100)).assert_sleeping();
+    let wakeup = running.run(Run::until(later + Duration::from_millis(100))).assert_sleeping();
     assert_eq!(wakeup, later + Duration::from_secs(1));
 }
 
@@ -452,7 +484,7 @@ fn clock_manual() {
 
     running.enqueue_msg(&stage, [42]);
     let now = running.now();
-    running.run_until_sleeping_or_blocked().assert_sleeping();
+    running.run(Run::default()).assert_sleeping();
     assert_eq!(running.get_state(&stage), None);
 
     let intermediate = running.now() + Duration::from_millis(100);
@@ -464,7 +496,7 @@ fn clock_manual() {
     assert!(running.skip_to_next_wakeup(None));
     assert_eq!(running.now(), target);
 
-    running.run_until_sleeping_or_blocked().assert_idle();
+    running.run(Run::default()).assert_idle();
     let later = running.now();
 
     assert_eq!(running.get_state(&stage).unwrap(), &State2::Full(42u32, now, later));
@@ -508,25 +540,25 @@ fn call() {
     let mut sim = network.run(test_runtime().handle());
 
     sim.enqueue_msg(&caller, [1]);
-    sim.run_until_blocked().assert_idle();
+    sim.run(Run::skip_wakeups()).assert_idle();
     assert_eq!(sim.get_state(&caller).unwrap().0, 4);
 
-    // also try manual mode
     sim.enqueue_msg(&caller, [2]);
-    sim.resume_receive(&caller).unwrap();
-    let (msg, cr) = sim.effect().assert_call(&caller, &callee, |msg| (msg.0 + 1, msg.1), Duration::from_secs(2));
-
-    sim.try_effect().unwrap_err().assert_busy([caller.name()]);
-    // this will resume receive on callee
-    sim.resume_call_send(&caller, &callee, Msg3(msg, cr.clone())).unwrap();
-    sim.effect().assert_wait(&callee, Duration::from_secs(1));
-    sim.resume_wait(&callee, sim.now()).unwrap();
-    sim.effect().assert_send(&callee, &cr, 8);
-    sim.resume_send(&callee, &cr, Some(7)).unwrap();
-    sim.effect().assert_receive(&callee);
-    // the processing above has already dealt with sending the response, which has resumed the caller
-    sim.effect().assert_receive(&caller);
-    assert_eq!(sim.get_state(&caller).unwrap().0, 7);
+    sim.breakpoint("call", {
+        let caller = caller.clone();
+        move |eff| matches!(eff, Effect::Call { from, .. } if from == caller.name())
+    });
+    sim.run(Run::skip_wakeups()).assert_breakpoint("call");
+    {
+        let hit = sim.breakpoint_effect();
+        assert_effect_match(
+            hit.effect(),
+            tm_call(caller.name().as_str(), callee.name().as_str(), Duration::from_secs(2)),
+        );
+    }
+    sim.clear_breakpoint("call");
+    sim.run(Run::skip_wakeups()).assert_idle();
+    assert_eq!(sim.get_state(&caller).unwrap().0, 6);
 
     guard.defuse();
 }
@@ -548,7 +580,7 @@ fn call_external_sender_in_simulation() {
     let call = rt.spawn(async move { sender.call::<u32>(|cr| Msg3(3, cr), Duration::from_secs(1)).await });
 
     rt.block_on(sim.await_external_input());
-    sim.run_until_blocked().assert_idle();
+    sim.run(Run::skip_wakeups()).assert_idle();
 
     assert_eq!(rt.block_on(call).unwrap().unwrap(), 6);
 }
@@ -585,7 +617,7 @@ fn call_timeout_terminates_graph() {
     let mut term = sim.termination();
     assert_eq!(term.as_mut().poll(&mut Context::from_waker(Waker::noop())), Poll::Pending);
 
-    sim.run_until_blocked().assert_terminated(caller.name()); // drive effects
+    sim.run(Run::skip_wakeups()).assert_terminated(caller.name()); // drive effects
 
     assert!(sim.is_terminated(), "simulation should report terminated");
     assert_eq!(term.as_mut().poll(&mut Context::from_waker(Waker::noop())), Poll::Ready(()));
@@ -607,8 +639,10 @@ fn create_stage_within_stage() {
         output: StageRef<u32>,
     }
 
-    let trace_buffer = TraceBuffer::new_shared(1, 1000000);
-    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+    let _guard = amaru_pure_stage::register_data_deserializer::<u32>();
+    let _guard = amaru_pure_stage::register_effect_deserializer::<OutputEffect<u32>>();
+    let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+    let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
     // Parent stage that creates a child stage
     let parent = network.stage("parent", async |mut state: ParentState, msg: u32, eff| {
@@ -639,108 +673,22 @@ fn create_stage_within_stage() {
     let parent = network.wire_up(parent, ParentState { child_ref: None, output: output.clone() });
     let mut running = network.run(test_runtime().handle());
 
-    // Initially, parent is waiting for Receive
-    running.try_effect().unwrap_err().assert_idle();
-
-    // Send a message to the parent to trigger child stage creation
+    running.run(Run::default()).assert_idle();
     running.enqueue_msg(&parent, [42]);
-    running.resume_receive(&parent).unwrap();
+    running.run(Run::skip_and_resolve()).assert_idle();
 
-    // Assert that AddStage effect is emitted
-    let add_stage_effect = running.effect();
-    add_stage_effect.assert_add_stage(&parent, "child");
-    let child_ref = StageRef::named_for_tests("child-12");
-
-    running.resume_add_stage(&parent, child_ref.name().clone()).unwrap();
-
-    // Assert that WireStage effect is emitted
-    let wire_stage_effect = running.effect();
-    wire_stage_effect.assert_wire_stage(&parent, "child-12", ChildState { value: 0u32, output: output.clone() });
-
-    // Resume the WireStage effect with the child's initial state
-    running.handle_effect(wire_stage_effect);
-
-    // Now the parent should send a message to the child
-    let send_effect = running.effect();
-    send_effect.assert_send(&parent, &child_ref, 42u32);
-    running.handle_effect(send_effect);
-
-    // The child should send a message to the output (as per its transition function)
-    let child_send_effect = running.effect();
-    child_send_effect.assert_send(&child_ref, &output, 42u32);
-    running.handle_effect(child_send_effect);
-
-    running.effect().assert_receive(&parent);
-
-    let external_effect = running.effect();
-    external_effect.assert_external(&output, &OutputEffect::fake(output.name().clone(), 42u32).0);
-    running.handle_effect(external_effect);
-
-    running.effect().assert_receive(&child_ref);
-    // OutputEffect is Zero: run() is forced when the effect is issued.
-    running.effect().assert_receive(&output);
-
-    // Verify output received the message from the child stage
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![42]);
 
-    // verify trace buffer
-    pretty_assertions::assert_eq!(
-        trace_buffer.lock().hydrate_without_timestamps(),
-        vec![
-            TraceEntry::state(
-                "output-2",
-                SendDataValue::from_json("amaru_pure_stage::types::MpscSender<u32>", BTreeMap::<u8, u8>::new())
-            ),
-            TraceEntry::state(
-                parent.name(),
-                SendDataValue::boxed(&ParentState { child_ref: None, output: output.clone() })
-            ),
-            TraceEntry::input(parent.name(), SendDataValue::boxed(&42u32)),
-            TraceEntry::resume(parent.name(), StageResponse::Unit),
-            TraceEntry::suspend(Effect::AddStage { at_stage: parent.name().clone(), name: Name::from("child") }),
-            TraceEntry::resume(parent.name(), StageResponse::AddStageResponse(child_ref.name().clone())),
-            TraceEntry::suspend(Effect::wire_stage(
-                parent.name().clone(),
-                child_ref.name().clone(),
-                SendDataValue::boxed(&ChildState { value: 0u32, output: output.clone() }),
-                None
-            )),
-            TraceEntry::state(child_ref.name(), SendDataValue::boxed(&ChildState { value: 0, output: output.clone() })),
-            TraceEntry::resume(parent.name(), StageResponse::Unit),
-            TraceEntry::suspend(Effect::Send {
-                from: parent.name().clone(),
-                to: child_ref.name().clone(),
-                msg: SendDataValue::boxed(&42u32),
-            }),
-            TraceEntry::input(child_ref.name(), SendDataValue::boxed(&42u32)),
-            TraceEntry::resume(child_ref.name(), StageResponse::Unit),
-            TraceEntry::suspend(Effect::Send {
-                from: child_ref.name().clone(),
-                to: output.name().clone(),
-                msg: SendDataValue::boxed(&42u32),
-            }),
-            TraceEntry::input(output.name(), SendDataValue::boxed(&42u32)),
-            TraceEntry::resume(parent.name(), StageResponse::Unit),
-            TraceEntry::state(
-                parent.name(),
-                SendDataValue::boxed(&ParentState { child_ref: Some(child_ref.clone()), output: output.clone() })
-            ),
-            TraceEntry::resume(output.name(), StageResponse::Unit),
-            TraceEntry::suspend(Effect::External {
-                at_stage: output.name().clone(),
-                effect: UnknownExternalEffect::boxed(&OutputEffect::fake(output.name().clone(), 42u32).0)
-            }),
-            TraceEntry::resume(child_ref.name(), StageResponse::Unit),
-            TraceEntry::state(
-                child_ref.name(),
-                SendDataValue::boxed(&ChildState { value: 42u32, output: output.clone() })
-            ),
-            TraceEntry::resume(output.name(), StageResponse::ExternalResponse(SendDataValue::boxed(&()))),
-            TraceEntry::state(
-                output.name(),
-                SendDataValue::from_json("amaru_pure_stage::types::MpscSender<u32>", BTreeMap::<u8, u8>::new())
-            ),
-        ]
+    let child = running.get_state(&parent).unwrap().child_ref.clone().expect("child was wired");
+    assert_trace_contains(
+        &running,
+        &[
+            tm_add_stage(parent.name(), "child"),
+            tm_wire_stage(parent.name().as_str(), "child"),
+            tm_send(parent.name().as_str(), child.name().as_str(), 42u32),
+            tm_send(child.name().as_str(), output.name().as_str(), 42u32),
+            tm_external_effect::<OutputEffect<u32>>(output.name()),
+        ],
     );
 }
 
@@ -795,9 +743,7 @@ fn virtual_child_stages() {
     running.use_virtual_child_stages(true);
 
     running.enqueue_msg(&parent, [42u32]);
-    running.resume_receive(&parent).unwrap();
-
-    running.run_until_blocked_or_time_incl_effects(Instant::at_offset(Duration::from_secs(1), Duration::ZERO));
+    running.run(Run::skip_wakeups()).assert_idle();
 
     // Because the child was virtual, its logic never ran → nothing reached the output.
     assert!(rx.drain().collect::<Vec<_>>().is_empty(), "virtual child must not produce any output");
@@ -860,10 +806,176 @@ fn contramap_sends_injected_message_to_original_name() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut running = network.run(rt.handle());
-    running.resume_receive(&sink).unwrap();
-    running.effect().assert_receive(&sink);
+    running.run(Run::skip_wakeups()).assert_idle();
     assert_eq!(running.get_state(&sink), Some(&vec![Sum::N(7)]));
 
     drop(running);
     assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError::new(sink.name().clone())));
+}
+
+fn parked_listener(
+    label: &'static str,
+) -> (amaru_pure_stage::simulation::SimulationRunning, amaru_pure_stage::stage_ref::StageStateRef<u32, u32>) {
+    let mut network = SimulationBuilder::default();
+    let stage = network.stage(label, async |mut state: u32, msg: u32, eff| {
+        state += msg;
+        let () = eff.external(Park).await;
+        state
+    });
+    let stage = network.wire_up(stage, 0u32);
+    let mut running = network.run(test_runtime().handle());
+    running.enqueue_msg(&stage, [1]);
+    (running, stage)
+}
+
+/// World-runner contract: UntilResolved stays Busy until `complete_external`.
+#[test]
+fn until_resolved_completed_later() {
+    let (mut running, stage) = parked_listener("listener");
+    running.run(Run::default()).assert_busy([stage.name()]).assert_external_effects(1);
+    assert_eq!(running.get_state(&stage), None);
+    running.complete_external(stage.name(), ());
+    running.run(Run::default()).assert_idle();
+    assert_eq!(*running.get_state(&stage).unwrap(), 1);
+}
+
+/// A stage parked on UntilResolved is Busy, not Idle.
+#[test]
+fn until_resolved_is_busy_not_idle() {
+    let (mut running, stage) = parked_listener("listener");
+    let blocked = running.run(Run::default());
+    blocked.assert_busy([stage.name()]);
+    assert_ne!(blocked, amaru_pure_stage::simulation::Blocked::Idle);
+}
+
+/// Two independent graphs may reuse stage names; completing one does not complete the other.
+#[test]
+fn two_graphs_are_independent() {
+    let (mut a, sa) = parked_listener("listener");
+    let (mut b, sb) = parked_listener("listener");
+    assert_eq!(sa.name(), sb.name());
+    a.run(Run::default()).assert_busy([sa.name()]);
+    b.run(Run::default()).assert_busy([sb.name()]);
+    a.complete_external(sa.name(), ());
+    a.run(Run::default()).assert_idle();
+    b.run(Run::default()).assert_busy([sb.name()]);
+    b.complete_external(sb.name(), ());
+    b.run(Run::default()).assert_idle();
+}
+
+/// Completing UntilResolved effects in offer order is the world's job; the crate does not reorder.
+#[test]
+fn complete_external_does_not_reorder() {
+    let mut network = SimulationBuilder::default();
+    let first = network.stage("first", async |mut state: u32, msg: u32, eff| {
+        state += msg;
+        let () = eff.external(Park).await;
+        state
+    });
+    let second = network.stage("second", async |mut state: u32, msg: u32, eff| {
+        state += msg;
+        let () = eff.external(Park).await;
+        state
+    });
+    let first = network.wire_up(first, 0u32);
+    let second = network.wire_up(second, 0u32);
+    let mut running = network.run(test_runtime().handle());
+    running.enqueue_msg(&first, [1]);
+    running.enqueue_msg(&second, [2]);
+    running.run(Run::default()).assert_busy([first.name(), second.name()]);
+
+    running.complete_external(second.name(), ());
+    running.run(Run::default()).assert_busy([first.name()]);
+    assert_eq!(*running.get_state(&second).unwrap(), 2);
+    assert_eq!(running.get_state(&first), None);
+
+    running.complete_external(first.name(), ());
+    running.run(Run::default()).assert_idle();
+    assert_eq!(*running.get_state(&first).unwrap(), 1);
+}
+
+/// A top-level terminate names that stage; a sibling is still present.
+#[test]
+fn terminated_names_one_stage() {
+    let mut network = SimulationBuilder::default();
+    let keeper = network.stage("keeper", async |state: u32, msg: u32, _eff| state + msg);
+    let stopper = network.stage("stopper", async |state: (), _msg: u32, eff| {
+        eff.terminate::<()>().await;
+        state
+    });
+    let keeper = network.wire_up(keeper, 0u32);
+    let stopper = network.wire_up(stopper, ());
+    let mut running = network.run(test_runtime().handle());
+    running.enqueue_msg(&stopper, [1]);
+    running.run(Run::skip_wakeups()).assert_terminated(stopper.name());
+    assert_eq!(*running.get_state(&keeper).unwrap(), 0);
+}
+
+/// A supervised helper can die without terminating the parent.
+#[test]
+fn supervised_helper_does_not_kill_parent() {
+    let mut network = SimulationBuilder::default();
+    let parent = network.stage("parent", async |mut child: Option<StageRef<u32>>, msg: u32, eff| {
+        if child.is_none() {
+            let helper = eff.stage("helper", async |(): (), _msg: u32, eff| eff.terminate::<()>().await).await;
+            let helper = eff.supervise(helper, 99u32);
+            let helper = eff.wire_up(helper, ()).await;
+            child = Some(helper);
+        }
+        if msg == 1
+            && let Some(helper) = child.as_ref()
+        {
+            eff.send(helper, 0).await;
+        }
+        child
+    });
+    let parent = network.wire_up(parent, None);
+    let mut running = network.run(test_runtime().handle());
+    running.enqueue_msg(&parent, [1]);
+    running.run(Run::skip_wakeups()).assert_idle();
+    assert!(!running.is_terminated());
+    assert!(running.get_state(&parent).unwrap().is_some());
+}
+
+/// Completing an external on a stage that has already terminated panics.
+#[test]
+#[should_panic(expected = "does not exist")]
+fn complete_external_on_gone_stage_panics() {
+    let mut network = SimulationBuilder::default();
+    let parent = network.stage("parent", async |mut child: Option<StageRef<u32>>, msg: u32, eff| {
+        if child.is_none() {
+            let helper = eff.stage("helper", async |(): (), _msg: u32, eff| eff.terminate::<()>().await).await;
+            let helper = eff.supervise(helper, 99u32);
+            let helper = eff.wire_up(helper, ()).await;
+            child = Some(helper);
+        }
+        if msg == 1
+            && let Some(helper) = child.as_ref()
+        {
+            eff.send(helper, 0).await;
+        }
+        child
+    });
+    let parent = network.wire_up(parent, None);
+    let mut running = network.run(test_runtime().handle());
+    running.enqueue_msg(&parent, [1]);
+    running.run(Run::skip_wakeups()).assert_idle();
+    let helper = running.get_state(&parent).unwrap().as_ref().unwrap().name().clone();
+    running.complete_external(&helper, ());
+}
+
+/// Default `run` stops at a future wakeup; it does not fire the timer.
+#[test]
+fn default_run_does_not_skip_sleep() {
+    let mut network = SimulationBuilder::default();
+    let stage = network.stage("stage", async |state: (), _msg: u32, eff| {
+        eff.set_timeout(Duration::from_secs(60), 1u32).await;
+        state
+    });
+    let stage = network.wire_up(stage, ());
+    let mut running = network.run(test_runtime().handle());
+    running.enqueue_msg(&stage, [0u32]);
+    let wakeup = running.run(Run::default()).assert_sleeping();
+    assert_eq!(wakeup.sim_elapsed(), Duration::from_secs(60));
+    assert_eq!(running.now().sim_elapsed(), Duration::ZERO);
 }

@@ -14,7 +14,7 @@
 
 use std::{collections::VecDeque, fmt};
 
-use crate::{BoxFuture, Name, SendData, effect::StageEffect};
+use crate::{BoxFuture, Name, SendData, effect::StageEffect, timeouts::TimeoutHeap};
 
 pub enum InitStageState {
     Uninitialized,
@@ -76,7 +76,9 @@ pub(crate) struct StageData {
     pub senders: VecDeque<(Name, Box<dyn SendData>)>,
     /// Armed schedules not yet consumed by receive (including due entries still in
     /// [`Self::priority`]). Must stay ≤ the network's configured `priority_mailbox_size`.
+    /// Coalesced protocol timeouts are counted via [`Self::timeouts`] instead.
     pub scheduled_pending: usize,
+    pub timeouts: TimeoutHeap,
     pub supervised_by: Name,
     pub tombstone: Option<Box<dyn SendData>>,
 }

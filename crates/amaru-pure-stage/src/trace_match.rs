@@ -13,10 +13,14 @@
 // limitations under the License.
 
 //! Utilities for flexible matching against [`TraceEntry`] values recorded in a
-//! [`SimulationRunning`] trace buffer. This module provides [`TraceMatch`], a
-//! type that can represent either an exact [`TraceEntry`] or a property-based
-//! predicate, along with ergonomic assertion helpers and `tm_*` constructors
-//! (the matching counterparts to the `te_*` effect constructors).
+//! [`SimulationRunning`] trace buffer, and against the [`Effect`] borrowed at a
+//! breakpoint. This module provides [`TraceMatch`], a type that can represent
+//! either an exact [`TraceEntry`] or a property-based predicate, along with
+//! ergonomic assertion helpers and `tm_*` constructors (the matching counterparts
+//! to the `te_*` effect constructors).
+//!
+//! Suspend-effect matchers (`tm_send`, `tm_external_effect`, …) also match a
+//! breakpoint [`Effect`]. Clock/state/input matchers only apply to trace entries.
 
 use std::{fmt, time::Duration};
 
@@ -25,7 +29,7 @@ use crate::{
     trace_buffer::TraceEntry,
 };
 
-/// A matcher for a [`TraceEntry`].
+/// A matcher for a [`TraceEntry`] or a breakpoint [`Effect`].
 ///
 /// `TraceMatch` can be used in assertions where you either want an exact match
 /// (via [`TraceMatch::Literal`], which `TraceEntry` converts into via `From`)
@@ -38,9 +42,34 @@ use crate::{
 pub enum TraceMatch<'a> {
     /// An exact [`TraceEntry`] that must match.
     Literal(TraceEntry),
-    /// A predicate on a [`TraceEntry`] together with a human-readable
-    /// description used for `Debug` output on assertion failure.
-    Property(Box<dyn Fn(&TraceEntry) -> bool + Send + 'a>, String),
+    /// A predicate together with a human-readable description used for `Debug`
+    /// output on assertion failure.
+    Property(Box<dyn Fn(MatchSrc<'_>) -> bool + Send + 'a>, String),
+}
+
+/// Input to a [`TraceMatch::Property`] predicate: a recorded trace entry, or the
+/// effect that hit a breakpoint.
+#[derive(Clone, Copy)]
+pub enum MatchSrc<'a> {
+    Entry(&'a TraceEntry),
+    Effect(&'a Effect),
+}
+
+impl<'a> MatchSrc<'a> {
+    pub fn entry(self) -> Option<&'a TraceEntry> {
+        match self {
+            MatchSrc::Entry(entry) => Some(entry),
+            MatchSrc::Effect(_) => None,
+        }
+    }
+
+    pub fn suspend(self) -> Option<&'a Effect> {
+        match self {
+            MatchSrc::Entry(TraceEntry::Suspend(effect)) => Some(effect),
+            MatchSrc::Effect(effect) => Some(effect),
+            _ => None,
+        }
+    }
 }
 
 impl From<TraceEntry> for TraceMatch<'static> {
@@ -49,21 +78,41 @@ impl From<TraceEntry> for TraceMatch<'static> {
     }
 }
 
+impl TraceMatch<'_> {
+    /// True when this matcher accepts the effect that hit a breakpoint.
+    pub fn matches_effect(&self, effect: &Effect) -> bool {
+        PartialEq::<Effect>::eq(self, effect)
+    }
+}
+
 impl<'a> PartialEq<TraceEntry> for TraceMatch<'a> {
     fn eq(&self, other: &TraceEntry) -> bool {
         match self {
             TraceMatch::Literal(literal) => literal == other,
-            TraceMatch::Property(predicate, _) => predicate(other),
+            TraceMatch::Property(predicate, _) => predicate(MatchSrc::Entry(other)),
         }
     }
 }
 
 impl<'a> PartialEq<TraceMatch<'a>> for TraceEntry {
     fn eq(&self, other: &TraceMatch<'a>) -> bool {
-        match other {
-            TraceMatch::Literal(literal) => self == literal,
-            TraceMatch::Property(predicate, _) => predicate(self),
+        other == self
+    }
+}
+
+impl<'a> PartialEq<Effect> for TraceMatch<'a> {
+    fn eq(&self, other: &Effect) -> bool {
+        match self {
+            TraceMatch::Literal(TraceEntry::Suspend(effect)) => effect == other,
+            TraceMatch::Literal(_) => false,
+            TraceMatch::Property(predicate, _) => predicate(MatchSrc::Effect(other)),
         }
+    }
+}
+
+impl<'a> PartialEq<TraceMatch<'a>> for Effect {
+    fn eq(&self, other: &TraceMatch<'a>) -> bool {
+        other == self
     }
 }
 
@@ -89,8 +138,8 @@ pub fn tm_state<T: SendData + Clone>(stage: impl AsRef<str>, state: &T) -> Trace
 pub fn tm_state_match<'a, T: SendData>(stage: &'a str, predicate: impl Fn(&T) -> bool + Send + 'a) -> TraceMatch<'a> {
     let description = format!("State(stage: {:?}, state matching {})", stage, std::any::type_name::<T>());
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::State { stage: s, state } = entry else {
+        Box::new(move |src| {
+            let Some(TraceEntry::State { stage: s, state }) = src.entry() else {
                 return false;
             };
             if s.as_str() != stage {
@@ -114,8 +163,8 @@ pub fn tm_input<T: SendData + Clone>(stage: impl AsRef<str>, input: &T) -> Trace
 pub fn tm_send<'a>(from: &'a str, to: &'a str, msg: impl SendData) -> TraceMatch<'a> {
     let description = format!("Send(from: {:?}, to: {:?}, msg: {:?})", from, to, msg);
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg: m }) = entry else {
+        Box::new(move |src| {
+            let Some(Effect::Send { from: f, to: t, msg: m }) = src.suspend() else {
                 return false;
             };
             f.as_str() == from && t.as_str().contains(to) && msg.test_eq(&**m)
@@ -124,11 +173,25 @@ pub fn tm_send<'a>(from: &'a str, to: &'a str, msg: impl SendData) -> TraceMatch
     )
 }
 
+/// Creates a `TraceMatch` for a `Call` effect.
+pub fn tm_call<'a>(from: &'a str, to: &'a str, duration: Duration) -> TraceMatch<'a> {
+    let description = format!("Call(from: {:?}, to: {:?}, duration: {:?})", from, to, duration);
+    TraceMatch::Property(
+        Box::new(move |src| {
+            let Some(Effect::Call { from: f, to: t, duration: d, .. }) = src.suspend() else {
+                return false;
+            };
+            f.as_str() == from && t.as_str().contains(to) && *d == duration
+        }),
+        description,
+    )
+}
+
 pub fn tm_send_type<'a, T: SendData>(from: &'a str, to: &'a str) -> TraceMatch<'a> {
     let description = format!("Send(from: {:?}, to: {:?}, msg of type {})", from, to, std::any::type_name::<T>());
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg }) = entry else {
+        Box::new(move |src| {
+            let Some(Effect::Send { from: f, to: t, msg }) = src.suspend() else {
                 return false;
             };
             f.as_str() == from && t.as_str().contains(to) && msg.as_ref().type_id() == std::any::TypeId::of::<T>()
@@ -149,8 +212,8 @@ pub fn tm_send_match<'a, T: SendData>(
 ) -> TraceMatch<'a> {
     let description = format!("Send(from: {:?}, to: {:?}, msg matching {})", from, to, std::any::type_name::<T>());
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg }) = entry else {
+        Box::new(move |src| {
+            let Some(Effect::Send { from: f, to: t, msg }) = src.suspend() else {
                 return false;
             };
             if f.as_str() != from || !t.as_str().contains(to) {
@@ -184,8 +247,8 @@ pub fn tm_add_stage(at_stage: impl AsRef<str>, name: impl AsRef<str>) -> TraceMa
 pub fn tm_wire_stage<'a>(parent: &'a str, child: &'a str) -> TraceMatch<'a> {
     let description = format!("WireStage(at_stage: {:?}, name: {:?})", parent, child);
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Suspend(Effect::WireStage { at_stage, name, .. }) = entry else {
+        Box::new(move |src| {
+            let Some(Effect::WireStage { at_stage, name, .. }) = src.suspend() else {
                 return false;
             };
             parent == at_stage.as_str() && name.as_str().contains(child)
@@ -197,8 +260,8 @@ pub fn tm_wire_stage<'a>(parent: &'a str, child: &'a str) -> TraceMatch<'a> {
 pub fn tm_wire_stage_state<'a, T: SendData>(parent: &'a str, child: &'a str, state: T) -> TraceMatch<'a> {
     let description = format!("WireStage(at_stage: {:?}, name: {:?}, state: {:?})", parent, child, state);
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Suspend(Effect::WireStage { at_stage, name, initial_state, tombstone }) = entry else {
+        Box::new(move |src| {
+            let Some(Effect::WireStage { at_stage, name, initial_state, tombstone }) = src.suspend() else {
                 return false;
             };
             parent == at_stage.as_str()
@@ -223,8 +286,8 @@ pub fn tm_wire_stage_state_supervised<'a, T: SendData, U: SendData>(
         parent, child, state, supervision
     );
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Suspend(Effect::WireStage { at_stage, name, initial_state, tombstone }) = entry else {
+        Box::new(move |src| {
+            let Some(Effect::WireStage { at_stage, name, initial_state, tombstone }) = src.suspend() else {
                 return false;
             };
             parent == at_stage.as_str()
@@ -275,15 +338,10 @@ pub fn tm_external_effect_match<'a, T: ExternalEffect>(
     let stage_name = Name::from(at_stage.as_ref());
     let description = format!("ExternalEffect<{}>(at_stage: {:?})", std::any::type_name::<T>(), stage_name);
     TraceMatch::Property(
-        #[expect(clippy::wildcard_enum_match_arm)]
-        Box::new(move |entry| {
-            let (at_stage, effect) = match entry {
-                TraceEntry::Suspend(Effect::External { at_stage, effect }) if detached.allows_inline() => {
-                    (at_stage, effect)
-                }
-                TraceEntry::Suspend(Effect::Detach { at_stage, effect }) if detached.allows_detached() => {
-                    (at_stage, effect)
-                }
+        Box::new(move |src| {
+            let (at_stage, effect) = match src.suspend() {
+                Some(Effect::External { at_stage, effect }) if detached.allows_inline() => (at_stage, effect),
+                Some(Effect::Detach { at_stage, effect }) if detached.allows_detached() => (at_stage, effect),
                 _ => return false,
             };
             if at_stage != &stage_name {
@@ -301,8 +359,8 @@ pub fn tm_external_effect_match<'a, T: ExternalEffect>(
 pub fn tm_clock(instant: Duration) -> TraceMatch<'static> {
     let description = format!("Clock({:?})", instant);
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Clock(i) = entry else {
+        Box::new(move |src| {
+            let Some(TraceEntry::Clock(i)) = src.entry() else {
                 return false;
             };
             i.inner.saturating_duration_since(*EPOCH) == instant
@@ -315,8 +373,8 @@ pub fn tm_clock(instant: Duration) -> TraceMatch<'static> {
 pub fn tm_clock_between(min: Duration, max: Duration) -> TraceMatch<'static> {
     let description = format!("Clock(between {:?} and {:?})", min, max);
     TraceMatch::Property(
-        Box::new(move |entry| {
-            let TraceEntry::Clock(i) = entry else {
+        Box::new(move |src| {
+            let Some(TraceEntry::Clock(i)) = src.entry() else {
                 return false;
             };
             let elapsed = i.inner.saturating_duration_since(*EPOCH);
@@ -336,6 +394,15 @@ fn collect_filtered_trace(running: &SimulationRunning) -> Vec<TraceEntry> {
         tb.iter_entries().filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e)).collect();
     tb.clear();
     trace
+}
+
+/// Assert that a breakpoint [`Effect`] matches the given [`TraceMatch`].
+#[track_caller]
+#[expect(clippy::panic)]
+pub fn assert_effect_match(effect: &Effect, expected: TraceMatch<'_>) {
+    if !expected.matches_effect(effect) {
+        panic!("effect did not match {expected:?}: {effect:?}");
+    }
 }
 
 /// Asserts that the filtered trace (excluding `Resume` entries) exactly equals
