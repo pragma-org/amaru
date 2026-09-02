@@ -45,17 +45,17 @@ pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(900);
 /// How many peers to request per share call (network-spec amount is `Word8`).
 pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// Caught-up churn interval before fuzz (Haskell default).
-pub const CHURN_INTERVAL_BASE: Duration = Duration::from_secs(3300);
+const CHURN_INTERVAL_BASE: Duration = Duration::from_secs(3300);
 /// Extra delay drawn uniformly from `0..=CHURN_INTERVAL_FUZZ`.
-pub const CHURN_INTERVAL_FUZZ: Duration = Duration::from_secs(600);
+const CHURN_INTERVAL_FUZZ: Duration = Duration::from_secs(600);
 /// Fraction of Using peers to demote each cycle (at least one).
-pub const CHURN_FRACTION_PERCENT: usize = 20;
+const CHURN_FRACTION_PERCENT: usize = 20;
 /// After clean churn, the bearer stays; do not re-promote for this long.
-pub const CHURN_REPROMOTE_DELAY: Duration = Duration::from_secs(10);
+pub(crate) const CHURN_REPROMOTE_DELAY: Duration = Duration::from_secs(10);
 /// Retry Using after no intersection (not hostility).
-pub const UNINTERESTING_RETRY: Duration = Duration::from_secs(120);
+pub(crate) const UNINTERESTING_RETRY: Duration = Duration::from_secs(120);
 /// Retry Using after a rollback past the intersection.
-pub const UNINTERESTING_RETRY_AFTER_ROLLBACK: Duration = Duration::from_secs(180);
+const UNINTERESTING_RETRY_AFTER_ROLLBACK: Duration = Duration::from_secs(180);
 
 fn churn_interval(seed: [u8; 32]) -> Duration {
     let mut bytes = [0u8; 8];
