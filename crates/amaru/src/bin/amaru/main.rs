@@ -58,8 +58,8 @@ fn try_main() -> anyhow::Result<()> {
     let signals = install_termination_signals().context("failed to install signal handlers")?;
 
     let color_enabled = Color::is_enabled(cli.color);
-    let with_open_telemetry = cli.with_open_telemetry;
-    let open_telemetry_signals = cli.open_telemetry_signals.into();
+    let (with_open_telemetry, open_telemetry_signals) =
+        cli.open_telemetry.unwrap_or(cli::OpenTelemetryConfig::Disabled).into_parts();
     let with_json_traces = cli.with_json_traces;
     let skip_logging = cli.command.skip_logging();
     let tui_settings = cli.command.tui_settings();

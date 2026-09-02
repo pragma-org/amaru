@@ -22,7 +22,7 @@ open_telemetry_endpoint_reachable() {
   esac
 }
 
-# Turns auto|true|false into the true/false the nodes' --with-open-telemetry flag expects.
+# Turns auto|true|false into the boolean values accepted by AMARU_WITH_OPEN_TELEMETRY.
 resolve_open_telemetry() {
   case "${1:-auto}" in
     auto)

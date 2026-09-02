@@ -266,28 +266,26 @@ fn color_option_accepts_all_variants() -> anyhow::Result<()> {
 }
 
 #[test]
-fn open_telemetry_signals_option_is_global() -> anyhow::Result<()> {
+fn with_open_telemetry_option_is_global_and_accepts_signals() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
     let output =
-        Command::new(amaru).args(["dev", "traces", "dump", "--open-telemetry-signals", "traces", "--help"]).output()?;
+        Command::new(amaru).args(["dev", "traces", "dump", "--with-open-telemetry=traces,logs", "--help"]).output()?;
 
-    assert!(output.status.success(), "global --open-telemetry-signals should be accepted after a subcommand");
+    assert!(output.status.success(), "global --with-open-telemetry should accept signals after a subcommand");
     Ok(())
 }
 
 #[test]
-fn open_telemetry_signals_option_reads_its_environment_variable() -> anyhow::Result<()> {
+fn with_open_telemetry_option_keeps_boolean_environment_values() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
-    let output = Command::new(amaru)
-        .args(["dev", "traces", "dump", "--compact"])
-        .env("AMARU_OPEN_TELEMETRY_SIGNALS", "unknown")
-        .output()?;
+    for value in ["true", "false"] {
+        let output = Command::new(&amaru)
+            .args(["dev", "traces", "dump", "--compact"])
+            .env("AMARU_WITH_OPEN_TELEMETRY", value)
+            .output()?;
 
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("invalid value 'unknown'"),
-        "invalid environment value should be reported by clap"
-    );
+        assert!(output.status.success(), "AMARU_WITH_OPEN_TELEMETRY={value} should be accepted");
+    }
     Ok(())
 }
 
