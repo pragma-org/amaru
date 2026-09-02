@@ -68,7 +68,11 @@ where
     // Client sends ShareRequest from Idle → Busy
     spec.init(State::Idle, share_request(), State::Busy);
     // Client may send Done from Idle → Done
-    spec.init(State::Idle, done(), State::Done);
+    if R::ROLE == Some(crate::protocol::Role::Initiator) {
+        spec.init(State::Idle, done(), State::Done);
+    } else {
+        spec.init(State::Idle, done(), State::Idle);
+    }
     // Server replies SharePeers from Busy → Idle
     spec.resp(State::Busy, share_peers(), State::Idle);
 

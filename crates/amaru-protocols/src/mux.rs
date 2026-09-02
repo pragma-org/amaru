@@ -24,7 +24,7 @@ use std::{
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_observability::{Instrument, debug, debug_span, error, info, trace, warn};
 use amaru_ouroboros::ConnectionId;
-use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef, TryInStage, Void};
+use amaru_pure_stage::{Effects, Instant, OrTerminateWith, SendData, StageRef, TryInStage, Void};
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
@@ -115,6 +115,27 @@ impl Frame {
 pub enum HandlerMessage {
     Registered(ProtocolId<Erased>),
     FromNetwork(NonEmptyBytes),
+}
+
+/// Mux citizen after an initiator has sent `MsgDone`. Any further frame is a protocol error.
+pub async fn done_trap(_: (), msg: HandlerMessage, eff: Effects<HandlerMessage>) -> () {
+    match msg {
+        HandlerMessage::Registered(_) => {}
+        HandlerMessage::FromNetwork(_) => return eff.terminate().await,
+    }
+}
+
+pub async fn install_done_trap<M: SendData>(
+    muxer: &StageRef<MuxMessage>,
+    protocol: ProtocolId<Erased>,
+    eff: &Effects<M>,
+    tombstone: M,
+) {
+    let trap = eff.stage("done-trap", done_trap).await;
+    let trap = eff.supervise(trap, tombstone);
+    let trap = eff.wire_up(trap, ()).await;
+    eff.send(muxer, MuxMessage::Register { protocol, frame: Frame::OneCborItem, handler: trap, max_buffer: 5760 })
+        .await;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

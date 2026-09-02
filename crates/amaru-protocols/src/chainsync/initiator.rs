@@ -90,6 +90,7 @@ pub struct ChainSyncInitiator {
     muxer: StageRef<MuxMessage>,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
     me: StageRef<InitiatorMessage>,
+    pending_close: bool,
 }
 
 impl ChainSyncInitiator {
@@ -99,7 +100,10 @@ impl ChainSyncInitiator {
         muxer: StageRef<MuxMessage>,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
     ) -> (InitiatorState, Self) {
-        (InitiatorState::Idle, Self { upstream: None, peer, conn_id, muxer, pipeline, me: StageRef::blackhole() })
+        (
+            InitiatorState::Idle,
+            Self { upstream: None, peer, conn_id, muxer, pipeline, me: StageRef::blackhole(), pending_close: false },
+        )
     }
 }
 
@@ -107,7 +111,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
     type LocalIn = InitiatorMessage;
 
     async fn local(
-        self,
+        mut self,
         proto: &InitiatorState,
         input: Self::LocalIn,
         _eff: &Effects<Inputs<Self::LocalIn>>,
@@ -115,16 +119,22 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         use InitiatorState::*;
 
         Ok(match (proto, input) {
-            (Idle, InitiatorMessage::RequestNext) => (Some(InitiatorAction::RequestNext), self),
-            (CanAwait(_) | MustReply(_), InitiatorMessage::RequestNext) => (Some(InitiatorAction::RequestNext), self),
+            (Idle, InitiatorMessage::RequestNext) if !self.pending_close => (Some(InitiatorAction::RequestNext), self),
+            (CanAwait(_) | MustReply(_), InitiatorMessage::RequestNext) if !self.pending_close => {
+                (Some(InitiatorAction::RequestNext), self)
+            }
             (Idle, InitiatorMessage::Done) => (Some(InitiatorAction::Done), self),
+            (CanAwait(_) | MustReply(_) | Intersect, InitiatorMessage::Done) => {
+                self.pending_close = true;
+                (None, self)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
 
     async fn network(
         mut self,
-        _proto: &InitiatorState,
+        proto: &InitiatorState,
         input: <InitiatorState as ProtocolState<Initiator>>::Out,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<<InitiatorState as ProtocolState<Initiator>>::Action>, Self)> {
@@ -159,6 +169,9 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
                 ChainSyncInitiatorMsg { peer: self.peer, conn_id: self.conn_id, handler: self.me.clone(), msg: input },
             )
             .await;
+            if self.pending_close && matches!(proto, InitiatorState::Idle) {
+                return Ok((Some(InitiatorAction::Done), self));
+            }
             Ok((action, self))
         }
         .instrument(debug_span!(protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE, message_type))
@@ -332,7 +345,7 @@ impl ProtocolState<Initiator> for InitiatorState {
             (MustReply(n), InitiatorAction::RequestNext) => {
                 (outcome().send(Message::RequestNext(1)).want_next(), MustReply(*n + 1))
             }
-            (Idle, InitiatorAction::Done) => (outcome().send(Message::Done), Done),
+            (Idle, InitiatorAction::Done) => (outcome().send(Message::Done).finish(), Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

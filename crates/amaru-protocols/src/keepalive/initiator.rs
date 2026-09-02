@@ -47,6 +47,7 @@ pub fn initiator() -> Miniprotocol<State, KeepAliveInitiator, Initiator> {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorMessage {
     SendKeepAlive,
+    Close,
 }
 
 /// Message sent from the handler (for future use, e.g., RTT reporting)
@@ -62,11 +63,12 @@ pub struct KeepAliveInitiator {
     conn_id: ConnectionId,
     sent_at: Option<(Cookie, Instant)>,
     muxer: StageRef<MuxMessage>,
+    pending_close: bool,
 }
 
 impl KeepAliveInitiator {
     pub fn new(peer: Peer, conn_id: ConnectionId, muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { cookie: Cookie::new(), peer, conn_id, sent_at: None, muxer })
+        (State::Idle, Self { cookie: Cookie::new(), peer, conn_id, sent_at: None, muxer, pending_close: false })
     }
 }
 
@@ -82,9 +84,15 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         use State::*;
 
         match (proto, input) {
-            (Idle, InitiatorMessage::SendKeepAlive) => {
+            (Idle, InitiatorMessage::SendKeepAlive) if !self.pending_close => {
                 self.sent_at = Some((self.cookie, eff.clock().await));
                 Ok((Some(InitiatorAction::SendKeepAlive(self.cookie)), self))
+            }
+            (Idle, InitiatorMessage::SendKeepAlive) => Ok((Some(InitiatorAction::Done), self)),
+            (Idle, InitiatorMessage::Close) => Ok((Some(InitiatorAction::Done), self)),
+            (Waiting, InitiatorMessage::Close) => {
+                self.pending_close = true;
+                Ok((None, self))
             }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         }
@@ -113,6 +121,9 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
                 );
             }
             self.cookie = input.cookie.next();
+            if self.pending_close {
+                return Ok((Some(InitiatorAction::Done), self));
+            }
             let delay = if u16::from(input.cookie) == 0 {
                 // this is only for the very first keep-alive message, which the Haskell node expects within the first
                 // five seconds
@@ -164,6 +175,7 @@ impl ProtocolState<Initiator> for State {
             (Idle, InitiatorAction::SendKeepAlive(cookie)) => {
                 (outcome().send(Message::KeepAlive(cookie)).want_next(), Waiting)
             }
+            (Idle, InitiatorAction::Done) => (outcome().send(Message::Done).finish(), Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -172,6 +184,7 @@ impl ProtocolState<Initiator> for State {
 #[derive(Debug)]
 pub enum InitiatorAction {
     SendKeepAlive(Cookie),
+    Done,
 }
 
 #[cfg(test)]
@@ -186,6 +199,7 @@ pub mod tests {
     fn test_initiator_protocol() {
         crate::keepalive::spec::<Initiator>().check(State::Idle, |msg| match msg {
             Message::KeepAlive(cookie) => Some(InitiatorAction::SendKeepAlive(*cookie)),
+            Message::Done => Some(InitiatorAction::Done),
             _ => None,
         });
     }

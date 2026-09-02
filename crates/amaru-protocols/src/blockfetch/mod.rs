@@ -45,8 +45,12 @@ where
     let start_batch = || StartBatch.into();
     let block = || Block { body: vec![1] }.into();
 
-    spec.init(Idle, client_done(), Done);
     spec.init(Idle, request_range(), Busy);
+    if R::ROLE == Some(crate::protocol::Role::Initiator) {
+        spec.init(Idle, client_done(), Done);
+    } else {
+        spec.init(Idle, client_done(), Idle);
+    }
     spec.resp(Busy, no_blocks(), Idle);
     spec.resp(Busy, start_batch(), Streaming);
     spec.resp(Streaming, block(), Streaming);

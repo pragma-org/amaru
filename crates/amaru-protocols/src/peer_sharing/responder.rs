@@ -183,7 +183,7 @@ impl ProtocolState<Responder> for State {
             (Idle, Message::ShareRequest { amount }) => {
                 (outcome().result(ResponderResult::ShareRequest { amount }), Busy)
             }
-            (Idle, Message::Done) => (outcome().result(ResponderResult::Done), Done),
+            (Idle, Message::Done) => (outcome().want_next(), Idle),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

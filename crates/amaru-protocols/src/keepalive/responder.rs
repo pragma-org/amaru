@@ -99,6 +99,7 @@ impl ProtocolState<Responder> for State {
 
         Ok(match (self, input) {
             (Idle, Message::KeepAlive(cookie)) => (outcome().result(ResponderResult { cookie }), Waiting),
+            (Idle, Message::Done) => (outcome().want_next(), Idle),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

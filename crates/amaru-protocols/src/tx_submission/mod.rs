@@ -32,7 +32,7 @@ use std::sync::Arc;
 use amaru_kernel::{EraHistory, Peer};
 use amaru_ouroboros::{MempoolMsg, TxOrigin};
 use amaru_pure_stage::{Effects, StageRef};
-pub use initiator::initiator;
+pub use initiator::{InitiatorLocalIn, initiator};
 pub use responder::{ResponderLocalIn, ResponderResult, TxSubmissionMsg, responder};
 #[cfg(test)]
 pub use tests::*;
@@ -64,7 +64,11 @@ where
     spec.init(TxIdsBlocking, reply_tx_ids(), Idle);
     spec.init(TxIdsNonBlocking, reply_tx_ids(), Idle);
     spec.init(Txs, reply_txs(), Idle);
-    spec.init(TxIdsBlocking, Message::Done, State::Done);
+    if R::ROLE == Some(crate::protocol::Role::Initiator) {
+        spec.init(TxIdsBlocking, Message::Done, State::Done);
+    } else {
+        spec.init(TxIdsBlocking, Message::Done, State::Init);
+    }
     spec.resp(Idle, request_tx_ids_blocking(), TxIdsBlocking);
     spec.resp(Idle, request_tx_ids_non_blocking(), TxIdsNonBlocking);
     spec.resp(Idle, request_txs(), Txs);
@@ -82,21 +86,24 @@ pub async fn register_tx_submission(
     params: ResponderParams,
     era_history: Arc<EraHistory>,
     tombstone: ConnectionMessage,
-) -> StageRef<mux::HandlerMessage> {
-    let tx_submission = if role == Role::Initiator {
+) -> Option<StageRef<initiator::InitiatorLocalIn>> {
+    let (handler, close) = if role == Role::Initiator {
         let (state, stage) =
             initiator::TxSubmissionInitiator::new(peer, muxer.clone(), mempool_stage.clone(), era_history);
         let tx_submission = eff.stage("tx_submission", initiator::initiator()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
-        tx_submission.contramap(Inputs::<initiator::InitiatorLocalIn>::Network)
+        (
+            tx_submission.contramap(Inputs::<initiator::InitiatorLocalIn>::Network),
+            Some(tx_submission.contramap(Inputs::<initiator::InitiatorLocalIn>::Local)),
+        )
     } else {
         let (state, stage) =
             responder::TxSubmissionResponder::new(peer, muxer.clone(), params, origin, mempool_stage, era_history);
         let tx_submission = eff.stage("tx_submission", responder::responder()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
-        tx_submission.contramap(Inputs::<ResponderLocalIn>::Network)
+        (tx_submission.contramap(Inputs::<ResponderLocalIn>::Network), None)
     };
 
     eff.send(
@@ -104,13 +111,13 @@ pub async fn register_tx_submission(
         mux::MuxMessage::Register {
             protocol: PROTO_N2N_TX_SUB.for_role(role).erase(),
             frame: mux::Frame::OneCborItem,
-            handler: tx_submission.clone(),
+            handler,
             max_buffer: 2_500_000,
         },
     )
     .await;
 
-    tx_submission
+    close
 }
 
 /// The state of the tx submission protocol as a whole.

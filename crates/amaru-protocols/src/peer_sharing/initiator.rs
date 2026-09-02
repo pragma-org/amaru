@@ -58,6 +58,8 @@ pub enum PeerSharingMessage {
     Start { amount: u8, initial_delay: Duration, interval: Duration, reply_to: StageRef<ShareResult> },
     /// Internal timer: send the next share request if idle.
     Tick,
+    /// Clean shutdown: `MsgDone` when Idle, otherwise wait for the in-flight reply.
+    Close,
 }
 
 /// Reply delivered to the requester after `MsgSharePeers`.
@@ -147,6 +149,14 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                     State::Done => Ok((None, self)),
                 }
             }
+            PeerSharingMessage::Close => match proto {
+                State::Idle if !self.in_flight => Ok((Some(InitiatorAction::Done), self)),
+                State::Busy | State::Idle => {
+                    self.reply_to = None;
+                    Ok((None, self))
+                }
+                State::Done => Ok((None, self)),
+            },
         }
     }
 
@@ -167,6 +177,10 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                     if !self.in_flight {
                         warn!(protocols::peer_sharing::initiator::PROTOCOL_VIOLATION, reason = "no_request_in_flight");
                         return eff.terminate().await;
+                    }
+                    if self.reply_to.is_none() {
+                        self.in_flight = false;
+                        return Ok((Some(InitiatorAction::Done), self));
                     }
                     if peers.len() > self.amount as usize {
                         warn!(
@@ -228,7 +242,7 @@ impl ProtocolState<Initiator> for State {
             (Idle, InitiatorAction::ShareRequest { amount }) => {
                 (outcome().send(Message::ShareRequest { amount }).want_next(), Busy)
             }
-            (Idle, InitiatorAction::Done) => (outcome().send(Message::Done), Done),
+            (Idle, InitiatorAction::Done) => (outcome().send(Message::Done).finish(), Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

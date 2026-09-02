@@ -240,9 +240,7 @@ impl ProtocolState<Responder> for State {
             (Self::Idle, Message::RequestRange(messages::RequestRange { from, through })) => {
                 Ok((outcome().result(ResponderResult::RequestRange { from, through }), Self::Busy))
             }
-            (Self::Idle, Message::ClientDone(_)) => {
-                Ok((outcome().want_next().result(ResponderResult::Done), Self::Done))
-            }
+            (Self::Idle, Message::ClientDone(_)) => Ok((outcome().want_next(), Self::Done)),
             (state, msg) => anyhow::bail!("unexpected message in state {:?}: {:?}", state, msg),
         }
     }

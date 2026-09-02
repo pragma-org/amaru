@@ -95,13 +95,14 @@ pub struct BlockFetchInitiator {
     /// Note that the first two elements of the queue have already been sent
     /// to the network (pipelining).
     queue: VecDeque<(Point, Point, u64, StageRef<Blocks>, usize)>,
+    pending_close: bool,
 }
 
 impl BlockFetchInitiator {
     /// Create a new BlockFetchInitiator instance for a given peer, using a given connection.
     /// Returns the initial state and the initiator instance.
     pub fn new(muxer: StageRef<MuxMessage>, peer: Peer, conn_id: ConnectionId) -> (State, Self) {
-        (State::Idle, Self { muxer, peer, conn_id, queue: VecDeque::new() })
+        (State::Idle, Self { muxer, peer, conn_id, queue: VecDeque::new(), pending_close: false })
     }
 }
 
@@ -128,8 +129,12 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 Ok((action, self))
             }
             BlockFetchMessage::Close => {
-                amaru_observability::tracing::debug!(peer = %self.peer, "ignoring BlockFetch Close (no reset-after-StDone)");
-                Ok((None, self))
+                if *proto == State::Idle {
+                    Ok((Some(InitiatorAction::ClientDone), self))
+                } else {
+                    self.pending_close = true;
+                    Ok((None, self))
+                }
             }
         }
     }
@@ -187,6 +192,9 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                     self.queue.front()
                 }
             };
+            if self.pending_close {
+                return Ok((Some(InitiatorAction::ClientDone), self));
+            }
             let action = queued.map(|(from, through, _, _, _)| InitiatorAction::RequestRange {
                 from: from.to_network_point(),
                 through: through.to_network_point(),
@@ -235,7 +243,7 @@ impl ProtocolState<Initiator> for State {
             (Self::Idle, RequestRange { from, through }) => {
                 Ok((outcome().send(messages::RequestRange { from, through }.into()).want_next(), Self::Busy))
             }
-            (Self::Idle, ClientDone) => Ok((outcome().send(messages::ClientDone.into()), Self::Done)),
+            (Self::Idle, ClientDone) => Ok((outcome().send(messages::ClientDone.into()).finish(), Self::Done)),
             (state, action) => {
                 anyhow::bail!("unexpected action in state {:?}: {:?}", state, action)
             }
