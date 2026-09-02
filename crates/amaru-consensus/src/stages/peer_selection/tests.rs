@@ -17,7 +17,7 @@
 
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
-use amaru_protocols::manager::ManagerMessage;
+use amaru_protocols::{connection::LocalUse, manager::ManagerMessage};
 use amaru_pure_stage::{
     simulation::Run,
     trace_match::{assert_trace_contains, assert_trace_does_not_contain, tm_send_match},
@@ -571,6 +571,15 @@ fn test_connected_outbound() {
             te_input("ps-1", &msg),
             te_clock_suspend("ps-1"),
             te_record_advertisability("ps-1", p, false, sim_t0()),
+            te_send(
+                "ps-1",
+                "manager",
+                ManagerMessage::SetLocalUse {
+                    peer: p,
+                    conn_id: ConnectionId::initial(),
+                    local_use: LocalUse::Diffusion,
+                },
+            ),
             te_state("ps-1", &after),
         ],
     );

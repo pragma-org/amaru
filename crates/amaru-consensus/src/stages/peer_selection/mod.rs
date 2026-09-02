@@ -23,6 +23,7 @@ use amaru_kernel::{BlockHeight, Peer, PeerCandidate};
 use amaru_observability::{Instrument, TraceContext, debug, debug_span, info, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::{
+    connection::LocalUse,
     manager::ManagerMessage,
     peer_sharing::{SharePeersReply, ShareResult},
 };
@@ -38,9 +39,9 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// Backoff after a failed Host/SRV lookup before that candidate may be picked again.
 const RESOLUTION_RETRY_DELAY: Duration = Duration::from_secs(30);
 /// Delay after outbound connect before the first peer-sharing request.
-pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_millis(100);
+pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_secs(300);
 /// Interval between subsequent peer-sharing requests on a live outbound connection.
-pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(60 * 60);
+pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(900);
 /// How many peers to request per share call (network-spec amount is `Word8`).
 pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 
@@ -140,6 +141,7 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 ///     connection for the same peer, sending `Disconnect` for the old one).
 ///   - `Outbound`: Inserts/updates as `PeerState::Connected(conn)`. If replacing
 ///     a prior `Connected` state, warns and sends `Disconnect` for the old conn.
+///     Sends `SetLocalUse(Diffusion)` so fetch/share follow actual local use.
 ///     When `advertisable`, starts peer-sharing on that connection
 ///     (`ManagerMessage::RequestSharePeers` with [`SHARE_REQUEST_INITIAL_DELAY`] /
 ///     [`SHARE_REQUEST_INTERVAL`]); the initiator owns the request cadence.
@@ -708,6 +710,11 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             if let Some(old_id) = disconnect_old {
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, old_id)).await;
             }
+            eff.send(
+                &state.manager,
+                ManagerMessage::SetLocalUse { peer, conn_id: connection.id, local_use: LocalUse::Diffusion },
+            )
+            .await;
             // Only ask peers that advertised peer-sharing willingness (they run the server).
             // Cadence lives on the peer-sharing initiator until the connection ends.
             if advertisable {

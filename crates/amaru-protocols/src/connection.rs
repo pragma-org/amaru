@@ -527,6 +527,7 @@ async fn do_handshake(
         );
     }
 
+    eff.send(manager, ManagerMessage::LocalUseApplied { peer, conn_id: *conn_id, local_use }).await;
     State::Established(established)
 }
 
@@ -538,13 +539,16 @@ async fn converge_use(mut s: Established, params: &Params, eff: &Effects<Connect
         begin_stop(s, params, eff).await
     } else if s.desired_use > s.actual_use && params.role == Role::Initiator {
         start_initiators(s, params, eff).await
-    } else {
+    } else if s.desired_use != s.actual_use {
         s.actual_use = s.desired_use;
+        notify_local_use(&s, params, eff).await;
+        s
+    } else {
         s
     }
 }
 
-async fn begin_stop(mut s: Established, _params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
+async fn begin_stop(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
     let drop_diffusion = s.actual_use == LocalUse::Diffusion && s.desired_use <= LocalUse::Maintenance;
     let drop_maintenance = s.desired_use == LocalUse::None;
 
@@ -575,6 +579,7 @@ async fn begin_stop(mut s: Established, _params: &Params, eff: &Effects<Connecti
 
     if s.stopping.is_empty() {
         s.actual_use = s.desired_use;
+        notify_local_use(&s, params, eff).await;
         return s;
     }
 
@@ -621,6 +626,7 @@ async fn on_expected_stop(
     if s.stopping.is_empty() {
         eff.clear_timeout_at(STOP_TIMEOUT_SLOT).await;
         s.actual_use = s.desired_use;
+        notify_local_use(&s, params, eff).await;
         if params.role == Role::Initiator && s.desired_use > LocalUse::None {
             return start_initiators(s, params, eff).await;
         }
@@ -706,7 +712,16 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
         }
     }
     s.actual_use = s.desired_use;
+    notify_local_use(&s, params, eff).await;
     s
+}
+
+async fn notify_local_use(s: &Established, params: &Params, eff: &Effects<ConnectionMessage>) {
+    eff.send(
+        &params.manager,
+        ManagerMessage::LocalUseApplied { peer: params.peer, conn_id: params.conn_id, local_use: s.actual_use },
+    )
+    .await;
 }
 
 pub fn register_deserializers() -> DeserializerGuards {

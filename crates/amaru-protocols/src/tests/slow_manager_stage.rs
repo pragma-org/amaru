@@ -43,6 +43,7 @@ pub async fn slow_manager_stage(manager: Manager, msg: ManagerMessage, eff: Effe
         ManagerMessage::ShareRequest { .. } => {}
         ManagerMessage::ConnectionResult(..) => {}
         ManagerMessage::SetLocalUse { .. } => {}
+        ManagerMessage::LocalUseApplied { .. } => {}
     }
     manager::stage(manager, msg, eff).await
 }

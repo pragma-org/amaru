@@ -199,7 +199,7 @@ pub mod tests {
         crate::keepalive::spec::<Initiator>().check(State::Idle, |msg| match msg {
             Message::KeepAlive(cookie) => Some(InitiatorAction::SendKeepAlive(*cookie)),
             Message::Done => Some(InitiatorAction::Done),
-            _ => None,
+            Message::ResponseKeepAlive(_) => None,
         });
     }
 }
