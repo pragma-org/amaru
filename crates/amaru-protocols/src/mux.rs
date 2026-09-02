@@ -118,7 +118,7 @@ pub enum HandlerMessage {
 }
 
 /// Mux citizen after an initiator has sent `MsgDone`. Any further frame is a protocol error.
-pub async fn done_trap(_: (), msg: HandlerMessage, eff: Effects<HandlerMessage>) -> () {
+async fn done_trap(_: (), msg: HandlerMessage, eff: Effects<HandlerMessage>) -> () {
     match msg {
         HandlerMessage::Registered(_) => {}
         HandlerMessage::FromNetwork(_) => return eff.terminate().await,

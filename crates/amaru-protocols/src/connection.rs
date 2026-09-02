@@ -674,7 +674,6 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
                 register_blockfetch_initiator_pipelined(
                     &s.muxer,
                     *peer,
-                    *conn_id,
                     n,
                     eff,
                     ConnectionMessage::ChildDied(ChildId::BlockFetch),
