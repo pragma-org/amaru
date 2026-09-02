@@ -101,7 +101,7 @@ impl LocalUse {
         }
     }
 
-    pub fn as_str(self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
             Self::Maintenance => "maintenance",

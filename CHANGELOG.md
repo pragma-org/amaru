@@ -56,7 +56,6 @@ Other guiding principles:
 ### Changed
 
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
-- **amaru-protocols**: connection stage is one Established session with `LocalUse` (None / Maintenance / Diffusion). The manager no longer redials on drop; peer selection refills outbound slots. `SetLocalUse` is recorded (group stop/start lands next).
 - **amaru-protocols**: group stop bounds live on `ManagerConfig` (`diffusion_stop_timeout` 300s, `maintenance_stop_timeout` 120s). Connection message spans include `local_use`, `duplex`, and `stopping`.
 - **amaru-protocols**: outbound handshake offers duplex (`initiator_only = false`). Agreed duplex registers eager responders on the same bearer; inbound `SetLocalUse(Diffusion)` starts our initiators there.
 - **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of a second dial; Using inbound counts toward the upstream target.
