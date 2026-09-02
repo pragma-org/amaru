@@ -744,7 +744,7 @@ fn test_disconnected_outbound_connecting_is_noop() {
     let state = prep.state.clone();
     let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    // Outbound disconnect only applies to a matching Connected session.
+    // Outbound disconnect only applies to a matching Connected session; Connecting is a no-op.
     assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
     assert_trace_does_not_contain(
         &running,

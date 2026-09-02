@@ -248,7 +248,7 @@ impl ProtocolState<Responder> for ResponderState {
             (Idle { send_rollback }, Message::RequestNext(1)) => {
                 (outcome().result(ResponderResult::RequestNext), CanAwait { send_rollback: *send_rollback })
             }
-            (Idle { .. }, Message::Done) => (outcome().result(ResponderResult::Done), Done),
+            (Idle { .. }, Message::Done) => (outcome().want_next(), Idle { send_rollback: false }),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -287,7 +287,7 @@ impl ProtocolState<Responder> for ResponderState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{chainsync::initiator::InitiatorState, protocol::ProtoSpec};
+    use crate::protocol::ProtoSpec;
 
     #[expect(clippy::wildcard_enum_match_arm)]
     #[test]
@@ -295,7 +295,7 @@ mod tests {
         use Message::{
             AwaitReply, FindIntersect, IntersectFound, IntersectNotFound, RequestNext, RollBackward, RollForward,
         };
-        use ResponderState::{CanAwait, Done, Idle, Intersect, MustReply};
+        use ResponderState::{CanAwait, Idle, Intersect, MustReply};
 
         // canonical states and messages
         let idle = |send_rollback: bool| Idle { send_rollback };
@@ -311,8 +311,8 @@ mod tests {
         spec.init(idle(true), find_intersect(), Intersect);
         spec.init(idle(false), RequestNext(1), can_await(false));
         spec.init(idle(true), RequestNext(1), can_await(true));
-        spec.init(idle(false), Message::Done, Done);
-        spec.init(idle(true), Message::Done, Done);
+        spec.init(idle(false), Message::Done, idle(false));
+        spec.init(idle(true), Message::Done, idle(false));
         spec.resp(Intersect, intersect_found(), idle(true));
         spec.resp(Intersect, intersect_not_found(), idle(false));
         spec.resp(can_await(false), AwaitReply, MustReply);
@@ -337,12 +337,7 @@ mod tests {
             _ => None,
         });
 
-        spec.assert_refines(&super::super::initiator::tests::spec(), |state| match state {
-            Idle { .. } => InitiatorState::Idle,
-            CanAwait { .. } => InitiatorState::CanAwait(0),
-            MustReply => InitiatorState::MustReply(0),
-            Intersect => InitiatorState::Intersect,
-            Done => InitiatorState::Done,
-        });
+        // MsgDone restarts this responder in Idle. That does not refine the initiator
+        // graph, where Done is terminal.
     }
 }

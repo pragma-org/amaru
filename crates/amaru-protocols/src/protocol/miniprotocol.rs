@@ -91,32 +91,74 @@ pub struct Outcome<S, R, E> {
     pub result: Option<R>,
     pub terminate_with: Option<E>,
     pub want_next: bool,
+    /// After sending, terminate this handler (clean `MsgDone`, not a protocol error).
+    pub finished: bool,
 }
 
 impl<S, R, E> Outcome<S, R, E> {
     pub fn send(self, send: S) -> Self {
-        Self { send: Some(send), result: self.result, terminate_with: self.terminate_with, want_next: self.want_next }
+        Self {
+            send: Some(send),
+            result: self.result,
+            terminate_with: self.terminate_with,
+            want_next: self.want_next,
+            finished: self.finished,
+        }
     }
 
     pub fn result(self, done: R) -> Self {
-        Self { send: self.send, result: Some(done), terminate_with: self.terminate_with, want_next: self.want_next }
+        Self {
+            send: self.send,
+            result: Some(done),
+            terminate_with: self.terminate_with,
+            want_next: self.want_next,
+            finished: self.finished,
+        }
     }
 
     pub fn want_next(self) -> Self {
-        Self { send: self.send, result: self.result, terminate_with: self.terminate_with, want_next: true }
+        Self {
+            send: self.send,
+            result: self.result,
+            terminate_with: self.terminate_with,
+            want_next: true,
+            finished: self.finished,
+        }
     }
 
     pub fn terminate_with(self, e: E) -> Self {
-        Self { send: self.send, result: self.result, terminate_with: Some(e), want_next: self.want_next }
+        Self {
+            send: self.send,
+            result: self.result,
+            terminate_with: Some(e),
+            want_next: self.want_next,
+            finished: self.finished,
+        }
+    }
+
+    pub fn finish(self) -> Self {
+        Self {
+            send: self.send,
+            result: self.result,
+            terminate_with: self.terminate_with,
+            want_next: self.want_next,
+            finished: true,
+        }
     }
 
     pub fn without_result(self) -> Outcome<S, Void, E> {
-        Outcome { send: self.send, result: None, terminate_with: self.terminate_with, want_next: self.want_next }
+        Outcome {
+            send: self.send,
+            result: None,
+            terminate_with: self.terminate_with,
+            want_next: self.want_next,
+            finished: self.finished,
+        }
     }
 }
 
 pub fn outcome<S, R, E>() -> Outcome<S, R, E> {
-    Outcome { send: None, result: None, terminate_with: None, want_next: false }
+    Outcome { send: None, result: None, terminate_with: None, want_next: false, finished: false }
 }
 
 /// This tracks only the network protocol state, reacting to local decisions
@@ -253,6 +295,9 @@ where
                         MuxMessage::Send(proto_id.erase(), msg, cr)
                     })
                     .await;
+                }
+                if outcome.finished {
+                    return eff.terminate().await;
                 }
             }
 

@@ -21,6 +21,7 @@ mod tests;
 use amaru_kernel::Peer;
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, StageRef, Void};
+pub use initiator::InitiatorMessage;
 pub use messages::{Cookie, Message};
 
 use crate::{
@@ -37,6 +38,7 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
 pub enum State {
     Idle,
     Waiting,
+    Done,
 }
 
 pub fn spec<R: crate::protocol::RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
@@ -47,8 +49,15 @@ where
     let keep_alive = || Message::KeepAlive(Cookie::new());
     let response_keep_alive = || Message::ResponseKeepAlive(Cookie::new());
 
+    let done = || Message::Done;
+
     // Initiator sends KeepAlive from Idle, transitions to Waiting
     spec.init(State::Idle, keep_alive(), State::Waiting);
+    if R::ROLE == Some(crate::protocol::Role::Initiator) {
+        spec.init(State::Idle, done(), State::Done);
+    } else {
+        spec.init(State::Idle, done(), State::Idle);
+    }
     // Initiator receives ResponseKeepAlive in Waiting, transitions to Idle
     spec.resp(State::Waiting, response_keep_alive(), State::Idle);
 
@@ -62,19 +71,22 @@ pub async fn register_keepalive(
     muxer: StageRef<crate::mux::MuxMessage>,
     eff: &Effects<ConnectionMessage>,
     tombstone: ConnectionMessage,
-) -> StageRef<crate::mux::HandlerMessage> {
-    let keepalive = if role == crate::protocol::Role::Initiator {
+) -> Option<StageRef<initiator::InitiatorMessage>> {
+    let (handler, close) = if role == crate::protocol::Role::Initiator {
         let (state, stage) = initiator::KeepAliveInitiator::new(peer, conn_id, muxer.clone());
         let keepalive = eff.stage("keepalive", initiator::initiator()).await;
         let keepalive = eff.supervise(keepalive, tombstone);
         let keepalive = eff.wire_up(keepalive, (state, stage)).await;
-        keepalive.contramap(Inputs::<initiator::InitiatorMessage>::Network)
+        (
+            keepalive.contramap(Inputs::<initiator::InitiatorMessage>::Network),
+            Some(keepalive.contramap(Inputs::<initiator::InitiatorMessage>::Local)),
+        )
     } else {
         let (state, stage) = responder::KeepAliveResponder::new(muxer.clone());
         let keepalive = eff.stage("keepalive", responder::responder()).await;
         let keepalive = eff.supervise(keepalive, tombstone);
         let keepalive = eff.wire_up(keepalive, (state, stage)).await;
-        keepalive.contramap(Inputs::<Void>::Network)
+        (keepalive.contramap(Inputs::<Void>::Network), None)
     };
 
     eff.send(
@@ -82,11 +94,11 @@ pub async fn register_keepalive(
         crate::mux::MuxMessage::Register {
             protocol: PROTO_N2N_KEEP_ALIVE.for_role(role).erase(),
             frame: mux::Frame::OneCborItem,
-            handler: keepalive.clone(),
+            handler,
             max_buffer: 65535,
         },
     )
     .await;
 
-    keepalive
+    close
 }

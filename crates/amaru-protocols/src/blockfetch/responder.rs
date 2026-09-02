@@ -50,7 +50,7 @@ on_receive!(Idle as ServerIdleIn {
         Call<ToInitiator, StartBatch>, Repeat<Call<ToInitiator, Block>>, Call<ToInitiator, BatchDone>, Send<ToMux, WantNext> => Idle
         | Call<ToInitiator, NoBlocks>, Send<ToMux, WantNext> => Idle
     }
-    ClientDone => { Done }
+    ClientDone => { Send<ToMux, WantNext> => Idle }
 });
 
 /// Range of points to fetch, newest first, at least one point.
@@ -235,7 +235,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                     Err(err) => return invalid(peer, idle.name(), err, eff).await,
                 }
             }
-            Ok(ServerIdleIn::ClientDone(done)) => idle.receive(done, eff).finish().into(),
+            Ok(ServerIdleIn::ClientDone(done)) => idle.receive(done, eff).send(&mux, WantNext).await.finish().into(),
             Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
             Err(mail) => return invalid(peer, idle.name(), mail, eff).await,
         },
@@ -344,7 +344,7 @@ pub mod tests {
                 send_desc::<ToMux, WantNext>()
             )
         );
-        assert_eq!(remaining::<Idle, ClientDone>(), "=> Done");
+        assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Idle", send_desc::<ToMux, WantNext>()));
     }
 
     #[test]
@@ -615,7 +615,7 @@ pub mod tests {
     }
 
     #[test]
-    fn close_idle_goes_done() {
+    fn close_idle_resets() {
         let mut network = SimulationBuilder::default();
         let mux = network.stage("mux", mux_step);
         let mux_ref = mux.sender();
@@ -627,8 +627,8 @@ pub mod tests {
         running.run(Run::skip_wakeups()).assert_idle();
         let log = running.get_state(&mux).cloned().unwrap();
         assert!(log.sends.is_empty());
-        assert_eq!(log.wants, 1);
-        assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Done(_)));
+        assert_eq!(log.wants, 2);
+        assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
     }
 
     #[test]
