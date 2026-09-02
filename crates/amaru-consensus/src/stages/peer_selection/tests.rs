@@ -683,7 +683,7 @@ fn test_disconnected_inbound() {
     let state = prep.state.clone();
     let mut state_with_peer = state.clone();
     state_with_peer.inbound_peers.insert(p, conn());
-    let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Inbound, false);
+    let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Inbound);
     let after = {
         let mut s = state_with_peer.clone();
         s.inbound_peers.remove(&p);
@@ -709,7 +709,7 @@ fn test_disconnected_outbound_connecting_schedules_cooldown() {
     let state = prep.state.clone();
     let mut state_conn = state.clone();
     state_conn.outbound_peers.insert(p, PeerState::Connecting);
-    let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound, true);
+    let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound);
     let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
     // will_retry == true: no cool-down, no regulation; still clear availability claims.
     assert_trace(
@@ -747,7 +747,7 @@ fn test_outbound_retry_drops_dead_conn_before_reconnect() {
         s
     };
 
-    let died = PeerSelectionMsg::Disconnected(p, id0, ConnectionDirection::Outbound, true);
+    let died = PeerSelectionMsg::Disconnected(p, id0, ConnectionDirection::Outbound);
     let connected = PeerSelectionMsg::Connected(p, conn1, ConnectionDirection::Outbound, false);
     let (running, _guards, mut logs) = setup_preload(&prep, [died.clone(), connected.clone()]);
 
@@ -980,7 +980,7 @@ fn test_disconnected_outbound_connected_normal() {
     };
 
     let (running, _guards, mut logs) =
-        setup(&prep, PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound, false));
+        setup(&prep, PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound));
 
     // te_input + final state (normal outbound Connected disconnect removes the peer, no short ban)
     assert_trace_contains(
@@ -988,7 +988,7 @@ fn test_disconnected_outbound_connected_normal() {
         &[
             te_input(
                 "ps-1",
-                &PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound, false),
+                &PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound),
             )
             .into(),
             tm_state(
@@ -1086,7 +1086,7 @@ fn test_disconnected_outbound_peer_also_in_inbound() {
     prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
 
     let (running, _guards, mut logs) =
-        setup(&prep, PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound, false));
+        setup(&prep, PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound));
 
     // te_input + final state (no RemovePeer expected for the inbound side)
     assert_trace_contains(
@@ -1094,7 +1094,7 @@ fn test_disconnected_outbound_peer_also_in_inbound() {
         &[
             te_input(
                 "ps-1",
-                &PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound, false),
+                &PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound),
             )
             .into(),
             tm_state(

@@ -52,9 +52,8 @@ pub enum PeerSelectionNotify {
     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
     /// or network error).
     ///
-    /// If the connection was outbound then it may be retried, leading to either
-    /// `ConnectFailed` or `Connected`.
-    Disconnected { peer: Peer, conn_id: ConnectionId, direction: ConnectionDirection, will_retry: bool },
+    /// The connection is gone. peer-selection owns redial via `Dial` message.
+    Disconnected { peer: Peer, conn_id: ConnectionId, direction: ConnectionDirection },
 
     /// An outbound connection attempt has failed (e.g. connection timeout, handshake refusal, network error)
     /// for a number of tries, see [`ManagerConfig::connect_retries`].
@@ -68,7 +67,7 @@ pub enum PeerSelectionNotify {
 pub enum ManagerMessage {
     /// Start outgoing connection attempts to the given peer until successful or retries exhausted.
     ///
-    /// If the connection succeeds then future disconnection will first lead to retries before giving up.
+    /// After a successful session dies, peer selection issues a new `Dial`; the manager does not redial.
     AddPeer(Peer),
     /// Remove a peer and terminate all of its connections.
     RemovePeer(Peer),
@@ -527,12 +526,7 @@ impl Manager {
             let connection = self.connections.remove(&conn_id).expect("PeerState implies Connection");
             eff.send(
                 &self.peer_selection,
-                PeerSelectionNotify::Disconnected {
-                    peer,
-                    conn_id,
-                    direction: ConnectionDirection::Inbound,
-                    will_retry: false,
-                },
+                PeerSelectionNotify::Disconnected { peer, conn_id, direction: ConnectionDirection::Inbound },
             )
             .await;
             eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
@@ -542,12 +536,7 @@ impl Manager {
             let connection = self.connections.remove(&conn_id).expect("PeerState implies Connection");
             eff.send(
                 &self.peer_selection,
-                PeerSelectionNotify::Disconnected {
-                    peer,
-                    conn_id,
-                    direction: ConnectionDirection::Outbound,
-                    will_retry: false,
-                },
+                PeerSelectionNotify::Disconnected { peer, conn_id, direction: ConnectionDirection::Outbound },
             )
             .await;
             eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
@@ -577,19 +566,16 @@ impl Manager {
                 ConnectionDirection::Outbound => {
                     assert_eq!(peer_state.outbound, OutboundState::Connected { conn_id });
                     assert_eq!(role, Role::Initiator);
-                    info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "peer_selection_redial");
                     if peer_state.inbound.is_none() {
+                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "peer_removed");
                         self.peers.remove(&peer);
                     } else {
+                        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome = "kept_for_inbound");
                         peer_state.outbound = OutboundState::None;
                     }
                 }
             }
-            eff.send(
-                &self.peer_selection,
-                PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry: false },
-            )
-            .await;
+            eff.send(&self.peer_selection, PeerSelectionNotify::Disconnected { peer, conn_id, direction }).await;
         } else {
             // pre-handshake death (no entry was inserted to connections, and no Connected notify was sent)
             debug!(
@@ -763,8 +749,14 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;
             }
-            ManagerMessage::SetLocalUse { peer: _, conn_id, local_use } => {
+            ManagerMessage::SetLocalUse { peer, conn_id, local_use } => {
                 if let Some(connection) = manager.connections.get(&conn_id) {
+                    info!(
+                        protocols::manager::peer::SET_LOCAL_USE,
+                        peer,
+                        conn_id = conn_id.as_u64(),
+                        local_use = format!("{local_use:?}")
+                    );
                     eff.send(&connection.stage, ConnectionMessage::SetLocalUse(local_use)).await;
                 }
             }

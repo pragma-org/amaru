@@ -307,7 +307,7 @@ pub enum PeerSelectionMsg {
     /// `advertisable` is the remote handshake peer-sharing willingness (latest wins in Performance).
     Connected(Peer, Connection, ConnectionDirection, bool),
     /// A peer has disconnected and the peer_selection stage can stop tracking it.
-    Disconnected(Peer, ConnectionId, ConnectionDirection, bool),
+    Disconnected(Peer, ConnectionId, ConnectionDirection),
     /// A (re)connection attempt has failed, the Manager has removed this peer.
     ConnectFailed(Peer),
     /// Ask the stage to refill outbound slots (no payload).
@@ -714,7 +714,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 state.start_peer_sharing(peer, &eff).await;
             }
         }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound, _) => {
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound) => {
             {
                 let _span = debug_span!(
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
@@ -731,23 +731,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
             state.clear_availability_if_gone(&peer, &eff).await;
         }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, true) => {
-            if let Entry::Occupied(mut entry) = state.outbound_peers.entry(peer)
-                && let PeerState::Connected(conn) = entry.get()
-                && conn.id == conn_id
-            {
-                let _span = debug_span!(
-                    amaru::protocols::peer_selection::peer::DISCONNECTED,
-                    peer,
-                    conn_id = conn_id.as_u64(),
-                    direction = ConnectionDirection::Outbound,
-                )
-                .entered();
-                entry.insert(PeerState::Connecting);
-            }
-            state.clear_availability_if_gone(&peer, &eff).await;
-        }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, _) => {
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound) => {
             if let Entry::Occupied(entry) = state.outbound_peers.entry(peer)
                 && let PeerState::Connected(conn) = entry.get()
                 && conn.id == conn_id

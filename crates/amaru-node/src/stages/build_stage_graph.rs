@@ -82,8 +82,8 @@ pub fn build_stage_graph(
                 advertisable,
             )
         }
-        PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry } => {
-            PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
+        PeerSelectionNotify::Disconnected { peer, conn_id, direction } => {
+            PeerSelectionMsg::Disconnected(peer, conn_id, direction)
         }
         PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
         PeerSelectionNotify::ShareRequest { peer, amount, reply_to } => {
