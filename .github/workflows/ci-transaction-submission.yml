@@ -1,0 +1,170 @@
+name: CI Transaction Submission
+
+# This workflow consumes a funded testnet signing key. Keep its triggers limited to
+# trusted revisions; pull request workflows must never pass or reference that key.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preprod-e2e-transaction-submission
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  transaction-submission:
+    name: End-to-end transaction submission
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      AMARU_NETWORK: preprod
+      AMARU_PEER_ADDRESS: 127.0.0.1:3001
+      AMARU_UPSTREAM_PEERS: 1
+      BUILD_PROFILE: test
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+      E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
+      RUST_BACKTRACE: 1
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Configure runner paths
+        shell: bash
+        run: |
+          mkdir -p "$E2E_TX_WORK_DIR" "$RUNNER_TEMP/ipc"
+          runner_identity="$(id -u):$(id -g)"
+          # The single-quoted lines are written verbatim into the wrapper script.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'docker exec cardano-node cardano-cli "$@"' \
+            'status=$?' \
+            "docker exec cardano-node chown -R \"$runner_identity\" \"$E2E_TX_WORK_DIR\"" \
+            'ownership_status=$?' \
+            '((status != 0)) && exit "$status"' \
+            'exit "$ownership_status"' \
+            > "$RUNNER_TEMP/cardano-cli"
+          chmod +x "$RUNNER_TEMP/cardano-cli"
+          {
+            echo "CARDANO_CLI=$RUNNER_TEMP/cardano-cli"
+            echo "CARDANO_NODE_DB=$RUNNER_TEMP/db-preprod"
+            echo "CARDANO_NODE_SOCKET_FILE=$RUNNER_TEMP/ipc/node.socket"
+            echo "TX_PAYMENT_SKEY=$E2E_TX_WORK_DIR/private/payment.skey"
+          } >> "$GITHUB_ENV"
+
+      - name: Reclaim Disk Space
+        run: |
+          chmod +x ./scripts/cleanup-runner.sh
+          ./scripts/cleanup-runner.sh
+
+      - name: Download cardano-node database
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/preprod.tar.zstd"
+        run: |
+          set -euo pipefail
+          mkdir -p "$CARDANO_NODE_DB" "$(dirname "$CARDANO_NODE_SOCKET_FILE")"
+          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "$CARDANO_NODE_DB"
+          touch "$CARDANO_NODE_DB/clean"
+
+      - name: Spawn cardano-node
+        shell: bash
+        env:
+          CONFIG_DIR: cardano-node-config/preprod
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/intersectmbo/cardano-node:11.0.1
+          make download-haskell-config
+          jq '
+            .UseTraceDispatcher = true
+            | .TraceOptionMetricsPrefix = "cardano.node.metrics."
+            | .TraceOptionResourceFrequency = 1000
+            | .TraceOptions = (.TraceOptions // {})
+            | .TraceOptions[""] = ((.TraceOptions[""] // {}) + {
+                "backends": [
+                  "EKGBackend",
+                  "PrometheusSimple suffix 0.0.0.0 12798",
+                  "Stdout HumanFormatUncoloured"
+                ],
+                "detail": "DNormal",
+                "severity": "Notice"
+              })
+            | .TraceOptions.ChainDB = ((.TraceOptions.ChainDB // {}) + {"severity": "Info"})
+            | .TraceOptions.Resources = ((.TraceOptions.Resources // {}) + {"severity": "Silence"})
+          ' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
+          mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
+          jq 'del(.bootstrapPeers) | del(.peerSnapshotFile) | .useLedgerAfterSlot = -1' \
+            "./$CONFIG_DIR/topology.json" > "$CONFIG_DIR/topology.patched.json"
+          mv "$CONFIG_DIR/topology.patched.json" "$CONFIG_DIR/topology.json"
+          jq '.hasPrometheus = ["0.0.0.0", 12798]' \
+            "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
+          mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
+          docker run -d --name cardano-node \
+            -v "$CARDANO_NODE_DB:/db" \
+            -v "$(dirname "$CARDANO_NODE_SOCKET_FILE"):/ipc" \
+            -v "$(dirname "$CARDANO_NODE_SOCKET_FILE"):$(dirname "$CARDANO_NODE_SOCKET_FILE")" \
+            -v "$E2E_TX_WORK_DIR:$E2E_TX_WORK_DIR" \
+            -v "./$CONFIG_DIR:/config" \
+            -v "./$CONFIG_DIR:/genesis" \
+            -p 3001:3001 \
+            -p 127.0.0.1:12798:12798 \
+            ghcr.io/intersectmbo/cardano-node:11.0.1 run \
+              --config /config/config.json \
+              --database-path /db \
+              --socket-path /ipc/node.socket \
+              --topology /config/topology.json
+
+      - uses: ./.github/actions/stage-peer-snapshots
+
+      - uses: ./.github/actions/cache
+
+      - name: Run transaction submission test
+        timeout-minutes: 30
+        shell: bash
+        env:
+          AMARU_LOG: "info,amaru::consensus=debug"
+          CARDANO_NODE_QUERY_TIMEOUT_SECONDS: 60
+          CARDANO_NODE_SYNC_TIMEOUT_SECONDS: 1200
+          E2E_TX_MANAGE_CARDANO_NODE: "false"
+          E2E_TX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-preprod
+          TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
+          # A fresh Amaru bootstrap can be several epochs behind the cardano-node tip.
+          TX_SYNC_TIMEOUT_SECONDS: 600
+        run: |
+          set -euo pipefail
+          ./scripts/e2e/tx-submission.sh run
+
+      - name: Collect transaction submission logs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$E2E_TX_WORK_DIR/logs"
+          docker logs cardano-node > "$E2E_TX_WORK_DIR/logs/cardano-node-docker.log" 2>&1 || true
+
+      - name: Upload transaction submission artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: transaction-submission-preprod
+          path: |
+            ${{ env.E2E_TX_WORK_DIR }}/logs
+            ${{ env.E2E_TX_WORK_DIR }}/results
+          if-no-files-found: warn
+
+      - name: Teardown cardano-node
+        if: always()
+        shell: bash
+        run: |
+          docker logs --tail 200 cardano-node || true
+          docker rm -f cardano-node || true
