@@ -29,27 +29,11 @@ make_states!(Live { Idle; Done });
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Ping(u32);
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-struct Pong(u32);
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-struct Bye;
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-enum ClientMsg {
-    Pong(Pong),
-    Bye,
-}
-
-impl From<Pong> for ClientMsg {
-    fn from(value: Pong) -> Self {
-        ClientMsg::Pong(value)
-    }
-}
-
-impl From<Bye> for ClientMsg {
-    fn from(_: Bye) -> Self {
-        ClientMsg::Bye
+define_messages! {
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    enum ClientMsg {
+        Pong(u32),
+        Bye,
     }
 }
 
@@ -111,7 +95,7 @@ fn receive_then_choice_of_sends() {
     running.run(Run::skip_wakeups()).assert_idle();
 
     let inbox = running.get_state(&client).cloned().unwrap();
-    assert_eq!(inbox, vec![ClientMsg::Pong(Pong(7)), ClientMsg::Bye]);
+    assert_eq!(inbox, vec![ClientMsg::Pong(Pong(7)), ClientMsg::Bye(Bye)]);
     assert!(matches!(running.get_state(&server).unwrap().live, Live::Done(_)));
 }
 

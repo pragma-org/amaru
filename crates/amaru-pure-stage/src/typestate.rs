@@ -55,7 +55,7 @@ pub mod prelude {
         Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny, Session, SetTimeout, State, Terminate, To, Wait,
         initial_state,
     };
-    pub use crate::{define_mailbox, define_role, define_role_tag, make_states, on_receive, star};
+    pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
 }
 
 #[cfg(test)]

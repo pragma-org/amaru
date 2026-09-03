@@ -22,11 +22,13 @@ use std::{num::NonZeroUsize, time::Duration};
 
 use amaru_kernel::{NetworkPoint, NonEmptyBytes, Peer, RawBlock, cardano::network_block::NetworkBlock, cbor};
 use amaru_pure_stage::{
-    DeserializerGuards, Effects, StageRef, define_role, define_role_tag, err, make_states, on_receive,
+    DeserializerGuards, Effects, StageRef, define_mailbox, define_role, define_role_tag, err, make_states, on_receive,
     typestate::prelude::*,
 };
 
-use super::{Blocks, Message, responder::MAX_FETCHED_BLOCKS};
+use super::{
+    BatchDone, Block, Blocks, ClientDone, Message, NoBlocks, RequestRange, StartBatch, responder::MAX_FETCHED_BLOCKS,
+};
 use crate::{
     mux::{Frame, HandlerMessage, MuxMessage, Sent},
     protocol::{
@@ -38,65 +40,6 @@ make_states!(pub Live { Idle; Busy, Streaming, Done });
 
 define_role_tag!(pub ToResponder);
 define_role_tag!(pub ToCollector);
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct RequestRange {
-    pub from: NetworkPoint,
-    pub through: NetworkPoint,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ClientDone;
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct StartBatch;
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct NoBlocks;
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Block {
-    pub body: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct BatchDone;
-
-impl From<RequestRange> for Message {
-    fn from(value: RequestRange) -> Self {
-        Message::RequestRange { from: value.from, through: value.through }
-    }
-}
-
-impl From<ClientDone> for Message {
-    fn from(_: ClientDone) -> Self {
-        Message::ClientDone
-    }
-}
-
-impl From<StartBatch> for Message {
-    fn from(_: StartBatch) -> Self {
-        Message::StartBatch
-    }
-}
-
-impl From<NoBlocks> for Message {
-    fn from(_: NoBlocks) -> Self {
-        Message::NoBlocks
-    }
-}
-
-impl From<Block> for Message {
-    fn from(value: Block) -> Self {
-        Message::Block { body: value.body }
-    }
-}
-
-impl From<BatchDone> for Message {
-    fn from(_: BatchDone) -> Self {
-        Message::BatchDone
-    }
-}
 
 pub const BLOCKFETCH_PIPELINE_N: NonZeroUsize = match NonZeroUsize::new(2) {
     Some(n) => n,
@@ -115,24 +58,7 @@ pub fn blockfetch_pipeline_max_buffer(n: NonZeroUsize) -> usize {
     n.get().saturating_mul(MAX_FETCHED_BLOCKS).saturating_mul(BLOCKFETCH_MAX_BLOCK_WIRE_BYTES)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-enum WireMail {
-    Range(NetworkPoint, NetworkPoint),
-    Done,
-}
-
-impl From<RequestRange> for WireMail {
-    fn from(value: RequestRange) -> Self {
-        Self::Range(value.from, value.through)
-    }
-}
-
-impl From<ClientDone> for WireMail {
-    fn from(_: ClientDone) -> Self {
-        Self::Done
-    }
-}
-
+define_mailbox!(WireMail { RequestRange(RequestRange), ClientDone(ClientDone) });
 define_role!(WireOut, ToResponder, WireMail);
 define_role!(CollectorOut, ToCollector, Blocks);
 
@@ -237,12 +163,12 @@ impl Instance {
         let session = idle.receive(Close, eff.clone()).send(&dest, ClientDone).await;
         self.live = session.finish().into();
         self.inflight = None;
-        Ok(Step { wire: Some(Message::ClientDone), credit: Some(SwitchCredit::Terminated) })
+        Ok(Step { wire: Some(ClientDone.into()), credit: Some(SwitchCredit::Terminated) })
     }
 
     async fn on_network(&mut self, msg: Message, eff: &Effects<Mail>) -> anyhow::Result<Step> {
         match msg {
-            Message::StartBatch => {
+            Message::StartBatch(_) => {
                 let Some(busy) = take_busy(&mut self.live) else {
                     anyhow::bail!("StartBatch while instance is not Busy");
                 };
@@ -254,7 +180,7 @@ impl Instance {
                     .into();
                 Ok(Step { wire: None, credit: Some(SwitchCredit::Stay) })
             }
-            Message::NoBlocks => {
+            Message::NoBlocks(_) => {
                 let Some(busy) = take_busy(&mut self.live) else {
                     anyhow::bail!("NoBlocks while instance is not Busy");
                 };
@@ -271,7 +197,7 @@ impl Instance {
                 self.live = session.finish().into();
                 Ok(Step { wire: None, credit: Some(SwitchCredit::Entered) })
             }
-            Message::Block { body } => {
+            Message::Block(Block { body }) => {
                 let Some(st) = take_streaming(&mut self.live) else {
                     anyhow::bail!("Block while instance is not Streaming");
                 };
@@ -295,7 +221,7 @@ impl Instance {
                 self.live = session.finish().into();
                 Ok(Step { wire: None, credit: Some(SwitchCredit::Stay) })
             }
-            Message::BatchDone => {
+            Message::BatchDone(_) => {
                 let Some(st) = take_streaming(&mut self.live) else {
                     anyhow::bail!("BatchDone while instance is not Streaming");
                 };
@@ -312,7 +238,7 @@ impl Instance {
                 self.live = session.finish().into();
                 Ok(Step { wire: None, credit: Some(SwitchCredit::Entered) })
             }
-            Message::RequestRange { .. } | Message::ClientDone => {
+            Message::RequestRange(_) | Message::ClientDone(_) => {
                 anyhow::bail!("initiator variant")
             }
         }
@@ -463,7 +389,7 @@ async fn on_from_network(state: &mut Handler, bytes: NonEmptyBytes, eff: &Effect
             return eff.terminate().await;
         }
     };
-    if matches!(msg, Message::RequestRange { .. } | Message::ClientDone) {
+    if matches!(msg, Message::RequestRange(_) | Message::ClientDone(_)) {
         err("initiator variant")(anyhow::anyhow!("initiator variant")).await;
         return eff.terminate().await;
     }
@@ -700,12 +626,12 @@ mod tests {
 
         running.enqueue_msg(
             &handler,
-            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
         );
         running.run(Run::default()).assert_sleeping();
         running.enqueue_msg(
             &handler,
-            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
         );
         running.run(Run::skip_wakeups()).assert_idle();
 
@@ -748,7 +674,7 @@ mod tests {
         assert_eq!(running.get_state(&mux).unwrap().wants, 1);
         running.enqueue_msg(
             &handler,
-            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
         );
         running.run(Run::skip_wakeups()).assert_idle();
         assert_eq!(running.get_state(&mux).unwrap().wants, 1);
@@ -825,12 +751,12 @@ mod tests {
         assert_eq!(running.get_state(&mux).unwrap().sends, vec!["RequestRange", "RequestRange"]);
         running.enqueue_msg(
             &handler,
-            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
         );
         running.run(Run::default()).assert_sleeping();
         running.enqueue_msg(
             &handler,
-            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
         );
         running.run(Run::skip_wakeups()).assert_idle();
         let log = running.get_state(&mux).cloned().unwrap();
@@ -851,7 +777,7 @@ mod tests {
                 &handler,
                 [
                     Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
-                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::StartBatch))),
+                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(StartBatch)))),
                 ],
             )
             .unwrap();
@@ -873,7 +799,7 @@ mod tests {
                 &handler,
                 [
                     Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
-                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::ClientDone))),
+                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(ClientDone)))),
                 ],
             )
             .unwrap();
@@ -946,7 +872,7 @@ mod tests {
         running.run(Run::default()).assert_sleeping();
         running.enqueue_msg(
             &handler,
-            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
         );
         running.run(Run::skip_wakeups()).assert_idle();
         running.enqueue_msg(&handler, [Inputs::Local(BlockFetchMessage::Timeout { slot: 0 })]);

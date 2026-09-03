@@ -344,3 +344,48 @@ mod convert {
         }
     }
 }
+
+#[allow(dead_code)]
+mod messages_macro {
+    use crate::typestate::prelude::*;
+
+    define_messages! {
+        /// Outer docs stay on the enum, not the structs.
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+        pub enum Mail {
+            Ping { n: u8 },
+            #[derive(Copy)]
+            Pong(u16),
+            Bye,
+        }
+    }
+
+    #[test]
+    fn from_wraps_named_tuple_and_unit() {
+        let ping: Mail = Ping { n: 1 }.into();
+        assert_eq!(ping, Mail::Ping(Ping { n: 1 }));
+        let pong: Mail = Pong(2).into();
+        assert_eq!(pong, Mail::Pong(Pong(2)));
+        let bye: Mail = Bye.into();
+        assert_eq!(bye, Mail::Bye(Bye));
+    }
+
+    #[test]
+    fn from_mailbox_round_trips_and_rejects() {
+        let mail: Mail = Ping { n: 7 }.into();
+        assert_eq!(<Ping as FromMailbox<Mail>>::from_mailbox(mail.clone()), Ok(Ping { n: 7 }));
+        assert!(matches!(<Bye as FromMailbox<Mail>>::from_mailbox(mail), Err(Mail::Ping(_))));
+    }
+
+    #[test]
+    fn extra_variant_derive_is_copy() {
+        let p = Pong(3);
+        let q = p;
+        assert_eq!(p, q);
+    }
+
+    #[test]
+    fn extra_enum_derive_is_ord() {
+        assert!(Mail::from(Ping { n: 1 }) < Mail::from(Ping { n: 2 }));
+    }
+}
