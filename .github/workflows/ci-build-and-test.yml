@@ -100,7 +100,6 @@ jobs:
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       CARDANO_NODE_BUCKET_NAME: ${{ secrets.CARDANO_NODE_BUCKET_NAME }}
-      PREPROD_TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
 
   benches:
     name: Bench
