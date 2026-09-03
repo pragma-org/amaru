@@ -38,7 +38,7 @@
 //! ```ignore
 //! use std::path::PathBuf;
 //!
-//! use amaru_bootstrap::{S3Config, bootstrap, default_snapshots_dir};
+//! use amaru_bootstrap::{BootstrapCancellation, S3Config, bootstrap, default_snapshots_dir};
 //! use amaru_kernel::NetworkName;
 //! use amaru_node::{default_chain_dir, default_ledger_dir};
 //!
@@ -48,6 +48,8 @@
 //! let ledger_dir = PathBuf::from(default_ledger_dir(network));
 //! let chain_dir = PathBuf::from(default_chain_dir(network));
 //! let snapshots_dir = PathBuf::from(default_snapshots_dir(network));
+//! let cancellation = BootstrapCancellation::new();
+//! // Clone this handle into your application's shutdown path and call `cancel()` there.
 //!
 //! // Caller must ensure ledger_dir and chain_dir are empty or missing.
 //! bootstrap(
@@ -58,6 +60,7 @@
 //!     snapshots_dir,          // `snapshots/<network>/`; reuses archives already on disk
 //!     /* target_epoch */ None, // latest window available on the CDN
 //!     S3Config::default(),     // or override bucket / public_url
+//!     cancellation,
 //! )
 //! .await?;
 //!
@@ -132,8 +135,8 @@ pub use aws::{
     S3Client, S3Config, S3Snapshot,
 };
 pub use bootstrap::{
-    BOOTSTRAP_HEADERS_PER_POINT, BootstrapError, ChainState, ImportError, InitialNonces, bootstrap,
-    fetch_headers_from_points, import_headers, import_packaged_blocks, import_snapshots,
+    BOOTSTRAP_HEADERS_PER_POINT, BootstrapCancellation, BootstrapError, ChainState, ImportError, InitialNonces,
+    bootstrap, fetch_headers_from_points, import_headers, import_packaged_blocks, import_snapshots,
     import_snapshots_from_directory, store_chain_state, validate_publishable_snapshot_archive,
 };
 

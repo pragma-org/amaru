@@ -17,7 +17,7 @@ use std::{
     io::Read,
     iter,
     rc::Rc,
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 
 use amaru_kernel::{
@@ -27,7 +27,10 @@ use amaru_kernel::{
     Proposal, ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
     ProtocolVersion, RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, TransactionPointer, Vote,
     Voter,
-    cbor::{self, HasProtocolVersion, lazy::LazyDecoder},
+    cbor::{
+        self, HasProtocolVersion,
+        lazy::{Checkpoint, LazyDecoder},
+    },
     protocol_version, size,
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
 };
@@ -138,15 +141,18 @@ fn save_bootstrap_account_batches(
     db: &impl Store,
     mut rows: impl Iterator<Item = (accounts::Key, accounts::Row)>,
     mut on_batch: impl FnMut(usize),
-) -> Result<(), StoreError> {
+    checkpoint: Option<&Arc<Checkpoint>>,
+) -> anyhow::Result<()> {
     loop {
         let batch = rows.by_ref().take(BATCH_SIZE).collect::<Vec<_>>();
         if batch.is_empty() {
             return Ok(());
         }
 
+        checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
         let size = batch.len();
         db.save_bootstrap_accounts(batch.into_iter())?;
+        checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
         on_batch(size);
     }
 }
@@ -163,6 +169,7 @@ fn import_rewards(
     rewards_size: usize,
     with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<u64> {
+    let checkpoint = decoder.checkpoint_handle();
     let (progress, unclaimed_rewards) = decoder.stream_map(
         |d| {
             let credential = d.decode()?;
@@ -182,11 +189,13 @@ fn import_rewards(
         },
         |(progress, unclaimed_rewards), entries| {
             for batch in entries.chunks(BATCH_SIZE) {
+                checkpoint.as_ref().map_or(Ok(()), |checkpoint| checkpoint())?;
                 let transaction = db.create_transaction();
                 for (credential, amount) in batch {
                     *unclaimed_rewards += transaction.refund(credential, *amount)?;
                 }
                 transaction.commit()?;
+                checkpoint.as_ref().map_or(Ok(()), |checkpoint| checkpoint())?;
                 progress.tick(batch.len());
             }
             Ok(())
@@ -211,6 +220,7 @@ fn import_accounts(
 
     decoder.begin_array()?;
 
+    let checkpoint = decoder.checkpoint_handle();
     let (progress, size, awaiting_default_deposit) = decoder.stream_map(
         |d| Ok((d.decode::<Credential>()?, d.decode::<NodeAccount>()?)),
         |length| {
@@ -243,7 +253,7 @@ fn import_accounts(
             awaiting_default_deposit.extend(awaiting);
 
             let ready = ready.into_iter().map(|(credential, account)| (credential, account.into_row(point, None)));
-            save_bootstrap_account_batches(db, ready, |_| {})?;
+            save_bootstrap_account_batches(db, ready, |_| {}, checkpoint.as_ref())?;
             Ok(())
         },
     )?;
@@ -261,8 +271,10 @@ fn import_recently_unregistered_accounts(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     recently_unregistered_accounts: BTreeSet<Credential>,
+    checkpoint: Option<&Arc<Checkpoint>>,
 ) -> anyhow::Result<()> {
     if !recently_unregistered_accounts.is_empty() {
+        checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
         db.with_transaction(|transaction| {
             transaction.save(
                 era_history,
@@ -283,6 +295,7 @@ fn import_recently_unregistered_accounts(
                 iter::empty(),
             )
         })?;
+        checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
     }
 
     Ok(())
@@ -294,6 +307,7 @@ fn import_default_account_deposits(
     default_deposit: Lovelace,
     with_progress: &impl ProgressBarFactory,
     mut accounts: Vec<(Credential, NodeAccount)>,
+    checkpoint: Option<&Arc<Checkpoint>>,
 ) -> anyhow::Result<()> {
     if accounts.is_empty() {
         return Ok(());
@@ -308,7 +322,7 @@ fn import_default_account_deposits(
     let awaiting =
         accounts.drain(..).map(|(credential, account)| (credential, account.into_row(point, Some(default_deposit))));
 
-    save_bootstrap_account_batches(db, awaiting, |size| progress.tick(size))?;
+    save_bootstrap_account_batches(db, awaiting, |size| progress.tick(size), checkpoint)?;
 
     progress.finish();
     Ok(())
@@ -424,6 +438,7 @@ fn decode_initial_snapshot(
         protocol_parameters.stake_credential_deposit,
         with_progress,
         awaiting_default_deposit,
+        decoder.checkpoint_handle().as_ref(),
     )?;
 
     let (pools, pools_updates, pools_retirements) =
@@ -518,6 +533,7 @@ fn decode_initial_snapshot(
         era_history,
         &protocol_parameters,
         recently_unregistered_accounts,
+        decoder.checkpoint_handle().as_ref(),
     )?;
 
     Ok(InitialSnapshot {
@@ -620,21 +636,29 @@ pub fn import_initial_snapshot_with_decoder(
         with_progress,
     )?;
 
+    decoder.checkpoint()?;
     import_protocol_parameters(db, &protocol_parameters)?;
 
+    decoder.checkpoint()?;
     import_block_issuers(db, point, era_history, block_issuers)?;
 
+    decoder.checkpoint()?;
     import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
         .map_err(|err| anyhow!("import pool state: {err}"))?;
 
+    decoder.checkpoint()?;
     import_proposals_roots(db, &proposals_roots)?;
 
+    decoder.checkpoint()?;
     import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
 
+    decoder.checkpoint()?;
     import_recently_pruned_proposals(db, era_history, epoch, &proposals_roots, enacted_proposals, expired_proposals)?;
 
+    decoder.checkpoint()?;
     import_votes(db, point, era_history, &protocol_parameters, proposals)?;
 
+    decoder.checkpoint()?;
     import_pots(
         db,
         Pots {
@@ -657,13 +681,18 @@ pub fn import_initial_snapshot_with_decoder(
     //    accordingly on import.
     //
     // This may cause a few warnings on import, but they can be safely ignored.
+    decoder.checkpoint()?;
     import_dreps(db, point, era_history, &protocol_parameters, epoch, dreps)?;
 
+    decoder.checkpoint()?;
     import_constitution(db, constitution)?;
 
+    decoder.checkpoint()?;
     import_constitutional_committee(db, point, era_history, &protocol_parameters, cc_state, cc_members)?;
 
+    decoder.checkpoint()?;
     save_point(db, point, era_history, &protocol_parameters, governance_activity)?;
+    decoder.checkpoint()?;
 
     Ok(epoch)
 }
