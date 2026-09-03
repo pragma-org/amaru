@@ -20,7 +20,10 @@ use amaru_observability::{Instrument, debug, debug_span};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 use crate::{
-    blockfetch::{State, messages::Message},
+    blockfetch::{
+        State,
+        messages::{self, Message},
+    },
     metrics_effects::{Metrics, MetricsOps},
     mux::MuxMessage,
     protocol::{
@@ -233,12 +236,13 @@ impl ProtocolState<Responder> for State {
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();
-        use Message::*;
         match (self, input) {
-            (Self::Idle, RequestRange { from, through }) => {
+            (Self::Idle, Message::RequestRange(messages::RequestRange { from, through })) => {
                 Ok((outcome().result(ResponderResult::RequestRange { from, through }), Self::Busy))
             }
-            (Self::Idle, ClientDone) => Ok((outcome().want_next().result(ResponderResult::Done), Self::Done)),
+            (Self::Idle, Message::ClientDone(_)) => {
+                Ok((outcome().want_next().result(ResponderResult::Done), Self::Done))
+            }
             (state, msg) => anyhow::bail!("unexpected message in state {:?}: {:?}", state, msg),
         }
     }
@@ -246,12 +250,12 @@ impl ProtocolState<Responder> for State {
     fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
         use ResponderAction::*;
         match (self, input) {
-            (Self::Busy, StartBatch) => Ok((outcome().send(Message::StartBatch), Self::Streaming)),
-            (Self::Busy, NoBlocks) => Ok((outcome().send(Message::NoBlocks).want_next(), Self::Idle)),
+            (Self::Busy, StartBatch) => Ok((outcome().send(messages::StartBatch.into()), Self::Streaming)),
+            (Self::Busy, NoBlocks) => Ok((outcome().send(messages::NoBlocks.into()).want_next(), Self::Idle)),
             (Self::Streaming, Block(body)) => {
-                Ok((outcome().send(Message::Block { body: body.to_vec() }), Self::Streaming))
+                Ok((outcome().send(messages::Block { body: body.to_vec() }.into()), Self::Streaming))
             }
-            (Self::Streaming, BatchDone) => Ok((outcome().send(Message::BatchDone).want_next(), Self::Idle)),
+            (Self::Streaming, BatchDone) => Ok((outcome().send(messages::BatchDone.into()).want_next(), Self::Idle)),
             (state, action) => {
                 anyhow::bail!("unexpected action in state {:?}: {:?}", state, action)
             }
@@ -302,10 +306,10 @@ pub mod tests {
     #[expect(clippy::wildcard_enum_match_arm)]
     fn test_responder_protocol() {
         crate::blockfetch::spec::<Responder>().check(State::Idle, |msg| match msg {
-            Message::NoBlocks => Some(ResponderAction::NoBlocks),
-            Message::StartBatch => Some(ResponderAction::StartBatch),
-            Message::Block { body } => Some(ResponderAction::Block(RawBlock::from(body.as_slice()))),
-            Message::BatchDone => Some(ResponderAction::BatchDone),
+            Message::NoBlocks(_) => Some(ResponderAction::NoBlocks),
+            Message::StartBatch(_) => Some(ResponderAction::StartBatch),
+            Message::Block(messages::Block { body }) => Some(ResponderAction::Block(RawBlock::from(body.as_slice()))),
+            Message::BatchDone(_) => Some(ResponderAction::BatchDone),
             _ => None,
         });
     }

@@ -19,6 +19,9 @@
 //! choice alternative (n-way `Cons` of `Then`). A lone ident is `Then<Nil, S>`.
 //! [`star`]`(A, B)` is `Repeat` of that sequence. Grouped [`on_receive`] builds
 //! the input enum and [`ExtractInput`](crate::typestate::ExtractInput).
+//! [`define_messages`](crate::define_messages) generates a struct per variant plus [`From`] /
+//! [`FromMailbox`](crate::typestate::FromMailbox); [`define_mailbox`](crate::define_mailbox) wraps
+//! already-defined payload types.
 
 /// Declare protocol states and the live enum that holds them.
 ///
@@ -149,15 +152,72 @@ macro_rules! define_role {
 ///
 /// Generates [`From`] into the mailbox (for [`Send`](crate::typestate::Send))
 /// and [`FromMailbox`](crate::typestate::FromMailbox) the other way (for
-/// [`convert_input`](crate::typestate::State::convert_input)).
+/// [`convert_input`](crate::typestate::State::convert_input)). Extra attributes
+/// (including additional `#[derive]`) are placed on the enum beside the
+/// default `Debug, Clone, PartialEq, Eq, Serialize, Deserialize`.
+///
+/// When the payloads do not yet exist as types, use [`define_messages`](crate::define_messages)
+/// instead: it generates a struct per variant and the same conversions.
 #[macro_export]
 macro_rules! define_mailbox {
-    ($vis:vis $name:ident { $($var:ident ($ty:ty)),+ $(,)? }) => {
+    ($(#[$attr:meta])* $vis:vis $name:ident { $($var:ident ($ty:ty)),+ $(,)? }) => {
+        $(#[$attr])*
         #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         $vis enum $name {
             $($var($ty),)+
         }
 
+        $crate::define_mailbox_conversions!($name { $($var ($ty)),+ });
+    };
+}
+
+/// Declare a protocol message enum together with a struct per variant.
+///
+/// Each variant becomes a type of the same name. The enum wraps those
+/// structs (`Message::RequestRange(RequestRange { .. })`). [`From`] into
+/// the enum and [`FromMailbox`](crate::typestate::FromMailbox) the other
+/// way are generated so the variants work with [`Send`](crate::typestate::Send)
+/// and [`convert_input`](crate::typestate::State::convert_input).
+///
+/// `#[derive(...)]` on the enum is applied to the enum **and** every
+/// variant struct. Other attributes and doc comments on the enum stay on
+/// the enum. Attributes on a variant (including extra `#[derive]`) apply
+/// only to that struct. Further impls (`Encode`, `message_type`, …) can
+/// be written as usual after the macro.
+///
+/// ```ignore
+/// define_messages! {
+///     #[derive(Debug, Clone, PartialEq, Eq)]
+///     pub enum Message {
+///         RequestRange { from: Point, through: Point },
+///         #[derive(Copy)]
+///         ClientDone,
+///         Block(Vec<u8>),
+///     }
+/// }
+/// // RequestRange { from, through }.into() == Message::RequestRange(...)
+/// ```
+#[macro_export]
+macro_rules! define_messages {
+    (
+        $(#[$attr:meta])*
+        $vis:vis enum $name:ident {
+            $($body:tt)*
+        }
+    ) => {
+        $crate::define_messages_emit! {
+            attrs = [$(#[$attr])*]
+            vis = $vis
+            name = $name
+            body = [$($body)*]
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! define_mailbox_conversions {
+    ($name:ident { $($var:ident ($ty:ty)),+ $(,)? }) => {
         $(
             impl ::core::convert::From<$ty> for $name {
                 fn from(value: $ty) -> Self {
@@ -175,6 +235,91 @@ macro_rules! define_mailbox {
                 }
             }
         )+
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! define_messages_emit {
+    (
+        attrs = $attrs:tt
+        vis = $vis:vis
+        name = $name:ident
+        body = [
+            $(
+                $(#[$var_attr:meta])*
+                $var:ident
+                $( { $($named:tt)* } )?
+                $( ( $($tuple:tt)* ) )?
+            ),+ $(,)?
+        ]
+    ) => {
+        $(
+            $crate::define_messages_struct! {
+                $attrs
+                $(#[$var_attr])*
+                $vis $var $( { $($named)* } )? $( ( $($tuple)* ) )?
+            }
+        )+
+
+        $crate::define_messages_apply! { $attrs
+            $vis enum $name {
+                $($var($var),)+
+            }
+        }
+
+        $crate::define_mailbox_conversions!($name { $($var ($var)),+ });
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! define_messages_apply {
+    ([$($attr:tt)*] $($item:tt)*) => {
+        $($attr)*
+        $($item)*
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! define_messages_copy_derives {
+    ([] $($out:tt)*) => {
+        $($out)*
+    };
+    ([#[doc $($inner:tt)*] $($rest:tt)*] $($out:tt)*) => {
+        $crate::define_messages_copy_derives! { [$($rest)*] $($out)* }
+    };
+    ([#[$attr:meta] $($rest:tt)*] $($out:tt)*) => {
+        $crate::define_messages_copy_derives! { [$($rest)*] #[$attr] $($out)* }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! define_messages_struct {
+    ($attrs:tt $(#[$var_attr:meta])* $vis:vis $name:ident { $($(#[$fattr:meta])* $field:ident : $ty:ty),* $(,)? }) => {
+        $crate::define_messages_copy_derives! {
+            $attrs
+            $(#[$var_attr])*
+            $vis struct $name {
+                $($(#[$fattr])* pub $field: $ty,)*
+            }
+        }
+    };
+    ($attrs:tt $(#[$var_attr:meta])* $vis:vis $name:ident ( $($(#[$tattr:meta])* $ty:ty),* $(,)? )) => {
+        $crate::define_messages_copy_derives! {
+            $attrs
+            $(#[$var_attr])*
+            $vis struct $name($($(#[$tattr])* pub $ty,)*);
+        }
+    };
+    ($attrs:tt $(#[$var_attr:meta])* $vis:vis $name:ident) => {
+        $crate::define_messages_copy_derives! {
+            $attrs
+            $(#[$var_attr])*
+            $vis struct $name;
+        }
     };
 }
 
