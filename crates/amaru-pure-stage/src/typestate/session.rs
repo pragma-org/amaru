@@ -16,7 +16,8 @@
 //!
 //! [`State::receive`] opens a [`Session`]. [`send`](Session::send) / [`send_any`](Session::send_any)
 //! / [`wait`](Session::wait) / [`set_timeout`](Session::set_timeout) /
-//! [`clear_timeout`](Session::clear_timeout) require [`Select`] of that effect;
+//! [`clear_timeout`](Session::clear_timeout) require [`Select`] of that effect
+//! ([`IntoRoleMail`](super::IntoRoleMail) at the send call site);
 //! [`finish`](Session::finish) requires [`CanFinish`].
 //! [`convert_input`](State::convert_input) classifies a mailbox value and does
 //! not consume the state token — [`receive`](State::receive) does.
@@ -24,7 +25,7 @@
 use std::{fmt, future::Future, marker::PhantomData, time::Duration};
 
 use super::{
-    Clean, FmtPar, Role, RoleTag, Select,
+    Clean, FmtPar, IntoRoleMail, RoleTag, Select,
     effect::{ClearTimeout, Send as SendEff, SendAny, SetTimeout, Terminate, Wait},
     list::{self, CanFinish},
 };
@@ -98,6 +99,10 @@ pub trait State: Sized + Send + 'static {
         In: ExtractInput<M>,
     {
         In::extract(msg)
+    }
+
+    fn name(&self) -> &'static str {
+        Self::NAME
     }
 }
 
@@ -250,13 +255,13 @@ impl<M, Rem> Session<M, Rem> {
     ) -> impl Future<Output = Session<M, After<Rem, SendEff<Tag, T>, I>>> + Send
     where
         Tag: RoleTag,
-        Dest: Role<Tag>,
-        Dest::Mailbox: From<T>,
+        Dest: IntoRoleMail<Tag, T>,
         Rem: Select<SendEff<Tag, T>, I>,
         Rem::Rest: Clean,
         M: Send,
     {
-        let send = self.effects.send(target.mailbox(), Dest::Mailbox::from(msg));
+        let mail = target.encode(msg);
+        let send = self.effects.send(target.mailbox(), mail);
         async move {
             send.await;
             Session::new(self.effects)
@@ -273,13 +278,13 @@ impl<M, Rem> Session<M, Rem> {
     ) -> impl Future<Output = Session<M, After<Rem, SendAny<Tag>, I>>> + Send
     where
         Tag: RoleTag,
-        Dest: Role<Tag>,
-        Dest::Mailbox: From<T>,
+        Dest: IntoRoleMail<Tag, T>,
         Rem: Select<SendAny<Tag>, I>,
         Rem::Rest: Clean,
         M: Send,
     {
-        let send = self.effects.send(target.mailbox(), Dest::Mailbox::from(msg));
+        let mail = target.encode(msg);
+        let send = self.effects.send(target.mailbox(), mail);
         async move {
             send.await;
             Session::new(self.effects)

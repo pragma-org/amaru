@@ -47,7 +47,7 @@ on_receive!(Idle as IdleIn {
 });
 on_receive!(Done as DoneIn {});
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Server {
     live: Live,
     client: ClientDest,
@@ -121,7 +121,7 @@ fn empty_remainder_finishes_immediately() {
     network.preload(&stage, [Bye.into()]).unwrap();
     let mut running = network.run(test_runtime());
     running.run(Run::skip_wakeups()).assert_idle();
-    assert!(matches!(running.get_state(&stage).cloned().unwrap(), Closer::Closed(_)));
+    assert!(matches!(running.get_state(&stage), Some(Closer::Closed(_))));
 }
 
 make_states!(Watch { Quiet; Alarm, Stopped });
@@ -177,7 +177,7 @@ fn set_timeout_fires_when_not_cleared() {
     assert!(matches!(running.get_state(&stage).unwrap(), Watch::Alarm(_)));
     let blocked = running.run(Run::skip_wakeups());
     assert_eq!(blocked, amaru_pure_stage::simulation::Blocked::Idle);
-    assert!(matches!(running.get_state(&stage).cloned().unwrap(), Watch::Stopped(_)));
+    assert!(matches!(running.get_state(&stage), Some(Watch::Stopped(_))));
 }
 
 #[test]
@@ -190,6 +190,6 @@ fn clear_timeout_prevents_the_message() {
     running.run(Run::default()).assert_sleeping();
     running.enqueue_msg(&stage, [Tick.into()]);
     running.run(Run::skip_wakeups()).assert_idle();
-    assert!(matches!(running.get_state(&stage).cloned().unwrap(), Watch::Stopped(_)));
+    assert!(matches!(running.get_state(&stage), Some(Watch::Stopped(_))));
     assert!(!running.skip_to_next_wakeup(None));
 }

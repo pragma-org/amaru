@@ -81,13 +81,8 @@ pub enum BlockFetchMessage {
         cr: StageRef<Blocks>,
     },
     /// Terminal close. The lock-step initiator ignores this until a reset-after-`StDone`
-    /// path exists. The pipelined handler sends one wire `ClientDone` after drain.
+    /// path exists. The pipelined handler sends one wire `ClientDone` from an idle instance.
     Close,
-    /// Agency timer for one pipelined instance (`slot` is the instance index).
-    /// The lock-step initiator ignores this.
-    Timeout {
-        slot: u64,
-    },
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -134,13 +129,6 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
             }
             BlockFetchMessage::Close => {
                 amaru_observability::tracing::debug!(peer = %self.peer, "ignoring BlockFetch Close (no reset-after-StDone)");
-                Ok((None, self))
-            }
-            BlockFetchMessage::Timeout { .. } => {
-                amaru_observability::tracing::debug!(
-                    peer = %self.peer,
-                    "ignoring BlockFetch Timeout (lock-step has no agency timer)"
-                );
                 Ok((None, self))
             }
         }

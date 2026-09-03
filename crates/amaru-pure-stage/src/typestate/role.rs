@@ -29,9 +29,28 @@ pub trait RoleTag {
 }
 
 /// A [`StageRef`] wrapper that may be used wherever [`Send<Tag, T>`](super::Send)
-/// appears. Requires `Self::Mailbox: From<T>`.
+/// appears. Requires [`IntoRoleMail`] at the call site (default: `Mailbox: From<T>`).
 pub trait Role<Tag: RoleTag> {
     type Mailbox: SendData;
 
     fn mailbox(&self) -> &StageRef<Self::Mailbox>;
+}
+
+/// Convert a remainder payload into the role mailbox.
+///
+/// The blanket impl covers `Mailbox: From<T>`. A role that holds extra context
+/// (for example a mux protocol id) implements this for payloads that cannot
+/// convert by [`From`] alone.
+pub trait IntoRoleMail<Tag: RoleTag, T>: Role<Tag> {
+    fn encode(&self, msg: T) -> Self::Mailbox;
+}
+
+impl<Tag: RoleTag, T, R: Role<Tag>> IntoRoleMail<Tag, T> for R
+where
+    R::Mailbox: From<T>,
+{
+    fn encode(&self, msg: T) -> Self::Mailbox {
+        let _ = self;
+        From::from(msg)
+    }
 }

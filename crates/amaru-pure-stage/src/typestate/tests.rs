@@ -389,3 +389,19 @@ mod messages_macro {
         assert!(Mail::from(Ping { n: 1 }) < Mail::from(Ping { n: 2 }));
     }
 }
+
+#[allow(dead_code)]
+mod occupancy {
+    use crate::typestate::prelude::*;
+
+    make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
+
+    #[test]
+    fn switch_and_terminal_are_named() {
+        let idle: Live = initial_state::<Idle>().into();
+        assert_eq!(idle.occupancy(), Occupancy::Switch);
+        assert!(idle.in_switch());
+        assert!(!idle.is_remote());
+        assert!(!idle.is_terminal());
+    }
+}
