@@ -35,12 +35,40 @@
 /// make_states!(Live { Idle; Busy, Done });
 /// // Live::from(initial_state::<Idle>())
 /// // Live::from(session.finish())
+///
+/// make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
+/// // OccupancyOf: Idle is Switch, Done is Terminal, Busy is Remote
 /// ```
+///
+/// After the brace, `switch $State` names the CIP-0164 switch state (need not
+/// be initial). `terminal $State` names a state with no agency. Remaining
+/// variants are remote agency. [`OccupancyOf`](crate::typestate::OccupancyOf)
+/// is generated only when `switch` is present.
 #[macro_export]
 macro_rules! make_states {
+    ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
+        $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
+        $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
+        $crate::typestate_occupancy!($enum, $switch, $term);
+    };
+    ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident) => {
+        $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
+        $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
+        $crate::typestate_occupancy!($enum, $switch);
+    };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? }) => {
         $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
+    };
+    ($vis:vis $enum:ident { $($init:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
+        $crate::typestate_state_structs!($vis $($init),+);
+        $crate::typestate_live_enum!($vis $enum { $($init),+ });
+        $crate::typestate_occupancy!($enum, $switch, $term);
+    };
+    ($vis:vis $enum:ident { $($init:ident),+ $(,)? } switch $switch:ident) => {
+        $crate::typestate_state_structs!($vis $($init),+);
+        $crate::typestate_live_enum!($vis $enum { $($init),+ });
+        $crate::typestate_occupancy!($enum, $switch);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)? }) => {
         $crate::typestate_state_structs!($vis $($init),+);
@@ -50,10 +78,38 @@ macro_rules! make_states {
 
 #[macro_export]
 #[doc(hidden)]
+macro_rules! typestate_occupancy {
+    ($enum:ident, $switch:ident, $term:ident) => {
+        impl $crate::typestate::OccupancyOf for $enum {
+            fn occupancy(&self) -> $crate::typestate::Occupancy {
+                #[allow(clippy::wildcard_enum_match_arm)]
+                match self {
+                    Self::$switch(_) => $crate::typestate::Occupancy::Switch,
+                    Self::$term(_) => $crate::typestate::Occupancy::Terminal,
+                    _ => $crate::typestate::Occupancy::Remote,
+                }
+            }
+        }
+    };
+    ($enum:ident, $switch:ident) => {
+        impl $crate::typestate::OccupancyOf for $enum {
+            fn occupancy(&self) -> $crate::typestate::Occupancy {
+                #[allow(clippy::wildcard_enum_match_arm)]
+                match self {
+                    Self::$switch(_) => $crate::typestate::Occupancy::Switch,
+                    _ => $crate::typestate::Occupancy::Remote,
+                }
+            }
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
 macro_rules! typestate_state_structs {
     ($vis:vis $($init:ident),+ ; $($other:ident),+) => {
         $(
-            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $init($crate::typestate::Marker);
             impl $crate::typestate::State for $init {
                 const NAME: &'static str = stringify!($init);
@@ -64,7 +120,7 @@ macro_rules! typestate_state_structs {
             }
         )*
         $(
-            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $other($crate::typestate::Marker);
             impl $crate::typestate::State for $other {
                 const NAME: &'static str = stringify!($other);
@@ -77,7 +133,7 @@ macro_rules! typestate_state_structs {
     };
     ($vis:vis $($init:ident),+) => {
         $(
-            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $init($crate::typestate::Marker);
             impl $crate::typestate::State for $init {
                 const NAME: &'static str = stringify!($init);
@@ -94,7 +150,7 @@ macro_rules! typestate_state_structs {
 #[doc(hidden)]
 macro_rules! typestate_live_enum {
     ($vis:vis $name:ident { $($state:ident),+ $(,)? }) => {
-        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         $vis enum $name {
             $($state($state),)+
         }

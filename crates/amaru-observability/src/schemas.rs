@@ -2524,6 +2524,13 @@ define_schemas! {
                     required role: String
                 }
             }
+            /// A protocol handler received invalid input
+            public INVALID_INPUT {
+                required proto: String
+                required peer: %amaru_kernel::Peer
+                required state: String
+                required input: String
+            }
         }
         setup {
             lifecycle {

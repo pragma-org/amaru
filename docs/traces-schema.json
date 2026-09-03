@@ -6565,6 +6565,36 @@
       "description": "The transaction submission HTTP server stopped with an error",
       "public": true
     },
+    "amaru::protocols::INVALID_INPUT": {
+      "type": "object",
+      "properties": {
+        "proto": {
+          "type": "string"
+        },
+        "peer": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "proto",
+        "peer",
+        "state",
+        "input"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "invalid_input",
+      "level": "TRACE",
+      "target": "amaru::protocols",
+      "description": "A protocol handler received invalid input",
+      "public": true
+    },
     "amaru::protocols::blockfetch::initiator::PROTOCOL_VIOLATION": {
       "type": "object",
       "properties": {

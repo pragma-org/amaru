@@ -36,6 +36,7 @@
 mod effect;
 mod list;
 mod macros;
+mod occupancy;
 mod role;
 mod session;
 
@@ -44,16 +45,17 @@ pub use effect::{
     SetTimeout, Terminate, Wait,
 };
 pub use list::{CanFinish, Clean, Cons, FmtPar, Here, Nil, Select, Then};
-pub use role::{Role, RoleTag};
+pub use occupancy::{Occupancy, OccupancyOf};
+pub use role::{IntoRoleMail, Role, RoleTag};
 pub use session::{
     ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, initial_state,
 };
 
 pub mod prelude {
     pub use super::{
-        AddStage, Call, CancelSchedule, ClearTimeout, Clock, Cons, External, ExtractInput, FromMailbox, Nil, OnReceive,
-        Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny, Session, SetTimeout, State, Terminate, To, Wait,
-        initial_state,
+        AddStage, Call, CancelSchedule, ClearTimeout, Clock, Cons, External, ExtractInput, FromMailbox, IntoRoleMail,
+        Nil, Occupancy, OccupancyOf, OnReceive, Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny, Session,
+        SetTimeout, State, Terminate, To, Wait, initial_state,
     };
     pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
 }

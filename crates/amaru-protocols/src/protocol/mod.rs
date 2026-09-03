@@ -25,8 +25,10 @@ mod miniprotocol;
 mod pipeline;
 
 pub use check::ProtoSpec;
-pub use miniprotocol::{Inputs, Miniprotocol, Outcome, ProtocolState, StageState, miniprotocol, outcome};
-pub(crate) use pipeline::{Admit, CloseHint, CursorHint, Pipeline, SwitchCredit};
+pub use miniprotocol::{
+    Inputs, Internal, Miniprotocol, Outcome, ProtocolState, Pull, StageState, Timeout, from_wire, miniprotocol, outcome,
+};
+pub(crate) use pipeline::{MuxClient, Pipelined, ToMux, WantNext, pipelined};
 
 /// Input to a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

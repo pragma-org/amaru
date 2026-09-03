@@ -2438,6 +2438,23 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::protocols`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `invalid_input` | `TRACE` | public | A protocol handler received invalid input | proto, peer, state, input |  |
+
+<details><summary>span: `invalid_input`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `proto` | `string` | ✓ |
+| `peer` | `string` | ✓ |
+| `state` | `string` | ✓ |
+| `input` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::blockfetch::initiator`
 
 | name | level | public | description | required fields | optional fields |
