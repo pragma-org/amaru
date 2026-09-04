@@ -131,7 +131,6 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GovernanceAction {
                 e.encode_with(b, ctx)?;
             }
 
-            // FIXME(cbor): CDDL says just "6", not group/array "(6)"?
             Self::Information => {
                 e.array(1)?;
                 e.u16(6)?;
