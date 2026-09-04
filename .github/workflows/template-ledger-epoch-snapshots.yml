@@ -8,14 +8,9 @@ on:
         type: string
         required: false
         default: ""
-    secrets:
-      R2_ACCESS_KEY_ID:
-        required: true
-      R2_SECRET_ACCESS_KEY:
-        required: true
-      S3_ENDPOINT:
-        required: true
-      CARDANO_NODE_BUCKET_NAME:
+      CARDANO_NODE_DB_URL:
+        description: "Public HTTPS base URL containing preprod.tar.zstd and preview.tar.zstd"
+        type: string
         required: true
 
 env:
@@ -53,11 +48,7 @@ jobs:
       AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
+      CARDANO_NODE_DB_URL: ${{ inputs.CARDANO_NODE_DB_URL }}
       TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
       AMARU_WITH_OPEN_TELEMETRY: "true"
@@ -90,8 +81,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          : "${CARDANO_NODE_DB_URL:?CARDANO_NODE_DB_URL is not configured}"
           mkdir -p "$CARDANO_NODE_DB" "$(dirname "$CARDANO_NODE_SOCKET_FILE")"
-          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "$CARDANO_NODE_DB"
+          archive_url="${CARDANO_NODE_DB_URL%/}/${{ matrix.network.name }}.tar.zstd"
+          curl --fail --location "$archive_url" \
+            | tar --zstd -xf - -C "$CARDANO_NODE_DB"
           touch "$CARDANO_NODE_DB/clean"
 
       - name: Spawn Haskell Node

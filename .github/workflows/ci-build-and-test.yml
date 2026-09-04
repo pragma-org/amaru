@@ -95,11 +95,8 @@ jobs:
   snapshots:
     name: Compare ledger epoch snapshots
     uses: ./.github/workflows/template-ledger-epoch-snapshots.yml
-    secrets:
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      CARDANO_NODE_BUCKET_NAME: ${{ secrets.CARDANO_NODE_BUCKET_NAME }}
+    with:
+      CARDANO_NODE_DB_URL: ${{ vars.CARDANO_NODE_DB_URL }}
 
   benches:
     name: Bench
