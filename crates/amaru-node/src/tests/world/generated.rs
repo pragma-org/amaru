@@ -370,6 +370,7 @@ fn run_p_join_quiescent_chain(
             .with_target_upstream_peers(P_JOIN_NODES)
             .with_share_request_initial_delay(P_JOIN_SHARE_INITIAL_DELAY)
             .with_trace_buffer(TraceBuffer::new_shared(20_000, 16_000_000))
+            .with_share_request_initial_delay(P_JOIN_SHARE_INITIAL_DELAY)
             // Common ancestor so FindIntersect is not Origin-vs-a-parent-hash the node does not have.
             .with_validated_blocks(vec![headers[0].clone()]);
         let mut sim = build_world_node(&node, connections.clone(), handle).expect("production node");

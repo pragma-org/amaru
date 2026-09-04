@@ -93,8 +93,8 @@ Other guiding principles:
 - **amaru-protocols**: outbound handshake offers duplex (`initiator_only = false`). Agreed duplex registers eager responders on the same bearer; inbound `SetLocalUse(Diffusion)` starts our initiators there.
 - **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of a second dial; Using inbound counts toward the upstream target.
 - **amaru-consensus**: peer selection churns ~20%/h of Using peers (worst first, skip static) with `SetLocalUse(Maintenance)` and does not increment malus. ChainSync `IntersectNotFound` is uninteresting-as-upstream (retry after 120s), not adversarial.
-- **amaru-consensus**: after an outbound handshake, peer selection sends `SetLocalUse(Diffusion)` so fetch and share follow actual local use. Peer-sharing cadence is 300s then 900s (blueprint defaults).
-- **amaru-protocols**: `LocalUseApplied` is the source of `may_initiate`; fetch and share route only to connections whose local use is Diffusion.
+- **amaru-consensus**: after an outbound handshake, peer selection sends `SetLocalUse(Diffusion)` so fetch and share follow actual local use. Peer-sharing cadence is 300s then 900s (blueprint defaults), overridable on `PeerSelection` / `Config` so world tests can form overlay links inside a short horizon.
+- **amaru-protocols**: `LocalUseApplied` is the source of `may_initiate`; fetch and share route only to connections whose local use is Diffusion. Outbound handshake inserts the connection as initiating before notifying peer selection, so the first `RequestSharePeers` is not dropped.
 - **amaru-protocols**: `SetLocalUse` stops initiator groups with `MsgDone` (last-to-finish; 300s diffusion / 120s maintenance). Expected child death installs a mux done-trap; unexpected death still tears the bearer. Responders reset in place after `MsgDone`.
 - **amaru-protocols**: mux times SDU assembly and send: unbounded wait for the first header byte, then 10s during the first Handshake and 30s afterwards for the rest of that SDU. Overflow of that timer tears the bearer down.
 - **amaru-protocols**: Implement SDU send & receive timeouts in the muxer as per the network spec.

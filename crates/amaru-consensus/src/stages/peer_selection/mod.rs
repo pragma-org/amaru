@@ -293,6 +293,8 @@ impl PartialEq for PeerSelection {
             && self.share_request_initial_delay == other.share_request_initial_delay
             && self.share_request_interval == other.share_request_interval
             && self.demoted_until == other.demoted_until
+            && self.share_request_initial_delay == other.share_request_initial_delay
+            && self.share_request_interval == other.share_request_interval
         // share_reply and churn_timer intentionally omitted
     }
 }
@@ -400,6 +402,8 @@ impl PeerSelection {
             share_request_interval: SHARE_REQUEST_INTERVAL,
             churn_timer: None,
             demoted_until: BTreeMap::new(),
+            share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
+            share_request_interval: SHARE_REQUEST_INTERVAL,
         }
     }
 
