@@ -124,6 +124,24 @@ fixture's `meta.json` so the test starts enforcing the canonical behavior.
 
 If positives feel thin after annotation, bump `CBOR_FIXTURE_COUNT` so enough unflagged samples survive each round.
 
+## Handcrafted fixtures
+
+Generated samples are random, so they cannot be aimed at a specific decoder check. To pin one, write the
+sample by hand into the same layout with `"source": "handcrafted"` in its `meta.json`. The regenerate
+script only wipes and re-labels fixtures whose `source` is `cuddle` or `antigen`; a handcrafted fixture
+that fails aborts the run instead of receiving a `known_amaru_divergence` flag. Fixtures with no `source`
+(on-chain samples) are treated the same way.
+
+Check the `well_formed` label of a handcrafted sample against the effective CDDL before committing it:
+
+```bash
+./scripts/regenerate-cbor-fixtures  # writes target/conway.effective.cddl and target/bin/cuddle
+target/bin/cuddle validate-cbor -f binary transaction_body <dir>/sample.cbor target/conway.effective.cddl
+```
+
+Note the address overrides above: a handcrafted positive must use one of the enumerated `address` and
+`reward_account` literals or cuddle rejects it.
+
 ## Refreshing conway.cddl
 
 `conway.cddl` is checked in so generation is offline. It can be updated with:

@@ -288,7 +288,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.max_block_header_size {
-            push(4, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(4, <u16 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.key_deposit {
@@ -304,7 +304,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.desired_number_of_stake_pools {
-            push(8, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(8, <u16 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(ref p) = self.pool_pledge_influence {
@@ -349,11 +349,11 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.collateral_percentage {
-            push(23, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(23, <u16 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.max_collateral_inputs {
-            push(24, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(24, <u16 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(ref p) = self.pool_voting_thresholds {
@@ -365,7 +365,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.min_committee_size {
-            push(27, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(27, <u16 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.committee_term_limit {

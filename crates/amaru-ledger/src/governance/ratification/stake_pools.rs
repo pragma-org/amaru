@@ -231,7 +231,7 @@ mod tests {
             option::of(any::<u64>()),
             option::of(any::<u64>()),
             option::of(any::<u64>()),
-            option::of(any::<u64>()),
+            option::of(any::<u16>()),
             option::of(any::<u64>()),
             option::of(any_ex_units()),
             option::of(any::<u64>()),
