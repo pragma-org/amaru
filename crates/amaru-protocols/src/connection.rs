@@ -20,9 +20,7 @@ use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 
 use crate::{
-    blockfetch::{
-        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator, register_blockfetch_responder,
-    },
+    blockfetch::{self, BlockFetchMessage, Blocks, register_blockfetch_initiator, register_blockfetch_responder},
     chainsync::{
         self, ChainSyncInitiatorMsg, InitiatorResult, register_chainsync_initiator, register_chainsync_responder,
     },
@@ -107,7 +105,7 @@ struct StateResponder {
     handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
-    blockfetch_responder: StageRef<StreamBlocks>,
+    blockfetch_responder: StageRef<Void>,
     peer_sharing_responder: StageRef<crate::peer_sharing::ResponderMessage>,
 }
 
@@ -435,7 +433,7 @@ async fn do_handshake(
         )
         .await;
         let blockfetch_responder =
-            register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
+            register_blockfetch_responder(&muxer, peer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
         let peer_sharing_responder = register_peer_sharing_responder(
             &muxer,
             peer,

@@ -247,6 +247,9 @@ impl<H, T: Concat<Suf>, Suf> Concat<Suf> for Cons<H, T> {
 ///   in front of the same `Repeat`.
 /// - [`Skip`]: the star's first step is not `E`, so it is discarded and `E`
 ///   is selected from what follows.
+///
+/// [`Here`] unifies `E` with the star body, so [`Session::send`](super::Session::send)
+/// of a later payload cannot skip; use [`Session::discard_repeat`](super::Session::discard_repeat).
 pub trait TakeRepeat<E, I> {
     type Rest;
 }
@@ -270,6 +273,32 @@ where
     <Cons<Tail, Rest> as Clean>::Out: Select<E, I>,
 {
     type Rest = <<Cons<Tail, Rest> as Clean>::Out as Select<E, I>>::Rest;
+}
+
+/// Drop a leading [`Repeat`] from the current sequence, leaving the suffix.
+///
+/// Used by [`Session::discard_repeat`](super::Session::discard_repeat). There is
+/// no impl when the head is not a star, so skipping is a compile error.
+pub trait DiscardRepeat {
+    type Out;
+}
+
+impl<Seq, Tail, Rest> DiscardRepeat for Cons<Cons<Repeat<Seq>, Tail>, Rest>
+where
+    Cons<Tail, Rest>: Clean,
+{
+    type Out = <Cons<Tail, Rest> as Clean>::Out;
+}
+
+impl<P: DiscardRepeat, S> DiscardRepeat for Then<P, S> {
+    type Out = Then<P::Out, S>;
+}
+
+impl<P, S, Rest> DiscardRepeat for Cons<Then<P, S>, Rest>
+where
+    Then<P, S>: DiscardRepeat,
+{
+    type Out = Cons<<Then<P, S> as DiscardRepeat>::Out, Rest>;
 }
 
 /// Strip leading [`Repeat`] from a sequence.

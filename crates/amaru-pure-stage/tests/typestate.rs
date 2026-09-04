@@ -99,6 +99,58 @@ fn receive_then_choice_of_sends() {
     assert!(matches!(running.get_state(&server).unwrap().live, Live::Done(_)));
 }
 
+make_states!(Star { Open; Halt });
+
+on_receive!(Open as OpenIn {
+    Ping => { Repeat<Send<ToClient, Pong>>, Send<ToClient, Bye> => Halt }
+});
+on_receive!(Halt as HaltIn {});
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct StarServer {
+    live: Star,
+    client: ClientDest,
+}
+
+#[test]
+fn discard_repeat_then_send_suffix() {
+    let mut network = SimulationBuilder::default();
+    let client = network.stage("client", async |mut inbox: Vec<ClientMsg>, msg: ClientMsg, _eff| {
+        inbox.push(msg);
+        inbox
+    });
+    let server = network.stage("star", async |state: StarServer, msg: In, eff: Effects<In>| match state.live {
+        Star::Open(open) => match open.convert_input(msg) {
+            Ok(OpenIn::Ping(ping)) => {
+                let n = ping.0;
+                let mut session = open.receive(ping, eff);
+                for _ in 0..n {
+                    session = session.send(&state.client, Pong(1)).await;
+                }
+                let live = session.discard_repeat().send(&state.client, Bye).await.finish().into();
+                StarServer { live, ..state }
+            }
+            Err(_msg) => StarServer { live: open.into(), ..state },
+        },
+        Star::Halt(halt) => match halt.convert_input::<HaltIn, _>(msg) {
+            Ok(never) => match never {},
+            Err(_msg) => StarServer { live: halt.into(), ..state },
+        },
+    });
+    let client_ref = client.sender();
+    let client = network.wire_up(client, Vec::new());
+    let server = network
+        .wire_up(server, StarServer { live: initial_state::<Open>().into(), client: ClientDest::new(client_ref) });
+    network.preload(&server, [Ping(2).into()]).unwrap();
+    let mut running = network.run(test_runtime());
+    running.run(Run::skip_wakeups()).assert_idle();
+    assert_eq!(
+        running.get_state(&client).cloned().unwrap(),
+        vec![ClientMsg::Pong(Pong(1)), ClientMsg::Pong(Pong(1)), ClientMsg::Bye(Bye)]
+    );
+    assert!(matches!(running.get_state(&server).unwrap().live, Star::Halt(_)));
+}
+
 make_states!(Closer { Ready; Closed });
 define_mailbox!(CloserMsg { Bye(Bye) });
 on_receive!(Ready as ReadyIn { Bye => { Closed } });

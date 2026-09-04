@@ -18,7 +18,7 @@
 use super::{
     Cons, FmtPar, Here, Nil, OnReceive, Select, Then,
     effect::{ClearTimeout, Repeat, Send, SendAny, SetTimeout},
-    list::{CanFinish, Clean, describe},
+    list::{CanFinish, Clean, DiscardRepeat, describe},
     session::describe_receive,
 };
 
@@ -35,6 +35,13 @@ fn assert_after<R, E, Expect, I>()
 where
     R: Select<E, I>,
     R::Rest: TypeEq<Expect>,
+{
+}
+
+fn assert_discard<R, Expect>()
+where
+    R: DiscardRepeat,
+    R::Out: TypeEq<Expect>,
 {
 }
 
@@ -175,6 +182,14 @@ fn repeat_sequence_unrolls_then_keeps_the_star() {
     type Rem = Cons<Then<Cons<Cons<Repeat<Seq>, Nil>, Nil>, toy::Idle>, Nil>;
     type Expect = Cons<Then<Cons<Cons<Send<toy::Peer, u16>, Cons<Repeat<Seq>, Nil>>, Nil>, toy::Idle>, Nil>;
     assert_after::<Rem, Send<toy::Peer, u8>, Expect, _>();
+}
+
+#[test]
+fn discard_repeat_leaves_the_suffix() {
+    type Rem =
+        Cons<Then<Cons<Cons<Repeat<Send<toy::Peer, u8>>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>, toy::Idle>, Nil>;
+    type Expect = Cons<Then<Cons<Cons<Send<toy::Peer, u16>, Nil>, Nil>, toy::Idle>, Nil>;
+    assert_discard::<Rem, Expect>();
 }
 
 #[test]

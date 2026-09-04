@@ -16,70 +16,11 @@ mod initiator;
 pub(crate) mod messages;
 mod responder;
 
-use amaru_kernel::NetworkPoint;
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
+use amaru_pure_stage::DeserializerGuards;
 pub use initiator::{BLOCKFETCH_PIPELINE_N, BlockFetchMessage, Blocks, register_blockfetch_initiator};
 pub use messages::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
-pub use responder::{BlockFetchResponder, StreamBlocks, responder};
-
-use crate::{
-    mux::{Frame, MuxMessage},
-    protocol::{Inputs, ProtoSpec, ProtocolState, RoleT},
-};
-
-pub fn spec<R: RoleT>() -> ProtoSpec<State, Message, R>
-where
-    State: ProtocolState<R, WireMsg = Message>,
-{
-    use State::*;
-
-    let mut spec = ProtoSpec::default();
-    let request_range = || RequestRange { from: NetworkPoint::Origin, through: NetworkPoint::Origin }.into();
-    let no_blocks = || NoBlocks.into();
-    let client_done = || ClientDone.into();
-    let batch_done = || BatchDone.into();
-    let start_batch = || StartBatch.into();
-    let block = || Block { body: vec![1] }.into();
-
-    spec.init(Idle, client_done(), Done);
-    spec.init(Idle, request_range(), Busy);
-    spec.resp(Busy, no_blocks(), Idle);
-    spec.resp(Busy, start_batch(), Streaming);
-    spec.resp(Streaming, block(), Streaming);
-    spec.resp(Streaming, batch_done(), Idle);
-    spec
-}
+pub use responder::register_blockfetch_responder;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub enum State {
-    Idle,
-    Busy,
-    Streaming,
-    Done,
-}
-
-pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
-    muxer: &StageRef<MuxMessage>,
-    eff: &Effects<M>,
-    tombstone: M,
-) -> StageRef<StreamBlocks> {
-    use crate::protocol::PROTO_N2N_BLOCK_FETCH;
-    let blockfetch = eff.stage("blockfetch", responder()).await;
-    let blockfetch = eff.supervise(blockfetch, tombstone);
-    let blockfetch = eff.wire_up(blockfetch, BlockFetchResponder::new(muxer.clone())).await;
-    eff.send(
-        muxer,
-        MuxMessage::Register {
-            protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
-            frame: Frame::OneCborItem,
-            handler: blockfetch.contramap(Inputs::Network),
-            max_buffer: 2_500_000,
-        },
-    )
-    .await;
-    blockfetch.contramap(Inputs::Local)
 }

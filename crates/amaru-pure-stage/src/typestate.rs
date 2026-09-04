@@ -23,7 +23,11 @@
 //! (any number of alternatives). [`Repeat<E>`](Repeat) is a Kleene star: a
 //! single effect, or a sequence via [`star`](crate::star). Selecting the first
 //! step unrolls the rest in front of the same `Repeat`. Selecting a later
-//! step discards the star (zero iterations).
+//! step discards the star (zero iterations) when the selected type is given
+//! in full (type-level [`Select`](Select)); [`Session::send`](session::Session::send)
+//! cannot skip that way because `Repeat<Send<Role, T>>` unifies `T` with the
+//! star. Use [`Session::discard_repeat`](session::Session::discard_repeat)
+//! after the last iteration.
 //!
 //! **Limits:** parallel and choice are flat `Cons` lists (not tree-associative).
 //! Sequences are ordered. When several parallel heads match, the **leftmost**
@@ -44,7 +48,7 @@ pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
 };
-pub use list::{CanFinish, Clean, Cons, FmtPar, Here, Nil, Select, Then};
+pub use list::{CanFinish, Clean, Cons, DiscardRepeat, FmtPar, Here, Nil, Select, Then};
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleMail, Role, RoleTag};
 pub use session::{

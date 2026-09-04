@@ -377,6 +377,32 @@ impl<M, Rem> Session<M, Rem> {
         }
     }
 
+    /// Drop a leading [`Repeat`](super::Repeat) on the current sequence.
+    ///
+    /// [`send`](Self::send) cannot skip a star by passing the following payload:
+    /// `Repeat<Send<Role, T>>` unifies `T` with the repeated type, so a later
+    /// `Send<Role, U>` is inferred as `T`. Call this after the last iteration,
+    /// then send the suffix.
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// make_states!(Live { Idle; Done });
+    /// define_role_tag!(ToPeer);
+    /// on_receive!(Idle, u8 => Send<ToPeer, String> => Done);
+    /// fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>)
+    /// where
+    ///     M: amaru_pure_stage::SendData,
+    /// {
+    ///     let _ = s.receive(1u8, eff).discard_repeat();
+    /// }
+    /// ```
+    pub fn discard_repeat(self) -> Session<M, Rem::Out>
+    where
+        Rem: super::DiscardRepeat,
+    {
+        Session::new(self.effects)
+    }
+
     /// Protocol terminate. Consumes a [`Terminate`] allowance. Never returns.
     pub fn terminate<T, I>(self) -> impl Future<Output = T> + Send
     where

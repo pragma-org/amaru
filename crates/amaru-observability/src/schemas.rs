@@ -2178,14 +2178,6 @@ define_schemas! {
             }
             blockfetch {
                 responder {
-                    /// Handle block fetch responder stage messages
-                    BLOCKFETCH_RESPONDER_STAGE {
-                        required message_type: String
-                    }
-                    /// Handle block fetch responder protocol messages
-                    BLOCKFETCH_RESPONDER_PROTOCOL {
-                        required message_type: String
-                    }
                     /// A requested block range was refused.
                     /// Reason ∈ {inverted_range, exceeds_max_blocks}.
                     RANGE_REFUSED {
