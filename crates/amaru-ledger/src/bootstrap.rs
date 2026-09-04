@@ -149,7 +149,6 @@ fn save_bootstrap_account_batches(
             return Ok(());
         }
 
-        checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
         let size = batch.len();
         db.save_bootstrap_accounts(batch.into_iter())?;
         checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
@@ -189,7 +188,6 @@ fn import_rewards(
         },
         |(progress, unclaimed_rewards), entries| {
             for batch in entries.chunks(BATCH_SIZE) {
-                checkpoint.as_ref().map_or(Ok(()), |checkpoint| checkpoint())?;
                 let transaction = db.create_transaction();
                 for (credential, amount) in batch {
                     *unclaimed_rewards += transaction.refund(credential, *amount)?;
@@ -271,10 +269,8 @@ fn import_recently_unregistered_accounts(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     recently_unregistered_accounts: BTreeSet<Credential>,
-    checkpoint: Option<&Arc<Checkpoint>>,
 ) -> anyhow::Result<()> {
     if !recently_unregistered_accounts.is_empty() {
-        checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
         db.with_transaction(|transaction| {
             transaction.save(
                 era_history,
@@ -295,7 +291,6 @@ fn import_recently_unregistered_accounts(
                 iter::empty(),
             )
         })?;
-        checkpoint.map_or(Ok(()), |checkpoint| checkpoint())?;
     }
 
     Ok(())
@@ -533,7 +528,6 @@ fn decode_initial_snapshot(
         era_history,
         &protocol_parameters,
         recently_unregistered_accounts,
-        decoder.checkpoint_handle().as_ref(),
     )?;
 
     Ok(InitialSnapshot {
@@ -636,29 +630,23 @@ pub fn import_initial_snapshot_with_decoder(
         with_progress,
     )?;
 
-    decoder.checkpoint()?;
     import_protocol_parameters(db, &protocol_parameters)?;
 
-    decoder.checkpoint()?;
     import_block_issuers(db, point, era_history, block_issuers)?;
 
-    decoder.checkpoint()?;
     import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
         .map_err(|err| anyhow!("import pool state: {err}"))?;
-
     decoder.checkpoint()?;
+
     import_proposals_roots(db, &proposals_roots)?;
 
-    decoder.checkpoint()?;
     import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
 
-    decoder.checkpoint()?;
     import_recently_pruned_proposals(db, era_history, epoch, &proposals_roots, enacted_proposals, expired_proposals)?;
 
-    decoder.checkpoint()?;
     import_votes(db, point, era_history, &protocol_parameters, proposals)?;
-
     decoder.checkpoint()?;
+
     import_pots(
         db,
         Pots {
@@ -681,16 +669,13 @@ pub fn import_initial_snapshot_with_decoder(
     //    accordingly on import.
     //
     // This may cause a few warnings on import, but they can be safely ignored.
-    decoder.checkpoint()?;
     import_dreps(db, point, era_history, &protocol_parameters, epoch, dreps)?;
-
     decoder.checkpoint()?;
+
     import_constitution(db, constitution)?;
 
-    decoder.checkpoint()?;
     import_constitutional_committee(db, point, era_history, &protocol_parameters, cc_state, cc_members)?;
 
-    decoder.checkpoint()?;
     save_point(db, point, era_history, &protocol_parameters, governance_activity)?;
     decoder.checkpoint()?;
 

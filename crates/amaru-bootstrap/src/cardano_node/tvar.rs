@@ -207,7 +207,6 @@ where
         actual_size += size;
 
         if !utxo.is_empty() {
-            decoder.checkpoint()?;
             db.with_transaction(|transaction| {
                 transaction.save(
                     era_history,

@@ -89,7 +89,6 @@ impl<'a> LazyDecoder<'a> {
         skip_entry: impl Fn(&mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error>,
     ) -> anyhow::Result<()> {
         loop {
-            self.checkpoint()?;
             let (entries, complete) =
                 self.with_decoder(|d| decode_sequence_chunk(d, remaining, &skip_entry).map_err(Into::into))?;
             remaining = remaining.map(|count| count - entries.len() as u64);
@@ -157,7 +156,6 @@ impl<'a> LazyDecoder<'a> {
                 }
                 Err(err) if can_read_more => match err.downcast::<cbor::decode::Error>() {
                     Ok(err) if err.is_end_of_input() => {
-                        self.checkpoint()?;
                         should_read_more = true;
                         continue;
                     }
@@ -188,14 +186,11 @@ impl<'a> LazyDecoder<'a> {
         let mut state = init(length);
 
         loop {
-            self.checkpoint()?;
             let (entries, complete) =
                 self.with_decoder(|d| decode_sequence_chunk(d, remaining, &decode_entry).map_err(Into::into))?;
 
             remaining = remaining.map(|count| count - entries.len() as u64);
-            self.checkpoint()?;
             handle_entries(&mut state, entries)?;
-            self.checkpoint()?;
 
             if complete {
                 return Ok(state);

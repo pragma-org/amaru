@@ -35,7 +35,11 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
+### Fixed
+
+- **amaru-bootstrap**: allow cancellation of the bootstrap process.
 
 ## v10.11.20260903 _[unreleased; planned for 2026-09-03]_
 
@@ -57,7 +61,6 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru-bootstrap**: allow cancellation of the bootstrap process.
 - **amaru-node**: the stake-distribution callback no longer holds a strong `Resources` handle, so dropping a node graph closes its dummy RocksDB ledgers instead of leaking file descriptors across simulation runs.
 - **amaru**: replace repeated low-level OpenTelemetry export errors with batched state-transition messages: one warning listing unavailable signals, one info listing recovered signals, and a fresh warning after a later failure.
 - **amaru-bootstrap**: emit phase lifecycle events and periodic progress heartbeats when bootstrap runs without a terminal, so redirected and service logs no longer appear stuck during long imports.
