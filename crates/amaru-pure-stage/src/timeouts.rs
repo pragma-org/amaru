@@ -57,10 +57,13 @@ impl TimeoutHeap {
         }
     }
 
-    /// Park a fired timeout for receive. Returns false if this slot is no longer armed.
-    pub fn fire(&mut self, slot: u64) -> bool {
+    /// Park a fired timeout for receive. Returns false if this generation is no longer armed.
+    ///
+    /// The tokio runtime cannot cancel an already-sleeping future when a slot is re-armed
+    /// with a later deadline, so [`fire`](Self::fire) must match both slot and [`ScheduleId`].
+    pub fn fire(&mut self, slot: u64, id: ScheduleId) -> bool {
         match self.armed {
-            Some((_, armed_slot)) if armed_slot == slot => {}
+            Some((armed_id, armed_slot)) if armed_slot == slot && armed_id == id => {}
             _ => return false,
         }
         self.armed = None;
@@ -74,5 +77,28 @@ impl TimeoutHeap {
 
     pub fn take_due(&mut self) -> Option<Box<dyn SendData>> {
         self.due.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::Instant;
+
+    #[test]
+    fn fire_ignores_a_stale_generation() {
+        let mut heap = TimeoutHeap::default();
+        let t0 = Instant::at_offset(Duration::from_secs(1), Duration::ZERO);
+        let t1 = Instant::at_offset(Duration::from_secs(5), Duration::ZERO);
+        let old = ScheduleId::new(1, t0);
+        let new = ScheduleId::new(2, t1);
+        heap.set(0, t1, Box::new(7u32));
+        heap.armed = Some((new, 0));
+        assert!(!heap.fire(0, old));
+        assert!(heap.armed.is_some());
+        assert!(heap.fire(0, new));
+        assert_eq!(heap.take_due().unwrap().cast_deserialize::<u32>().unwrap(), 7);
     }
 }

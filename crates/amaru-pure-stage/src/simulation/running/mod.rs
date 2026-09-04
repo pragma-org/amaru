@@ -357,11 +357,11 @@ impl SimulationRunning {
         self.scheduled.schedule(id, Box::new(wakeup));
     }
 
-    fn fire_armed_timeout(&mut self, at_stage: Name, slot: u64) {
+    fn fire_armed_timeout(&mut self, at_stage: Name, slot: u64, id: ScheduleId) {
         let Some(data) = self.stages.get_mut(&at_stage) else {
             return;
         };
-        if !data.timeouts.fire(slot) {
+        if !data.timeouts.fire(slot, id) {
             return;
         }
         let _ = resume_receive_internal(self, &at_stage);
@@ -895,9 +895,14 @@ impl SimulationRunning {
                     }
                 }
             },
-            Blocked::Busy { external_effects, .. } if external_effects > 0 && spec.externals == Externals::Resolve => {
-                self.tokio_handle.clone().block_on(self.await_external_effect());
-                None
+            Blocked::Busy { external_effects, stages }
+                if external_effects > 0 && spec.externals == Externals::Resolve =>
+            {
+                if self.tokio_handle.clone().block_on(self.await_external_effect()).is_some() {
+                    None
+                } else {
+                    Some(Blocked::Busy { external_effects, stages })
+                }
             }
             other => Some(other),
         }
@@ -1717,7 +1722,7 @@ pub(super) fn rearm_timeouts(
     let id = ids.next_at(when);
     data.timeouts.armed = Some((id, slot));
     let name = data.name.clone();
-    scheduled.schedule(id, Box::new(move |sim| sim.fire_armed_timeout(name, slot)));
+    scheduled.schedule(id, Box::new(move |sim| sim.fire_armed_timeout(name, slot, id)));
 }
 
 /// Deliver a due self-scheduled message into the stage's priority ingress.

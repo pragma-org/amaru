@@ -195,7 +195,10 @@ impl<M, Rem> Session<M, Rem> {
     /// define_role_tag!(ToPeer);
     /// define_role!(Peer, ToPeer, String);
     /// on_receive!(Idle, u8 => Send<ToPeer, String> => Done);
-    /// async fn bad<M>(s: Idle, target: &Peer, eff: amaru_pure_stage::Effects<M>) {
+    /// async fn bad<M>(s: Idle, target: &Peer, eff: amaru_pure_stage::Effects<M>)
+    /// where
+    ///     M: Send,
+    /// {
     ///     let _ = s.receive(1u8, eff).send(target, 0u32).await;
     /// }
     /// ```
@@ -220,7 +223,9 @@ impl<M, Rem> Session<M, Rem> {
     ///     a: &DestA,
     ///     d: &DestD,
     ///     eff: amaru_pure_stage::Effects<M>,
-    /// ) {
+    /// ) where
+    ///     M: Send,
+    /// {
     ///     let s = s.receive(Go, eff).send(a, 1u8).await;
     ///     let _ = s.send(d, 1u8).await;
     /// }
@@ -244,7 +249,9 @@ impl<M, Rem> Session<M, Rem> {
     ///     c: &DestC,
     ///     b: &DestB,
     ///     eff: amaru_pure_stage::Effects<M>,
-    /// ) {
+    /// ) where
+    ///     M: Send,
+    /// {
     ///     let s = s.receive(Go, eff).send(c, 1u8).await;
     ///     let _ = s.send(b, 1u8).await;
     /// }
@@ -282,7 +289,10 @@ impl<M, Rem> Session<M, Rem> {
     /// define_role_tag!(ToPeer);
     /// define_role!(Peer, ToPeer, String);
     /// on_receive!(Idle, u8 => Call<ToPeer, String> => Done);
-    /// async fn bad<M>(s: Idle, target: &Peer, eff: amaru_pure_stage::Effects<M>) {
+    /// async fn bad<M>(s: Idle, target: &Peer, eff: amaru_pure_stage::Effects<M>)
+    /// where
+    ///     M: Send,
+    /// {
     ///     let _ = s.receive(1u8, eff).call(target, 0u32).await;
     /// }
     /// ```

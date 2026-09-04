@@ -291,7 +291,7 @@ impl StageGraph for TokioBuilder {
 enum PriorityMessage {
     /// Due self-scheduled message; bypasses the bulk mpsc mailbox.
     Scheduled(Box<dyn SendData>, ScheduleId, watch::Receiver<bool>),
-    TimeoutFired(u64),
+    TimeoutFired(u64, ScheduleId),
     TimerCancelled(ScheduleId),
     Tombstone(Box<dyn SendData>),
 }
@@ -346,8 +346,8 @@ fn run_stage_boxed(
                             PriorityMessage::Scheduled(msg, id, cancelation) => {
                                 scheduled.push((id, msg, cancelation));
                             }
-                            PriorityMessage::TimeoutFired(slot) => {
-                                if timeouts.fire(slot)
+                            PriorityMessage::TimeoutFired(slot, id) => {
+                                if timeouts.fire(slot, id)
                                     && let Some(msg) = timeouts.take_due()
                                 {
                                     msgs.push((msg, None));
@@ -461,7 +461,7 @@ fn tokio_rearm_timeouts(
     let sleep = tokio::time::sleep_until(when.to_tokio());
     timers.push(Box::pin(async move {
         sleep.await;
-        PriorityMessage::TimeoutFired(slot)
+        PriorityMessage::TimeoutFired(slot, id)
     }));
 }
 
