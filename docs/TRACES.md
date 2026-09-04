@@ -659,8 +659,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `download` | `TRACE` | public | Synchronize the cardano-node database from Mithril | from_chunk, target_dir |  |
-| `download_chunks` | `TRACE` | public | Immutable chunks are being fetched from Mithril | tip, from_chunk |  |
 | `ingest_completed` | `TRACE` | public | Finished replaying downloaded blocks into the stores | processed, duration_seconds, processed_per_seconds |  |
+| `recover_chain_tip` | `TRACE` | public | Complete chain-store adoption after an interrupted Mithril ledger update | ledger_tip, chain_tip |  |
 | `skip_download` | `TRACE` | public | Local cardano-node database is recent enough; skipping Mithril download | from_chunk, required_chunk, target_dir, reason |  |
 
 <details><summary>span: `download`</summary>
@@ -672,15 +672,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `download_chunks`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `tip` | `array` | ✓ |
-| `from_chunk` | `integer` | ✓ |
-
-</details>
-
 <details><summary>span: `ingest_completed`</summary>
 
 | field | type | required |
@@ -688,6 +679,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `processed` | `integer` | ✓ |
 | `duration_seconds` | `number` | ✓ |
 | `processed_per_seconds` | `number` | ✓ |
+
+</details>
+
+<details><summary>span: `recover_chain_tip`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `ledger_tip` | `array` | ✓ |
+| `chain_tip` | `array` | ✓ |
 
 </details>
 
@@ -2306,9 +2306,10 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `download` | `TRACE` | public | Download and unpack immutable files from a Mithril snapshot | target_dir, from_chunk |  |
+| `download` | `TRACE` | public | Download and unpack immutable files from a Mithril snapshot | target_dir, from_chunk, through_chunk |  |
 | `fetch` | `TRACE` | public | Fetch and verify a Mithril snapshot | hash, from_chunk |  |
 | `ready` | `TRACE` | public | Mithril cardano-node database is ready | target_dir |  |
+| `rebuild_cache` | `TRACE` | public | Rebuild an invalid local immutable cache before retrying once | immutable_dir, reason |  |
 | `verify_database` | `TRACE` | public | Verify the local cardano-node database against a Mithril certificate | target_dir |  |
 | `verify_digests` | `TRACE` | public | Download and verify the digests for a Mithril snapshot | target_dir |  |
 
@@ -2318,6 +2319,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `target_dir` | `string` | ✓ |
 | `from_chunk` | `integer` | ✓ |
+| `through_chunk` | `integer` | ✓ |
 
 </details>
 
@@ -2335,6 +2337,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `target_dir` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `rebuild_cache`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `immutable_dir` | `string` | ✓ |
+| `reason` | `string` | ✓ |
 
 </details>
 

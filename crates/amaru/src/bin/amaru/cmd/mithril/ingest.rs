@@ -20,10 +20,10 @@ use std::{
 
 use amaru_consensus::{block_validator::BlockValidator, store::PraosChainStore};
 use amaru_kernel::{
-    Block, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, NetworkName, RawBlock,
+    Block, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, NetworkName, ORIGIN_HASH, Point, RawBlock,
     cardano::network_block::NetworkBlock,
 };
-use amaru_mithril::read_stable_blocks_after_point;
+use amaru_mithril::read_blocks_after_point;
 use amaru_node::stages::{
     build_node::{make_block_validator, make_state},
     config::LedgerConfig,
@@ -41,6 +41,40 @@ fn create_praos_chain_store(
 ) -> PraosChainStore {
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters, era_history));
     PraosChainStore::new(consensus_parameters, chain_store)
+}
+
+fn ensure_tips_aligned(ledger_tip: Point, chain_tip: Point) -> anyhow::Result<()> {
+    if ledger_tip != chain_tip {
+        return Err(anyhow!("ledger tip {ledger_tip} does not match adopted chain tip {chain_tip}"));
+    }
+    Ok(())
+}
+
+fn recover_chain_tip(chain_store: &dyn ChainStore, ledger_tip: Point) -> anyhow::Result<()> {
+    let chain_tip = chain_store.get_best_chain_tip();
+    if ledger_tip == chain_tip {
+        return Ok(());
+    }
+
+    let Some((header, validity)) = chain_store.load_header_with_validity(&ledger_tip.hash()) else {
+        return ensure_tips_aligned(ledger_tip, chain_tip);
+    };
+    let recoverable = header.point() == ledger_tip
+        && validity != Some(false)
+        && header.parent_hash().unwrap_or(ORIGIN_HASH) == chain_tip.hash()
+        && chain_store.get_nonces(&ledger_tip.hash()).is_some();
+    if !recoverable {
+        return ensure_tips_aligned(ledger_tip, chain_tip);
+    }
+
+    info!(cli::mithril::RECOVER_CHAIN_TIP, ledger_tip, chain_tip);
+    adopt_validated_block(chain_store, ledger_tip)
+}
+
+fn adopt_validated_block(chain_store: &dyn ChainStore, point: Point) -> anyhow::Result<()> {
+    chain_store.set_block_valid(&point.hash(), true)?;
+    chain_store.roll_forward_chain(&point)?;
+    ensure_tips_aligned(point, chain_store.get_best_chain_tip())
 }
 
 /// Process blocks as if they were processed by the full node
@@ -89,6 +123,8 @@ async fn process_block(
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?;
 
+    adopt_validated_block(chain_store.as_ref(), point)?;
+
     Ok(())
 }
 
@@ -116,6 +152,7 @@ pub(super) async fn run(
         LedgerConfig { ledger_store: RocksDbConfig::new(ledger_dir), network, ..LedgerConfig::default() };
     let state = make_state(&ledger_config, None, chain_store.clone())?;
     let tip = state.tip().into_owned();
+    recover_chain_tip(chain_store.as_ref(), tip)?;
     let pool_summaries = Arc::new(RwLock::new(state.pool_summaries()));
     let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())?;
     {
@@ -127,7 +164,7 @@ pub(super) async fn run(
 
     let mut processed = 0;
     let before = Instant::now();
-    let blocks = read_stable_blocks_after_point(&immutable_dir, network, tip)?;
+    let blocks = read_blocks_after_point(&immutable_dir, network, tip)?;
 
     for block in blocks {
         let block = block?;
@@ -165,6 +202,7 @@ pub(super) async fn run(
     let duration = Instant::now().saturating_duration_since(before);
     let duration_seconds = duration.as_secs_f64();
     let processed_per_seconds = processed as f64 / duration_seconds;
+    ensure_tips_aligned(block_validator.tip().await, chain_store.get_best_chain_tip())?;
     info!(cli::mithril::INGEST_COMPLETED, processed = processed as u64, duration_seconds, processed_per_seconds);
 
     Ok(())

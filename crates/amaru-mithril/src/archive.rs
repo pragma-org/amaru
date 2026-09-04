@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Utilities for packaging raw cardano-node blocks (read from the immutable store) into
-// batched `.tar.gz` archives for use by the `amaru-ledger mithril` / `amaru-ledger sync`
-// pipeline.
+// Utilities for packaging raw cardano-node blocks into deterministic `.tar.gz` archives.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File},
-    io::{self, Cursor, Write},
+    fs,
+    io::{self, Write},
     path::Path,
 };
 
@@ -40,8 +38,8 @@ fn block_file_name(point: &NetworkPoint) -> String {
     format!("{point}.cbor")
 }
 
-fn build_archive_bytes(blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> io::Result<Vec<u8>> {
-    let encoder = GzBuilder::new().mtime(0).write(Vec::new(), Compression::default());
+fn write_archive(writer: impl Write, blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> io::Result<()> {
+    let encoder = GzBuilder::new().mtime(0).write(writer, Compression::default());
     let mut tar = Builder::new(encoder);
 
     for (point, data) in blocks {
@@ -54,11 +52,12 @@ fn build_archive_bytes(blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> io::Result<
         header.set_gid(0);
         header.set_cksum();
 
-        tar.append_data(&mut header, block_file_name(point), Cursor::new(data))?;
+        tar.append_data(&mut header, block_file_name(point), data.as_slice())?;
     }
 
     let encoder = tar.into_inner()?;
-    encoder.finish()
+    encoder.finish()?;
+    Ok(())
 }
 
 pub fn archive_name_for_blocks(blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> Option<String> {
@@ -68,16 +67,16 @@ pub fn archive_name_for_blocks(blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> Opt
     Some(format!("{first_block}__{last_block}.tar.gz"))
 }
 
-#[allow(clippy::expect_used)]
 pub fn package_blocks(blocks_dir: &Path, blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> io::Result<String> {
-    let compressed = build_archive_bytes(blocks)?;
-
     fs::create_dir_all(blocks_dir)?;
-    let archive_name = archive_name_for_blocks(blocks).expect("blocks map is non-empty here by construction");
+    let archive_name = archive_name_for_blocks(blocks)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "cannot package an empty block set"))?;
     let archive_path = blocks_dir.join(&archive_name);
     let archive_path_str = archive_path.to_string_lossy().into_owned();
-    let mut file = File::create(&archive_path)?;
-    file.write_all(&compressed)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(blocks_dir)?;
+    write_archive(temporary.as_file_mut(), blocks)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(&archive_path).map_err(|error| error.error)?;
 
     Ok(archive_path_str)
 }
@@ -87,11 +86,16 @@ pub fn list_existing_archives(blocks_dir: &Path) -> Result<BTreeSet<String>, io:
         return Ok(BTreeSet::new());
     }
 
-    Ok(fs::read_dir(blocks_dir)?
-        .filter_map(Result::ok)
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| name.ends_with(".tar.gz"))
-        .collect())
+    fs::read_dir(blocks_dir)?.try_fold(BTreeSet::new(), |mut archives, entry| {
+        let entry = entry?;
+        if entry.file_type()?.is_file()
+            && let Ok(name) = entry.file_name().into_string()
+            && name.ends_with(".tar.gz")
+        {
+            archives.insert(name);
+        }
+        Ok(archives)
+    })
 }
 
 fn parse_archive_point(name: &str) -> Option<NetworkPoint> {

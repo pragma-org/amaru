@@ -1341,10 +1341,36 @@
       "description": "Synchronize the cardano-node database from Mithril",
       "public": true
     },
-    "amaru::cli::mithril::DOWNLOAD_CHUNKS": {
+    "amaru::cli::mithril::INGEST_COMPLETED": {
       "type": "object",
       "properties": {
-        "tip": {
+        "processed": {
+          "type": "integer"
+        },
+        "duration_seconds": {
+          "type": "number"
+        },
+        "processed_per_seconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "processed",
+        "duration_seconds",
+        "processed_per_seconds"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ingest_completed",
+      "level": "TRACE",
+      "target": "amaru::cli::mithril",
+      "description": "Finished replaying downloaded blocks into the stores",
+      "public": true
+    },
+    "amaru::cli::mithril::RECOVER_CHAIN_TIP": {
+      "type": "object",
+      "properties": {
+        "ledger_tip": {
           "title": "Point",
           "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
           "oneOf": [
@@ -1374,46 +1400,47 @@
             }
           ]
         },
-        "from_chunk": {
-          "type": "integer"
+        "chain_tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
         }
       },
       "required": [
-        "tip",
-        "from_chunk"
+        "ledger_tip",
+        "chain_tip"
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "download_chunks",
+      "name": "recover_chain_tip",
       "level": "TRACE",
       "target": "amaru::cli::mithril",
-      "description": "Immutable chunks are being fetched from Mithril",
-      "public": true
-    },
-    "amaru::cli::mithril::INGEST_COMPLETED": {
-      "type": "object",
-      "properties": {
-        "processed": {
-          "type": "integer"
-        },
-        "duration_seconds": {
-          "type": "number"
-        },
-        "processed_per_seconds": {
-          "type": "number"
-        }
-      },
-      "required": [
-        "processed",
-        "duration_seconds",
-        "processed_per_seconds"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "ingest_completed",
-      "level": "TRACE",
-      "target": "amaru::cli::mithril",
-      "description": "Finished replaying downloaded blocks into the stores",
+      "description": "Complete chain-store adoption after an interrupted Mithril ledger update",
       "public": true
     },
     "amaru::cli::mithril::SKIP_DOWNLOAD": {
@@ -6310,11 +6337,15 @@
         },
         "from_chunk": {
           "type": "integer"
+        },
+        "through_chunk": {
+          "type": "integer"
         }
       },
       "required": [
         "target_dir",
-        "from_chunk"
+        "from_chunk",
+        "through_chunk"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -6362,6 +6393,28 @@
       "level": "TRACE",
       "target": "amaru::mithril::snapshot",
       "description": "Mithril cardano-node database is ready",
+      "public": true
+    },
+    "amaru::mithril::snapshot::REBUILD_CACHE": {
+      "type": "object",
+      "properties": {
+        "immutable_dir": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "immutable_dir",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "rebuild_cache",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Rebuild an invalid local immutable cache before retrying once",
       "public": true
     },
     "amaru::mithril::snapshot::VERIFY_DATABASE": {
