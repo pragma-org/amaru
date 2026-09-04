@@ -6595,33 +6595,6 @@
       "description": "A protocol handler received invalid input",
       "public": true
     },
-    "amaru::protocols::blockfetch::initiator::PROTOCOL_VIOLATION": {
-      "type": "object",
-      "properties": {
-        "reason": {
-          "type": "string"
-        },
-        "max_blocks": {
-          "type": "integer"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "reason"
-      ],
-      "optional": [
-        "max_blocks",
-        "bytes"
-      ],
-      "additionalProperties": false,
-      "name": "protocol_violation",
-      "level": "TRACE",
-      "target": "amaru::protocols::blockfetch::initiator",
-      "description": "The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}.",
-      "public": true
-    },
     "amaru::protocols::chainsync::initiator::ROLLBACK_POINT_NOT_FOUND": {
       "type": "object",
       "properties": {

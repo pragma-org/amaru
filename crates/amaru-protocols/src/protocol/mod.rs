@@ -28,7 +28,7 @@ pub use check::ProtoSpec;
 pub use miniprotocol::{
     Inputs, Internal, Miniprotocol, Outcome, ProtocolState, Pull, StageState, Timeout, from_wire, miniprotocol, outcome,
 };
-pub(crate) use pipeline::{MuxClient, Pipelined, ToMux, WantNext, pipelined};
+pub(crate) use pipeline::{MuxClient, Pipelined, ToMux, WantNext, drive, pipelined};
 
 /// Input to a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

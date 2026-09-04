@@ -2455,22 +2455,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::protocols::blockfetch::initiator`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `protocol_violation` | `TRACE` | public | The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}. | reason | max_blocks, bytes |
-
-<details><summary>span: `protocol_violation`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `reason` | `string` | ✓ |
-| `max_blocks` | `integer` |  |
-| `bytes` | `integer` |  |
-
-</details>
-
 ## target: `amaru::protocols::chainsync::initiator`
 
 | name | level | public | description | required fields | optional fields |

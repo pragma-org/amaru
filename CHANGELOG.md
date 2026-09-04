@@ -51,6 +51,7 @@ Other guiding principles:
 - **amaru-pure-stage**: opt-in typestate layer over `Effects`. A protocol state exposes a receive constructor that consumes a receive allowance (by input variant, not the stage mailbox type) and returns the remaining legal effects. The next state comes only from `Session::finish` (into a live enum); `Send<Role, T>` names a destination whose mailbox implements `From<T>`.
 - **amaru-pure-stage**: `define_messages!` declares a protocol message enum and generates a struct per variant plus `From` / `FromMailbox` conversions. Extra `#[derive]` on the enum applies to every struct; per-variant attributes apply only to that struct. Manual impls (`Encode`, …) are written after the macro as usual.
 - **amaru-protocols**: pipelined BlockFetch installs the 60s `StBusy` / `StStreaming` agency timeout from the networking blueprint; Idle and Done clear it.
+- **amaru-node**: world tests cover BlockFetch pipeline depth 1 (lock-step) and 2 (pipelined) on a generated chain.
 - **amaru-tui**: the Peers card shows the bootstrap `PeerCandidate` next to a resolved socket address when that name came from a Host or SRV lookup.
 - **amaru**: allow operators to select the OTLP providers constructed at startup with
   `--with-open-telemetry=<SIGNALS>` or `AMARU_WITH_OPEN_TELEMETRY=<SIGNALS>`; it accepts any comma-separated subset of
@@ -61,6 +62,7 @@ Other guiding principles:
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
+- **amaru-protocols**: BlockFetch initiator is only the typestate machine. Pipeline depth is a `NonZeroU8`; `N = 1` drives the lock-step instance and `N > 1` wraps it in the CIP-0164 pipeliner. The old miniprotocol initiator is gone.
 - **amaru-node**: `Telemetry::install` no longer reads `AMARU_OPEN_TELEMETRY_SIGNALS`; embedders that select OTLP signals must pass `TelemetryOptions` to `install_with_options`.
 
 ### Removed

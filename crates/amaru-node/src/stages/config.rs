@@ -16,6 +16,7 @@ use std::{
     collections::BTreeSet,
     fmt::Display,
     net::SocketAddr,
+    num::NonZeroU8,
     path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -77,6 +78,9 @@ pub struct Config {
 
     /// Tx-submission responder parameters (max outstanding tx-id window, fetch batch size, etc...).
     pub tx_submission_responder_params: ResponderParams,
+
+    /// BlockFetch initiator pipeline depth. `1` is the lock-step instance; `N > 1` pipelines.
+    pub blockfetch_pipeline_n: NonZeroU8,
 
     /// Optional embedder observers (adopted blocks, full stake summaries).
     pub observers: amaru_ledger::LedgerObservers,
@@ -155,6 +159,7 @@ impl Default for Config {
             trace_dump_path: None,
             mempool: MempoolConfig::default(),
             tx_submission_responder_params: ResponderParams::default(),
+            blockfetch_pipeline_n: NonZeroU8::MIN,
             observers: amaru_ledger::LedgerObservers::default(),
             meter: None,
             realign_chain_store: true,

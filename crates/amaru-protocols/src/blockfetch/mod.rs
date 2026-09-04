@@ -14,16 +14,12 @@
 
 mod initiator;
 pub(crate) mod messages;
-mod pipelined;
 mod responder;
 
-use amaru_kernel::{NetworkPoint, Peer};
-use amaru_ouroboros::ConnectionId;
+use amaru_kernel::NetworkPoint;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
-// Re-export types
-pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
+pub use initiator::{BLOCKFETCH_PIPELINE_N, BlockFetchMessage, Blocks, register_blockfetch_initiator};
 pub use messages::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
-pub use pipelined::{BLOCKFETCH_PIPELINE_N, register_blockfetch_initiator_pipelined};
 pub use responder::{BlockFetchResponder, StreamBlocks, responder};
 
 use crate::{
@@ -55,10 +51,7 @@ where
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![initiator::register_deserializers(), pipelined::register_deserializers(), responder::register_deserializers()]
-        .into_iter()
-        .flatten()
-        .collect()
+    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -67,30 +60,6 @@ pub enum State {
     Busy,
     Streaming,
     Done,
-}
-
-pub async fn register_blockfetch_initiator<M: amaru_pure_stage::SendData>(
-    muxer: &StageRef<MuxMessage>,
-    peer: Peer,
-    conn_id: ConnectionId,
-    eff: &Effects<M>,
-    tombstone: M,
-) -> StageRef<BlockFetchMessage> {
-    use crate::protocol::PROTO_N2N_BLOCK_FETCH;
-    let blockfetch = eff.stage("blockfetch", initiator()).await;
-    let blockfetch = eff.supervise(blockfetch, tombstone);
-    let blockfetch = eff.wire_up(blockfetch, BlockFetchInitiator::new(muxer.clone(), peer, conn_id)).await;
-    eff.send(
-        muxer,
-        MuxMessage::Register {
-            protocol: PROTO_N2N_BLOCK_FETCH.erase(),
-            frame: Frame::OneCborItem,
-            handler: blockfetch.contramap(Inputs::Network),
-            max_buffer: 2_500_000,
-        },
-    )
-    .await;
-    blockfetch.contramap(Inputs::Local)
 }
 
 pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(

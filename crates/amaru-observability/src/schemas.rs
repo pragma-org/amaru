@@ -2177,27 +2177,6 @@ define_schemas! {
                 }
             }
             blockfetch {
-                initiator {
-                    /// Handle block fetch initiator stage messages
-                    BLOCKFETCH_INITIATOR_STAGE {
-                        required message_type: String
-                    }
-                    /// Handle block fetch initiator protocol messages
-                    BLOCKFETCH_INITIATOR_PROTOCOL {
-                        required message_type: String
-                    }
-                    /// A queued request is dropped because the peer is too slow
-                    DROPPED_SLOW_PEER {
-                        required peer: %amaru_kernel::Peer
-                    }
-                    /// The peer broke the block-fetch protocol and the connection is terminated.
-                    /// Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}.
-                    public PROTOCOL_VIOLATION {
-                        required reason: String
-                        optional max_blocks: usize
-                        optional bytes: usize
-                    }
-                }
                 responder {
                     /// Handle block fetch responder stage messages
                     BLOCKFETCH_RESPONDER_STAGE {

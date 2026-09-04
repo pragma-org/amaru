@@ -15,10 +15,10 @@
 //! CIP-0164 pipelining as a cursor multiplexer over lock-step instances.
 //!
 //! Each instance is a complete mini-protocol machine (including mux sends).
-//! This module only picks which machine sees the next mailbox value, injects
-//! [`Internal::Pull`](super::Internal::Pull) when the recv cursor lands on a
-//! remote-agency instance, and treats a local request while the send cursor is
-//! off the switch state as an error.
+//! [`drive`] runs one instance and injects [`Internal::Pull`](super::Internal::Pull)
+//! when that machine enters remote agency. [`pipelined`] does the same across N
+//! instances with send/recv cursors, and treats a local request while the send
+//! cursor is off the switch state as an error.
 
 use std::{future::Future, num::NonZeroUsize};
 
@@ -105,6 +105,28 @@ impl<S> Pipelined<S> {
     fn put(&mut self, i: usize, machine: S) {
         debug_assert!(self.machines[i].is_none());
         self.machines[i] = Some(machine);
+    }
+}
+
+/// Drive a single lock-step instance: pass each mailbox value to `step`, and
+/// inject [`Internal::Pull`] when the machine enters remote agency.
+pub async fn drive<S, L, F, Fut>(inst: S, mail: Inputs<L>, eff: Effects<Inputs<L>>, step: F) -> S
+where
+    S: OccupancyOf,
+    L: SendData,
+    F: Fn(S, Inputs<L>, Effects<Inputs<L>>) -> Fut,
+    Fut: Future<Output = S>,
+{
+    if matches!(mail, Inputs::Internal(Internal::Pull)) {
+        err("pipeline")("Pull is injected by the pipeline driver, not received from the mailbox").await;
+        return eff.terminate().await;
+    }
+    let before = inst.occupancy();
+    let inst = step(inst, mail, eff.clone()).await;
+    if before.is_switch() && inst.occupancy().is_remote() {
+        step(inst, Inputs::Internal(Internal::Pull), eff).await
+    } else {
+        inst
     }
 }
 
