@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use amaru_kernel::NetworkName;
-use amaru_observability::info;
+use amaru_kernel::{NetworkName, Point};
+use amaru_observability::{info, warn};
 use amaru_progress_bar::ProgressBar;
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -25,6 +29,8 @@ use mithril_client::{
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
 use tokio::sync::Mutex;
+
+use crate::immutable::{chunk_for_slot, validate_immutable_resume_point, validated_download_boundary};
 
 type ProgressFactory = Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>;
 
@@ -108,7 +114,7 @@ fn aggregator_details(network: NetworkName) -> anyhow::Result<AggregatorDetails>
             verification_key: "5b3132372c37332c3132342c3136312c362c3133372c3133312c3231332c3230372c3131372c3139382c38352c3137362c3139392c3136322c3234312c36382c3132332c3131392c3134352c31332c3233322c3234332c34392c3232392c322c3234392c3230352c3230352c33392c3233352c34345d",
         }),
         NetworkName::Preview => Ok(AggregatorDetails {
-            endpoint: "https://aggregator.testing-preview.api.mithril.network/aggregator",
+            endpoint: "https://aggregator.pre-release-preview.api.mithril.network/aggregator",
             verification_key: "5b3132372c37332c3132342c3136312c362c3133372c3133312c3231332c3230372c3131372c3139382c38352c3137362c3139392c3136322c3234312c36382c3132332c3131392c3134352c31332c3233322c3234332c34392c3232392c322c3234392c3230352c3230352c33392c3233352c34345d",
         }),
         NetworkName::Testnet(_) => Err(anyhow!("Mithril is only supported on mainnet, preprod and preview")),
@@ -121,6 +127,16 @@ pub async fn download_from_mithril(
     from_chunk: u64,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> anyhow::Result<()> {
+    download_from_mithril_with_resume_chunk(network, target_dir, from_chunk, None, with_progress).await
+}
+
+async fn download_from_mithril_with_resume_chunk(
+    network: NetworkName,
+    target_dir: PathBuf,
+    from_chunk: u64,
+    resume_chunk: Option<u64>,
+    with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+) -> anyhow::Result<()> {
     let AggregatorDetails { endpoint, verification_key } = aggregator_details(network)?;
     let client = ClientBuilder::new(mithril_client::AggregatorDiscoveryType::Url(endpoint.to_string()))
         .set_genesis_verification_key(GenesisVerificationKey::JsonHex(verification_key.into()))
@@ -129,8 +145,10 @@ pub async fn download_from_mithril(
         .build()?;
     let database_client = client.cardano_database_v2();
     let snapshots = database_client.list().await?;
-    let snapshot_list_item =
-        snapshots.first().ok_or_else(|| anyhow::anyhow!("no Mithril cardano-db snapshot found"))?;
+    let snapshot_list_item = snapshots
+        .into_iter()
+        .max_by(|left, right| left.beacon.cmp(&right.beacon))
+        .ok_or_else(|| anyhow::anyhow!("no Mithril cardano-db snapshot found"))?;
 
     info!(mithril::snapshot::FETCH, hash = snapshot_list_item.hash, from_chunk);
 
@@ -139,17 +157,18 @@ pub async fn download_from_mithril(
     fetch_progress.clear();
     let snapshot =
         snapshot?.ok_or_else(|| anyhow::anyhow!("Mithril snapshot not found: {}", snapshot_list_item.hash))?;
+    let through_chunk = snapshot.beacon.immutable_file_number;
+    validate_snapshot_range(from_chunk, resume_chunk, through_chunk)?;
     let certificate = client.certificate().verify_chain(&snapshot.certificate_hash).await?;
 
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
     let download_unpack_options =
         DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
-    info!(mithril::snapshot::DOWNLOAD, target_dir = target_dir.display().to_string(), from_chunk);
+    info!(mithril::snapshot::DOWNLOAD, target_dir = target_dir.display().to_string(), from_chunk, through_chunk);
     database_client.download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options).await?;
 
     info!(mithril::snapshot::VERIFY_DIGESTS, target_dir = target_dir.display().to_string());
     let verified_digests = client.cardano_database_v2().download_and_verify_digests(&certificate, &snapshot).await?;
-    let through_chunk = snapshot.beacon.immutable_file_number;
     let immutable_file_count = immutable_file_range.length(through_chunk) * 3;
     info!(mithril::snapshot::VERIFY_DATABASE, target_dir = target_dir.display().to_string());
     let verification_template = format!(
@@ -171,4 +190,78 @@ pub async fn download_from_mithril(
     info!(mithril::snapshot::READY, target_dir = target_dir.display().to_string());
 
     Ok(())
+}
+
+fn validate_snapshot_range(from_chunk: u64, resume_chunk: Option<u64>, through_chunk: u64) -> anyhow::Result<()> {
+    if let Some(resume_chunk) = resume_chunk
+        && resume_chunk > through_chunk
+    {
+        return Err(anyhow::anyhow!(
+            "latest Mithril snapshot ends at immutable chunk {through_chunk}, before ledger tip chunk {resume_chunk}"
+        ));
+    }
+    if from_chunk > through_chunk {
+        return Err(anyhow::anyhow!(
+            "latest Mithril snapshot ends at immutable chunk {through_chunk}, before requested chunk {from_chunk}"
+        ));
+    }
+    Ok(())
+}
+
+/// Downloads a Mithril snapshot for resuming from `resume_point`.
+///
+/// The selected range is bounded by both the validated cache tail and the resume point. If local
+/// immutable validation fails, only the disposable `immutable` directory is rebuilt, at most once.
+pub async fn download_from_mithril_for_resume_point(
+    network: NetworkName,
+    target_dir: PathBuf,
+    resume_point: Point,
+    with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+) -> anyhow::Result<PathBuf> {
+    let immutable_dir = target_dir.join("immutable");
+    let resume_chunk = chunk_for_slot(network, resume_point.slot_or_default().into())?;
+    let mut rebuilt = false;
+
+    loop {
+        let from_chunk = match validated_download_boundary(&immutable_dir, network, resume_point) {
+            Ok(from_chunk) => from_chunk,
+            Err(error) if !rebuilt => {
+                rebuild_immutable_cache(&immutable_dir, &error)?;
+                rebuilt = true;
+                continue;
+            }
+            Err(error) => return Err(error.context("immutable cache validation failed after rebuild")),
+        };
+
+        download_from_mithril_with_resume_chunk(
+            network,
+            target_dir.clone(),
+            from_chunk,
+            Some(resume_chunk),
+            with_progress.clone(),
+        )
+        .await?;
+
+        match validate_immutable_resume_point(&immutable_dir, network, resume_point) {
+            Ok(()) => return Ok(immutable_dir),
+            Err(error) if !rebuilt => {
+                rebuild_immutable_cache(&immutable_dir, &error)?;
+                rebuilt = true;
+            }
+            Err(error) => return Err(error.context("immutable cache validation failed after rebuild")),
+        }
+    }
+}
+
+fn rebuild_immutable_cache(immutable_dir: &Path, reason: &anyhow::Error) -> anyhow::Result<()> {
+    warn!(
+        mithril::snapshot::REBUILD_CACHE,
+        immutable_dir = immutable_dir.display().to_string(),
+        reason = reason.to_string()
+    );
+    match fs::remove_dir_all(immutable_dir) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
