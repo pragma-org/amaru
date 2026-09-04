@@ -22,6 +22,7 @@ async-trait.workspace = true
 flate2.workspace = true
 mithril-client.workspace = true
 tar.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
@@ -38,6 +39,3 @@ rustdoc-args = ["-D", "warnings"]
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]
-
-[dev-dependencies]
-tempfile.workspace = true
