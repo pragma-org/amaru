@@ -102,7 +102,7 @@ cargo build --release
 
 1. _(First time)_ Bootstrap the node:
 
-```bash
+```console
 amaru node bootstrap --network=mainnet
 ```
 
