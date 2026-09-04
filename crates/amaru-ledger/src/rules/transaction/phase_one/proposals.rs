@@ -287,8 +287,8 @@ fn check_guardrails_script_hash(
 }
 
 fn ppu_well_formed(ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {
-    fn reject_zero(field: Option<u64>, field_name: &str) -> Result<(), InvalidProposals> {
-        if field == Some(0) {
+    fn reject_zero(field: Option<impl Into<u64>>, field_name: &str) -> Result<(), InvalidProposals> {
+        if field.is_some_and(|value| value.into() == 0u64) {
             return Err(InvalidProposals::MalformedProposal { reason: format!("{field_name} cannot be 0") });
         }
         Ok(())

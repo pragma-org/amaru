@@ -23,6 +23,10 @@ ERA="conway"
 # How many samples generated as negatives turned out to satisfy the schema anyway.
 RELABELLED=0
 
+# Matches the meta.json of a fixture this script owns. Anything else (on-chain samples,
+# handcrafted cases) is curated by hand: never wiped, never re-labelled.
+GENERATED_SOURCE='"source":"(cuddle|antigen)"'
+
 # The file actually handed to cuddle: the upstream grammar with the local overrides applied.
 CDDL_FILE="$TOOL_DIR/conway.effective.cddl"
 
@@ -215,10 +219,8 @@ run() {
 }
 
 # Wipe previously-generated cuddle/antigen fixtures so the script produces a
-# deterministic snapshot rather than accumulating history across runs. On-chain
-# fixtures (no `source` field in meta.json, or `"source": "on-chain"`) are left
-# alone — only directories whose meta.json explicitly identifies a cuddle- or
-# antigen-generated origin are removed.
+# deterministic snapshot rather than accumulating history across runs. Curated
+# fixtures (see GENERATED_SOURCE) are left alone.
 wipe_generated() {
   local wiped=0
   while IFS= read -r meta; do
@@ -227,7 +229,7 @@ wipe_generated() {
     rm -rf "$dir"
     wiped=$((wiped + 1))
   done < <(/usr/bin/find "$OUT_DIR" -name meta.json -print0 |
-    xargs -0 grep -l -E '"source":"(cuddle|antigen)"' 2>/dev/null)
+    xargs -0 grep -l -E "$GENERATED_SOURCE" 2>/dev/null)
   echo "==> Wiped $wiped previously-generated fixture(s)"
 }
 
@@ -242,12 +244,15 @@ if [ "$RELABELLED" -gt 0 ]; then
   echo "==> $RELABELLED sample(s) generated as negatives still satisfy the schema; labelled well_formed"
 fi
 
-# Reconcile each fixture's `known_amaru_divergence` flag with amaru's current
-# behavior:
+# Reconcile each generated fixture's `known_amaru_divergence` flag with amaru's
+# current behavior:
 #   - if amaru disagrees with `well_formed`, add the flag (new divergence),
 #   - if the flag is set but amaru now agrees with `well_formed`, drop the flag
 #     (a previously-tracked divergence has been fixed upstream and the flag is
 #     now stale).
+#
+# Curated fixtures are never re-labelled: each one pins a behaviour on purpose, so a
+# failure there is a regression (or a mislabelled fixture) and aborts the run.
 annotate_divergences() {
   local log
   log="$(mktemp)"
@@ -261,6 +266,7 @@ annotate_divergences() {
     return 0
   fi
   local added=0 cleared=0
+  local curated=()
   while IFS= read -r line; do
     # Walker failure lines look like: "  - /<fixture-dir>: <reason>"
     local rest="${line#*- }"
@@ -268,6 +274,10 @@ annotate_divergences() {
     local reason="${rest#*: }"
     local meta="$dir/meta.json"
     [ -f "$meta" ] || continue
+    if ! grep -q -E "$GENERATED_SOURCE" "$meta"; then
+      curated+=("${dir#"$OUT_DIR"/}: $reason")
+      continue
+    fi
     if [[ "$reason" == "stale known_amaru_divergence flag"* ]]; then
       python3 - "$meta" <<'PY'
 import json, sys
@@ -295,6 +305,11 @@ PY
   done < <(grep -E '^  - /[^ :]+/cbor.decode/[^ :]+: ' "$log")
   rm "$log"
   echo "  added $added flag(s), cleared $cleared stale flag(s)"
+  if [ "${#curated[@]}" -gt 0 ]; then
+    echo "error: ${#curated[@]} curated fixture(s) failed and will not be re-labelled:" >&2
+    printf '  - %s\n' "${curated[@]}" >&2
+    exit 1
+  fi
   return 1
 }
 
