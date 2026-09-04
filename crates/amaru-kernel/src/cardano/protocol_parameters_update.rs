@@ -31,7 +31,7 @@ pub struct ProtocolParamUpdate {
     #[n(3)]
     pub max_transaction_size: Option<u64>,
     #[n(4)]
-    pub max_block_header_size: Option<u64>,
+    pub max_block_header_size: Option<u16>,
     #[n(5)]
     pub key_deposit: Option<Lovelace>,
     #[n(6)]
@@ -39,7 +39,7 @@ pub struct ProtocolParamUpdate {
     #[n(7)]
     pub maximum_epoch: Option<u64>,
     #[n(8)]
-    pub desired_number_of_stake_pools: Option<u64>,
+    pub desired_number_of_stake_pools: Option<u16>,
     #[n(9)]
     pub pool_pledge_influence: Option<RationalNumber>,
     #[n(10)]
@@ -61,15 +61,15 @@ pub struct ProtocolParamUpdate {
     #[n(22)]
     pub max_value_size: Option<u64>,
     #[n(23)]
-    pub collateral_percentage: Option<u64>,
+    pub collateral_percentage: Option<u16>,
     #[n(24)]
-    pub max_collateral_inputs: Option<u64>,
+    pub max_collateral_inputs: Option<u16>,
     #[n(25)]
     pub pool_voting_thresholds: Option<PoolVotingThresholds>,
     #[n(26)]
     pub drep_voting_thresholds: Option<DRepVotingThresholds>,
     #[n(27)]
-    pub min_committee_size: Option<u64>,
+    pub min_committee_size: Option<u16>,
     #[n(28)]
     pub committee_term_limit: Option<u64>,
     #[n(29)]

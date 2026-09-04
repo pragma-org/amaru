@@ -1,0 +1,1 @@
+{"well_formed":true,"era":"conway","kind":"transaction_body","description":"proposal procedures with a parameter change setting max block header size, desired number of stake pools, collateral percentage, max collateral inputs and min committee size to 65535","source":"handcrafted","exact_re_encoding":true}
