@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use amaru_kernel::{CompactMap, CompactSet};
 
 use crate::state::volatile::Existence;
 
@@ -21,26 +21,24 @@ use crate::state::volatile::Existence;
 ///
 /// Concretely, we use this to track changes to apply to the UTxO set across a block, coming from
 /// the processing of each transaction in sequence.
+///
+/// `PRODUCED` and `CONSUMED` are the promotion thresholds of the backing compact collections; the
+/// defaults promote immediately, behaving like plain B-trees.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffSet<K: Ord, V> {
+pub struct DiffSet<K: Ord, V, const PRODUCED: usize = 0, const CONSUMED: usize = 0> {
     /// Keys consumed by this diff.
-    pub consumed: BTreeSet<K>,
+    pub consumed: CompactSet<K, CONSUMED>,
     /// Keys produced by this diff together with their resulting values.
-    pub produced: BTreeMap<K, V>,
+    pub produced: CompactMap<K, V, PRODUCED>,
 }
 
-impl<K: Ord, V> Default for DiffSet<K, V> {
+impl<K: Ord, V, const PRODUCED: usize, const CONSUMED: usize> Default for DiffSet<K, V, PRODUCED, CONSUMED> {
     fn default() -> Self {
         Self { consumed: Default::default(), produced: Default::default() }
     }
 }
 
-impl<K: Ord, V> DiffSet<K, V> {
-    /// Borrow all keys and values in this diff.
-    pub fn as_refs(&self) -> DiffSet<&K, &V> {
-        DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
-    }
-
+impl<K: Ord, V, const PRODUCED: usize, const CONSUMED: usize> DiffSet<K, V, PRODUCED, CONSUMED> {
     /// Lookup the state associated to a key, if any. Returns `Existence::Unknown` if the state
     /// cannot be determined from the available data.
     pub fn get<'a>(&'a self, k: &K) -> Existence<&'a V> {
@@ -65,7 +63,7 @@ impl<K: Ord, V> DiffSet<K, V> {
     }
 
     /// Merge another diff into this one, assuming `other` happened later.
-    pub fn extend(&mut self, other: &DiffSet<K, V>)
+    pub fn extend<const P: usize, const C: usize>(&mut self, other: &DiffSet<K, V, P, C>)
     where
         // TODO: lower requirement to 'Copy' for DiffSet keys
         //
@@ -91,7 +89,7 @@ impl<K: Ord, V> DiffSet<K, V> {
     /// An important consideration is also that this function's goal is not to exactly revert a
     /// `DiffSet`, but rather, to cleanup memory as much as we can in a cheap way; this ensures
     /// that one can use a `DiffSet` as a cache, while keeping the memory under control.
-    pub fn remove(&mut self, other: &DiffSet<K, V>) {
+    pub fn remove<const P: usize, const C: usize>(&mut self, other: &DiffSet<K, V, P, C>) {
         for k in other.produced.keys() {
             self.produced.remove(k);
         }
@@ -122,8 +120,8 @@ mod tests {
         ) -> DiffSet<u8, u8> {
             produced.retain(|k, _| !consumed.contains(k));
             DiffSet {
-                produced,
-                consumed,
+                produced: produced.into_iter().collect(),
+                consumed: consumed.into_iter().collect(),
             }
         }
     }
@@ -144,8 +142,12 @@ mod tests {
             //
             // - We cannot produce an item produced or consumed before
             // - We cannot consume an item twice
-            diff.produced.retain(|k, _| !st.produced.contains_key(k) && !st.consumed.contains(k));
-            diff.consumed.retain(|k| !st.consumed.contains(k));
+            diff.produced = std::mem::take(&mut diff.produced)
+                .into_iter()
+                .filter(|(k, _)| !st.produced.contains_key(k) && !st.consumed.contains(k))
+                .collect();
+            diff.consumed =
+                std::mem::take(&mut diff.consumed).into_iter().filter(|k| !st.consumed.contains(k)).collect();
 
             st.extend(&diff);
 
@@ -183,7 +185,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_composition(
-            st0 in any_diff_set().prop_map(|st| st.produced),
+            st0 in any_diff_set().prop_map(|st| st.produced.into_iter().collect::<BTreeMap<_, _>>()),
             diffs in prop::collection::vec(any_diff_set(), 1..5),
         ) {
             // NOTE: The order in which we apply transformation here doesn't matter, because we

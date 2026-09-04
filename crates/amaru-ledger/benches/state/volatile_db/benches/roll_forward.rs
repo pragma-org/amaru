@@ -14,7 +14,6 @@
 
 use std::fmt;
 
-use amaru_kernel::utils::memory;
 use amaru_ledger::state::volatile::VolatileSequence;
 use divan::Bencher;
 use rand::{SeedableRng, rngs::StdRng};
@@ -44,7 +43,7 @@ impl RollForward {
 
     pub fn run(self, bencher: Bencher<'_, '_>) -> i64 {
         let mut rng = StdRng::seed_from_u64(self.scenario.seed());
-        let (db, rss) = memory::rss_delta(|| self.scenario.new_volatile_db(&mut rng, &self.scale));
+        let (db, retained_bytes) = crate::retained_bytes(|| self.scenario.new_volatile_db(&mut rng, &self.scale));
         let fragment = self.scenario.new_fragment(&mut rng, &self.scale);
 
         bencher.with_inputs(|| (db.clone(), fragment.clone())).bench_local_values(|(mut db, next)| {
@@ -52,6 +51,6 @@ impl RollForward {
             db.push_back(next);
         });
 
-        rss
+        retained_bytes
     }
 }
