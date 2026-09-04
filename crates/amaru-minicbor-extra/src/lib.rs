@@ -57,11 +57,14 @@ pub fn from_cbor_no_leftovers_with<C, T: for<'d> cbor::Decode<'d, C>>(
 
 /// Decode a tagged value, expecting the given tag. For a lenient version, see allow_tag.
 pub fn expect_tag(d: &mut cbor::Decoder<'_>, expected: impl Into<Tag>) -> Result<(), cbor::decode::Error> {
+    let position = d.position();
     let tag: Tag = d.tag()?;
     let expected: Tag = expected.into();
 
     if tag != expected {
-        return Err(cbor::decode::Error::message(format!("invalid CBOR tag: got {tag}, expected {expected}")));
+        return Err(
+            cbor::decode::Error::message(format!("invalid CBOR tag: got {tag}, expected {expected}")).at(position)
+        );
     };
 
     Ok(())
@@ -69,9 +72,12 @@ pub fn expect_tag(d: &mut cbor::Decoder<'_>, expected: impl Into<Tag>) -> Result
 
 pub fn allow_tag(d: &mut cbor::Decoder<'_>, expected: Tag) -> Result<(), cbor::decode::Error> {
     if d.datatype()? == cbor::data::Type::Tag {
+        let position = d.position();
         let tag = d.tag()?;
         if tag != expected {
-            return Err(cbor::decode::Error::message(format!("invalid CBOR tag: expected {expected} got {tag}")));
+            return Err(
+                cbor::decode::Error::message(format!("invalid CBOR tag: got {tag}, expected {expected}")).at(position)
+            );
         }
     }
 
