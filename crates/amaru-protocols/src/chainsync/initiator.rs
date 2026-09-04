@@ -189,7 +189,7 @@ async fn intersect_points(eff: &Effects<Inputs<InitiatorMessage>>) -> anyhow::Re
     let span = debug_span!(protocols::chainsync::initiator::INTERSECT_POINTS);
     async {
         let points = eff.external(StoreEffect::sample_ancestor_points()).await?;
-        debug_record!(protocols::chainsync::initiator::INTERSECT_POINTS, points = format!("{points:?}"));
+        debug_record!(protocols::chainsync::initiator::INTERSECT_POINTS, points = points.as_slice());
         Ok(points)
     }
     .instrument(span)

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{Instrument, TraceContext, debug_span, error, info};
@@ -98,7 +98,7 @@ impl LocalUse {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
             Self::Maintenance => "maintenance",
@@ -146,6 +146,12 @@ pub enum ChildId {
     PeerSharing,
     /// Any eager responder instance. Death is always unexpected (reset in place, do not stop).
     Responder,
+}
+
+impl fmt::Display for ChildId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self, f)
+    }
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -220,7 +226,7 @@ pub async fn stage(
                     protocols::connection::CHILD_STOPPED,
                     peer = &params.peer,
                     conn_id = conn_id.as_u64(),
-                    child = format!("{child:?}")
+                    child = child.to_string()
                 );
                 State::Established(on_expected_stop(s, child, &params, &eff).await)
             }
@@ -229,7 +235,7 @@ pub async fn stage(
                     protocols::connection::CHILD_DIED,
                     peer = &params.peer,
                     conn_id = conn_id.as_u64(),
-                    child = format!("{child:?}")
+                    child = child.to_string()
                 );
                 return teardown(state, &params, &eff).await;
             }

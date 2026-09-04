@@ -2177,7 +2177,7 @@ define_schemas! {
                     }
                     /// Sample stored points to propose as chain intersections
                     INTERSECT_POINTS {
-                        optional points: String
+                        optional points: Option<&[amaru_kernel::Point]>
                     }
                     /// A rollback target announced by the peer is not in the chain store
                     public ROLLBACK_POINT_NOT_FOUND {

@@ -15,6 +15,7 @@
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map::Entry},
+    fmt::{self, Display},
     net::SocketAddr,
     time::Duration,
 };
@@ -157,7 +158,8 @@ fn churn_interval(seed: [u8; 32]) -> Duration {
 ///   - `Inbound`: If `inbound_peers.len() >= target_downstream_peers`, logs
 ///     `peer_selection.peer.add_skipped` with `reason="too_many_inbound"`, sends `ManagerMessage::Disconnect`,
 ///     and returns early (no insert). Otherwise inserts (or replaces a prior
-///     connection for the same peer, sending `Disconnect` for the old one).
+///     connection for the same peer, sending `Disconnect` for the old one),
+///     then `regulate_peers` so a duplex inbound can be promoted to Using.
 ///   - `Outbound`: Inserts/updates as `PeerState::Connected(conn)`. If replacing
 ///     a prior `Connected` state, warns and sends `Disconnect` for the old conn.
 ///     Sends `SetLocalUse(Diffusion)` so fetch/share follow actual local use.
@@ -293,8 +295,6 @@ impl PartialEq for PeerSelection {
             && self.share_request_initial_delay == other.share_request_initial_delay
             && self.share_request_interval == other.share_request_interval
             && self.demoted_until == other.demoted_until
-            && self.share_request_initial_delay == other.share_request_initial_delay
-            && self.share_request_interval == other.share_request_interval
         // share_reply and churn_timer intentionally omitted
     }
 }
@@ -321,6 +321,19 @@ impl Connection {
     pub fn with_local_use(mut self, local_use: LocalUse) -> Self {
         self.local_use = local_use;
         self
+    }
+}
+
+impl Display for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Connection(id={}, duplex={}/{}, use={})",
+            self.id.as_u64(),
+            self.full_duplex_capable,
+            self.full_duplex,
+            self.local_use.as_str()
+        )
     }
 }
 
@@ -429,7 +442,7 @@ impl PeerSelection {
                 protocols::peer_selection::peer::REMOVED,
                 peer,
                 direction = "inbound",
-                peer_state = format!("{peer_state:?}"),
+                peer_state = peer_state.to_string(),
                 is_static
             );
             send_remove = true;
@@ -906,7 +919,10 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 );
                 drop(span);
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, conn.id)).await;
+            } else {
+                drop(span);
             }
+            state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Outbound, advertisable) => {
             let now = eff.clock().await;
