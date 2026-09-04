@@ -25,7 +25,7 @@ use crate::{
     protocol::{ProtoSpec, ProtocolState, RoleT},
     protocol_messages::{
         handshake::{HandshakeResult, RefuseReason},
-        version_data::{PEER_SHARING_DISABLED, VersionData},
+        version_data::{PeerSharing, VersionData},
         version_number::VersionNumber,
         version_table::VersionTable,
     },
@@ -101,7 +101,7 @@ where
     let accept = || {
         Message::Accept(
             VersionNumber::V14,
-            VersionData::new(NetworkMagic::MAINNET, false, PEER_SHARING_DISABLED, false),
+            VersionData::new(NetworkMagic::MAINNET, false, PeerSharing::Disabled, false),
         )
     };
     let refuse = || Message::Refuse(RefuseReason::VersionMismatch(vec![VersionNumber::V14]));
@@ -121,15 +121,8 @@ mod negotiation_tests {
     use amaru_kernel::{NetworkMagic, cbor};
 
     use super::*;
-    use crate::protocol_messages::version_data::PEER_SHARING_ENABLED;
-
     fn data(magic: NetworkMagic, initiator_only: bool, sharing: bool, query: bool) -> VersionData {
-        VersionData::new(
-            magic,
-            initiator_only,
-            if sharing { PEER_SHARING_ENABLED } else { PEER_SHARING_DISABLED },
-            query,
-        )
+        VersionData::new(magic, initiator_only, sharing.into(), query)
     }
 
     fn table(entries: &[(u64, VersionData)]) -> VersionTable<VersionData> {

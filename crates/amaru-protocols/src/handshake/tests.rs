@@ -33,7 +33,7 @@ use crate::{
     network_effects::create_connection,
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
-        version_data::{PEER_SHARING_DISABLED, VersionData},
+        version_data::{PeerSharing, VersionData},
         version_number::VersionNumber,
         version_table::VersionTable,
     },
@@ -103,7 +103,7 @@ fn test_against_node() {
         result,
         handshake::HandshakeResult::Accepted(
             VersionNumber::V14,
-            VersionData::new(network_magic, true, PEER_SHARING_DISABLED, false),
+            VersionData::new(network_magic, true, PeerSharing::Disabled, false),
         )
     );
 }
@@ -166,7 +166,7 @@ fn test_against_node_with_tokio() {
         result,
         handshake::HandshakeResult::Accepted(
             VersionNumber::V14,
-            VersionData::new(NetworkMagic::MAINNET, true, PEER_SHARING_DISABLED, false),
+            VersionData::new(NetworkMagic::MAINNET, true, PeerSharing::Disabled, false),
         )
     );
 
