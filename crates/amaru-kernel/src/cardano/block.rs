@@ -195,19 +195,22 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
 
             let (transaction_witnesses, transaction_witnesses_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let (auxiliary_data, auxiliary_data_bytes) =
-                // FIXME(cbor): duplicate keys in aux data top-level map?
-                //
-                // We must double-check and confirm (i.e. have tests for) the behaviour of the
-                // decoder regarding duplicate keys: if allowed, should they overwrite a previously
-                // decoded value or give precedence to the first value decoded? If not allowed,
-                // we should loudly fail.
-                //
-                // See #866.
-                cbor::tee(d, |d| cbor::heterogeneous_map(d, BTreeMap::new(), |d| d.u16(), |d, st, field| {
-                    st.insert(field, d.decode_with(ctx)?);
-                    Ok(())
-                }))?;
+            let (auxiliary_data, auxiliary_data_bytes) = cbor::tee(d, |d| {
+                cbor::heterogeneous_map(
+                    d,
+                    BTreeMap::new(),
+                    |d| d.u16(),
+                    |d, st, field| {
+                        if st.contains_key(&field) {
+                            return Err(cbor::decode::Error::message(format!(
+                                "duplicate auxiliary data entry with transaction index {field}"
+                            )));
+                        }
+                        st.insert(field, d.decode_with(ctx)?);
+                        Ok(())
+                    },
+                )
+            })?;
 
             let (invalid_transactions, invalid_transactions_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
