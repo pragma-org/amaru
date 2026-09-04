@@ -14,8 +14,9 @@
 
 //! Phantom tags that appear in a remainder list. No runtime data; [`Effect::fmt`]
 //! is for diagnostics. [`Repeat<E>`] is Kleene star (use does not consume it).
-//! [`SendAny<R>`] is “any mailbox payload to role `R`.” Other variants (`Call`,
-//! `Clock`, …) are reserved and not selected by [`Session`](super::Session) yet.
+//! [`SendAny<R>`] is “any mailbox payload to role `R`.” [`Call<R, T>`] is a
+//! request/response to role `R`. Other variants (`Clock`, …) are reserved and
+//! not selected by [`Session`](super::Session) yet.
 
 use std::{any::type_name, fmt, marker::PhantomData};
 
@@ -66,10 +67,14 @@ impl<T> Effect for Receive<T> {
     }
 }
 
-pub struct Call<T>(PhantomData<T>);
-impl<T> Effect for Call<T> {
+/// Call role `R` with payload `T` and wait for the reply (or timeout).
+///
+/// `R` wraps a [`StageRef`](crate::StageRef). The reply type is
+/// [`IntoRoleCall::Reply`](super::IntoRoleCall).
+pub struct Call<R, T>(PhantomData<(R, T)>);
+impl<R, T> Effect for Call<R, T> {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Call<{}>", type_name::<T>())
+        write!(f, "Call<{}, {}>", type_name::<R>(), type_name::<T>())
     }
 }
 

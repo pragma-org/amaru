@@ -17,7 +17,7 @@
 
 use super::{
     Cons, FmtPar, Here, Nil, OnReceive, Select, Then,
-    effect::{ClearTimeout, Repeat, Send, SendAny, SetTimeout},
+    effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout},
     list::{CanFinish, Clean, DiscardRepeat, describe},
     session::describe_receive,
 };
@@ -106,6 +106,14 @@ fn select_picks_first_matching_head() {
     type Rem = Cons<Left, Cons<Then<Cons<Cons<Send<toy::Peer, String>, Nil>, Nil>, toy::Done>, Nil>>;
 
     assert_after::<Rem, Send<toy::Peer, u8>, Cons<Then<Nil, toy::Idle>, Nil>, _>();
+}
+
+#[test]
+fn select_call_is_required_before_finish() {
+    type Rem = Cons<Then<Cons<Cons<Call<toy::Peer, u8>, Nil>, Nil>, toy::Done>, Nil>;
+    fn assert_selects<R: Select<Call<toy::Peer, u8>, I>, I>() {}
+    assert_selects::<Rem, _>();
+    assert_eq!(describe::<Rem>(), format!("Call<{}, u8> => Done", std::any::type_name::<toy::Peer>()));
 }
 
 #[test]

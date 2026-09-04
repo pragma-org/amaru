@@ -18,7 +18,7 @@
 use std::{sync::OnceLock, time::Duration};
 
 use amaru_pure_stage::{
-    Effects, StageGraph,
+    Effects, StageGraph, StageRef,
     simulation::{Run, SimulationBuilder},
     typestate::prelude::*,
 };
@@ -244,4 +244,86 @@ fn clear_timeout_prevents_the_message() {
     running.run(Run::skip_wakeups()).assert_idle();
     assert!(matches!(running.get_state(&stage), Some(Watch::Stopped(_))));
     assert!(!running.skip_to_next_wakeup(None));
+}
+
+make_states!(Rpc { Asking; Answered });
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum EchoMail {
+    Ask(u32, StageRef<u32>),
+}
+
+define_role_tag!(ToEcho);
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct EchoDest(StageRef<EchoMail>);
+
+impl EchoDest {
+    fn new(stage: StageRef<EchoMail>) -> Self {
+        Self(stage)
+    }
+}
+
+impl Role<ToEcho> for EchoDest {
+    type Mailbox = EchoMail;
+
+    fn mailbox(&self) -> &StageRef<EchoMail> {
+        &self.0
+    }
+}
+
+impl IntoRoleCall<ToEcho, u32> for EchoDest {
+    type Reply = u32;
+    const TIMEOUT: Duration = Duration::from_secs(1);
+
+    fn encode(&self, n: u32, reply: StageRef<u32>) -> EchoMail {
+        EchoMail::Ask(n, reply)
+    }
+}
+
+on_receive!(Asking as AskingIn {
+    Ping => { Call<ToEcho, u32> => Answered }
+});
+on_receive!(Answered as AnsweredIn {});
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct RpcServer {
+    live: Rpc,
+    echo: EchoDest,
+    got: Option<u32>,
+}
+
+#[test]
+fn call_waits_for_the_reply() {
+    let mut network = SimulationBuilder::default();
+    let echo = network.stage("echo", async |_: (), msg: EchoMail, eff: Effects<EchoMail>| {
+        let EchoMail::Ask(n, reply) = msg;
+        eff.send(&reply, n * 2).await;
+    });
+    let server = network.stage("rpc", async |state: RpcServer, msg: In, eff: Effects<In>| match state.live {
+        Rpc::Asking(asking) => match asking.convert_input(msg) {
+            Ok(AskingIn::Ping(ping)) => {
+                let n = ping.0;
+                let (reply, s) = asking.receive(ping, eff).call(&state.echo, n).await;
+                RpcServer { live: s.finish().into(), got: reply, echo: state.echo }
+            }
+            Err(_msg) => RpcServer { live: asking.into(), ..state },
+        },
+        Rpc::Answered(answered) => match answered.convert_input::<AnsweredIn, _>(msg) {
+            Ok(never) => match never {},
+            Err(_msg) => RpcServer { live: answered.into(), ..state },
+        },
+    });
+    let echo_ref = echo.sender();
+    let _echo = network.wire_up(echo, ());
+    let server = network.wire_up(
+        server,
+        RpcServer { live: initial_state::<Asking>().into(), echo: EchoDest::new(echo_ref), got: None },
+    );
+    network.preload(&server, [Ping(7).into()]).unwrap();
+    let mut running = network.run(test_runtime());
+    running.run(Run::skip_wakeups()).assert_idle();
+    let state = running.get_state(&server).unwrap();
+    assert_eq!(state.got, Some(14));
+    assert!(matches!(state.live, Rpc::Answered(_)));
 }

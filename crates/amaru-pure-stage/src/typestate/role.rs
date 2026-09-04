@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Destination of a protocol send, split so the remainder need not name the mailbox.
+//! Destination of a protocol send or call, split so the remainder need not name the mailbox.
 //!
-//! [`RoleTag`] is the phantom in [`Send<Tag, T>`](super::Send) / [`SendAny<Tag>`](super::SendAny).
-//! [`Role<Tag>`] is a [`StageRef`] wrapper; `Mailbox: From<T>` at the call site.
+//! [`RoleTag`] is the phantom in [`Send<Tag, T>`](super::Send) / [`SendAny<Tag>`](super::SendAny)
+//! / [`Call<Tag, T>`](super::Call). [`Role<Tag>`] is a [`StageRef`] wrapper;
+//! `Mailbox: From<T>` at the send site. [`IntoRoleCall`] injects the reply slot.
 //! Receive has no role (one mailbox, uniquely named cases).
+
+use std::time::Duration;
+
+use serde::de::DeserializeOwned;
 
 use crate::{SendData, StageRef};
 
@@ -53,4 +58,15 @@ where
         let _ = self;
         From::from(msg)
     }
+}
+
+/// Convert a remainder payload into a call request, injecting the reply slot.
+///
+/// Unlike [`IntoRoleMail`], there is no blanket [`From`] impl: the mailbox
+/// message must carry [`StageRef<Reply>`] so the callee can answer.
+pub trait IntoRoleCall<Tag: RoleTag, T>: Role<Tag> {
+    type Reply: SendData + DeserializeOwned;
+    /// How long [`Session::call`](super::Session::call) waits for [`Self::Reply`].
+    const TIMEOUT: Duration;
+    fn encode(&self, msg: T, reply: StageRef<Self::Reply>) -> Self::Mailbox;
 }

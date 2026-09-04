@@ -31,10 +31,10 @@ use amaru_pure_stage::{
 
 use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch, responder::MAX_FETCHED_BLOCKS};
 use crate::{
-    mux::{Frame, HandlerMessage, MuxMessage},
+    mux::{Frame, HandlerMessage, MuxMessage, Sent},
     protocol::{
-        Inputs, Internal, MuxClient, PROTO_N2N_BLOCK_FETCH, Pipelined, Pull, ToMux, WantNext, drive, from_wire,
-        pipelined,
+        Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pipelined, Pull, ToMux, WantNext,
+        drive, from_wire, pipelined,
     },
 };
 
@@ -70,8 +70,8 @@ define_role_tag!(pub ToCollector);
 define_role!(CollectorOut, ToCollector, Blocks);
 
 on_receive!(Idle as PipelineIdleIn {
-    Fetch => { Send<ToResponder, RequestRange> => Busy }
-    Close => { Send<ToResponder, ClientDone> | Repeat<SendAny<ToCollector>> => Done }
+    Fetch => { Call<ToResponder, RequestRange> => Busy }
+    Close => { Call<ToResponder, ClientDone> | Repeat<SendAny<ToCollector>> => Done }
 });
 on_receive!(Busy as ClientBusyIn {
     Pull => { Send<ToMux, WantNext>, SetTimeout => Busy }
@@ -135,15 +135,15 @@ pub enum BlockFetchMessage {
     Close,
 }
 
-impl IntoRoleMail<ToResponder, RequestRange> for MuxClient {
-    fn encode(&self, range: RequestRange) -> MuxMessage {
-        self.encode_send(Message::from(range))
-    }
-}
+impl<T> IntoRoleCall<ToResponder, T> for MuxClient
+where
+    Message: From<T>,
+{
+    type Reply = Sent;
+    const TIMEOUT: Duration = NETWORK_SEND_TIMEOUT;
 
-impl IntoRoleMail<ToResponder, ClientDone> for MuxClient {
-    fn encode(&self, done: ClientDone) -> MuxMessage {
-        self.encode_send(Message::from(done))
+    fn encode(&self, msg: T, reply: StageRef<Sent>) -> MuxMessage {
+        self.encode_send(Message::from(msg), reply)
     }
 }
 
@@ -250,11 +250,13 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             Ok(PipelineIdleIn::Fetch(fetch)) => {
                 let range = RequestRange { from: fetch.from, through: fetch.through };
                 inflight = Some(Inflight { id: fetch.id, cr: fetch.cr.clone(), remaining: MAX_FETCHED_BLOCKS });
-                idle.receive(fetch, eff).send(&mux, range).await.finish().into()
+                let (_, s) = idle.receive(fetch, eff).call(&mux, range).await;
+                s.finish().into()
             }
             Ok(PipelineIdleIn::Close(close)) => {
                 inflight = None;
-                idle.receive(close, eff).send(&mux, ClientDone).await.finish().into()
+                let (_, s) = idle.receive(close, eff).call(&mux, ClientDone).await;
+                s.finish().into()
             }
             // TODO: handle timeouts generically to make mistakes impossible
             Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
@@ -429,16 +431,20 @@ mod tests {
         format!("Send<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
     }
 
+    fn call_desc<Tag, T>() -> String {
+        format!("Call<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
+    }
+
     fn star_any<Tag>() -> String {
         format!("Repeat<SendAny<{}>>", std::any::type_name::<Tag>())
     }
 
     #[test]
     fn initiator_receive_allowances() {
-        assert_eq!(remaining::<Idle, Fetch>(), send_desc::<ToResponder, RequestRange>() + " => Busy");
+        assert_eq!(remaining::<Idle, Fetch>(), call_desc::<ToResponder, RequestRange>() + " => Busy");
         assert_eq!(
             remaining::<Idle, Close>(),
-            format!("{} | {} => Done", send_desc::<ToResponder, ClientDone>(), star_any::<ToCollector>())
+            format!("{} | {} => Done", call_desc::<ToResponder, ClientDone>(), star_any::<ToCollector>())
         );
         assert_eq!(remaining::<Busy, Pull>(), format!("{}, SetTimeout => Busy", send_desc::<ToMux, WantNext>()));
         assert_eq!(

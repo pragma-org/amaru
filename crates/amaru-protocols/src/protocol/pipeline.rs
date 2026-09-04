@@ -26,7 +26,7 @@ use amaru_kernel::NonEmptyBytes;
 use amaru_pure_stage::{Effects, SendData, StageRef, define_role_tag, err, typestate::prelude::*};
 
 use super::{Erased, Inputs, Internal, ProtocolId};
-use crate::mux::{HandlerMessage, MuxMessage};
+use crate::mux::{HandlerMessage, MuxMessage, Sent};
 
 define_role_tag!(pub ToMux);
 
@@ -47,8 +47,8 @@ impl MuxClient {
         Self { muxer, proto }
     }
 
-    pub(crate) fn encode_send<T: amaru_kernel::cbor::Encode<()>>(&self, msg: T) -> MuxMessage {
-        MuxMessage::Send(self.proto, NonEmptyBytes::encode(&msg), StageRef::blackhole())
+    pub(crate) fn encode_send<T: amaru_kernel::cbor::Encode<()>>(&self, msg: T, reply: StageRef<Sent>) -> MuxMessage {
+        MuxMessage::Send(self.proto, NonEmptyBytes::encode(&msg), reply)
     }
 }
 

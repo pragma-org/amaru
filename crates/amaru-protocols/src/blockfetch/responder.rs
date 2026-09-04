@@ -16,7 +16,9 @@
 //!
 //! Lock-step `instance` with no pipelining. Idle waits for the client (`Pull` /
 //! `WantNext`). A served `RequestRange` is one remainder: `StartBatch`, then
-//! `Repeat<Send<Block>>` for the bodies, then `BatchDone` and `WantNext`.
+//! `Repeat<Call<Block>>` for the bodies, then `BatchDone` and `WantNext`.
+
+use std::time::Duration;
 
 use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Peer, Point, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
@@ -28,8 +30,10 @@ use amaru_pure_stage::{
 use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
 use crate::{
     metrics_effects::{Metrics, MetricsOps},
-    mux::{Frame, HandlerMessage, MuxMessage},
-    protocol::{Inputs, Internal, MuxClient, PROTO_N2N_BLOCK_FETCH, Pull, ToMux, WantNext, from_wire},
+    mux::{Frame, HandlerMessage, MuxMessage, Sent},
+    protocol::{
+        Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pull, ToMux, WantNext, from_wire,
+    },
     store_effects::Store,
 };
 
@@ -43,8 +47,8 @@ define_role_tag!(pub ToInitiator);
 on_receive!(Idle as ServerIdleIn {
     Pull => { Send<ToMux, WantNext> => Idle }
     RequestRange => {
-        Send<ToInitiator, StartBatch>, Repeat<Send<ToInitiator, Block>>, Send<ToInitiator, BatchDone>, Send<ToMux, WantNext> => Idle
-        | Send<ToInitiator, NoBlocks>, Send<ToMux, WantNext> => Idle
+        Call<ToInitiator, StartBatch>, Repeat<Call<ToInitiator, Block>>, Call<ToInitiator, BatchDone>, Send<ToMux, WantNext> => Idle
+        | Call<ToInitiator, NoBlocks>, Send<ToMux, WantNext> => Idle
     }
     ClientDone => { Done }
 });
@@ -148,27 +152,15 @@ impl PointsRange {
     }
 }
 
-impl IntoRoleMail<ToInitiator, StartBatch> for MuxClient {
-    fn encode(&self, start: StartBatch) -> MuxMessage {
-        self.encode_send(Message::from(start))
-    }
-}
+impl<T> IntoRoleCall<ToInitiator, T> for MuxClient
+where
+    Message: From<T>,
+{
+    type Reply = Sent;
+    const TIMEOUT: Duration = NETWORK_SEND_TIMEOUT;
 
-impl IntoRoleMail<ToInitiator, NoBlocks> for MuxClient {
-    fn encode(&self, no_blocks: NoBlocks) -> MuxMessage {
-        self.encode_send(Message::from(no_blocks))
-    }
-}
-
-impl IntoRoleMail<ToInitiator, Block> for MuxClient {
-    fn encode(&self, block: Block) -> MuxMessage {
-        self.encode_send(Message::from(block))
-    }
-}
-
-impl IntoRoleMail<ToInitiator, BatchDone> for MuxClient {
-    fn encode(&self, done: BatchDone) -> MuxMessage {
-        self.encode_send(Message::from(done))
+    fn encode(&self, msg: T, reply: StageRef<Sent>) -> MuxMessage {
+        self.encode_send(Message::from(msg), reply)
     }
 }
 
@@ -220,23 +212,25 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                         let metrics_eff = eff.clone();
                         let for_err = eff.clone();
                         let metrics = Metrics::new(&metrics_eff);
-                        let mut session = idle.receive(range, eff).send(&mux, StartBatch).await;
+                        let (_, mut session) = idle.receive(range, eff).call(&mux, StartBatch).await;
                         loop {
                             let (block, rest) = match points.next_block(&store).await {
                                 Ok(pair) => pair,
                                 Err(err) => return invalid(peer, "Streaming", err, for_err).await,
                             };
                             metrics.record(ServedBlockCountMetrics { count: 1 }.into()).await;
-                            session = session.send(&mux, Block { body: block.to_vec() }).await;
+                            (_, session) = session.call(&mux, Block { body: block.to_vec() }).await;
                             match rest {
                                 Some(next) => points = next,
                                 None => break,
                             }
                         }
-                        session.discard_repeat().send(&mux, BatchDone).await.send(&mux, WantNext).await.finish().into()
+                        let (_, session) = session.discard_repeat().call(&mux, BatchDone).await;
+                        session.send(&mux, WantNext).await.finish().into()
                     }
                     Ok(None) => {
-                        idle.receive(range, eff).send(&mux, NoBlocks).await.send(&mux, WantNext).await.finish().into()
+                        let (_, session) = idle.receive(range, eff).call(&mux, NoBlocks).await;
+                        session.send(&mux, WantNext).await.finish().into()
                     }
                     Err(err) => return invalid(peer, idle.name(), err, eff).await,
                 }
@@ -327,8 +321,12 @@ pub mod tests {
         format!("Send<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
     }
 
-    fn star_send<Tag, T>() -> String {
-        format!("Repeat<{}>", send_desc::<Tag, T>())
+    fn call_desc<Tag, T>() -> String {
+        format!("Call<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
+    }
+
+    fn star_call<Tag, T>() -> String {
+        format!("Repeat<{}>", call_desc::<Tag, T>())
     }
 
     #[test]
@@ -338,11 +336,11 @@ pub mod tests {
             remaining::<Idle, RequestRange>(),
             format!(
                 "{}, {}, {}, {} => Idle | {}, {} => Idle",
-                send_desc::<ToInitiator, StartBatch>(),
-                star_send::<ToInitiator, Block>(),
-                send_desc::<ToInitiator, BatchDone>(),
+                call_desc::<ToInitiator, StartBatch>(),
+                star_call::<ToInitiator, Block>(),
+                call_desc::<ToInitiator, BatchDone>(),
                 send_desc::<ToMux, WantNext>(),
-                send_desc::<ToInitiator, NoBlocks>(),
+                call_desc::<ToInitiator, NoBlocks>(),
                 send_desc::<ToMux, WantNext>()
             )
         );

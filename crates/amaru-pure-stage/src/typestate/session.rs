@@ -15,9 +15,10 @@
 //! Linear handle: [`Effects`] plus a remainder type `Rem`.
 //!
 //! [`State::receive`] opens a [`Session`]. [`send`](Session::send) / [`send_any`](Session::send_any)
-//! / [`wait`](Session::wait) / [`set_timeout`](Session::set_timeout) /
+//! / [`call`](Session::call) / [`wait`](Session::wait) / [`set_timeout`](Session::set_timeout) /
 //! [`clear_timeout`](Session::clear_timeout) require [`Select`] of that effect
-//! ([`IntoRoleMail`](super::IntoRoleMail) at the send call site);
+//! ([`IntoRoleMail`](super::IntoRoleMail) at the send call site,
+//! [`IntoRoleCall`](super::IntoRoleCall) at the call site);
 //! [`finish`](Session::finish) requires [`CanFinish`].
 //! [`convert_input`](State::convert_input) classifies a mailbox value and does
 //! not consume the state token — [`receive`](State::receive) does.
@@ -25,8 +26,8 @@
 use std::{fmt, future::Future, marker::PhantomData, time::Duration};
 
 use super::{
-    Clean, FmtPar, IntoRoleMail, RoleTag, Select,
-    effect::{ClearTimeout, Send as SendEff, SendAny, SetTimeout, Terminate, Wait},
+    Clean, FmtPar, IntoRoleCall, IntoRoleMail, RoleTag, Select,
+    effect::{Call as CallEff, ClearTimeout, Send as SendEff, SendAny, SetTimeout, Terminate, Wait},
     list::{self, CanFinish},
 };
 use crate::{Effects, ExternalEffectAPI, Instant, SendData, StageRef};
@@ -147,10 +148,10 @@ pub struct To<S: State>(PhantomData<S>);
 
 /// `Effects` plus the type-level remainder of a receive.
 ///
-/// Protocol [`send`](Self::send), [`send_any`](Self::send_any), [`wait`](Self::wait),
-/// [`set_timeout`](Self::set_timeout), [`clear_timeout`](Self::clear_timeout),
-/// and [`terminate`](Self::terminate) consume from `Rem`. Local helpers
-/// (`clock`, `external`) do not.
+/// Protocol [`send`](Self::send), [`send_any`](Self::send_any), [`call`](Self::call),
+/// [`wait`](Self::wait), [`set_timeout`](Self::set_timeout),
+/// [`clear_timeout`](Self::clear_timeout), and [`terminate`](Self::terminate)
+/// consume from `Rem`. Local helpers (`clock`, `external`) do not.
 pub struct Session<M, Rem> {
     effects: Effects<M>,
     _rem: PhantomData<fn() -> Rem>,
@@ -265,6 +266,45 @@ impl<M, Rem> Session<M, Rem> {
         async move {
             send.await;
             Session::new(self.effects)
+        }
+    }
+
+    /// Protocol call. Consumes a [`Call<Tag, T>`](super::Call) allowance.
+    ///
+    /// Waits for [`IntoRoleCall::Reply`](super::IntoRoleCall::Reply) or
+    /// [`IntoRoleCall::TIMEOUT`](super::IntoRoleCall::TIMEOUT) (`None`). The
+    /// wait is the back-pressure: the session does not continue until the
+    /// callee answers (or the timer fires).
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// make_states!(Live { Idle; Done });
+    /// define_role_tag!(ToPeer);
+    /// define_role!(Peer, ToPeer, String);
+    /// on_receive!(Idle, u8 => Call<ToPeer, String> => Done);
+    /// async fn bad<M>(s: Idle, target: &Peer, eff: amaru_pure_stage::Effects<M>) {
+    ///     let _ = s.receive(1u8, eff).call(target, 0u32).await;
+    /// }
+    /// ```
+    pub fn call<Tag, T, Dest, I>(
+        self,
+        target: &Dest,
+        msg: T,
+    ) -> impl Future<Output = (Option<Dest::Reply>, Session<M, After<Rem, CallEff<Tag, T>, I>>)> + Send
+    where
+        Tag: RoleTag,
+        Dest: IntoRoleCall<Tag, T> + Clone + Send + 'static,
+        Rem: Select<CallEff<Tag, T>, I>,
+        Rem::Rest: Clean,
+        M: Send,
+        T: Send + 'static,
+    {
+        let dest = target.clone();
+        let mailbox = dest.mailbox().clone();
+        let call = self.effects.call(&mailbox, Dest::TIMEOUT, move |reply| dest.encode(msg, reply));
+        async move {
+            let reply = call.await;
+            (reply, Session::new(self.effects))
         }
     }
 

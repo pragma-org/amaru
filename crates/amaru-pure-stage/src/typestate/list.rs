@@ -33,7 +33,7 @@
 //! **Limits:** lists are flat, not tree-associative. Sequences are ordered.
 //! Two choice alternatives with the same head are ambiguous (see [`Select`]
 //! `There` on `Then`). `finish` only strips `Repeat` at a branch prefix.
-//! [`StripRepeat`] knows `Send`, `SendAny`, `Wait`, `Terminate`.
+//! [`StripRepeat`] knows `Send`, `SendAny`, `Call`, `Wait`, `Terminate`.
 //! [`SetTimeout`](super::SetTimeout) / [`ClearTimeout`](super::ClearTimeout) are
 //! required steps and are not stripped.
 
@@ -80,8 +80,8 @@ impl FirstEffect for super::effect::Terminate {
     type Head = super::effect::Terminate;
 }
 
-impl<T> FirstEffect for super::effect::Call<T> {
-    type Head = super::effect::Call<T>;
+impl<R, T> FirstEffect for super::effect::Call<R, T> {
+    type Head = super::effect::Call<R, T>;
 }
 
 impl FirstEffect for super::effect::Clock {
@@ -127,7 +127,7 @@ impl<R, T> NotRepeat for super::effect::Send<R, T> {}
 impl<R> NotRepeat for SendAny<R> {}
 impl NotRepeat for super::effect::Wait {}
 impl NotRepeat for super::effect::Terminate {}
-impl<T> NotRepeat for super::effect::Call<T> {}
+impl<R, T> NotRepeat for super::effect::Call<R, T> {}
 impl NotRepeat for super::effect::Clock {}
 impl<T> NotRepeat for super::effect::Schedule<T> {}
 impl NotRepeat for super::effect::CancelSchedule {}
@@ -316,6 +316,10 @@ impl<E, T: StripRepeat> StripRepeat for Cons<Repeat<E>, T> {
 
 impl<R, T, Tail> StripRepeat for Cons<super::effect::Send<R, T>, Tail> {
     type Out = Cons<super::effect::Send<R, T>, Tail>;
+}
+
+impl<R, T, Tail> StripRepeat for Cons<super::effect::Call<R, T>, Tail> {
+    type Out = Cons<super::effect::Call<R, T>, Tail>;
 }
 
 impl<R, Tail> StripRepeat for Cons<SendAny<R>, Tail> {
