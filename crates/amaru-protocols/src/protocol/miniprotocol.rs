@@ -15,18 +15,73 @@
 use std::future::Future;
 
 use amaru_kernel::{NonEmptyBytes, cbor};
-use amaru_pure_stage::{BoxFuture, Effects, OrTerminateWith, SendData, StageRef, TryInStage, Void, err};
+use amaru_pure_stage::{
+    BoxFuture, Effects, OrTerminateWith, SendData, StageRef, TryInStage, Void, err, typestate::FromMailbox,
+};
 
 use crate::{
     mux::{HandlerMessage, MuxMessage},
     protocol::{NETWORK_SEND_TIMEOUT, ProtocolId, RoleT},
 };
 
+/// Driver-injected input shared by lock-step and pipelined handlers.
+///
+/// Consensus stages never construct these; the pipelining combinator injects
+/// [`Internal::Pull`], and agency timers fire as [`Internal::Timeout`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Internal {
+    Pull,
+    Timeout,
+}
+
+/// Payload of [`Internal::Pull`]. Used as a typestate receive so the remainder
+/// can require a `WantNext` send.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Pull;
+
+/// Payload of [`Internal::Timeout`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Timeout;
+
 /// An input to a miniprotocol handler stage.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Inputs<L> {
     Local(L),
     Network(HandlerMessage),
+    Internal(Internal),
+}
+
+#[allow(clippy::result_large_err, clippy::wildcard_enum_match_arm)]
+pub fn from_wire<T: FromMailbox<M>, M: for<'de> cbor::Decode<'de, ()>, L>(msg: Inputs<L>) -> Result<T, Inputs<L>> {
+    match msg {
+        Inputs::Network(HandlerMessage::FromNetwork(bytes)) => {
+            let Ok(decoded) = cbor::decode(bytes.as_ref()) else {
+                return Err(Inputs::Network(HandlerMessage::FromNetwork(bytes)));
+            };
+            T::from_mailbox(decoded).map_err(|_| Inputs::Network(HandlerMessage::FromNetwork(bytes)))
+        }
+        other => Err(other),
+    }
+}
+
+impl<L> FromMailbox<Inputs<L>> for Pull {
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn from_mailbox(msg: Inputs<L>) -> Result<Self, Inputs<L>> {
+        match msg {
+            Inputs::Internal(Internal::Pull) => Ok(Pull),
+            other => Err(other),
+        }
+    }
+}
+
+impl<L> FromMailbox<Inputs<L>> for Timeout {
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn from_mailbox(msg: Inputs<L>) -> Result<Self, Inputs<L>> {
+        match msg {
+            Inputs::Internal(Internal::Timeout) => Ok(Timeout),
+            other => Err(other),
+        }
+    }
 }
 
 /// Outcome of a protocol step
@@ -156,6 +211,7 @@ where
                     outcome.result.map(LocalOrNetwork::Network).unwrap_or(LocalOrNetwork::None)
                 }
                 Inputs::Local(input) => LocalOrNetwork::Local(input),
+                Inputs::Internal(_) => LocalOrNetwork::None,
             };
 
             // run decision making, if there was new information

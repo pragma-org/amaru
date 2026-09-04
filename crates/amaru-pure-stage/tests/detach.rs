@@ -19,7 +19,7 @@ use std::{sync::OnceLock, time::Duration};
 use amaru_pure_stage::{
     BoxFuture, DeserializerGuards, DurationDist, ExternalEffectAPI, Resources, SendData, StageGraph, StageRef,
     assert_trace_contains, register_data_deserializer, register_effect_deserializer,
-    simulation::{SimulationBuilder, running::OverrideResult},
+    simulation::{Run, SimulationBuilder, running::OverrideResult},
     tm_external_effect_match, tm_input, tm_state,
     tokio::TokioBuilder,
     trace_buffer::TraceBuffer,
@@ -130,7 +130,7 @@ fn simulation_detach_enqueues_mapped_result() {
     let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&work, [Msg::Go(21)]);
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![0, 42]);
 
     assert_trace_contains(
@@ -161,7 +161,7 @@ fn simulation_detach_override_is_injected() {
 
     running.override_external_effect::<Double>(1, |_| OverrideResult::handled(99));
     running.enqueue_msg(&work, [Msg::Go(1)]);
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![99]);
 }
 
@@ -184,7 +184,7 @@ fn simulation_two_detaches_in_one_transition() {
     let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&work, [Msg::Go(0)]);
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4]);
 }
 
@@ -207,12 +207,12 @@ fn simulation_detach_constant_delays_mailbox_not_ack() {
     let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&work, [Msg::Go(3)]);
-    let wakeup = running.run_until_sleeping_or_blocked().assert_sleeping();
+    let wakeup = running.run(Run::default()).assert_sleeping();
     assert_eq!(wakeup.sim_elapsed(), Duration::from_secs(10));
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![0]);
     assert_eq!(running.now().sim_elapsed(), Duration::ZERO);
 
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![6]);
     assert_eq!(running.now().sim_elapsed(), Duration::from_secs(10));
 }
@@ -233,13 +233,120 @@ fn simulation_detach_until_resolved_is_busy_until_polled() {
     let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&work, [Msg::Go(7)]);
-    let blocked = running.run_until_blocked();
+    let blocked = running.run(Run::skip_wakeups());
     blocked.assert_busy(std::iter::empty::<&str>());
     blocked.assert_external_effects(1);
     assert!(rx.drain().collect::<Vec<_>>().is_empty());
 
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![14]);
+}
+
+#[test]
+fn simulation_complete_detach_injects_world_result() {
+    let _guards = guards();
+    let mut network = SimulationBuilder::default();
+    let work = network.stage("work", async |state: State, msg: Msg, eff| {
+        match msg {
+            Msg::Go(n) => eff.detach(UntilDouble(n), Msg::Done).await,
+            Msg::Done(v) => eff.send(&state.output, v).await,
+        }
+        state
+    });
+    let (output, mut rx) = network.output("output", 10);
+    let work = network.wire_up(work, State { output, acked: 0 });
+    let mut running = network.run(test_runtime().handle());
+
+    running.enqueue_msg(&work, [Msg::Go(7)]);
+    running.run(Run::default()).assert_busy(std::iter::empty::<&str>()).assert_external_effects(1);
+
+    // World owns completion: 99 is not `7 * 2`, so the `run()` future must have been dropped.
+    running.complete_detach::<UntilDouble>(work.name(), |_| true, 99);
+    running.run(Run::skip_and_resolve()).assert_idle();
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![99]);
+}
+
+#[test]
+fn simulation_complete_detach_out_of_issue_order() {
+    let _guards = guards();
+    let mut network = SimulationBuilder::default();
+    let work = network.stage("work", async |state: State, msg: Msg, eff| {
+        match msg {
+            Msg::Go(_) => {
+                eff.detach(UntilDouble(1), Msg::Done).await;
+                eff.detach(UntilDouble(2), Msg::Done).await;
+            }
+            Msg::Done(v) => eff.send(&state.output, v).await,
+        }
+        state
+    });
+    let (output, mut rx) = network.output("output", 10);
+    let work = network.wire_up(work, State { output, acked: 0 });
+    let mut running = network.run(test_runtime().handle());
+
+    running.enqueue_msg(&work, [Msg::Go(0)]);
+    running.run(Run::default()).assert_busy(std::iter::empty::<&str>()).assert_external_effects(2);
+
+    running.complete_detach::<UntilDouble>(work.name(), |e| e.0 == 2, 20);
+    running.complete_detach::<UntilDouble>(work.name(), |e| e.0 == 1, 10);
+    running.run(Run::skip_wakeups()).assert_idle();
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![20, 10]);
+}
+
+#[test]
+#[should_panic(expected = "multiple in-flight")]
+fn simulation_complete_detach_ambiguous_panics() {
+    let _guards = guards();
+    let mut network = SimulationBuilder::default();
+    let work = network.stage("work", async |state: State, msg: Msg, eff| {
+        match msg {
+            Msg::Go(_) => {
+                eff.detach(UntilDouble(1), Msg::Done).await;
+                eff.detach(UntilDouble(2), Msg::Done).await;
+            }
+            Msg::Done(v) => eff.send(&state.output, v).await,
+        }
+        state
+    });
+    let (output, _rx) = network.output("output", 10);
+    let work = network.wire_up(work, State { output, acked: 0 });
+    let mut running = network.run(test_runtime().handle());
+
+    running.enqueue_msg(&work, [Msg::Go(0)]);
+    running.run(Run::default()).assert_busy(std::iter::empty::<&str>()).assert_external_effects(2);
+    running.complete_detach::<UntilDouble>(work.name(), |_| true, 0);
+}
+
+#[test]
+fn simulation_complete_detach_still_waits_for_sampled_delta() {
+    let _guards = guards();
+    let mut network = SimulationBuilder::default();
+    let work = network.stage("work", async |state: State, msg: Msg, eff| {
+        match msg {
+            Msg::Go(n) => {
+                eff.detach(ConstDouble(n), Msg::Done).await;
+                eff.send(&state.output, 0).await;
+            }
+            Msg::Done(v) => eff.send(&state.output, v).await,
+        }
+        state
+    });
+    let (output, mut rx) = network.output("output", 10);
+    let work = network.wire_up(work, State { output, acked: 0 });
+    let mut running = network.run(test_runtime().handle());
+
+    running.enqueue_msg(&work, [Msg::Go(3)]);
+    let wakeup = running.run(Run::default()).assert_sleeping();
+    assert_eq!(wakeup.sim_elapsed(), Duration::from_secs(10));
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![0]);
+
+    running.complete_detach::<ConstDouble>(work.name(), |_| true, 99);
+    running.run(Run::default()).assert_sleeping();
+    assert!(rx.drain().collect::<Vec<_>>().is_empty());
+
+    running.run(Run::skip_wakeups()).assert_idle();
+    assert_eq!(rx.drain().collect::<Vec<_>>(), vec![99]);
+    assert_eq!(running.now().sim_elapsed(), Duration::from_secs(10));
 }
 
 #[test]

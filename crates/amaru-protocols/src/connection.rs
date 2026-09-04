@@ -21,7 +21,8 @@ use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_dat
 
 use crate::{
     blockfetch::{
-        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator, register_blockfetch_responder,
+        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator,
+        register_blockfetch_initiator_pipelined, register_blockfetch_responder,
     },
     chainsync::{
         self, ChainSyncInitiatorMsg, InitiatorResult, register_chainsync_initiator, register_chainsync_responder,
@@ -395,14 +396,25 @@ async fn do_handshake(
             ConnectionMessage::ChildDied(ChildId::ChainSync),
         )
         .await;
-        let blockfetch_initiator = register_blockfetch_initiator(
-            &muxer,
-            peer,
-            *conn_id,
-            &eff,
-            ConnectionMessage::ChildDied(ChildId::BlockFetch),
-        )
-        .await;
+        let blockfetch_initiator = if let Some(n) = config.blockfetch_pipeline_n {
+            register_blockfetch_initiator_pipelined(
+                &muxer,
+                peer,
+                n,
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::BlockFetch),
+            )
+            .await
+        } else {
+            register_blockfetch_initiator(
+                &muxer,
+                peer,
+                *conn_id,
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::BlockFetch),
+            )
+            .await
+        };
         let peer_sharing_initiator = register_peer_sharing_initiator(
             &muxer,
             peer,
@@ -468,7 +480,10 @@ pub fn register_deserializers() -> DeserializerGuards {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::PREPROD_ERA_HISTORY;
-    use amaru_pure_stage::{Effect, StageGraph, simulation::SimulationBuilder};
+    use amaru_pure_stage::{
+        Effect, StageGraph,
+        simulation::{Run, SimulationBuilder},
+    };
     use tokio::runtime::Runtime;
 
     use super::*;
@@ -530,22 +545,20 @@ mod tests {
             move |eff| matches!(eff, Effect::Schedule { at_stage, .. } if *at_stage == stage_name),
         );
 
-        let effect = running.run_until_blocked().assert_breakpoint("schedule");
+        running.run(Run::skip_wakeups()).assert_breakpoint("schedule");
 
         let reconnect_delay = ManagerConfig::default().reconnect_delay;
-        if let Effect::Schedule { id, .. } = &effect {
+        {
+            let hit = running.breakpoint_effect();
+            let Effect::Schedule { id, .. } = hit.effect() else {
+                panic!("Expected Schedule effect, got {:?}", hit.effect());
+            };
             let delay = id.time().checked_since(start_time).unwrap();
             assert!(delay >= reconnect_delay);
-        } else {
-            panic!("Expected Schedule effect");
         }
 
-        // Clear the breakpoint before continuing
         running.clear_breakpoint("schedule");
-        running.handle_effect(effect);
-
-        // Let the simulation continue until blocked (will hit the scheduled wake up)
-        running.run_until_sleeping_or_blocked().assert_sleeping();
+        running.run(Run::default()).assert_sleeping();
 
         // Verify state remains the same
         let state = running.get_state(&connection_stage).unwrap();

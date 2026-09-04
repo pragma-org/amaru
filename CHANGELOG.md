@@ -46,6 +46,11 @@ Other guiding principles:
 
 - **amaru-kernel**: `PeerCandidate` is `Socket` (already a `Peer`), `Host` (hostname+port, A/AAAA) or `Srv` (DNS name). `Host`/`Srv` names are a validated [`DnsName`] (no colons, brackets, or IP literals). Outbound mix pools are `PeerCandidate`s (static included); Host/SRV names are resolved on each dial so DNS changes are picked up. Host lookup takes the first viable A/AAAA; SRV lookup tries `_cardano._tcp.<name>` in RFC 2782 priority order and stops at the first viable target address. Ledger relays pass through as candidates (socket, hostname+port, or CIP-0155 SRV when the port is omitted).
 - **amaru-pure-stage**: `Effects::detach` runs an external effect without occupying the airlock. The transition is resumed with `()` immediately; when `run()` completes the interpreter applies the provided constructor and enqueues the value on the calling stage’s bulk mailbox.
+- **amaru-pure-stage**: `Effects::set_timeout` / `clear_timeout` (and `_at` slot variants) arm coalesced protocol timers: many slots, one armed schedule, without storing a `ScheduleId`. Typestate remainders can require `SetTimeout` / `ClearTimeout`.
+- **amaru-pure-stage**: `SimulationRunning::run(Run)` with `TimeAdvance` / `Externals`. Default stops at the next wakeup and leaves unresolved `UntilResolved` effects as `Busy`. `complete_external` injects a world-driven blocking result; `complete_detach` injects a world-driven detached result selected by effect type and predicate (not issue order). Breakpoints are inspect-only (`breakpoint_effect` must be dropped before the next `run`). `interpret_breakpoint` applies that effect without continuing the run loop; `discard_breakpoint` leaves the stage suspended (for `complete_external`). `tm_*` matchers apply to both traces and the borrowed breakpoint effect.
+- **amaru-pure-stage**: opt-in typestate layer over `Effects`. A protocol state exposes a receive constructor that consumes a receive allowance (by input variant, not the stage mailbox type) and returns the remaining legal effects. The next state comes only from `Session::finish` (into a live enum); `Send<Role, T>` names a destination whose mailbox implements `From<T>`.
+- **amaru-pure-stage**: `define_messages!` declares a protocol message enum and generates a struct per variant plus `From` / `FromMailbox` conversions. Extra `#[derive]` on the enum applies to every struct; per-variant attributes apply only to that struct. Manual impls (`Encode`, …) are written after the macro as usual.
+- **amaru-protocols**: pipelined BlockFetch installs the 60s `StBusy` / `StStreaming` agency timeout from the networking blueprint; Idle and Done clear it.
 - **amaru-tui**: the Peers card shows the bootstrap `PeerCandidate` next to a resolved socket address when that name came from a Host or SRV lookup.
 - **amaru**: allow operators to select the OTLP providers constructed at startup with
   `--with-open-telemetry=<SIGNALS>` or `AMARU_WITH_OPEN_TELEMETRY=<SIGNALS>`; it accepts any comma-separated subset of
@@ -57,6 +62,10 @@ Other guiding principles:
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 - **amaru-node**: `Telemetry::install` no longer reads `AMARU_OPEN_TELEMETRY_SIGNALS`; embedders that select OTLP signals must pass `TelemetryOptions` to `install_with_options`.
+
+### Removed
+
+- **amaru-pure-stage**: single-step simulation API (`try_effect`, `effect()`, `resume_*`, `run_one_step`, `run_until_*`). `Effect::assert_*` / `extract_*` helpers are gone; use `tm_*` against traces or `breakpoint_effect()`.
 
 ### Fixed
 

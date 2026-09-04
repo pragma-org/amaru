@@ -24,7 +24,7 @@ use amaru_protocols::store_effects::ResourceParameters;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
     serde::SendDataValue,
-    simulation::{SimulationBuilder, SimulationRunning},
+    simulation::{Run, SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::Runtime;
@@ -84,7 +84,7 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     network.preload(&mempool, [prep.msg.clone()]).unwrap();
 
     let mut running = network.run(prep.rt.handle());
-    running.run_until_blocked_incl_effects();
+    running.run(Run::skip_and_resolve());
 
     (running, guards, logs.logs())
 }

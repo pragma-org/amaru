@@ -20,7 +20,11 @@ use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 use crate::{
-    blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
+    blockfetch::{
+        State,
+        messages::{self, Message},
+        responder::MAX_FETCHED_BLOCKS,
+    },
     mux::MuxMessage,
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, StageState, miniprotocol,
@@ -70,7 +74,15 @@ impl std::fmt::Debug for Blocks {
 /// Message that can be sent by an internal stage to request blocks for range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
-    RequestRange { from: Point, through: Point, id: u64, cr: StageRef<Blocks> },
+    RequestRange {
+        from: Point,
+        through: Point,
+        id: u64,
+        cr: StageRef<Blocks>,
+    },
+    /// Terminal close. The lock-step initiator ignores this until a reset-after-`StDone`
+    /// path exists. The pipelined handler sends one wire `ClientDone` from an idle instance.
+    Close,
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -114,6 +126,10 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 self.queue.truncate(1);
                 self.queue.push_back((from, through, id, cr, MAX_FETCHED_BLOCKS));
                 Ok((action, self))
+            }
+            BlockFetchMessage::Close => {
+                amaru_observability::tracing::debug!(peer = %self.peer, "ignoring BlockFetch Close (no reset-after-StDone)");
+                Ok((None, self))
             }
         }
     }
@@ -202,14 +218,13 @@ impl ProtocolState<Initiator> for State {
             message_type = input.message_type()
         );
         let _guard = _span.enter();
-        use Message::*;
         match (self, input) {
-            (Self::Busy, StartBatch) => Ok((outcome().want_next(), Self::Streaming)),
-            (Self::Busy, NoBlocks) => Ok((outcome().result(InitiatorResult::NoBlocks), Self::Idle)),
-            (Self::Streaming, Block { body }) => {
+            (Self::Busy, Message::StartBatch(_)) => Ok((outcome().want_next(), Self::Streaming)),
+            (Self::Busy, Message::NoBlocks(_)) => Ok((outcome().result(InitiatorResult::NoBlocks), Self::Idle)),
+            (Self::Streaming, Message::Block(messages::Block { body })) => {
                 Ok((outcome().want_next().result(InitiatorResult::Block(body)), Self::Streaming))
             }
-            (Self::Streaming, BatchDone) => Ok((outcome().result(InitiatorResult::Done), Self::Idle)),
+            (Self::Streaming, Message::BatchDone(_)) => Ok((outcome().result(InitiatorResult::Done), Self::Idle)),
             (state, msg) => anyhow::bail!("unexpected message in state {:?}: {:?}", state, msg),
         }
     }
@@ -218,9 +233,9 @@ impl ProtocolState<Initiator> for State {
         use InitiatorAction::*;
         match (self, input) {
             (Self::Idle, RequestRange { from, through }) => {
-                Ok((outcome().send(Message::RequestRange { from, through }).want_next(), Self::Busy))
+                Ok((outcome().send(messages::RequestRange { from, through }.into()).want_next(), Self::Busy))
             }
-            (Self::Idle, ClientDone) => Ok((outcome().send(Message::ClientDone), Self::Done)),
+            (Self::Idle, ClientDone) => Ok((outcome().send(messages::ClientDone.into()), Self::Done)),
             (state, action) => {
                 anyhow::bail!("unexpected action in state {:?}: {:?}", state, action)
             }
@@ -264,10 +279,10 @@ pub mod tests {
     #[expect(clippy::wildcard_enum_match_arm)]
     fn test_initiator_protocol() {
         crate::blockfetch::spec::<Initiator>().check(State::Idle, |msg| match msg {
-            Message::RequestRange { from, through } => {
+            Message::RequestRange(messages::RequestRange { from, through }) => {
                 Some(InitiatorAction::RequestRange { from: *from, through: *through })
             }
-            Message::ClientDone => Some(InitiatorAction::ClientDone),
+            Message::ClientDone(_) => Some(InitiatorAction::ClientDone),
             _ => None,
         });
     }
