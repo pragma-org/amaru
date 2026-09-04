@@ -205,9 +205,18 @@ async fn populate_fragment_stores(root: &Path, meta: &FragmentMeta) -> anyhow::R
             snapshots_dir = %snapshots_dir.display(),
             "reusing workspace snapshot cache"
         );
-        bootstrap(network, &global, ledger, chain, snapshots_dir, None, S3Config::default())
-            .await
-            .map_err(|e| anyhow::anyhow!("bootstrap: {e}"))?;
+        bootstrap(
+            network,
+            &global,
+            ledger,
+            chain,
+            snapshots_dir,
+            None,
+            S3Config::default(),
+            amaru_bootstrap::BootstrapCancellation::new(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("bootstrap: {e}"))?;
     } else {
         tracing::info!(target = "world_fragment", "bootstrap/ already populated; skipping snapshot download");
     }

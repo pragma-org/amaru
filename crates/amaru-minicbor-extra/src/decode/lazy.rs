@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io::Read;
+use std::{io::Read, sync::Arc};
 
 use minicbor as cbor;
+
+/// Runtime-neutral callback used to stop incremental decoding at safe boundaries.
+pub type Checkpoint = dyn Fn() -> anyhow::Result<()> + Send + Sync;
 
 /// A decoder that only consumes bytes CHUNK_SIZE at a time. Useful to decode large files while
 /// maintaining memory usage low.
@@ -25,6 +28,7 @@ use minicbor as cbor;
 pub struct LazyDecoder<'a> {
     reader: &'a mut dyn Read,
     bytes: Vec<u8>,
+    checkpoint: Option<Arc<Checkpoint>>,
 }
 
 impl<'a> LazyDecoder<'a> {
@@ -32,7 +36,22 @@ impl<'a> LazyDecoder<'a> {
 
     /// Create a decoder that reads incrementally from `reader`.
     pub fn new(reader: &'a mut dyn Read) -> Self {
-        Self { reader, bytes: Vec::with_capacity(Self::CHUNK_SIZE) }
+        Self { reader, bytes: Vec::with_capacity(Self::CHUNK_SIZE), checkpoint: None }
+    }
+
+    /// Create a decoder which invokes `checkpoint` between bounded decode units.
+    pub fn with_checkpoint(reader: &'a mut dyn Read, checkpoint: Arc<Checkpoint>) -> Self {
+        Self { reader, bytes: Vec::with_capacity(Self::CHUNK_SIZE), checkpoint: Some(checkpoint) }
+    }
+
+    /// Invoke the configured checkpoint, if any.
+    pub fn checkpoint(&self) -> anyhow::Result<()> {
+        self.checkpoint.as_ref().map_or(Ok(()), |checkpoint| checkpoint())
+    }
+
+    /// Clone the configured checkpoint for database batch handlers associated with this decoder.
+    pub fn checkpoint_handle(&self) -> Option<Arc<Checkpoint>> {
+        self.checkpoint.clone()
     }
 
     /// Skip the next CBOR element.
@@ -105,6 +124,7 @@ impl<'a> LazyDecoder<'a> {
         let mut can_read_more = true;
         loop {
             if should_read_more {
+                self.checkpoint()?;
                 let offset = self.bytes.len();
                 self.bytes.resize(offset + Self::CHUNK_SIZE, 0);
                 let read = match self.reader.read(&mut self.bytes[offset..]) {
@@ -225,7 +245,13 @@ fn decode_sequence_chunk<T>(
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, Read};
+    use std::{
+        io::{self, Read},
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
 
     use minicbor as cbor;
 
@@ -253,6 +279,27 @@ mod tests {
         assert_eq!(entries, vec![(1, 10)]);
         assert!(!complete);
         assert_eq!(decoder.position(), 2);
+    }
+
+    #[test]
+    fn checkpoint_stops_before_retrying_an_incomplete_decode() {
+        let bytes = [0x18, 0x2a];
+        let mut reader = ChunkedReader { inner: bytes.as_slice(), chunk_size: 1 };
+        let checks = Arc::new(AtomicUsize::new(0));
+        let checks_for_decoder = Arc::clone(&checks);
+        let checkpoint = Arc::new(move || {
+            let check = checks_for_decoder.fetch_add(1, Ordering::SeqCst);
+            if check >= 1 {
+                anyhow::bail!("cancelled at checkpoint")
+            }
+            Ok(())
+        });
+        let mut decoder = LazyDecoder::with_checkpoint(&mut reader, checkpoint);
+
+        let error = decoder.decode::<u8>().expect_err("the second read must be cancelled");
+
+        assert!(error.to_string().contains("cancelled at checkpoint"));
+        assert_eq!(checks.load(Ordering::SeqCst), 2);
     }
 
     #[test]

@@ -180,8 +180,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
             region: args.s3_region,
             public_url: args.s3_public_url,
         },
+        amaru_bootstrap::BootstrapCancellation::new(),
     )
-    .await
+    .await?;
+
+    Ok(())
 }
 
 /// Whether `dir` holds anything. An empty directory is no more a database than a missing one, and

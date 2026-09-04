@@ -35,7 +35,11 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
+### Fixed
+
+- **amaru-bootstrap**: allow cancellation of the bootstrap process.
 
 
 ## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
