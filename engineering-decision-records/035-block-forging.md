@@ -61,6 +61,8 @@ Consensus is a graph of pure stages ([EDR 011](./011-deterministic-simulation-te
 
 We add one stage, `forge_block`, wired into the graph only when forging credentials are configured. It receives the adopted tip from `adopt_chain`, like the mempool does, and it sends exactly one message: a new tip to `select_chain`. From there our block is treated like any block a peer sent us.
 
+Note the graph below only contains the stages that are relevant to block forging.
+
 ```mermaid
 flowchart LR
     subgraph existing
