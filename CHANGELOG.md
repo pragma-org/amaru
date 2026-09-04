@@ -200,6 +200,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru**: make Mithril synchronization resume safely from verified immutable files and reject stale snapshots before replay.
 - **amaru-node**: invalidate peer snapshot commit metadata cache when switching to older or newer commits. ([#1114](https://github.com/pragma-org/amaru/issues/1114))
 - **amaru-kernel**: reduce memory footprint of various types on the critical path.
 - **amaru-ledger**: populate `recently_pruned_proposals` when importing a cardano-node snapshot.
