@@ -519,8 +519,9 @@ pub trait HistoricalStores {
             .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
     }
 
-    /// Access a `Snapshot` for a specific `Epoch`
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send>;
+    /// Access a `Snapshot` for a specific `Epoch`. The snapshot is an owned handle that can move
+    /// to another thread (e.g. the rewards background computation).
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send + 'static>;
 }
 
 // TransactionalContext
