@@ -86,6 +86,9 @@ Other guiding principles:
 - **amaru-protocols**: the first peer-share request after an outbound handshake is no longer dropped.
 - **amaru-bootstrap**: allow cancellation of the bootstrap process.
 - **amaru-ledger**: Off-by-one error in constitutional committee member validity upper-bound check.
+### Fixed
+
+- **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 
