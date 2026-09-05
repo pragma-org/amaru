@@ -40,6 +40,10 @@ Other guiding principles:
 
 ## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
+### Fixed
+
+- **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
+
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 
 ### Added
