@@ -52,3 +52,16 @@ reward_account =
   / h'e1dddddddddddddddddddddddddddddddddddddddddddddddddddddddd'  ; type e mainnet - account address: keyhash28
   / h'f0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'  ; type f testnet - account address: scripthash28
   / h'f1eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'  ; type f mainnet - account address: scripthash28
+
+; Upstream says `block = [header, [* transaction_body], [* transaction_witness_set],
+; {* transaction_index => auxiliary_data}, [* transaction_index]]`, with no relation between the
+; four. The node requires one witness set per body and every index to name an existing body, but
+; CDDL cannot tie one array's length to another's, so cuddle draws them independently and almost
+; never agrees. We enumerate a few fixed transaction counts instead; cuddle picks one per sample.
+block =
+    [header, [], [], {}, []]
+  / [header, [1*1 transaction_body], [1*1 transaction_witness_set], {* (0..0) => auxiliary_data}, [? 0]]
+  / [header, [2*2 transaction_body], [2*2 transaction_witness_set], {* (0..1) => auxiliary_data}, [? 0, ? 1]]
+  / [header, [3*3 transaction_body], [3*3 transaction_witness_set], {* (0..2) => auxiliary_data}, [? 0, ? 1, ? 2]]
+  / [header, [5*5 transaction_body], [5*5 transaction_witness_set], {* (0..4) => auxiliary_data}, [? 0, ? 1, ? 2, ? 3, ? 4]]
+  / [header, [8*8 transaction_body], [8*8 transaction_witness_set], {* (0..7) => auxiliary_data}, [? 0, ? 1, ? 2, ? 3, ? 4, ? 5, ? 6, ? 7]]
