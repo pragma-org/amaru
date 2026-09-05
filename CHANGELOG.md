@@ -59,6 +59,9 @@ Other guiding principles:
 - **amaru-tui**: the log scrollbar can be clicked and dragged to jump through the buffer. `|` focuses it for large keyboard steps (`↑↓`, page, home/end), and `@` jumps to a UTC time (`HH:MM[:SS]` or `YYYY-MM-DD[ HH:MM[:SS]]`). Log `↑`/`↓`/page/wheel now follow that same older/newer direction.
 - **amaru-tui**: `w` or the log `[ WRAP ]` control turns off wrapping so `←`/`→` (and shift-wheel / horizontal wheel) pan long lines; the column offset is kept while scrolling vertically. Pane focus on a tab moved to `Ctrl-←`/`Ctrl-→`.
 - **amaru-tui**: switching the log pane to DEBUG no longer panics when the retained debug stream is larger than ratatui’s `u16` paragraph scroll; the pane renders a visible window around the tail instead of the whole buffer.
+### Fixed
+
+- **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 
