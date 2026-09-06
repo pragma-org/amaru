@@ -54,7 +54,6 @@ Other guiding principles:
 - **amaru-protocols**: mux SDU assembly waits indefinitely for the first header byte, then 10s for the rest of the first Handshake message and 30s afterwards. Exceeding that limit tears the connection down.
 - **amaru**: the `mempool_max_bytes` startup trace field is now an IEC size such as `176 KiB` instead of a raw integer.
 - **amaru-protocols**: a connection is one established session whose local use is None, Maintenance, or Diffusion. The manager no longer redials when a session drops; peer selection fills outbound slots. ([#736](https://github.com/pragma-org/amaru/issues/736))
-- **amaru-protocols**: a connection is one established session whose local use is None, Maintenance, or Diffusion. The manager no longer redials when a session drops; peer selection fills outbound slots.
 - **amaru-protocols**: lowering local use sends `MsgDone` to the initiator mini-protocols and waits for them to finish (300s from Diffusion, 120s from Maintenance). Unexpected protocol death still tears the connection down.
 
 ### Fixed
