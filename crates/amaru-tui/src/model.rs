@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
+    rc::Rc,
     time::Instant,
 };
 
@@ -45,6 +46,7 @@ mod metrics_update;
 mod page;
 mod pane_mode;
 mod peer_state;
+mod prompt;
 mod proposal_activity;
 mod queries;
 mod rate_counter;
@@ -57,9 +59,17 @@ mod terminal_event_outcome;
 mod tip_state;
 
 pub use self::{
-    initial_stake_distribution_state::InitialStakeDistributionState, interaction_mode::InteractionMode,
-    level_filter::LevelFilter, page::Page, pane_mode::PaneMode, peer_state::PeerState, scroll_focus::ScrollFocus,
-    target_filter::TargetFilter, terminal_event_outcome::TerminalEventOutcome,
+    initial_stake_distribution_state::InitialStakeDistributionState,
+    interaction_mode::InteractionMode,
+    level_filter::LevelFilter,
+    log_buffer::{LogViewItem, RetentionTier},
+    page::Page,
+    pane_mode::PaneMode,
+    peer_state::PeerState,
+    prompt::{PromptKind, PromptState},
+    scroll_focus::ScrollFocus,
+    target_filter::TargetFilter,
+    terminal_event_outcome::TerminalEventOutcome,
 };
 
 #[derive(Debug)]
@@ -73,6 +83,9 @@ pub struct Model {
     pub scroll_focus: ScrollFocus,
     pub level_filter: LevelFilter,
     pub target_filter: TargetFilter,
+    pub text_filter_pattern: String,
+    pub highlight_pattern: String,
+    pub prompt: Option<PromptState>,
     pub catching_up: bool,
     pub log_scroll: usize,
     pub peer_scroll: usize,
@@ -95,6 +108,10 @@ pub struct Model {
     /// `peer.resolved` cache: dial address → bootstrap name (omitted when the candidate was already a Peer).
     resolved_candidates: BTreeMap<String, String>,
     pub logs: LogBuffer,
+    text_filter: Option<regex::Regex>,
+    highlight: Option<regex::Regex>,
+    log_cursor: Option<Rc<TelemetryRecord>>,
+    logs_viewport_rows: usize,
     pub system_sample: Option<SystemSample>,
     pub block_rate: RateCounter,
     pub transaction_rate: RateCounter,
@@ -120,6 +137,9 @@ impl Model {
             scroll_focus: ScrollFocus::Logs,
             level_filter: LevelFilter::Info,
             target_filter: TargetFilter::All,
+            text_filter_pattern: String::new(),
+            highlight_pattern: String::new(),
+            prompt: None,
             catching_up: true,
             log_scroll: 0,
             peer_scroll: 0,
@@ -139,7 +159,11 @@ impl Model {
             rewards_ready: false,
             peers: BTreeMap::default(),
             resolved_candidates: BTreeMap::default(),
-            logs: LogBuffer::default(),
+            logs: LogBuffer::new(config.log_retention_bytes),
+            text_filter: None,
+            highlight: None,
+            log_cursor: None,
+            logs_viewport_rows: 10,
             system_sample: None,
             block_rate: RateCounter::new(config.block_sample_capacity),
             transaction_rate: RateCounter::new(config.transaction_sample_capacity),
@@ -975,5 +999,97 @@ mod tests {
         );
         assert!(!model.is_copy_mode());
         assert_eq!(model.interaction_mode, InteractionMode::Normal);
+    }
+
+    fn ready_model() -> Model {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.initial_stake_distributions_ready = true;
+        model
+    }
+
+    fn named_log(name: &str) -> Message {
+        Message::Telemetry(telemetry_record(Instant::now(), "amaru::ledger", name, []))
+    }
+
+    #[test]
+    fn ampersand_filters_log_view_by_regex() {
+        let mut model = ready_model();
+        model.handle_message(named_log("keep-me"));
+        model.handle_message(named_log("drop-me"));
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.prompt_is_open());
+        for character in "keep-me".chars() {
+            assert_eq!(
+                model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)),
+                TerminalEventOutcome::Continue
+            );
+        }
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(!model.prompt_is_open());
+        model.sync_logs();
+
+        let names: Vec<_> =
+            model.log_view().iter().filter_map(|item| item.record().map(|record| record.name.clone())).collect();
+        assert_eq!(names, vec!["keep-me".to_string()]);
+    }
+
+    #[test]
+    fn copy_mode_allows_scrolling() {
+        let mut model = ready_model();
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::EnterCopyMode
+        );
+        assert!(model.is_copy_mode());
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.log_scroll, 1);
+        assert!(model.is_copy_mode());
+    }
+
+    #[test]
+    fn highlight_jumps_between_matching_lines() {
+        let mut model = ready_model();
+        model.handle_message(named_log("alpha-one"));
+        model.handle_message(named_log("skip"));
+        model.handle_message(named_log("alpha-two"));
+        model.sync_logs();
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        for character in "alpha".chars() {
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+
+        let newest = model.log_view().iter().rev().find_map(|item| item.record().map(|record| record.name.clone()));
+        assert_eq!(newest.as_deref(), Some("alpha-two"));
+        let newest_record = model.log_view().iter().rev().find_map(|item| item.record()).expect("newest log");
+        assert!(model.log_record_is_cursor(newest_record));
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        let names: Vec<_> = model
+            .log_view()
+            .iter()
+            .filter_map(|item| {
+                let record = item.record()?;
+                model.log_record_is_cursor(record).then(|| record.name.clone())
+            })
+            .collect();
+        assert_eq!(names, vec!["alpha-one".to_string()]);
     }
 }

@@ -19,6 +19,9 @@ mod system_sample;
 mod telemetry_record;
 
 pub use self::{
-    field_value::FieldValue, message::Message, metric_record::MetricRecord, system_sample::SystemSample,
-    telemetry_record::TelemetryRecord,
+    field_value::FieldValue,
+    message::Message,
+    metric_record::MetricRecord,
+    system_sample::SystemSample,
+    telemetry_record::{TelemetryRecord, format_log_wall_time},
 };

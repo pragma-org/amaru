@@ -53,6 +53,12 @@ Other guiding principles:
 
 - **amaru-protocols**: BlockFetch waits for each block to be accepted by TCP before encoding the next, so a slow peer no longer unbounded-buffers. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru-protocols**: BlockFetch keeps the connection up if a new range is requested before the previous batch finishes. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
+- **amaru**: `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION` (default `100MiB`) caps how much log text the TUI keeps. SI suffixes (`kB`, `MB`) are powers of 1000; IEC suffixes (`KiB`, `MiB`) are powers of 1024.
+- **amaru-tui**: the log pane thins older lines by severity (newest 70% keep debug and up, then 10% info and up, 10% warn and up, oldest 10% errors only), marks those cut-offs, and shows each bucket’s fill when the row is wide enough. `&` filters visible lines by regex, `/` highlights matches and jumps between them, and copy mode can still scroll.
+
+### Changed
+
+- **amaru**: the `mempool_max_bytes` startup trace field is now an IEC size such as `176 KiB` instead of a raw integer.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 

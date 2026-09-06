@@ -24,7 +24,7 @@ use std::{
 };
 
 use amaru::env_vars;
-use amaru_kernel::{Epoch, NetworkName, PREPROD_ERA_HISTORY, utils::memory};
+use amaru_kernel::{ByteSize, Epoch, NetworkName, PREPROD_ERA_HISTORY, utils::memory};
 use amaru_ledger::{
     store::Snapshot,
     summary::{governance::GovernanceSummary, stake_distribution::StakeSummary},
@@ -236,16 +236,7 @@ fn measure_new_snapshot_summary_memory() -> anyhow::Result<()> {
 }
 
 fn format_bytes(bytes: usize) -> String {
-    const KIB: usize = 1024;
-    const MIB: usize = 1024 * 1024;
-
-    if bytes >= MIB {
-        format!("{}MiB", bytes / MIB)
-    } else if bytes >= KIB {
-        format!("{}KiB", bytes / KIB)
-    } else {
-        format!("{bytes}B")
-    }
+    ByteSize::from(bytes).to_string()
 }
 
 fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> anyhow::Result<String> {

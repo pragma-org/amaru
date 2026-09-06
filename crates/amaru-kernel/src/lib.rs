@@ -24,6 +24,7 @@ pub mod maths;
 pub mod macros;
 
 pub mod utils;
+pub use utils::byte_size::{ByteSize, ByteSizeError, SiByteSize};
 
 pub mod bech32;
 

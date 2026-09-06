@@ -18,15 +18,16 @@ use crate::{Config, StartupContext};
 pub struct Settings {
     pub no_tui: bool,
     pub startup: StartupContext,
+    pub log_retention_bytes: usize,
 }
 
 impl Settings {
-    pub fn new(no_tui: bool, startup: StartupContext) -> Self {
-        Self { no_tui, startup }
+    pub fn new(no_tui: bool, startup: StartupContext, log_retention_bytes: usize) -> Self {
+        Self { no_tui, startup, log_retention_bytes }
     }
 
     pub fn config(&self) -> Config {
-        Config::default()
+        Config { log_retention_bytes: self.log_retention_bytes, ..Config::default() }
     }
 
     pub fn into_parts(self) -> (bool, Config, StartupContext) {

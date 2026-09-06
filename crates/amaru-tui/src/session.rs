@@ -151,6 +151,7 @@ fn run_terminal(
     let mut model = Model::new(config.clone(), startup);
     let mut views = Views::default();
     let mut next_draw_at = Instant::now();
+    let mut immediate_draw = true;
 
     loop {
         if control_rx.try_recv().is_ok() {
@@ -160,21 +161,35 @@ fn run_terminal(
         if signal_count.load(Ordering::SeqCst) > 0 && !model.is_shutdown_mode() {
             model.enter_shutdown_mode();
             terminal.set_mouse_capture(true)?;
+            immediate_draw = true;
         }
 
         let now = Instant::now();
-        if now >= next_draw_at {
-            if !model.is_copy_mode() {
-                terminal.terminal().draw(|frame| ui::render(frame, &model, &mut views, now))?;
-            }
+        let due = now >= next_draw_at;
+        if immediate_draw || (due && !model.is_copy_mode()) {
+            model.sync_logs();
+            terminal.terminal().draw(|frame| ui::render(frame, &model, &mut views, now))?;
+            immediate_draw = false;
+        }
+        if due {
             next_draw_at = now + config.tick_interval;
         }
 
         while event::poll(Duration::ZERO)? {
             match model.handle_terminal_event(event::read()?, &views) {
-                TerminalEventOutcome::Continue => {}
-                TerminalEventOutcome::EnterCopyMode => enter_copy_mode(&mut terminal, &model, &mut views, now)?,
-                TerminalEventOutcome::ExitCopyMode => terminal.set_mouse_capture(true)?,
+                TerminalEventOutcome::Continue => {
+                    if model.is_copy_mode() || model.prompt_is_open() {
+                        immediate_draw = true;
+                    }
+                }
+                TerminalEventOutcome::EnterCopyMode => {
+                    model.sync_logs();
+                    enter_copy_mode(&mut terminal, &model, &mut views, now)?;
+                }
+                TerminalEventOutcome::ExitCopyMode => {
+                    terminal.set_mouse_capture(true)?;
+                    immediate_draw = true;
+                }
                 TerminalEventOutcome::Shutdown => request_shutdown()?,
             }
         }

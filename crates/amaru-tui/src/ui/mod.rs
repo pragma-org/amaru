@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders},
@@ -49,6 +49,9 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
     let inner = shell.inner(shell_area);
 
     frame.render_widget(shell, shell_area);
+    if model.prompt_is_open() {
+        set_prompt_cursor(frame, shell_area, model);
+    }
     if !is_ready {
         render_splash(frame, inner, model, views);
         if model.is_shutdown_mode() {
@@ -133,10 +136,12 @@ fn shell_block(model: &Model, is_ready: bool) -> Block<'static> {
     let block = Block::default().borders(Borders::ALL).border_style(border_primary(model.interaction_mode));
 
     if is_ready {
-        block
-            .title_top(page_tabs_line(model).left_aligned())
-            .title_top(shell_title(model).centered())
-            .title_bottom(shell_hint(model).right_aligned())
+        let block = block.title_top(page_tabs_line(model).left_aligned()).title_top(shell_title(model).centered());
+        if model.prompt_is_open() {
+            block.title_bottom(prompt_line(model).left_aligned())
+        } else {
+            block.title_bottom(shell_hint(model).right_aligned())
+        }
     } else {
         block.title_top(shell_title(model).centered())
     }
@@ -223,38 +228,89 @@ fn shell_hint(model: &Model) -> Line<'static> {
     }
 
     if model.is_copy_mode() {
+        let arrow_hint = if model.highlight_pattern.is_empty() { " SCROLL  " } else { " MATCHES  " };
         return border_title_line(
             vec![
                 Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" NORMAL MODE", theme::muted()),
+                Span::styled(" NORMAL  ", theme::muted()),
+                Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
+                Span::styled(arrow_hint, theme::muted()),
+                Span::styled("<&>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" FILTER  ", theme::muted()),
+                Span::styled("</>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" HIGHLIGHT", theme::muted()),
             ],
             model.interaction_mode,
             false,
         );
     }
 
+    let arrow_hint = if model.highlight_pattern.is_empty() { " SCROLL  " } else { " MATCHES  " };
     border_title_line(
         vec![
             Span::styled("<mouse>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" NAVIGATE  ", theme::muted()),
+            Span::styled(" NAV  ", theme::muted()),
             Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" COPY MODE  ", theme::muted()),
+            Span::styled(" COPY  ", theme::muted()),
             Span::styled("<tab>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" NEXT  ", theme::muted()),
-            Span::styled("<S-tab>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" PREV  ", theme::muted()),
+            Span::styled(" PAGE  ", theme::muted()),
             Span::styled("<←→>", emphasis_primary(model.interaction_mode)),
             Span::styled(" FOCUS  ", theme::muted()),
             Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" SCROLL  ", theme::muted()),
+            Span::styled(arrow_hint, theme::muted()),
             Span::styled("<enter>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" MAXIMIZE  ", theme::muted()),
+            Span::styled(" MAX  ", theme::muted()),
+            Span::styled("<&>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" FILTER  ", theme::muted()),
+            Span::styled("</>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" HIGHLIGHT  ", theme::muted()),
             Span::styled("<q>", emphasis_primary(model.interaction_mode)),
             Span::styled(" QUIT", theme::muted()),
         ],
         model.interaction_mode,
         false,
     )
+}
+
+fn prompt_line(model: &Model) -> Line<'static> {
+    let Some(prompt) = model.prompt.as_ref() else {
+        return Line::default();
+    };
+
+    let mut spans = vec![
+        Span::styled(prompt.prefix().to_string(), emphasis_primary(model.interaction_mode)),
+        Span::styled(prompt.input.clone(), emphasis_white()),
+        Span::raw("  "),
+    ];
+    if let Some(error) = &prompt.error {
+        spans.push(Span::styled(
+            error.clone(),
+            Style::default().fg(Color::Rgb(244, 86, 86)).add_modifier(Modifier::BOLD),
+        ));
+    } else {
+        spans.push(Span::styled("enter apply  esc cancel", theme::muted()));
+    }
+
+    border_title_line(spans, model.interaction_mode, false)
+}
+
+fn set_prompt_cursor(frame: &mut Frame<'_>, area: Rect, model: &Model) {
+    let Some(prompt) = model.prompt.as_ref() else {
+        return;
+    };
+
+    let prefix = prompt.prefix().chars().count() as u16;
+    let cursor = prompt.cursor.min(prompt.input.chars().count()) as u16;
+    let x = area
+        .x
+        .saturating_add(1)
+        .saturating_add(border_title_prefix_width())
+        .saturating_add(prefix)
+        .saturating_add(cursor);
+    let y = area.y.saturating_add(area.height.saturating_sub(1));
+    if x < area.x.saturating_add(area.width.saturating_sub(1)) {
+        frame.set_cursor_position(Position { x, y });
+    }
 }
 
 fn page_content_height(model: &Model) -> u16 {

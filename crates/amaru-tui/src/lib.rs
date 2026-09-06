@@ -23,8 +23,10 @@ mod terminal_guard;
 mod ui;
 
 pub use amaru_observability::TelemetryCaptureLayer;
-pub use config::Config;
-pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
+pub use config::{Config, DEFAULT_LOG_RETENTION_BYTES};
+pub use model::{
+    InteractionMode, LevelFilter, LogViewItem, Page, PaneMode, PromptKind, RetentionTier, ScrollFocus, TargetFilter,
+};
 pub use session::{Session, should_enable};
 pub use settings::Settings;
 pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};

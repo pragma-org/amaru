@@ -21,6 +21,7 @@ amaru-observability.workspace = true
 clap.workspace = true
 crossterm.workspace = true
 ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
+regex.workspace = true
 signal-hook.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

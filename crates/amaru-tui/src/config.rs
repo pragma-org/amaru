@@ -14,14 +14,14 @@
 
 use std::time::Duration;
 
-use tracing::Level;
+use amaru_kernel::ByteSize;
+
+/// Default TUI log retention: 100 MiB.
+pub const DEFAULT_LOG_RETENTION_BYTES: usize = ByteSize::from_mib(100).as_usize();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    pub debug_log_capacity: usize,
-    pub info_log_capacity: usize,
-    pub warn_log_capacity: usize,
-    pub error_log_capacity: usize,
+    pub log_retention_bytes: usize,
     pub block_sample_capacity: usize,
     pub transaction_sample_capacity: usize,
     pub rollback_sample_capacity: usize,
@@ -37,10 +37,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            debug_log_capacity: 1_000,
-            info_log_capacity: 500,
-            warn_log_capacity: 100,
-            error_log_capacity: 100,
+            log_retention_bytes: DEFAULT_LOG_RETENTION_BYTES,
             block_sample_capacity: 100,
             transaction_sample_capacity: 100,
             rollback_sample_capacity: 100,
@@ -51,17 +48,6 @@ impl Default for Config {
             tick_interval: Duration::from_millis(250),
             splash_timeout: Duration::from_secs(3),
             channel_capacity: 4_096,
-        }
-    }
-}
-
-impl Config {
-    pub fn log_capacity_for(&self, level: Level) -> usize {
-        match level {
-            Level::TRACE | Level::DEBUG => self.debug_log_capacity,
-            Level::INFO => self.info_log_capacity,
-            Level::WARN => self.warn_log_capacity,
-            Level::ERROR => self.error_log_capacity,
         }
     }
 }

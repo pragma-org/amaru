@@ -12,20 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
-use ratatui::layout::Rect;
+use std::rc::Rc;
 
-use super::*;
-use crate::ui::Views;
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
+use ratatui::layout::Rect;
+use regex::Regex;
+
+use super::{
+    prompt::{PromptAction, PromptKind, PromptState},
+    *,
+};
+use crate::{events::TelemetryRecord, ui::Views};
 
 impl Model {
     pub fn handle_terminal_event(&mut self, event: Event, views: &Views) -> TerminalEventOutcome {
+        if views.logs_area.height > 0 {
+            self.logs_viewport_rows = (views.logs_area.height as usize).saturating_sub(6).max(1);
+        }
+
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key_event(key),
             Event::Mouse(mouse) => self.handle_mouse_event(mouse, views),
             Event::Resize(_, _) => TerminalEventOutcome::Continue,
             Event::FocusGained | Event::FocusLost | Event::Paste(_) | Event::Key(_) => TerminalEventOutcome::Continue,
         }
+    }
+
+    pub fn sync_logs(&mut self) {
+        self.logs.sync(self.level_filter, self.target_filter, &self.text_filter_pattern, self.text_filter.as_ref());
     }
 
     pub fn next_page(&mut self) {
@@ -102,20 +116,21 @@ impl Model {
 
     pub fn set_level_filter(&mut self, level: LevelFilter) {
         self.level_filter = level;
-        self.logs.rebuild_filtered(self.level_filter, self.target_filter);
+        self.sync_logs();
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
 
     pub fn set_target_filter(&mut self, filter: TargetFilter) {
         self.target_filter = filter;
-        self.logs.rebuild_filtered(self.level_filter, self.target_filter);
+        self.sync_logs();
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
 
     pub fn scroll_focused(&mut self, delta: isize) {
         match self.scroll_focus {
+            ScrollFocus::Logs if self.highlight.is_some() && delta.abs() == 1 => self.jump_highlight(delta),
             ScrollFocus::Logs => self.scroll_logs(delta),
             ScrollFocus::Peers => self.scroll_peers(delta),
             ScrollFocus::Proposals => self.scroll_proposals(delta),
@@ -220,13 +235,16 @@ impl Model {
             return TerminalEventOutcome::Continue;
         }
 
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return TerminalEventOutcome::Shutdown;
+        }
+
+        if self.prompt.is_some() {
+            return self.handle_prompt_key(key);
+        }
+
         if self.is_copy_mode() {
-            return if key.code == KeyCode::Esc {
-                self.exit_copy_mode();
-                TerminalEventOutcome::ExitCopyMode
-            } else {
-                TerminalEventOutcome::Continue
-            };
+            return self.handle_copy_mode_key(key);
         }
 
         match key.code {
@@ -238,8 +256,13 @@ impl Model {
                 TerminalEventOutcome::EnterCopyMode
             }
             KeyCode::Char('q') => TerminalEventOutcome::Shutdown,
-            KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                TerminalEventOutcome::Shutdown
+            KeyCode::Char('&') => {
+                self.open_prompt(PromptKind::Filter);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Char('/') => {
+                self.open_prompt(PromptKind::Highlight);
+                TerminalEventOutcome::Continue
             }
             KeyCode::Tab => {
                 self.next_page();
@@ -302,7 +325,7 @@ impl Model {
     }
 
     fn handle_mouse_event(&mut self, mouse: event::MouseEvent, views: &Views) -> TerminalEventOutcome {
-        if self.is_shutdown_mode() {
+        if self.is_shutdown_mode() || self.prompt.is_some() {
             return TerminalEventOutcome::Continue;
         }
 
@@ -321,6 +344,190 @@ impl Model {
         }
 
         TerminalEventOutcome::Continue
+    }
+
+    fn handle_copy_mode_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        match key.code {
+            KeyCode::Esc => {
+                self.exit_copy_mode();
+                TerminalEventOutcome::ExitCopyMode
+            }
+            KeyCode::Char('&') => {
+                self.open_prompt(PromptKind::Filter);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Char('/') => {
+                self.open_prompt(PromptKind::Highlight);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Up => {
+                self.scroll_focused(-1);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Down => {
+                self.scroll_focused(1);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::PageUp => {
+                self.scroll_focused(-10);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::PageDown => {
+                self.scroll_focused(10);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Backspace
+            | KeyCode::Enter
+            | KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::Tab
+            | KeyCode::BackTab
+            | KeyCode::Delete
+            | KeyCode::Insert
+            | KeyCode::F(_)
+            | KeyCode::Char(_)
+            | KeyCode::Null
+            | KeyCode::CapsLock
+            | KeyCode::ScrollLock
+            | KeyCode::NumLock
+            | KeyCode::PrintScreen
+            | KeyCode::Pause
+            | KeyCode::Menu
+            | KeyCode::KeypadBegin
+            | KeyCode::Media(_)
+            | KeyCode::Modifier(_) => TerminalEventOutcome::Continue,
+        }
+    }
+
+    fn handle_prompt_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        let Some(prompt) = self.prompt.as_mut() else {
+            return TerminalEventOutcome::Continue;
+        };
+
+        match prompt.handle_key(key) {
+            PromptAction::Continue => TerminalEventOutcome::Continue,
+            PromptAction::Cancel => {
+                self.prompt = None;
+                TerminalEventOutcome::Continue
+            }
+            PromptAction::Submit => {
+                if let Some(prompt) = self.prompt.take() {
+                    self.apply_prompt(prompt);
+                }
+                TerminalEventOutcome::Continue
+            }
+        }
+    }
+
+    fn open_prompt(&mut self, kind: PromptKind) {
+        if !self.is_ready(std::time::Instant::now()) {
+            return;
+        }
+
+        self.scroll_focus = ScrollFocus::Logs;
+        let initial = match kind {
+            PromptKind::Filter => self.text_filter_pattern.clone(),
+            PromptKind::Highlight => self.highlight_pattern.clone(),
+        };
+        self.prompt = Some(PromptState::new(kind, initial));
+    }
+
+    fn apply_prompt(&mut self, prompt: PromptState) {
+        let regex = prompt.compiled();
+        match prompt.kind {
+            PromptKind::Filter => self.set_text_filter(prompt.input, regex),
+            PromptKind::Highlight => self.set_highlight(prompt.input, regex),
+        }
+    }
+
+    fn set_text_filter(&mut self, pattern: String, regex: Option<Regex>) {
+        self.text_filter_pattern = if regex.is_some() { pattern } else { String::new() };
+        self.text_filter = regex;
+        self.sync_logs();
+        self.log_scroll = 0;
+        self.scroll_focus = ScrollFocus::Logs;
+        self.refresh_highlight_cursor();
+    }
+
+    fn set_highlight(&mut self, pattern: String, regex: Option<Regex>) {
+        self.highlight_pattern = if regex.is_some() { pattern } else { String::new() };
+        self.highlight = regex;
+        self.scroll_focus = ScrollFocus::Logs;
+        self.refresh_highlight_cursor();
+    }
+
+    fn refresh_highlight_cursor(&mut self) {
+        if self.highlight.is_none() {
+            self.log_cursor = None;
+            return;
+        }
+
+        self.sync_logs();
+        self.log_cursor = self.newest_highlight();
+        self.scroll_cursor_into_view();
+    }
+
+    fn jump_highlight(&mut self, direction: isize) {
+        self.sync_logs();
+        let Some(regex) = self.highlight.as_ref() else {
+            return;
+        };
+
+        let matches: Vec<Rc<TelemetryRecord>> = self
+            .logs
+            .view()
+            .iter()
+            .filter_map(|item| {
+                let record = item.record()?;
+                regex.is_match(&record.plain_text()).then(|| Rc::clone(record))
+            })
+            .collect();
+        if matches.is_empty() {
+            self.log_cursor = None;
+            return;
+        }
+
+        let current =
+            self.log_cursor.as_ref().and_then(|cursor| matches.iter().position(|record| Rc::ptr_eq(record, cursor)));
+        let next = match (current, direction > 0) {
+            (Some(index), true) => matches.get(index + 1).or_else(|| matches.first()),
+            (Some(index), false) => {
+                index.checked_sub(1).and_then(|index| matches.get(index)).or_else(|| matches.last())
+            }
+            (None, true) => matches.first(),
+            (None, false) => matches.last(),
+        };
+
+        if let Some(record) = next {
+            self.log_cursor = Some(Rc::clone(record));
+            self.scroll_cursor_into_view();
+        }
+    }
+
+    fn newest_highlight(&self) -> Option<Rc<TelemetryRecord>> {
+        let regex = self.highlight.as_ref()?;
+        self.logs.view().iter().rev().find_map(|item| {
+            let record = item.record()?;
+            regex.is_match(&record.plain_text()).then(|| Rc::clone(record))
+        })
+    }
+
+    fn cursor_index(&self) -> Option<usize> {
+        let cursor = self.log_cursor.as_ref()?;
+        self.logs.view().iter().position(|item| item.record().is_some_and(|record| Rc::ptr_eq(record, cursor)))
+    }
+
+    fn scroll_cursor_into_view(&mut self) {
+        let Some(index) = self.cursor_index() else {
+            return;
+        };
+        let total = self.logs.view().len();
+        let height = self.logs_viewport_rows.max(1);
+        let position = index.saturating_add(1).saturating_sub(height);
+        self.log_scroll = total.saturating_sub(height).saturating_sub(position);
+        self.scroll_focus = ScrollFocus::Logs;
     }
 
     fn set_scroll_focus(&mut self, focus: ScrollFocus) {

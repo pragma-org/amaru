@@ -104,6 +104,20 @@ pub(super) fn style_for_target(_target: &str) -> Style {
     Style::default().fg(muted_color())
 }
 
+pub(super) fn style_for_log_match(current: bool, mode: InteractionMode) -> Style {
+    let background = match (current, mode) {
+        (true, InteractionMode::Copy) => Color::Rgb(46, 78, 128),
+        (true, _) => Color::Rgb(58, 92, 48),
+        (false, InteractionMode::Copy) => Color::Rgb(28, 46, 74),
+        (false, _) => Color::Rgb(32, 52, 28),
+    };
+    Style::default().bg(background)
+}
+
+pub(super) fn style_for_tier_boundary(mode: InteractionMode) -> Style {
+    Style::default().fg(accent_primary(mode)).add_modifier(Modifier::BOLD)
+}
+
 pub(super) fn table_header_style(mode: InteractionMode) -> Style {
     let background = match mode {
         InteractionMode::Normal => Color::Rgb(22, 48, 33),

@@ -42,7 +42,7 @@ impl Model {
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
         self.update_state(TelemetryEvent::from_record(&record), &record);
-        self.logs.push(record, &self.config, self.level_filter, self.target_filter);
+        self.logs.push(record);
     }
 
     fn update_state(&mut self, event: Option<TelemetryEvent>, record: &TelemetryRecord) {

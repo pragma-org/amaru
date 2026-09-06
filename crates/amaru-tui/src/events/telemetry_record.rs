@@ -14,7 +14,7 @@
 
 use std::{
     collections::BTreeMap,
-    time::{Instant, SystemTime},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use amaru_observability::RecordFields;
@@ -101,6 +101,25 @@ impl TelemetryRecord {
             .collect::<Vec<_>>()
             .join(" ")
     }
+
+    /// Unstyled log-line text used for regex filter and highlight matching.
+    pub fn plain_text(&self) -> String {
+        let fields = self.to_fields_string();
+        let label = self.log_label();
+        if fields.is_empty() {
+            format!("{} {:>5} {} {}", format_log_wall_time(self.wall_time), self.level, self.target, label)
+        } else {
+            format!("{} {:>5} {} {} {}", format_log_wall_time(self.wall_time), self.level, self.target, label, fields)
+        }
+    }
+}
+
+pub fn format_log_wall_time(wall_time: SystemTime) -> String {
+    let seconds = wall_time.duration_since(UNIX_EPOCH).map(|duration| duration.as_secs() % 86_400).unwrap_or_default();
+    let hours = seconds / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    let secs = seconds % 60;
+    format!("{hours:02}:{minutes:02}:{secs:02}")
 }
 
 impl RecordFields for TelemetryRecord {

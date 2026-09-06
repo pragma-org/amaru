@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use ratatui::text::{Line, Span};
 
@@ -97,11 +97,7 @@ pub(super) fn format_micros(micros: u64) -> String {
 }
 
 pub(super) fn format_log_wall_time(wall_time: SystemTime) -> String {
-    let seconds = wall_time.duration_since(UNIX_EPOCH).map(|duration| duration.as_secs() % 86_400).unwrap_or_default();
-    let hours = seconds / 3_600;
-    let minutes = (seconds % 3_600) / 60;
-    let secs = seconds % 60;
-    format!("{hours:02}:{minutes:02}:{secs:02}")
+    crate::events::format_log_wall_time(wall_time)
 }
 
 pub(super) fn format_lovelace(value: u64) -> String {

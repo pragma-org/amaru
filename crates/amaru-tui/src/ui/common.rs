@@ -22,7 +22,7 @@ use ratatui::{
 };
 
 use super::theme::{border_primary, border_secondary, emphasis_primary, emphasis_white_color};
-use crate::model::{InteractionMode, LevelFilter};
+use crate::model::{InteractionMode, LevelFilter, TargetFilter};
 
 pub(super) fn button_label(label: &str) -> String {
     format!("[ {} ]", label.to_uppercase())
@@ -132,6 +132,10 @@ pub(super) fn show_config_env_column(area: Rect) -> bool {
 
 pub(super) fn level_controls_width() -> u16 {
     spans_width(LevelFilter::ALL.into_iter().map(|filter| button_label(filter.label()).len() as u16))
+}
+
+pub(super) fn target_controls_width() -> u16 {
+    spans_width(TargetFilter::ALL.into_iter().map(|filter| button_label(filter.label()).len() as u16))
 }
 
 pub(super) fn table_body_area(inner: Rect) -> Rect {
