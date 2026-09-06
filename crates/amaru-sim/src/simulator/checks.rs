@@ -31,6 +31,7 @@ pub fn check_chain_property(nodes: Nodes, actions: &GeneratedActions) -> TestRes
         if node.is_downstream() {
             tracing::info!(node_id = %node.node_id(), "checking chain property for downstream node");
 
+            #[expect(clippy::expect_used)]
             let store = node
                 .resources()
                 .get::<Arc<dyn DiagnosticChainStore>>()

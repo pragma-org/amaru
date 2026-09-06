@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::unwrap_used, clippy::expect_used, clippy::wildcard_enum_match_arm)]
+
 use core::str;
 use std::array::TryFromSliceError;
 

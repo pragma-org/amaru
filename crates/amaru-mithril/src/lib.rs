@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 pub use amaru_kernel::extract_block_header_cbor;
 use amaru_kernel::{Hasher, cbor, extract_block_header_cbor as _extract_block_header_cbor};
 

@@ -16,7 +16,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-08-20
+  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-09-04
   RUSTUP_LOG: error
 
 permissions:

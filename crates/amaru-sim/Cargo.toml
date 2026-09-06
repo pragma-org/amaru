@@ -1,3 +1,5 @@
+lints.workspace = true
+
 [package]
 name = "amaru-sim"
 version = "0.1.2"
@@ -8,7 +10,6 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
-readme = "README.md"
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true

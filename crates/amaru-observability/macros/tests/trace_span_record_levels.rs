@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::unwrap_used)]
+
 //! Tests for trace_span! and trace_record! macros with custom tracing levels
 
 use std::sync::{Arc, Mutex};

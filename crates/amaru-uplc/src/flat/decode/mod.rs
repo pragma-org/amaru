@@ -220,7 +220,7 @@ fn type_from_tags<'a>(ctx: &Ctx<'a>, tags: &[u8]) -> Result<(&'a Type<'a>, usize
 }
 
 // BLS literals not supported
-fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder) -> Result<&'a Constant<'a>, FlatDecodeError> {
+fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder<'_>) -> Result<&'a Constant<'a>, FlatDecodeError> {
     let tags = decode_constant_tags(ctx, d)?;
     let (ty, _) = type_from_tags(ctx, tags.as_slice())?;
 
@@ -287,7 +287,7 @@ fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder) -> Result<&'a Constan
 // BLS literals not supported
 fn decode_constant_with_type<'a>(
     ctx: &mut Ctx<'a>,
-    d: &mut Decoder,
+    d: &mut Decoder<'_>,
     ty: &Type<'a>,
 ) -> Result<&'a Constant<'a>, FlatDecodeError> {
     match ty {
@@ -350,7 +350,7 @@ fn decode_constant_with_type<'a>(
     }
 }
 
-fn decode_value<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder) -> Result<&'a Constant<'a>, FlatDecodeError> {
+fn decode_value<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder<'_>) -> Result<&'a Constant<'a>, FlatDecodeError> {
     let arena = ctx.arena;
 
     let mut currency_entries = BumpVec::new_in(arena.as_bump());
@@ -429,11 +429,11 @@ fn decode_value<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder) -> Result<&'a Constant<'
     Ok(Constant::ledger_value(arena, v))
 }
 
-fn decode_constant_tags<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder) -> Result<BumpVec<'a, u8>, FlatDecodeError> {
+fn decode_constant_tags<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder<'_>) -> Result<BumpVec<'a, u8>, FlatDecodeError> {
     d.list_with(ctx, |_arena, d| decode_constant_tag(d))
 }
 
-fn decode_constant_tag(d: &mut Decoder) -> Result<u8, FlatDecodeError> {
+fn decode_constant_tag(d: &mut Decoder<'_>) -> Result<u8, FlatDecodeError> {
     d.bits8(CONST_TAG_WIDTH)
 }
 
@@ -462,7 +462,7 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370090011aab9d375498109d8668218809f0001ff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
@@ -496,7 +496,7 @@ mod tests {
         let bytes =
             hex::decode("0101003370090011bad357426aae78dd526112d8799fc24c033b2e3c9fd0803ce7ffffffff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
@@ -532,7 +532,7 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370490021bad357426ae88dd62601049f070eff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);

@@ -110,6 +110,7 @@ impl<'a> Constant<'a> {
     where
         V: Eval<'a>,
     {
+        #[expect(clippy::wildcard_enum_match_arm)]
         match self {
             Constant::Data(data) => Ok(data),
             _ => Err(MachineError::not_data(self)),

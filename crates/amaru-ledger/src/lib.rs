@@ -16,6 +16,9 @@
 // <https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/010-ledger-validation-context.md>
 #![feature(try_trait_v2, try_trait_v2_residual)]
 
+#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 pub mod bootstrap;
 pub mod context;
 pub mod epoch_transition;

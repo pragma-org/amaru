@@ -24,6 +24,7 @@ use std::{
     time::Duration,
 };
 
+use amaru_consensus::block_validator::LedgerThreadStop;
 use amaru_kernel::{HeaderHash, Peer};
 use amaru_ouroboros::ConnectionId;
 use amaru_protocols::{
@@ -43,6 +44,10 @@ use super::{
     GraphWakeReason, HeapLogEntry, InjectorShared, NetworkEvent, WorldConnectionProvider,
     world_connection_provider::WorldHeapItem,
 };
+use crate::tests::configuration::DummyLedgerDir;
+
+/// How long [`WorldLoop::stop`] waits for each ledger thread to finish closing RocksDB.
+const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// World loop: pops the one physical `(time, sequence)` heap.
 ///
@@ -666,6 +671,59 @@ impl WorldLoop {
         std::mem::take(&mut self.heap_log)
     }
 
+    /// Drop node graphs and wait for each ledger thread to exit.
+    ///
+    /// The ledger thread owns RocksDB. Joining it here, with a timeout, keeps C++
+    /// destructors off the process-exit path, which otherwise aborts with
+    /// `pthread lock: Invalid argument`.
+    pub fn stop(self) {
+        self.stop_with_timeout(LEDGER_THREAD_STOP_TIMEOUT);
+    }
+
+    /// [`Self::stop`] with an explicit per-thread join deadline.
+    pub fn stop_with_timeout(mut self, timeout: Duration) {
+        self.join_background_threads(timeout);
+    }
+
+    fn join_background_threads(&mut self, timeout: Duration) {
+        if self.graphs.is_empty() {
+            return;
+        }
+        let mut stops = Vec::new();
+        let mut dummy_dirs = Vec::new();
+        for (index, graph) in self.graphs.iter().enumerate() {
+            if let Ok(stop) = graph.resources().take::<LedgerThreadStop>() {
+                stops.push((index, stop));
+            }
+            if let Ok(dir) = graph.resources().take::<DummyLedgerDir>() {
+                dummy_dirs.push(dir);
+            }
+        }
+        self.injector = None;
+        self.graphs.clear();
+        let already_panicking = std::thread::panicking();
+        let mut failures = Vec::new();
+        for (index, stop) in stops {
+            if let Err(err) = stop.join_timeout(timeout) {
+                let message = format!(
+                    "ledger thread for graph {index} did not stop within {timeout:?}: {err}\n\
+                     Drop the node graph so BlockValidator senders close, then join this thread \
+                     before the test process exits; otherwise RocksDB's C++ destructor races \
+                     process teardown and aborts with \"pthread lock: Invalid argument\"."
+                );
+                if already_panicking {
+                    eprintln!("{message}");
+                } else {
+                    failures.push(message);
+                }
+            }
+        }
+        drop(dummy_dirs);
+        if !failures.is_empty() {
+            panic!("{}", failures.join("\n"));
+        }
+    }
+
     /// Peek next event time on the one physical heap.
     pub fn peek_next_event_time(&self) -> Option<u64> {
         self.provider.peek_next_event_time()
@@ -685,6 +743,12 @@ impl WorldLoop {
             .collect();
         entries.sort_by_key(|e| (e.time_nanos, e.sequence));
         entries
+    }
+}
+
+impl Drop for WorldLoop {
+    fn drop(&mut self) {
+        self.join_background_threads(LEDGER_THREAD_STOP_TIMEOUT);
     }
 }
 

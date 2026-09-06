@@ -33,6 +33,9 @@
 //! The Tokio runtime is always an **explicit** argument — never taken from ambient
 //! async context. Metrics are optional ([`NodeBuilder::meter`] / [`Config::meter`]).
 
+#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 pub mod builder;
 pub mod chain_realign;
 pub mod ledger_reset;

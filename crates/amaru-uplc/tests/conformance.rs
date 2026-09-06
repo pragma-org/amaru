@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::panic, clippy::unwrap_used)]
+
 use amaru_kernel::protocol_version;
 use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, flat::FlatEncodeError, syn::parse_program};
 

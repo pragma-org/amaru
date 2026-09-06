@@ -530,10 +530,7 @@ impl<S: Subscriber> Filter<S> for OtelErrorFilter {
             self.report_otel_export_recovery(meta);
             return false;
         }
-        if !<EnvFilter as Filter<S>>::enabled(&self.inner, meta, cx) {
-            return false;
-        }
-        true
+        <EnvFilter as Filter<S>>::enabled(&self.inner, meta, cx)
     }
 
     fn callsite_enabled(&self, meta: &'static Metadata<'static>) -> Interest {
@@ -723,60 +720,27 @@ mod tests {
     fn otel_export_error_is_recognised() {
         // Use the actual tracing machinery to produce `Metadata` with a known
         // target, level, and operation name, then classify it.
-        static CHECK: Mutex<Option<bool>> = Mutex::new(None);
-
-        struct CaptureMeta;
-        impl tracing::Subscriber for CaptureMeta {
-            fn enabled(&self, meta: &tracing::Metadata<'_>) -> bool {
-                if meta.name() == "BatchLogProcessor.ExportError" {
-                    *CHECK.lock().unwrap() = Some(OtelErrorFilter::is_otel_export_error(meta));
-                }
-                true
-            }
-            fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-                tracing::span::Id::from_u64(1)
-            }
-            fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
-            fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-            fn event(&self, _: &tracing::Event<'_>) {}
-            fn enter(&self, _: &tracing::span::Id) {}
-            fn exit(&self, _: &tracing::span::Id) {}
-        }
-
-        tracing::subscriber::with_default(CaptureMeta, || {
-            tracing::event!(name: "BatchLogProcessor.ExportError", target: "opentelemetry_sdk", tracing::Level::ERROR, "test");
-        });
-
-        assert_eq!(*CHECK.lock().unwrap(), Some(true));
+        assert_eq!(
+            classify_emitted_event(|| {
+                tracing::event!(
+                    name: "BatchLogProcessor.ExportError",
+                    target: "opentelemetry_sdk",
+                    tracing::Level::ERROR,
+                    "test"
+                );
+            }),
+            Some(true)
+        );
     }
 
     #[test]
     fn non_otel_target_is_not_recognised_as_export_error() {
-        static CHECK: Mutex<Option<bool>> = Mutex::new(None);
-
-        struct CaptureMeta;
-        impl tracing::Subscriber for CaptureMeta {
-            fn enabled(&self, meta: &tracing::Metadata<'_>) -> bool {
-                if meta.target() == "amaru::stages" {
-                    *CHECK.lock().unwrap() = Some(OtelErrorFilter::is_otel_export_error(meta));
-                }
-                true
-            }
-            fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-                tracing::span::Id::from_u64(1)
-            }
-            fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
-            fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-            fn event(&self, _: &tracing::Event<'_>) {}
-            fn enter(&self, _: &tracing::span::Id) {}
-            fn exit(&self, _: &tracing::span::Id) {}
-        }
-
-        tracing::subscriber::with_default(CaptureMeta, || {
-            tracing::event!(target: "amaru::stages", tracing::Level::DEBUG, "test");
-        });
-
-        assert_eq!(*CHECK.lock().unwrap(), Some(false));
+        assert_eq!(
+            classify_emitted_event(|| {
+                tracing::event!(target: "amaru::stages", tracing::Level::DEBUG, "test");
+            }),
+            Some(false)
+        );
     }
 
     #[test]
@@ -853,6 +817,32 @@ mod tests {
         fn on_event(&self, _event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
             self.count.fetch_add(1, AtomicOrdering::Relaxed);
         }
+    }
+
+    /// Classify the event actually dispatched by `emit`, not every callsite
+    /// `enabled` during dispatcher rebuild (other tests register the same
+    /// `BatchLogProcessor.ExportError` name at WARN).
+    fn classify_emitted_event(emit: impl FnOnce()) -> Option<bool> {
+        struct CaptureMeta(Arc<Mutex<Option<bool>>>);
+        impl tracing::Subscriber for CaptureMeta {
+            fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+                true
+            }
+            fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+                tracing::span::Id::from_u64(1)
+            }
+            fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+            fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+            fn event(&self, event: &tracing::Event<'_>) {
+                *self.0.lock().unwrap() = Some(OtelErrorFilter::is_otel_export_error(event.metadata()));
+            }
+            fn enter(&self, _: &tracing::span::Id) {}
+            fn exit(&self, _: &tracing::span::Id) {}
+        }
+
+        let check = Arc::new(Mutex::new(None));
+        tracing::subscriber::with_default(CaptureMeta(Arc::clone(&check)), emit);
+        *check.lock().unwrap()
     }
 
     /// Runs `f` with a subscriber that applies `filter` and returns the number

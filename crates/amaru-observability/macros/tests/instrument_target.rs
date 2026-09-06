@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::unwrap_used)]
+
 //! Tests that verify runtime behavior of trace macro
 //!
 //! These tests verify:

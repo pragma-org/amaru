@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -131,6 +133,7 @@ fn analyze_turbo(arena: &mut Arena, flat: Vec<u8>, plutus_version: PlutusVersion
     )
 }
 
+#[expect(clippy::print_stdout)]
 fn analyze_slow_evals(threshold: Duration) {
     eprintln!("Collecting script executions slower than {}ms", threshold.as_millis());
     let scripts = collect_scripts(&SAMPLES);
@@ -170,7 +173,7 @@ fn analyze_slow_evals(threshold: Duration) {
 }
 
 #[divan::bench(sample_count = SAMPLES.len() as u32)]
-fn turbo_decode_eval(bencher: Bencher) {
+fn turbo_decode_eval(bencher: Bencher<'_, '_>) {
     let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
     let mut scripts = collect_scripts(&SAMPLES);
     bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, plutus_version)| {
@@ -182,7 +185,7 @@ fn turbo_decode_eval(bencher: Bencher) {
 }
 
 #[divan::bench(sample_count = SAMPLES.len() as u32)]
-fn turbo_decode_only(bencher: Bencher) {
+fn turbo_decode_only(bencher: Bencher<'_, '_>) {
     let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
     let mut scripts = collect_scripts(&SAMPLES);
     bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, _)| {

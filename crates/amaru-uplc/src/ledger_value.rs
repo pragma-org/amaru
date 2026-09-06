@@ -330,12 +330,12 @@ impl<'a> LedgerValue<'a> {
             for token in entry.tokens {
                 let tok_data = PlutusData::byte_string(arena, token.name);
                 let qty_data = PlutusData::integer(arena, token.quantity);
-                inner_pairs.push((tok_data as &PlutusData, qty_data as &PlutusData));
+                inner_pairs.push((tok_data as &PlutusData<'_>, qty_data as &PlutusData<'_>));
             }
 
             let inner_pairs: &'a [_] = arena.alloc(inner_pairs);
             let inner_map = PlutusData::map(arena, inner_pairs);
-            outer_pairs.push((ccy_data as &PlutusData, inner_map as &PlutusData));
+            outer_pairs.push((ccy_data as &PlutusData<'_>, inner_map as &PlutusData<'_>));
         }
 
         let outer_pairs: &'a [_] = arena.alloc(outer_pairs);
@@ -343,6 +343,7 @@ impl<'a> LedgerValue<'a> {
     }
 
     pub fn un_value_data(arena: &'a Arena, d: &'a PlutusData<'a>) -> Result<&'a LedgerValue<'a>, ValueError> {
+        #[expect(clippy::wildcard_enum_match_arm)]
         let outer_map = match d {
             PlutusData::Map(m) => m,
             _ => return Err(UnValueDataError::NonMapConstructor.into()),
@@ -352,6 +353,7 @@ impl<'a> LedgerValue<'a> {
         let mut prev_ccy: Option<&[u8]> = None;
 
         for (key, value) in outer_map.iter() {
+            #[expect(clippy::wildcard_enum_match_arm)]
             let ccy = match key {
                 PlutusData::ByteString(bs) => *bs,
                 _ => return Err(UnValueDataError::NonByteStringConstructor.into()),
@@ -369,6 +371,7 @@ impl<'a> LedgerValue<'a> {
             }
             prev_ccy = Some(ccy);
 
+            #[expect(clippy::wildcard_enum_match_arm)]
             let inner_map = match value {
                 PlutusData::Map(m) => m,
                 _ => return Err(UnValueDataError::NonMapConstructor.into()),
@@ -382,6 +385,7 @@ impl<'a> LedgerValue<'a> {
             let mut prev_tok: Option<&[u8]> = None;
 
             for (inner_key, inner_value) in inner_map.iter() {
+                #[expect(clippy::wildcard_enum_match_arm)]
                 let tok = match inner_key {
                     PlutusData::ByteString(bs) => *bs,
                     _ => return Err(UnValueDataError::NonByteStringConstructor.into()),
@@ -399,6 +403,7 @@ impl<'a> LedgerValue<'a> {
                 }
                 prev_tok = Some(tok);
 
+                #[expect(clippy::wildcard_enum_match_arm)]
                 let qty = match inner_value {
                     PlutusData::Integer(i) => *i,
                     _ => return Err(UnValueDataError::NonIntegerConstructor.into()),
@@ -423,7 +428,7 @@ impl<'a> LedgerValue<'a> {
     }
 }
 
-pub fn count_stats(entries: &[CurrencyEntry]) -> (usize, usize) {
+pub fn count_stats(entries: &[CurrencyEntry<'_>]) -> (usize, usize) {
     let mut total_size = 0usize;
     let mut negative_count = 0usize;
     for e in entries {
@@ -500,7 +505,7 @@ pub fn check_quantity_range(int: &Integer) -> Result<(), ValueError> {
     if *magnitude == two_pow_127 { Ok(()) } else { Err(ValueError::QuantityOutOfBounds) }
 }
 
-pub fn value_max_depth(v: &LedgerValue) -> i64 {
+pub fn value_max_depth(v: &LedgerValue<'_>) -> i64 {
     let outer_size = v.entries.len();
     let mut max_inner = 0usize;
     for entry in v.entries {
@@ -513,9 +518,9 @@ pub fn value_max_depth(v: &LedgerValue) -> i64 {
     log_outer + log_inner
 }
 
-pub fn data_node_count(d: &PlutusData) -> i64 {
+pub fn data_node_count(d: &PlutusData<'_>) -> i64 {
     let mut total: i64 = 0;
-    let mut stack: Vec<&PlutusData> = vec![d];
+    let mut stack: Vec<&PlutusData<'_>> = vec![d];
 
     while let Some(current) = stack.pop() {
         total += 1;

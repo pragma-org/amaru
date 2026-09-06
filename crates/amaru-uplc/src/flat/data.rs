@@ -161,7 +161,18 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 
                 Ok(PlutusData::integer(ctx.arena, integer))
             }
-            any => {
+
+            any @ (minicbor::data::Type::Bool
+            | minicbor::data::Type::Null
+            | minicbor::data::Type::Undefined
+            | minicbor::data::Type::F16
+            | minicbor::data::Type::F32
+            | minicbor::data::Type::F64
+            | minicbor::data::Type::Simple
+            | minicbor::data::Type::String
+            | minicbor::data::Type::StringIndef
+            | minicbor::data::Type::Break
+            | minicbor::data::Type::Unknown(_)) => {
                 let e = minicbor::decode::Error::message(format!("bad cbor data type ({any:?}) for plutus data"));
 
                 Err(e)
@@ -208,6 +219,7 @@ impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
             // we use definite array to match the approach used by haskell's plutus
             // implementation https://github.com/input-output-hk/plutus/blob/9538fc9829426b2ecb0628d352e2d7af96ec8204/plutus-core/plutus-core/src/PlutusCore/Data.hs#L152
             PlutusData::Map(map) => {
+                #[expect(clippy::expect_used)]
                 let len: u64 = map.len().try_into().expect("setting map length should work fine");
 
                 e.map(len)?;
