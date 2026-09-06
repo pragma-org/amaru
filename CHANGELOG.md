@@ -61,8 +61,6 @@ Other guiding principles:
 - **amaru-consensus**: ChainSync `IntersectNotFound` treats the peer as uninteresting as an upstream (retry after 120s), not as adversarial.
 - **amaru-protocols**: outbound handshake now offers duplex. When both sides agree, responders run on that bearer; promoting an inbound connection to Diffusion starts our initiators there too. ([#751](https://github.com/pragma-org/amaru/issues/751), [#660](https://github.com/pragma-org/amaru/issues/660))
 - **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of opening a second outbound connection; Using inbounds count toward the upstream target. ([#660](https://github.com/pragma-org/amaru/issues/660))
-- **amaru-protocols**: outbound handshake now offers duplex. When both sides agree, responders run on that bearer; promoting an inbound connection to Diffusion starts our initiators there too.
-- **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of opening a second outbound connection; Using inbounds count toward the upstream target.
 - **amaru-protocols**: connection traces include `local_use`, `duplex`, and `stopping`.
 
 ### Fixed

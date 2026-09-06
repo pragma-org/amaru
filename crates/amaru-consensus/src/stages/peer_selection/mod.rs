@@ -402,8 +402,6 @@ impl PeerSelection {
             share_request_interval: SHARE_REQUEST_INTERVAL,
             churn_timer: None,
             demoted_until: BTreeMap::new(),
-            share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
-            share_request_interval: SHARE_REQUEST_INTERVAL,
         }
     }
 
