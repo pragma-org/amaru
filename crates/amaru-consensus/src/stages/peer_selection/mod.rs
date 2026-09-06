@@ -146,12 +146,9 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 ///
 /// - **Disconnected**:
 ///   - `Inbound`: Removes from `inbound_peers` only on exact `ConnectionId` match
-///     (via `Entry::Occupied` guard).
-///   - `Outbound` + `will_retry == true`: If present as `PeerState::Connected` with
-///     matching id, replaces it with `Connecting` so a reconnect handshake does
-///     not race a stale live entry; then clears availability if nothing remains.
-///   - `Outbound` + `will_retry == false`: Removes only if present as exactly
-///     `PeerState::Connected` with matching id; then `regulate_peers`.
+///     (via `Entry::Occupied` guard), then clears availability if nothing remains.
+///   - `Outbound`: Removes only if present as `PeerState::Connected` with matching
+///     id (`Connecting` is ignored); then clears availability and `regulate_peers`.
 ///     (Share-request timers die with the connection's peer-sharing stage.)
 ///
 /// - **ConnectFailed**: Records a connection failure on Performance, removes the peer from

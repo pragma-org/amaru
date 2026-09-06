@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Many tests in this file were simplified to only check logs; the variables for
-// trace assertions are intentionally left for future use or documentation.
-
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
@@ -396,13 +393,20 @@ fn test_add_peer_during_cooldown_cancels_timer() {
 
 #[test]
 fn test_adversarial_outbound_connected() {
-    let prep = test_prep(&[]);
+    let mut prep = test_prep(&[]);
     let p = TestPrep::peer("7.7.7.7:7");
+    prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
     let state = prep.state.clone();
     let sid = first_schedule_id();
-    let after = {
+    let after_ban = {
         let mut s = state.clone();
+        s.outbound_peers.remove(&p);
         with_single_cooldown(&mut s, p, sid);
+        s
+    };
+    let idle = {
+        let mut s = state.clone();
+        s.outbound_peers.remove(&p);
         s
     };
     let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::adversarial(p));
@@ -412,19 +416,31 @@ fn test_adversarial_outbound_connected() {
             te_state("ps-1", &state).into(),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p)).into(),
             te_is_static_peer("ps-1", p).into(),
+            te_send("ps-1", "manager", ManagerMessage::RemovePeer(p)).into(),
             te_clock_suspend("ps-1").into(),
             te_peer_adversarial("ps-1", p).into(),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid).into(),
-            te_state("ps-1", &after).into(),
+            te_random_seed("ps-1").into(),
+            te_state("ps-1", &after_ban).into(),
             te_clock(cooldown_instant()).into(),
             te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
             te_cancel_schedule("ps-1", sid).into(),
             te_clock_suspend("ps-1").into(),
             te_random_seed("ps-1").into(),
-            te_state("ps-1", &state).into(),
+            te_state("ps-1", &idle).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="7.7.7.7:7""#])
+        .assert_and_remove(
+            Level::WARN,
+            &[
+                "peer.ban",
+                "peer_selection.peer.removed",
+                r#"peer="7.7.7.7:7""#,
+                r#"direction="outbound""#,
+                "is_static=false",
+            ],
+        )
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -623,6 +639,7 @@ fn test_share_peers_result_records_shared_peers() {
 
     let p = TestPrep::peer("7.7.7.7:7");
     let learned = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(9, 9, 9, 9), 3001));
+    let learned_peer = TestPrep::peer("9.9.9.9:3001");
     let mut prep = test_prep(&[]);
     prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
     let reply = PeerSelectionMsg::SharePeersResult { peer: p, peers: vec![learned] };
@@ -633,9 +650,10 @@ fn test_share_peers_result_records_shared_peers() {
             te_input("ps-1", &reply).into(),
             tm_state(
                 "ps-1",
-                // shared pool is in Performance; stage only regulates when added > 0
-                move |s: &PeerSelection| s.outbound_peers.len() <= 3,
-                "shared peer recorded",
+                move |s: &PeerSelection| {
+                    s.outbound_peers.contains_key(&p) && s.outbound_peers.contains_key(&learned_peer)
+                },
+                "shared peer recorded and dialed",
             ),
         ],
     );
@@ -678,18 +696,17 @@ fn test_connect_failed_records_failure() {
 
 #[test]
 fn test_disconnected_inbound() {
-    let prep = test_prep(&[]);
+    let mut prep = test_prep(&[]);
     let p = TestPrep::peer("1.1.1.1:1");
+    prep.state.inbound_peers.insert(p, conn());
     let state = prep.state.clone();
-    let mut state_with_peer = state.clone();
-    state_with_peer.inbound_peers.insert(p, conn());
     let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Inbound);
     let after = {
-        let mut s = state_with_peer.clone();
+        let mut s = state.clone();
         s.inbound_peers.remove(&p);
         s
     };
-    let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
         &[
@@ -703,22 +720,38 @@ fn test_disconnected_inbound() {
 }
 
 #[test]
-fn test_disconnected_outbound_connecting_schedules_cooldown() {
-    let prep = test_prep(&[]);
-    let p = TestPrep::peer("0.0.0.0:0");
+fn test_disconnected_inbound_ignores_stale_conn_id() {
+    let mut prep = test_prep(&[]);
+    let p = TestPrep::peer("1.1.1.2:1");
+    let mut ids = ConnectionId::initial();
+    let live = ids.get_and_increment();
+    let stale = ids.get_and_increment();
+    prep.state.inbound_peers.insert(p, Connection::new(live, true, false));
     let state = prep.state.clone();
-    let mut state_conn = state.clone();
-    state_conn.outbound_peers.insert(p, PeerState::Connecting);
+    let msg = PeerSelectionMsg::Disconnected(p, stale, ConnectionDirection::Inbound);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    // Live inbound remains, so availability claims must not be cleared.
+    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
+    assert_trace_does_not_contain(&running, &[te_clear_peer_availability("ps-1", p).into()]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_disconnected_outbound_connecting_is_noop() {
+    let mut prep = test_prep(&[]);
+    let p = TestPrep::peer("0.0.0.0:0");
+    prep.state.outbound_peers.insert(p, PeerState::Connecting);
+    let state = prep.state.clone();
     let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound);
-    let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
-    // will_retry == true: no cool-down, no regulation; still clear availability claims.
-    assert_trace(
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    // Outbound disconnect only applies to a matching Connected session.
+    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
+    assert_trace_does_not_contain(
         &running,
         &[
-            te_state("ps-1", &state),
-            te_input("ps-1", &msg),
-            te_clear_peer_availability("ps-1", p),
-            te_state("ps-1", &state),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, first_schedule_id()).into(),
+            te_clear_peer_availability("ps-1", p).into(),
+            te_random_seed("ps-1").into(),
         ],
     );
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -738,7 +771,7 @@ fn test_outbound_retry_drops_dead_conn_before_reconnect() {
     let start = prep.state.clone();
     let after_death = {
         let mut s = start.clone();
-        s.outbound_peers.insert(p, PeerState::Connecting);
+        s.outbound_peers.remove(&p);
         s
     };
     let after_reconnect = {
@@ -968,35 +1001,31 @@ fn test_adversarial_inbound_only() {
 
 #[test]
 fn test_disconnected_outbound_connected_normal() {
-    let prep = test_prep(&[]);
+    let mut prep = test_prep(&[]);
     let p = TestPrep::peer("8.8.8.8:8");
-    let mut state = prep.state.clone();
-    state.outbound_peers.insert(p, PeerState::Connected(conn()));
-
-    let _after = {
+    prep.state.outbound_peers.insert(p, PeerState::Connected(conn()));
+    let state = prep.state.clone();
+    let after = {
         let mut s = state.clone();
         s.outbound_peers.remove(&p);
         s
     };
+    let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
-    let (running, _guards, mut logs) =
-        setup(&prep, PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound));
-
-    // te_input + final state (normal outbound Connected disconnect removes the peer, no short ban)
     assert_trace_contains(
         &running,
         &[
-            te_input(
-                "ps-1",
-                &PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound),
-            )
-            .into(),
-            tm_state(
-                "ps-1",
-                |s: &PeerSelection| !s.outbound_peers.contains_key(&p),
-                "final state: peer removed from outbound",
-            ),
+            te_state("ps-1", &state).into(),
+            te_input("ps-1", &msg).into(),
+            te_clear_peer_availability("ps-1", p).into(),
+            te_random_seed("ps-1").into(),
+            te_state("ps-1", &after).into(),
         ],
+    );
+    assert_trace_does_not_contain(
+        &running,
+        &[te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, first_schedule_id()).into()],
     );
 
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
