@@ -44,6 +44,10 @@ Other guiding principles:
 
 - **amaru-protocols**: BlockFetch times out after 60s if the peer stalls while serving a range. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 
+### Changed
+
+- **amaru-protocols**: handshake agrees version data per the node-to-node spec: network magics must match, initiator-only and query are OR, peer-sharing is AND. The initiator drops the connection if `MsgAcceptVersion` does not carry that record. ([#884](https://github.com/pragma-org/amaru/issues/884))
+
 ### Fixed
 
 - **amaru-protocols**: BlockFetch waits for each block to be accepted by TCP before encoding the next, so a slow peer no longer unbounded-buffers. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
@@ -63,7 +67,6 @@ Other guiding principles:
 ### Changed
 
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
-- **amaru-protocols**: handshake combines version data as in the node-to-node spec and the initiator checks that `MsgAcceptVersion` carries that agreed record. ([#884](https://github.com/pragma-org/amaru/issues/884))
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 - **amaru-node**: `Telemetry::install` no longer reads `AMARU_OPEN_TELEMETRY_SIGNALS`; embedders that select OTLP signals must pass `TelemetryOptions` to `install_with_options`.
