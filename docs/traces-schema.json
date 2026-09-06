@@ -7162,6 +7162,32 @@
       "description": "The handshake completed on a connection",
       "public": true
     },
+    "amaru::protocols::manager::peer::LOCAL_USE_APPLIED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "local_use": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "local_use"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "local_use_applied",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "The connection finished converging to this local use",
+      "public": true
+    },
     "amaru::protocols::manager::peer::REMOVE": {
       "type": "object",
       "properties": {
@@ -7203,7 +7229,7 @@
       "name": "set_local_use",
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
-      "description": "Local use of a connection was changed",
+      "description": "A change of local use was requested on a connection",
       "public": true
     },
     "amaru::protocols::mux::EMPTY_SEGMENT": {
@@ -7255,7 +7281,7 @@
       "name": "failed",
       "level": "TRACE",
       "target": "amaru::protocols::mux",
-      "description": "The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.",
+      "description": "The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing, after_done}.",
       "public": true
     },
     "amaru::protocols::mux::protocol::BUFFER_EXCEEDED": {

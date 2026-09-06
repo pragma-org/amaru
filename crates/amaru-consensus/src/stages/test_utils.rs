@@ -114,10 +114,12 @@ fn parse_target(line: &str) -> &str {
 
 /// Whether a captured line is worth asserting on.
 ///
-/// The simulation engine narrates every step it takes (`resuming stage`, `run effect`, ...) at
-/// DEBUG. Keeping that noise would make `assert_no_remaining_at` unusable at DEBUG, so engine
-/// chatter below INFO is discarded while its INFO and above (stage termination, dropped messages)
-/// is kept, since tests do rely on those.
+/// The simulation engine narrates every step it takes (`resuming stage`, `run effect`,
+/// voluntary `terminated`, ...) at DEBUG. Keeping that noise would make `assert_no_remaining_at`
+/// unusable at DEBUG, so engine chatter below INFO is discarded. INFO and above from the engine
+/// (dropped messages, unsupervised child termination) is kept, since tests do rely on those.
+/// A stage that aborts for an error still logs that error at INFO or above from the stage itself
+/// before calling `Terminate`.
 fn is_relevant(level: Level, target: &str) -> bool {
     level <= Level::INFO || !target.starts_with("amaru_pure_stage")
 }

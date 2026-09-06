@@ -55,7 +55,6 @@ fn test_tip_not_found() {
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["chain.select_from_tip", "chain.header_not_found", r#"role="tip""#])
-        .assert_and_remove(Level::INFO, &["terminated"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -670,7 +669,6 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
         Level::ERROR,
         &["chain.select_from_block_validation", "chain.header_not_found", r#"role="validation_target""#],
     )
-    .assert_and_remove(Level::INFO, &["terminated"])
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -707,7 +705,6 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
         Level::ERROR,
         &["chain.select_from_block_validation", "chain.store_validation_failed", "injected fault"],
     )
-    .assert_and_remove(Level::INFO, &["terminated", "stage=sc-1"])
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 

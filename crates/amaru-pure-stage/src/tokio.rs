@@ -407,7 +407,7 @@ fn run_stage_boxed(
                 match result {
                     Some(st) => state = st,
                     None => {
-                        tracing::info!(%stage_name, "terminated");
+                        tracing::debug!(%stage_name, "terminated");
                         tb.lock().push_terminated_voluntary(&stage_name);
                         break 'outer;
                     }
@@ -592,7 +592,7 @@ async fn interpreter(
                 StageResponse::ExternalResponse(Box::new(()))
             }
             StageEffect::Terminate => {
-                tracing::warn!("stage `{name}` terminated");
+                tracing::debug!("stage `{name}` terminated");
                 return None;
             }
             StageEffect::AddStage(name) => {

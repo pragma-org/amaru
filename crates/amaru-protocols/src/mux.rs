@@ -122,22 +122,32 @@ pub enum HandlerMessage {
 }
 
 /// Mux citizen after an initiator has sent `MsgDone`. Any further frame is a protocol error.
-async fn done_trap(_: (), msg: HandlerMessage, eff: Effects<HandlerMessage>) -> () {
+async fn done_trap(peer: Peer, msg: HandlerMessage, eff: Effects<HandlerMessage>) -> Peer {
     match msg {
-        HandlerMessage::Registered(_) => {}
-        HandlerMessage::FromNetwork(_) => return eff.terminate().await,
+        HandlerMessage::Registered(_) => peer,
+        HandlerMessage::FromNetwork(_) => {
+            error!(
+                protocols::mux::FAILED,
+                peer,
+                role = "trap",
+                operation = "after_done",
+                error = "frame after MsgDone"
+            );
+            return eff.terminate().await;
+        }
     }
 }
 
 pub async fn install_done_trap<M: SendData>(
     muxer: &StageRef<MuxMessage>,
     protocol: ProtocolId<Erased>,
+    peer: Peer,
     eff: &Effects<M>,
     tombstone: M,
 ) {
     let trap = eff.stage("done-trap", done_trap).await;
     let trap = eff.supervise(trap, tombstone);
-    let trap = eff.wire_up(trap, ()).await;
+    let trap = eff.wire_up(trap, peer).await;
     eff.send(muxer, MuxMessage::Register { protocol, frame: Frame::OneCborItem, handler: trap, max_buffer: 5760 })
         .await;
 }

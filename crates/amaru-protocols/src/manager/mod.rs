@@ -763,7 +763,13 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     eff.send(&connection.stage, ConnectionMessage::SetLocalUse(local_use)).await;
                 }
             }
-            ManagerMessage::LocalUseApplied { peer: _, conn_id, local_use } => {
+            ManagerMessage::LocalUseApplied { peer, conn_id, local_use } => {
+                info!(
+                    protocols::manager::peer::LOCAL_USE_APPLIED,
+                    peer,
+                    conn_id = conn_id.as_u64(),
+                    local_use = local_use.as_str(),
+                );
                 if let Some(connection) = manager.connections.get_mut(&conn_id) {
                     connection.may_initiate = local_use == LocalUse::Diffusion;
                 }

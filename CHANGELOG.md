@@ -47,6 +47,7 @@ Other guiding principles:
 ### Added
 
 - **amaru-protocols**: BlockFetch times out after 60s if the peer stalls while serving a range. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
+- **amaru-protocols**: `manager.peer.local_use_applied` is logged when a connection has finished changing local use (for example to Maintenance after an uninteresting demotion).
 
 ### Changed
 
@@ -62,6 +63,7 @@ Other guiding principles:
 - **amaru-protocols**: outbound handshake now offers duplex. When both sides agree, responders run on that bearer; promoting an inbound connection to Diffusion starts our initiators there too. ([#751](https://github.com/pragma-org/amaru/issues/751), [#660](https://github.com/pragma-org/amaru/issues/660))
 - **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of opening a second outbound connection; Using inbounds count toward the upstream target. ([#660](https://github.com/pragma-org/amaru/issues/660))
 - **amaru-protocols**: connection traces include `local_use`, `duplex`, and `stopping`.
+- **amaru-pure-stage**: a stage that stops on purpose is logged at debug. A stage that aborts because of an error still logs that error at info or above before exiting.
 
 ### Fixed
 

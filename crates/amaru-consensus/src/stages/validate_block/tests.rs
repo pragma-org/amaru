@@ -50,9 +50,12 @@ fn test_block_with_origin_parent_terminates() {
             te_terminated("vb-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["block.validate_from_genesis"])
-        .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["block.validate_from_genesis"]).assert_no_remaining_at([
+        Level::DEBUG,
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -194,7 +197,6 @@ fn test_ledger_failure_during_validation_terminates() {
         ],
     );
     logs.assert_and_remove(Level::WARN, &["block.apply_failed"])
-        .assert_and_remove(Level::INFO, &["terminated"])
         .assert_and_remove(Level::DEBUG, &["block.validate"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -442,7 +444,6 @@ fn test_ledger_failure_during_fork_switch_terminates() {
     );
     logs.assert_and_remove(Level::INFO, &["block.switch_fork"])
         .assert_and_remove(Level::WARN, &["block.apply_failed"])
-        .assert_and_remove(Level::INFO, &["terminated"])
         .assert_and_remove(Level::DEBUG, &["block.validate"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }

@@ -2011,8 +2011,14 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required error: String
                     }
-                    /// Local use of a connection was changed
+                    /// A change of local use was requested on a connection
                     public SET_LOCAL_USE {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required local_use: String
+                    }
+                    /// The connection finished converging to this local use
+                    public LOCAL_USE_APPLIED {
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required local_use: String
@@ -2499,7 +2505,7 @@ define_schemas! {
                     }
                 }
                 /// The muxer failed while moving data between a protocol and the network.
-                /// Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.
+                /// Operation ∈ {send, recv_header, decode_header, recv_data, muxing, after_done}.
                 public FAILED {
                     required role: String
                     required peer: %amaru_kernel::Peer

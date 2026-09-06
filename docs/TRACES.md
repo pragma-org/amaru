@@ -2616,8 +2616,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `disconnecting` | `TRACE` | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
 | `duplicate_terminated` | `TRACE` | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
 | `handshake_completed` | `TRACE` | public | The handshake completed on a connection | peer, conn_id, full_duplex_capable, full_duplex, advertisable |  |
+| `local_use_applied` | `TRACE` | public | The connection finished converging to this local use | peer, conn_id, local_use |  |
 | `remove` | `TRACE` | public | A peer was removed from the manager | peer |  |
-| `set_local_use` | `TRACE` | public | Local use of a connection was changed | peer, conn_id, local_use |  |
+| `set_local_use` | `TRACE` | public | A change of local use was requested on a connection | peer, conn_id, local_use |  |
 
 <details><summary>span: `accepted`</summary>
 
@@ -2748,6 +2749,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `local_use_applied`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `local_use` | `string` | ✓ |
+
+</details>
+
 <details><summary>span: `remove`</summary>
 
 | field | type | required |
@@ -2771,7 +2782,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | role, peer |  |
-| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | role, peer, operation, error |  |
+| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing, after_done}. | role, peer, operation, error |  |
 
 <details><summary>span: `empty_segment`</summary>
 

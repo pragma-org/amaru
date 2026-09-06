@@ -587,27 +587,58 @@ async fn on_expected_stop(
     match child {
         ChildId::ChainSync => {
             s.chainsync_initiator = None;
-            mux::install_done_trap(&s.muxer, PROTO_N2N_CHAIN_SYNC.erase(), eff, ConnectionMessage::ChildDied(child))
-                .await;
+            mux::install_done_trap(
+                &s.muxer,
+                PROTO_N2N_CHAIN_SYNC.erase(),
+                params.peer,
+                eff,
+                ConnectionMessage::ChildDied(child),
+            )
+            .await;
         }
         ChildId::BlockFetch => {
             s.blockfetch_initiator = None;
-            mux::install_done_trap(&s.muxer, PROTO_N2N_BLOCK_FETCH.erase(), eff, ConnectionMessage::ChildDied(child))
-                .await;
+            mux::install_done_trap(
+                &s.muxer,
+                PROTO_N2N_BLOCK_FETCH.erase(),
+                params.peer,
+                eff,
+                ConnectionMessage::ChildDied(child),
+            )
+            .await;
         }
         ChildId::TxSubmission => {
             s.tx_submission_initiator = None;
-            mux::install_done_trap(&s.muxer, PROTO_N2N_TX_SUB.erase(), eff, ConnectionMessage::ChildDied(child)).await;
+            mux::install_done_trap(
+                &s.muxer,
+                PROTO_N2N_TX_SUB.erase(),
+                params.peer,
+                eff,
+                ConnectionMessage::ChildDied(child),
+            )
+            .await;
         }
         ChildId::KeepAlive => {
             s.keepalive_initiator = None;
-            mux::install_done_trap(&s.muxer, PROTO_N2N_KEEP_ALIVE.erase(), eff, ConnectionMessage::ChildDied(child))
-                .await;
+            mux::install_done_trap(
+                &s.muxer,
+                PROTO_N2N_KEEP_ALIVE.erase(),
+                params.peer,
+                eff,
+                ConnectionMessage::ChildDied(child),
+            )
+            .await;
         }
         ChildId::PeerSharing => {
             s.peer_sharing_initiator = None;
-            mux::install_done_trap(&s.muxer, PROTO_N2N_PEER_SHARE.erase(), eff, ConnectionMessage::ChildDied(child))
-                .await;
+            mux::install_done_trap(
+                &s.muxer,
+                PROTO_N2N_PEER_SHARE.erase(),
+                params.peer,
+                eff,
+                ConnectionMessage::ChildDied(child),
+            )
+            .await;
         }
         ChildId::Mux | ChildId::Handshake | ChildId::Responder => {}
     }

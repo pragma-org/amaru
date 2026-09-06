@@ -59,9 +59,12 @@ fn test_new_tip_load_header_fails() {
             te_terminated("fb-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["blocks.header_not_found"])
-        .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["blocks.header_not_found"]).assert_no_remaining_at([
+        Level::DEBUG,
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -439,9 +442,12 @@ fn test_new_tip_find_missing_blocks_error() {
         ],
     );
 
-    logs.assert_and_remove(Level::ERROR, &["blocks.header_not_found"])
-        .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["blocks.header_not_found"]).assert_no_remaining_at([
+        Level::DEBUG,
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
