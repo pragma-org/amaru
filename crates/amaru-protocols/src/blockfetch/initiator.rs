@@ -219,6 +219,9 @@ struct Instance {
     mux: MuxClient,
     inflight: Option<Inflight>,
     peer: Peer,
+    pending_close: bool,
+    /// Next range from fetch-blocks, issued at last body (before `BatchDone`).
+    pending_fetch: Option<Fetch>,
 }
 
 type Mail = Inputs<BlockFetchMessage>;
@@ -232,7 +235,14 @@ impl OccupancyOf for Instance {
 
 impl Instance {
     fn new(mux: MuxClient, peer: Peer) -> Self {
-        Self { proto: initial_state::<Idle>().into(), mux, inflight: None, peer }
+        Self {
+            proto: initial_state::<Idle>().into(),
+            mux,
+            inflight: None,
+            peer,
+            pending_close: false,
+            pending_fetch: None,
+        }
     }
 
     fn timeout_mail() -> Mail {
@@ -244,7 +254,9 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
     if matches!(mail, Inputs::Network(HandlerMessage::Registered(_))) {
         return inst;
     }
-    let Instance { proto, mux, mut inflight, peer } = inst;
+    let follow_eff = eff.clone();
+    let pull_eff = eff.clone();
+    let Instance { proto, mux, mut inflight, peer, mut pending_close, mut pending_fetch } = inst;
     let proto = match proto {
         Proto::Idle(idle) => match idle.convert_input(mail) {
             Ok(PipelineIdleIn::Fetch(fetch)) => {
@@ -255,6 +267,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             }
             Ok(PipelineIdleIn::Close(close)) => {
                 inflight = None;
+                pending_close = false;
                 let (_, s) = idle.receive(close, eff).call(&mux, ClientDone).await;
                 s.finish().into()
             }
@@ -292,7 +305,17 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                     .finish()
                     .into()
             }
-            Err(mail) => return invalid(peer, busy.name(), mail, eff).await,
+            Err(Inputs::Local(BlockFetchMessage::Close)) => {
+                pending_close = true;
+                busy.into()
+            }
+            Err(mail) => match Fetch::from_mailbox(mail) {
+                Ok(fetch) => {
+                    pending_fetch = Some(fetch);
+                    busy.into()
+                }
+                Err(mail) => return invalid(peer, busy.name(), mail, eff).await,
+            },
         },
         Proto::Streaming(streaming) => match streaming.convert_input(mail) {
             Ok(ClientStreamingIn::Block(block)) => {
@@ -333,7 +356,17 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                     .finish()
                     .into()
             }
-            Err(mail) => return invalid(peer, streaming.name(), mail, eff).await,
+            Err(Inputs::Local(BlockFetchMessage::Close)) => {
+                pending_close = true;
+                streaming.into()
+            }
+            Err(mail) => match Fetch::from_mailbox(mail) {
+                Ok(fetch) => {
+                    pending_fetch = Some(fetch);
+                    streaming.into()
+                }
+                Err(mail) => return invalid(peer, streaming.name(), mail, eff).await,
+            },
         },
         Proto::Done(done) => match mail {
             Inputs::Internal(Internal::Timeout) => done.into(),
@@ -342,7 +375,32 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             }
         },
     };
-    Instance { proto, mux, inflight, peer }
+    let proto = match (pending_close, pending_fetch.take(), proto) {
+        (true, _, Proto::Idle(idle)) => {
+            pending_close = false;
+            inflight = None;
+            let (_, s) = idle.receive(Close, follow_eff).call(&mux, ClientDone).await;
+            s.finish().into()
+        }
+        (false, Some(fetch), Proto::Idle(idle)) => {
+            let range = RequestRange { from: fetch.from, through: fetch.through };
+            inflight = Some(Inflight { id: fetch.id, cr: fetch.cr.clone(), remaining: MAX_FETCHED_BLOCKS });
+            let (_, s) = idle.receive(fetch, follow_eff).call(&mux, range).await;
+            s.finish()
+                .receive(Pull, pull_eff)
+                .send(&mux, WantNext)
+                .await
+                .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
+                .await
+                .finish()
+                .into()
+        }
+        (_, fetch, proto) => {
+            pending_fetch = fetch;
+            proto
+        }
+    };
+    Instance { proto, mux, inflight, peer, pending_close, pending_fetch }
 }
 
 async fn invalid(peer: Peer, state: &str, input: impl std::fmt::Debug, eff: Effects<Mail>) -> Instance {
