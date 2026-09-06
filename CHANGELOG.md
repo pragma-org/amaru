@@ -61,6 +61,9 @@ Other guiding principles:
 - **amaru-consensus**: ChainSync `IntersectNotFound` treats the peer as uninteresting as an upstream (retry after 120s), not as adversarial.
 - **amaru-protocols**: outbound handshake now offers duplex. When both sides agree, responders run on that bearer; promoting an inbound connection to Diffusion starts our initiators there too. ([#751](https://github.com/pragma-org/amaru/issues/751), [#660](https://github.com/pragma-org/amaru/issues/660))
 - **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of opening a second outbound connection; Using inbounds count toward the upstream target. ([#660](https://github.com/pragma-org/amaru/issues/660))
+- **amaru-protocols**: outbound handshake now offers duplex. When both sides agree, responders run on that bearer; promoting an inbound connection to Diffusion starts our initiators there too.
+- **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of opening a second outbound connection; Using inbounds count toward the upstream target.
+- **amaru-protocols**: connection traces include `local_use`, `duplex`, and `stopping`.
 
 ### Fixed
 
@@ -71,6 +74,7 @@ Other guiding principles:
 - **amaru-tui**: the log scrollbar can be clicked and dragged to jump through the buffer. `|` focuses it for large keyboard steps (`↑↓`, page, home/end), and `@` jumps to a UTC time (`HH:MM[:SS]` or `YYYY-MM-DD[ HH:MM[:SS]]`). Log `↑`/`↓`/page/wheel now follow that same older/newer direction.
 - **amaru-tui**: `w` or the log `[ WRAP ]` control turns off wrapping so `←`/`→` (and shift-wheel / horizontal wheel) pan long lines; the column offset is kept while scrolling vertically. Pane focus on a tab moved to `Ctrl-←`/`Ctrl-→`.
 - **amaru-tui**: switching the log pane to DEBUG no longer panics when the retained debug stream is larger than ratatui’s `u16` paragraph scroll; the pane renders a visible window around the tail instead of the whole buffer.
+- **amaru-protocols**: the first peer-share request after an outbound handshake is no longer dropped.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 
@@ -86,20 +90,6 @@ Other guiding principles:
 ### Changed
 
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
-- **amaru-protocols**: handshake combines version data as in the node-to-node spec and the initiator checks that `MsgAcceptVersion` carries that agreed record. ([#884](https://github.com/pragma-org/amaru/issues/884))
-- **amaru-protocols**: connection stage is one Established session with `LocalUse` (None / Maintenance / Diffusion). The manager no longer redials on drop; peer selection refills outbound slots. `SetLocalUse` is recorded (group stop/start lands next).
-- **amaru-protocols**: connection stage is one Established session with `LocalUse` (None / Maintenance / Diffusion). The manager no longer redials on drop; peer selection refills outbound slots. `SetLocalUse` is recorded (group stop/start lands next).
-- **amaru-protocols**: group stop bounds live on `ManagerConfig` (`diffusion_stop_timeout` 300s, `maintenance_stop_timeout` 120s). Connection message spans include `local_use`, `duplex`, and `stopping`.
-- **amaru-protocols**: outbound handshake offers duplex (`initiator_only = false`). Agreed duplex registers eager responders on the same bearer; inbound `SetLocalUse(Diffusion)` starts our initiators there.
-- **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of a second dial; Using inbound counts toward the upstream target.
-- **amaru-consensus**: peer selection churns ~20%/h of Using peers (worst first, skip static) with `SetLocalUse(Maintenance)` and does not increment malus. ChainSync `IntersectNotFound` is uninteresting-as-upstream (retry after 120s), not adversarial.
-- **amaru-consensus**: after an outbound handshake, peer selection sends `SetLocalUse(Diffusion)` so fetch and share follow actual local use. Peer-sharing cadence is 300s then 900s (blueprint defaults), overridable on `PeerSelection` / `Config` so world tests can form overlay links inside a short horizon.
-- **amaru-protocols**: `LocalUseApplied` is the source of `may_initiate`; fetch and share route only to connections whose local use is Diffusion. Outbound handshake inserts the connection as initiating before notifying peer selection, so the first `RequestSharePeers` is not dropped.
-- **amaru-protocols**: `SetLocalUse` stops initiator groups with `MsgDone` (last-to-finish; 300s diffusion / 120s maintenance). Expected child death installs a mux done-trap; unexpected death still tears the bearer. Responders reset in place after `MsgDone`.
-- **amaru-protocols**: mux times SDU assembly and send: unbounded wait for the first header byte, then 10s during the first Handshake and 30s afterwards for the rest of that SDU. Overflow of that timer tears the bearer down.
-- **amaru-protocols**: Implement SDU send & receive timeouts in the muxer as per the network spec.
-- **amaru-protocols**: handshake combines version data as in the node-to-node spec: network magics must match, `initiatorOnlyDiffusionMode` and `query` are OR, `peerSharing` is AND. The initiator checks that `MsgAcceptVersion` carries that agreed record. Outbound connections still offer initiator-only diffusion (duplex is not advertised until both halves run).
-- **amaru-protocols**: handshake combines version data as in the node-to-node spec: network magics must match, `initiatorOnlyDiffusionMode` and `query` are OR, `peerSharing` is AND. The initiator checks that `MsgAcceptVersion` carries that agreed record.
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 - **amaru-node**: `Telemetry::install` no longer reads `AMARU_OPEN_TELEMETRY_SIGNALS`; embedders that select OTLP signals must pass `TelemetryOptions` to `install_with_options`.
