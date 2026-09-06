@@ -53,6 +53,7 @@ Other guiding principles:
 - **amaru-protocols**: handshake agrees version data per the node-to-node spec: network magics must match, initiator-only and query are OR, peer-sharing is AND. The initiator drops the connection if `MsgAcceptVersion` does not carry that record. ([#884](https://github.com/pragma-org/amaru/issues/884))
 - **amaru-protocols**: mux SDU assembly waits indefinitely for the first header byte, then 10s for the rest of the first Handshake message and 30s afterwards. Exceeding that limit tears the connection down.
 - **amaru**: the `mempool_max_bytes` startup trace field is now an IEC size such as `176 KiB` instead of a raw integer.
+- **amaru-protocols**: a connection is one established session whose local use is None, Maintenance, or Diffusion. The manager no longer redials when a session drops; peer selection fills outbound slots.
 
 ### Fixed
 
@@ -78,11 +79,6 @@ Other guiding principles:
 ### Changed
 
 - **amaru-consensus**: `BlockValidator` now runs the ledger on a dedicated thread that owns the ledger state exclusively; operations are requested through a bounded channel and answered via per-request reply channels, replacing the shared lock around the state. `BlockValidator` is no longer generic over the store types. ([#1094][])
-- **amaru-protocols**: handshake combines version data as in the node-to-node spec and the initiator checks that `MsgAcceptVersion` carries that agreed record. ([#884](https://github.com/pragma-org/amaru/issues/884))
-- **amaru-protocols**: connection stage is one Established session with `LocalUse` (None / Maintenance / Diffusion). The manager no longer redials on drop; peer selection refills outbound slots. `SetLocalUse` is recorded (group stop/start lands next).
-- **amaru-protocols**: mux times SDU assembly and send: unbounded wait for the first header byte, then 10s during the first Handshake and 30s afterwards for the rest of that SDU. Overflow of that timer tears the bearer down.
-- **amaru-protocols**: Implement SDU send & receive timeouts in the muxer as per the network spec.
-- **amaru-protocols**: handshake combines version data as in the node-to-node spec: network magics must match, `initiatorOnlyDiffusionMode` and `query` are OR, `peerSharing` is AND. The initiator checks that `MsgAcceptVersion` carries that agreed record. Outbound connections still offer initiator-only diffusion (duplex is not advertised until both halves run).
 - **amaru-protocols**: `NetworkOps::connect` takes a `Peer`. Outbound dialling no longer resolves names; that stays in peer selection.
 - **amaru-node**: add world test simulation, both with generated fake chain and with a real chain fragment from preprod.
 - **amaru-node**: `Telemetry::install` no longer reads `AMARU_OPEN_TELEMETRY_SIGNALS`; embedders that select OTLP signals must pass `TelemetryOptions` to `install_with_options`.
