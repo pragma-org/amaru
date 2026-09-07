@@ -13,19 +13,6 @@
 // limitations under the License.
 
 #![expect(clippy::unwrap_used, clippy::panic, clippy::expect_used)]
-// Copyright 2025 PRAGMA
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 //! This module contains the [`SimulationBuilder`] and [`SimulationRunning`] types, which are
 //! used to build and run a simulation.
@@ -54,7 +41,7 @@ use crate::{
     effect::{Effects, StageEffect},
     effect_box::EffectBox,
     simulation::{
-        RandStdRng,
+        RandStdRng, Run,
         inputs::Inputs,
         random::{EvalStrategy, Fifo},
         replay::Replay,
@@ -71,11 +58,11 @@ use crate::{
 /// Execution is controlled entirely via the [`SimulationRunning`] handle returned from
 /// [`SimulationBuilder::run`].
 ///
-/// The general principle is that each stage is suspended whenever it needs new
-/// input (even when there is a message available in the mailbox) or when it uses
-/// any of the effects provided (like [`Effects::send`] or [`Effects::wait`]).
-/// Resuming the given effect will not run the stage, but it will make it runnable
-/// again when performing the next simulation step.
+/// Each stage suspends when it needs input (even if a mailbox message is already
+/// waiting) or when it uses an effect such as [`Effects::send`] or [`Effects::wait`].
+/// [`SimulationRunning::run`](crate::simulation::SimulationRunning::run) is the only
+/// way to interpret those effects; a breakpoint stops *before* the matching effect
+/// is interpreted.
 ///
 /// Example:
 /// ```rust
@@ -93,24 +80,9 @@ use crate::{
 /// let rt = tokio::runtime::Runtime::new().unwrap();
 /// let mut running = network.run(rt.handle());
 ///
-/// // first check that the stages start out suspended on Receive
-/// running.try_effect().unwrap_err().assert_idle();
-///
-/// // then insert some input and check reaction
+/// running.run(amaru_pure_stage::simulation::Run::default()).assert_idle();
 /// running.enqueue_msg(&stage, [1]);
-/// running.resume_receive(&stage).unwrap();
-/// running.effect().assert_send(&stage, &output, 2u32);
-/// running.resume_send(&stage, &output, Some(2u32)).unwrap();
-/// running.effect().assert_receive(&stage);
-///
-/// running.resume_receive(&output).unwrap();
-/// let ext = running.effect().extract_external::<OutputEffect<u32>>(&output);
-/// assert_eq!(&ext.name, output.name());
-/// assert_eq!(ext.msg, 2u32);
-/// let result = rt.block_on(ext.run(Resources::default()));
-/// running.resume_external_box(&output, result).unwrap();
-/// running.effect().assert_receive(&output);
-///
+/// running.run(amaru_pure_stage::simulation::Run::skip_and_resolve()).assert_idle();
 /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 /// ```
 pub struct SimulationBuilder {
@@ -206,6 +178,7 @@ impl SimulationBuilder {
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
                         scheduled_pending: 0,
+                        timeouts: Default::default(),
                         supervised_by: BLACKHOLE_NAME.clone(),
                         tombstone: None,
                     },
@@ -259,6 +232,7 @@ impl SimulationBuilder {
                 waiting: Some(StageEffect::Receive),
                 senders: VecDeque::new(),
                 scheduled_pending: 0,
+                timeouts: Default::default(),
                 supervised_by: BLACKHOLE_NAME.clone(),
                 tombstone: None,
             };
@@ -450,7 +424,7 @@ where
     network.preload(&stage, [msg]).unwrap();
 
     let mut running = network.run(runtime.handle());
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
 
     running.get_state(&stage).cloned().flatten()
 }

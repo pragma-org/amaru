@@ -21,7 +21,7 @@ use std::{
 use amaru_kernel::{NetworkMagic, cbor};
 
 use crate::protocol_messages::{
-    version_data::{PEER_SHARING_DISABLED, PEER_SHARING_ENABLED, VersionData},
+    version_data::{PeerSharing, VersionData},
     version_number::VersionNumber,
 };
 
@@ -36,12 +36,13 @@ impl VersionTable<VersionData> {
     }
 
     pub fn query(network_magic: NetworkMagic) -> VersionTable<VersionData> {
+        let data = VersionData::new(network_magic, false, PeerSharing::Disabled, true);
         VersionTable {
             values: vec![
-                (VersionNumber::V11, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
-                (VersionNumber::V12, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
-                (VersionNumber::V13, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
-                (VersionNumber::V14, VersionData::new(network_magic, false, PEER_SHARING_DISABLED, true)),
+                (VersionNumber::V11, data.clone()),
+                (VersionNumber::V12, data.clone()),
+                (VersionNumber::V13, data.clone()),
+                (VersionNumber::V14, data),
             ]
             .into_iter()
             .collect::<BTreeMap<VersionNumber, VersionData>>(),
@@ -53,12 +54,12 @@ impl VersionTable<VersionData> {
         initiator_only_diffusion_mode: bool,
         advertisable: bool,
     ) -> VersionTable<VersionData> {
-        let adv = if advertisable { PEER_SHARING_ENABLED } else { PEER_SHARING_DISABLED };
+        let data = VersionData::new(network_magic, initiator_only_diffusion_mode, advertisable.into(), false);
         let values = vec![
-            (VersionNumber::V11, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
-            (VersionNumber::V12, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
-            (VersionNumber::V13, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
-            (VersionNumber::V14, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
+            (VersionNumber::V11, data.clone()),
+            (VersionNumber::V12, data.clone()),
+            (VersionNumber::V13, data.clone()),
+            (VersionNumber::V14, data),
         ]
         .into_iter()
         .collect::<BTreeMap<VersionNumber, VersionData>>();

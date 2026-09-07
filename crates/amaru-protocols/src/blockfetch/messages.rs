@@ -13,26 +13,29 @@
 // limitations under the License.
 
 use amaru_kernel::{NetworkPoint, cbor};
+use amaru_pure_stage::define_messages;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Message {
-    RequestRange { from: NetworkPoint, through: NetworkPoint },
-    ClientDone,
-    StartBatch,
-    NoBlocks,
-    Block { body: Vec<u8> },
-    BatchDone,
+define_messages! {
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+    pub enum Message {
+        RequestRange { from: NetworkPoint, through: NetworkPoint },
+        ClientDone,
+        StartBatch,
+        NoBlocks,
+        Block { body: Vec<u8> },
+        BatchDone,
+    }
 }
 
 impl Message {
     pub fn message_type(&self) -> &str {
         match self {
-            Message::RequestRange { .. } => "RequestRange",
-            Message::ClientDone => "ClientDone",
-            Message::StartBatch => "StartBatch",
-            Message::NoBlocks => "NoBlocks",
-            Message::Block { .. } => "Block",
-            Message::BatchDone => "BatchDone",
+            Message::RequestRange(_) => "RequestRange",
+            Message::ClientDone(_) => "ClientDone",
+            Message::StartBatch(_) => "StartBatch",
+            Message::NoBlocks(_) => "NoBlocks",
+            Message::Block(_) => "Block",
+            Message::BatchDone(_) => "BatchDone",
         }
     }
 }
@@ -44,31 +47,31 @@ impl cbor::Encode<()> for Message {
         _ctx: &mut (),
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
-            Message::RequestRange { from, through } => {
+            Message::RequestRange(RequestRange { from, through }) => {
                 e.array(3)?.u16(0)?;
                 e.encode(from)?;
                 e.encode(through)?;
                 Ok(())
             }
-            Message::ClientDone => {
+            Message::ClientDone(_) => {
                 e.array(1)?.u16(1)?;
                 Ok(())
             }
-            Message::StartBatch => {
+            Message::StartBatch(_) => {
                 e.array(1)?.u16(2)?;
                 Ok(())
             }
-            Message::NoBlocks => {
+            Message::NoBlocks(_) => {
                 e.array(1)?.u16(3)?;
                 Ok(())
             }
-            Message::Block { body } => {
+            Message::Block(Block { body }) => {
                 e.array(2)?.u16(4)?;
                 e.tag(cbor::IanaTag::Cbor)?;
                 e.bytes(body)?;
                 Ok(())
             }
-            Message::BatchDone => {
+            Message::BatchDone(_) => {
                 e.array(1)?.u16(5)?;
                 Ok(())
             }
@@ -86,19 +89,19 @@ impl<'b> cbor::Decode<'b, ()> for Message {
                 cbor::check_tagged_array_length(0, len, 3)?;
                 let from = d.decode()?;
                 let through = d.decode()?;
-                Ok(Message::RequestRange { from, through })
+                Ok(RequestRange { from, through }.into())
             }
             1 => {
                 cbor::check_tagged_array_length(1, len, 1)?;
-                Ok(Message::ClientDone)
+                Ok(ClientDone.into())
             }
             2 => {
                 cbor::check_tagged_array_length(2, len, 1)?;
-                Ok(Message::StartBatch)
+                Ok(StartBatch.into())
             }
             3 => {
                 cbor::check_tagged_array_length(3, len, 1)?;
-                Ok(Message::NoBlocks)
+                Ok(NoBlocks.into())
             }
             4 => {
                 cbor::check_tagged_array_length(4, len, 2)?;
@@ -115,11 +118,11 @@ impl<'b> cbor::Decode<'b, ()> for Message {
                 // which rejects indefinite-length byte strings, so we reject them too.
                 #[allow(clippy::disallowed_methods)]
                 let body = d.bytes()?;
-                Ok(Message::Block { body: Vec::from(body) })
+                Ok(Block { body: Vec::from(body) }.into())
             }
             5 => {
                 cbor::check_tagged_array_length(5, len, 1)?;
-                Ok(Message::BatchDone)
+                Ok(BatchDone.into())
             }
             _ => Err(cbor::decode::Error::message("unknown variant for blockfetch message")),
         }
@@ -139,28 +142,28 @@ pub(crate) mod tests {
     // HELPERS
 
     fn block_message() -> impl Strategy<Value = Message> {
-        Just(Message::Block { body: vec![0u8; 128] })
+        Just(Block { body: vec![0u8; 128] }.into())
     }
 
     fn no_blocks_message() -> impl Strategy<Value = Message> {
-        Just(Message::NoBlocks)
+        Just(NoBlocks.into())
     }
 
     fn batch_done_message() -> impl Strategy<Value = Message> {
-        Just(Message::BatchDone)
+        Just(BatchDone.into())
     }
 
     fn start_batch_message() -> impl Strategy<Value = Message> {
-        Just(Message::StartBatch)
+        Just(StartBatch.into())
     }
 
     fn client_done_message() -> impl Strategy<Value = Message> {
-        Just(Message::ClientDone)
+        Just(ClientDone.into())
     }
 
     prop_compose! {
         fn request_range_message()(from in any_network_point(), through in any_network_point()) -> Message {
-            Message::RequestRange {from, through}
+            RequestRange { from, through }.into()
         }
     }
 

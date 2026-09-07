@@ -37,60 +37,72 @@ pub struct UnsupervisedChildTermination(pub Name);
 /// Returns `Ok(true)` if the receive was in fact resumed, `Ok(false)` if the stage was not waiting for a receive effect,
 /// or `Err` if the simulation should be terminated due to a bug or a top-level stage termination.
 pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Name) -> anyhow::Result<bool> {
-    let data = simulation
-        .stages
-        .get_mut(at_stage)
-        .ok_or_else(|| anyhow::anyhow!("stage `{}` was already terminated", at_stage))?;
-    let Some(waiting_for) = data.waiting.as_ref() else {
-        return Ok(false);
-    };
+    let rearm_timeouts = {
+        let mut rearm_timeouts = false;
+        let data = simulation
+            .stages
+            .get_mut(at_stage)
+            .ok_or_else(|| anyhow::anyhow!("stage `{}` was already terminated", at_stage))?;
+        let Some(waiting_for) = data.waiting.as_ref() else {
+            return Ok(false);
+        };
 
-    if !matches!(waiting_for, StageEffect::Receive) {
-        return Ok(false);
-    }
-
-    let msg = match data.tombstones.pop_front() {
-        Some(Ok(msg)) => msg,
-        Some(Err(name)) => {
-            tracing::info!(parent = %data.name, child = %name, "terminated by unsupervised child termination");
-            let (supervised_by, msg) = simulation
-                .terminate_stage(at_stage.clone(), TerminationReason::Supervision(name))
-                .ok_or_else(|| anyhow::anyhow!("stage was already terminated"))?;
-            let Some(supervisor) = simulation.stages.get_mut(&supervised_by) else {
-                tracing::error!(%at_stage, "terminating simulation due to unsupervised stage termination");
-                simulation.terminate.send_replace(true);
-                return Err(UnsupervisedChildTermination(at_stage.clone()).into());
-            };
-            supervisor.tombstones.push_back(msg);
-            resume_receive_internal(simulation, &supervised_by)
-                .with_context(|| format!("sending tombstone from `{}`", at_stage))?;
+        if !matches!(waiting_for, StageEffect::Receive) {
             return Ok(false);
         }
-        None => {
-            // Prefer due self-scheduled (priority) messages over bulk mailbox traffic.
-            if let Some(msg) = data.priority.pop_front() {
-                data.scheduled_pending = data.scheduled_pending.saturating_sub(1);
-                msg
-            } else {
-                let Some(msg) = data.mailbox.pop_front() else {
-                    return Ok(false);
+
+        let msg = match data.tombstones.pop_front() {
+            Some(Ok(msg)) => msg,
+            Some(Err(name)) => {
+                tracing::info!(parent = %data.name, child = %name, "terminated by unsupervised child termination");
+                let (supervised_by, msg) = simulation
+                    .terminate_stage(at_stage.clone(), TerminationReason::Supervision(name))
+                    .ok_or_else(|| anyhow::anyhow!("stage was already terminated"))?;
+                let Some(supervisor) = simulation.stages.get_mut(&supervised_by) else {
+                    tracing::error!(%at_stage, "terminating simulation due to unsupervised stage termination");
+                    simulation.terminate.send_replace(true);
+                    return Err(UnsupervisedChildTermination(at_stage.clone()).into());
                 };
-                msg
+                supervisor.tombstones.push_back(msg);
+                resume_receive_internal(simulation, &supervised_by)
+                    .with_context(|| format!("sending tombstone from `{}`", at_stage))?;
+                return Ok(false);
             }
-        }
+            None => {
+                if let Some(msg) = data.timeouts.take_due() {
+                    rearm_timeouts = true;
+                    msg
+                } else if let Some(msg) = data.priority.pop_front() {
+                    // Prefer due self-scheduled (priority) messages over bulk mailbox traffic.
+                    data.scheduled_pending = data.scheduled_pending.saturating_sub(1);
+                    msg
+                } else {
+                    let Some(msg) = data.mailbox.pop_front() else {
+                        return Ok(false);
+                    };
+                    msg
+                }
+            }
+        };
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        data.waiting = None;
+
+        let StageState::Idle(state) = replace(&mut data.state, StageState::Idle(Box::new(()))) else {
+            panic!("stage {} must have been Idle, was {:?}", data.name, data.state);
+        };
+
+        simulation.trace_buffer.lock().push_input(&data.name, &msg);
+        data.state = StageState::Running((data.transition)(state, msg));
+
+        simulation.runnable.push_back((data.name.clone(), StageResponse::Unit));
+        rearm_timeouts
     };
-
-    // it is important that all validations (i.e. `?``) happen before this point
-    data.waiting = None;
-
-    let StageState::Idle(state) = replace(&mut data.state, StageState::Idle(Box::new(()))) else {
-        panic!("stage {} must have been Idle, was {:?}", data.name, data.state);
-    };
-
-    simulation.trace_buffer.lock().push_input(&data.name, &msg);
-    data.state = StageState::Running((data.transition)(state, msg));
-
-    simulation.runnable.push_back((data.name.clone(), StageResponse::Unit));
+    if rearm_timeouts {
+        let now = simulation.clock.now(simulation.global_epoch_offset);
+        let data = simulation.stages.get_mut(at_stage).expect("stage was just resumed");
+        super::rearm_timeouts(data, &mut simulation.scheduled, &simulation.schedule_ids, now);
+    }
     Ok(true)
 }
 

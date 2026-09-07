@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,47 +12,52 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+//! BlockFetch responder.
+//!
+//! Lock-step `instance` with no pipelining. Idle waits for the client (`Pull` /
+//! `WantNext`). A served `RequestRange` is one remainder: `StartBatch`, then
+//! `Repeat<Call<Block>>` for the bodies, then `BatchDone` and `WantNext`.
 
-use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Point, RawBlock};
+use std::time::Duration;
+
+use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Peer, Point, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
-use amaru_observability::{Instrument, debug, debug_span};
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use amaru_observability::{debug, error};
+use amaru_pure_stage::{
+    DeserializerGuards, Effects, StageRef, Void, define_role_tag, make_states, on_receive, typestate::prelude::*,
+};
 
+use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
 use crate::{
-    blockfetch::{State, messages::Message},
     metrics_effects::{Metrics, MetricsOps},
-    mux::MuxMessage,
+    mux::{Frame, HandlerMessage, MuxMessage, Sent},
     protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, Responder, StageState, miniprotocol,
-        outcome,
+        Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pull, ToMux, WantNext, from_wire,
     },
     store_effects::Store,
 };
 
-pub fn register_deserializers() -> DeserializerGuards {
-    vec![
-        amaru_pure_stage::register_data_deserializer::<BlockFetchResponder>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<(State, BlockFetchResponder)>().boxed(),
-    ]
-}
+/// Maximum number of blocks that can be streamed for a single request
+pub const MAX_FETCHED_BLOCKS: usize = 1000;
 
-pub fn responder() -> Miniprotocol<State, BlockFetchResponder, Responder> {
-    miniprotocol(PROTO_N2N_BLOCK_FETCH.responder())
-}
+make_states!(pub Proto { Idle; Done });
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct BlockFetchResponder {
-    muxer: StageRef<MuxMessage>,
-}
+define_role_tag!(pub ToInitiator);
 
-/// This data type represents a range of points to fetch blocks for.
-/// The points are ordered from the most recent to oldest and at least one point is present
+on_receive!(Idle as ServerIdleIn {
+    Pull => { Send<ToMux, WantNext> => Idle }
+    RequestRange => {
+        Call<ToInitiator, StartBatch>, Repeat<Call<ToInitiator, Block>>, Call<ToInitiator, BatchDone>, Send<ToMux, WantNext> => Idle
+        | Call<ToInitiator, NoBlocks>, Send<ToMux, WantNext> => Idle
+    }
+    ClientDone => { Done }
+});
+
+/// Range of points to fetch, newest first, at least one point.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PointsRange(NonEmptyVec<Point>);
 
-/// Maximum number of blocks that can be streamed for a single request
-pub const MAX_FETCHED_BLOCKS: usize = 1000;
+type Mail = Inputs<Void>;
 
 impl PointsRange {
     /// Create a points range with a single point
@@ -147,167 +152,199 @@ impl PointsRange {
     }
 }
 
-impl BlockFetchResponder {
-    pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { muxer })
+impl<T> IntoRoleCall<ToInitiator, T> for MuxClient
+where
+    Message: From<T>,
+{
+    type Reply = Sent;
+    const TIMEOUT: Duration = NETWORK_SEND_TIMEOUT;
+
+    fn encode(&self, msg: T, reply: StageRef<Sent>) -> MuxMessage {
+        self.encode_send(Message::from(msg), reply)
     }
 }
 
-/// Local message for streaming blocks.
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum StreamBlocks {
-    More(PointsRange),
-    Done,
+impl FromMailbox<Mail> for RequestRange {
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        from_wire::<_, Message, _>(msg)
+    }
 }
 
-impl StageState<State, Responder> for BlockFetchResponder {
-    type LocalIn = StreamBlocks;
-
-    async fn local(
-        self,
-        _proto: &State,
-        input: Self::LocalIn,
-        eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        let store = Store::new(eff.clone());
-        match input {
-            StreamBlocks::Done => Ok((Some(ResponderAction::BatchDone), self)),
-            StreamBlocks::More(points_range) => {
-                let (block, points_range) = points_range.next_block(&store).await?;
-                Metrics::new(eff).record(ServedBlockCountMetrics { count: 1 }.into()).await;
-                // recurse if there are more blocks to fetch or signal that streaming is done
-                if let Some(points_range) = points_range {
-                    eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::More(points_range))).await;
-                } else {
-                    eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::Done)).await;
-                }
-                Ok((Some(ResponderAction::Block(block)), self))
-            }
-        }
+impl FromMailbox<Mail> for ClientDone {
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        from_wire::<_, Message, _>(msg)
     }
+}
 
-    async fn network(
-        self,
-        _proto: &State,
-        input: ResponderResult,
-        eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        let message_type = input.message_type().to_string();
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![
+        amaru_pure_stage::register_data_deserializer::<Instance>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<MuxClient>().boxed(),
+    ]
+}
 
-        async move {
-            match input {
-                ResponderResult::RequestRange { from, through } => {
-                    let store = Store::new(eff.clone());
-                    if let Some(points_range) = PointsRange::request_range(&store, from, through).await? {
-                        eff.send(eff.me_ref(), Inputs::Local(StreamBlocks::More(points_range))).await;
-                        Ok((Some(ResponderAction::StartBatch), self))
-                    } else {
-                        Ok((Some(ResponderAction::NoBlocks), self))
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Instance {
+    proto: Proto,
+    mux: MuxClient,
+    peer: Peer,
+}
+
+impl Instance {
+    fn new(mux: MuxClient, peer: Peer) -> Self {
+        Self { proto: initial_state::<Idle>().into(), mux, peer }
+    }
+}
+
+async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
+    let mail = match mail {
+        Inputs::Network(HandlerMessage::Registered(_)) => Inputs::Internal(Internal::Pull),
+        mail @ (Inputs::Local(_) | Inputs::Network(HandlerMessage::FromNetwork(_)) | Inputs::Internal(_)) => mail,
+    };
+    let Instance { proto, mux, peer } = inst;
+    let proto = match proto {
+        Proto::Idle(idle) => match idle.convert_input(mail) {
+            Ok(ServerIdleIn::Pull(pull)) => idle.receive(pull, eff).send(&mux, WantNext).await.finish().into(),
+            Ok(ServerIdleIn::RequestRange(range)) => {
+                let store = Store::new(eff.clone());
+                match PointsRange::request_range(&store, range.from, range.through).await {
+                    Ok(Some(mut points)) => {
+                        let metrics_eff = eff.clone();
+                        let for_err = eff.clone();
+                        let metrics = Metrics::new(&metrics_eff);
+                        let (_, mut session) = idle.receive(range, eff).call(&mux, StartBatch).await;
+                        loop {
+                            let (block, rest) = match points.next_block(&store).await {
+                                Ok(pair) => pair,
+                                Err(err) => return invalid(peer, "Streaming", err, for_err).await,
+                            };
+                            metrics.record(ServedBlockCountMetrics { count: 1 }.into()).await;
+                            (_, session) = session.call(&mux, Block { body: block.to_vec() }).await;
+                            match rest {
+                                Some(next) => points = next,
+                                None => break,
+                            }
+                        }
+                        let (_, session) = session.discard_repeat().call(&mux, BatchDone).await;
+                        session.send(&mux, WantNext).await.finish().into()
                     }
+                    Ok(None) => {
+                        let (_, session) = idle.receive(range, eff).call(&mux, NoBlocks).await;
+                        session.send(&mux, WantNext).await.finish().into()
+                    }
+                    Err(err) => return invalid(peer, idle.name(), err, eff).await,
                 }
-                ResponderResult::Done => Ok((None, self)),
             }
-        }
-        .instrument(debug_span!(protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE, message_type))
-        .await
-    }
-
-    fn muxer(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
+            Ok(ServerIdleIn::ClientDone(done)) => idle.receive(done, eff).finish().into(),
+            Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
+            Err(mail) => return invalid(peer, idle.name(), mail, eff).await,
+        },
+        Proto::Done(done) => match mail {
+            Inputs::Internal(Internal::Timeout) => done.into(),
+            mail @ (Inputs::Local(_) | Inputs::Network(_) | Inputs::Internal(Internal::Pull)) => {
+                return invalid(peer, done.name(), mail, eff).await;
+            }
+        },
+    };
+    Instance { proto, mux, peer }
 }
 
-impl ProtocolState<Responder> for State {
-    type WireMsg = Message;
-    type Action = ResponderAction;
-    type Out = ResponderResult;
-    type Error = Void;
-
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        Ok((outcome().want_next(), *self))
-    }
-
-    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = debug_span!(
-            protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_PROTOCOL,
-            message_type = input.message_type().to_string()
-        );
-        let _guard = _span.enter();
-        use Message::*;
-        match (self, input) {
-            (Self::Idle, RequestRange { from, through }) => {
-                Ok((outcome().result(ResponderResult::RequestRange { from, through }), Self::Busy))
-            }
-            (Self::Idle, ClientDone) => Ok((outcome().want_next().result(ResponderResult::Done), Self::Done)),
-            (state, msg) => anyhow::bail!("unexpected message in state {:?}: {:?}", state, msg),
-        }
-    }
-
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
-        use ResponderAction::*;
-        match (self, input) {
-            (Self::Busy, StartBatch) => Ok((outcome().send(Message::StartBatch), Self::Streaming)),
-            (Self::Busy, NoBlocks) => Ok((outcome().send(Message::NoBlocks).want_next(), Self::Idle)),
-            (Self::Streaming, Block(body)) => {
-                Ok((outcome().send(Message::Block { body: body.to_vec() }), Self::Streaming))
-            }
-            (Self::Streaming, BatchDone) => Ok((outcome().send(Message::BatchDone).want_next(), Self::Idle)),
-            (state, action) => {
-                anyhow::bail!("unexpected action in state {:?}: {:?}", state, action)
-            }
-        }
-    }
+async fn invalid(peer: Peer, state: &str, input: impl std::fmt::Debug, eff: Effects<Mail>) -> Instance {
+    error!(
+        protocols::INVALID_INPUT,
+        proto = "block_fetch",
+        peer,
+        state = state.to_string(),
+        input = format!("{input:?}")
+    );
+    eff.terminate().await
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub enum ResponderAction {
-    StartBatch,
-    NoBlocks,
-    Block(RawBlock),
-    BatchDone,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub enum ResponderResult {
-    RequestRange { from: NetworkPoint, through: NetworkPoint },
-    Done,
-}
-
-impl ResponderResult {
-    pub fn message_type(&self) -> &'static str {
-        match self {
-            ResponderResult::RequestRange { .. } => "RequestRange",
-            ResponderResult::Done => "Done",
-        }
-    }
+pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
+    muxer: &StageRef<MuxMessage>,
+    peer: Peer,
+    eff: &Effects<M>,
+    tombstone: M,
+) -> StageRef<Void> {
+    let mux = MuxClient::new(muxer.clone(), PROTO_N2N_BLOCK_FETCH.responder().erase());
+    let blockfetch = eff.stage("blockfetch", instance).await;
+    let blockfetch = eff.supervise(blockfetch, tombstone);
+    let blockfetch = eff.wire_up(blockfetch, Instance::new(mux, peer)).await;
+    eff.send(
+        muxer,
+        MuxMessage::Register {
+            protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
+            frame: Frame::OneCborItem,
+            handler: blockfetch.contramap(Inputs::Network),
+            max_buffer: 2_500_000,
+        },
+    )
+    .await;
+    blockfetch.contramap(Inputs::Local)
 }
 
 #[cfg(test)]
 pub mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, OnceLock};
 
     use amaru_kernel::{
-        BlockHeight, EraHistory, EraName, IsHeader, NetworkPoint, Slot, any_fake_header, any_headers_chain,
-        any_headers_chain_with_root,
+        BlockHeight, EraHistory, EraName, IsHeader, NetworkPoint, NonEmptyBytes, Slot, any_fake_header,
+        any_headers_chain, any_headers_chain_with_root,
         cardano::network_block::{EncodedTestBlock, NetworkBlock, make_encoded_chain},
+        cbor,
         utils::tests::run_strategy,
     };
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
-    use amaru_pure_stage::simulation::simulation_builder::run_test;
+    use amaru_pure_stage::{
+        StageGraph,
+        simulation::{Run, SimulationBuilder, simulation_builder::run_test},
+        typestate::{FmtPar, OnReceive, Session},
+    };
+    use tokio::runtime::{Builder, Runtime};
 
     use super::*;
-    use crate::{protocol::Responder, store_effects::ResourceHeaderStore};
+    use crate::{
+        mux::{MuxMessage, Sent},
+        protocol::Inputs,
+        store_effects::ResourceHeaderStore,
+    };
+
+    fn remaining<S, In>() -> String
+    where
+        S: OnReceive<In>,
+        S::Then: FmtPar,
+    {
+        Session::<(), S::Then>::describe()
+    }
+
+    fn send_desc<Tag, T>() -> String {
+        format!("Send<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
+    }
+
+    fn call_desc<Tag, T>() -> String {
+        format!("Call<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
+    }
+
+    fn star_call<Tag, T>() -> String {
+        format!("Repeat<{}>", call_desc::<Tag, T>())
+    }
 
     #[test]
-    #[expect(clippy::wildcard_enum_match_arm)]
-    fn test_responder_protocol() {
-        crate::blockfetch::spec::<Responder>().check(State::Idle, |msg| match msg {
-            Message::NoBlocks => Some(ResponderAction::NoBlocks),
-            Message::StartBatch => Some(ResponderAction::StartBatch),
-            Message::Block { body } => Some(ResponderAction::Block(RawBlock::from(body.as_slice()))),
-            Message::BatchDone => Some(ResponderAction::BatchDone),
-            _ => None,
-        });
+    fn responder_receive_allowances() {
+        assert_eq!(remaining::<Idle, Pull>(), format!("{} => Idle", send_desc::<ToMux, WantNext>()));
+        assert_eq!(
+            remaining::<Idle, RequestRange>(),
+            format!(
+                "{}, {}, {}, {} => Idle | {}, {} => Idle",
+                call_desc::<ToInitiator, StartBatch>(),
+                star_call::<ToInitiator, Block>(),
+                call_desc::<ToInitiator, BatchDone>(),
+                send_desc::<ToMux, WantNext>(),
+                call_desc::<ToInitiator, NoBlocks>(),
+                send_desc::<ToMux, WantNext>()
+            )
+        );
+        assert_eq!(remaining::<Idle, ClientDone>(), "=> Done");
     }
 
     #[test]
@@ -475,6 +512,137 @@ pub mod tests {
 
         // Should have remaining points
         assert_eq!(remaining_range, PointsRange::from_vec(vec![chain[2].header.point(), chain[1].header.point()]));
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+    struct MuxLog {
+        sends: Vec<String>,
+        wants: usize,
+    }
+
+    async fn mux_step(mut log: MuxLog, msg: MuxMessage, eff: Effects<MuxMessage>) -> MuxLog {
+        match msg {
+            MuxMessage::Send(_, bytes, cr) => {
+                let decoded: Message = cbor::decode(bytes.as_ref()).expect("cbor");
+                log.sends.push(decoded.message_type().to_string());
+                eff.send(&cr, Sent).await;
+            }
+            MuxMessage::WantNext(_) => {
+                log.wants += 1;
+            }
+            MuxMessage::Register { .. }
+            | MuxMessage::Buffer(..)
+            | MuxMessage::FromNetwork(..)
+            | MuxMessage::Written
+            | MuxMessage::Terminate
+            | MuxMessage::SetSduTimeout(_) => {}
+        }
+        log
+    }
+
+    fn test_runtime() -> &'static tokio::runtime::Handle {
+        static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+        RUNTIME.get_or_init(|| Builder::new_multi_thread().enable_all().build().unwrap()).handle()
+    }
+
+    fn proto() -> crate::protocol::ProtocolId<crate::protocol::Erased> {
+        PROTO_N2N_BLOCK_FETCH.responder().erase()
+    }
+
+    fn wire(msg: impl Into<Message>) -> Inputs<Void> {
+        Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&msg.into())))
+    }
+
+    #[test]
+    fn serve_range_sends_blocks_then_batch_done() {
+        let (store, chain) = make_store_with_chain(3);
+        store_blocks(store.clone(), &chain);
+        let mut network = SimulationBuilder::default();
+        network.resources().put::<ResourceHeaderStore>(store);
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", instance);
+        let handler = network.wire_up(handler_b, Instance::new(MuxClient::new(mux_ref, proto()), Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(proto())),
+                    wire(RequestRange {
+                        from: chain[0].header.point().into(),
+                        through: chain[2].header.point().into(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::skip_wakeups()).assert_idle();
+        let log = running.get_state(&mux).cloned().unwrap();
+        assert_eq!(log.sends, vec!["StartBatch", "Block", "Block", "Block", "BatchDone"]);
+        assert_eq!(log.wants, 2);
+        assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
+    }
+
+    #[test]
+    fn missing_range_sends_no_blocks() {
+        let (store, chain) = make_store_with_chain(3);
+        let mut network = SimulationBuilder::default();
+        network.resources().put::<ResourceHeaderStore>(store);
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", instance);
+        let handler = network.wire_up(handler_b, Instance::new(MuxClient::new(mux_ref, proto()), Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(proto())),
+                    wire(RequestRange {
+                        from: chain[0].header.point().into(),
+                        through: chain[2].header.point().into(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::skip_wakeups()).assert_idle();
+        let log = running.get_state(&mux).cloned().unwrap();
+        assert_eq!(log.sends, vec!["NoBlocks"]);
+        assert_eq!(log.wants, 2);
+        assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
+    }
+
+    #[test]
+    fn close_idle_goes_done() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", instance);
+        let handler = network.wire_up(handler_b, Instance::new(MuxClient::new(mux_ref, proto()), Peer::for_test(3001)));
+        network.preload(&handler, [Inputs::Network(HandlerMessage::Registered(proto())), wire(ClientDone)]).unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::skip_wakeups()).assert_idle();
+        let log = running.get_state(&mux).cloned().unwrap();
+        assert!(log.sends.is_empty());
+        assert_eq!(log.wants, 1);
+        assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Done(_)));
+    }
+
+    #[test]
+    fn start_batch_while_idle_terminates() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", instance);
+        let handler = network.wire_up(handler_b, Instance::new(MuxClient::new(mux_ref, proto()), Peer::for_test(3001)));
+        network.preload(&handler, [Inputs::Network(HandlerMessage::Registered(proto())), wire(StartBatch)]).unwrap();
+        let mut running = network.run(test_runtime());
+        let blocked = running.run(Run::skip_wakeups());
+        assert!(matches!(blocked, amaru_pure_stage::simulation::Blocked::Terminated(_)));
     }
 
     // HELPERS

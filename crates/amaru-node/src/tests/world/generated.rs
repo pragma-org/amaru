@@ -21,7 +21,7 @@
 //!
 //! Every run prints `seed=0x…`. Replay with `AMARU_TEST_SEED=<that value>`.
 
-use std::{env::var, net::SocketAddr, sync::Arc};
+use std::{cmp::Ordering, env::var, net::SocketAddr, num::NonZeroU8, sync::Arc};
 
 use amaru_consensus::{
     effects::{GenerateRandomSeed, ValidateBlockEffect, ValidateHeaderEffect},
@@ -150,6 +150,99 @@ fn test_world_owns_production_nodes_boot_connect_exchange() {
         "expected a typed chainsync RollForward or ValidateHeaderEffect; seed={seed:#x} heap={log:?}"
     );
     world.stop();
+}
+
+/// Injector plus one production node on a generated fragment. Proves BlockFetch
+/// lock-step (`N = 1`) delivers bodies; the pipelined sibling is
+/// [`test_world_blockfetch_pipelined`].
+#[test]
+fn test_world_blockfetch_lock_step() {
+    run_blockfetch_generated_chain(NonZeroU8::MIN, 9700);
+}
+
+/// Same topology as [`test_world_blockfetch_lock_step`], with CIP-0164 pipeline depth 2.
+#[test]
+fn test_world_blockfetch_pipelined() {
+    run_blockfetch_generated_chain(NonZeroU8::new(2).unwrap(), 9720);
+}
+
+const BLOCKFETCH_FRAGMENT: usize = 6;
+const BLOCKFETCH_HORIZON_NANOS: u64 = 5_000_000_000;
+
+fn run_blockfetch_generated_chain(n: NonZeroU8, base_port: u16) {
+    let seed = draw_test_seed();
+    eprintln!("world blockfetch n={} seed={seed:#x}", n.get());
+    let _guards = fragment_trace_guards();
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let handle = runtime.handle().clone();
+    let provider = provider(seed);
+
+    let injector_addr: SocketAddr = format!("127.0.0.1:{base_port}").parse().unwrap();
+    let node_listen = format!("127.0.0.1:{}", base_port + 11);
+    let (store, headers) = injector_linear_store(BLOCKFETCH_FRAGMENT, seed);
+    let head = headers.last().expect("fragment HEAD").clone();
+    let source: Arc<dyn BaseReadChainStore> = store;
+    let connections: ConnectionsResource = provider.clone();
+
+    let (injector, shared) =
+        build_injector(source, connections.clone(), injector_addr, derive_seed(seed, TAG_INJECTOR), &handle)
+            .expect("injector");
+
+    let node = NodeTestConfig::default()
+        .with_upstream_peer(Peer::try_from(injector_addr).expect("injector is IPv4 loopback"))
+        .with_listen_address(&node_listen)
+        .with_seed(derive_seed(seed, TAG_NODE))
+        .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000))
+        .with_blockfetch_pipeline_n(n)
+        .with_validated_blocks(vec![headers[0].clone()]);
+    let mut sim = build_world_node(&node, connections, &handle).expect("production node");
+    sim.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+        OverrideResult::handled(Ok(Nonces::for_tests()))
+    });
+    sim.override_external_effect::<ValidateBlockEffect>(usize::MAX, |_| {
+        OverrideResult::handled(Ok(Ok(LedgerMetrics::default())))
+    });
+    stub_peer_selection_seed(&mut sim, derive_seed(seed, TAG_PEER_SEL));
+
+    let mut world = WorldLoop::new(provider, vec![injector, sim]).with_injector(0, shared);
+    world.schedule_reveals(headers.iter().map(IsHeader::hash));
+    let head_point = head.point();
+    world.run_until_horizon_on_best_chain_tip(BLOCKFETCH_HORIZON_NANOS, |_| {});
+
+    let log = world.heap_log();
+    assert!(
+        log.iter().any(|e| matches!(e.kind, HeapLogKind::ConnectAttempt { .. })),
+        "node must connect; n={} seed={seed:#x} heap={log:?}",
+        n.get()
+    );
+    assert!(
+        log.iter().any(|e| matches!(e.kind, HeapLogKind::Accepted { .. })),
+        "injector must accept; n={} seed={seed:#x} heap={log:?}",
+        n.get()
+    );
+
+    let graph = &world.graphs()[1];
+    let store = graph.resources().get::<ResourceHeaderStore>().expect("node chain store");
+    let tip = store.get_best_chain_tip();
+    let got = store
+        .load_header(&tip.hash())
+        .unwrap_or_else(|| panic!("node best tip {tip} has no header; n={} seed={seed:#x}", n.get()));
+    assert_eq!(
+        cmp_tip(Some(&got), Some(&head)),
+        Ordering::Equal,
+        "node adopted tip {tip} must be cmp_tip-equal to HEAD {}; n={} seed={seed:#x}",
+        head.point(),
+        n.get()
+    );
+    assert_eq!(tip, head_point, "node best-chain pointer must be the generated HEAD; n={} seed={seed:#x}", n.get());
+    for header in &headers {
+        assert!(
+            store.has_block(&header.hash()).expect("has_block"),
+            "node must have fetched body for {}; n={} seed={seed:#x}",
+            header.point(),
+            n.get()
+        );
+    }
 }
 
 fn stub_peer_selection_seed(sim: &mut amaru_pure_stage::simulation::running::SimulationRunning, seed: u64) {

@@ -36,7 +36,7 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{
     Effect, Instant, Name, SendData,
-    simulation::{Blocked, SimulationRunning},
+    simulation::{Blocked, Run, SimulationRunning},
     trace_buffer::TraceEntry,
 };
 
@@ -55,7 +55,7 @@ const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 /// graph wakes are scheduled onto the same structure so `(time, sequence)` is
 /// global. [`SimulationRunning`] bodies live in `graphs` by index. That Vec is
 /// not a scheduler — a graph runs only when its wake is popped.
-/// Completes Network UntilResolved effects only via `resume_external_box`.
+/// Completes Network UntilResolved effects only via `complete_external`.
 pub struct WorldLoop {
     provider: Arc<WorldConnectionProvider>,
     graphs: Vec<SimulationRunning>,
@@ -326,9 +326,9 @@ impl WorldLoop {
     /// Run until the graph wants to advance the clock. External effects fall out via the breakpoint.
     fn run_graph_until_clock(&mut self, index: usize) {
         loop {
-            match self.graphs[index].run_until_sleeping_or_blocked() {
-                Blocked::Breakpoint(_, effect) => {
-                    self.on_external(index, effect);
+            match self.graphs[index].run(Run::default()) {
+                Blocked::Breakpoint(_) => {
+                    self.on_external(index);
                 }
                 Blocked::Deadlock(deadlock) => {
                     panic!("graph {index} deadlock: {deadlock:?}");
@@ -344,10 +344,12 @@ impl WorldLoop {
         }
     }
 
-    fn on_external(&mut self, graph_idx: usize, effect: Effect) {
-        let posted = classify_network(&effect);
-        let set_best_chain = is_best_chain_write(&effect);
-        if let Some(Blocked::Terminated(name)) = self.graphs[graph_idx].handle_effect(effect) {
+    fn on_external(&mut self, graph_idx: usize) {
+        let (posted, set_best_chain) = {
+            let bp = self.graphs[graph_idx].breakpoint_effect();
+            (classify_network(bp.effect()), is_best_chain_write(bp.effect()))
+        };
+        if let Some(Blocked::Terminated(name)) = self.graphs[graph_idx].interpret_breakpoint() {
             self.drop_pending_for_terminated(graph_idx, &name);
         }
         if set_best_chain {
@@ -564,9 +566,7 @@ impl WorldLoop {
             self.drop_matching_pending();
             return;
         }
-        self.graphs[graph_idx]
-            .resume_external_box(&stage_name, result)
-            .unwrap_or_else(|e| panic!("failed to resume stage {stage_name}: {e}"));
+        self.graphs[graph_idx].complete_external_box(&stage_name, result);
         kick_external(&mut self.graphs[graph_idx]);
     }
 
@@ -619,7 +619,7 @@ impl WorldLoop {
     /// A serve-only injector stays parked on `accept` (immediate re-PullAccept).
     /// That is Busy, not Idle — the listen loop is the product.
     pub fn assert_serving_accept(&mut self, graph_idx: usize) {
-        match self.graphs[graph_idx].run_until_sleeping_or_blocked() {
+        match self.graphs[graph_idx].run(Run::default()) {
             Blocked::Busy { stages, .. } if stages.iter().any(|name| format!("{name}").contains("accept")) => {}
             other @ (Blocked::Idle
             | Blocked::Sleeping { .. }
@@ -634,7 +634,7 @@ impl WorldLoop {
 
     fn assert_graphs_settled(&mut self) {
         for (graph_idx, graph) in self.graphs.iter_mut().enumerate() {
-            match graph.run_until_sleeping_or_blocked() {
+            match graph.run(Run::default()) {
                 Blocked::Idle | Blocked::Terminated(_) => {}
                 other @ (Blocked::Sleeping { .. }
                 | Blocked::Deadlock(_)

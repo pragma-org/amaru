@@ -300,6 +300,8 @@ enum EffectRef<'a> {
     Wait { at_stage: &'a Name, duration: Duration },
     Schedule { at_stage: &'a Name, msg: &'a dyn SendData, id: ScheduleId },
     CancelSchedule { at_stage: &'a Name, id: ScheduleId },
+    SetTimeout { at_stage: &'a Name, slot: u64, delay: Duration, msg: &'a dyn SendData },
+    ClearTimeout { at_stage: &'a Name, slot: u64 },
     External { at_stage: &'a Name, effect: &'a dyn crate::ExternalEffect },
     Detach { at_stage: &'a Name, effect: &'a dyn crate::ExternalEffect },
     Terminate { at_stage: &'a Name },
@@ -317,6 +319,10 @@ impl<'a> EffectRef<'a> {
             StageEffect::Wait(duration) => EffectRef::Wait { at_stage, duration: *duration },
             StageEffect::Schedule(msg, id) => EffectRef::Schedule { at_stage, msg: &**msg, id: *id },
             StageEffect::CancelSchedule(id) => EffectRef::CancelSchedule { at_stage, id: *id },
+            StageEffect::SetTimeout { slot, delay, msg } => {
+                EffectRef::SetTimeout { at_stage, slot: *slot, delay: *delay, msg: &**msg }
+            }
+            StageEffect::ClearTimeout { slot } => EffectRef::ClearTimeout { at_stage, slot: *slot },
             StageEffect::External(effect) => EffectRef::External { at_stage, effect: &**effect },
             StageEffect::Detach(effect, _) => EffectRef::Detach { at_stage, effect: &**effect },
             StageEffect::Terminate => EffectRef::Terminate { at_stage },
