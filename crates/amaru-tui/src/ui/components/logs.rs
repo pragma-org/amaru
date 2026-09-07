@@ -73,10 +73,50 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     render_log_controls(frame, layout[0], model, views);
     render_horizontal_separator(frame, layout[1], model.interaction_mode, focused);
 
-    let lines = model.log_view().iter().map(|item| log_view_line(item, model, layout[2].width)).collect::<Vec<_>>();
-    let (paragraph, total, position) = log_paragraph(lines, layout[2], model.log_scroll);
+    let items = model.log_view();
+    let window = log_window(items.len(), layout[2].height, model.log_scroll);
+    let lines = items[window.start..window.end]
+        .iter()
+        .map(|item| log_view_line(item, model, layout[2].width))
+        .collect::<Vec<_>>();
+    let (paragraph, window_total, window_position) = log_paragraph(lines, layout[2], window.scroll_from_bottom);
+    let total = window.start.saturating_add(window_total);
+    let position = window.start.saturating_add(window_position);
     frame.render_widget(paragraph, layout[2]);
     render_scrollbar(frame, layout[2], total, layout[2].height as usize, position, model.interaction_mode);
+}
+
+/// Ratatui [`Paragraph`] scroll is `u16`, and `area.height + scroll.y` must not overflow.
+/// Keep the rendered window well below that even when lines wrap a few times.
+const MAX_LOG_WINDOW_ITEMS: usize = (u16::MAX as usize) / 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LogWindow {
+    start: usize,
+    end: usize,
+    scroll_from_bottom: usize,
+}
+
+fn log_window(item_count: usize, height: u16, scroll_from_bottom: usize) -> LogWindow {
+    let height = height as usize;
+    if item_count == 0 || height == 0 {
+        return LogWindow { start: 0, end: 0, scroll_from_bottom: 0 };
+    }
+
+    let take = scroll_from_bottom.saturating_add(height).min(item_count);
+    if take <= MAX_LOG_WINDOW_ITEMS {
+        return LogWindow { start: item_count - take, end: item_count, scroll_from_bottom };
+    }
+
+    let skip = scroll_from_bottom.min(item_count);
+    let end = item_count - skip;
+    let start = end.saturating_sub(height.min(MAX_LOG_WINDOW_ITEMS));
+    LogWindow { start, end, scroll_from_bottom: 0 }
+}
+
+fn paragraph_vertical_scroll(position: usize, area_height: u16) -> u16 {
+    let max_scroll = u16::MAX.saturating_sub(area_height);
+    u16::try_from(position).unwrap_or(u16::MAX).min(max_scroll)
 }
 
 fn log_paragraph(
@@ -87,7 +127,7 @@ fn log_paragraph(
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     let total = paragraph.line_count(area.width);
     let position = total.saturating_sub(area.height as usize).saturating_sub(scroll_from_bottom);
-    let vertical_scroll = u16::try_from(position).unwrap_or(u16::MAX);
+    let vertical_scroll = paragraph_vertical_scroll(position, area.height);
 
     (paragraph.scroll((vertical_scroll, 0)), total, position)
 }
@@ -250,6 +290,10 @@ mod tests {
 
     use super::*;
 
+    fn buffer_row(buffer: &Buffer, y: u16, width: u16) -> String {
+        (0..width).map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()).unwrap_or("").to_string()).collect()
+    }
+
     #[test]
     fn keeps_the_newest_log_visible_when_an_older_log_wraps() {
         let area = Rect::new(0, 0, 10, 2);
@@ -262,6 +306,50 @@ mod tests {
         assert_eq!(total, 3);
         assert_eq!(position, 1);
         assert_eq!(buffer.cell((0, 1)).map(|cell| cell.symbol()), Some("n"));
+    }
+
+    #[test]
+    fn log_window_keeps_a_short_suffix_from_the_tail() {
+        assert_eq!(log_window(0, 2, 0), LogWindow { start: 0, end: 0, scroll_from_bottom: 0 });
+        assert_eq!(log_window(3, 2, 0), LogWindow { start: 1, end: 3, scroll_from_bottom: 0 });
+        assert_eq!(log_window(10, 2, 3), LogWindow { start: 5, end: 10, scroll_from_bottom: 3 });
+    }
+
+    #[test]
+    fn log_window_follows_the_tail_of_a_buffer_larger_than_u16_scroll() {
+        let window = log_window(70_000, 2, 0);
+        assert_eq!(window, LogWindow { start: 69_998, end: 70_000, scroll_from_bottom: 0 });
+    }
+
+    #[test]
+    fn log_window_skips_newest_items_when_scroll_exceeds_the_safe_paragraph() {
+        let scroll = MAX_LOG_WINDOW_ITEMS + 50;
+        let window = log_window(70_000, 2, scroll);
+        assert_eq!(window.end, 70_000 - scroll);
+        assert_eq!(window.start, window.end - 2);
+        assert_eq!(window.scroll_from_bottom, 0);
+    }
+
+    #[test]
+    fn rendering_a_huge_log_view_shows_the_newest_lines_without_panicking() {
+        let area = Rect::new(0, 0, 20, 2);
+        let window = log_window(70_000, area.height, 0);
+        let lines = (window.start..window.end).map(|index| Line::from(format!("line-{index}"))).collect();
+        let (paragraph, total, position) = log_paragraph(lines, area, window.scroll_from_bottom);
+        let mut buffer = Buffer::empty(area);
+
+        paragraph.render(area, &mut buffer);
+
+        assert_eq!(total, 2);
+        assert_eq!(position, 0);
+        assert!(buffer_row(&buffer, 1, area.width).starts_with("line-69999"), "{}", buffer_row(&buffer, 1, area.width));
+    }
+
+    #[test]
+    fn paragraph_scroll_offset_fits_u16_even_for_huge_positions() {
+        assert_eq!(paragraph_vertical_scroll(10, 20), 10);
+        assert_eq!(paragraph_vertical_scroll(usize::MAX, 20), u16::MAX - 20);
+        assert_eq!(paragraph_vertical_scroll(u16::MAX as usize, 20), u16::MAX - 20);
     }
 
     #[test]
