@@ -305,7 +305,6 @@ pub struct MpscReceiver<T> {
     pub receiver: mpsc::Receiver<T>,
 }
 
-#[expect(dead_code)]
 fn dummy_receiver<T>() -> mpsc::Receiver<T> {
     mpsc::channel(1).1
 }

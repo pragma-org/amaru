@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 /// A thin abstraction to notify progress on a task, without committing to any particular tool.
 ///
 /// The main use case is to allow decoupling certain long-running functions from their UI elements,

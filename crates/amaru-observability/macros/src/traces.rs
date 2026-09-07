@@ -41,14 +41,14 @@ struct CallSiteField {
     formatter: CallSiteFormatter,
 }
 
-fn reject_percent_or_question(input: ParseStream) -> syn::Result<()> {
+fn reject_percent_or_question(input: ParseStream<'_>) -> syn::Result<()> {
     if input.peek(Token![%]) || input.peek(Token![?]) {
         return Err(syn::Error::new(input.span(), FORMATTER_ON_SCHEMA_MSG));
     }
     Ok(())
 }
 
-fn parse_call_site_fields(input: ParseStream) -> syn::Result<Vec<CallSiteField>> {
+fn parse_call_site_fields(input: ParseStream<'_>) -> syn::Result<Vec<CallSiteField>> {
     let mut fields = Vec::new();
     while input.peek(Token![,]) {
         input.parse::<Token![,]>()?;
@@ -322,7 +322,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     }
 
     impl Parse for TraceRecordArgs {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
+        fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
             // Check if first token is a level identifier followed by a comma
             let level = if input.peek(syn::Ident) {
                 let checkpoint = input.fork();
@@ -524,7 +524,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
     }
 
     impl Parse for TraceEventArgs {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
+        fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
             let level: syn::Ident = input.parse()?;
             input.parse::<Token![,]>()?;
             let schema_path: syn::Path = input.parse()?;
@@ -683,7 +683,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     }
 
     impl Parse for TraceSpanArgs {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
+        fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
             // Check if first token is a level identifier followed by a comma
             let level = if input.peek(syn::Ident) {
                 let checkpoint = input.fork();

@@ -14,6 +14,9 @@
 
 #![deny(clippy::future_not_send)]
 
+#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 pub mod drop_guard;
 mod duration_dist;
 mod effect;

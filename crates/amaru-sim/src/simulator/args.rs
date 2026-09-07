@@ -184,6 +184,7 @@ pub fn initialize_logs() {
     let amaru_logs = get_env_var::<String>("AMARU_SIMULATION_LOG", "".to_string());
     let amaru_logs_as_json = is_true("AMARU_SIMULATION_LOG_AS_JSON");
     let formatter = tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(
+        #[expect(clippy::panic)]
         EnvFilter::builder()
             .parse(format!("off,{}", amaru_logs))
             .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),

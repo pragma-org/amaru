@@ -62,6 +62,7 @@ impl<'a> PlutusData<'a> {
     where
         V: Eval<'a>,
     {
+        #[expect(clippy::wildcard_enum_match_arm)]
         match self {
             PlutusData::Constr { tag, fields } => Ok((tag, fields)),
             _ => Err(MachineError::malformed_data(self)),
@@ -72,6 +73,7 @@ impl<'a> PlutusData<'a> {
     where
         V: Eval<'a>,
     {
+        #[expect(clippy::wildcard_enum_match_arm)]
         match self {
             PlutusData::Map(fields) => Ok(fields),
             _ => Err(MachineError::malformed_data(self)),
@@ -82,6 +84,7 @@ impl<'a> PlutusData<'a> {
     where
         V: Eval<'a>,
     {
+        #[expect(clippy::wildcard_enum_match_arm)]
         match self {
             PlutusData::Integer(i) => Ok(i),
             _ => Err(MachineError::malformed_data(self)),
@@ -92,6 +95,7 @@ impl<'a> PlutusData<'a> {
     where
         V: Eval<'a>,
     {
+        #[expect(clippy::wildcard_enum_match_arm)]
         match self {
             PlutusData::ByteString(bytes) => Ok(bytes),
             _ => Err(MachineError::malformed_data(self)),
@@ -102,6 +106,7 @@ impl<'a> PlutusData<'a> {
     where
         V: Eval<'a>,
     {
+        #[expect(clippy::wildcard_enum_match_arm)]
         match self {
             PlutusData::List(items) => Ok(items),
             _ => Err(MachineError::malformed_data(self)),

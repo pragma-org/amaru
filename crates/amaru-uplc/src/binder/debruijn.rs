@@ -35,7 +35,10 @@ impl<'a> Binder<'a> for DeBruijn {
         Ok(())
     }
 
-    fn var_decode(arena: &'a Arena, d: &mut crate::flat::Decoder) -> Result<&'a Self, crate::flat::FlatDecodeError> {
+    fn var_decode(
+        arena: &'a Arena,
+        d: &mut crate::flat::Decoder<'_>,
+    ) -> Result<&'a Self, crate::flat::FlatDecodeError> {
         let i = d.word()?;
 
         let d = DeBruijn::new(arena, i);
@@ -49,7 +52,7 @@ impl<'a> Binder<'a> for DeBruijn {
 
     fn parameter_decode(
         arena: &'a Arena,
-        _d: &mut crate::flat::Decoder,
+        _d: &mut crate::flat::Decoder<'_>,
     ) -> Result<&'a Self, crate::flat::FlatDecodeError> {
         let d = DeBruijn::new(arena, 0);
 

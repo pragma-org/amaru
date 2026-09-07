@@ -14,6 +14,9 @@
 
 #![feature(type_alias_impl_trait)]
 
+#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 pub mod accept;
 pub mod blockfetch;
 pub mod chainsync;

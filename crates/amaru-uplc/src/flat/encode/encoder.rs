@@ -166,6 +166,7 @@ impl Encoder {
 
         loop {
             let temp: Integer = d.clone() % 128;
+            #[expect(clippy::unwrap_used)]
             let mut w: u8 = temp.try_into().unwrap();
 
             d >>= 7;

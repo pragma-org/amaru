@@ -41,6 +41,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, &'a PlutusData<'a>, Extra<'a>> {
                 .map_with(|(maybe_negative, v), e: &mut MapExtra<'a, '_>| {
                     let state = e.state();
 
+                    #[expect(clippy::unwrap_used)]
                     let mut i = Integer::from_str_radix(v, 10).unwrap();
 
                     if maybe_negative.is_some() {
@@ -61,6 +62,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, &'a PlutusData<'a>, Extra<'a>> {
                     let fields = BumpVec::from_iter_in(fields, state.arena.as_bump());
                     let fields = state.arena.alloc(fields);
 
+                    #[expect(clippy::unwrap_used)]
                     PlutusData::constr(state.arena, tag.parse().unwrap(), fields)
                 }),
             just("List")

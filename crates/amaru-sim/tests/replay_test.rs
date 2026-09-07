@@ -44,6 +44,7 @@ fn test_run_replay() {
 ///
 ///  - Use At::Timestamp("1762271865".to_string()) to indicate a specific timestamp
 ///
+#[expect(clippy::unwrap_used, clippy::expect_used)]
 pub fn run_replay() {
     initialize_logs();
     let run_config = RunConfig::default();

@@ -19,7 +19,6 @@ use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[expect(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait CanValidateBlocks: Send + Sync {
     async fn roll_forward_block(

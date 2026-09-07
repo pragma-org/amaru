@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::unwrap_used, clippy::panic)]
+
 use std::{env, ffi::OsStr, fs, path::PathBuf};
 
 use indoc::formatdoc;

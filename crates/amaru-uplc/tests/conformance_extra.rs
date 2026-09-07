@@ -62,6 +62,7 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
         return;
     };
 
+    #[expect(clippy::unwrap_used)]
     let expected = parse_program(&arena, expected_output, protocol_version).into_result().unwrap();
 
     pretty_assertions::assert_eq!(expected.term, term);

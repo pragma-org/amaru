@@ -149,6 +149,7 @@ fn test_world_owns_production_nodes_boot_connect_exchange() {
         header_on_wire,
         "expected a typed chainsync RollForward or ValidateHeaderEffect; seed={seed:#x} heap={log:?}"
     );
+    world.stop();
 }
 
 fn stub_peer_selection_seed(sim: &mut amaru_pure_stage::simulation::running::SimulationRunning, seed: u64) {
@@ -354,6 +355,7 @@ fn run_p_join_quiescent_chain(
         );
         assert_eq!(tip, head.point(), "node {i} best-chain pointer must be the quiescent HEAD; seed={seed:#x}");
     }
+    world.stop();
 }
 
 struct PJoinWireSummary {

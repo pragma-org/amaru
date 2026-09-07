@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::unwrap_used, clippy::expect_used)]
+
 use std::{fs, time::Duration};
 
 use amaru_kernel::PROTOCOL_VERSION_10;

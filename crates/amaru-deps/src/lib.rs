@@ -13,3 +13,10 @@
 // limitations under the License.
 
 // This is a stub lib.rs.
+
+/// Marker so dependents can reference this workspace-hack crate.
+///
+/// Hakari adds `amaru-deps` to unify features; it is never imported otherwise, which
+/// trips `cargo::unused_dependencies`. Dependents should use this constant privately
+/// (`const _: () = amaru_deps::AMARU_DEPS_USED`), not re-export it.
+pub const AMARU_DEPS_USED: () = ();

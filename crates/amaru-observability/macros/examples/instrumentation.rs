@@ -199,6 +199,7 @@ pub fn create_validation_with_context(
     Ok(())
 }
 
+#[expect(clippy::print_stdout)]
 fn main() {
     println!("This example demonstrates the observability instrumentation macros.");
     println!("The macros use const variable paths instead of string literals for compile-time validation.");

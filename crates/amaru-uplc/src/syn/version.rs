@@ -18,6 +18,7 @@ use super::types::{Extra, MapExtra};
 use crate::machine::MachineVersion;
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, MachineVersion, Extra<'a>> {
+    #[expect(clippy::unwrap_used)]
     text::int(10)
         .map(|v: &str| v.parse().unwrap())
         .then_ignore(just('.'))
