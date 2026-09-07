@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::ByteSize;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -227,7 +228,7 @@ fn occupancy_text(occupancy: [(RetentionTier, usize, usize); 4], available: u16)
         let _ = write!(&mut labeled, "{} {percent}%  ", tier.label());
     }
     let used = occupancy.iter().map(|x| x.1).sum::<usize>();
-    let _ = write!(&mut labeled, "  [{used}]");
+    let _ = write!(&mut labeled, "  [{}]", ByteSize::from(used).display_iec());
     if labeled.len() as u16 + OCCUPANCY_PADDING <= available {
         return Some(labeled);
     }

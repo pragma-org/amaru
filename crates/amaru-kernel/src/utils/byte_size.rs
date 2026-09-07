@@ -17,8 +17,9 @@ use std::{fmt, str::FromStr};
 /// A count of bytes that can be parsed from and displayed as a human size.
 ///
 /// Parsing distinguishes SI units (powers of 1000: `kB`, `MB`, `GB`) from IEC units
-/// (powers of 1024: `KiB`, `MiB`, `GiB`). Display uses IEC units by default, which is
-/// the usual scale for memory in logs; [`ByteSize::si`] formats with SI units.
+/// (powers of 1024: `KiB`, `MiB`, `GiB`). Display uses bytes by default, use [`ByteSize::display_si`]
+/// to format with SI units or [`ByteSize::display_iec`] for IEC units (rendered at the largest applicable
+/// scale, like `4.5 kB` or `496 MiB`).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 #[repr(transparent)]
@@ -57,13 +58,20 @@ impl ByteSize {
         self.0
     }
 
-    pub const fn as_usize(self) -> usize {
-        self.0 as usize
+    pub fn display_si(self) -> SiByteSize {
+        SiByteSize(self)
     }
 
-    /// Format using SI units (`kB`, `MB`, …).
-    pub const fn si(self) -> SiByteSize {
-        SiByteSize(self)
+    pub fn display_iec(self) -> IecByteSize {
+        IecByteSize(self)
+    }
+
+    /// Convert to `usize`.
+    ///
+    /// This truncates on targets where the count does not fit. Prefer [`TryFrom`] at
+    /// configuration boundaries so oversized values can be rejected or saturated.
+    pub const fn as_usize(self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -101,7 +109,7 @@ impl fmt::Debug for ByteSize {
 
 impl fmt::Display for ByteSize {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_scaled(f, self.0, IEC_UNITS)
+        write!(f, "{} B", self.0)
     }
 }
 
@@ -121,12 +129,28 @@ impl fmt::Debug for SiByteSize {
     }
 }
 
+/// IEC rendering of a [`ByteSize`] (`kiB` = 1024 bytes).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct IecByteSize(ByteSize);
+
+impl fmt::Display for IecByteSize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_scaled(f, self.0.as_u64(), IEC_UNITS)
+    }
+}
+
+impl fmt::Debug for IecByteSize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 const IEC_UNITS: [(&str, u64); 5] = [
     ("PiB", ByteSize::PIB),
     ("TiB", ByteSize::TIB),
     ("GiB", ByteSize::GIB),
     ("MiB", ByteSize::MIB),
-    ("KiB", ByteSize::KIB),
+    ("kiB", ByteSize::KIB),
 ];
 
 const SI_UNITS: [(&str, u64); 5] =
@@ -134,11 +158,11 @@ const SI_UNITS: [(&str, u64); 5] =
 
 fn write_scaled(f: &mut fmt::Formatter<'_>, bytes: u64, units: [(&str, u64); 5]) -> fmt::Result {
     for (name, unit) in units {
-        if bytes >= unit {
-            if bytes.is_multiple_of(unit) {
-                return write!(f, "{} {name}", bytes / unit);
-            }
-            let value = bytes as f64 / unit as f64;
+        if bytes >= 10 * unit {
+            let value = bytes / unit;
+            return write!(f, "{value} {name}");
+        } else if bytes >= unit {
+            let value = (bytes * 10 / unit) as f64 / 10.0;
             return write!(f, "{value:.1} {name}");
         }
     }
@@ -244,13 +268,14 @@ mod tests {
     fn display_uses_iec_in_logs() {
         assert_eq!(ByteSize::from_bytes(0).to_string(), "0 B");
         assert_eq!(ByteSize::from_bytes(100).to_string(), "100 B");
-        assert_eq!(ByteSize::from_kib(2).to_string(), "2 KiB");
-        assert_eq!(ByteSize::from_mib(100).to_string(), "100 MiB");
-        assert_eq!(ByteSize::from_bytes(1_536).to_string(), "1.5 KiB");
-        assert_eq!(ByteSize::from_bytes(1_000).to_string(), "1000 B");
-        assert_eq!(ByteSize::from_bytes(1_000).si().to_string(), "1 kB");
-        assert_eq!(ByteSize::from_bytes(100_000_000).si().to_string(), "100 MB");
-        assert_eq!(format!("{:?}", ByteSize::from_mib(1)), "1 MiB");
+        assert_eq!(ByteSize::from_kib(2).display_iec().to_string(), "2.0 kiB");
+        assert_eq!(ByteSize::from_kib(5).display_si().to_string(), "5.1 kB");
+        assert_eq!(ByteSize::from_mib(100).display_iec().to_string(), "100 MiB");
+        assert_eq!(ByteSize::from_bytes(1_536).display_iec().to_string(), "1.5 kiB");
+        assert_eq!(ByteSize::from_bytes(1_000).display_iec().to_string(), "1000 B");
+        assert_eq!(ByteSize::from_bytes(1_000).display_si().to_string(), "1.0 kB");
+        assert_eq!(ByteSize::from_bytes(100_000_000).display_si().to_string(), "100 MB");
+        assert_eq!(format!("{:?}", ByteSize::from_mib(1)), "1048576 B");
     }
 
     #[test]
@@ -259,5 +284,11 @@ mod tests {
         assert!(matches!("MiB".parse::<ByteSize>(), Err(ByteSizeError::MissingNumber(_))));
         assert!(matches!("100XiB".parse::<ByteSize>(), Err(ByteSizeError::UnknownUnit(_))));
         assert!(matches!("100ib".parse::<ByteSize>(), Err(ByteSizeError::UnknownUnit(_))));
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn try_from_usize_rejects_counts_that_do_not_fit() {
+        assert!(matches!(usize::try_from(ByteSize::from_gib(4)), Err(ByteSizeError::Overflow(_))));
     }
 }

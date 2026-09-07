@@ -323,7 +323,7 @@ impl Args {
                     .or_else(|| self.era_history.as_deref().and_then(|path| EraHistory::load(path).ok())),
                 tui::ConfigSection::from_runtime_settings(self),
             ),
-            self.tui_log_retention.as_usize(),
+            usize::try_from(self.tui_log_retention).unwrap_or(usize::MAX),
         )
     }
 
@@ -648,7 +648,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         trace_dump_path =
             trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
         peer_removal_cooldown_secs = args.peer_removal_cooldown_secs,
-        mempool_max_bytes = ByteSize::from_bytes(mempool.max_bytes).to_string(),
+        mempool_max_bytes = &ByteSize::from_bytes(mempool.max_bytes).display_iec().to_string(),
         tx_submission_max_window = tx_submission_params.max_window.get(),
         tx_submission_fetch_batch_bytes = tx_submission_params.fetch_batch_bytes.get(),
         tx_submission_inflight_timeout_ms =

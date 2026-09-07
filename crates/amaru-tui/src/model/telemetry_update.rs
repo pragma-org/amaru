@@ -155,6 +155,7 @@ impl Model {
         let epoch = ledger::stake_distribution::INITIAL_BEGIN::epoch(record);
 
         self.initial_stake_distributions_ready = false;
+        self.prompt = None;
         if !self.initial_stake_distribution_order.contains(&epoch) {
             self.initial_stake_distribution_order.push(epoch);
             self.initial_stake_distribution_order.sort_unstable();

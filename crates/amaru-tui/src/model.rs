@@ -797,6 +797,21 @@ mod tests {
     }
 
     #[test]
+    fn stake_distribution_begin_closes_an_open_prompt() {
+        let mut model = ready_model();
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE));
+        assert!(model.prompt_is_open());
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            ledger::stake_distribution::INITIAL_BEGIN,
+            ledger::stake_distribution::INITIAL_BEGIN::FIELD_EPOCH => 100u64,
+        )));
+
+        assert!(!model.prompt_is_open());
+        assert!(!model.is_ready(Instant::now()));
+    }
+
+    #[test]
     fn proposal_drop_distinguishes_expired_dropped_and_enacted() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
 

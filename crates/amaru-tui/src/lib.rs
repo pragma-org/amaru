@@ -24,6 +24,7 @@ mod ui;
 
 pub use amaru_observability::TelemetryCaptureLayer;
 pub use config::{Config, DEFAULT_LOG_RETENTION_BYTES};
+pub use events::TelemetryRecord;
 pub use model::{
     InteractionMode, LevelFilter, LogViewItem, Page, PaneMode, PromptKind, RetentionTier, ScrollFocus, TargetFilter,
 };

@@ -194,6 +194,13 @@ fn run_terminal(
             }
         }
 
+        if immediate_draw {
+            while let Ok(message) = telemetry_rx.try_recv() {
+                model.handle_message(message);
+            }
+            continue;
+        }
+
         let timeout = next_draw_at.saturating_duration_since(Instant::now());
         match telemetry_rx.recv_timeout(timeout) {
             Ok(message) => {
