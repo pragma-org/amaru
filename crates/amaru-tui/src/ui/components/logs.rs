@@ -41,6 +41,7 @@ use crate::{
 pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
     views.logs_area = area;
     let focused = model.scroll_focus == ScrollFocus::Logs;
+    let scrollbar_focused = focused && model.log_scrollbar_focused;
     let title = border_title_line(log_title_spans(model), model.interaction_mode, focused);
     let toggle_label = button_label(log_toggle_label(model));
     let toggle = border_title_line(
@@ -74,16 +75,24 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     render_horizontal_separator(frame, layout[1], model.interaction_mode, focused);
 
     let items = model.log_view();
-    let window = log_window(items.len(), layout[2].height, model.log_scroll);
-    let lines = items[window.start..window.end]
-        .iter()
-        .map(|item| log_view_line(item, model, layout[2].width))
-        .collect::<Vec<_>>();
-    let (paragraph, window_total, window_position) = log_paragraph(lines, layout[2], window.scroll_from_bottom);
-    let total = window.start.saturating_add(window_total);
-    let position = window.start.saturating_add(window_position);
-    frame.render_widget(paragraph, layout[2]);
-    render_scrollbar(frame, layout[2], total, layout[2].height as usize, position, model.interaction_mode);
+    let body = layout[2];
+    views.logs_body = body;
+    if items.len() > body.height as usize && body.width > 0 && body.height > 0 {
+        views.logs_scrollbar =
+            Rect { x: body.x + body.width.saturating_sub(1), y: body.y, width: 1, height: body.height };
+    }
+
+    let window = log_window(items.len(), body.height, model.log_scroll);
+    let lines =
+        items[window.start..window.end].iter().map(|item| log_view_line(item, model, body.width)).collect::<Vec<_>>();
+    let (paragraph, _, _) = log_paragraph(lines, body, window.scroll_from_bottom);
+    frame.render_widget(paragraph, body);
+
+    let total = items.len();
+    let visible = body.height as usize;
+    let max_position = total.saturating_sub(visible);
+    let position = max_position.saturating_sub(model.log_scroll.min(max_position));
+    render_scrollbar(frame, body, total, visible, position, model.interaction_mode, scrollbar_focused);
 }
 
 /// Ratatui [`Paragraph`] scroll is `u16`, and `area.height + scroll.y` must not overflow.
@@ -219,6 +228,9 @@ fn log_toggle_label(model: &Model) -> &'static str {
 
 fn log_title_spans(model: &Model) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("Logs", emphasis_primary(model.interaction_mode))];
+    if model.log_scrollbar_focused {
+        spans.push(Span::styled("  scrub", emphasis_primary(model.interaction_mode)));
+    }
     if !model.text_filter_pattern.is_empty() {
         spans.push(Span::styled(format!("  &{}", truncate_pattern(&model.text_filter_pattern)), muted()));
     }

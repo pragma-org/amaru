@@ -15,10 +15,13 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use regex::Regex;
 
+use super::log_time::TimeJump;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PromptKind {
     Filter,
     Highlight,
+    JumpTime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +52,7 @@ impl PromptState {
         match self.kind {
             PromptKind::Filter => "& ",
             PromptKind::Highlight => "/ ",
+            PromptKind::JumpTime => "@ ",
         }
     }
 
@@ -160,7 +164,19 @@ impl PromptState {
     }
 
     pub fn compiled(&self) -> Option<Regex> {
-        if self.input.is_empty() || self.error.is_some() { None } else { Regex::new(&self.input).ok() }
+        if matches!(self.kind, PromptKind::JumpTime) || self.input.is_empty() || self.error.is_some() {
+            None
+        } else {
+            Regex::new(&self.input).ok()
+        }
+    }
+
+    pub fn parsed_time(&self) -> Option<TimeJump> {
+        if !matches!(self.kind, PromptKind::JumpTime) || self.input.is_empty() || self.error.is_some() {
+            None
+        } else {
+            TimeJump::parse(&self.input).ok()
+        }
     }
 
     fn recompile(&mut self) {
@@ -169,7 +185,12 @@ impl PromptState {
             return;
         }
 
-        self.error = Regex::new(&self.input).err().map(|error| truncate_error(&error.to_string()));
+        self.error = match self.kind {
+            PromptKind::Filter | PromptKind::Highlight => {
+                Regex::new(&self.input).err().map(|error| truncate_error(&error.to_string()))
+            }
+            PromptKind::JumpTime => TimeJump::parse(&self.input).err().map(|error| truncate_error(&error)),
+        };
     }
 
     fn insert(&mut self, ch: char) {
@@ -256,6 +277,17 @@ mod tests {
     #[test]
     fn enter_keeps_invalid_regex_open() {
         let mut prompt = PromptState::new(PromptKind::Highlight, "(");
+        assert!(prompt.error.is_some());
+        assert_eq!(prompt.handle_key(key(KeyCode::Enter)), PromptAction::Continue);
+    }
+
+    #[test]
+    fn jump_time_accepts_clock_and_rejects_garbage() {
+        let mut prompt = PromptState::new(PromptKind::JumpTime, "13:24");
+        assert!(prompt.parsed_time().is_some());
+        assert_eq!(prompt.handle_key(key(KeyCode::Enter)), PromptAction::Submit);
+
+        prompt = PromptState::new(PromptKind::JumpTime, "nope");
         assert!(prompt.error.is_some());
         assert_eq!(prompt.handle_key(key(KeyCode::Enter)), PromptAction::Continue);
     }

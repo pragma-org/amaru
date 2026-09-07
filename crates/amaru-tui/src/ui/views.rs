@@ -25,6 +25,8 @@ pub struct Views {
     pub level_tabs: Vec<(LevelFilter, Rect)>,
     pub target_tabs: Vec<(TargetFilter, Rect)>,
     pub logs_area: Rect,
+    pub logs_body: Rect,
+    pub logs_scrollbar: Rect,
     pub peers_area: Rect,
     pub proposals_area: Rect,
     pub config_area: Rect,
@@ -39,6 +41,8 @@ impl Views {
         self.peer_toggle = Rect::default();
         self.proposal_toggle = Rect::default();
         self.logs_area = Rect::default();
+        self.logs_body = Rect::default();
+        self.logs_scrollbar = Rect::default();
         self.peers_area = Rect::default();
         self.proposals_area = Rect::default();
         self.config_area = Rect::default();
@@ -84,6 +88,10 @@ impl Views {
 
     pub fn scroll_focus_at(&self, point: Rect) -> ScrollFocus {
         self.focus_at(point).unwrap_or(ScrollFocus::Logs)
+    }
+
+    pub fn log_scrollbar_at(&self, point: Rect) -> bool {
+        contains(self.logs_scrollbar, point)
     }
 }
 

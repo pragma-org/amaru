@@ -104,7 +104,7 @@ pub(in crate::ui) fn render_peers_table(
     .column_spacing(1)
     .block(block);
     frame.render_widget(table, area);
-    render_scrollbar(frame, body, model.peers.len(), visible, start, model.interaction_mode);
+    render_scrollbar(frame, body, model.peers.len(), visible, start, model.interaction_mode, false);
 }
 
 fn peer_toggle_label(model: &Model) -> &'static str {

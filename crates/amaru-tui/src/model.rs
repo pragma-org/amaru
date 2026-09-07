@@ -41,6 +41,7 @@ mod interaction;
 mod interaction_mode;
 mod level_filter;
 mod log_buffer;
+mod log_time;
 mod mempool_state;
 mod metrics_update;
 mod page;
@@ -51,6 +52,7 @@ mod proposal_activity;
 mod queries;
 mod rate_counter;
 mod scroll_focus;
+pub(crate) mod scrollbar;
 mod stake_snapshot_state;
 mod target_filter;
 mod telemetry_event;
@@ -88,6 +90,8 @@ pub struct Model {
     pub prompt: Option<PromptState>,
     pub catching_up: bool,
     pub log_scroll: usize,
+    pub log_scrollbar_focused: bool,
+    log_scrollbar_drag: bool,
     pub peer_scroll: usize,
     pub proposal_scroll: usize,
     pub config_scroll: usize,
@@ -142,6 +146,8 @@ impl Model {
             prompt: None,
             catching_up: true,
             log_scroll: 0,
+            log_scrollbar_focused: false,
+            log_scrollbar_drag: false,
             peer_scroll: 0,
             proposal_scroll: 0,
             config_scroll: 0,
@@ -202,17 +208,19 @@ pub fn render_fields(record: &TelemetryRecord) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use amaru_metrics::{MetricsEvent, system::SystemMetrics};
     use amaru_observability::amaru::{consensus, ledger, protocols};
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::layout::Rect;
     use tracing::Level;
 
     use super::*;
     use crate::{
         events::{FieldValue, Message, TelemetryRecord},
         startup::ProcessInfo,
+        ui::Views,
     };
 
     fn telemetry_record<const N: usize>(
@@ -1091,5 +1099,105 @@ mod tests {
             })
             .collect();
         assert_eq!(names, vec!["alpha-one".to_string()]);
+    }
+
+    fn named_log_at(name: &str, wall_time: SystemTime) -> Message {
+        let mut record = telemetry_record(Instant::now(), "amaru::ledger", name, []);
+        record.wall_time = wall_time;
+        Message::Telemetry(record)
+    }
+
+    fn hour(hour: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(hour * 3_600)
+    }
+
+    #[test]
+    fn pipe_focuses_the_log_scrollbar_for_large_steps() {
+        let mut model = ready_model();
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        assert_eq!(model.log_scroll, 0);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.log_scrollbar_focused);
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        let before = model.log_scroll;
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert!(model.log_scroll > before, "scrub up should move toward older logs");
+        model.handle_key_event(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 30);
+        model.handle_key_event(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 0);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE));
+        assert!(!model.log_scrollbar_focused);
+    }
+
+    #[test]
+    fn at_jumps_to_the_matching_log_time() {
+        let mut model = ready_model();
+        for hour_of_day in 0..24u64 {
+            model.handle_message(named_log_at(&format!("h{hour_of_day}"), hour(hour_of_day)));
+        }
+        model.sync_logs();
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE));
+        assert!(model.prompt_is_open());
+        for character in "13:00".chars() {
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(!model.prompt_is_open());
+
+        let max = 24usize.saturating_sub(10);
+        assert_eq!(model.log_scroll, max.saturating_sub(13));
+        let visible_start = 24 - 10 - model.log_scroll;
+        let name = model.log_view()[visible_start].record().expect("record").name.as_str();
+        assert_eq!(name, "h13");
+    }
+
+    #[test]
+    fn clicking_the_log_scrollbar_jumps_and_starts_a_drag() {
+        let mut model = ready_model();
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+
+        let views = Views {
+            logs_body: Rect::new(0, 10, 40, 10),
+            logs_scrollbar: Rect::new(39, 10, 1, 10),
+            ..Views::default()
+        };
+
+        let outcome = model.handle_terminal_event(
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 39,
+                row: 10,
+                modifiers: KeyModifiers::NONE,
+            }),
+            &views,
+        );
+        assert_eq!(outcome, TerminalEventOutcome::Continue);
+        assert!(model.log_scrollbar_focused);
+        assert_eq!(model.log_scroll, 30);
+
+        model.handle_terminal_event(
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: 39,
+                row: 19,
+                modifiers: KeyModifiers::NONE,
+            }),
+            &views,
+        );
+        assert_eq!(model.log_scroll, 0);
     }
 }

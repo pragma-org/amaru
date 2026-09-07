@@ -227,6 +227,25 @@ fn shell_hint(model: &Model) -> Line<'static> {
         );
     }
 
+    if model.log_scrollbar_focused {
+        return border_title_line(
+            vec![
+                Span::styled("<|>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" LOGS  ", theme::muted()),
+                Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" SCRUB  ", theme::muted()),
+                Span::styled("<pgup/pgdn>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" PAGE  ", theme::muted()),
+                Span::styled("<home/end>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" ENDS  ", theme::muted()),
+                Span::styled("<@>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" TIME", theme::muted()),
+            ],
+            model.interaction_mode,
+            false,
+        );
+    }
+
     if model.is_copy_mode() {
         let arrow_hint = if model.highlight_pattern.is_empty() { " SCROLL  " } else { " MATCHES  " };
         return border_title_line(
@@ -235,10 +254,16 @@ fn shell_hint(model: &Model) -> Line<'static> {
                 Span::styled(" NORMAL  ", theme::muted()),
                 Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
                 Span::styled(arrow_hint, theme::muted()),
+                Span::styled("<home/end>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" ENDS  ", theme::muted()),
+                Span::styled("<|>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" SCRUB  ", theme::muted()),
                 Span::styled("<&>", emphasis_primary(model.interaction_mode)),
                 Span::styled(" FILTER  ", theme::muted()),
                 Span::styled("</>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" HIGHLIGHT", theme::muted()),
+                Span::styled(" HIGHLIGHT  ", theme::muted()),
+                Span::styled("<@>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" TIME", theme::muted()),
             ],
             model.interaction_mode,
             false,
@@ -260,10 +285,14 @@ fn shell_hint(model: &Model) -> Line<'static> {
             Span::styled(arrow_hint, theme::muted()),
             Span::styled("<enter>", emphasis_primary(model.interaction_mode)),
             Span::styled(" MAX  ", theme::muted()),
+            Span::styled("<|>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" SCRUB  ", theme::muted()),
             Span::styled("<&>", emphasis_primary(model.interaction_mode)),
             Span::styled(" FILTER  ", theme::muted()),
             Span::styled("</>", emphasis_primary(model.interaction_mode)),
             Span::styled(" HIGHLIGHT  ", theme::muted()),
+            Span::styled("<@>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" TIME  ", theme::muted()),
             Span::styled("<q>", emphasis_primary(model.interaction_mode)),
             Span::styled(" QUIT", theme::muted()),
         ],

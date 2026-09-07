@@ -22,7 +22,7 @@ use ratatui::{
 };
 
 use super::theme::{border_primary, border_secondary, emphasis_primary, emphasis_white_color};
-use crate::model::{InteractionMode, LevelFilter, TargetFilter};
+use crate::model::{InteractionMode, LevelFilter, TargetFilter, scrollbar::ScrollbarGeometry};
 
 pub(super) fn button_label(label: &str) -> String {
     format!("[ {} ]", label.to_uppercase())
@@ -55,28 +55,30 @@ pub(super) fn render_scrollbar(
     visible: usize,
     position: usize,
     mode: InteractionMode,
+    focused: bool,
 ) {
-    if total <= visible || visible == 0 {
-        return;
-    }
-
     let height = area.height as usize;
     if height == 0 || area.width == 0 {
         return;
     }
 
+    let Some(geometry) = ScrollbarGeometry::new(total, visible, position, height) else {
+        return;
+    };
+
     let x = area.x + area.width.saturating_sub(1);
-    let track_style = border_secondary(mode);
-    let thumb_style = Style::default().fg(accent_primary(mode)).add_modifier(Modifier::BOLD);
-    let thumb_height = height.min(2);
-    let max_position = total.saturating_sub(visible);
-    let max_offset = height.saturating_sub(thumb_height);
-    let top_offset = if max_position == 0 { 0 } else { position.saturating_mul(max_offset) / max_position.max(1) };
+    let track_style = if focused { emphasis_primary(mode) } else { border_secondary(mode) };
+    let thumb_style = if focused {
+        Style::default().fg(emphasis_white_color()).bg(accent_primary(mode)).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(accent_primary(mode)).add_modifier(Modifier::BOLD)
+    };
     let buffer = frame.buffer_mut();
 
     for offset in 0..height {
-        let symbol = if (top_offset..top_offset + thumb_height).contains(&offset) { "█" } else { "│" };
-        let style = if symbol == "█" { thumb_style } else { track_style };
+        let on_thumb = (geometry.thumb_offset..geometry.thumb_offset + geometry.thumb_height).contains(&offset);
+        let symbol = if on_thumb { "█" } else { "│" };
+        let style = if on_thumb { thumb_style } else { track_style };
         buffer.set_string(x, area.y + offset as u16, symbol, style);
     }
 }

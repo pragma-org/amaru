@@ -51,7 +51,7 @@ pub(in crate::ui) fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Mo
     render_section_groups(frame, columns[1], &[&model.startup.protocol_sections], scroll, model.interaction_mode);
 
     if overflowing {
-        render_scrollbar(frame, scrollbar_area, total_height, visible_height, scroll, model.interaction_mode);
+        render_scrollbar(frame, scrollbar_area, total_height, visible_height, scroll, model.interaction_mode, false);
     }
 }
 

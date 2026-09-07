@@ -55,6 +55,7 @@ Other guiding principles:
 - **amaru-protocols**: BlockFetch keeps the connection up if a new range is requested before the previous batch finishes. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru**: `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION` (default `100MiB`) caps how much log text the TUI keeps. SI suffixes (`kB`, `MB`) are powers of 1000; IEC suffixes (`KiB`, `MiB`) are powers of 1024.
 - **amaru-tui**: the log pane thins older lines by severity (newest 70% keep debug and up, then 10% info and up, 10% warn and up, oldest 10% errors only), marks those cut-offs, and shows each bucket’s fill when the row is wide enough. `&` filters visible lines by regex, `/` highlights matches and jumps between them, and copy mode can still scroll.
+- **amaru-tui**: the log scrollbar can be clicked and dragged to jump through the buffer. `|` focuses it for large keyboard steps (`↑↓`, page, home/end), and `@` jumps to a UTC time (`HH:MM[:SS]` or `YYYY-MM-DD[ HH:MM[:SS]]`).
 
 ### Fixed
 

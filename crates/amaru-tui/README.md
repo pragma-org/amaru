@@ -49,9 +49,11 @@ widgets keep a bounded recent history, and the log pane keeps a memory-bounded
 stream (default 100MiB, `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION`) with
 staggered thinning toward older times: 70% debug and up, 10% info and up, 10%
 warn and up, 10% error. The visible list is then filtered by level, target, and
-an optional `&` regex; `/` highlights matching lines. Process and host resource
-gauges are simpler: they render from the latest merged `SystemSample` snapshot
-rather than keeping historical TUI-local copies.
+an optional `&` regex; `/` highlights matching lines; `@` jumps to a UTC time;
+the log scrollbar can be clicked or dragged, and `|` focuses it for large
+keyboard steps. Process and host resource gauges are simpler: they render from
+the latest merged `SystemSample` snapshot rather than keeping historical
+TUI-local copies.
 
 For telemetry, prefer the schema-generated helpers exported by
 `amaru-observability` for both event matching and field decoding. Avoid raw
