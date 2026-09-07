@@ -6677,6 +6677,32 @@
       "description": "A mini-protocol stage running on a connection died",
       "public": true
     },
+    "amaru::protocols::connection::CHILD_STOPPED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "child": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "child"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "child_stopped",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "A mini-protocol stage running on a connection stopped upon request",
+      "public": true
+    },
     "amaru::protocols::connection::HANDSHAKE_QUERY_REPLY": {
       "type": "object",
       "properties": {

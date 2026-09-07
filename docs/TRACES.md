@@ -2481,6 +2481,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `accept_failed` | `TRACE` | public | An inbound connection could not be accepted. Reason ∈ {aborted, error}. | reason | error |
 | `child_died` | `TRACE` | public | A mini-protocol stage running on a connection died | peer, conn_id, child |  |
+| `child_stopped` | `TRACE` | public | A mini-protocol stage running on a connection stopped upon request | peer, conn_id, child |  |
 | `handshake_query_reply` | `TRACE` | public | The peer answered a version query instead of negotiating | version_table |  |
 | `handshake_refused` | `TRACE` | public | The peer refused our proposed protocol versions | reason |  |
 
@@ -2494,6 +2495,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 </details>
 
 <details><summary>span: `child_died`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `child` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `child_stopped`</summary>
 
 | field | type | required |
 | --- | --- | --- |
