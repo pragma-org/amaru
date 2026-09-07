@@ -1057,7 +1057,7 @@ mod tests {
         );
         assert!(model.is_copy_mode());
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.log_scroll, 1);

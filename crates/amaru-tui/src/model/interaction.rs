@@ -136,7 +136,9 @@ impl Model {
     pub fn scroll_focused(&mut self, delta: isize) {
         match self.scroll_focus {
             ScrollFocus::Logs if self.highlight.is_some() && delta.abs() == 1 => self.jump_highlight(delta),
-            ScrollFocus::Logs => self.scroll_logs(delta),
+            // `log_scroll` is an offset from the tail, so ↑/wheel-up (negative delta) must
+            // increase it to reveal older lines — the same direction as scrollbar scrub.
+            ScrollFocus::Logs => self.scroll_logs(-delta),
             ScrollFocus::Peers => self.scroll_peers(delta),
             ScrollFocus::Proposals => self.scroll_proposals(delta),
             ScrollFocus::Config => self.scroll_config(delta),
