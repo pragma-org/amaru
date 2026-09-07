@@ -24,7 +24,7 @@
 //! single effect, or a sequence via [`star`](crate::star). Selecting the first
 //! step unrolls the rest in front of the same `Repeat`. Selecting a later
 //! step discards the star (zero iterations) when the selected type is given
-//! in full (type-level [`Select`](Select)); [`Session::send`](session::Session::send)
+//! in full (type-level [`Select`]); [`Session::send`](session::Session::send)
 //! / [`Session::call`](session::Session::call) cannot skip that way because
 //! `Repeat<Send<Role, T>>` / `Repeat<Call<Role, T>>` unifies `T` with the
 //! star. Use [`Session::discard_repeat`](session::Session::discard_repeat)
