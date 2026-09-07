@@ -190,6 +190,11 @@ impl Model {
             return;
         }
 
+        if views.toggles_log_wrap(point) {
+            self.toggle_log_wrap();
+            return;
+        }
+
         if views.toggles_peers(point) {
             self.cycle_peer_pane();
             return;
@@ -230,6 +235,11 @@ impl Model {
         self.scroll_focused(delta);
     }
 
+    fn handle_horizontal_scroll(&mut self, views: &Views, point: Rect, delta: isize) {
+        self.set_scroll_focus(views.scroll_focus_at(point));
+        self.scroll_logs_horizontal(delta);
+    }
+
     pub fn toggle_focused_pane(&mut self) -> bool {
         match (self.page, self.scroll_focus) {
             (Page::Amaru | Page::Cardano, ScrollFocus::Logs) => {
@@ -261,6 +271,10 @@ impl Model {
 
         if self.prompt.is_some() {
             return self.handle_prompt_key(key);
+        }
+
+        if let Some(outcome) = self.handle_ctrl_focus_key(&key) {
+            return outcome;
         }
 
         if self.is_copy_mode() {
@@ -296,6 +310,10 @@ impl Model {
                 self.enter_log_scrollbar_focus();
                 TerminalEventOutcome::Continue
             }
+            KeyCode::Char('w') if key.modifiers.is_empty() => {
+                self.toggle_log_wrap();
+                TerminalEventOutcome::Continue
+            }
             KeyCode::Tab => {
                 self.next_page();
                 TerminalEventOutcome::Continue
@@ -304,12 +322,20 @@ impl Model {
                 self.previous_page();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Right => {
+            KeyCode::Char(']') => {
                 self.next_scroll_focus();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Left => {
+            KeyCode::Char('[') => {
                 self.previous_scroll_focus();
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Right => {
+                self.scroll_logs_horizontal(1);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Left => {
+                self.scroll_logs_horizontal(-1);
                 TerminalEventOutcome::Continue
             }
             KeyCode::Enter => {
@@ -377,13 +403,17 @@ impl Model {
                 self.jump_logs_to_track_y(views, mouse.row);
             }
             MouseEventKind::Up(_) => self.log_scrollbar_drag = false,
+            MouseEventKind::ScrollDown if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.handle_horizontal_scroll(views, point, 1);
+            }
+            MouseEventKind::ScrollUp if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.handle_horizontal_scroll(views, point, -1);
+            }
             MouseEventKind::ScrollDown => self.handle_scroll(views, point, 3),
             MouseEventKind::ScrollUp => self.handle_scroll(views, point, -3),
-            MouseEventKind::Down(_)
-            | MouseEventKind::Drag(_)
-            | MouseEventKind::Moved
-            | MouseEventKind::ScrollLeft
-            | MouseEventKind::ScrollRight => {}
+            MouseEventKind::ScrollLeft => self.handle_horizontal_scroll(views, point, -1),
+            MouseEventKind::ScrollRight => self.handle_horizontal_scroll(views, point, 1),
+            MouseEventKind::Down(_) | MouseEventKind::Drag(_) | MouseEventKind::Moved => {}
         }
 
         TerminalEventOutcome::Continue
@@ -415,6 +445,18 @@ impl Model {
                 self.enter_log_scrollbar_focus();
                 TerminalEventOutcome::Continue
             }
+            KeyCode::Char('w') if key.modifiers.is_empty() => {
+                self.toggle_log_wrap();
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Left => {
+                self.scroll_logs_horizontal(-1);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Right => {
+                self.scroll_logs_horizontal(1);
+                TerminalEventOutcome::Continue
+            }
             KeyCode::Up => {
                 self.scroll_focused(-1);
                 TerminalEventOutcome::Continue
@@ -441,8 +483,6 @@ impl Model {
             }
             KeyCode::Backspace
             | KeyCode::Enter
-            | KeyCode::Left
-            | KeyCode::Right
             | KeyCode::Tab
             | KeyCode::BackTab
             | KeyCode::Delete
@@ -614,6 +654,45 @@ impl Model {
     fn enter_log_scrollbar_focus(&mut self) {
         self.set_scroll_focus(ScrollFocus::Logs);
         self.log_scrollbar_focused = true;
+    }
+
+    fn handle_ctrl_focus_key(&mut self, key: &event::KeyEvent) -> Option<TerminalEventOutcome> {
+        if !key.modifiers.contains(KeyModifiers::CONTROL) {
+            return None;
+        }
+
+        if key.code == KeyCode::Left {
+            self.previous_scroll_focus();
+            return Some(TerminalEventOutcome::Continue);
+        }
+        if key.code == KeyCode::Right {
+            self.next_scroll_focus();
+            return Some(TerminalEventOutcome::Continue);
+        }
+        None
+    }
+
+    fn toggle_log_wrap(&mut self) {
+        self.log_wrap = !self.log_wrap;
+        self.set_scroll_focus(ScrollFocus::Logs);
+    }
+
+    const LOG_HSCROLL_STEP: usize = 8;
+
+    fn scroll_logs_horizontal(&mut self, steps: isize) {
+        if self.log_wrap || self.scroll_focus != ScrollFocus::Logs {
+            return;
+        }
+
+        if steps.is_negative() {
+            self.log_hscroll =
+                self.log_hscroll.saturating_sub(steps.unsigned_abs().saturating_mul(Self::LOG_HSCROLL_STEP));
+        } else {
+            self.log_hscroll = self
+                .log_hscroll
+                .saturating_add((steps as usize).saturating_mul(Self::LOG_HSCROLL_STEP))
+                .min(u16::MAX as usize);
+        }
     }
 
     fn handle_log_scrollbar_key(&mut self, key: &event::KeyEvent) -> Option<TerminalEventOutcome> {

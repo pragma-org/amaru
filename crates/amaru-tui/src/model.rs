@@ -90,6 +90,8 @@ pub struct Model {
     pub prompt: Option<PromptState>,
     pub catching_up: bool,
     pub log_scroll: usize,
+    pub log_hscroll: usize,
+    pub log_wrap: bool,
     pub log_scrollbar_focused: bool,
     log_scrollbar_drag: bool,
     pub peer_scroll: usize,
@@ -146,6 +148,8 @@ impl Model {
             prompt: None,
             catching_up: true,
             log_scroll: 0,
+            log_hscroll: 0,
+            log_wrap: true,
             log_scrollbar_focused: false,
             log_scrollbar_drag: false,
             peer_scroll: 0,
@@ -892,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_navigation_uses_arrows_for_focus_and_enter_for_pane_toggle() {
+    fn keyboard_navigation_uses_ctrl_arrows_for_focus_and_enter_for_pane_toggle() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
 
         assert_eq!(model.page, Page::Amaru);
@@ -900,7 +904,7 @@ mod tests {
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.page, Page::Amaru);
@@ -914,7 +918,7 @@ mod tests {
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
@@ -927,7 +931,7 @@ mod tests {
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Proposals);
@@ -963,7 +967,7 @@ mod tests {
         assert_eq!(model.config_scroll, 1);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Config);
@@ -1046,6 +1050,32 @@ mod tests {
         let names: Vec<_> =
             model.log_view().iter().filter_map(|item| item.record().map(|record| record.name.clone())).collect();
         assert_eq!(names, vec!["keep-me".to_string()]);
+    }
+
+    #[test]
+    fn wrap_toggle_enables_horizontal_scroll_that_survives_vertical_motion() {
+        let mut model = ready_model();
+        for index in 0..20 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        assert!(model.log_wrap);
+        assert_eq!(model.log_hscroll, 0);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(model.log_hscroll, 0, "wrap on: left/right do not pan");
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        assert!(!model.log_wrap);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(model.log_hscroll, 8);
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 1);
+        assert_eq!(model.log_hscroll, 8, "vertical motion keeps the column offset");
+        model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(model.log_hscroll, 0);
     }
 
     #[test]
@@ -1170,11 +1200,8 @@ mod tests {
         }
         model.sync_logs();
 
-        let views = Views {
-            logs_body: Rect::new(0, 10, 40, 10),
-            logs_scrollbar: Rect::new(39, 10, 1, 10),
-            ..Views::default()
-        };
+        let views =
+            Views { logs_body: Rect::new(0, 10, 40, 10), logs_scrollbar: Rect::new(39, 10, 1, 10), ..Views::default() };
 
         let outcome = model.handle_terminal_event(
             Event::Mouse(MouseEvent {

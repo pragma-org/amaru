@@ -51,7 +51,9 @@ staggered thinning toward older times: 70% debug and up, 10% info and up, 10%
 warn and up, 10% error. The visible list is then filtered by level, target, and
 an optional `&` regex; `/` highlights matching lines; `@` jumps to a UTC time;
 the log scrollbar can be clicked or dragged, and `|` focuses it for large
-keyboard steps. Process and host resource gauges are simpler: they render from
+keyboard steps. `w` toggles wrapping; with wrap off, `←`/`→` pan horizontally
+and the column offset is kept across vertical motion. Pane focus uses `Ctrl-←`/
+`Ctrl-→`. Process and host resource gauges are simpler: they render from
 the latest merged `SystemSample` snapshot rather than keeping historical
 TUI-local copies.
 

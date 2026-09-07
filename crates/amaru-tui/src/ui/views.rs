@@ -20,6 +20,7 @@ use crate::model::{LevelFilter, Page, ScrollFocus, TargetFilter};
 pub struct Views {
     pub page_tabs: Vec<(Page, Rect)>,
     pub log_toggle: Rect,
+    pub log_wrap_toggle: Rect,
     pub peer_toggle: Rect,
     pub proposal_toggle: Rect,
     pub level_tabs: Vec<(LevelFilter, Rect)>,
@@ -38,6 +39,7 @@ impl Views {
         self.level_tabs.clear();
         self.target_tabs.clear();
         self.log_toggle = Rect::default();
+        self.log_wrap_toggle = Rect::default();
         self.peer_toggle = Rect::default();
         self.proposal_toggle = Rect::default();
         self.logs_area = Rect::default();
@@ -54,6 +56,10 @@ impl Views {
 
     pub fn toggles_logs(&self, point: Rect) -> bool {
         contains(self.log_toggle, point)
+    }
+
+    pub fn toggles_log_wrap(&self, point: Rect) -> bool {
+        contains(self.log_wrap_toggle, point)
     }
 
     pub fn toggles_peers(&self, point: Rect) -> bool {

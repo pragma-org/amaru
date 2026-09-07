@@ -43,6 +43,7 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     let focused = model.scroll_focus == ScrollFocus::Logs;
     let scrollbar_focused = focused && model.log_scrollbar_focused;
     let title = border_title_line(log_title_spans(model), model.interaction_mode, focused);
+    let wrap_label = button_label("wrap");
     let toggle_label = button_label(log_toggle_label(model));
     let toggle = border_title_line(
         vec![Span::styled(toggle_label.clone(), emphasis_primary(model.interaction_mode))],
@@ -65,6 +66,12 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
         width: toggle_label.len() as u16,
         height: 1,
     };
+    views.log_wrap_toggle = Rect {
+        x: area.x + 1 + border_title_prefix_width() + LOGS_TITLE_LABEL.len() as u16 + 2,
+        y: area.y,
+        width: wrap_label.len() as u16,
+        height: 1,
+    };
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -85,7 +92,7 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     let window = log_window(items.len(), body.height, model.log_scroll);
     let lines =
         items[window.start..window.end].iter().map(|item| log_view_line(item, model, body.width)).collect::<Vec<_>>();
-    let (paragraph, _, _) = log_paragraph(lines, body, window.scroll_from_bottom);
+    let (paragraph, _, _) = log_paragraph(lines, body, window.scroll_from_bottom, model.log_wrap, model.log_hscroll);
     frame.render_widget(paragraph, body);
 
     let total = items.len();
@@ -132,13 +139,16 @@ fn log_paragraph(
     lines: Vec<Line<'static>>,
     area: Rect,
     scroll_from_bottom: usize,
+    wrap: bool,
+    hscroll: usize,
 ) -> (Paragraph<'static>, usize, usize) {
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let paragraph = if wrap { Paragraph::new(lines).wrap(Wrap { trim: false }) } else { Paragraph::new(lines) };
     let total = paragraph.line_count(area.width);
     let position = total.saturating_sub(area.height as usize).saturating_sub(scroll_from_bottom);
     let vertical_scroll = paragraph_vertical_scroll(position, area.height);
+    let horizontal_scroll = if wrap { 0 } else { u16::try_from(hscroll).unwrap_or(u16::MAX) };
 
-    (paragraph.scroll((vertical_scroll, 0)), total, position)
+    (paragraph.scroll((vertical_scroll, horizontal_scroll)), total, position)
 }
 
 fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
@@ -206,9 +216,18 @@ fn occupancy_percent(used: usize, budget: usize) -> u8 {
 }
 
 fn occupancy_text(occupancy: [(RetentionTier, usize, usize); 4], available: u16) -> Option<String> {
+    use std::fmt::Write;
+
     let percents = occupancy.map(|(tier, used, budget)| (tier, occupancy_percent(used, budget)));
-    let labeled =
-        percents.iter().map(|(tier, percent)| format!("{} {percent}%", tier.label())).collect::<Vec<_>>().join("  ");
+    let mut labeled = String::new();
+    for (idx, (tier, percent)) in percents.iter().enumerate() {
+        if idx > 0 {
+            labeled.push_str("  ");
+        }
+        let _ = write!(&mut labeled, "{} {percent}%  ", tier.label());
+    }
+    let used = occupancy.iter().map(|x| x.1).sum::<usize>();
+    let _ = write!(&mut labeled, "  [{used}]");
     if labeled.len() as u16 + OCCUPANCY_PADDING <= available {
         return Some(labeled);
     }
@@ -226,10 +245,21 @@ fn log_toggle_label(model: &Model) -> &'static str {
     if model.log_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
+const LOGS_TITLE_LABEL: &str = "Logs";
+
 fn log_title_spans(model: &Model) -> Vec<Span<'static>> {
-    let mut spans = vec![Span::styled("Logs", emphasis_primary(model.interaction_mode))];
+    let wrap_style =
+        if model.log_wrap { emphasis_primary(model.interaction_mode).add_modifier(Modifier::BOLD) } else { muted() };
+    let mut spans = vec![
+        Span::styled(LOGS_TITLE_LABEL, emphasis_primary(model.interaction_mode)),
+        Span::raw("  "),
+        Span::styled(button_label("wrap"), wrap_style),
+    ];
     if model.log_scrollbar_focused {
         spans.push(Span::styled("  scrub", emphasis_primary(model.interaction_mode)));
+    }
+    if !model.log_wrap && model.log_hscroll > 0 {
+        spans.push(Span::styled(format!("  col {}", model.log_hscroll + 1), muted()));
     }
     if !model.text_filter_pattern.is_empty() {
         spans.push(Span::styled(format!("  &{}", truncate_pattern(&model.text_filter_pattern)), muted()));
@@ -253,7 +283,14 @@ fn truncate_pattern(pattern: &str) -> String {
 fn log_view_line(item: &LogViewItem, model: &Model, width: u16) -> Line<'static> {
     match item {
         LogViewItem::Record { record, .. } => log_record_line(record.as_ref(), model),
-        LogViewItem::TierBoundary { tier } => tier_boundary_line(*tier, width, model.interaction_mode),
+        LogViewItem::TierBoundary { tier } => {
+            let width = if model.log_wrap {
+                width
+            } else {
+                width.saturating_add(u16::try_from(model.log_hscroll).unwrap_or(u16::MAX))
+            };
+            tier_boundary_line(*tier, width, model.interaction_mode)
+        }
     }
 }
 
@@ -310,7 +347,7 @@ mod tests {
     fn keeps_the_newest_log_visible_when_an_older_log_wraps() {
         let area = Rect::new(0, 0, 10, 2);
         let lines = vec![Line::from("old-entry old-entry"), Line::from("new-entry")];
-        let (paragraph, total, position) = log_paragraph(lines, area, 0);
+        let (paragraph, total, position) = log_paragraph(lines, area, 0, true, 0);
         let mut buffer = Buffer::empty(area);
 
         paragraph.render(area, &mut buffer);
@@ -347,7 +384,7 @@ mod tests {
         let area = Rect::new(0, 0, 20, 2);
         let window = log_window(70_000, area.height, 0);
         let lines = (window.start..window.end).map(|index| Line::from(format!("line-{index}"))).collect();
-        let (paragraph, total, position) = log_paragraph(lines, area, window.scroll_from_bottom);
+        let (paragraph, total, position) = log_paragraph(lines, area, window.scroll_from_bottom, true, 0);
         let mut buffer = Buffer::empty(area);
 
         paragraph.render(area, &mut buffer);
@@ -355,6 +392,20 @@ mod tests {
         assert_eq!(total, 2);
         assert_eq!(position, 0);
         assert!(buffer_row(&buffer, 1, area.width).starts_with("line-69999"), "{}", buffer_row(&buffer, 1, area.width));
+    }
+
+    #[test]
+    fn nowrap_horizontal_scroll_reveals_the_right_hand_side() {
+        let area = Rect::new(0, 0, 8, 1);
+        let lines = vec![Line::from("abcdefghijklmnop")];
+        let (paragraph, total, position) = log_paragraph(lines, area, 0, false, 4);
+        let mut buffer = Buffer::empty(area);
+
+        paragraph.render(area, &mut buffer);
+
+        assert_eq!(total, 1);
+        assert_eq!(position, 0);
+        assert_eq!(buffer_row(&buffer, 0, area.width).chars().take(8).collect::<String>(), "efghijkl");
     }
 
     #[test]
