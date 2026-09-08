@@ -12,17 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    rc::Rc,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 use super::*;
 use crate::events::TelemetryRecord;
 
 impl Model {
-    pub fn filtered_logs(&self) -> &[Rc<TelemetryRecord>] {
-        self.logs.filtered()
+    pub fn log_view(&self) -> &[LogViewItem] {
+        self.logs.view()
+    }
+
+    pub fn log_occupancy(&self) -> [(RetentionTier, usize, usize); 4] {
+        self.logs.occupancy()
+    }
+
+    pub fn log_record_is_highlighted(&self, record: &TelemetryRecord) -> bool {
+        self.highlight.as_ref().is_some_and(|regex| regex.is_match(&record.plain_text()))
+    }
+
+    pub fn log_record_is_cursor(&self, record: &TelemetryRecord) -> bool {
+        self.log_cursor.as_ref().is_some_and(|cursor| std::ptr::eq(cursor.as_ref(), record))
+    }
+
+    pub fn prompt_is_open(&self) -> bool {
+        self.prompt.is_some()
     }
 
     pub fn recent_blocks_count(&self) -> u64 {

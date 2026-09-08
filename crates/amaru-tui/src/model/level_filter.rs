@@ -27,7 +27,7 @@ impl LevelFilter {
 
     pub fn allows(self, level: Level) -> bool {
         match self {
-            Self::Debug => matches!(level, Level::DEBUG | Level::INFO | Level::WARN | Level::ERROR),
+            Self::Debug => true,
             Self::Info => matches!(level, Level::INFO | Level::WARN | Level::ERROR),
             Self::Warn => matches!(level, Level::WARN | Level::ERROR),
             Self::Error => level == Level::ERROR,

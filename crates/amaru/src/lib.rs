@@ -81,6 +81,9 @@ pub mod value_names {
     /// For S3-compatible regions, including Cloudflare R2's `auto` region.
     pub const S3_REGION: &str = "auto|REGION";
 
+    /// A byte size, either a raw count or a unit such as `100MiB` or `10kB`.
+    pub const SIZE: &str = "SIZE";
+
     /// A non-negative integer value.
     pub const UINT: &str = "UINT";
 
@@ -140,6 +143,9 @@ pub mod env_vars {
 
     /// --no-tui
     pub const NO_TUI: &str = "AMARU_NO_TUI";
+
+    /// --tui-log-retention
+    pub const TUI_LOG_RETENTION: &str = "AMARU_TUI_LOG_RETENTION";
 
     /// --nonces-file
     pub const NONCES_FILE: &str = "AMARU_NONCES_FILE";

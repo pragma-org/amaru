@@ -116,9 +116,10 @@ layer and must not grow unbounded over time.
 In practice, that bounded model uses fixed-capacity retention rather than
 user-selected rolling windows:
 
-- logs are kept in a single bounded deque
-- when a non-default log filter is active, newly arriving log lines that do not
-  match the current level/target filter are not retained
+- logs are kept in a memory-bounded buffer (configurable, default 100MiB)
+- retention thins toward older times: 70% debug and up, 10% info and up, 10%
+  warn and up, 10% error. Display filters (level, target, regex) do not change
+  what is stored
 - throughput, rollback, and peer timing widgets summarize the most recent
   retained samples instead of a configurable time slice
 - stale peers are evicted after a fixed inactivity timeout
@@ -196,6 +197,8 @@ While copy mode is active:
 - the accent switches to a dedicated visual treatment
 - the header indicates the mode clearly
 - command hints reflect the reduced interaction surface
+- mouse capture is released so the terminal can select text
+- keyboard scrolling, `&` view filtering, and `/` highlighting still work
 
 The same shell chrome also supports a non-interactive shutdown mode. When the
 first termination signal is observed:

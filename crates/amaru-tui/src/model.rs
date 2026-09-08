@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
+    rc::Rc,
     time::Instant,
 };
 
@@ -40,15 +41,18 @@ mod interaction;
 mod interaction_mode;
 mod level_filter;
 mod log_buffer;
+mod log_time;
 mod mempool_state;
 mod metrics_update;
 mod page;
 mod pane_mode;
 mod peer_state;
+mod prompt;
 mod proposal_activity;
 mod queries;
 mod rate_counter;
 mod scroll_focus;
+pub(crate) mod scrollbar;
 mod stake_snapshot_state;
 mod target_filter;
 mod telemetry_event;
@@ -57,9 +61,17 @@ mod terminal_event_outcome;
 mod tip_state;
 
 pub use self::{
-    initial_stake_distribution_state::InitialStakeDistributionState, interaction_mode::InteractionMode,
-    level_filter::LevelFilter, page::Page, pane_mode::PaneMode, peer_state::PeerState, scroll_focus::ScrollFocus,
-    target_filter::TargetFilter, terminal_event_outcome::TerminalEventOutcome,
+    initial_stake_distribution_state::InitialStakeDistributionState,
+    interaction_mode::InteractionMode,
+    level_filter::LevelFilter,
+    log_buffer::{LogViewItem, RetentionTier},
+    page::Page,
+    pane_mode::PaneMode,
+    peer_state::PeerState,
+    prompt::{PromptKind, PromptState},
+    scroll_focus::ScrollFocus,
+    target_filter::TargetFilter,
+    terminal_event_outcome::TerminalEventOutcome,
 };
 
 #[derive(Debug)]
@@ -73,8 +85,15 @@ pub struct Model {
     pub scroll_focus: ScrollFocus,
     pub level_filter: LevelFilter,
     pub target_filter: TargetFilter,
+    pub text_filter_pattern: String,
+    pub highlight_pattern: String,
+    pub prompt: Option<PromptState>,
     pub catching_up: bool,
     pub log_scroll: usize,
+    pub log_hscroll: usize,
+    pub log_wrap: bool,
+    pub log_scrollbar_focused: bool,
+    log_scrollbar_drag: bool,
     pub peer_scroll: usize,
     pub proposal_scroll: usize,
     pub config_scroll: usize,
@@ -95,6 +114,10 @@ pub struct Model {
     /// `peer.resolved` cache: dial address → bootstrap name (omitted when the candidate was already a Peer).
     resolved_candidates: BTreeMap<String, String>,
     pub logs: LogBuffer,
+    text_filter: Option<regex::Regex>,
+    highlight: Option<regex::Regex>,
+    log_cursor: Option<Rc<TelemetryRecord>>,
+    logs_viewport_rows: usize,
     pub system_sample: Option<SystemSample>,
     pub block_rate: RateCounter,
     pub transaction_rate: RateCounter,
@@ -120,8 +143,15 @@ impl Model {
             scroll_focus: ScrollFocus::Logs,
             level_filter: LevelFilter::Info,
             target_filter: TargetFilter::All,
+            text_filter_pattern: String::new(),
+            highlight_pattern: String::new(),
+            prompt: None,
             catching_up: true,
             log_scroll: 0,
+            log_hscroll: 0,
+            log_wrap: true,
+            log_scrollbar_focused: false,
+            log_scrollbar_drag: false,
             peer_scroll: 0,
             proposal_scroll: 0,
             config_scroll: 0,
@@ -139,7 +169,11 @@ impl Model {
             rewards_ready: false,
             peers: BTreeMap::default(),
             resolved_candidates: BTreeMap::default(),
-            logs: LogBuffer::default(),
+            logs: LogBuffer::new(config.log_retention_bytes),
+            text_filter: None,
+            highlight: None,
+            log_cursor: None,
+            logs_viewport_rows: 10,
             system_sample: None,
             block_rate: RateCounter::new(config.block_sample_capacity),
             transaction_rate: RateCounter::new(config.transaction_sample_capacity),
@@ -178,17 +212,19 @@ pub fn render_fields(record: &TelemetryRecord) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use amaru_metrics::{MetricsEvent, system::SystemMetrics};
     use amaru_observability::amaru::{consensus, ledger, protocols};
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::layout::Rect;
     use tracing::Level;
 
     use super::*;
     use crate::{
         events::{FieldValue, Message, TelemetryRecord},
         startup::ProcessInfo,
+        ui::Views,
     };
 
     fn telemetry_record<const N: usize>(
@@ -761,6 +797,21 @@ mod tests {
     }
 
     #[test]
+    fn stake_distribution_begin_closes_an_open_prompt() {
+        let mut model = ready_model();
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE));
+        assert!(model.prompt_is_open());
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            ledger::stake_distribution::INITIAL_BEGIN,
+            ledger::stake_distribution::INITIAL_BEGIN::FIELD_EPOCH => 100u64,
+        )));
+
+        assert!(!model.prompt_is_open());
+        assert!(!model.is_ready(Instant::now()));
+    }
+
+    #[test]
     fn proposal_drop_distinguishes_expired_dropped_and_enacted() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
 
@@ -860,7 +911,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_navigation_uses_arrows_for_focus_and_enter_for_pane_toggle() {
+    fn keyboard_navigation_uses_ctrl_arrows_for_focus_and_enter_for_pane_toggle() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
 
         assert_eq!(model.page, Page::Amaru);
@@ -868,7 +919,7 @@ mod tests {
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.page, Page::Amaru);
@@ -882,7 +933,7 @@ mod tests {
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
@@ -895,7 +946,7 @@ mod tests {
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Proposals);
@@ -931,7 +982,7 @@ mod tests {
         assert_eq!(model.config_scroll, 1);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Config);
@@ -975,5 +1026,220 @@ mod tests {
         );
         assert!(!model.is_copy_mode());
         assert_eq!(model.interaction_mode, InteractionMode::Normal);
+    }
+
+    fn ready_model() -> Model {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.initial_stake_distributions_ready = true;
+        model
+    }
+
+    fn named_log(name: &str) -> Message {
+        Message::Telemetry(telemetry_record(Instant::now(), "amaru::ledger", name, []))
+    }
+
+    #[test]
+    fn ampersand_filters_log_view_by_regex() {
+        let mut model = ready_model();
+        model.handle_message(named_log("keep-me"));
+        model.handle_message(named_log("drop-me"));
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.prompt_is_open());
+        for character in "keep-me".chars() {
+            assert_eq!(
+                model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE)),
+                TerminalEventOutcome::Continue
+            );
+        }
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(!model.prompt_is_open());
+        model.sync_logs();
+
+        let names: Vec<_> =
+            model.log_view().iter().filter_map(|item| item.record().map(|record| record.name.clone())).collect();
+        assert_eq!(names, vec!["keep-me".to_string()]);
+    }
+
+    #[test]
+    fn wrap_toggle_enables_horizontal_scroll_that_survives_vertical_motion() {
+        let mut model = ready_model();
+        for index in 0..20 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        assert!(model.log_wrap);
+        assert_eq!(model.log_hscroll, 0);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(model.log_hscroll, 0, "wrap on: left/right do not pan");
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        assert!(!model.log_wrap);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(model.log_hscroll, 8);
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 1);
+        assert_eq!(model.log_hscroll, 8, "vertical motion keeps the column offset");
+        model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(model.log_hscroll, 0);
+    }
+
+    #[test]
+    fn copy_mode_allows_scrolling() {
+        let mut model = ready_model();
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::EnterCopyMode
+        );
+        assert!(model.is_copy_mode());
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.log_scroll, 1);
+        assert!(model.is_copy_mode());
+    }
+
+    #[test]
+    fn highlight_jumps_between_matching_lines() {
+        let mut model = ready_model();
+        model.handle_message(named_log("alpha-one"));
+        model.handle_message(named_log("skip"));
+        model.handle_message(named_log("alpha-two"));
+        model.sync_logs();
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        for character in "alpha".chars() {
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+
+        let newest = model.log_view().iter().rev().find_map(|item| item.record().map(|record| record.name.clone()));
+        assert_eq!(newest.as_deref(), Some("alpha-two"));
+        let newest_record = model.log_view().iter().rev().find_map(|item| item.record()).expect("newest log");
+        assert!(model.log_record_is_cursor(newest_record));
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        let names: Vec<_> = model
+            .log_view()
+            .iter()
+            .filter_map(|item| {
+                let record = item.record()?;
+                model.log_record_is_cursor(record).then(|| record.name.clone())
+            })
+            .collect();
+        assert_eq!(names, vec!["alpha-one".to_string()]);
+    }
+
+    fn named_log_at(name: &str, wall_time: SystemTime) -> Message {
+        let mut record = telemetry_record(Instant::now(), "amaru::ledger", name, []);
+        record.wall_time = wall_time;
+        Message::Telemetry(record)
+    }
+
+    fn hour(hour: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(hour * 3_600)
+    }
+
+    #[test]
+    fn pipe_focuses_the_log_scrollbar_for_large_steps() {
+        let mut model = ready_model();
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        assert_eq!(model.log_scroll, 0);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.log_scrollbar_focused);
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        let before = model.log_scroll;
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert!(model.log_scroll > before, "scrub up should move toward older logs");
+        model.handle_key_event(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 30);
+        model.handle_key_event(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 0);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE));
+        assert!(!model.log_scrollbar_focused);
+    }
+
+    #[test]
+    fn at_jumps_to_the_matching_log_time() {
+        let mut model = ready_model();
+        for hour_of_day in 0..24u64 {
+            model.handle_message(named_log_at(&format!("h{hour_of_day}"), hour(hour_of_day)));
+        }
+        model.sync_logs();
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE));
+        assert!(model.prompt_is_open());
+        for character in "13:00".chars() {
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(!model.prompt_is_open());
+
+        let max = 24usize.saturating_sub(10);
+        assert_eq!(model.log_scroll, max.saturating_sub(13));
+        let visible_start = 24 - 10 - model.log_scroll;
+        let name = model.log_view()[visible_start].record().expect("record").name.as_str();
+        assert_eq!(name, "h13");
+    }
+
+    #[test]
+    fn clicking_the_log_scrollbar_jumps_and_starts_a_drag() {
+        let mut model = ready_model();
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+
+        let views =
+            Views { logs_body: Rect::new(0, 10, 40, 10), logs_scrollbar: Rect::new(39, 10, 1, 10), ..Views::default() };
+
+        let outcome = model.handle_terminal_event(
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 39,
+                row: 10,
+                modifiers: KeyModifiers::NONE,
+            }),
+            &views,
+        );
+        assert_eq!(outcome, TerminalEventOutcome::Continue);
+        assert!(model.log_scrollbar_focused);
+        assert_eq!(model.log_scroll, 30);
+
+        model.handle_terminal_event(
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: 39,
+                row: 19,
+                modifiers: KeyModifiers::NONE,
+            }),
+            &views,
+        );
+        assert_eq!(model.log_scroll, 0);
     }
 }

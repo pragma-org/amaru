@@ -29,7 +29,7 @@ use amaru::{
     metrics::track_system_metrics,
     version,
 };
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
+use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
 use amaru_node::{
@@ -129,6 +129,21 @@ pub struct Args {
         help_heading = "TUI",
     )]
     no_tui: bool,
+
+    /// Maximum in-memory log retention for the TUI.
+    ///
+    /// Accepts a byte count or a size with a unit. SI units (`kB`, `MB`, `GB`) use powers
+    /// of 1000; IEC units (`KiB`, `MiB`, `GiB`) use powers of 1024.
+    /// The newest 70% keeps debug and up; the next 10% keeps info and up; then 10% warn
+    /// and up; the oldest 10% keeps errors only.
+    #[arg(
+        long,
+        env = amaru::env_vars::TUI_LOG_RETENTION,
+        value_name = amaru::value_names::SIZE,
+        default_value = "100MiB",
+        help_heading = "TUI",
+    )]
+    tui_log_retention: ByteSize,
 
     /// Upstream peer addresses to synchronize from.
     ///
@@ -308,6 +323,7 @@ impl Args {
                     .or_else(|| self.era_history.as_deref().and_then(|path| EraHistory::load(path).ok())),
                 tui::ConfigSection::from_runtime_settings(self),
             ),
+            usize::try_from(self.tui_log_retention).unwrap_or(usize::MAX),
         )
     }
 
@@ -338,6 +354,7 @@ impl tui::RuntimeSettingsSource for Args {
             "listen_address" => Some(self.listen_address.clone()),
             "submit_api_address" => Some(self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string())),
             "no_tui" => Some(self.no_tui.to_string()),
+            "tui_log_retention" => Some(self.tui_log_retention.to_string()),
             "peer_address" => Some(peer_addresses_value(self)),
             "peer_snapshot" => Some(peer_snapshot_value(self)),
             "upstream_peers" => Some(self.upstream_peers.to_string()),
@@ -631,7 +648,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         trace_dump_path =
             trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
         peer_removal_cooldown_secs = args.peer_removal_cooldown_secs,
-        mempool_max_bytes = format!("{:?}", mempool.max_bytes),
+        mempool_max_bytes = &ByteSize::from_bytes(mempool.max_bytes).display_iec().to_string(),
         tx_submission_max_window = tx_submission_params.max_window.get(),
         tx_submission_fetch_batch_bytes = tx_submission_params.fetch_batch_bytes.get(),
         tx_submission_inflight_timeout_ms =

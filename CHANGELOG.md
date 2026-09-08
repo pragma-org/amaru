@@ -48,11 +48,17 @@ Other guiding principles:
 
 - **amaru-protocols**: handshake agrees version data per the node-to-node spec: network magics must match, initiator-only and query are OR, peer-sharing is AND. The initiator drops the connection if `MsgAcceptVersion` does not carry that record. ([#884](https://github.com/pragma-org/amaru/issues/884))
 - **amaru-protocols**: mux SDU assembly waits indefinitely for the first header byte, then 10s for the rest of the first Handshake message and 30s afterwards. Exceeding that limit tears the connection down.
+- **amaru**: the `mempool_max_bytes` startup trace field is now an IEC size such as `176 KiB` instead of a raw integer.
 
 ### Fixed
 
 - **amaru-protocols**: BlockFetch waits for each block to be accepted by TCP before encoding the next, so a slow peer no longer unbounded-buffers. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru-protocols**: BlockFetch keeps the connection up if a new range is requested before the previous batch finishes. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
+- **amaru**: `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION` (default `100MiB`) caps how much log text the TUI keeps. SI suffixes (`kB`, `MB`) are powers of 1000; IEC suffixes (`KiB`, `MiB`) are powers of 1024.
+- **amaru-tui**: the log pane thins older lines by severity (newest 70% keep debug and up, then 10% info and up, 10% warn and up, oldest 10% errors only), marks those cut-offs, and shows each bucket’s fill when the row is wide enough. `&` filters visible lines by regex, `/` highlights matches and jumps between them, and copy mode can still scroll.
+- **amaru-tui**: the log scrollbar can be clicked and dragged to jump through the buffer. `|` focuses it for large keyboard steps (`↑↓`, page, home/end), and `@` jumps to a UTC time (`HH:MM[:SS]` or `YYYY-MM-DD[ HH:MM[:SS]]`). Log `↑`/`↓`/page/wheel now follow that same older/newer direction.
+- **amaru-tui**: `w` or the log `[ WRAP ]` control turns off wrapping so `←`/`→` (and shift-wheel / horizontal wheel) pan long lines; the column offset is kept while scrolling vertically. Pane focus on a tab moved to `Ctrl-←`/`Ctrl-→`.
+- **amaru-tui**: switching the log pane to DEBUG no longer panics when the retained debug stream is larger than ratatui’s `u16` paragraph scroll; the pane renders a visible window around the tail instead of the whole buffer.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 

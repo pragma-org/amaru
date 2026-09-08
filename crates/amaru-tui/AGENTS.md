@@ -121,7 +121,8 @@ The current UI contract includes:
 
 - three tabs: `Amaru`, `Cardano`, `Config`
 - a splash screen during initial stake distribution loading
-- an explicit copy mode toggled with `Esc`
+- an explicit copy mode toggled with `Esc` (keyboard scrolling and log regex still work)
+- `&` filters the log view by regex; `/` highlights matches and jumps between them
 - panel focus and scroll support
 
 Preserve those interaction patterns unless the change is deliberate and

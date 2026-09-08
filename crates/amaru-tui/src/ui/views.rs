@@ -20,11 +20,14 @@ use crate::model::{LevelFilter, Page, ScrollFocus, TargetFilter};
 pub struct Views {
     pub page_tabs: Vec<(Page, Rect)>,
     pub log_toggle: Rect,
+    pub log_wrap_toggle: Rect,
     pub peer_toggle: Rect,
     pub proposal_toggle: Rect,
     pub level_tabs: Vec<(LevelFilter, Rect)>,
     pub target_tabs: Vec<(TargetFilter, Rect)>,
     pub logs_area: Rect,
+    pub logs_body: Rect,
+    pub logs_scrollbar: Rect,
     pub peers_area: Rect,
     pub proposals_area: Rect,
     pub config_area: Rect,
@@ -36,9 +39,12 @@ impl Views {
         self.level_tabs.clear();
         self.target_tabs.clear();
         self.log_toggle = Rect::default();
+        self.log_wrap_toggle = Rect::default();
         self.peer_toggle = Rect::default();
         self.proposal_toggle = Rect::default();
         self.logs_area = Rect::default();
+        self.logs_body = Rect::default();
+        self.logs_scrollbar = Rect::default();
         self.peers_area = Rect::default();
         self.proposals_area = Rect::default();
         self.config_area = Rect::default();
@@ -50,6 +56,10 @@ impl Views {
 
     pub fn toggles_logs(&self, point: Rect) -> bool {
         contains(self.log_toggle, point)
+    }
+
+    pub fn toggles_log_wrap(&self, point: Rect) -> bool {
+        contains(self.log_wrap_toggle, point)
     }
 
     pub fn toggles_peers(&self, point: Rect) -> bool {
@@ -84,6 +94,10 @@ impl Views {
 
     pub fn scroll_focus_at(&self, point: Rect) -> ScrollFocus {
         self.focus_at(point).unwrap_or(ScrollFocus::Logs)
+    }
+
+    pub fn log_scrollbar_at(&self, point: Rect) -> bool {
+        contains(self.logs_scrollbar, point)
     }
 }
 

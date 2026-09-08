@@ -715,6 +715,7 @@ dependencies = [
  "clap",
  "crossterm 0.29.0",
  "ratatui",
+ "regex",
  "signal-hook",
  "tracing",
  "tracing-subscriber",

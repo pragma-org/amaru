@@ -116,7 +116,7 @@ pub(in crate::ui) fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, m
     .column_spacing(1)
     .block(block);
     frame.render_widget(table, area);
-    render_scrollbar(frame, body, proposals_len, visible, start, model.interaction_mode);
+    render_scrollbar(frame, body, proposals_len, visible, start, model.interaction_mode, false);
 }
 
 fn proposal_toggle_label(model: &Model) -> &'static str {
