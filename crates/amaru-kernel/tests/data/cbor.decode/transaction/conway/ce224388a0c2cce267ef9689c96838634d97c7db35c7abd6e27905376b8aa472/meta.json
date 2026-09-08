@@ -1,0 +1,1 @@
+{"well_formed":true,"era":"conway","kind":"transaction","description":"transaction with a datum that is an indefinite-length byte string made of a 64-byte chunk and a 1-byte chunk","source":"handcrafted","exact_re_encoding":true}

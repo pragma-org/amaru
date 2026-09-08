@@ -96,8 +96,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        PlutusData,
-        plutus_data::{BigInt, BoundedBytes, Constr, VariableEncodingConstr, any_bigint, any_bounded_bytes},
+        Bytes, PlutusData,
+        plutus_data::{BigInt, Constr, VariableEncodingConstr, any_bigint, any_bounded_bytes},
         utils::cbor::{CborArray, CborMap},
     };
 
@@ -112,7 +112,7 @@ mod tests {
         Constr(VariableEncodingConstr<VariableEncodingPlutusData>),
         Map(CborMap<VariableEncodingPlutusData, VariableEncodingPlutusData>),
         BigInt(BigInt),
-        BoundedBytes(BoundedBytes),
+        BoundedBytes(Bytes),
         Array(CborArray<VariableEncodingPlutusData>),
     }
 
@@ -166,7 +166,7 @@ mod tests {
                     e.encode_with(a, ctx)?;
                 }
                 Self::BoundedBytes(a) => {
-                    e.encode_with(a, ctx)?;
+                    cbor::encode_bytestring(e, a)?;
                 }
                 Self::Array(a) => {
                     e.encode_with(a, ctx)?;
