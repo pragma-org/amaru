@@ -104,11 +104,9 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Metadatum {
             Metadatum::Int(a) => {
                 e.encode_with(a, ctx)?;
             }
-            // FIXME(cbor): Use stream encoding for length > 64
             Metadatum::Bytes(a) => {
                 e.encode_with(<&cbor::bytes::ByteSlice>::from(a.as_slice()), ctx)?;
             }
-            // FIXME(cbor): Use stream encoding for length > 64
             Metadatum::Text(a) => {
                 e.encode_with(a, ctx)?;
             }
@@ -192,6 +190,8 @@ mod tests {
         text("💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩💩");
         "text - exactly 64"
     )]
+    #[test_case("5F5820444444444444444444444444444444444444444444444444444444444444444458204444444444444444444444444444444444444444444444444444444444444444FF", bytes(&[0x44; 64]); "bytes - two 32-byte chunks")]
+    #[test_case("7F7820616161616161616161616161616161616161616161616161616161616161616178206161616161616161616161616161616161616161616161616161616161616161FF", text(&"a".repeat(64)); "text - two 32-byte chunks")]
     #[test_case("80", list(&[]))]
     #[test_case("9FFF", list(&[]))]
     #[test_case("8101", list(&[int(1)]))]
@@ -247,6 +247,8 @@ mod tests {
         "78E74C6F72656D20697073756D20646F6C6F722073697420616D65742C20636F6E73656374657475722061646970697363696E6720656C69742C2073656420646F20656975736D6F642074656D706F7220696E6369646964756E74207574206C61626F726520657420646F6C6F7265206D61676E6120616C697175612E20557420656E696D206164206D696E696D2076656E69616D2C2071756973206E6F737472756420657865726369746174696F6E20756C6C616D636F206C61626F726973206E69736920757420616C697175697020657820656120636F6D6D6F646F20636F6E7365717561742E",
         "decode error: text exceeds 64 bytes: got 231"
     )]
+    #[test_case("5F582144444444444444444444444444444444444444444444444444444444444444444458204444444444444444444444444444444444444444444444444444444444444444FF", "decode error: bytes exceeds 64 bytes: got 65"; "bytes - 33-byte and 32-byte chunks")]
+    #[test_case("7F782161616161616161616161616161616161616161616161616161616161616161616178206161616161616161616161616161616161616161616161616161616161616161FF", "decode error: text exceeds 64 bytes: got 65"; "text - 33-byte and 32-byte chunks")]
     fn decode_malformed(fixture: &str, expected: &str) {
         let bytes = hex::decode(fixture).unwrap();
         match from_cbor_no_leftovers::<Metadatum>(bytes.as_slice()) {
