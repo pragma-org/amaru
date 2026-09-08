@@ -55,18 +55,10 @@ pub enum AssertHeaderError {
     KesSignature(#[from] AssertKesSignatureError),
     #[error("{0}")]
     OperationalCertificate(#[from] AssertOperationalCertificateError),
-    #[error("could not convert slice to array")]
-    TryFromSliceError,
     #[error("cannot convert bytes into valid Ed25519 public key")]
     InvalidEd25519PublicKey,
     #[error("{0}")]
     PoolError(GetPoolError),
-}
-
-impl From<TryFromSliceError> for AssertHeaderError {
-    fn from(_: TryFromSliceError) -> Self {
-        Self::TryFromSliceError
-    }
 }
 
 impl PartialEq for AssertHeaderError {
@@ -78,7 +70,6 @@ impl PartialEq for AssertHeaderError {
             (Self::KesSignature(l0), Self::KesSignature(r0)) => l0 == r0,
             (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
             (Self::InvalidEd25519PublicKey, Self::InvalidEd25519PublicKey) => true,
-            (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             _ => false,
         }
     }
@@ -99,8 +90,7 @@ pub fn assert_all<'a>(
     let issuer = ed25519::VerifyingKey::try_from(&header.body().issuer_verification_key[..])
         .map_err(|_| AssertHeaderError::InvalidEd25519PublicKey)?;
 
-    // TODO: Pallas should hold sized slices
-    let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.body().vrf_verification_key[..].try_into()?;
+    let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.body().vrf_verification_key.as_array();
 
     let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) = {
         let leader_relative_stake = if pool_summary.active_stake == 0 {
@@ -151,8 +141,8 @@ pub fn assert_all<'a>(
                 slot_to_kes_period,
                 opcert.operational_cert_kes_period,
                 header.body(),
-                &opcert.operational_cert_hot_verification_key[..].try_into()?, // TODO: Pallas should hold sized slices
-                &header.signature()[..].try_into()?,                           // TODO: Pallas should hold sized slices
+                &kes::PublicKey::from(opcert.operational_cert_hot_verification_key.as_array()),
+                &kes::Signature::from(header.signature().as_array()),
                 max_kes_evolutions,
             )?;
             Ok(())
@@ -416,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_assert_header_error_serialization_roundtrip() {
-        let errors = vec![AssertHeaderError::TryFromSliceError];
+        let errors = vec![AssertHeaderError::InvalidEd25519PublicKey];
 
         for error in errors {
             // Test JSON serialization

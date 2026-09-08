@@ -58,6 +58,7 @@ pub enum SupplementalDatumPolicy {
     Disallow,
 }
 
+#[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
     arena_pool: &ArenaPool,
@@ -65,7 +66,8 @@ pub fn execute<C>(
     network: Network,
     outputs: Vec<MemoizedTransactionOutput>,
     supplemental_datum_policy: SupplementalDatumPolicy,
-    construct_utxo: impl Fn(&mut C, u64, &Value) -> Option<TransactionInput>,
+    first_index: usize,
+    construct_utxo: impl Fn(&mut C, u16, &Value) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
     C: WitnessSlice + UtxoSlice + BalanceSlice,
@@ -94,7 +96,9 @@ where
                 .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
         }
 
-        if let Some(input) = construct_utxo(context, position as u64, &output.value) {
+        let index = u16::try_from(first_index + position)
+            .unwrap_or_else(|_| unreachable!("more than {} outputs in a single transaction", u16::MAX));
+        if let Some(input) = construct_utxo(context, index, &output.value) {
             context.produce(input, output);
         }
     }
