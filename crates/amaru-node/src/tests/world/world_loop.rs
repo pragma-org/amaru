@@ -24,6 +24,7 @@ use std::{
     time::Duration,
 };
 
+use amaru_consensus::block_validator::LedgerThreadStop;
 use amaru_kernel::{HeaderHash, Peer};
 use amaru_ouroboros::ConnectionId;
 use amaru_protocols::{
@@ -35,7 +36,7 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{
     Effect, Instant, Name, SendData,
-    simulation::{Blocked, SimulationRunning},
+    simulation::{Blocked, Run, SimulationRunning},
     trace_buffer::TraceEntry,
 };
 
@@ -43,6 +44,10 @@ use super::{
     GraphWakeReason, HeapLogEntry, InjectorShared, NetworkEvent, WorldConnectionProvider,
     world_connection_provider::WorldHeapItem,
 };
+use crate::tests::configuration::DummyLedgerDir;
+
+/// How long [`WorldLoop::stop`] waits for each ledger thread to finish closing RocksDB.
+const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// World loop: pops the one physical `(time, sequence)` heap.
 ///
@@ -50,7 +55,7 @@ use super::{
 /// graph wakes are scheduled onto the same structure so `(time, sequence)` is
 /// global. [`SimulationRunning`] bodies live in `graphs` by index. That Vec is
 /// not a scheduler — a graph runs only when its wake is popped.
-/// Completes Network UntilResolved effects only via `resume_external_box`.
+/// Completes Network UntilResolved effects only via `complete_external`.
 pub struct WorldLoop {
     provider: Arc<WorldConnectionProvider>,
     graphs: Vec<SimulationRunning>,
@@ -321,9 +326,9 @@ impl WorldLoop {
     /// Run until the graph wants to advance the clock. External effects fall out via the breakpoint.
     fn run_graph_until_clock(&mut self, index: usize) {
         loop {
-            match self.graphs[index].run_until_sleeping_or_blocked() {
-                Blocked::Breakpoint(_, effect) => {
-                    self.on_external(index, effect);
+            match self.graphs[index].run(Run::default()) {
+                Blocked::Breakpoint(_) => {
+                    self.on_external(index);
                 }
                 Blocked::Deadlock(deadlock) => {
                     panic!("graph {index} deadlock: {deadlock:?}");
@@ -339,10 +344,12 @@ impl WorldLoop {
         }
     }
 
-    fn on_external(&mut self, graph_idx: usize, effect: Effect) {
-        let posted = classify_network(&effect);
-        let set_best_chain = is_best_chain_write(&effect);
-        if let Some(Blocked::Terminated(name)) = self.graphs[graph_idx].handle_effect(effect) {
+    fn on_external(&mut self, graph_idx: usize) {
+        let (posted, set_best_chain) = {
+            let bp = self.graphs[graph_idx].breakpoint_effect();
+            (classify_network(bp.effect()), is_best_chain_write(bp.effect()))
+        };
+        if let Some(Blocked::Terminated(name)) = self.graphs[graph_idx].interpret_breakpoint() {
             self.drop_pending_for_terminated(graph_idx, &name);
         }
         if set_best_chain {
@@ -559,9 +566,7 @@ impl WorldLoop {
             self.drop_matching_pending();
             return;
         }
-        self.graphs[graph_idx]
-            .resume_external_box(&stage_name, result)
-            .unwrap_or_else(|e| panic!("failed to resume stage {stage_name}: {e}"));
+        self.graphs[graph_idx].complete_external_box(&stage_name, result);
         kick_external(&mut self.graphs[graph_idx]);
     }
 
@@ -614,7 +619,7 @@ impl WorldLoop {
     /// A serve-only injector stays parked on `accept` (immediate re-PullAccept).
     /// That is Busy, not Idle — the listen loop is the product.
     pub fn assert_serving_accept(&mut self, graph_idx: usize) {
-        match self.graphs[graph_idx].run_until_sleeping_or_blocked() {
+        match self.graphs[graph_idx].run(Run::default()) {
             Blocked::Busy { stages, .. } if stages.iter().any(|name| format!("{name}").contains("accept")) => {}
             other @ (Blocked::Idle
             | Blocked::Sleeping { .. }
@@ -629,7 +634,7 @@ impl WorldLoop {
 
     fn assert_graphs_settled(&mut self) {
         for (graph_idx, graph) in self.graphs.iter_mut().enumerate() {
-            match graph.run_until_sleeping_or_blocked() {
+            match graph.run(Run::default()) {
                 Blocked::Idle | Blocked::Terminated(_) => {}
                 other @ (Blocked::Sleeping { .. }
                 | Blocked::Deadlock(_)
@@ -666,6 +671,59 @@ impl WorldLoop {
         std::mem::take(&mut self.heap_log)
     }
 
+    /// Drop node graphs and wait for each ledger thread to exit.
+    ///
+    /// The ledger thread owns RocksDB. Joining it here, with a timeout, keeps C++
+    /// destructors off the process-exit path, which otherwise aborts with
+    /// `pthread lock: Invalid argument`.
+    pub fn stop(self) {
+        self.stop_with_timeout(LEDGER_THREAD_STOP_TIMEOUT);
+    }
+
+    /// [`Self::stop`] with an explicit per-thread join deadline.
+    pub fn stop_with_timeout(mut self, timeout: Duration) {
+        self.join_background_threads(timeout);
+    }
+
+    fn join_background_threads(&mut self, timeout: Duration) {
+        if self.graphs.is_empty() {
+            return;
+        }
+        let mut stops = Vec::new();
+        let mut dummy_dirs = Vec::new();
+        for (index, graph) in self.graphs.iter().enumerate() {
+            if let Ok(stop) = graph.resources().take::<LedgerThreadStop>() {
+                stops.push((index, stop));
+            }
+            if let Ok(dir) = graph.resources().take::<DummyLedgerDir>() {
+                dummy_dirs.push(dir);
+            }
+        }
+        self.injector = None;
+        self.graphs.clear();
+        let already_panicking = std::thread::panicking();
+        let mut failures = Vec::new();
+        for (index, stop) in stops {
+            if let Err(err) = stop.join_timeout(timeout) {
+                let message = format!(
+                    "ledger thread for graph {index} did not stop within {timeout:?}: {err}\n\
+                     Drop the node graph so BlockValidator senders close, then join this thread \
+                     before the test process exits; otherwise RocksDB's C++ destructor races \
+                     process teardown and aborts with \"pthread lock: Invalid argument\"."
+                );
+                if already_panicking {
+                    eprintln!("{message}");
+                } else {
+                    failures.push(message);
+                }
+            }
+        }
+        drop(dummy_dirs);
+        if !failures.is_empty() {
+            panic!("{}", failures.join("\n"));
+        }
+    }
+
     /// Peek next event time on the one physical heap.
     pub fn peek_next_event_time(&self) -> Option<u64> {
         self.provider.peek_next_event_time()
@@ -685,6 +743,12 @@ impl WorldLoop {
             .collect();
         entries.sort_by_key(|e| (e.time_nanos, e.sequence));
         entries
+    }
+}
+
+impl Drop for WorldLoop {
+    fn drop(&mut self) {
+        self.join_background_threads(LEDGER_THREAD_STOP_TIMEOUT);
     }
 }
 

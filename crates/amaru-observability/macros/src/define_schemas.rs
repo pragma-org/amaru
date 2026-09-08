@@ -261,7 +261,7 @@ enum SchemaItem {
 }
 
 impl Parse for SchemaFile {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut categories = Vec::new();
         while !input.is_empty() {
             // Disallow bare tags / schemas / fields at the root.
@@ -285,7 +285,7 @@ impl Parse for SchemaFile {
 }
 
 impl Parse for CategoryNode {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let name: Ident = input.parse()?;
         if is_schema_name(&name) {
             return Err(syn::Error::new(
@@ -304,7 +304,7 @@ impl Parse for CategoryNode {
     }
 }
 
-fn parse_category_body(input: ParseStream) -> syn::Result<Vec<CategoryItem>> {
+fn parse_category_body(input: ParseStream<'_>) -> syn::Result<Vec<CategoryItem>> {
     let mut items = Vec::new();
     while !input.is_empty() {
         let attrs = input.call(Attribute::parse_outer)?;
@@ -360,7 +360,7 @@ fn parse_category_body(input: ParseStream) -> syn::Result<Vec<CategoryItem>> {
     Ok(items)
 }
 
-fn parse_schema_body(input: ParseStream) -> syn::Result<Vec<SchemaItem>> {
+fn parse_schema_body(input: ParseStream<'_>) -> syn::Result<Vec<SchemaItem>> {
     let mut items = Vec::new();
     while !input.is_empty() {
         let attrs = input.call(Attribute::parse_outer)?;
@@ -416,7 +416,7 @@ fn parse_schema_body(input: ParseStream) -> syn::Result<Vec<SchemaItem>> {
     Ok(items)
 }
 
-fn parse_tags_decl(input: ParseStream) -> syn::Result<Vec<Ident>> {
+fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
     let tags_kw: Ident = input.parse()?;
     if tags_kw != "tags" {
         return Err(syn::Error::new(tags_kw.span(), "expected `tags`"));
@@ -469,7 +469,7 @@ fn parse_tags_decl(input: ParseStream) -> syn::Result<Vec<Ident>> {
     Ok(tags)
 }
 
-fn peek_keyword(input: ParseStream, name: &str) -> bool {
+fn peek_keyword(input: ParseStream<'_>, name: &str) -> bool {
     input.peek(Ident) && input.fork().parse::<Ident>().ok().is_some_and(|ident| ident == name)
 }
 

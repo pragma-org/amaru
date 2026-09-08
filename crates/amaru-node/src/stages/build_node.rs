@@ -239,6 +239,8 @@ fn register_resources(
     stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
     stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
+    // NOTE: used in WorldLoop::stop() and impl Drop for World
+    stage_graph.resources().put(block_validator.thread_stop());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
     stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));

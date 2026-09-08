@@ -10,7 +10,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - `cargo clippy-amaru`: `clippy --workspace --all-targets -- -D warnings`
 - `cargo fmt-amaru`: `fmt --all -- --check`
 - `cargo doc --no-deps`: must be free of rustdoc warnings (use `RUSTDOCFLAGS="-D warnings"` when checking)
-- Use nightly toolchain: `nightly-2026-08-20` (see rust-toolchain.toml)
+- Use nightly toolchain: `nightly-2026-09-04` (see rust-toolchain.toml)
 
 ### Common Commands
 
@@ -155,9 +155,19 @@ Run `make help` for all targets.
 - GPG-signed commits
 - Sign-off with -s (--sign-off)
 - Small, focused commits; no "wip", "tmp"
-- Update CHANGELOG.md for user-facing changes
 - Never force push to main
 - See EDRs for design docs
+
+### Changelog entries
+
+The reader of `CHANGELOG.md` is a professional operator (a sysadmin), not a developer following the PR.
+
+- Add an entry only for user-visible changes: node behaviour, defaults, config, logs/traces/metrics, protocol interoperability, or a failure mode operators will hit.
+- Write in that voice: short and factual. Say what they will observe or need to do. Do not narrate refactors, internal type names, or where the work sits in a stack.
+- A PR may have several entries when it makes independent user-visible changes (or when operators would look them up under different crates). A PR may have none. Do not add an entry for every commit.
+- Tests, private API slimming, and implementation details that do not change what operators see do not get entries.
+- Put new entries under the unreleased version, never under a tag that has already been released. If this PR supersedes an unreleased entry, edit that entry instead of adding a contradictory one.
+- `./scripts/check-changelog` requires a new unreleased entry when crates change. If the PR truly has nothing operators should read, add a `Skip-Changelog` line to a commit message or the PR body.
 
 ### Testing and Simulation
 

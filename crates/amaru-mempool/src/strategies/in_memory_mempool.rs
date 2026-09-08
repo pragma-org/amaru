@@ -101,6 +101,7 @@ impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
     }
 
     /// Retrieves all the transaction ids since a given sequence number, up to a limit.
+    #[expect(clippy::panic)]
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
         let mut result: Vec<(TransactionId, u32, MempoolSeqNo)> = self
             .entries_by_seq

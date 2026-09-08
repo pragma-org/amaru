@@ -19,7 +19,6 @@ use async_trait::async_trait;
 
 use crate::BlockValidationError;
 
-#[expect(clippy::double_must_use)]
 #[async_trait]
 pub trait HasStakePools: Send + Sync {
     async fn registered_relay_candidates(&self) -> Result<BTreeSet<PeerCandidate>, BlockValidationError>;

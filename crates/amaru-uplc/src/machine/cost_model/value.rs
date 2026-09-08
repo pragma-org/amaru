@@ -52,11 +52,11 @@ pub fn string_ex_mem(s: &str) -> i64 {
     s.len() as i64 / 4
 }
 
-pub fn pair_ex_mem(l: &Constant, r: &Constant) -> i64 {
+pub fn pair_ex_mem(l: &Constant<'_>, r: &Constant<'_>) -> i64 {
     constant_ex_mem(l) + constant_ex_mem(r)
 }
 
-pub fn proto_list_ex_mem(items: &[&Constant]) -> i64 {
+pub fn proto_list_ex_mem(items: &[&Constant<'_>]) -> i64 {
     items.iter().fold(0, |acc, constant| acc + constant_ex_mem(constant))
 }
 
@@ -73,7 +73,7 @@ where
     }
 }
 
-pub fn constant_ex_mem(c: &Constant) -> i64 {
+pub fn constant_ex_mem(c: &Constant<'_>) -> i64 {
     match c {
         Constant::Integer(i) => integer_ex_mem(i),
         Constant::ByteString(b) => byte_string_ex_mem(b),
@@ -91,7 +91,7 @@ pub fn constant_ex_mem(c: &Constant) -> i64 {
     }
 }
 
-pub fn data_ex_mem(d: &PlutusData) -> i64 {
+pub fn data_ex_mem(d: &PlutusData<'_>) -> i64 {
     match d {
         PlutusData::Constr { fields, .. } => data_list_ex_mem(fields),
         PlutusData::Map(items) => data_map_ex_mem(items),
@@ -109,11 +109,11 @@ pub fn data_byte_string_ex_mem(b: &[u8]) -> i64 {
     4 + byte_string_ex_mem(b)
 }
 
-pub fn data_list_ex_mem(items: &[&PlutusData]) -> i64 {
+pub fn data_list_ex_mem(items: &[&PlutusData<'_>]) -> i64 {
     4 + items.iter().fold(0, |acc, d| acc + data_ex_mem(d))
 }
 
-pub fn data_map_ex_mem(items: &[(&PlutusData, &PlutusData)]) -> i64 {
+pub fn data_map_ex_mem(items: &[(&PlutusData<'_>, &PlutusData<'_>)]) -> i64 {
     4 + items.iter().fold(0, |acc, (k, v)| acc + data_ex_mem(k) + data_ex_mem(v))
 }
 

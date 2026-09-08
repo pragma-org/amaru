@@ -16,7 +16,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-08-20
+  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-09-04
   RUSTUP_LOG: error
 
 permissions:
@@ -100,7 +100,6 @@ jobs:
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       CARDANO_NODE_BUCKET_NAME: ${{ secrets.CARDANO_NODE_BUCKET_NAME }}
-      PREPROD_TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
 
   benches:
     name: Bench

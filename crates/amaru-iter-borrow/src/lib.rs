@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 use std::{borrow::BorrowMut, cell::RefCell, marker::PhantomData, rc::Rc};
 
 use borrowable_proxy::BorrowableProxy;

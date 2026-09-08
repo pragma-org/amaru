@@ -18,7 +18,7 @@ use std::{
     cell::RefCell,
     collections::{VecDeque, hash_map::Entry},
     num::{NonZeroU16, NonZeroUsize},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use amaru_kernel::{NonEmptyBytes, Peer};
@@ -42,12 +42,25 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<HandlerMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Sent>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Read>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<OutgoingSdu>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Peer>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(ConnectionId, StageRef<MuxMessage>, Role, Peer)>().boxed(),
     ]
 }
 
 const MAX_SEGMENT_SIZE: usize = 65535;
+
+/// Mux SDU assembly/send timer during the first Handshake on a bearer.
+pub const SDU_TIMEOUT_HANDSHAKE: Duration = Duration::from_secs(10);
+/// Mux SDU assembly/send timer after that Handshake has finished.
+pub const SDU_TIMEOUT_ESTABLISHED: Duration = Duration::from_secs(30);
+
+const HEADER_LEADING_EDGE: NonZeroUsize = NonZeroUsize::MIN;
+const HEADER_REST: NonZeroUsize = const {
+    let ret = NonZeroUsize::new(7).expect("non-zero");
+    assert!(matches!(HEADER_LEADING_EDGE.checked_add(ret.get()), Some(HEADER_LEN)));
+    ret
+};
 
 /// microseconds part of the wall clock time
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -112,7 +125,16 @@ pub enum HandlerMessage {
 pub struct Sent;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Read;
+pub struct Read {
+    pub sdu_timeout: Duration,
+}
+
+/// One mux SDU to write, with the assembly/send timer that applies to that write.
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OutgoingSdu {
+    pub data: NonEmptyBytes,
+    pub timeout: Duration,
+}
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MuxMessage {
@@ -137,6 +159,8 @@ pub enum MuxMessage {
     WantNext(ProtocolId<Erased>),
     /// Reading or writing error occurred
     Terminate,
+    /// Switch the SDU assembly/send timer (10s during first Handshake, 30s afterwards).
+    SetSduTimeout(Duration),
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -150,7 +174,7 @@ pub struct State {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Connection {
     Unint(ConnectionId),
-    Init(StageRef<NonEmptyBytes>, StageRef<Read>),
+    Init(StageRef<OutgoingSdu>, StageRef<Read>),
 }
 
 impl State {
@@ -170,17 +194,17 @@ impl State {
     pub async fn init(
         &mut self,
         eff: &mut Effects<MuxMessage>,
-    ) -> (&mut Muxer, &mut bool, &StageRef<NonEmptyBytes>, &StageRef<Read>) {
+    ) -> (&mut Muxer, &mut bool, &StageRef<OutgoingSdu>, &StageRef<Read>) {
         match &mut self.conn {
             Connection::Unint(conn) => {
                 let writer = eff
                     .stage(
                         format!("writer-{}", conn),
                         move |(conn, muxer, role, peer): (ConnectionId, StageRef<MuxMessage>, Role, Peer),
-                              data: NonEmptyBytes,
+                              OutgoingSdu { data, timeout }: OutgoingSdu,
                               eff| async move {
                             Network::new(&eff)
-                                .send(conn, data)
+                                .send(conn, data, Some(timeout))
                                 .or_terminate_with(&eff, async |err| {
                                     error!(
                                         protocols::mux::FAILED,
@@ -201,7 +225,7 @@ impl State {
                 let reader = eff.stage(format!("reader-{}", conn), read_segment).await;
                 let reader = eff.supervise(reader, MuxMessage::Terminate);
                 let reader = eff.wire_up(reader, (*conn, eff.me(), self.muxer.role(), self.peer)).await;
-                eff.send(&reader, Read).await;
+                eff.send(&reader, Read { sdu_timeout: self.muxer.sdu_timeout }).await;
                 self.conn = Connection::Init(writer, reader);
             }
             Connection::Init(..) => {}
@@ -244,7 +268,7 @@ async fn handle_msg(
     eff: &Effects<MuxMessage>,
     muxer: &mut Muxer,
     sending: &mut bool,
-    writer: &StageRef<NonEmptyBytes>,
+    writer: &StageRef<OutgoingSdu>,
     reader: &StageRef<Read>,
 ) -> anyhow::Result<()> {
     match msg {
@@ -258,7 +282,7 @@ async fn handle_msg(
             if !*sending && let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
                 let header = muxer.encode_header(eff, proto_id, &bytes).await;
-                eff.send(writer, header).await;
+                eff.send(writer, OutgoingSdu { data: header, timeout: muxer.sdu_timeout }).await;
             }
             Ok(())
         }
@@ -272,7 +296,7 @@ async fn handle_msg(
                 .received(timestamp, proto_id.opposite(), bytes.into(), eff)
                 .await
                 .with_context(|| format!("reading network message for protocol {}", proto_id))?;
-            eff.send(reader, Read).await;
+            eff.send(reader, Read { sdu_timeout: muxer.sdu_timeout }).await;
             Ok(())
         }
         MuxMessage::WantNext(proto_id) => {
@@ -283,7 +307,7 @@ async fn handle_msg(
             if let Some((proto_id, bytes)) = muxer.next_segment(eff).await {
                 *sending = true;
                 let header = muxer.encode_header(eff, proto_id, &bytes).await;
-                eff.send(writer, header).await;
+                eff.send(writer, OutgoingSdu { data: header, timeout: muxer.sdu_timeout }).await;
             }
             Ok(())
         }
@@ -292,28 +316,52 @@ async fn handle_msg(
             eff.terminate::<Void>().await;
             Ok(())
         }
+        MuxMessage::SetSduTimeout(timeout) => {
+            muxer.sdu_timeout = timeout;
+            Ok(())
+        }
     }
 }
 
 async fn read_segment(
     (conn, muxer, role, peer): (ConnectionId, StageRef<MuxMessage>, Role, Peer),
-    _token: Read,
+    Read { sdu_timeout }: Read,
     eff: Effects<Read>,
 ) -> (ConnectionId, StageRef<MuxMessage>, Role, Peer) {
     let header = loop {
-        let data = Network::new(&eff)
-            .recv(conn, HEADER_LEN)
+        let first = Network::new(&eff)
+            .recv(conn, HEADER_LEADING_EDGE, None)
             .or_terminate_with(&eff, async |err| {
                 error!(
                     protocols::mux::FAILED,
                     role = role.to_string(),
                     peer,
-                    operation = "recv_header",
+                    operation = "recv_header_leading_edge",
                     error = err.to_string()
                 );
             })
             .await;
-        let Some(header) = Header::decode(&mut data.into_inner())
+
+        let started = eff.clock().await;
+        let rest = Network::new(&eff)
+            .recv(conn, HEADER_REST, Some(sdu_timeout))
+            .or_terminate_with(&eff, async |err| {
+                error!(
+                    protocols::mux::FAILED,
+                    role = role.to_string(),
+                    peer,
+                    operation = "recv_header_rest",
+                    error = err.to_string()
+                );
+            })
+            .await;
+
+        let mut header_bytes = BytesMut::with_capacity(HEADER_LEN.get());
+        header_bytes.extend_from_slice(first.as_ref());
+        header_bytes.extend_from_slice(rest.as_ref());
+        let mut header_bytes = header_bytes.freeze();
+
+        let Some(header) = Header::decode(&mut header_bytes)
             .or_terminate(&eff, async |err| {
                 error!(
                     protocols::mux::FAILED,
@@ -325,26 +373,40 @@ async fn read_segment(
             })
             .await
         else {
-            // sending frames without payload data is not explicitly forbidden, so we just ignore them
             info!(protocols::mux::EMPTY_SEGMENT, peer, role = role.to_string());
             continue;
         };
-        break header;
-    };
 
-    let data = Network::new(&eff)
-        .recv(conn, header.length.into())
-        .or_terminate_with(&eff, async |err| {
+        let now = eff.clock().await;
+        let remaining = sdu_timeout.saturating_sub(now.saturating_since(started));
+        if remaining.is_zero() {
             error!(
                 protocols::mux::FAILED,
                 peer,
                 role = role.to_string(),
                 operation = "recv_data",
-                error = err.to_string()
+                error = "sdu timeout (no time left for payload)"
             );
-        })
-        .await;
+            return eff.terminate().await;
+        }
 
+        let data = Network::new(&eff)
+            .recv(conn, header.length.into(), Some(remaining))
+            .or_terminate_with(&eff, async |err| {
+                error!(
+                    protocols::mux::FAILED,
+                    peer,
+                    role = role.to_string(),
+                    operation = "recv_data",
+                    error = err.to_string()
+                );
+            })
+            .await;
+
+        break (header, data);
+    };
+
+    let (header, data) = header;
     eff.send(&muxer, MuxMessage::FromNetwork(header.timestamp, header.proto_id, data)).await;
     (conn, muxer, role, peer)
 }
@@ -394,11 +456,18 @@ pub struct Muxer {
     outgoing: Vec<ProtocolId<Erased>>,
     next_out: usize,
     role: Role,
+    sdu_timeout: Duration,
 }
 
 impl Muxer {
     pub fn new(role: Role) -> Self {
-        Self { protocols: Protocols::new(), outgoing: Vec::new(), next_out: 0, role }
+        Self {
+            protocols: Protocols::new(),
+            outgoing: Vec::new(),
+            next_out: 0,
+            role,
+            sdu_timeout: SDU_TIMEOUT_HANDSHAKE,
+        }
     }
 
     pub fn role(&self) -> Role {
@@ -577,8 +646,8 @@ impl std::fmt::Debug for PerProto {
 impl PerProto {
     pub fn new(handler: StageRef<HandlerMessage>, frame: Frame, max_buffer: usize) -> Self {
         Self {
-            incoming: BytesMut::with_capacity(max_buffer),
-            outgoing: BytesMut::with_capacity(max_buffer),
+            incoming: BytesMut::new(),
+            outgoing: BytesMut::new(),
             sent_bytes: 0,
             notifiers: VecDeque::new(),
             handler,
@@ -664,8 +733,8 @@ mod tests {
     use amaru_ouroboros::ConnectionsResource;
     use amaru_ouroboros_traits::ConnectionProvider;
     use amaru_pure_stage::{
-        Effect, StageGraph,
-        simulation::{Blocked, SimulationBuilder, SimulationRunning},
+        Effect, ExternalEffect, Name, StageGraph,
+        simulation::{Blocked, Run, SimulationBuilder, SimulationRunning},
         tokio::TokioBuilder,
         trace_buffer::TraceBuffer,
     };
@@ -680,7 +749,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        network_effects::{RecvEffect, SendEffect},
+        network_effects::{ReceiveError, RecvEffect, SendEffect, SendError},
         protocol::{Initiator, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_TEST, Responder},
     };
 
@@ -692,6 +761,36 @@ mod tests {
 
     fn test_peer() -> Peer {
         Peer::for_test(3007)
+    }
+
+    #[expect(clippy::wildcard_enum_match_arm)]
+    fn external<T: ExternalEffect>(effect: &Effect) -> &T {
+        match effect {
+            Effect::External { effect, .. } => {
+                effect.cast_ref::<T>().unwrap_or_else(|| panic!("expected {}", std::any::type_name::<T>()))
+            }
+            other => panic!("expected External, got {other:?}"),
+        }
+    }
+
+    fn wire_child_name(
+        running: &SimulationRunning,
+        parent: &Name,
+        initial: (ConnectionId, StageRef<MuxMessage>, Role, Peer),
+    ) -> Name {
+        let hit = running.breakpoint_effect();
+        #[expect(clippy::wildcard_enum_match_arm)]
+        match hit.effect() {
+            Effect::WireStage { at_stage, name, initial_state, .. } => {
+                assert_eq!(at_stage, parent);
+                let got = initial_state
+                    .cast_ref::<(ConnectionId, StageRef<MuxMessage>, Role, Peer)>()
+                    .expect("wire-up initial state");
+                assert_eq!(got, &initial);
+                name.clone()
+            }
+            other => panic!("expected WireStage, got {other:?}"),
+        }
     }
 
     async fn s<F: Future>(f: F)
@@ -737,7 +836,7 @@ mod tests {
         let mut running = graph.run(&tokio::runtime::Handle::current());
         let join_handle = tokio::spawn(async move {
             loop {
-                let blocked = running.run_until_blocked();
+                let blocked = running.run(Run::skip_wakeups());
                 eprintln!("{blocked:?}");
                 match blocked {
                     Blocked::Idle => running.await_external_input().await,
@@ -846,13 +945,10 @@ mod tests {
                 max_buffer: 1024,
             }],
         );
-        let spawn1 = running.run_until_blocked().assert_breakpoint("spawn");
-        let writer = spawn1.extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator, test_peer())).clone();
-        running.handle_effect(spawn1);
-
-        let spawn2 = running.run_until_blocked().assert_breakpoint("spawn");
-        let reader = spawn2.extract_wire_stage(&mux, (conn_id, (*mux).clone(), Role::Initiator, test_peer())).clone();
-        running.handle_effect(spawn2);
+        running.run(Run::skip_wakeups()).assert_breakpoint("spawn");
+        let writer = wire_child_name(running, mux.name(), (conn_id, (*mux).clone(), Role::Initiator, test_peer()));
+        running.run(Run::skip_wakeups()).assert_breakpoint("spawn");
+        let reader = wire_child_name(running, mux.name(), (conn_id, (*mux).clone(), Role::Initiator, test_peer()));
 
         {
             let mux_name = mux.name().clone();
@@ -864,15 +960,28 @@ mod tests {
             );
         }
 
-        running
-            .run_until_blocked()
-            .assert_breakpoint("recv")
-            .assert_external(&reader, &RecvEffect { conn: conn_id, bytes: HEADER_LEN });
-        let registered = running.run_until_blocked().assert_breakpoint("mux");
-        registered.assert_send(&mux, &chain_sync, HandlerMessage::Registered(PROTO_TEST.erase()));
-        running.handle_effect(registered);
+        running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+        {
+            let hit = running.breakpoint_effect();
+            let got = external::<RecvEffect>(hit.effect());
+            assert_eq!(got, &RecvEffect::leading_edge(conn_id));
+        }
+        running.discard_breakpoint();
+        running.run(Run::skip_wakeups()).assert_breakpoint("mux");
+        {
+            let hit = running.breakpoint_effect();
+            let Effect::Send { to, msg, .. } = hit.effect() else {
+                panic!("expected send, got {:?}", hit.effect());
+            };
+            assert_eq!(to, chain_sync.name());
+            assert_eq!(
+                msg.cast_ref::<HandlerMessage>().expect("HandlerMessage"),
+                &HandlerMessage::Registered(PROTO_TEST.erase())
+            );
+        }
+        running.interpret_breakpoint();
         running.enqueue_msg(&mux, [MuxMessage::WantNext(PROTO_TEST.erase())]);
-        running.run_until_blocked().assert_busy([&reader]);
+        running.run(Run::skip_wakeups()).assert_busy([&reader]);
 
         // send a message towards the network
         let send_msg = |running: &mut SimulationRunning,
@@ -890,14 +999,15 @@ mod tests {
         };
 
         let assert_send = |running: &mut SimulationRunning, data: &[(usize, u8)], proto_id: ProtocolId<Initiator>| {
-            running.run_until_blocked().assert_breakpoint("send").extract_external::<SendEffect>(&writer).assert_frame(
-                conn_id,
-                proto_id.erase(),
-                data,
-            );
+            running.run(Run::skip_wakeups()).assert_breakpoint("send");
+            {
+                let hit = running.breakpoint_effect();
+                external::<SendEffect>(hit.effect()).assert_frame(conn_id, proto_id.erase(), data);
+            }
         };
         let resume_send = |running: &mut SimulationRunning| {
-            running.resume_external::<SendEffect>(&writer, Ok(())).unwrap();
+            running.discard_breakpoint();
+            running.complete_external(&writer, Ok::<(), SendError>(()));
         };
         let assert_and_resume_send =
             |running: &mut SimulationRunning, data: &[(usize, u8)], proto_id: ProtocolId<Initiator>| {
@@ -905,9 +1015,16 @@ mod tests {
                 resume_send(running);
             };
         let assert_respond = |running: &mut SimulationRunning, sent: &StageRef<Sent>| {
-            let mux_sent = running.run_until_blocked().assert_breakpoint("mux");
-            mux_sent.assert_send(&mux, sent, Sent);
-            running.handle_effect(mux_sent);
+            running.run(Run::skip_wakeups()).assert_breakpoint("mux");
+            {
+                let hit = running.breakpoint_effect();
+                let Effect::Send { to, msg, .. } = hit.effect() else {
+                    panic!("expected send, got {:?}", hit.effect());
+                };
+                assert_eq!(to, sent.name());
+                assert_eq!(msg.cast_ref::<Sent>().expect("Sent"), &Sent);
+            }
+            running.interpret_breakpoint();
         };
 
         // start write but don't let the writer finish yet
@@ -936,33 +1053,61 @@ mod tests {
         assert_respond(running, &cr4);
         assert_and_resume_send(running, &[(465, 4)], PROTO_HANDSHAKE);
 
-        let recv_header = RecvEffect { conn: conn_id, bytes: HEADER_LEN };
+        let recv_header = RecvEffect::leading_edge(conn_id);
+        let recv_header_rest = RecvEffect::assembly(conn_id, HEADER_REST, SDU_TIMEOUT_HANDSHAKE);
         let recv_msg =
             |running: &mut SimulationRunning, proto_id: ProtocolId<Responder>, bytes: &[u8], recv: &[&[u8]]| {
                 let mut msg = Header::encode(proto_id, bytes, Timestamp::now()).into_inner();
-                running
-                    .resume_external::<RecvEffect>(&reader, Ok(msg.split_to(HEADER_LEN.get()).try_into().unwrap()))
-                    .unwrap();
+                running.discard_breakpoint();
+                running.complete_external(
+                    &reader,
+                    Ok::<NonEmptyBytes, ReceiveError>(msg.split_to(HEADER_LEADING_EDGE.get()).try_into().unwrap()),
+                );
+                running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+                {
+                    let hit = running.breakpoint_effect();
+                    assert_eq!(external::<RecvEffect>(hit.effect()), &recv_header_rest);
+                }
+                running.discard_breakpoint();
+                running.complete_external(
+                    &reader,
+                    Ok::<NonEmptyBytes, ReceiveError>(msg.split_to(HEADER_REST.get()).try_into().unwrap()),
+                );
                 let msg = NonEmptyBytes::new(msg).unwrap();
-                running
-                    .run_until_blocked()
-                    .assert_breakpoint("recv")
-                    .assert_external(&reader, &RecvEffect { conn: conn_id, bytes: msg.len() });
-                running.resume_external::<RecvEffect>(&reader, Ok(msg)).unwrap();
+                running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+                {
+                    let hit = running.breakpoint_effect();
+                    assert_eq!(
+                        external::<RecvEffect>(hit.effect()),
+                        &RecvEffect::assembly(conn_id, msg.len(), SDU_TIMEOUT_HANDSHAKE)
+                    );
+                }
+                running.discard_breakpoint();
+                running.complete_external(&reader, Ok::<NonEmptyBytes, ReceiveError>(msg));
                 for recv in recv {
                     if recv.is_empty() {
-                        running.run_until_blocked().assert_breakpoint("recv").assert_external(&reader, &recv_header);
+                        running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+                        {
+                            let hit = running.breakpoint_effect();
+                            assert_eq!(external::<RecvEffect>(hit.effect()), &recv_header);
+                        }
                         continue;
                     }
-                    running.run_until_blocked().assert_breakpoint("mux").assert_send(
-                        &mux,
-                        &chain_sync,
-                        HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(recv).unwrap()),
-                    );
-                    running.resume_send(&mux, &chain_sync, None).unwrap();
+                    running.run(Run::skip_wakeups()).assert_breakpoint("mux");
+                    {
+                        let hit = running.breakpoint_effect();
+                        let Effect::Send { to, msg, .. } = hit.effect() else {
+                            panic!("expected send, got {:?}", hit.effect());
+                        };
+                        assert_eq!(to, chain_sync.name());
+                        assert_eq!(
+                            msg.cast_ref::<HandlerMessage>().expect("HandlerMessage"),
+                            &HandlerMessage::FromNetwork(NonEmptyBytes::from_slice(recv).unwrap())
+                        );
+                    }
+                    running.interpret_breakpoint();
                     running.enqueue_msg(&mux, [MuxMessage::WantNext(proto_id.initiator().erase())]);
                 }
-                // running.run_until_blocked().assert_busy([&reader]);
             };
 
         // send CBOR 1 followed by incomplete CBOR; "recv" effect always happens second
@@ -972,8 +1117,65 @@ mod tests {
 
         // test buffer size violation
         recv_msg(running, PROTO_HANDSHAKE.responder(), &[1, 2, 3], &[]);
-        running.run_until_blocked().assert_terminated(mux.name());
+        running.run(Run::skip_wakeups()).assert_terminated(mux.name());
 
+        drop_guard.defuse();
+    }
+
+    #[test]
+    fn test_sdu_timeout_after_leading_edge() {
+        let _guard = amaru_pure_stage::register_data_deserializer::<MuxMessage>();
+        let _guard = amaru_pure_stage::register_effect_deserializer::<RecvEffect>();
+        let _guard = amaru_pure_stage::register_data_deserializer::<State>();
+        let _guard = amaru_pure_stage::register_data_deserializer::<Peer>();
+        let _guard = amaru_pure_stage::register_data_deserializer::<(ConnectionId, StageRef<MuxMessage>, Role, Peer)>();
+
+        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+        let drop_guard = TraceBuffer::drop_guard(&trace_buffer);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
+        let mux = network.stage("mux", super::stage);
+        let conn_id = ConnectionId::initial();
+        let mux =
+            network.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 1024)], Role::Initiator, test_peer()));
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.breakpoint("recv", |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<RecvEffect>()));
+        running.breakpoint("spawn", |eff| matches!(eff, Effect::WireStage { .. }));
+
+        running.enqueue_msg(
+            &mux,
+            [MuxMessage::Register {
+                protocol: PROTO_TEST.erase(),
+                frame: Frame::OneCborItem,
+                handler: StageRef::named_for_tests("handler"),
+                max_buffer: 1024,
+            }],
+        );
+        running.run(Run::skip_wakeups()).assert_breakpoint("spawn");
+        let _writer = wire_child_name(&running, mux.name(), (conn_id, (*mux).clone(), Role::Initiator, test_peer()));
+        running.run(Run::skip_wakeups()).assert_breakpoint("spawn");
+        let reader = wire_child_name(&running, mux.name(), (conn_id, (*mux).clone(), Role::Initiator, test_peer()));
+
+        running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+        assert_eq!(external::<RecvEffect>(running.breakpoint_effect().effect()), &RecvEffect::leading_edge(conn_id));
+        running.discard_breakpoint();
+        running.complete_external(
+            &reader,
+            Ok::<NonEmptyBytes, ReceiveError>(Bytes::copy_from_slice(&[0]).try_into().unwrap()),
+        );
+
+        running.run(Run::skip_wakeups()).assert_breakpoint("recv");
+        assert_eq!(
+            external::<RecvEffect>(running.breakpoint_effect().effect()),
+            &RecvEffect::assembly(conn_id, HEADER_REST, SDU_TIMEOUT_HANDSHAKE)
+        );
+        running.discard_breakpoint();
+        running.complete_external(
+            &reader,
+            Err::<NonEmptyBytes, ReceiveError>(ReceiveError::sdu_timeout(conn_id, SDU_TIMEOUT_HANDSHAKE)),
+        );
+        running.run(Run::skip_wakeups()).assert_terminated(mux.name());
         drop_guard.defuse();
     }
 

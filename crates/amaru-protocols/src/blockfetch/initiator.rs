@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,34 +12,89 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+//! Typestate BlockFetch initiator.
+//!
+//! The lock-step `instance` machine is the protocol handler. Registration takes a
+//! pipeline depth `N`: `N = 1` drives that instance directly; `N > 1` wraps N copies
+//! in the CIP-0164 pipeliner.
+
+use std::{
+    num::{NonZeroU8, NonZeroUsize},
+    time::Duration,
+};
 
 use amaru_kernel::{NetworkPoint, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes};
-use amaru_observability::{Instrument, debug, debug_span, warn};
-use amaru_ouroboros::ConnectionId;
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use amaru_observability::error;
+use amaru_pure_stage::{
+    DeserializerGuards, Effects, StageRef, define_role, define_role_tag, make_states, on_receive, typestate::prelude::*,
+};
 
+use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch, responder::MAX_FETCHED_BLOCKS};
 use crate::{
-    blockfetch::{State, messages::Message, responder::MAX_FETCHED_BLOCKS},
-    mux::MuxMessage,
+    mux::{Frame, HandlerMessage, MuxMessage, Sent},
     protocol::{
-        Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_BLOCK_FETCH, ProtocolState, StageState, miniprotocol,
-        outcome,
+        Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pipelined, Pull, ToMux, WantNext,
+        drive, from_wire, pipelined,
     },
 };
 
-pub fn register_deserializers() -> DeserializerGuards {
-    vec![
-        amaru_pure_stage::register_data_deserializer::<BlockFetchInitiator>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<(State, BlockFetchInitiator)>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<BlockFetchMessage>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Blocks>().boxed(),
-    ]
+pub const BLOCKFETCH_PIPELINE_N: NonZeroU8 = match NonZeroU8::new(2) {
+    Some(n) => n,
+    None => unreachable!(),
+};
+
+/// Receive timeout while the responder has agency (`StBusy` / `StStreaming`).
+///
+/// From the Cardano Blueprint networking notes: `StIdle` has no receive timeout;
+/// `StBusy` and `StStreaming` wait at most 60 seconds.
+pub const BLOCKFETCH_AGENCY_TIMEOUT: Duration = Duration::from_secs(60);
+
+pub const BLOCKFETCH_MAX_BLOCK_WIRE_BYTES: usize = 96 * 1024;
+
+pub fn blockfetch_pipeline_max_buffer(n: NonZeroU8) -> usize {
+    usize::from(n.get()).saturating_mul(MAX_FETCHED_BLOCKS).saturating_mul(BLOCKFETCH_MAX_BLOCK_WIRE_BYTES)
 }
 
-pub fn initiator() -> Miniprotocol<State, BlockFetchInitiator, Initiator> {
-    miniprotocol(PROTO_N2N_BLOCK_FETCH)
+fn pipeline_slots(n: NonZeroU8) -> NonZeroUsize {
+    match NonZeroUsize::new(usize::from(n.get())) {
+        Some(n) => n,
+        None => unreachable!(),
+    }
 }
+
+make_states!(pub Proto { Idle; Busy, Streaming, Done } switch Idle, terminal Done);
+
+define_role_tag!(pub ToResponder);
+define_role_tag!(pub ToCollector);
+
+define_role!(CollectorOut, ToCollector, Blocks);
+
+on_receive!(Idle as PipelineIdleIn {
+    Fetch => { Call<ToResponder, RequestRange> => Busy }
+    Close => { Call<ToResponder, ClientDone> | Repeat<SendAny<ToCollector>> => Done }
+});
+on_receive!(Busy as ClientBusyIn {
+    Pull => { Send<ToMux, WantNext>, SetTimeout => Busy }
+    StartBatch => { Send<ToMux, WantNext>, SetTimeout => Streaming }
+    NoBlocks => { ClearTimeout, Repeat<SendAny<ToCollector>> => Idle }
+});
+on_receive!(Streaming as ClientStreamingIn {
+    Block => { Send<ToMux, WantNext>, Repeat<SendAny<ToCollector>>, SetTimeout => Streaming }
+    BatchDone => { ClearTimeout, Repeat<SendAny<ToCollector>> => Idle }
+});
+
+/// Local request that starts an initiator fetch on one pipeline instance.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Fetch {
+    pub from: NetworkPoint,
+    pub through: NetworkPoint,
+    pub id: u64,
+    pub cr: StageRef<Blocks>,
+}
+
+/// Local request that closes an idle initiator instance.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Close;
 
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks {
@@ -67,208 +122,763 @@ impl std::fmt::Debug for Blocks {
     }
 }
 
-/// Message that can be sent by an internal stage to request blocks for range of points.
+/// Message that can be sent by an internal stage to request blocks for a range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
-    RequestRange { from: Point, through: Point, id: u64, cr: StageRef<Blocks> },
+    RequestRange {
+        from: Point,
+        through: Point,
+        id: u64,
+        cr: StageRef<Blocks>,
+    },
+    /// Terminal close. An idle instance sends one wire `ClientDone`.
+    Close,
+}
+
+impl<T> IntoRoleCall<ToResponder, T> for MuxClient
+where
+    Message: From<T>,
+{
+    type Reply = Sent;
+    const TIMEOUT: Duration = NETWORK_SEND_TIMEOUT;
+
+    fn encode(&self, msg: T, reply: StageRef<Sent>) -> MuxMessage {
+        self.encode_send(Message::from(msg), reply)
+    }
+}
+
+impl FromMailbox<Mail> for Fetch {
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        match msg {
+            Inputs::Local(BlockFetchMessage::RequestRange { from, through, id, cr }) => {
+                Ok(Fetch { from: from.to_network_point(), through: through.to_network_point(), id, cr })
+            }
+            other => Err(other),
+        }
+    }
+}
+
+impl FromMailbox<Mail> for Close {
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        match msg {
+            Inputs::Local(BlockFetchMessage::Close) => Ok(Close),
+            other => Err(other),
+        }
+    }
+}
+
+impl FromMailbox<Mail> for StartBatch {
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        from_wire::<_, Message, _>(msg)
+    }
+}
+
+impl FromMailbox<Mail> for NoBlocks {
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        from_wire::<_, Message, _>(msg)
+    }
+}
+
+impl FromMailbox<Mail> for Block {
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        from_wire::<_, Message, _>(msg)
+    }
+}
+
+impl FromMailbox<Mail> for BatchDone {
+    fn from_mailbox(msg: Mail) -> Result<Self, Mail> {
+        from_wire::<_, Message, _>(msg)
+    }
+}
+
+pub fn register_deserializers() -> DeserializerGuards {
+    vec![
+        amaru_pure_stage::register_data_deserializer::<Pipelined<Instance>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Instance>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<BlockFetchMessage>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Blocks>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Fetch>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Close>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Inflight>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<MuxClient>().boxed(),
+    ]
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Inflight {
+    id: u64,
+    cr: StageRef<Blocks>,
+    remaining: usize,
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct BlockFetchInitiator {
-    muxer: StageRef<MuxMessage>,
+struct Instance {
+    proto: Proto,
+    mux: MuxClient,
+    inflight: Option<Inflight>,
     peer: Peer,
-    conn_id: ConnectionId,
-    /// Queue of requests that have been received but not yet answered.
-    ///
-    /// Note that the first two elements of the queue have already been sent
-    /// to the network (pipelining).
-    queue: VecDeque<(Point, Point, u64, StageRef<Blocks>, usize)>,
+    pending_close: bool,
+    /// Next range from fetch-blocks, issued at last body (before `BatchDone`).
+    pending_fetch: Option<Fetch>,
 }
 
-impl BlockFetchInitiator {
-    /// Create a new BlockFetchInitiator instance for a given peer, using a given connection.
-    /// Returns the initial state and the initiator instance.
-    pub fn new(muxer: StageRef<MuxMessage>, peer: Peer, conn_id: ConnectionId) -> (State, Self) {
-        (State::Idle, Self { muxer, peer, conn_id, queue: VecDeque::new() })
+type Mail = Inputs<BlockFetchMessage>;
+type Handler = Pipelined<Instance>;
+
+impl OccupancyOf for Instance {
+    fn occupancy(&self) -> Occupancy {
+        self.proto.occupancy()
     }
 }
 
-impl StageState<State, Initiator> for BlockFetchInitiator {
-    type LocalIn = BlockFetchMessage;
+impl Instance {
+    fn new(mux: MuxClient, peer: Peer) -> Self {
+        Self {
+            proto: initial_state::<Idle>().into(),
+            mux,
+            inflight: None,
+            peer,
+            pending_close: false,
+            pending_fetch: None,
+        }
+    }
 
-    async fn local(
-        mut self,
-        proto: &State,
-        input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        match input {
-            BlockFetchMessage::RequestRange { from, through, id, cr } => {
-                let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange {
-                    from: from.to_network_point(),
-                    through: through.to_network_point(),
-                });
-                if self.queue.len() > 1 {
-                    debug!(protocols::blockfetch::initiator::DROPPED_SLOW_PEER, peer = &self.peer);
-                }
-                self.queue.truncate(1);
-                self.queue.push_back((from, through, id, cr, MAX_FETCHED_BLOCKS));
-                Ok((action, self))
+    fn timeout_mail() -> Mail {
+        Inputs::Internal(Internal::Timeout)
+    }
+}
+
+async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
+    if matches!(mail, Inputs::Network(HandlerMessage::Registered(_))) {
+        return inst;
+    }
+    let follow_eff = eff.clone();
+    let pull_eff = eff.clone();
+    let Instance { proto, mux, mut inflight, peer, mut pending_close, mut pending_fetch } = inst;
+    let proto = match proto {
+        Proto::Idle(idle) => match idle.convert_input(mail) {
+            Ok(PipelineIdleIn::Fetch(fetch)) => {
+                let range = RequestRange { from: fetch.from, through: fetch.through };
+                inflight = Some(Inflight { id: fetch.id, cr: fetch.cr.clone(), remaining: MAX_FETCHED_BLOCKS });
+                let (_, s) = idle.receive(fetch, eff).call(&mux, range).await;
+                s.finish().into()
             }
-        }
-    }
-
-    #[expect(clippy::expect_used)]
-    async fn network(
-        mut self,
-        _proto: &State,
-        input: InitiatorResult,
-        eff: &Effects<Inputs<Self::LocalIn>>,
-    ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let span = debug_span!(
-            protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_PROTOCOL,
-            message_type = input.message_type()
-        );
-        async move {
-            let queued = match input {
-                InitiatorResult::Initialize => None,
-                InitiatorResult::NoBlocks => {
-                    let (_, _, id, cr, _) = self.queue.pop_front().expect("queue must not be empty");
-                    eff.send(&cr, Blocks::NoBlocks(id, self.peer)).await;
-                    self.queue.front()
-                }
-                InitiatorResult::Block(body) => {
-                    if let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(body.as_slice())) {
-                        if let Some((_, _, id, cr, remaining_blocks)) = self.queue.front_mut() {
-                            if *remaining_blocks == 0 {
-                                warn!(
-                                    protocols::blockfetch::initiator::PROTOCOL_VIOLATION,
-                                    reason = "too_many_blocks",
-                                    max_blocks = MAX_FETCHED_BLOCKS
-                                );
-                                return eff.terminate().await;
-                            }
-                            *remaining_blocks -= 1;
-                            let id = *id;
-                            eff.send(cr, Blocks::Block(id, self.peer, network_block)).await;
-                        } else {
-                            warn!(protocols::blockfetch::initiator::PROTOCOL_VIOLATION, reason = "no_pending_request");
-                            return eff.terminate().await;
-                        }
-                    } else {
-                        warn!(
-                            protocols::blockfetch::initiator::PROTOCOL_VIOLATION,
-                            reason = "invalid_cbor",
-                            bytes = body.len()
-                        );
-                        return eff.terminate().await;
-                    }
-                    None
-                }
-                InitiatorResult::Done => {
-                    let (_, _, id, cr, _) = self.queue.pop_front().expect("queue must not be empty");
-                    eff.send(&cr, Blocks::Done(id)).await;
-                    self.queue.front()
-                }
-            };
-            let action = queued.map(|(from, through, _, _, _)| InitiatorAction::RequestRange {
-                from: from.to_network_point(),
-                through: through.to_network_point(),
-            });
-            Ok((action, self))
-        }
-        .instrument(span)
-        .await
-    }
-
-    fn muxer(&self) -> &StageRef<MuxMessage> {
-        &self.muxer
-    }
-}
-
-impl ProtocolState<Initiator> for State {
-    type WireMsg = Message;
-    type Action = InitiatorAction;
-    type Out = InitiatorResult;
-    type Error = Void;
-
-    fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        Ok((outcome().result(InitiatorResult::Initialize), *self))
-    }
-
-    fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = debug_span!(
-            protocols::blockfetch::initiator::BLOCKFETCH_INITIATOR_STAGE,
-            message_type = input.message_type()
-        );
-        let _guard = _span.enter();
-        use Message::*;
-        match (self, input) {
-            (Self::Busy, StartBatch) => Ok((outcome().want_next(), Self::Streaming)),
-            (Self::Busy, NoBlocks) => Ok((outcome().result(InitiatorResult::NoBlocks), Self::Idle)),
-            (Self::Streaming, Block { body }) => {
-                Ok((outcome().want_next().result(InitiatorResult::Block(body)), Self::Streaming))
+            Ok(PipelineIdleIn::Close(close)) => {
+                inflight = None;
+                pending_close = false;
+                let (_, s) = idle.receive(close, eff).call(&mux, ClientDone).await;
+                s.finish().into()
             }
-            (Self::Streaming, BatchDone) => Ok((outcome().result(InitiatorResult::Done), Self::Idle)),
-            (state, msg) => anyhow::bail!("unexpected message in state {:?}: {:?}", state, msg),
-        }
-    }
-
-    fn local(&self, input: Self::Action) -> anyhow::Result<(Outcome<Self::WireMsg, Void, Self::Error>, Self)> {
-        use InitiatorAction::*;
-        match (self, input) {
-            (Self::Idle, RequestRange { from, through }) => {
-                Ok((outcome().send(Message::RequestRange { from, through }).want_next(), Self::Busy))
+            // TODO: handle timeouts generically to make mistakes impossible
+            Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
+            Err(mail) => return invalid(peer, idle.name(), mail, eff).await,
+        },
+        Proto::Busy(busy) => match busy.convert_input(mail) {
+            Ok(ClientBusyIn::Pull(pull)) => busy
+                .receive(pull, eff)
+                .send(&mux, WantNext)
+                .await
+                .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
+                .await
+                .finish()
+                .into(),
+            Ok(ClientBusyIn::StartBatch(start)) => busy
+                .receive(start, eff)
+                .send(&mux, WantNext)
+                .await
+                .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
+                .await
+                .finish()
+                .into(),
+            Ok(ClientBusyIn::NoBlocks(no_blocks)) => {
+                let Some(flight) = inflight.take() else {
+                    return invalid(peer, busy.name(), no_blocks, eff).await;
+                };
+                let collector = CollectorOut::new(flight.cr);
+                busy.receive(no_blocks, eff)
+                    .clear_timeout()
+                    .await
+                    .send_any(&collector, Blocks::NoBlocks(flight.id, peer))
+                    .await
+                    .finish()
+                    .into()
             }
-            (Self::Idle, ClientDone) => Ok((outcome().send(Message::ClientDone), Self::Done)),
-            (state, action) => {
-                anyhow::bail!("unexpected action in state {:?}: {:?}", state, action)
+            Err(Inputs::Local(BlockFetchMessage::Close)) => {
+                pending_close = true;
+                busy.into()
             }
+            Err(mail) => match Fetch::from_mailbox(mail) {
+                Ok(fetch) => {
+                    pending_fetch = Some(fetch);
+                    busy.into()
+                }
+                Err(mail) => return invalid(peer, busy.name(), mail, eff).await,
+            },
+        },
+        Proto::Streaming(streaming) => match streaming.convert_input(mail) {
+            Ok(ClientStreamingIn::Block(block)) => {
+                let Some(flight) = inflight.as_mut() else {
+                    return invalid(peer, streaming.name(), &block, eff).await;
+                };
+                if flight.remaining == 0 {
+                    return invalid(peer, streaming.name(), "too many blocks", eff).await;
+                }
+                let Ok(network_block) = NetworkBlock::try_from(RawBlock::from(block.body.as_slice())) else {
+                    return invalid(peer, streaming.name(), "invalid block CBOR", eff).await;
+                };
+                flight.remaining -= 1;
+                let collector = CollectorOut::new(flight.cr.clone());
+                let id = flight.id;
+                streaming
+                    .receive(block, eff)
+                    .send(&mux, WantNext)
+                    .await
+                    .send_any(&collector, Blocks::Block(id, peer, network_block))
+                    .await
+                    .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
+                    .await
+                    .finish()
+                    .into()
+            }
+            Ok(ClientStreamingIn::BatchDone(done)) => {
+                let Some(flight) = inflight.take() else {
+                    return invalid(peer, streaming.name(), done, eff).await;
+                };
+                let collector = CollectorOut::new(flight.cr);
+                streaming
+                    .receive(done, eff)
+                    .clear_timeout()
+                    .await
+                    .send_any(&collector, Blocks::Done(flight.id))
+                    .await
+                    .finish()
+                    .into()
+            }
+            Err(Inputs::Local(BlockFetchMessage::Close)) => {
+                pending_close = true;
+                streaming.into()
+            }
+            Err(mail) => match Fetch::from_mailbox(mail) {
+                Ok(fetch) => {
+                    pending_fetch = Some(fetch);
+                    streaming.into()
+                }
+                Err(mail) => return invalid(peer, streaming.name(), mail, eff).await,
+            },
+        },
+        Proto::Done(done) => match mail {
+            Inputs::Internal(Internal::Timeout) => done.into(),
+            mail @ (Inputs::Local(_) | Inputs::Network(_) | Inputs::Internal(Internal::Pull)) => {
+                return invalid(peer, done.name(), mail, eff).await;
+            }
+        },
+    };
+    let proto = match (pending_close, pending_fetch.take(), proto) {
+        (true, _, Proto::Idle(idle)) => {
+            pending_close = false;
+            inflight = None;
+            let (_, s) = idle.receive(Close, follow_eff).call(&mux, ClientDone).await;
+            s.finish().into()
         }
+        (false, Some(fetch), Proto::Idle(idle)) => {
+            let range = RequestRange { from: fetch.from, through: fetch.through };
+            inflight = Some(Inflight { id: fetch.id, cr: fetch.cr.clone(), remaining: MAX_FETCHED_BLOCKS });
+            let (_, s) = idle.receive(fetch, follow_eff).call(&mux, range).await;
+            s.finish()
+                .receive(Pull, pull_eff)
+                .send(&mux, WantNext)
+                .await
+                .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
+                .await
+                .finish()
+                .into()
+        }
+        (_, fetch, proto) => {
+            pending_fetch = fetch;
+            proto
+        }
+    };
+    Instance { proto, mux, inflight, peer, pending_close, pending_fetch }
+}
+
+async fn invalid(peer: Peer, state: &str, input: impl std::fmt::Debug, eff: Effects<Mail>) -> Instance {
+    error!(
+        protocols::INVALID_INPUT,
+        proto = "block_fetch",
+        peer,
+        state = state.to_string(),
+        input = format!("{input:?}")
+    );
+    eff.terminate().await
+}
+
+impl Pipelined<Instance> {
+    fn for_peer(n: NonZeroU8, muxer: StageRef<MuxMessage>, peer: Peer) -> Self {
+        let mux = MuxClient::new(muxer, PROTO_N2N_BLOCK_FETCH.erase());
+        Pipelined::new(pipeline_slots(n), |_| Instance::new(mux.clone(), peer))
     }
 }
 
-/// Result of the initiator protocol step, to be used by the local stage.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub enum InitiatorResult {
-    Initialize,
-    NoBlocks,
-    Block(Vec<u8>),
-    Done,
+async fn lock_step(state: Instance, msg: Mail, eff: Effects<Mail>) -> Instance {
+    drive(state, msg, eff, instance).await
 }
 
-impl InitiatorResult {
-    fn message_type(&self) -> &'static str {
-        match self {
-            Self::Initialize => "Initialize",
-            Self::NoBlocks => "NoBlocks",
-            Self::Block(_) => "Block",
-            Self::Done => "Done",
-        }
-    }
+async fn handler(state: Handler, msg: Mail, eff: Effects<Mail>) -> Handler {
+    pipelined(state, msg, eff, instance).await
 }
 
-/// Outcome action of the local stage, to be used by the initiator protocol stage.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub enum InitiatorAction {
-    RequestRange { from: NetworkPoint, through: NetworkPoint },
-    ClientDone,
+pub async fn register_blockfetch_initiator<M: amaru_pure_stage::SendData>(
+    muxer: &StageRef<MuxMessage>,
+    peer: Peer,
+    n: NonZeroU8,
+    eff: &Effects<M>,
+    tombstone: M,
+) -> StageRef<BlockFetchMessage> {
+    let blockfetch = if n.get() == 1 {
+        let mux = MuxClient::new(muxer.clone(), PROTO_N2N_BLOCK_FETCH.erase());
+        let blockfetch = eff.stage("blockfetch", lock_step).await;
+        let blockfetch = eff.supervise(blockfetch, tombstone);
+        eff.wire_up(blockfetch, Instance::new(mux, peer)).await
+    } else {
+        let blockfetch = eff.stage("blockfetch", handler).await;
+        let blockfetch = eff.supervise(blockfetch, tombstone);
+        eff.wire_up(blockfetch, Handler::for_peer(n, muxer.clone(), peer)).await
+    };
+    eff.send(
+        muxer,
+        MuxMessage::Register {
+            protocol: PROTO_N2N_BLOCK_FETCH.erase(),
+            frame: Frame::OneCborItem,
+            handler: blockfetch.contramap(Inputs::Network),
+            max_buffer: blockfetch_pipeline_max_buffer(n),
+        },
+    )
+    .await;
+    blockfetch.contramap(Inputs::Local)
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
+    use std::sync::OnceLock;
+
+    use amaru_kernel::{NonEmptyBytes, Point, cbor};
+    use amaru_pure_stage::{
+        StageGraph,
+        simulation::{Run, SimulationBuilder},
+        typestate::{FmtPar, OnReceive, Session},
+    };
+    use tokio::runtime::{Builder, Runtime};
+
     use super::*;
-    use crate::protocol::Initiator;
+    use crate::{
+        mux::{MuxMessage, Sent},
+        protocol::Inputs,
+    };
+
+    fn remaining<S, In>() -> String
+    where
+        S: OnReceive<In>,
+        S::Then: FmtPar,
+    {
+        Session::<(), S::Then>::describe()
+    }
+
+    fn send_desc<Tag, T>() -> String {
+        format!("Send<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
+    }
+
+    fn call_desc<Tag, T>() -> String {
+        format!("Call<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
+    }
+
+    fn star_any<Tag>() -> String {
+        format!("Repeat<SendAny<{}>>", std::any::type_name::<Tag>())
+    }
 
     #[test]
-    #[expect(clippy::wildcard_enum_match_arm)]
-    fn test_initiator_protocol() {
-        crate::blockfetch::spec::<Initiator>().check(State::Idle, |msg| match msg {
-            Message::RequestRange { from, through } => {
-                Some(InitiatorAction::RequestRange { from: *from, through: *through })
+    fn initiator_receive_allowances() {
+        assert_eq!(remaining::<Idle, Fetch>(), call_desc::<ToResponder, RequestRange>() + " => Busy");
+        assert_eq!(
+            remaining::<Idle, Close>(),
+            format!("{} | {} => Done", call_desc::<ToResponder, ClientDone>(), star_any::<ToCollector>())
+        );
+        assert_eq!(remaining::<Busy, Pull>(), format!("{}, SetTimeout => Busy", send_desc::<ToMux, WantNext>()));
+        assert_eq!(
+            remaining::<Busy, StartBatch>(),
+            format!("{}, SetTimeout => Streaming", send_desc::<ToMux, WantNext>())
+        );
+        assert_eq!(remaining::<Busy, NoBlocks>(), format!("ClearTimeout, {} => Idle", star_any::<ToCollector>()));
+        assert_eq!(
+            remaining::<Streaming, Block>(),
+            format!("{}, {}, SetTimeout => Streaming", send_desc::<ToMux, WantNext>(), star_any::<ToCollector>())
+        );
+        assert_eq!(remaining::<Streaming, BatchDone>(), format!("ClearTimeout, {} => Idle", star_any::<ToCollector>()));
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+    struct MuxLog {
+        sends: Vec<String>,
+        wants: usize,
+    }
+
+    async fn mux_step(mut log: MuxLog, msg: MuxMessage, eff: Effects<MuxMessage>) -> MuxLog {
+        match msg {
+            MuxMessage::Send(_, bytes, cr) => {
+                let decoded: Message = cbor::decode(bytes.as_ref()).expect("cbor");
+                log.sends.push(decoded.message_type().to_string());
+                eff.send(&cr, Sent).await;
             }
-            Message::ClientDone => Some(InitiatorAction::ClientDone),
-            _ => None,
+            MuxMessage::WantNext(_) => {
+                log.wants += 1;
+            }
+            MuxMessage::Register { .. }
+            | MuxMessage::Buffer(..)
+            | MuxMessage::FromNetwork(..)
+            | MuxMessage::Written
+            | MuxMessage::Terminate
+            | MuxMessage::SetSduTimeout(_) => {}
+        }
+        log
+    }
+
+    fn test_runtime() -> &'static tokio::runtime::Handle {
+        static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+        RUNTIME.get_or_init(|| Builder::new_multi_thread().enable_all().build().unwrap()).handle()
+    }
+
+    #[test]
+    fn two_ranges_pair_in_order() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
         });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let mux = network.wire_up(mux, MuxLog::default());
+
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+
+        let cr = (*out).clone();
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: cr.clone(),
+                    }),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 2,
+                        cr,
+                    }),
+                ],
+            )
+            .unwrap();
+
+        let mut running = network.run(test_runtime());
+        running.run(Run::default()).assert_sleeping();
+
+        let log = running.get_state(&mux).cloned().unwrap();
+        assert_eq!(log.sends, vec!["RequestRange", "RequestRange"]);
+        assert_eq!(log.wants, 1);
+
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
+        );
+        running.run(Run::default()).assert_sleeping();
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
+        );
+        running.run(Run::skip_wakeups()).assert_idle();
+
+        let collected = running.get_state(&out).cloned().unwrap();
+        assert_eq!(
+            collected,
+            vec![Blocks::NoBlocks(1, Peer::for_test(3001)), Blocks::NoBlocks(2, Peer::for_test(3001))]
+        );
+        assert_eq!(running.get_state(&mux).unwrap().wants, 2);
+    }
+
+    #[test]
+    fn single_range_does_not_want_next_after_idle() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
+        });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: (*out).clone(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(running.get_state(&mux).unwrap().wants, 1);
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
+        );
+        running.run(Run::skip_wakeups()).assert_idle();
+        assert_eq!(running.get_state(&mux).unwrap().wants, 1);
+        assert_eq!(running.get_state(&out).cloned().unwrap(), vec![Blocks::NoBlocks(1, Peer::for_test(3001))]);
+    }
+
+    #[test]
+    fn lock_step_single_range_does_not_want_next_after_idle() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
+        });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", lock_step);
+        let mux_client = MuxClient::new(mux_ref, PROTO_N2N_BLOCK_FETCH.erase());
+        let handler = network.wire_up(handler_b, Instance::new(mux_client, Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: (*out).clone(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(running.get_state(&mux).unwrap().wants, 1);
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
+        );
+        running.run(Run::skip_wakeups()).assert_idle();
+        assert_eq!(running.get_state(&mux).unwrap().wants, 1);
+        assert_eq!(running.get_state(&out).cloned().unwrap(), vec![Blocks::NoBlocks(1, Peer::for_test(3001))]);
+    }
+
+    #[test]
+    fn close_idle_sends_one_client_done() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::Close),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::skip_wakeups()).assert_idle();
+        let log = running.get_state(&mux).cloned().unwrap();
+        assert_eq!(log.sends, vec!["ClientDone"]);
+        assert_eq!(log.wants, 0);
+    }
+
+    #[test]
+    fn extra_fetch_while_full_terminates() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
+        });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+        let cr = (*out).clone();
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: cr.clone(),
+                    }),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 2,
+                        cr: cr.clone(),
+                    }),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 3,
+                        cr,
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        let blocked = running.run(Run::skip_wakeups());
+        assert!(matches!(blocked, amaru_pure_stage::simulation::Blocked::Terminated(_)));
+    }
+
+    #[test]
+    fn start_batch_while_idle_terminates() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(StartBatch)))),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        let blocked = running.run(Run::skip_wakeups());
+        assert!(matches!(blocked, amaru_pure_stage::simulation::Blocked::Terminated(_)));
+    }
+
+    #[test]
+    fn initiator_wire_variant_terminates() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(ClientDone)))),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        let blocked = running.run(Run::skip_wakeups());
+        assert!(matches!(blocked, amaru_pure_stage::simulation::Blocked::Terminated(_)));
+    }
+
+    #[test]
+    fn busy_timeout_terminates() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
+        });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: (*out).clone(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::default()).assert_sleeping();
+        let blocked = running.run(Run::skip_wakeups());
+        assert!(matches!(blocked, amaru_pure_stage::simulation::Blocked::Terminated(_)));
+    }
+
+    #[test]
+    fn stale_timeout_after_idle_is_ignored() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
+        });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler);
+        let handler =
+            network.wire_up(handler_b, Handler::for_peer(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::for_test(3001)));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: (*out).clone(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::default()).assert_sleeping();
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::from(NoBlocks))))],
+        );
+        running.run(Run::skip_wakeups()).assert_idle();
+        running.enqueue_msg(&handler, [Inputs::Internal(Internal::Timeout)]);
+        running.run(Run::skip_wakeups()).assert_idle();
     }
 }

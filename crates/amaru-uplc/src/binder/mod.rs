@@ -25,11 +25,11 @@ use crate::{arena::Arena, flat};
 pub trait Binder<'a>: std::fmt::Debug {
     // this might not need to return a Result
     fn var_encode(&self, e: &mut flat::Encoder) -> Result<(), flat::FlatEncodeError>;
-    fn var_decode(arena: &'a Arena, d: &mut flat::Decoder) -> Result<&'a Self, flat::FlatDecodeError>;
+    fn var_decode(arena: &'a Arena, d: &mut flat::Decoder<'_>) -> Result<&'a Self, flat::FlatDecodeError>;
 
     // this might not need to return a Result
     fn parameter_encode(&self, e: &mut flat::Encoder) -> Result<(), flat::FlatEncodeError>;
-    fn parameter_decode(arena: &'a Arena, d: &mut flat::Decoder) -> Result<&'a Self, flat::FlatDecodeError>;
+    fn parameter_decode(arena: &'a Arena, d: &mut flat::Decoder<'_>) -> Result<&'a Self, flat::FlatDecodeError>;
 }
 
 pub trait Eval<'a>: Binder<'a> {

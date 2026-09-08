@@ -20,9 +20,7 @@ use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 
 use crate::{
-    blockfetch::{
-        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator, register_blockfetch_responder,
-    },
+    blockfetch::{self, BlockFetchMessage, Blocks, register_blockfetch_initiator, register_blockfetch_responder},
     chainsync::{
         self, ChainSyncInitiatorMsg, InitiatorResult, register_chainsync_initiator, register_chainsync_responder,
     },
@@ -107,7 +105,7 @@ struct StateResponder {
     handshake: StageRef<Inputs<Void>>,
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
-    blockfetch_responder: StageRef<StreamBlocks>,
+    blockfetch_responder: StageRef<Void>,
     peer_sharing_responder: StageRef<crate::peer_sharing::ResponderMessage>,
 }
 
@@ -363,6 +361,8 @@ async fn do_handshake(
     )
     .await;
 
+    eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
+
     let keepalive = register_keepalive(
         *role,
         peer,
@@ -398,7 +398,7 @@ async fn do_handshake(
         let blockfetch_initiator = register_blockfetch_initiator(
             &muxer,
             peer,
-            *conn_id,
+            config.blockfetch_pipeline_n,
             &eff,
             ConnectionMessage::ChildDied(ChildId::BlockFetch),
         )
@@ -435,7 +435,7 @@ async fn do_handshake(
         )
         .await;
         let blockfetch_responder =
-            register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
+            register_blockfetch_responder(&muxer, peer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
         let peer_sharing_responder = register_peer_sharing_responder(
             &muxer,
             peer,
@@ -468,7 +468,10 @@ pub fn register_deserializers() -> DeserializerGuards {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::PREPROD_ERA_HISTORY;
-    use amaru_pure_stage::{Effect, StageGraph, simulation::SimulationBuilder};
+    use amaru_pure_stage::{
+        Effect, StageGraph,
+        simulation::{Run, SimulationBuilder},
+    };
     use tokio::runtime::Runtime;
 
     use super::*;
@@ -530,22 +533,20 @@ mod tests {
             move |eff| matches!(eff, Effect::Schedule { at_stage, .. } if *at_stage == stage_name),
         );
 
-        let effect = running.run_until_blocked().assert_breakpoint("schedule");
+        running.run(Run::skip_wakeups()).assert_breakpoint("schedule");
 
         let reconnect_delay = ManagerConfig::default().reconnect_delay;
-        if let Effect::Schedule { id, .. } = &effect {
+        {
+            let hit = running.breakpoint_effect();
+            let Effect::Schedule { id, .. } = hit.effect() else {
+                panic!("Expected Schedule effect, got {:?}", hit.effect());
+            };
             let delay = id.time().checked_since(start_time).unwrap();
             assert!(delay >= reconnect_delay);
-        } else {
-            panic!("Expected Schedule effect");
         }
 
-        // Clear the breakpoint before continuing
         running.clear_breakpoint("schedule");
-        running.handle_effect(effect);
-
-        // Let the simulation continue until blocked (will hit the scheduled wake up)
-        running.run_until_sleeping_or_blocked().assert_sleeping();
+        running.run(Run::default()).assert_sleeping();
 
         // Verify state remains the same
         let state = running.get_state(&connection_stage).unwrap();

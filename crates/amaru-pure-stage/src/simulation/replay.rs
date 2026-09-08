@@ -243,6 +243,7 @@ impl Replay {
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
                         scheduled_pending: 0,
+                        timeouts: Default::default(),
                         supervised_by: at_stage,
                         tombstone,
                     },
@@ -342,6 +343,9 @@ fn deserialize_effect(effect: Effect) -> anyhow::Result<Effect> {
         }
         Effect::Schedule { at_stage, msg, id } => {
             Ok(Effect::Schedule { at_stage, msg: deserialize_send_data_value(msg)?, id })
+        }
+        Effect::SetTimeout { at_stage, slot, delay, msg } => {
+            Ok(Effect::SetTimeout { at_stage, slot, delay, msg: deserialize_send_data_value(msg)? })
         }
         Effect::WireStage { at_stage, name, initial_state, tombstone } => Ok(Effect::WireStage {
             at_stage,

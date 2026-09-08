@@ -185,7 +185,7 @@ fn encode_constant_tag(e: &mut Encoder, tag: &u8) -> Result<(), FlatEncodeError>
     safe_encode_bits(e, tag::CONST_TAG_WIDTH, *tag)
 }
 
-fn encode_type(typ: &Type, bytes: &mut Vec<u8>) -> Result<(), FlatEncodeError> {
+fn encode_type(typ: &Type<'_>, bytes: &mut Vec<u8>) -> Result<(), FlatEncodeError> {
     match typ {
         Type::Integer => bytes.push(tag::INTEGER),
         Type::ByteString => bytes.push(tag::BYTE_STRING),
@@ -259,7 +259,7 @@ fn encode_constant_value<'a>(e: &mut Encoder, x: &'a &Constant<'a>) -> Result<()
     Ok(())
 }
 
-fn encode_value(e: &mut Encoder, v: &LedgerValue) -> Result<(), FlatEncodeError> {
+fn encode_value(e: &mut Encoder, v: &LedgerValue<'_>) -> Result<(), FlatEncodeError> {
     for entry in v.entries {
         e.one();
 
@@ -315,7 +315,7 @@ mod tests {
         let bytes_hex = "0101003370090011aab9d37549810cd8668218809f4100420101ff0001";
         let bytes = hex::decode(bytes_hex).unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let encoded = encode(program);
@@ -355,7 +355,7 @@ mod tests {
         let bytes_hex = "0101003370090011bad357426aae78dd526112d8799fc24c033b2e3c9fd0803ce7ffffffff0001";
         let bytes = hex::decode(bytes_hex).unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let encoded = encode(program);
@@ -395,7 +395,7 @@ mod tests {
         let bytes_hex = "0101003370490021bad357426ae88dd62601049f070eff0001";
         let bytes = hex::decode(bytes_hex).unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let encoded = encode(program);

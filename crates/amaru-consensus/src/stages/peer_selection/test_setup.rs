@@ -40,8 +40,8 @@ pub fn tm_add_stage_starts_with(prefix: &str) -> TraceMatch<'static> {
     let prefix = prefix.to_string();
     let description = format!("AddStage name starts with {}", prefix);
     TraceMatch::Property(
-        Box::new(move |e| {
-            let TraceEntry::Suspend(Effect::AddStage { name, .. }) = e else {
+        Box::new(move |src| {
+            let Some(Effect::AddStage { name, .. }) = src.suspend() else {
                 return false;
             };
             name.as_str().starts_with(&prefix)

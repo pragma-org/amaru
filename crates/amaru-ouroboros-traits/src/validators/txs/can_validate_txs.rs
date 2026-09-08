@@ -23,7 +23,6 @@ pub type ResourceTxValidation = Arc<dyn CanValidateTxs>;
 
 /// This trait abstract over the possibility to validate transactions.
 /// Concretely speaking this will be done by the ledger.
-#[expect(clippy::double_must_use)]
 #[async_trait]
 pub trait CanValidateTxs: Send + Sync {
     async fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;

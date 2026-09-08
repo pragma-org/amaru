@@ -14,6 +14,7 @@
 
 use std::{
     fmt::{Debug, Formatter},
+    num::NonZeroU8,
     path::PathBuf,
     str::FromStr,
     sync::Arc,
@@ -80,6 +81,8 @@ pub struct NodeTestConfig {
     pub keep_persisted_best_chain: bool,
     /// When set, overrides [`Config::peer_mix`] (production default includes shared/snapshot/ledger).
     pub peer_mix: Option<String>,
+    /// BlockFetch initiator pipeline depth forwarded to [`Config::blockfetch_pipeline_n`].
+    pub blockfetch_pipeline_n: NonZeroU8,
     /// Keeps a dummy ledger tempdir alive until the last node graph holding it is dropped.
     dummy_ledger: Arc<Mutex<Option<Arc<tempfile::TempDir>>>>,
 }
@@ -109,6 +112,7 @@ impl Debug for NodeTestConfig {
             .field("target_upstream_peers", &self.target_upstream_peers)
             .field("keep_persisted_best_chain", &self.keep_persisted_best_chain)
             .field("peer_mix", &self.peer_mix)
+            .field("blockfetch_pipeline_n", &self.blockfetch_pipeline_n)
             .finish()
     }
 }
@@ -141,6 +145,7 @@ impl Default for NodeTestConfig {
             target_upstream_peers: None,
             keep_persisted_best_chain: false,
             peer_mix: None,
+            blockfetch_pipeline_n: NonZeroU8::MIN,
             dummy_ledger: Arc::new(Mutex::new(None)),
         }
     }
@@ -299,6 +304,12 @@ impl NodeTestConfig {
         self
     }
 
+    /// Set BlockFetch initiator pipeline depth (`1` is lock-step, `N > 1` pipelines).
+    pub fn with_blockfetch_pipeline_n(mut self, n: NonZeroU8) -> Self {
+        self.blockfetch_pipeline_n = n;
+        self
+    }
+
     /// Given a list of block headers:
     ///
     /// - Store them in the chain store.
@@ -354,6 +365,7 @@ impl NodeTestConfig {
         if let Some(mix) = &self.peer_mix {
             config.peer_mix = mix.parse().map_err(|e| anyhow::anyhow!("invalid peer-mix `{mix}`: {e}"))?;
         }
+        config.blockfetch_pipeline_n = self.blockfetch_pipeline_n;
 
         if let Some(ledger_dir) = &self.ledger_dir {
             config.ledger_config.ledger_store = RocksDbConfig::new(ledger_dir.clone());

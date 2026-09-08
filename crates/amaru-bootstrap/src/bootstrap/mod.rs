@@ -718,7 +718,6 @@ async fn import_node_snapshot_archive(
     import_node_snapshot_source(network, global_parameters, snapshot_archive, ledger_dir, nonce_tail).await
 }
 
-#[expect(clippy::unwrap_used)]
 async fn import_node_snapshot_source(
     network: NetworkName,
     global_parameters: &GlobalParameters,
@@ -744,25 +743,14 @@ async fn import_node_snapshot_source(
     };
 
     let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
-    let global_parameters = global_parameters.clone();
-    let archive_path = archive_path.to_path_buf();
-    let builder = std::thread::Builder::new().stack_size(10_000_000);
-
-    let (db, epoch, chain_state) = builder
-        .spawn(move || {
-            import_node_snapshot_archive_data(
-                &archive_path,
-                &db,
-                network,
-                &global_parameters,
-                nonce_tail,
-                previous_accounts,
-            )
-            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
-        })
-        .unwrap()
-        .join()
-        .unwrap()?;
+    let (epoch, _point, chain_state) = import_node_snapshot_archive_data(
+        archive_path,
+        &db,
+        network,
+        global_parameters,
+        nonce_tail,
+        previous_accounts,
+    )?;
 
     db.next_snapshot(epoch)?;
 

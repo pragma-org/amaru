@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 //! Procedural macros for observability instrumentation in amaru
 //!
 //! This crate provides compile-time validated tracing schemas and instrumentation.

@@ -35,7 +35,10 @@ impl<'a> Binder<'a> for Name<'a> {
         Ok(())
     }
 
-    fn var_decode(arena: &'a Arena, d: &mut crate::flat::Decoder) -> Result<&'a Self, crate::flat::FlatDecodeError> {
+    fn var_decode(
+        arena: &'a Arena,
+        d: &mut crate::flat::Decoder<'_>,
+    ) -> Result<&'a Self, crate::flat::FlatDecodeError> {
         let text = d.utf8(arena)?;
         let index = d.word()?;
 
@@ -50,7 +53,7 @@ impl<'a> Binder<'a> for Name<'a> {
 
     fn parameter_decode(
         arena: &'a Arena,
-        d: &mut crate::flat::Decoder,
+        d: &mut crate::flat::Decoder<'_>,
     ) -> Result<&'a Self, crate::flat::FlatDecodeError> {
         Self::var_decode(arena, d)
     }

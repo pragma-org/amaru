@@ -25,8 +25,10 @@ use std::{
 use amaru_pure_stage::{
     DeserializerGuards, DurationDist, ExternalEffect, ExternalEffectAPI, Resources, StageGraph, assert_trace_contains,
     assert_trace_does_not_contain, assert_trace_match, assert_trace_match_filter, register_data_deserializer,
-    register_effect_deserializer, simulation::SimulationBuilder, tm_clock, tm_clock_between, tm_effect,
-    tm_external_effect, tm_external_effect_any, tm_input, tm_resume, tm_resume_external, tm_resume_unit, tm_state,
+    register_effect_deserializer,
+    simulation::{Run, SimulationBuilder},
+    tm_clock, tm_clock_between, tm_effect, tm_external_effect, tm_external_effect_any, tm_input, tm_resume,
+    tm_resume_external, tm_resume_unit, tm_state,
     trace_buffer::TraceBuffer,
 };
 
@@ -113,7 +115,7 @@ fn run_once<E: ExternalEffectAPI<Response = ()> + Default>(
     let mut running = network.run(rt.handle());
 
     running.enqueue_msg(&stage, [1]);
-    running.run_until_blocked_incl_effects().assert_idle();
+    running.run(Run::skip_and_resolve()).assert_idle();
     (running, guards)
 }
 
@@ -257,16 +259,13 @@ fn sampled_delta_is_scheduled_when_the_effect_is_issued() {
     let mut running = network.run(rt.handle());
 
     running.enqueue_msg(&stage, [1]);
-    running.resume_receive(&stage).unwrap();
-    let _effect = running.effect();
+    running.run(Run::default()).assert_sleeping();
 
-    // Wakeup exists before any result is provided — δ was sampled at issue time.
+    // Wakeup exists before the result is forced — δ was sampled at issue time.
     assert_eq!(running.next_wakeup().map(|t| t.sim_elapsed()), Some(Duration::from_secs(10)));
     assert_eq!(running.now().sim_elapsed(), Duration::ZERO);
 
-    running.resume_external::<ConstWork>(stage.name(), ()).unwrap();
-    assert_eq!(running.now().sim_elapsed(), Duration::ZERO);
-    running.run_until_blocked().assert_idle();
+    running.run(Run::skip_wakeups()).assert_idle();
     assert_eq!(running.now().sim_elapsed(), Duration::from_secs(10));
 }
 
@@ -286,12 +285,11 @@ fn until_resolved_does_not_schedule_a_wakeup() {
     let mut running = network.run(rt.handle());
 
     running.enqueue_msg(&stage, [1]);
-    running.resume_receive(&stage).unwrap();
-    let _effect = running.effect();
+    running.run(Run::default()).assert_busy(["work"]);
 
     assert_eq!(running.next_wakeup(), None);
-    running.resume_external::<ResolvedWork>(stage.name(), ()).unwrap();
-    running.effect().assert_receive(&stage);
+    running.complete_external(stage.name(), ());
+    running.run(Run::default()).assert_idle();
     assert_eq!(running.now().sim_elapsed(), Duration::ZERO);
 }
 
@@ -360,14 +358,12 @@ fn sampled_deadline_forces_run_before_other_sim_steps() {
     let mut running = network.run(rt.handle());
 
     running.enqueue_msg(&stage, [1]);
-    running.resume_receive(&stage).unwrap();
-    let effect = running.effect();
-    running.handle_effect(effect);
+    running.run(Run::default()).assert_sleeping();
 
     assert!(!COMPUTED_AT_DEADLINE.load(Ordering::SeqCst), "run() must not execute before the sampled deadline");
     assert_eq!(running.next_wakeup().map(|t| t.sim_elapsed()), Some(Duration::from_secs(10)));
 
-    running.run_until_blocked().assert_idle();
+    running.run(Run::skip_wakeups()).assert_idle();
     assert!(COMPUTED_AT_DEADLINE.load(Ordering::SeqCst), "run() must be forced when the deadline fires");
     assert_eq!(running.now().sim_elapsed(), Duration::from_secs(10));
 }

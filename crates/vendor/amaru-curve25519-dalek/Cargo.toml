@@ -8,7 +8,6 @@ name = "amaru-curve25519-dalek"
 version = "3.2.0"
 authors = ["Isis Lovecruft <isis@patternsinthevoid.net>",
            "Henry de Valence <hdevalence@hdevalence.ca>"]
-readme = "README.md"
 license = "BSD-3-Clause"
 repository = "https://github.com/pragma-org/amaru"
 

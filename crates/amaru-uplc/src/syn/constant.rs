@@ -232,6 +232,7 @@ fn value_parser<'a>() -> impl Parser<'a, &'a str, TempConstant<'a>, Extra<'a>> {
                 .padded()
                 .map_with(|(maybe_negative, v), e: &mut MapExtra<'a, '_>| {
                     let state = e.state();
+                    #[expect(clippy::unwrap_used)]
                     let mut integer = Integer::from_str_radix(v, 10).unwrap();
                     if maybe_negative.is_some() {
                         integer = -integer;
@@ -244,6 +245,7 @@ fn value_parser<'a>() -> impl Parser<'a, &'a str, TempConstant<'a>, Extra<'a>> {
             just('0').padded().to_slice().map_with(|v, e: &mut MapExtra<'a, '_>| {
                 let state = e.state();
 
+                #[expect(clippy::unwrap_used)]
                 let value = v.trim().parse::<i128>().unwrap();
 
                 let i = constant::integer_from(state.arena, value);

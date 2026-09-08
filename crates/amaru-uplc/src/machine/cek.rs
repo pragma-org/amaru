@@ -187,6 +187,7 @@ impl<'a> Machine<'a> {
         }
     }
 
+    #[expect(clippy::wildcard_enum_match_arm)]
     pub fn return_compute<V>(
         &mut self,
         context: &'a Context<'a, V>,
@@ -276,6 +277,7 @@ impl<'a> Machine<'a> {
         }
     }
 
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn force_evaluate<V>(
         &mut self,
         context: &'a Context<'a, V>,
@@ -307,6 +309,7 @@ impl<'a> Machine<'a> {
         }
     }
 
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn apply_evaluate<V>(
         &mut self,
         context: &'a Context<'a, V>,
@@ -381,6 +384,7 @@ impl<'a> Machine<'a> {
         V: Eval<'a>,
     {
         let empty: &'a [&'a Value<'a, V>] = self.arena.alloc(BumpVec::new_in(self.arena.as_bump()));
+        #[expect(clippy::wildcard_enum_match_arm)]
         match constant {
             Constant::Unit => Ok((0, 1, empty)),
             Constant::Boolean(false) => Ok((0, 2, empty)),

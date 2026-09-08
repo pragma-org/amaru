@@ -53,6 +53,7 @@ fn with_env<'a, V>(arena: &'a Arena, lam_cnt: usize, env: &'a Env<'a, V>, term: 
 where
     V: Eval<'a>,
 {
+    #[expect(clippy::wildcard_enum_match_arm)]
     match term {
         Term::Var(name) => {
             let index = name.index();

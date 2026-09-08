@@ -2438,19 +2438,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::protocols::blockfetch::initiator`
+## target: `amaru::protocols`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `protocol_violation` | `TRACE` | public | The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}. | reason | max_blocks, bytes |
+| `invalid_input` | `TRACE` | public | A protocol handler received invalid input | proto, peer, state, input |  |
 
-<details><summary>span: `protocol_violation`</summary>
+<details><summary>span: `invalid_input`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `reason` | `string` | ✓ |
-| `max_blocks` | `integer` |  |
-| `bytes` | `integer` |  |
+| `proto` | `string` | ✓ |
+| `peer` | `string` | ✓ |
+| `state` | `string` | ✓ |
+| `input` | `string` | ✓ |
 
 </details>
 

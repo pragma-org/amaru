@@ -189,7 +189,9 @@ pub fn build_stage_graph(
             manager,
             Manager::new(
                 config.network_magic,
-                ManagerConfig::default().with_tx_submission_params(config.tx_submission_responder_params),
+                ManagerConfig::default()
+                    .with_tx_submission_params(config.tx_submission_responder_params)
+                    .with_blockfetch_pipeline_n(config.blockfetch_pipeline_n),
                 Arc::new(era_history.clone()),
                 track_peers_input,
                 mempool_stage.clone(),

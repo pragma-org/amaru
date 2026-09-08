@@ -14,24 +14,25 @@
 
 use std::fmt;
 
-use crate::{Effect, Instant, Name};
+use crate::{Instant, Name};
 
-/// Classification of why [`SimulationRunning::run_until_blocked`](crate::simulation::SimulationRunning::run_until_blocked) has stopped.
+/// Classification of why [`SimulationRunning::run`](crate::simulation::SimulationRunning::run) has stopped.
 #[derive(Debug, PartialEq)]
 pub enum Blocked {
-    /// All stages are suspended on [`Effect::Receive`].
+    /// All stages are suspended on [`crate::Effect::Receive`].
     Idle,
     /// The simulation is waiting for a wakeup with no external effects pending.
     Sleeping { next_wakeup: Instant },
-    /// All stages are suspended on either [`Effect::Receive`] or [`Effect::Send`].
+    /// All stages are suspended on either [`crate::Effect::Receive`] or [`crate::Effect::Send`].
     Deadlock(Vec<SendBlock>),
-    /// The given breakpoint was hit.
-    Breakpoint(Name, Effect),
-    /// The given stages are suspended on effects other than [`Effect::Receive`]
-    /// while none are suspended on [`Effect::Send`]. The given number of
+    /// A breakpoint was hit. Inspect with [`SimulationRunning::breakpoint_effect`](crate::simulation::SimulationRunning::breakpoint_effect),
+    /// then [`run`](crate::simulation::SimulationRunning::run) again to interpret the effect.
+    Breakpoint(Name),
+    /// The given stages are suspended on effects other than [`crate::Effect::Receive`]
+    /// while none are suspended on [`crate::Effect::Send`]. The given number of
     /// external effects are currently unresolved.
     ///
-    /// `stages` may be empty when every stage is on [`Effect::Receive`] but
+    /// `stages` may be empty when every stage is on [`crate::Effect::Receive`] but
     /// detached externals are still in flight (the airlock is free; `run()` is not).
     Busy { external_effects: usize, stages: Vec<Name> },
     /// The given stage has terminated.
@@ -107,9 +108,9 @@ impl Blocked {
 
     /// Assert that the blocking reason is `Breakpoint` by the given name.
     #[track_caller]
-    pub fn assert_breakpoint(self, name: impl AsRef<str>) -> Effect {
+    pub fn assert_breakpoint(&self, name: impl AsRef<str>) {
         match self {
-            Blocked::Breakpoint(n, eff) if name_match(&n, name.as_ref()) => eff,
+            Blocked::Breakpoint(n) if name_match(n, name.as_ref()) => {}
             _ => panic!("expected breakpoint `{}`, got {:?}", name.as_ref(), self),
         }
     }

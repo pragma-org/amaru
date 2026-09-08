@@ -6565,31 +6565,34 @@
       "description": "The transaction submission HTTP server stopped with an error",
       "public": true
     },
-    "amaru::protocols::blockfetch::initiator::PROTOCOL_VIOLATION": {
+    "amaru::protocols::INVALID_INPUT": {
       "type": "object",
       "properties": {
-        "reason": {
+        "proto": {
           "type": "string"
         },
-        "max_blocks": {
-          "type": "integer"
+        "peer": {
+          "type": "string"
         },
-        "bytes": {
-          "type": "integer"
+        "state": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
         }
       },
       "required": [
-        "reason"
+        "proto",
+        "peer",
+        "state",
+        "input"
       ],
-      "optional": [
-        "max_blocks",
-        "bytes"
-      ],
+      "optional": [],
       "additionalProperties": false,
-      "name": "protocol_violation",
+      "name": "invalid_input",
       "level": "TRACE",
-      "target": "amaru::protocols::blockfetch::initiator",
-      "description": "The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}.",
+      "target": "amaru::protocols",
+      "description": "A protocol handler received invalid input",
       "public": true
     },
     "amaru::protocols::chainsync::initiator::ROLLBACK_POINT_NOT_FOUND": {
