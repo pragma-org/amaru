@@ -1,0 +1,1 @@
+{"well_formed":true,"era":"conway","kind":"transaction","description":"transaction with one stake registration certificate encoded as an indefinite-length array, inside an indefinite-length certificate set","source":"handcrafted","exact_re_encoding":false}

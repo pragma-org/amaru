@@ -30,12 +30,12 @@ pub enum GovernanceAction {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for GovernanceAction {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        // NOTE: the array length is not asserted here; see the equivalent note on `Certificate`.
-        cbor::heterogeneous_array(d, |d, _assert_len| {
+        cbor::heterogeneous_array(d, |d, assert_len| {
             let variant = d.u16()?;
 
             match variant {
                 0 => {
+                    assert_len(4)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
@@ -43,23 +43,27 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Governance
                 }
 
                 1 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::HardForkInitiation(a, b))
                 }
 
                 2 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::TreasuryWithdrawals(a, b))
                 }
 
                 3 => {
+                    assert_len(2)?;
                     let a = d.decode_with(ctx)?;
                     Ok(Self::NoConfidence(a))
                 }
 
                 4 => {
+                    assert_len(5)?;
                     let a = d.decode_with(ctx)?;
                     let SerialisedAsSet(b) = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
@@ -68,12 +72,16 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Governance
                 }
 
                 5 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::NewConstitution(a, b))
                 }
 
-                6 => Ok(Self::Information),
+                6 => {
+                    assert_len(1)?;
+                    Ok(Self::Information)
+                }
                 _ => Err(cbor::decode::Error::message("unknown variant id for governance action")),
             }
         })
@@ -138,5 +146,23 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GovernanceAction {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+    use crate::from_cbor_no_leftovers;
+
+    #[test_case(&[0x81, 0x06] => matches Ok(GovernanceAction::Information))]
+    #[test_case(&[0x9f, 0x06, 0xff] => matches Ok(GovernanceAction::Information))]
+    #[test_case(&[0x82, 0x06, 0x00] => matches Err(e) if e.to_string().contains("array length mismatch"))]
+    #[test_case(&[0x9f, 0x06, 0x00, 0xff] => matches Err(e) if e.to_string().contains("excess terms"))]
+    #[test_case(&[0x82, 0x03, 0xf6] => matches Ok(GovernanceAction::NoConfidence(None)))]
+    #[test_case(&[0x83, 0x03, 0xf6, 0xf6] => matches Err(e) if e.to_string().contains("array length mismatch"))]
+    fn decode_checks_array_length(bytes: &[u8]) -> Result<GovernanceAction, cbor::decode::Error> {
+        from_cbor_no_leftovers(bytes)
     }
 }
