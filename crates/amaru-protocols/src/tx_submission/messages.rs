@@ -603,7 +603,7 @@ mod tests {
     }
 
     prop_compose! {
-        fn any_tagged_tx()(n in 0u64..=1000) -> EraTaggedTx {
+        fn any_tagged_tx()(n in 0u16..=1000) -> EraTaggedTx {
             EraTaggedTx { era: EraName::Conway, tx: create_transaction(n) }
         }
     }
