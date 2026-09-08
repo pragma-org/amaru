@@ -62,6 +62,8 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
+- **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
+- **amaru-kernel**: reject transaction inputs whose index does not fit in 16 bits.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 

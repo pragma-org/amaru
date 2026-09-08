@@ -239,7 +239,7 @@ impl NodeTestConfig {
         self
     }
 
-    pub fn with_txs(self, txs_nb: usize) -> Self {
+    pub fn with_txs(self, txs_nb: u16) -> Self {
         create_transactions_in_mempool(self.mempool.clone(), txs_nb);
         self
     }
@@ -434,8 +434,8 @@ impl NodeTestConfig {
 pub const RESPONDER_BLOCKS_NB: usize = 10;
 pub const INITIATOR_BLOCKS_NB: usize = 4;
 
-pub const RESPONDER_TXS_NB: usize = 10;
-pub const INITIATOR_TXS_NB: usize = 10;
+pub const RESPONDER_TXS_NB: u16 = 10;
+pub const INITIATOR_TXS_NB: u16 = 10;
 
 /// By construction we return the same tx ids as the ones created in the function above
 pub fn get_tx_ids() -> Vec<TransactionId> {

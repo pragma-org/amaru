@@ -115,7 +115,7 @@ pub use cardano::{
     },
     governance_action::GovernanceAction,
     hash::{self, Hash, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, size},
-    header::Header,
+    header::{Header, KES_SIGNATURE, KesSignature},
     header_body::HeaderBody,
     int::Int,
     language_view::LanguageView,

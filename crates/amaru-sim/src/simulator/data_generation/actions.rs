@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_generate_random_walks() {
-        let seed = 45;
+        let seed = 2;
         let tree = generate_tree_of_headers(seed, 10);
         let peers = (1..=3).map(|i| Peer::for_test(3000 + i)).collect::<Vec<_>>();
         let generated_actions = generate_random_walks(seed, &tree, &peers);

@@ -52,7 +52,7 @@ pub mod tests {
     use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, TransactionInput, Value};
 
     #[expect(clippy::unwrap_used)]
-    pub fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
+    pub fn fake_input(transaction_id: &str, index: u16) -> TransactionInput {
         TransactionInput { transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()), index }
     }
 

@@ -73,7 +73,7 @@ impl Configuration {
         self
     }
 
-    pub(super) fn with_txs(self, txs_nb: u64) -> Self {
+    pub(super) fn with_txs(self, txs_nb: u16) -> Self {
         create_transactions_in_mempool(self.mempool.as_ref(), txs_nb);
         self
     }
@@ -126,8 +126,8 @@ fn initialize_chain_store(chain_length: usize, chain_store: &dyn ChainStore) -> 
     Ok(())
 }
 
-pub const RESPONDER_TXS_NB: u64 = 10;
-pub const INITIATOR_TXS_NB: u64 = 10;
+pub const RESPONDER_TXS_NB: u16 = 10;
+pub const INITIATOR_TXS_NB: u16 = 10;
 
 /// By construction we return the same tx ids as the ones created in the function above
 pub(super) fn get_tx_ids() -> Vec<TransactionId> {
