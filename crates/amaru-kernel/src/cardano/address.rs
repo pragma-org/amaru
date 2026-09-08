@@ -222,7 +222,7 @@ parse_shelley_fn!(parse_type_7, ScriptHash);
 // type 8 (1000) are Byron addresses
 fn parse_type_8(header: u8, payload: &[u8]) -> Option<Address> {
     let vec = [&[header], payload].concat();
-    let inner = cbor::decode(&vec).ok()?;
+    let inner = cbor::from_cbor_no_leftovers(&vec).ok()?;
     Some(Address::Byron(inner))
 }
 

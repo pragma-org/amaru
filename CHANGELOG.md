@@ -65,6 +65,7 @@ Other guiding principles:
 - **amaru-kernel**: reject bootstrap witnesses whose chain code is not exactly 32 bytes from protocol version 12 onwards, and no longer panic when hashing a witness whose chain code has another length.
 - **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
 - **amaru-kernel**: reject indefinite-length CBOR arrays that hold extra elements beyond the record they encode, anywhere in a block or transaction.
+- **amaru-kernel**: reject malformed Byron addresses in transaction outputs.
 
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
