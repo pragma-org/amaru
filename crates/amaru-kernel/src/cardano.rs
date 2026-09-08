@@ -25,6 +25,7 @@ pub mod bootstrap_witness;
 pub mod bytes;
 pub mod certificate;
 pub mod certificate_pointer;
+pub mod chain_code;
 pub mod consensus_parameters;
 pub mod constitution;
 pub mod constitutional_committee;
