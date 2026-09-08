@@ -65,6 +65,7 @@ Other guiding principles:
 - **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
 - **amaru-kernel**: reject transaction inputs whose index does not fit in 16 bits.
 - **amaru-kernel**: reject bootstrap witnesses whose chain code is not exactly 32 bytes from protocol version 12 onwards, and no longer panic when hashing a witness whose chain code has another length.
+- **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 
