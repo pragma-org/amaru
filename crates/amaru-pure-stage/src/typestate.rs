@@ -30,7 +30,7 @@
 //! star. Use [`Session::discard_repeat`](session::Session::discard_repeat)
 //! after the last iteration.
 //!
-//! **Limits:** parallel and choice are flat `Cons` lists (not tree-associative).
+//! **Limits:** parallel and choice are right-nested pair lists (not tree-associative).
 //! Sequences are ordered. When several parallel heads match, the **leftmost**
 //! wins. Two choice alternatives with the same head are ambiguous (payload
 //! inference would otherwise stick to the first alternative). `finish` strips
@@ -49,18 +49,19 @@ pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
 };
-pub use list::{CanFinish, Clean, Cons, DiscardRepeat, FmtPar, Here, Nil, Select, Then};
+pub use list::{CanFinish, Clean, Cons, DiscardRepeat, FinishIn, FmtPar, Here, Nil, Select, Take, Then};
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleCall, IntoRoleMail, Role, RoleTag};
 pub use session::{
-    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, initial_state,
+    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, SendAnyOp, Session, SessionOps, State,
+    To, initial_state,
 };
 
 pub mod prelude {
     pub use super::{
         AddStage, Call, CancelSchedule, ClearTimeout, Clock, Cons, External, ExtractInput, FromMailbox, IntoRoleCall,
         IntoRoleMail, Nil, Occupancy, OccupancyOf, OnReceive, Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny,
-        Session, SetTimeout, State, Terminate, To, Wait, initial_state,
+        Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
     pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
 }
