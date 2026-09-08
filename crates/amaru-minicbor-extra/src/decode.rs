@@ -115,10 +115,12 @@ pub fn tee<'d, A>(
 // Array
 // ----------------------------------------------------------------------------
 
-/// Decode any heterogeneous CBOR array, irrespective of whether they're indefinite or definite.
+/// Decode a heterogeneous CBOR array, in either the definite-length or the indefinite-length form.
 ///
-/// FIXME(cbor): Allow callers to check that the length is not static, but simply matches what is
-/// advertised; e.g. using `Option<u64>` as a callback.
+/// `elems` decodes the elements and asserts the expected element count through its second
+/// argument, which compares against the advertised length of a definite-length array and is a
+/// no-op for an indefinite-length one. An indefinite-length array must end with a break right
+/// after the decoded elements.
 pub fn heterogeneous_array<'d, A>(
     d: &mut cbor::Decoder<'d>,
     elems: impl FnOnce(
@@ -131,7 +133,9 @@ pub fn heterogeneous_array<'d, A>(
     match len {
         None => {
             let result = elems(d, &|_| Ok(()))?;
-            decode_break(d, len)?;
+            if !decode_break(d, len)? {
+                return Err(cbor::decode::Error::message("excess terms in indefinite-length array"));
+            }
             Ok(result)
         }
         Some(len) => elems(
@@ -180,15 +184,12 @@ pub fn collect_array_item_bytes(decoder: &mut cbor::Decoder<'_>) -> Result<Vec<V
     Ok(items)
 }
 
-/// This function checks the size of an array containing a tagged value.
-/// The `label` parameter is used to identify which variant is being checked.
+/// Check the advertised length of a definite-length array whose first element is a variant
+/// label, as in network mini-protocol messages; `label` only serves the error message.
 ///
-/// FIXME(cbor): suspicious check_tagged_array_length
-///
-/// This function is a code smell and seems to indicate that we are manually decoding def
-/// array somewhere, instead of using the heterogeneous_array above to also deal indef arrays.
-/// There might be a good reason why this function exists; I haven't checked, but leaving a note
-/// for later to check.
+/// The Haskell network codecs read these arrays with cborg's `decodeListLen`, which accepts the
+/// definite-length form only, so an indefinite-length array (`actual == None`) is rejected. Ledger
+/// records accept both forms and are decoded with [`heterogeneous_array`] instead.
 pub fn check_tagged_array_length(label: usize, actual: Option<u64>, expected: u64) -> Result<(), decode::Error> {
     if actual != Some(expected) {
         Err(decode::Error::message(format!("expected array length {expected} for label {label}, got: {actual:?}")))
@@ -419,6 +420,38 @@ mod tests {
 
             assert!(from_cbor::<AsDefinite<Foo>>(&bytes).is_none());
             assert!(from_cbor::<AsIndefinite<Foo>>(&bytes).is_none());
+        }
+
+        #[test]
+        fn excess_indefinite() {
+            #[derive(Debug, PartialEq, Eq)]
+            struct TestCase<A>(A);
+
+            impl<C> cbor::encode::Encode<C> for TestCase<&Foo> {
+                fn encode<W: cbor::encode::Write>(
+                    &self,
+                    e: &mut cbor::Encoder<W>,
+                    ctx: &mut C,
+                ) -> Result<(), cbor::encode::Error<W::Error>> {
+                    e.begin_array()?;
+                    e.encode_with(self.0.field0, ctx)?;
+                    e.encode_with(self.0.field1, ctx)?;
+                    e.encode_with(0_u8, ctx)?;
+                    e.end()?;
+                    Ok(())
+                }
+            }
+
+            impl<'d, C> cbor::decode::Decode<'d, C> for TestCase<Foo> {
+                fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+                    heterogeneous_array(d, |d, assert_len| {
+                        assert_len(2)?;
+                        Ok(TestCase(Foo { field0: d.decode_with(ctx)?, field1: d.decode_with(ctx)? }))
+                    })
+                }
+            }
+
+            assert_err::<TestCase<Foo>>("excess terms", &to_cbor(&TestCase(&FIXTURE)));
         }
     }
 
