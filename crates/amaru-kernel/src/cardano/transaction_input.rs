@@ -36,7 +36,7 @@ pub struct TransactionInput {
     pub transaction_id: Hash<{ hash::size::TRANSACTION_BODY }>,
 
     #[n(1)]
-    pub index: u64,
+    pub index: u16,
 }
 
 impl fmt::Display for TransactionInput {
@@ -58,7 +58,7 @@ mod tests {
     prop_compose! {
         pub fn any_transaction_input()(
             id in any_hash32(),
-            ix in any::<u64>(),
+            ix in any::<u16>(),
         ) -> TransactionInput {
             TransactionInput { transaction_id: id, index: ix }
         }

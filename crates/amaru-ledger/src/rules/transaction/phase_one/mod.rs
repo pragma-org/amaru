@@ -220,18 +220,18 @@ where
         network,
         mem::take(&mut transaction_body.collateral_return).map(|x| vec![*x]).unwrap_or_default(),
         SupplementalDatumPolicy::Disallow,
-        |_context, _index, _value| {
+        // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
+        //
+        // NOTE(2): We must process collateral before processing normal outputs, or, store
+        // the output length elsewhere since after having consumed the outputs, the .len()
+        // will always return zero.
+        transaction_body.outputs.len(),
+        |_context, index, _value| {
             if is_valid {
                 return None;
             }
 
-            // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
-            //
-            // NOTE(2): We must process collateral before processing normal outputs, or, store
-            // the output length elsewhere since after having consumed the outputs, the .len()
-            // will always return zero.
-            let offset = transaction_body.outputs.len() as u64;
-            Some(TransactionInput { transaction_id: *transaction_id, index: offset })
+            Some(TransactionInput { transaction_id: *transaction_id, index })
         },
     )?;
     span.record(PHASE_ONE::FIELD_COLLATERAL_RETURN_MICROS, elapsed_and_reset(&mut meter));
@@ -243,6 +243,7 @@ where
         network,
         mem::take(&mut transaction_body.outputs),
         SupplementalDatumPolicy::Allow,
+        0,
         |context, index, value| {
             context.produce_value(value);
 

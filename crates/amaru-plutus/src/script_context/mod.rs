@@ -175,7 +175,7 @@ pub mod test_vectors {
         #[derive(Deserialize)]
         struct UtxoEntryHelper {
             transaction: TransactionIdHelper,
-            index: u64,
+            index: u16,
             #[serde(flatten)]
             output: MemoizedTransactionOutputWrapper,
         }
