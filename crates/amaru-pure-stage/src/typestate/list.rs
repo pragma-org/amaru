@@ -15,7 +15,9 @@
 //! Type-level remainder algebra.
 //!
 //! A remainder is a choice of [`Then<P, S>`] (`A => S | B => T | C => U`).
-//! `P` is a flat [`Cons`] of sequences (parallel, one `S` for the `Then`).
+//! `P` is a right-nested pair list of sequences (parallel, one `S` for the
+//! `Then`). [`Cons`]`<H, T>` is `(H, T)` and [`Nil`] is `()`, so rustc prints
+//! remainders as tuples rather than a named Cons encoding.
 //! [`Select`]`<E, I>` takes the **leftmost** matching head; `I` is inferred
 //! and is unique (later matches are not offered). Exclusive choice drops
 //! every `Then` that was not chosen.
@@ -30,7 +32,7 @@
 //! [`CanFinish`]: strip leading `Repeat` on each parallel branch, drop empties,
 //! succeed iff nothing remains.
 //!
-//! **Limits:** lists are flat, not tree-associative. Sequences are ordered.
+//! **Limits:** lists are right-nested pairs, not tree-associative. Sequences are ordered.
 //! Two choice alternatives with the same head are ambiguous (see [`Select`]
 //! `There` on `Then`). `finish` only strips `Repeat` at a branch prefix.
 //! [`StripRepeat`] knows `Send`, `SendAny`, `Call`, `Wait`, `Terminate`.
@@ -44,8 +46,12 @@ use super::{
     effect::{Repeat, SendAny},
 };
 
-pub struct Nil;
-pub struct Cons<H, T>(PhantomData<(H, T)>);
+/// Empty remainder list. Alias of `()` so rustc prints it as such.
+pub type Nil = ();
+
+/// Right-nested remainder cell. Alias of `(H, T)` so rustc prints
+/// `(Send<Role, T>, (Wait, ()))` instead of `Cons<Send<…>, Cons<Wait, Nil>>`.
+pub type Cons<H, T> = (H, T);
 
 /// Parallel composition `P` of sequences, then next state `S`.
 pub struct Then<P, S>(PhantomData<(P, S)>);
@@ -161,10 +167,16 @@ pub trait IsFalse {}
 impl IsFalse for If<false> {}
 
 /// Select the leftmost head `E`. `I` is inferred and unique.
+#[diagnostic::on_unimplemented(
+    message = "cannot `{E}` from this remainder",
+    label = "not allowed in the remaining session",
+    note = "`{Self}` has no leftmost `{E}`"
+)]
 pub trait Select<E, I> {
     type Rest;
 }
 
+#[diagnostic::do_not_recommend]
 impl<E, Tail, Rest> Select<E, Here> for Cons<Cons<E, Tail>, Rest>
 where
     E: NotRepeat,
@@ -173,6 +185,7 @@ where
 }
 
 /// `Repeat` at the front of a sequence: keep or unroll.
+#[diagnostic::do_not_recommend]
 impl<E, Seq, Tail, Rest> Select<E, Here> for Cons<Cons<Repeat<Seq>, Tail>, Rest>
 where
     Self: TakeRepeat<E, Here>,
@@ -181,6 +194,7 @@ where
 }
 
 /// `Repeat` that does not match `E`: discard it and search what follows.
+#[diagnostic::do_not_recommend]
 impl<E, Seq, Tail, Rest, I> Select<E, Skip<I>> for Cons<Cons<Repeat<Seq>, Tail>, Rest>
 where
     Self: TakeRepeat<E, Skip<I>>,
@@ -189,6 +203,7 @@ where
 }
 
 /// Later parallel sequence. Applies only when this head cannot serve `E`.
+#[diagnostic::do_not_recommend]
 impl<E, Eff, Tail, Rest, I> Select<E, There<I>> for Cons<Cons<Eff, Tail>, Rest>
 where
     Eff: NotRepeat,
@@ -198,6 +213,7 @@ where
     type Rest = Cons<Cons<Eff, Tail>, Rest::Rest>;
 }
 
+#[diagnostic::do_not_recommend]
 impl<E, I, P, S> Select<E, I> for Then<P, S>
 where
     P: Select<E, I>,
@@ -207,6 +223,7 @@ where
 }
 
 /// First choice alternative that can serve `E`. Other `Then`s are dropped.
+#[diagnostic::do_not_recommend]
 impl<E, I, P, S, Rest> Select<E, In<I>> for Cons<Then<P, S>, Rest>
 where
     P: Select<E, I>,
@@ -221,6 +238,7 @@ where
 /// bound here would freeze `T` to the first alternative's payload). Distinct
 /// heads therefore pick a unique `I`; two alternatives with the same head
 /// are ambiguous.
+#[diagnostic::do_not_recommend]
 impl<E, I, P, S, Rest> Select<E, There<I>> for Cons<Then<P, S>, Rest>
 where
     Rest: Select<E, I>,
@@ -254,10 +272,12 @@ pub trait TakeRepeat<E, I> {
     type Rest;
 }
 
+#[diagnostic::do_not_recommend]
 impl<E, Tail, Rest> TakeRepeat<E, Here> for Cons<Cons<Repeat<E>, Tail>, Rest> {
     type Rest = Cons<Cons<Repeat<E>, Tail>, Rest>;
 }
 
+#[diagnostic::do_not_recommend]
 impl<E, T, Tail, Rest> TakeRepeat<E, Here> for Cons<Cons<Repeat<Cons<E, T>>, Tail>, Rest>
 where
     T: Concat<Cons<Repeat<Cons<E, T>>, Tail>>,
@@ -265,6 +285,7 @@ where
     type Rest = Cons<T::Out, Rest>;
 }
 
+#[diagnostic::do_not_recommend]
 impl<E, Seq, Tail, Rest, I> TakeRepeat<E, Skip<I>> for Cons<Cons<Repeat<Seq>, Tail>, Rest>
 where
     Seq: FirstEffect,
@@ -279,10 +300,15 @@ where
 ///
 /// Used by [`Session::discard_repeat`](super::Session::discard_repeat). There is
 /// no impl when the head is not a star, so skipping is a compile error.
+#[diagnostic::on_unimplemented(
+    message = "no leading Repeat to discard in `{Self}`",
+    label = "remainder does not start with Repeat"
+)]
 pub trait DiscardRepeat {
     type Out;
 }
 
+#[diagnostic::do_not_recommend]
 impl<Seq, Tail, Rest> DiscardRepeat for Cons<Cons<Repeat<Seq>, Tail>, Rest>
 where
     Cons<Tail, Rest>: Clean,
@@ -290,10 +316,12 @@ where
     type Out = <Cons<Tail, Rest> as Clean>::Out;
 }
 
+#[diagnostic::do_not_recommend]
 impl<P: DiscardRepeat, S> DiscardRepeat for Then<P, S> {
     type Out = Then<P::Out, S>;
 }
 
+#[diagnostic::do_not_recommend]
 impl<P, S, Rest> DiscardRepeat for Cons<Then<P, S>, Rest>
 where
     Then<P, S>: DiscardRepeat,
@@ -367,13 +395,62 @@ impl<H, T, Rest> ConsIfPresent<Rest> for Cons<H, T> {
 ///
 /// For [`Then<P, S>`], leading [`Repeat`] on each branch of `P` is discarded;
 /// empty branches are dropped; finish is allowed only when no branch remains.
+#[diagnostic::on_unimplemented(
+    message = "cannot finish in `{S}` from remainder `{Self}`",
+    label = "required effects still remain",
+    note = "leading Repeat is stripped automatically; other effects must be performed first"
+)]
 pub trait CanFinish<S, I> {}
 
+#[diagnostic::do_not_recommend]
 impl<P, S: State> CanFinish<S, Here> for Then<P, S> where P: Prune<Out = Nil> {}
 
+#[diagnostic::do_not_recommend]
 impl<P, S: State, Rest> CanFinish<S, Here> for Cons<Then<P, S>, Rest> where Then<P, S>: CanFinish<S, Here> {}
 
+#[diagnostic::do_not_recommend]
 impl<P, S: State, Rest, I> CanFinish<S, There<I>> for Cons<Then<P, S>, Rest> where Rest: CanFinish<S, I> {}
+
+/// [`Select`] plus [`Clean`]. `I` is inferred and unique.
+///
+/// [`Session`](super::Session) methods name this in the **return type**, not a
+/// `where` clause, so a missing effect is E0277 rather than E0599 (“no method”).
+#[diagnostic::on_unimplemented(
+    message = "cannot `{E}` from this remainder",
+    label = "not allowed in the remaining session",
+    note = "`{Self}` has no leftmost `{E}`"
+)]
+pub trait Take<E, I> {
+    type Rest;
+}
+
+#[diagnostic::do_not_recommend]
+impl<R, E, I> Take<E, I> for R
+where
+    R: Select<E, I>,
+    R::Rest: Clean,
+{
+    type Rest = <R::Rest as Clean>::Out;
+}
+
+/// [`CanFinish`] as a projection so [`Session::finish`](super::Session::finish)
+/// does not hide behind E0599.
+#[diagnostic::on_unimplemented(
+    message = "cannot finish in `{S}` from remainder `{Self}`",
+    label = "required effects still remain",
+    note = "leading Repeat is stripped automatically; other effects must be performed first"
+)]
+pub trait FinishIn<S, I> {
+    type Out;
+}
+
+#[diagnostic::do_not_recommend]
+impl<R, S: State, I> FinishIn<S, I> for R
+where
+    R: CanFinish<S, I>,
+{
+    type Out = S;
+}
 
 /// Drop exhausted (`Nil`) sequences after a consume.
 pub trait Clean {

@@ -89,6 +89,7 @@ Other guiding principles:
 - **amaru**: `--peer-mix` / `AMARU_PEER_MIX` accepts an `inbound` group that shares Using slots with `static` / `shared` / `snapshot` / `ledger`. The default formula includes `inbound~6`. Omitting `inbound` means duplex inbound connections stay downstream-only. ([#1334](https://github.com/pragma-org/amaru/issues/1334))
 - **amaru-protocols**: handshake offers node-to-node protocol version 15 by default, advertising CIP-0155 SRV support. Minimum offered version is still 11. ([#1332](https://github.com/pragma-org/amaru/issues/1332))
 - **amaru**: the default `/etc/default/amaru` env configuration packages with Debian and RPM no longer define defaults backbone peers and enables JSON traces by default.
+- **amaru-pure-stage**: typestate remainders are right-nested pairs (`Cons<H, T>` = `(H, T)`, `Nil` = `()`), so rustc prints `(Send<Role, T>, (Wait, ()))` instead of a Cons encoding. `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
 
 ### Fixed
 
