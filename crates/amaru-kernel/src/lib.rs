@@ -85,6 +85,7 @@ pub use cardano::{
     bytes::{self, Bytes},
     certificate::Certificate,
     certificate_pointer::CertificatePointer,
+    chain_code::{CHAIN_CODE_SIZE, ChainCode},
     consensus_parameters::ConsensusParameters,
     constitution::Constitution,
     constitutional_committee::ConstitutionalCommittee,

@@ -40,16 +40,17 @@ impl ByronAddress {
     }
 
     /// Re-compute an address (verification key) root from a transaction witness.
+    ///
+    /// The chain code is hashed as-is even when it is not 32 bytes long so that such a
+    /// witness yields the same root on both implementations.
     pub fn root(witness: &BootstrapWitness) -> Hash<28> {
-        let mut xpub = [0u8; 64];
-        xpub[..32].copy_from_slice(&witness.public_key[..]);
-        xpub[32..].copy_from_slice(&witness.chain_code[..]);
+        // Serialised `SpendingData::VerificationKey`, with the byte string length pinned to 64
+        // regardless of the actual chain code length.
+        let mut xpub = vec![0x82, 0x00, 0x58, 0x40];
+        xpub.extend_from_slice(&witness.public_key[..]);
+        xpub.extend_from_slice(&witness.chain_code[..]);
 
-        AddressPayload::root(
-            AddressType::VerificationKey,
-            &SpendingData::VerificationKey(xpub),
-            witness.attributes.as_slice(),
-        )
+        AddressPayload::root_from_raw(AddressType::VerificationKey, &xpub, witness.attributes.as_slice())
     }
 
     // Tries to decode an address from its hex representation
@@ -174,13 +175,17 @@ impl AddressPayload {
     }
 
     pub fn root(address_type: AddressType, spending_data: &SpendingData, raw_attributes: &[u8]) -> Hash<28> {
+        Self::root_from_raw(address_type, &cbor::to_cbor(spending_data), raw_attributes)
+    }
+
+    fn root_from_raw(address_type: AddressType, raw_spending_data: &[u8], raw_attributes: &[u8]) -> Hash<28> {
         let mut sha3 = Sha3_256::new();
 
         // This is fundamentally to_cbor((address_type, spending_data, attributes)); but with the
-        // attributes pre-serialised.
+        // spending data and attributes pre-serialised.
         sha3.update([0x83]);
         sha3.update(cbor::to_cbor(&address_type));
-        sha3.update(cbor::to_cbor(spending_data));
+        sha3.update(raw_spending_data);
         sha3.update(raw_attributes);
 
         Hasher::<224>::hash(&sha3.finalize())
@@ -391,7 +396,19 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for SpendingData {
 #[cfg(test)]
 mod tests {
     use super::ByronAddress;
-    use crate::cbor;
+    use crate::{BootstrapWitness, Bytes, ChainCode, cardano::fixed_bytes::FixedBytes, cbor, hash};
+
+    #[test]
+    fn root_hashes_a_short_chain_code_as_is() {
+        let witness = BootstrapWitness {
+            public_key: FixedBytes::from([0x11; 32]),
+            signature: FixedBytes::zeroes(),
+            chain_code: ChainCode::from(vec![0x22; 31]),
+            attributes: Bytes::from(vec![0xa0]),
+        };
+
+        assert_eq!(ByronAddress::root(&witness), hash!("d8f63978917c31cb9b692d6441a434f56e29779e86af070c564d1f71"));
+    }
 
     const TEST_VECTORS: [&str; 3] = [
         "37btjrVyb4KDXBNC4haBVPCrro8AQPHwvCMp3RFhhSVWwfFmZ6wwzSK6JK1hY6wHNmtrpTf1kdbva8TCneM2YsiXT7mrzT21EacHnPpz5YyUdj64na",

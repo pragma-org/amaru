@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BoundedBytes, Ed25519Signature, VerificationKey, cbor};
-
-pub const CHAIN_CODE_SIZE: usize = 32;
+use crate::{Bytes, ChainCode, Ed25519Signature, VerificationKey, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
@@ -25,12 +23,11 @@ pub struct BootstrapWitness {
     #[n(1)]
     pub signature: Ed25519Signature,
 
-    /// FIXME(cbor): this is era-dependent. V11 is unbounded but V12 is bounded to 32 bytes.
     #[n(2)]
-    pub chain_code: BoundedBytes,
+    pub chain_code: ChainCode,
 
     #[n(3)]
-    pub attributes: BoundedBytes,
+    pub attributes: Bytes,
 }
 
 #[cfg(test)]
