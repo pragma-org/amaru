@@ -91,6 +91,7 @@ Other guiding principles:
 - **amaru**: the default `/etc/default/amaru` env configuration packages with Debian and RPM no longer define defaults backbone peers and enables JSON traces by default.
 - **amaru-pure-stage**: typestate remainders are right-nested pairs (`Cons<H, T>` = `(H, T)`, `Nil` = `()`), so rustc prints `(Send<Role, T>, (Wait, ()))` instead of a Cons encoding. `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
 - **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
+- **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `Session::remainder()` returns the surface syntax as `&'static str` (`"Send<Role, T> => Idle"`). `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
 
 ### Fixed
 

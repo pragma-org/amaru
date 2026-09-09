@@ -166,6 +166,28 @@ pub struct Session<M, Rem> {
     _rem: PhantomData<fn() -> Rem>,
 }
 
+impl<M, Rem: super::ConstDesc> Session<M, Rem> {
+    /// Pretty remainder (`Send<Role, T> => Idle`). Same string as [`Self::remainder`].
+    pub const REMAINDER: &'static str = Rem::TEXT;
+
+    /// Pretty remainder (`Send<Role, T> => Idle`).
+    ///
+    /// The failing `.send()` popup shows the encoding (`Choice<Then<Par<…>>>`).
+    /// Bind this next to it:
+    ///
+    /// ```ignore
+    /// let rem = streaming.remainder();
+    /// streaming.send(&mux, WantNext).await;
+    /// ```
+    ///
+    /// rust-analyzer may show the string on hover of `rem` or of
+    /// [`REMAINDER`](Self::REMAINDER). If it does not, comment out the bad call
+    /// and `eprintln!("{rem}")` or `assert_eq!(rem, "…")`.
+    pub const fn remainder(&self) -> &'static str {
+        Self::REMAINDER
+    }
+}
+
 impl<M, Rem> Session<M, Rem> {
     fn new(effects: Effects<M>) -> Self {
         Self { effects, _rem: PhantomData }

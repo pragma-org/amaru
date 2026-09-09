@@ -30,6 +30,11 @@
 //! star. Use [`Session::discard_repeat`](session::Session::discard_repeat)
 //! after the last iteration.
 //!
+//! Hover a failing `send` still shows the encoding. Bind
+//! [`Session::remainder`](session::Session::remainder) for the surface syntax
+//! (`"Send<Role, T> => Idle"`): rust-analyzer may show the string; otherwise
+//! comment out the bad call and print or `assert_eq!` the binding.
+//!
 //! **Limits:** sequences, parallel branches, and choice alternatives are tuples
 //! of length at most 10 ([`Choice`] / [`Par`] / [`Repeat`] wrap those tuples).
 //! Sequences are ordered. When several parallel heads match, the **leftmost**
@@ -39,6 +44,7 @@
 //! required remainders for agency timers (`Effects::set_timeout`). Existing
 //! stages keep using [`Effects`](crate::Effects).
 
+mod describe;
 mod effect;
 mod list;
 mod macros;
@@ -46,6 +52,7 @@ mod occupancy;
 mod role;
 mod session;
 
+pub use describe::{ConstDesc, Remainder};
 pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
@@ -61,8 +68,8 @@ pub use session::{
 pub mod prelude {
     pub use super::{
         AddStage, Call, CancelSchedule, Choice, ClearTimeout, Clock, External, ExtractInput, FromMailbox, IntoRoleCall,
-        IntoRoleMail, Occupancy, OccupancyOf, OnReceive, Par, Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny,
-        Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
+        IntoRoleMail, Occupancy, OccupancyOf, OnReceive, Par, Receive, Remainder, Repeat, Role, RoleTag, Schedule,
+        Send, SendAny, Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
     pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
 }
