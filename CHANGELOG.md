@@ -49,7 +49,7 @@ Other guiding principles:
 - **amaru-protocols**: handshake agrees version data per the node-to-node spec: network magics must match, initiator-only and query are OR, peer-sharing is AND. The initiator drops the connection if `MsgAcceptVersion` does not carry that record. ([#884](https://github.com/pragma-org/amaru/issues/884))
 - **amaru-protocols**: mux SDU assembly waits indefinitely for the first header byte, then 10s for the rest of the first Handshake message and 30s afterwards. Exceeding that limit tears the connection down.
 - **amaru**: the `mempool_max_bytes` startup trace field is now an IEC size such as `176 KiB` instead of a raw integer.
-- **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `Session::remainder()` returns the surface syntax as `&'static str` (`"Send<Role, T> => Idle"`). `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
+- **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `reveal_remainder!(session)` is a compile-time dump of the surface syntax (`error[E0080]: evaluation panicked: Send<Role, T> => Idle`). `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
 
 ### Fixed
 

@@ -30,10 +30,10 @@
 //! star. Use [`Session::discard_repeat`](session::Session::discard_repeat)
 //! after the last iteration.
 //!
-//! Hover a failing `send` still shows the encoding. Bind
-//! [`Session::remainder`](session::Session::remainder) for the surface syntax
-//! (`"Send<Role, T> => Idle"`): rust-analyzer may show the string; otherwise
-//! comment out the bad call and print or `assert_eq!` the binding.
+//! Hover a failing `send` still shows the encoding. Dump the surface syntax
+//! (`"Send<Role, T> => Idle"`) with [`reveal_remainder`](crate::reveal_remainder)
+//! (`reveal_remainder!(streaming)` → E0080 with that string). [`Session::remainder`](session::Session::remainder)
+//! returns the same `&str` at runtime.
 //!
 //! **Limits:** sequences, parallel branches, and choice alternatives are tuples
 //! of length at most 10 ([`Choice`] / [`Par`] / [`Repeat`] wrap those tuples).
@@ -52,7 +52,7 @@ mod occupancy;
 mod role;
 mod session;
 
-pub use describe::{ConstDesc, Remainder};
+pub use describe::{ConstDesc, Remainder, remainder_ctfe_panic};
 pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
@@ -71,7 +71,9 @@ pub mod prelude {
         IntoRoleMail, Occupancy, OccupancyOf, OnReceive, Par, Receive, Remainder, Repeat, Role, RoleTag, Schedule,
         Send, SendAny, Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
-    pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
+    pub use crate::{
+        define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, reveal_remainder, star,
+    };
 }
 
 #[cfg(test)]

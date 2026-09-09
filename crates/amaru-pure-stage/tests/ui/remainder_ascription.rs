@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
+
 #[path = "harness.rs"]
 mod harness;
 
@@ -22,6 +25,5 @@ on_receive!(Idle, u8 => Send<ToPeer, String> => Done);
 
 fn go<M>(s: Idle, eff: amaru_pure_stage::Effects<M>) {
     let session = s.receive(1u8, eff);
-    let rem = session.remainder();
-    let _: usize = rem;
+    reveal_remainder!(session);
 }
