@@ -724,8 +724,8 @@ fn test_disconnected_inbound_ignores_stale_conn_id() {
     let mut prep = test_prep(&[]);
     let p = TestPrep::peer("1.1.1.2:1");
     let mut ids = ConnectionId::initial();
-    let live = ids.get_and_increment();
     let stale = ids.get_and_increment();
+    let live = ids.get_and_increment();
     prep.state.inbound_peers.insert(p, Connection::new(live, true, false));
     let state = prep.state.clone();
     let msg = PeerSelectionMsg::Disconnected(p, stale, ConnectionDirection::Inbound);

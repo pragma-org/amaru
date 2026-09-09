@@ -53,7 +53,6 @@ Other guiding principles:
 - **amaru-protocols**: handshake agrees version data per the node-to-node spec: network magics must match, initiator-only and query are OR, peer-sharing is AND. The initiator drops the connection if `MsgAcceptVersion` does not carry that record. ([#884](https://github.com/pragma-org/amaru/issues/884))
 - **amaru-protocols**: mux SDU assembly waits indefinitely for the first header byte, then 10s for the rest of the first Handshake message and 30s afterwards. Exceeding that limit tears the connection down.
 - **amaru**: the `mempool_max_bytes` startup trace field is now an IEC size such as `176 KiB` instead of a raw integer.
-- **amaru-protocols**: a connection is one established session whose local use is None, Maintenance, or Diffusion. The manager no longer redials when a session drops; peer selection fills outbound slots.
 - **amaru-protocols**: a connection is one established session whose local use is None, Maintenance, or Diffusion. The manager no longer redials when a session drops; peer selection fills outbound slots. ([#736](https://github.com/pragma-org/amaru/issues/736))
 
 ### Fixed

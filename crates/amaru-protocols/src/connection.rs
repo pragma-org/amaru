@@ -152,7 +152,9 @@ pub enum ConnectionMessage {
     NewTip(Point, TraceContext),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
-    /// Peer selection (or default after handshake) wants this local use.
+    /// Record the desired local use for a live connection.
+    ///
+    /// The connection stage does not currently reconcile `actual_use`.
     SetLocalUse(LocalUse),
 }
 
@@ -224,6 +226,7 @@ pub async fn stage(
                 State::Established(s)
             }
             (State::Established(mut s), ConnectionMessage::SetLocalUse(desired)) => {
+                // Record only; `actual_use` is not reconciled here.
                 s.desired_use = desired;
                 State::Established(s)
             }

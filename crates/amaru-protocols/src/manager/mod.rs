@@ -117,7 +117,9 @@ pub enum ManagerMessage {
         full_duplex: bool,
         advertisable: bool,
     },
-    /// Ask a live connection to converge toward this local use.
+    /// Record the desired local use for a live connection.
+    ///
+    /// The connection stage does not currently reconcile `actual_use`.
     SetLocalUse { peer: Peer, conn_id: ConnectionId, local_use: crate::connection::LocalUse },
 }
 
