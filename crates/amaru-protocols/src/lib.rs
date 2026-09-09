@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(type_alias_impl_trait)]
+#![feature(type_alias_impl_trait, generic_const_exprs)]
 
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;

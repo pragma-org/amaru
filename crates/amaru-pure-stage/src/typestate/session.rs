@@ -172,19 +172,27 @@ impl<M, Rem: super::ConstDesc> Session<M, Rem> {
 
     /// Pretty remainder (`Send<Role, T> => Idle`).
     ///
-    /// The failing `.send()` popup shows the encoding (`Choice<Then<Par<…>>>`).
-    /// Bind this next to it:
+    /// This is a runtime/`const fn` read of [`REMAINDER`](Self::REMAINDER) and
+    /// needs a value of `self`, so it cannot appear in `const { … }` next to a
+    /// live session. For a compile-time dump of the same string, use
+    /// [`reveal_remainder`](crate::reveal_remainder):
     ///
     /// ```ignore
-    /// let rem = streaming.remainder();
-    /// streaming.send(&mux, WantNext).await;
+    /// reveal_remainder!(streaming);
     /// ```
-    ///
-    /// rust-analyzer may show the string on hover of `rem` or of
-    /// [`REMAINDER`](Self::REMAINDER). If it does not, comment out the bad call
-    /// and `eprintln!("{rem}")` or `assert_eq!(rem, "…")`.
     pub const fn remainder(&self) -> &'static str {
         Self::REMAINDER
+    }
+
+    /// Compile-time dump of [`REMAINDER`](Self::REMAINDER).
+    ///
+    /// Always fails with E0080 whose message is the pretty remainder. Prefer
+    /// [`reveal_remainder`](crate::reveal_remainder) so the span is the call.
+    pub fn reveal(&self)
+    where
+        [(); super::remainder_ctfe_panic::<Rem>()]:,
+    {
+        let _ = self;
     }
 }
 

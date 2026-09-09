@@ -572,6 +572,31 @@ macro_rules! typestate_tuple {
     };
 }
 
+/// Compile-time dump of a session's pretty remainder.
+///
+/// Infers `Rem` from the value (so it works when that type is unnameable) and
+/// const-evaluates [`ConstDesc::TEXT`](crate::typestate::ConstDesc::TEXT), which
+/// panics. rustc reports that panic as E0080 with the remainder string:
+///
+/// ```ignore
+/// let rem_dump = streaming;
+/// reveal_remainder!(rem_dump);
+/// // error[E0080]: evaluation panicked: Send<ToMux, WantNext> => Streaming
+/// ```
+///
+/// This is the substitute for `const { panic!("{}", <streaming.type>::REMAINDER) }`.
+#[macro_export]
+macro_rules! reveal_remainder {
+    ($s:expr) => {
+        fn reveal<M, Rem: $crate::typestate::ConstDesc>(s: &Session<M, Rem>)
+        where
+            [(); $crate::typestate::remainder_ctfe_panic::<Rem>()]:,
+        {
+        }
+        reveal(&$s);
+    };
+}
+
 /// `Repeat` of a sequence: `star!(Send<A, T>, Send<B, U>)`.
 #[macro_export]
 macro_rules! star {

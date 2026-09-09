@@ -142,7 +142,7 @@ fn describe_remainder() {
 fn remainder_const_text_matches_describe() {
     use super::describe::ConstDesc;
     type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
-    assert_eq!(describe::<Rem>(), Rem::TEXT);
+    assert_eq!(Rem::TEXT, "Send<Peer, String>, Send<Peer, u8> => Intersect | Wait => Idle");
     const TEXT: &str = Rem::TEXT;
     let _: super::Remainder<{ TEXT }> = super::Remainder;
 }

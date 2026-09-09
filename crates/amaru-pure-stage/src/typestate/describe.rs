@@ -31,6 +31,14 @@ pub trait ConstDesc {
     const TEXT: &'static str;
 }
 
+/// Always panics with [`ConstDesc::TEXT`]. Used by [`reveal_remainder`](crate::reveal_remainder)
+/// to force a compile-time diagnostic that prints the pretty remainder.
+#[doc(hidden)]
+#[allow(clippy::panic)]
+pub const fn remainder_ctfe_panic<Rem: ConstDesc>() -> usize {
+    panic!("{}", Rem::TEXT);
+}
+
 /// ZST whose const parameter is the pretty remainder. Hover a binding of this
 /// type (or ascribe a guess) to read the session at that point.
 pub struct Remainder<const TEXT: &'static str>;
@@ -52,6 +60,8 @@ impl<const TEXT: &'static str> fmt::Display for Remainder<TEXT> {
     }
 }
 
+const MAX: usize = 1024;
+
 const fn write_str(buf: &mut [u8], mut pos: usize, s: &str) -> usize {
     let b = s.as_bytes();
     let mut i = 0;
@@ -63,106 +73,148 @@ const fn write_str(buf: &mut [u8], mut pos: usize, s: &str) -> usize {
     pos
 }
 
-const fn join_len(a: &str, sep: &str, b: &str) -> usize {
-    a.len() + sep.len() + b.len()
+const fn is_ident_start(c: u8) -> bool {
+    c.is_ascii_alphabetic() || c == b'_'
 }
 
-const fn wrap_len(pre: &str, inner: &str, suf: &str) -> usize {
-    pre.len() + inner.len() + suf.len()
+const fn is_ident_continue(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
 }
 
-const fn angle2_len<R, T>(name: &str) -> usize {
-    name.len() + 1 + type_name::<R>().len() + 2 + type_name::<T>().len() + 1
+const fn skip_ident(b: &[u8], mut i: usize) -> usize {
+    while i < b.len() && is_ident_continue(b[i]) {
+        i += 1;
+    }
+    i
 }
 
-const fn angle1_len<R>(name: &str) -> usize {
-    name.len() + 1 + type_name::<R>().len() + 1
+/// `alloc::string::String` → `String`, `core::option::Option<foo::Bar>` → `Option<Bar>`.
+const fn write_short_name(buf: &mut [u8], mut pos: usize, s: &str) -> usize {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if is_ident_start(b[i]) {
+            let mut last;
+            loop {
+                last = i;
+                i = skip_ident(b, i);
+                if i + 1 < b.len() && b[i] == b':' && b[i + 1] == b':' {
+                    i += 2;
+                } else {
+                    break;
+                }
+            }
+            let mut k = last;
+            while k < i {
+                buf[pos] = b[k];
+                pos += 1;
+                k += 1;
+            }
+        } else {
+            buf[pos] = b[i];
+            pos += 1;
+            i += 1;
+        }
+    }
+    pos
 }
 
-const fn str_from_bytes(bytes: &[u8]) -> &str {
+const fn short_name_len(s: &str) -> usize {
+    let mut tmp = [0u8; MAX];
+    write_short_name(&mut tmp, 0, s)
+}
+
+const fn str_from_buf(buf: &'static [u8; MAX], len: usize) -> &'static str {
+    assert!(len <= MAX);
     // Only `write_str` of UTF-8 literals and `type_name` output fills these buffers.
-    unsafe { core::str::from_utf8_unchecked(bytes) }
+    unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(buf.as_ptr(), len)) }
 }
 
-struct Angle2<R, T, const NAME: &'static str, const N: usize>(PhantomData<(R, T)>);
-impl<R, T, const NAME: &'static str, const N: usize> Angle2<R, T, NAME, N> {
-    const BYTES: [u8; N] = {
-        let mut buf = [0u8; N];
+struct Angle2<R, T, const NAME: &'static str>(PhantomData<(R, T)>);
+impl<R, T, const NAME: &'static str> Angle2<R, T, NAME> {
+    const LEN: usize = NAME.len() + 1 + short_name_len(type_name::<R>()) + 2 + short_name_len(type_name::<T>()) + 1;
+    const BUF: [u8; MAX] = {
+        let mut buf = [0u8; MAX];
         let mut pos = 0;
         pos = write_str(&mut buf, pos, NAME);
         pos = write_str(&mut buf, pos, "<");
-        pos = write_str(&mut buf, pos, type_name::<R>());
+        pos = write_short_name(&mut buf, pos, type_name::<R>());
         pos = write_str(&mut buf, pos, ", ");
-        pos = write_str(&mut buf, pos, type_name::<T>());
+        pos = write_short_name(&mut buf, pos, type_name::<T>());
         let _ = write_str(&mut buf, pos, ">");
         buf
     };
-    const TEXT: &'static str = str_from_bytes(&Self::BYTES);
+    const TEXT: &'static str = str_from_buf(&Self::BUF, Self::LEN);
 }
 
-struct Angle1<R, const NAME: &'static str, const N: usize>(PhantomData<R>);
-impl<R, const NAME: &'static str, const N: usize> Angle1<R, NAME, N> {
-    const BYTES: [u8; N] = {
-        let mut buf = [0u8; N];
+struct Angle1<R, const NAME: &'static str>(PhantomData<R>);
+impl<R, const NAME: &'static str> Angle1<R, NAME> {
+    const LEN: usize = NAME.len() + 1 + short_name_len(type_name::<R>()) + 1;
+    const BUF: [u8; MAX] = {
+        let mut buf = [0u8; MAX];
         let mut pos = 0;
         pos = write_str(&mut buf, pos, NAME);
         pos = write_str(&mut buf, pos, "<");
-        pos = write_str(&mut buf, pos, type_name::<R>());
+        pos = write_short_name(&mut buf, pos, type_name::<R>());
         let _ = write_str(&mut buf, pos, ">");
         buf
     };
-    const TEXT: &'static str = str_from_bytes(&Self::BYTES);
+    const TEXT: &'static str = str_from_buf(&Self::BUF, Self::LEN);
 }
 
-struct JoinBuf<A, B, const SEP: &'static str, const N: usize>(PhantomData<(A, B)>);
-impl<A: ConstDesc, B: ConstDesc, const SEP: &'static str, const N: usize> JoinBuf<A, B, SEP, N> {
-    const BYTES: [u8; N] = {
-        let mut buf = [0u8; N];
+struct JoinBuf<A, B, const SEP: &'static str>(PhantomData<(A, B)>);
+impl<A: ConstDesc, B: ConstDesc, const SEP: &'static str> JoinBuf<A, B, SEP> {
+    const LEN: usize = A::TEXT.len() + SEP.len() + B::TEXT.len();
+    const BUF: [u8; MAX] = {
+        let mut buf = [0u8; MAX];
         let mut pos = 0;
         pos = write_str(&mut buf, pos, A::TEXT);
         pos = write_str(&mut buf, pos, SEP);
         let _ = write_str(&mut buf, pos, B::TEXT);
         buf
     };
-    const TEXT: &'static str = str_from_bytes(&Self::BYTES);
+    const TEXT: &'static str = str_from_buf(&Self::BUF, Self::LEN);
 }
 
-struct WrapBuf<T, const PRE: &'static str, const SUF: &'static str, const N: usize>(PhantomData<T>);
-impl<T: ConstDesc, const PRE: &'static str, const SUF: &'static str, const N: usize> WrapBuf<T, PRE, SUF, N> {
-    const BYTES: [u8; N] = {
-        let mut buf = [0u8; N];
+struct WrapBuf<T, const PRE: &'static str, const SUF: &'static str>(PhantomData<T>);
+impl<T: ConstDesc, const PRE: &'static str, const SUF: &'static str> WrapBuf<T, PRE, SUF> {
+    const LEN: usize = PRE.len() + T::TEXT.len() + SUF.len();
+    const BUF: [u8; MAX] = {
+        let mut buf = [0u8; MAX];
         let mut pos = 0;
         pos = write_str(&mut buf, pos, PRE);
         pos = write_str(&mut buf, pos, T::TEXT);
         let _ = write_str(&mut buf, pos, SUF);
         buf
     };
-    const TEXT: &'static str = str_from_bytes(&Self::BYTES);
+    const TEXT: &'static str = str_from_buf(&Self::BUF, Self::LEN);
 }
 
-struct ThenBuf<P, S, const N: usize>(PhantomData<(P, S)>);
-impl<P: ConstDesc, S: State, const N: usize> ThenBuf<P, S, N> {
-    const BYTES: [u8; N] = {
-        let mut buf = [0u8; N];
+struct ThenBuf<P, S>(PhantomData<(P, S)>);
+impl<P: ConstDesc, S: State> ThenBuf<P, S> {
+    const LEN: usize = P::TEXT.len() + 4 + S::NAME.len();
+    const BUF: [u8; MAX] = {
+        let mut buf = [0u8; MAX];
         let mut pos = 0;
         pos = write_str(&mut buf, pos, P::TEXT);
         pos = write_str(&mut buf, pos, " => ");
         let _ = write_str(&mut buf, pos, S::NAME);
         buf
     };
-    const TEXT: &'static str = str_from_bytes(&Self::BYTES);
+    const TEXT: &'static str = str_from_buf(&Self::BUF, Self::LEN);
 }
 
-struct EmptyThenBuf<S: State, const N: usize>(PhantomData<S>);
-impl<S: State, const N: usize> EmptyThenBuf<S, N> {
-    const BYTES: [u8; N] = {
-        let mut buf = [0u8; N];
+struct EmptyThenBuf<S: State>(PhantomData<S>);
+impl<S: State> EmptyThenBuf<S> {
+    const LEN: usize = 3 + S::NAME.len();
+    const BUF: [u8; MAX] = {
+        let mut buf = [0u8; MAX];
         let mut pos = 0;
         pos = write_str(&mut buf, pos, "=> ");
         let _ = write_str(&mut buf, pos, S::NAME);
         buf
     };
-    const TEXT: &'static str = str_from_bytes(&Self::BYTES);
+    const TEXT: &'static str = str_from_buf(&Self::BUF, Self::LEN);
 }
 
 macro_rules! const_lit {
@@ -181,53 +233,32 @@ const_lit!(SetTimeout, "SetTimeout");
 const_lit!(ClearTimeout, "ClearTimeout");
 const_lit!(AddStage, "AddStage");
 
-impl<R, T> ConstDesc for Send<R, T>
-where
-    [(); angle2_len::<R, T>("Send")]:,
-{
-    const TEXT: &'static str = Angle2::<R, T, "Send", { angle2_len::<R, T>("Send") }>::TEXT;
+impl<R, T> ConstDesc for Send<R, T> {
+    const TEXT: &'static str = Angle2::<R, T, "Send">::TEXT;
 }
 
-impl<R, T> ConstDesc for Call<R, T>
-where
-    [(); angle2_len::<R, T>("Call")]:,
-{
-    const TEXT: &'static str = Angle2::<R, T, "Call", { angle2_len::<R, T>("Call") }>::TEXT;
+impl<R, T> ConstDesc for Call<R, T> {
+    const TEXT: &'static str = Angle2::<R, T, "Call">::TEXT;
 }
 
-impl<R> ConstDesc for SendAny<R>
-where
-    [(); angle1_len::<R>("SendAny")]:,
-{
-    const TEXT: &'static str = Angle1::<R, "SendAny", { angle1_len::<R>("SendAny") }>::TEXT;
+impl<R> ConstDesc for SendAny<R> {
+    const TEXT: &'static str = Angle1::<R, "SendAny">::TEXT;
 }
 
-impl<T> ConstDesc for Receive<T>
-where
-    [(); angle1_len::<T>("Receive")]:,
-{
-    const TEXT: &'static str = Angle1::<T, "Receive", { angle1_len::<T>("Receive") }>::TEXT;
+impl<T> ConstDesc for Receive<T> {
+    const TEXT: &'static str = Angle1::<T, "Receive">::TEXT;
 }
 
-impl<T> ConstDesc for Schedule<T>
-where
-    [(); angle1_len::<T>("Schedule")]:,
-{
-    const TEXT: &'static str = Angle1::<T, "Schedule", { angle1_len::<T>("Schedule") }>::TEXT;
+impl<T> ConstDesc for Schedule<T> {
+    const TEXT: &'static str = Angle1::<T, "Schedule">::TEXT;
 }
 
-impl<E: crate::ExternalEffect> ConstDesc for External<E>
-where
-    [(); angle1_len::<E>("External")]:,
-{
-    const TEXT: &'static str = Angle1::<E, "External", { angle1_len::<E>("External") }>::TEXT;
+impl<E: crate::ExternalEffect> ConstDesc for External<E> {
+    const TEXT: &'static str = Angle1::<E, "External">::TEXT;
 }
 
-impl<E: ConstDesc> ConstDesc for Repeat<E>
-where
-    [(); wrap_len("Repeat<", E::TEXT, ">")]:,
-{
-    const TEXT: &'static str = WrapBuf::<E, "Repeat<", ">", { wrap_len("Repeat<", E::TEXT, ">") }>::TEXT;
+impl<E: ConstDesc> ConstDesc for Repeat<E> {
+    const TEXT: &'static str = WrapBuf::<E, "Repeat<", ">">::TEXT;
 }
 
 macro_rules! impl_const_seq {
@@ -240,14 +271,8 @@ macro_rules! impl_const_seq {
         impl<$H: ConstDesc, $($T: ConstDesc),+> ConstDesc for ($H, $($T,)+)
         where
             ($($T,)+): ConstDesc,
-            [(); $H::TEXT.len() $(+ 2 + $T::TEXT.len())*]:,
         {
-            const TEXT: &'static str = JoinBuf::<
-                $H,
-                ($($T,)+),
-                ", ",
-                { $H::TEXT.len() $(+ 2 + $T::TEXT.len())* },
-            >::TEXT;
+            const TEXT: &'static str = JoinBuf::<$H, ($($T,)+), ", ">::TEXT;
         }
         impl_const_seq!($($T),+);
     };
@@ -266,26 +291,14 @@ macro_rules! impl_const_par {
         impl<$H: ConstDesc, $($T: ConstDesc),+> ConstDesc for Par<($H, $($T,)+)>
         where
             Par<($($T,)+)>: ConstDesc,
-            [(); $H::TEXT.len() $(+ 3 + $T::TEXT.len())*]:,
         {
-            const TEXT: &'static str = JoinBuf::<
-                $H,
-                Par<($($T,)+)>,
-                " | ",
-                { $H::TEXT.len() $(+ 3 + $T::TEXT.len())* },
-            >::TEXT;
+            const TEXT: &'static str = JoinBuf::<$H, Par<($($T,)+)>, " | ">::TEXT;
         }
         impl<$H: ConstDesc, $($T: ConstDesc),+> ConstDesc for Choice<($H, $($T,)+)>
         where
             Choice<($($T,)+)>: ConstDesc,
-            [(); $H::TEXT.len() $(+ 3 + $T::TEXT.len())*]:,
         {
-            const TEXT: &'static str = JoinBuf::<
-                $H,
-                Choice<($($T,)+)>,
-                " | ",
-                { $H::TEXT.len() $(+ 3 + $T::TEXT.len())* },
-            >::TEXT;
+            const TEXT: &'static str = JoinBuf::<$H, Choice<($($T,)+)>, " | ">::TEXT;
         }
         impl_const_par!($($T),+);
     };
@@ -298,18 +311,14 @@ impl ConstDesc for Par<()> {
     const TEXT: &'static str = "(none)";
 }
 
-impl<S: State> ConstDesc for Then<Par<()>, S>
-where
-    [(); wrap_len("=> ", S::NAME, "")]:,
-{
-    const TEXT: &'static str = EmptyThenBuf::<S, { wrap_len("=> ", S::NAME, "") }>::TEXT;
+impl<S: State> ConstDesc for Then<Par<()>, S> {
+    const TEXT: &'static str = EmptyThenBuf::<S>::TEXT;
 }
 
 impl<P, S: State> ConstDesc for Then<Par<P>, S>
 where
     P: Uncons,
     Par<P>: ConstDesc,
-    [(); join_len(<Par<P> as ConstDesc>::TEXT, " => ", S::NAME)]:,
 {
-    const TEXT: &'static str = ThenBuf::<Par<P>, S, { join_len(<Par<P> as ConstDesc>::TEXT, " => ", S::NAME) }>::TEXT;
+    const TEXT: &'static str = ThenBuf::<Par<P>, S>::TEXT;
 }
