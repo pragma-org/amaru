@@ -143,15 +143,15 @@ impl<'b, C> cbor::Decode<'b, C> for ByronAddress {
         // (via `decodeCrcProtected`, always at the Byron protocol version), which rejects
         // indefinite-length byte strings, so we reject them too.
         #[allow(clippy::disallowed_methods)]
-        let payload = d.bytes()?.to_vec();
+        let payload = d.bytes()?;
         let crc = d.u32()?;
 
-        if CRC.checksum(&payload) != crc {
+        if CRC.checksum(payload) != crc {
             return Err(cbor::decode::Error::message("invalid Byron address checksum"));
         }
 
         Ok(Self(
-            cbor::from_cbor_no_leftovers(&payload)
+            cbor::from_cbor_no_leftovers(payload)
                 .map_err(|e| cbor::decode::Error::message(format!("invalid Byron address payload: {e}")))?,
         ))
     }
