@@ -70,7 +70,8 @@ pub fn build_stage_graph(
             config.target_upstream_peers,
             config.target_downstream_peers,
             config.peer_removal_cooldown_secs,
-        ),
+        )
+        .with_share_request_delays(config.share_request_initial_delay, config.share_request_interval),
     );
 
     let peer_selection_notify = peer_selection_ref.contramap(|n: PeerSelectionNotify| match n {

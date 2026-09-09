@@ -21,7 +21,7 @@
 //!
 //! Every run prints `seed=0x…`. Replay with `AMARU_TEST_SEED=<that value>`.
 
-use std::{cmp::Ordering, env::var, net::SocketAddr, num::NonZeroU8, sync::Arc};
+use std::{cmp::Ordering, env::var, net::SocketAddr, num::NonZeroU8, sync::Arc, time::Duration};
 
 use amaru_consensus::{
     effects::{GenerateRandomSeed, ValidateBlockEffect, ValidateHeaderEffect},
@@ -269,9 +269,10 @@ fn injector_linear_store(n: usize, seed: u64) -> (Arc<InMemoryChainStore>, Vec<a
 /// fragment: the injector reveals the whole inventory up front (no live minting).
 ///
 /// Peer sharing must add connections beyond the initial chain. Delay and horizon are knobs.
-/// Seeded disconnects stay sparse relative to the fragment; their schedule is redrawn until
-/// at least one adjacent pair sits inside one reconnect delay. Each inventory hash is a
-/// world-heap Reveal, paced by the injector's default mailbox.
+/// Production share delay is 300s, longer than these horizons, so the nodes use
+/// [`P_JOIN_SHARE_INITIAL_DELAY`]. Seeded disconnects stay sparse relative to the fragment;
+/// their schedule is redrawn until at least one adjacent pair sits inside one reconnect delay.
+/// Each inventory hash is a world-heap Reveal, paced by the injector's default mailbox.
 const P_JOIN_NODES: usize = 5;
 const P_JOIN_FRAGMENT: usize = 100;
 /// Payload hop ~10ms ± 2ms. Handshake hops stay 1–5ms.
@@ -287,6 +288,9 @@ const P_JOIN_RECONNECT_DELAY_NANOS: u64 = 2_000_000_000;
 /// Leave the reconnect delay plus slack after the last drop.
 const P_JOIN_DISCONNECT_TAIL_NANOS: u64 = 2_500_000_000;
 const P_JOIN_RUNS: u32 = 50;
+/// First peer-sharing request after outbound handshake. Must be well below the horizon
+/// (production default is 300s).
+const P_JOIN_SHARE_INITIAL_DELAY: Duration = Duration::from_millis(100);
 
 /// Realistic link delay: finish catch-up quickly on a near-constant hop.
 #[test]
@@ -360,6 +364,7 @@ fn run_p_join_quiescent_chain(
             .with_upstream_peer(upstream)
             .with_listen_address(listen)
             .with_seed(derive_seed(seed, TAG_NODE + i as u64))
+            .with_share_request_initial_delay(P_JOIN_SHARE_INITIAL_DELAY)
             .with_trace_buffer(TraceBuffer::new_shared(20_000, 16_000_000))
             // Common ancestor so FindIntersect is not Origin-vs-a-parent-hash the node does not have.
             .with_validated_blocks(vec![headers[0].clone()]);

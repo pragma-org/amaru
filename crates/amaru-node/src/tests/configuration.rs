@@ -83,6 +83,8 @@ pub struct NodeTestConfig {
     pub peer_mix: Option<String>,
     /// BlockFetch initiator pipeline depth forwarded to [`Config::blockfetch_pipeline_n`].
     pub blockfetch_pipeline_n: NonZeroU8,
+    /// When set, overrides [`Config::share_request_initial_delay`] (production default 300s).
+    pub share_request_initial_delay: Option<Duration>,
     /// Keeps a dummy ledger tempdir alive until the last node graph holding it is dropped.
     dummy_ledger: Arc<Mutex<Option<Arc<tempfile::TempDir>>>>,
 }
@@ -113,6 +115,7 @@ impl Debug for NodeTestConfig {
             .field("keep_persisted_best_chain", &self.keep_persisted_best_chain)
             .field("peer_mix", &self.peer_mix)
             .field("blockfetch_pipeline_n", &self.blockfetch_pipeline_n)
+            .field("share_request_initial_delay", &self.share_request_initial_delay)
             .finish()
     }
 }
@@ -146,6 +149,7 @@ impl Default for NodeTestConfig {
             keep_persisted_best_chain: false,
             peer_mix: None,
             blockfetch_pipeline_n: NonZeroU8::MIN,
+            share_request_initial_delay: None,
             dummy_ledger: Arc::new(Mutex::new(None)),
         }
     }
@@ -310,6 +314,12 @@ impl NodeTestConfig {
         self
     }
 
+    /// First peer-sharing request this long after an outbound handshake (production 300s).
+    pub fn with_share_request_initial_delay(mut self, delay: Duration) -> Self {
+        self.share_request_initial_delay = Some(delay);
+        self
+    }
+
     /// Given a list of block headers:
     ///
     /// - Store them in the chain store.
@@ -366,6 +376,9 @@ impl NodeTestConfig {
             config.peer_mix = mix.parse().map_err(|e| anyhow::anyhow!("invalid peer-mix `{mix}`: {e}"))?;
         }
         config.blockfetch_pipeline_n = self.blockfetch_pipeline_n;
+        if let Some(delay) = self.share_request_initial_delay {
+            config.share_request_initial_delay = delay;
+        }
 
         if let Some(ledger_dir) = &self.ledger_dir {
             config.ledger_config.ledger_store = RocksDbConfig::new(ledger_dir.clone());

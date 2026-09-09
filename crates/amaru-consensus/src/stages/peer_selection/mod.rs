@@ -247,6 +247,10 @@ pub struct PeerSelection {
     /// Contramap target for peer-sharing replies ([`ShareResult`] → [`PeerSelectionMsg::SharePeersResult`]).
     /// Ignored in [`PartialEq`] (lazily wired, test-unstable name).
     share_reply: StageRef<ShareResult>,
+    /// Delay after outbound connect before the first peer-sharing request.
+    share_request_initial_delay: Duration,
+    /// Interval between subsequent peer-sharing requests on a live outbound connection.
+    share_request_interval: Duration,
 }
 
 impl PartialEq for PeerSelection {
@@ -262,6 +266,8 @@ impl PartialEq for PeerSelection {
             && self.pending_resolve == other.pending_resolve
             && self.bound == other.bound
             && self.resolve_backoff == other.resolve_backoff
+            && self.share_request_initial_delay == other.share_request_initial_delay
+            && self.share_request_interval == other.share_request_interval
         // share_reply intentionally omitted
     }
 }
@@ -353,7 +359,16 @@ impl PeerSelection {
             bound: BTreeMap::new(),
             resolve_backoff: BTreeMap::new(),
             share_reply: StageRef::blackhole(),
+            share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
+            share_request_interval: SHARE_REQUEST_INTERVAL,
         }
+    }
+
+    /// Override the peer-sharing request cadence (production default is 300s then 900s).
+    pub fn with_share_request_delays(mut self, initial: Duration, interval: Duration) -> Self {
+        self.share_request_initial_delay = initial;
+        self.share_request_interval = interval;
+        self
     }
 }
 
@@ -514,8 +529,8 @@ impl PeerSelection {
             ManagerMessage::RequestSharePeers {
                 peer,
                 amount: SHARE_REQUEST_AMOUNT,
-                initial_delay: SHARE_REQUEST_INITIAL_DELAY,
-                interval: SHARE_REQUEST_INTERVAL,
+                initial_delay: self.share_request_initial_delay,
+                interval: self.share_request_interval,
                 reply_to: self.share_reply.clone(),
             },
         )
