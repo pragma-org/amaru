@@ -139,6 +139,19 @@ fn describe_remainder() {
 }
 
 #[test]
+fn remainder_const_text_matches_describe() {
+    use super::describe::ConstDesc;
+    type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
+    assert_eq!(describe::<Rem>(), Rem::TEXT);
+    const TEXT: &str = Rem::TEXT;
+    let _: super::Remainder<{ TEXT }> = super::Remainder;
+}
+
+fn _remainder_binding_is_str<M, R: super::describe::ConstDesc>(s: &super::Session<M, R>) {
+    let _: &'static str = s.remainder();
+}
+
+#[test]
 fn set_timeout_is_required_before_finish() {
     type Rem = Choice<(Then<Par<((SetTimeout,),)>, toy::Idle>,)>;
     fn assert_selects<R: Select<SetTimeout, I>, I>() {}

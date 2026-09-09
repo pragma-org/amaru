@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(generic_const_exprs, const_type_name)]
+#![feature(generic_const_exprs, const_type_name, unsized_const_params, adt_const_params)]
 #![allow(incomplete_features)]
 #![deny(clippy::future_not_send)]
 
