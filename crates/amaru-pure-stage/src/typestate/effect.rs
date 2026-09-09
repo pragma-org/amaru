@@ -45,7 +45,7 @@ impl<R> Effect for SendAny<R> {
     }
 }
 
-/// Kleene star of a single effect or of a sequence (`Repeat<Cons<A, Cons<B, Nil>>>`).
+/// Kleene star of a single effect or of a sequence (`Repeat<(A, B)>`).
 ///
 /// Selecting the first step unrolls the rest in front of the same `Repeat`.
 /// Selecting the following step discards the star (zero iterations).

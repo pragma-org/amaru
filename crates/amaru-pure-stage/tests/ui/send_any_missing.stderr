@@ -1,8 +1,8 @@
-error[E0277]: `SendAnyOp<M, (Then<((amaru_pure_stage::typestate::Send<ToPeer, String>, ()), ()), harness::Done>, ()), ToPeer, _>` is not a future
+error[E0277]: `SendAnyOp<M, Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>, ToPeer, _>` is not a future
  --> tests/ui/send_any_missing.rs:24:63
-  = `SendAnyOp<M, (Then<((amaru_pure_stage::typestate::Send<ToPeer, String>, ()), ()), harness::Done>, ()), ToPeer, _>` is not a future
-  = help: the trait `IntoFuture` is not implemented for `SendAnyOp<M, (Then<((amaru_pure_stage::typestate::Send<ToPeer, String>, ()), ()), harness::Done>, ()), ToPeer, _>`
-  = note: SendAnyOp<M, (Then<((amaru_pure_stage::typestate::Send<ToPeer, String>, ()), ()), harness::Done>, ()), ToPeer, _> must be a future or must implement `IntoFuture` to be awaited
+  = `SendAnyOp<M, Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>, ToPeer, _>` is not a future
+  = help: the trait `IntoFuture` is not implemented for `SendAnyOp<M, Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>, ToPeer, _>`
+  = note: SendAnyOp<M, Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>, ToPeer, _> must be a future or must implement `IntoFuture` to be awaited
   = help: the trait `IntoFuture` is conditionally implemented for `SendAnyOp<M, Rem, Tag, I>`
   = help: remove the `.await`
    --> tests/ui/send_any_missing.rs:24:62

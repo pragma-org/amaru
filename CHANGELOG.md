@@ -90,6 +90,7 @@ Other guiding principles:
 - **amaru-protocols**: handshake offers node-to-node protocol version 15 by default, advertising CIP-0155 SRV support. Minimum offered version is still 11. ([#1332](https://github.com/pragma-org/amaru/issues/1332))
 - **amaru**: the default `/etc/default/amaru` env configuration packages with Debian and RPM no longer define defaults backbone peers and enables JSON traces by default.
 - **amaru-pure-stage**: typestate remainders are right-nested pairs (`Cons<H, T>` = `(H, T)`, `Nil` = `()`), so rustc prints `(Send<Role, T>, (Wait, ()))` instead of a Cons encoding. `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
+- **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
 
 ### Fixed
 

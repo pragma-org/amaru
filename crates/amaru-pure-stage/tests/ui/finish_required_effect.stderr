@@ -1,6 +1,6 @@
-error[E0277]: cannot finish in `_` from remainder `(Then<((amaru_pure_stage::typestate::Send<ToPeer, String>, ()), ()), harness::Done>, ())`
+error[E0277]: cannot finish in `_` from remainder `Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>`
  --> tests/ui/finish_required_effect.rs:24:25
   = required effects still remain
-  = help: the trait `FinishIn<_, _>` is not implemented for `(Then<((amaru_pure_stage::typestate::Send<ToPeer, String>, ()), ()), harness::Done>, ())`
+  = help: the trait `FinishIn<_, _>` is not implemented for `Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>`
   = note: leading Repeat is stripped automatically; other effects must be performed first
   = note: required by a bound in `amaru_pure_stage::typestate::SessionOps::finish`
