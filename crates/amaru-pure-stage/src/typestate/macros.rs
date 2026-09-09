@@ -15,8 +15,10 @@
 //! Surface syntax for states, remainders, roles, and mailboxes.
 //!
 //! `typestate_par!` splits on the first `=> State`: `|` before that is parallel
-//! sequences (one [`Then`](crate::typestate::Then)); `|` after starts another
-//! choice alternative (n-way `Cons` of `Then`). A lone ident is `Then<Nil, S>`.
+//! sequences (one [`Then`](crate::typestate::Then) inside [`Par`](crate::typestate::Par));
+//! `|` after starts another choice alternative (n-way [`Choice`](crate::typestate::Choice)
+//! of `Then`). A lone ident is `Choice<(Then<Par<()>, S>,)>`. Sequences, parallel
+//! branches, and choice alternatives are tuples of length at most 10.
 //! [`star`]`(A, B)` is `Repeat` of that sequence. Grouped [`on_receive`] builds
 //! the input enum and [`ExtractInput`](crate::typestate::ExtractInput).
 //! [`define_messages`](crate::define_messages) generates a struct per variant plus [`From`] /
@@ -465,41 +467,41 @@ macro_rules! typestate_extract {
 #[doc(hidden)]
 macro_rules! typestate_par {
     ($s:ident) => {
-        $crate::typestate::Cons<
-            $crate::typestate::Then<$crate::typestate::Nil, $s>,
-            $crate::typestate::Nil
-        >
+        $crate::typestate::Choice<(
+            $crate::typestate::Then<$crate::typestate::Par<()>, $s>,
+        )>
     };
     ($($rest:tt)*) => {
-        $crate::typestate_choice!(@go [] [] $($rest)*)
+        $crate::typestate_choice!(@go [] [] [] $($rest)*)
     };
 }
 
 #[macro_export]
 #[doc(hidden)]
 macro_rules! typestate_choice {
-    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty, $($rest:tt)*) => {
-        $crate::typestate_choice!(@go [ $($seqs)* ] [ $($cur,)* $ty ] $($rest)*)
+    (@go [ $($thens:ty),* ] [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty, $($rest:tt)*) => {
+        $crate::typestate_choice!(@go [ $($thens),* ] [ $($seqs)* ] [ $($cur,)* $ty ] $($rest)*)
     };
-    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty | $($rest:tt)*) => {
-        $crate::typestate_choice!(@go [ $($seqs)* [ $($cur,)* $ty ] ] [] $($rest)*)
+    (@go [ $($thens:ty),* ] [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty | $($rest:tt)*) => {
+        $crate::typestate_choice!(@go [ $($thens),* ] [ $($seqs)* [ $($cur,)* $ty ] ] [] $($rest)*)
     };
-    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty => $s:ident | $($rest:tt)*) => {
-        $crate::typestate::Cons<
-            $crate::typestate::Then<
-                $crate::typestate_branches!([ $($seqs)* [ $($cur,)* $ty ] ]),
+    (@go [ $($thens:ty),* ] [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty => $s:ident | $($rest:tt)*) => {
+        $crate::typestate_choice!(@go
+            [ $($thens,)* $crate::typestate::Then<
+                $crate::typestate::Par<$crate::typestate_branches!([ $($seqs)* [ $($cur,)* $ty ] ])>,
                 $s
-            >,
-            $crate::typestate_par!($($rest)*)
-        >
+            > ]
+            [] [] $($rest)*)
     };
-    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty => $s:ident) => {
-        $crate::typestate::Cons<
-            $crate::typestate::Then<
-                $crate::typestate_branches!([ $($seqs)* [ $($cur,)* $ty ] ]),
-                $s
-            >,
-            $crate::typestate::Nil
+    (@go [ $($thens:ty),* ] [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty => $s:ident) => {
+        $crate::typestate::Choice<
+            $crate::typestate_tuple!(
+                $($thens,)*
+                $crate::typestate::Then<
+                    $crate::typestate::Par<$crate::typestate_branches!([ $($seqs)* [ $($cur,)* $ty ] ])>,
+                    $s
+                >
+            )
         >
     };
 }
@@ -507,25 +509,91 @@ macro_rules! typestate_choice {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! typestate_branches {
-    ([]) => {
-        $crate::typestate::Nil
+    (@acc [ $($done:ty),* ]) => {
+        $crate::typestate_tuple!($($done),*)
     };
-    ([ [ $($ty:ty),+ ] $($rest:tt)* ]) => {
-        $crate::typestate::Cons<
-            $crate::typestate_seq!($($ty),+),
-            $crate::typestate_branches!([ $($rest)* ])
-        >
+    (@acc [ $($done:ty),* ] [ $($ty:ty),+ ] $($rest:tt)*) => {
+        $crate::typestate_branches!(@acc
+            [ $($done,)* $crate::typestate_seq!($($ty),+) ]
+            $($rest)*)
+    };
+    ([ $($x:tt)* ]) => {
+        $crate::typestate_branches!(@acc [] $($x)*)
     };
 }
 
 #[macro_export]
 #[doc(hidden)]
 macro_rules! typestate_seq {
-    ($e:ty) => {
-        $crate::typestate::Cons<$e, $crate::typestate::Nil>
+    ($($e:ty),+) => {
+        $crate::typestate_tuple!($($e),+)
     };
-    ($e:ty, $($rest:ty),+) => {
-        $crate::typestate::Cons<$e, $crate::typestate_seq!($($rest),+)>
+}
+
+/// Build a tuple of at most 10 types (`()` if empty, 1-tuples with a trailing comma).
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_tuple {
+    () => {
+        ()
+    };
+    ($t0:ty) => {
+        ($t0,)
+    };
+    ($t0:ty, $t1:ty) => {
+        ($t0, $t1)
+    };
+    ($t0:ty, $t1:ty, $t2:ty) => {
+        ($t0, $t1, $t2)
+    };
+    ($t0:ty, $t1:ty, $t2:ty, $t3:ty) => {
+        ($t0, $t1, $t2, $t3)
+    };
+    ($t0:ty, $t1:ty, $t2:ty, $t3:ty, $t4:ty) => {
+        ($t0, $t1, $t2, $t3, $t4)
+    };
+    ($t0:ty, $t1:ty, $t2:ty, $t3:ty, $t4:ty, $t5:ty) => {
+        ($t0, $t1, $t2, $t3, $t4, $t5)
+    };
+    ($t0:ty, $t1:ty, $t2:ty, $t3:ty, $t4:ty, $t5:ty, $t6:ty) => {
+        ($t0, $t1, $t2, $t3, $t4, $t5, $t6)
+    };
+    ($t0:ty, $t1:ty, $t2:ty, $t3:ty, $t4:ty, $t5:ty, $t6:ty, $t7:ty) => {
+        ($t0, $t1, $t2, $t3, $t4, $t5, $t6, $t7)
+    };
+    ($t0:ty, $t1:ty, $t2:ty, $t3:ty, $t4:ty, $t5:ty, $t6:ty, $t7:ty, $t8:ty) => {
+        ($t0, $t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8)
+    };
+    ($t0:ty, $t1:ty, $t2:ty, $t3:ty, $t4:ty, $t5:ty, $t6:ty, $t7:ty, $t8:ty, $t9:ty) => {
+        ($t0, $t1, $t2, $t3, $t4, $t5, $t6, $t7, $t8, $t9)
+    };
+    ($($t:ty),+ $(,)?) => {
+        compile_error!("typestate remainders support at most 10 elements in a sequence, parallel, or choice")
+    };
+}
+
+/// Compile-time dump of a session's pretty remainder.
+///
+/// Infers `Rem` from the value (so it works when that type is unnameable) and
+/// const-evaluates [`ConstDesc::TEXT`](crate::typestate::ConstDesc::TEXT), which
+/// panics. rustc reports that panic as E0080 with the remainder string:
+///
+/// ```ignore
+/// let rem_dump = streaming;
+/// reveal_remainder!(rem_dump);
+/// // error[E0080]: evaluation panicked: Send<ToMux, WantNext> => Streaming
+/// ```
+///
+/// This is the substitute for `const { panic!("{}", <streaming.type>::REMAINDER) }`.
+#[macro_export]
+macro_rules! reveal_remainder {
+    ($s:expr) => {
+        fn reveal<M, Rem: $crate::typestate::ConstDesc>(s: &Session<M, Rem>)
+        where
+            [(); $crate::typestate::remainder_ctfe_panic::<Rem>()]:,
+        {
+        }
+        reveal(&$s);
     };
 }
 

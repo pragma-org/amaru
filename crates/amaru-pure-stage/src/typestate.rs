@@ -30,7 +30,13 @@
 //! star. Use [`Session::discard_repeat`](session::Session::discard_repeat)
 //! after the last iteration.
 //!
-//! **Limits:** parallel and choice are flat `Cons` lists (not tree-associative).
+//! Hover a failing `send` still shows the encoding. Dump the surface syntax
+//! (`"Send<Role, T> => Idle"`) with [`reveal_remainder`](crate::reveal_remainder)
+//! (`reveal_remainder!(streaming)` → E0080 with that string). [`Session::remainder`](session::Session::remainder)
+//! returns the same `&str` at runtime.
+//!
+//! **Limits:** sequences, parallel branches, and choice alternatives are tuples
+//! of length at most 10 ([`Choice`] / [`Par`] / [`Repeat`] wrap those tuples).
 //! Sequences are ordered. When several parallel heads match, the **leftmost**
 //! wins. Two choice alternatives with the same head are ambiguous (payload
 //! inference would otherwise stick to the first alternative). `finish` strips
@@ -38,6 +44,7 @@
 //! required remainders for agency timers (`Effects::set_timeout`). Existing
 //! stages keep using [`Effects`](crate::Effects).
 
+mod describe;
 mod effect;
 mod list;
 mod macros;
@@ -45,24 +52,28 @@ mod occupancy;
 mod role;
 mod session;
 
+pub use describe::{ConstDesc, Remainder, remainder_ctfe_panic};
 pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
 };
-pub use list::{CanFinish, Clean, Cons, DiscardRepeat, FmtPar, Here, Nil, Select, Then};
+pub use list::{CanFinish, Choice, Clean, DiscardRepeat, FinishIn, FmtPar, Here, Par, Select, Take, Then};
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleCall, IntoRoleMail, Role, RoleTag};
 pub use session::{
-    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, initial_state,
+    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, SendAnyOp, Session, SessionOps, State,
+    To, initial_state,
 };
 
 pub mod prelude {
     pub use super::{
-        AddStage, Call, CancelSchedule, ClearTimeout, Clock, Cons, External, ExtractInput, FromMailbox, IntoRoleCall,
-        IntoRoleMail, Nil, Occupancy, OccupancyOf, OnReceive, Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny,
-        Session, SetTimeout, State, Terminate, To, Wait, initial_state,
+        AddStage, Call, CancelSchedule, Choice, ClearTimeout, Clock, External, ExtractInput, FromMailbox, IntoRoleCall,
+        IntoRoleMail, Occupancy, OccupancyOf, OnReceive, Par, Receive, Remainder, Repeat, Role, RoleTag, Schedule,
+        Send, SendAny, Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
-    pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
+    pub use crate::{
+        define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, reveal_remainder, star,
+    };
 }
 
 #[cfg(test)]

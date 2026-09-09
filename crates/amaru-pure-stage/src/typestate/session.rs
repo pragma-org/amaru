@@ -23,12 +23,17 @@
 //! [`convert_input`](State::convert_input) classifies a mailbox value and does
 //! not consume the state token — [`receive`](State::receive) does.
 
-use std::{fmt, future::Future, marker::PhantomData, time::Duration};
+use std::{
+    fmt,
+    future::{Future, IntoFuture},
+    marker::PhantomData,
+    time::Duration,
+};
 
 use super::{
-    Clean, FmtPar, IntoRoleCall, IntoRoleMail, RoleTag, Select,
+    FmtPar, IntoRoleCall, IntoRoleMail, RoleTag, Take,
     effect::{Call as CallEff, ClearTimeout, Send as SendEff, SendAny, SetTimeout, Terminate, Wait},
-    list::{self, CanFinish},
+    list::{self, FinishIn},
 };
 use crate::{Effects, ExternalEffectAPI, Instant, SendData, StageRef};
 
@@ -124,6 +129,10 @@ pub trait ExtractInput<M>: Sized {
 }
 
 /// The remainder after [`State::receive`] of `In`.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot receive `{In}`",
+    label = "not an admissible input for this state"
+)]
 pub trait OnReceive<In>: State {
     type Then;
 
@@ -148,13 +157,43 @@ pub struct To<S: State>(PhantomData<S>);
 
 /// `Effects` plus the type-level remainder of a receive.
 ///
-/// Protocol [`send`](Self::send), [`send_any`](Self::send_any), [`call`](Self::call),
-/// [`wait`](Self::wait), [`set_timeout`](Self::set_timeout),
-/// [`clear_timeout`](Self::clear_timeout), and [`terminate`](Self::terminate)
-/// consume from `Rem`. Local helpers (`clock`, `external`) do not.
+/// Protocol [`send`](SessionOps::send), [`send_any`](SessionOps::send_any), [`call`](SessionOps::call),
+/// [`wait`](SessionOps::wait), [`set_timeout`](SessionOps::set_timeout),
+/// [`clear_timeout`](SessionOps::clear_timeout), and [`terminate`](SessionOps::terminate)
+/// consume from `Rem` ([`SessionOps`], in the prelude). Local helpers (`clock`, `external`) do not.
 pub struct Session<M, Rem> {
     effects: Effects<M>,
     _rem: PhantomData<fn() -> Rem>,
+}
+
+impl<M, Rem: super::ConstDesc> Session<M, Rem> {
+    /// Pretty remainder (`Send<Role, T> => Idle`). Same string as [`Self::remainder`].
+    pub const REMAINDER: &'static str = Rem::TEXT;
+
+    /// Pretty remainder (`Send<Role, T> => Idle`).
+    ///
+    /// This is a runtime/`const fn` read of [`REMAINDER`](Self::REMAINDER) and
+    /// needs a value of `self`, so it cannot appear in `const { … }` next to a
+    /// live session. For a compile-time dump of the same string, use
+    /// [`reveal_remainder`](crate::reveal_remainder):
+    ///
+    /// ```ignore
+    /// reveal_remainder!(streaming);
+    /// ```
+    pub const fn remainder(&self) -> &'static str {
+        Self::REMAINDER
+    }
+
+    /// Compile-time dump of [`REMAINDER`](Self::REMAINDER).
+    ///
+    /// Always fails with E0080 whose message is the pretty remainder. Prefer
+    /// [`reveal_remainder`](crate::reveal_remainder) so the span is the call.
+    pub fn reveal(&self)
+    where
+        [(); super::remainder_ctfe_panic::<Rem>()]:,
+    {
+        let _ = self;
+    }
 }
 
 impl<M, Rem> Session<M, Rem> {
@@ -185,6 +224,58 @@ impl<M, Rem> Session<M, Rem> {
         self.effects.external(effect)
     }
 
+    /// Send any mailbox message to `target`. Consumes a [`SendAny<Tag>`]
+    /// permission, or uses a [`Repeat<SendAny<Tag>>`](super::Repeat) without
+    /// removing it.
+    pub fn send_any<Tag, T, Dest, I>(self, target: &Dest, msg: T) -> SendAnyOp<M, Rem, Tag, I>
+    where
+        Tag: RoleTag,
+        Dest: IntoRoleMail<Tag, T>,
+    {
+        let mail = target.encode(msg);
+        let send = self.effects.send(target.mailbox(), mail);
+        SendAnyOp { session: self, send, _t: PhantomData }
+    }
+}
+
+/// Returned by [`Session::send_any`]. `.await` requires [`Take`]`<SendAny<Tag>, I>`.
+pub struct SendAnyOp<M, Rem, Tag, I> {
+    session: Session<M, Rem>,
+    send: crate::BoxFuture<'static, ()>,
+    _t: PhantomData<(Tag, I)>,
+}
+
+#[diagnostic::on_unimplemented(
+    message = "cannot send_any `{Tag}` from this remainder",
+    label = "not allowed in the remaining session",
+    note = "the session remainder has no leftmost SendAny<{Tag}>"
+)]
+trait SendAnyAllowed<Tag, I> {}
+
+#[diagnostic::do_not_recommend]
+impl<Rem, Tag, I> SendAnyAllowed<Tag, I> for Rem where Rem: Take<SendAny<Tag>, I> {}
+
+impl<M, Rem, Tag, I> IntoFuture for SendAnyOp<M, Rem, Tag, I>
+where
+    Rem: SendAnyAllowed<Tag, I> + Take<SendAny<Tag>, I>,
+    M: Send + 'static,
+{
+    type Output = Session<M, <Rem as Take<SendAny<Tag>, I>>::Rest>;
+    type IntoFuture = crate::BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        let send = self.send;
+        let effects = self.session.effects;
+        Box::pin(async move {
+            send.await;
+            Session::new(effects)
+        })
+    }
+}
+
+/// Protocol steps on [`Session`]. Implemented for every remainder; a missing
+/// effect is [`Take`] / [`FinishIn`] / [`DiscardRepeat`] (E0277), not E0599.
+pub trait SessionOps<M, Rem>: Sized {
     /// Protocol send. Consumes a [`Send<Tag, T>`] allowance.
     ///
     /// `target` wraps a [`StageRef`] claiming `Tag`; its mailbox must implement [`From<T>`].
@@ -256,25 +347,16 @@ impl<M, Rem> Session<M, Rem> {
     ///     let _ = s.send(b, 1u8).await;
     /// }
     /// ```
-    pub fn send<Tag, T, Dest, I>(
+    fn send<Tag, T, Dest, I>(
         self,
         target: &Dest,
         msg: T,
-    ) -> impl Future<Output = Session<M, After<Rem, SendEff<Tag, T>, I>>> + Send
+    ) -> impl Future<Output = Session<M, <Rem as Take<SendEff<Tag, T>, I>>::Rest>> + Send
     where
         Tag: RoleTag,
         Dest: IntoRoleMail<Tag, T>,
-        Rem: Select<SendEff<Tag, T>, I>,
-        Rem::Rest: Clean,
-        M: Send,
-    {
-        let mail = target.encode(msg);
-        let send = self.effects.send(target.mailbox(), mail);
-        async move {
-            send.await;
-            Session::new(self.effects)
-        }
-    }
+        Rem: Take<SendEff<Tag, T>, I>,
+        M: Send;
 
     /// Protocol call. Consumes a [`Call<Tag, T>`](super::Call) allowance.
     ///
@@ -296,64 +378,26 @@ impl<M, Rem> Session<M, Rem> {
     ///     let _ = s.receive(1u8, eff).call(target, 0u32).await;
     /// }
     /// ```
-    pub fn call<Tag, T, Dest, I>(
+    fn call<Tag, T, Dest, I>(
         self,
         target: &Dest,
         msg: T,
-    ) -> impl Future<Output = (Option<Dest::Reply>, Session<M, After<Rem, CallEff<Tag, T>, I>>)> + Send
+    ) -> impl Future<Output = (Option<Dest::Reply>, Session<M, <Rem as Take<CallEff<Tag, T>, I>>::Rest>)> + Send
     where
         Tag: RoleTag,
         Dest: IntoRoleCall<Tag, T> + Clone + Send + 'static,
-        Rem: Select<CallEff<Tag, T>, I>,
-        Rem::Rest: Clean,
+        Rem: Take<CallEff<Tag, T>, I>,
         M: Send,
-        T: Send + 'static,
-    {
-        let dest = target.clone();
-        let mailbox = dest.mailbox().clone();
-        let call = self.effects.call(&mailbox, Dest::TIMEOUT, move |reply| dest.encode(msg, reply));
-        async move {
-            let reply = call.await;
-            (reply, Session::new(self.effects))
-        }
-    }
-
-    /// Send any mailbox message to `target`. Consumes a [`SendAny<Tag>`]
-    /// permission, or uses a [`Repeat<SendAny<Tag>>`](super::Repeat) without
-    /// removing it.
-    pub fn send_any<Tag, T, Dest, I>(
-        self,
-        target: &Dest,
-        msg: T,
-    ) -> impl Future<Output = Session<M, After<Rem, SendAny<Tag>, I>>> + Send
-    where
-        Tag: RoleTag,
-        Dest: IntoRoleMail<Tag, T>,
-        Rem: Select<SendAny<Tag>, I>,
-        Rem::Rest: Clean,
-        M: Send,
-    {
-        let mail = target.encode(msg);
-        let send = self.effects.send(target.mailbox(), mail);
-        async move {
-            send.await;
-            Session::new(self.effects)
-        }
-    }
+        T: Send + 'static;
 
     /// Protocol wait. Consumes a [`Wait`] allowance.
-    pub fn wait<I>(self, delay: Duration) -> impl Future<Output = (Instant, Session<M, After<Rem, Wait, I>>)> + Send
+    fn wait<I>(
+        self,
+        delay: Duration,
+    ) -> impl Future<Output = (Instant, Session<M, <Rem as Take<Wait, I>>::Rest>)> + Send
     where
-        Rem: Select<Wait, I>,
-        Rem::Rest: Clean,
-        M: Send,
-    {
-        let wait = self.effects.wait(delay);
-        async move {
-            let now = wait.await;
-            (now, Session::new(self.effects))
-        }
-    }
+        Rem: Take<Wait, I>,
+        M: Send;
 
     /// Arm a protocol timeout. Consumes a [`SetTimeout`] allowance.
     ///
@@ -371,61 +415,40 @@ impl<M, Rem> Session<M, Rem> {
     ///     s.receive(1u8, eff).finish()
     /// }
     /// ```
-    pub fn set_timeout<I>(
+    fn set_timeout<I>(
         self,
         delay: Duration,
         msg: M,
-    ) -> impl Future<Output = Session<M, After<Rem, SetTimeout, I>>> + Send
+    ) -> impl Future<Output = Session<M, <Rem as Take<SetTimeout, I>>::Rest>> + Send
     where
-        Rem: Select<SetTimeout, I>,
-        Rem::Rest: Clean,
-        M: SendData,
-    {
-        self.set_timeout_at(0, delay, msg)
-    }
+        Rem: Take<SetTimeout, I>,
+        M: SendData;
 
     /// Arm a protocol timeout on `slot`. Consumes a [`SetTimeout`] allowance.
-    pub fn set_timeout_at<I>(
+    fn set_timeout_at<I>(
         self,
         slot: u64,
         delay: Duration,
         msg: M,
-    ) -> impl Future<Output = Session<M, After<Rem, SetTimeout, I>>> + Send
+    ) -> impl Future<Output = Session<M, <Rem as Take<SetTimeout, I>>::Rest>> + Send
     where
-        Rem: Select<SetTimeout, I>,
-        Rem::Rest: Clean,
-        M: SendData,
-    {
-        let set = self.effects.set_timeout_at(slot, delay, msg);
-        async move {
-            set.await;
-            Session::new(self.effects)
-        }
-    }
+        Rem: Take<SetTimeout, I>,
+        M: SendData;
 
     /// Cancel the protocol timeout. Consumes a [`ClearTimeout`] allowance.
-    pub fn clear_timeout<I>(self) -> impl Future<Output = Session<M, After<Rem, ClearTimeout, I>>> + Send
+    fn clear_timeout<I>(self) -> impl Future<Output = Session<M, <Rem as Take<ClearTimeout, I>>::Rest>> + Send
     where
-        Rem: Select<ClearTimeout, I>,
-        Rem::Rest: Clean,
-        M: Send,
-    {
-        self.clear_timeout_at(0)
-    }
+        Rem: Take<ClearTimeout, I>,
+        M: Send;
 
     /// Cancel the protocol timeout on `slot`. Consumes a [`ClearTimeout`] allowance.
-    pub fn clear_timeout_at<I>(self, slot: u64) -> impl Future<Output = Session<M, After<Rem, ClearTimeout, I>>> + Send
+    fn clear_timeout_at<I>(
+        self,
+        slot: u64,
+    ) -> impl Future<Output = Session<M, <Rem as Take<ClearTimeout, I>>::Rest>> + Send
     where
-        Rem: Select<ClearTimeout, I>,
-        Rem::Rest: Clean,
-        M: Send,
-    {
-        let clear = self.effects.clear_timeout_at(slot);
-        async move {
-            clear.await;
-            Session::new(self.effects)
-        }
-    }
+        Rem: Take<ClearTimeout, I>,
+        M: Send;
 
     /// Drop a leading [`Repeat`](super::Repeat) on the current sequence.
     ///
@@ -446,21 +469,15 @@ impl<M, Rem> Session<M, Rem> {
     ///     let _ = s.receive(1u8, eff).discard_repeat();
     /// }
     /// ```
-    pub fn discard_repeat(self) -> Session<M, Rem::Out>
+    fn discard_repeat(self) -> Session<M, <Rem as super::DiscardRepeat>::Out>
     where
-        Rem: super::DiscardRepeat,
-    {
-        Session::new(self.effects)
-    }
+        Rem: super::DiscardRepeat;
 
     /// Protocol terminate. Consumes a [`Terminate`] allowance. Never returns.
-    pub fn terminate<T, I>(self) -> impl Future<Output = T> + Send
+    fn terminate<T, I>(self) -> impl Future<Output = T> + Send
     where
-        Rem: Select<Terminate, I>,
         T: Send,
-    {
-        self.effects.terminate()
-    }
+        Rem: Take<Terminate, I>;
 
     /// End the session when a remainder branch is [`To<S>`].
     ///
@@ -486,9 +503,137 @@ impl<M, Rem> Session<M, Rem> {
     ///     s.receive(1u8, eff).finish()
     /// }
     /// ```
-    pub fn finish<S: State, I>(self) -> S
+    fn finish<S: State, I>(self) -> S
     where
-        Rem: CanFinish<S, I>,
+        Rem: FinishIn<S, I, Out = S>;
+}
+
+impl<M, Rem> SessionOps<M, Rem> for Session<M, Rem> {
+    fn send<Tag, T, Dest, I>(
+        self,
+        target: &Dest,
+        msg: T,
+    ) -> impl Future<Output = Session<M, <Rem as Take<SendEff<Tag, T>, I>>::Rest>> + Send
+    where
+        Tag: RoleTag,
+        Dest: IntoRoleMail<Tag, T>,
+        Rem: Take<SendEff<Tag, T>, I>,
+        M: Send,
+    {
+        let mail = target.encode(msg);
+        let send = self.effects.send(target.mailbox(), mail);
+        async move {
+            send.await;
+            Session::new(self.effects)
+        }
+    }
+
+    fn call<Tag, T, Dest, I>(
+        self,
+        target: &Dest,
+        msg: T,
+    ) -> impl Future<Output = (Option<Dest::Reply>, Session<M, <Rem as Take<CallEff<Tag, T>, I>>::Rest>)> + Send
+    where
+        Tag: RoleTag,
+        Dest: IntoRoleCall<Tag, T> + Clone + Send + 'static,
+        Rem: Take<CallEff<Tag, T>, I>,
+        M: Send,
+        T: Send + 'static,
+    {
+        let dest = target.clone();
+        let mailbox = dest.mailbox().clone();
+        let call = self.effects.call(&mailbox, Dest::TIMEOUT, move |reply| dest.encode(msg, reply));
+        async move {
+            let reply = call.await;
+            (reply, Session::new(self.effects))
+        }
+    }
+
+    fn wait<I>(
+        self,
+        delay: Duration,
+    ) -> impl Future<Output = (Instant, Session<M, <Rem as Take<Wait, I>>::Rest>)> + Send
+    where
+        Rem: Take<Wait, I>,
+        M: Send,
+    {
+        let wait = self.effects.wait(delay);
+        async move {
+            let now = wait.await;
+            (now, Session::new(self.effects))
+        }
+    }
+
+    fn set_timeout<I>(
+        self,
+        delay: Duration,
+        msg: M,
+    ) -> impl Future<Output = Session<M, <Rem as Take<SetTimeout, I>>::Rest>> + Send
+    where
+        Rem: Take<SetTimeout, I>,
+        M: SendData,
+    {
+        self.set_timeout_at(0, delay, msg)
+    }
+
+    fn set_timeout_at<I>(
+        self,
+        slot: u64,
+        delay: Duration,
+        msg: M,
+    ) -> impl Future<Output = Session<M, <Rem as Take<SetTimeout, I>>::Rest>> + Send
+    where
+        Rem: Take<SetTimeout, I>,
+        M: SendData,
+    {
+        let set = self.effects.set_timeout_at(slot, delay, msg);
+        async move {
+            set.await;
+            Session::new(self.effects)
+        }
+    }
+
+    fn clear_timeout<I>(self) -> impl Future<Output = Session<M, <Rem as Take<ClearTimeout, I>>::Rest>> + Send
+    where
+        Rem: Take<ClearTimeout, I>,
+        M: Send,
+    {
+        self.clear_timeout_at(0)
+    }
+
+    fn clear_timeout_at<I>(
+        self,
+        slot: u64,
+    ) -> impl Future<Output = Session<M, <Rem as Take<ClearTimeout, I>>::Rest>> + Send
+    where
+        Rem: Take<ClearTimeout, I>,
+        M: Send,
+    {
+        let clear = self.effects.clear_timeout_at(slot);
+        async move {
+            clear.await;
+            Session::new(self.effects)
+        }
+    }
+
+    fn discard_repeat(self) -> Session<M, <Rem as super::DiscardRepeat>::Out>
+    where
+        Rem: super::DiscardRepeat,
+    {
+        Session::new(self.effects)
+    }
+
+    fn terminate<T, I>(self) -> impl Future<Output = T> + Send
+    where
+        T: Send,
+        Rem: Take<Terminate, I>,
+    {
+        self.effects.terminate()
+    }
+
+    fn finish<S: State, I>(self) -> S
+    where
+        Rem: FinishIn<S, I, Out = S>,
     {
         let _ = self;
         S::make(Marker(Private))
@@ -500,8 +645,6 @@ impl<M, Rem: FmtPar> fmt::Debug for Session<M, Rem> {
         f.debug_struct("Session").field("remaining", &list::describe::<Rem>()).finish_non_exhaustive()
     }
 }
-
-type After<Rem, E, I> = <<Rem as Select<E, I>>::Rest as Clean>::Out;
 
 /// Describe `State + Receive<In> → remainder` without constructing values.
 #[cfg(test)]

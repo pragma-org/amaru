@@ -1,0 +1,8 @@
+error[E0308]: mismatched types
+ --> tests/ui/send_wrong_payload.rs:24:44
+  = expected `String`, found `u32`
+  = help: the return type of this call is `u32` due to the type of the argument passed
+   --> tests/ui/send_wrong_payload.rs:24:13
+  = note: method defined here
+  = help: try using a conversion method
+   --> tests/ui/send_wrong_payload.rs:24:48
