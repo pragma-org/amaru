@@ -56,6 +56,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-ledger**: accept committee hot-key authorizations and resignations from members that a pending `UpdateCommittee` action proposes to seat.
 - **amaru-protocols**: BlockFetch waits for each block to be accepted by TCP before encoding the next, so a slow peer no longer unbounded-buffers. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru-protocols**: BlockFetch keeps the connection up if a new range is requested before the previous batch finishes. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru**: `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION` (default `100MiB`) caps how much log text the TUI keeps. SI suffixes (`kB`, `MB`) are powers of 1000; IEC suffixes (`KiB`, `MiB`) are powers of 1024.

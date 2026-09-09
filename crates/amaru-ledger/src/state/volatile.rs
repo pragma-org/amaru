@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch, Lovelace,
@@ -130,6 +130,14 @@ pub trait VolatileState {
     #[expect(clippy::panic)]
     fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal {
         panic!("VolatileState.resolve_proposal({proposal_id})")
+    }
+
+    /// Every cold credential an `UpdateCommittee` proposal still in the volatile window proposes to
+    /// seat. Candidates may authorize a hot key or resign ahead of their election while holding no
+    /// committee row, so only the proposals vouch for them, and nothing in the store indexes those.
+    #[expect(clippy::panic)]
+    fn resolve_committee_candidates(&self) -> BTreeSet<Credential> {
+        panic!("VolatileState.resolve_committee_candidates()")
     }
 
     // ---------------------------------------------------------------------------------------- Pots

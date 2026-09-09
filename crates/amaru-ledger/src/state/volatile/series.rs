@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, mem};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    mem,
+};
 
 use amaru_kernel::{
     Credential, Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, TransactionInput,
@@ -79,6 +82,10 @@ impl VolatileState for VolatileSeries {
         self.aggregate.resolve_proposal(id)
     }
 
+    fn resolve_committee_candidates(&self) -> BTreeSet<Credential> {
+        self.committee_candidates().map(|(_, candidate)| *candidate).collect()
+    }
+
     // ---------------------------------------------------------------------------------------- Pots
     fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
         pots.treasury
@@ -137,6 +144,12 @@ impl VolatileSequence for VolatileSeries {
 }
 
 impl VolatileSeries {
+    /// The committee candidates named by this series' proposals, paired with the proposal naming
+    /// them so a caller can discount proposals a pending boundary pruned.
+    pub fn committee_candidates(&self) -> impl Iterator<Item = (&ProposalId, &Credential)> {
+        self.aggregate.resolve_committee_candidates()
+    }
+
     /// Rebuild the aggregate from scratch by re-folding the surviving sequence. Only rollback uses
     /// this; stabilization retracts a single fragment off the front exactly and incrementally (see
     /// [`VolatileAggregate::remove_fragment`]).

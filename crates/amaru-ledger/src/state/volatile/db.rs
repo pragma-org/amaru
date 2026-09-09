@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, btree_map::Entry},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     mem,
 };
 
@@ -186,6 +186,16 @@ impl VolatileState for VolatileDB {
         } else {
             self.draining.resolve_proposal(id)
         }
+    }
+
+    fn resolve_committee_candidates(&self) -> BTreeSet<Credential> {
+        // Same precedence as `resolve_proposal`: a closing-epoch proposal the pending boundary pruned
+        // no longer vouches for its candidates.
+        self.current
+            .committee_candidates()
+            .chain(self.draining.committee_candidates().filter(|(id, _)| !self.overlay.has_pruned_proposal(id)))
+            .map(|(_, candidate)| *candidate)
+            .collect()
     }
 
     // ---------------------------------------------------------------------------------------- Pots
@@ -543,8 +553,10 @@ mod tests {
     };
 
     use amaru_kernel::{
-        BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        Point, SafeRatio, Slot, SortedPairs, any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, SafeRatio, Slot, SortedPairs,
+        any_modern_output, any_proposal, any_proposal_id, any_rational_number, any_transaction_input,
+        utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -552,6 +564,7 @@ mod tests {
     use super::*;
     use crate::{
         AccountState,
+        context::ProposalState,
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
         state::volatile::{Bind, Resettable},
     };
@@ -1381,6 +1394,26 @@ mod tests {
     }
 
     #[test]
+    fn resolve_committee_candidates_discounts_proposals_pruned_at_the_pending_boundary() {
+        let proposal_id = run_strategy(any_proposal_id());
+
+        let mut db = VolatileDB::default();
+        db.push_back(update_committee_block(10, proposal_id, cred(1)));
+        assert_eq!(db.resolve_committee_candidates(), BTreeSet::from([cred(1)]), "named by a proposal in current");
+
+        db.simple_transition(committee_update(None));
+        assert_eq!(db.resolve_committee_candidates(), BTreeSet::from([cred(1)]), "still named once the block drains");
+
+        let mut db = VolatileDB::default();
+        db.push_back(update_committee_block(10, proposal_id, cred(1)));
+        db.simple_transition(GovernanceUpdates {
+            pruned_proposals: BTreeMap::from([(proposal_id, RatificationStatus::NotRatified)]),
+            ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
+        });
+        assert!(db.resolve_committee_candidates().is_empty(), "the boundary dropped the proposal");
+    }
+
+    #[test]
     fn resolve_committee_lets_a_resignation_clear_a_hot_key_across_the_boundary() {
         let mut db = VolatileDB::default();
 
@@ -1468,6 +1501,24 @@ mod tests {
             CommitteeAct::Resign => block.fragment.committee.bind_left(cred(1), None),
         }
         .unwrap();
+        block
+    }
+
+    fn update_committee_block(slot: u64, id: ProposalId, candidate: Credential) -> AnchoredVolatileFragment {
+        let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
+        let proposal = Proposal {
+            gov_action: GovernanceAction::UpdateCommittee(
+                None,
+                Vec::new(),
+                vec![(candidate, Epoch::from(99))].try_into().unwrap(),
+                run_strategy(any_rational_number()),
+            ),
+            ..run_strategy(any_proposal())
+        };
+        block.fragment.proposals.insert(
+            id,
+            Arc::new(ProposalState { proposed_in: Default::default(), valid_until: Default::default(), proposal }),
+        );
         block
     }
 
