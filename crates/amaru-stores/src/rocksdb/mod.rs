@@ -386,7 +386,7 @@ impl HistoricalStores for RocksDBHistoricalStores {
         RocksDB::snapshots(&self.config.dir)
     }
 
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send + 'static, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.config, epoch)
     }
 }
