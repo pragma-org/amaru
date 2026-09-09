@@ -270,9 +270,12 @@ fn injector_linear_store(n: usize, seed: u64) -> (Arc<InMemoryChainStore>, Vec<a
 ///
 /// Peer sharing must add connections beyond the initial chain. Delay and horizon are knobs.
 /// Production share delay is 300s, longer than these horizons, so the nodes use
-/// [`P_JOIN_SHARE_INITIAL_DELAY`]. Seeded disconnects stay sparse relative to the fragment;
-/// their schedule is redrawn until at least one adjacent pair sits inside one reconnect delay.
-/// Each inventory hash is a world-heap Reveal, paced by the injector's default mailbox.
+/// [`P_JOIN_SHARE_INITIAL_DELAY`]. Duplex inbound Using plus skip-links among the line can
+/// fill the production upstream target of 3 before a share reply names the injector, so
+/// each node targets [`P_JOIN_NODES`] Using slots (one left for the injector). Seeded
+/// disconnects stay sparse relative to the fragment; their schedule is redrawn until at
+/// least one adjacent pair sits inside one reconnect delay. Each inventory hash is a
+/// world-heap Reveal, paced by the injector's default mailbox.
 const P_JOIN_NODES: usize = 5;
 const P_JOIN_FRAGMENT: usize = 100;
 /// Payload hop ~10ms ± 2ms. Handshake hops stay 1–5ms.
@@ -364,6 +367,7 @@ fn run_p_join_quiescent_chain(
             .with_upstream_peer(upstream)
             .with_listen_address(listen)
             .with_seed(derive_seed(seed, TAG_NODE + i as u64))
+            .with_target_upstream_peers(P_JOIN_NODES)
             .with_share_request_initial_delay(P_JOIN_SHARE_INITIAL_DELAY)
             .with_trace_buffer(TraceBuffer::new_shared(20_000, 16_000_000))
             // Common ancestor so FindIntersect is not Origin-vs-a-parent-hash the node does not have.
