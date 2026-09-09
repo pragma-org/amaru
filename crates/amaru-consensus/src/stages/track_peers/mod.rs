@@ -832,7 +832,13 @@ impl TrackPeers {
             }
             IntersectNotFound(tip) => {
                 info!(consensus::chainsync::INTERSECT_NOT_FOUND, peer, highest = tip);
-                eff.send(&handler, chainsync::InitiatorMessage::Done).await;
+                let _ = handler;
+                // Not hostility: stop diffusion via peer selection, keep the bearer.
+                eff.send(
+                    &self.peer_selection,
+                    PeerSelectionMsg::Uninteresting { peer, conn_id, after_rollback: false },
+                )
+                .await;
                 self.purge_connection(conn_id);
                 self.clear_availability_if_gone(&peer, &eff).await;
             }

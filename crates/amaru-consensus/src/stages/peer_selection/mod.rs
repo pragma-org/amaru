@@ -15,6 +15,7 @@
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map::Entry},
+    fmt::{self, Display},
     net::SocketAddr,
     time::Duration,
 };
@@ -23,6 +24,7 @@ use amaru_kernel::{BlockHeight, Peer, PeerCandidate};
 use amaru_observability::{Instrument, TraceContext, debug, debug_span, info, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::{
+    connection::LocalUse,
     manager::ManagerMessage,
     peer_sharing::{SharePeersReply, ShareResult},
 };
@@ -38,11 +40,30 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// Backoff after a failed Host/SRV lookup before that candidate may be picked again.
 const RESOLUTION_RETRY_DELAY: Duration = Duration::from_secs(30);
 /// Delay after outbound connect before the first peer-sharing request.
-pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_millis(100);
+pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_secs(300);
 /// Interval between subsequent peer-sharing requests on a live outbound connection.
-pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(60 * 60);
+pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(900);
 /// How many peers to request per share call (network-spec amount is `Word8`).
 pub const SHARE_REQUEST_AMOUNT: u8 = 20;
+/// Caught-up churn interval before fuzz (Haskell default).
+const CHURN_INTERVAL_BASE: Duration = Duration::from_secs(3300);
+/// Extra delay drawn uniformly from `0..=CHURN_INTERVAL_FUZZ`.
+const CHURN_INTERVAL_FUZZ: Duration = Duration::from_secs(600);
+/// Fraction of Using peers to demote each cycle (at least one).
+const CHURN_FRACTION_PERCENT: usize = 20;
+/// After clean churn, the bearer stays; do not re-promote for this long.
+pub(crate) const CHURN_REPROMOTE_DELAY: Duration = Duration::from_secs(10);
+/// Retry Using after no intersection (not hostility).
+pub(crate) const UNINTERESTING_RETRY: Duration = Duration::from_secs(120);
+/// Retry Using after a rollback past the intersection.
+const UNINTERESTING_RETRY_AFTER_ROLLBACK: Duration = Duration::from_secs(180);
+
+fn churn_interval(seed: [u8; 32]) -> Duration {
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&seed[0..8]);
+    let fuzz_secs = u64::from_le_bytes(bytes) % (CHURN_INTERVAL_FUZZ.as_secs() + 1);
+    CHURN_INTERVAL_BASE + Duration::from_secs(fuzz_secs)
+}
 
 /// Peer selection stage for the Amaru consensus node.
 ///
@@ -137,21 +158,20 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 ///   - `Inbound`: If `inbound_peers.len() >= target_downstream_peers`, logs
 ///     `peer_selection.peer.add_skipped` with `reason="too_many_inbound"`, sends `ManagerMessage::Disconnect`,
 ///     and returns early (no insert). Otherwise inserts (or replaces a prior
-///     connection for the same peer, sending `Disconnect` for the old one).
+///     connection for the same peer, sending `Disconnect` for the old one),
+///     then `regulate_peers` so a duplex inbound can be promoted to Using.
 ///   - `Outbound`: Inserts/updates as `PeerState::Connected(conn)`. If replacing
 ///     a prior `Connected` state, warns and sends `Disconnect` for the old conn.
+///     Sends `SetLocalUse(Diffusion)` so fetch/share follow actual local use.
 ///     When `advertisable`, starts peer-sharing on that connection
 ///     (`ManagerMessage::RequestSharePeers` with [`SHARE_REQUEST_INITIAL_DELAY`] /
 ///     [`SHARE_REQUEST_INTERVAL`]); the initiator owns the request cadence.
 ///
 /// - **Disconnected**:
 ///   - `Inbound`: Removes from `inbound_peers` only on exact `ConnectionId` match
-///     (via `Entry::Occupied` guard).
-///   - `Outbound` + `will_retry == true`: If present as `PeerState::Connected` with
-///     matching id, replaces it with `Connecting` so a reconnect handshake does
-///     not race a stale live entry; then clears availability if nothing remains.
-///   - `Outbound` + `will_retry == false`: Removes only if present as exactly
-///     `PeerState::Connected` with matching id; then `regulate_peers`.
+///     (via `Entry::Occupied` guard), then clears availability if nothing remains.
+///   - `Outbound`: Removes only if present as `PeerState::Connected` with matching
+///     id (`Connecting` is ignored); then clears availability and `regulate_peers`.
 ///     (Share-request timers die with the connection's peer-sharing stage.)
 ///
 /// - **ConnectFailed**: Records a connection failure on Performance, removes the peer from
@@ -188,9 +208,10 @@ pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 /// ## Regulation, Schedules, and Effects
 ///
 /// `regulate_peers` (called from `CheckCooldowns`, outbound non-retry disconnect,
-/// `ConnectFailed`, `Regulate`, and outbound removal inside `ban_peer` after the
-/// ban is recorded)
-/// early-returns if `outbound_peers.len() >= target_upstream_peers`. Otherwise it
+/// `ConnectFailed`, `Regulate`, churn/uninteresting demotion, and outbound removal
+/// inside `ban_peer` after the ban is recorded)
+/// early-returns if Using occupancy (`Diffusion` outbound + in-flight dials) is at
+/// `target_upstream_peers`. Eligible Maintenance outbound is promoted first. Otherwise it
 /// obtains a seed via `eff.external(GenerateRandomSeed)` and asks Performance to
 /// select [`PeerCandidate`]s (mix + quality-weighted sample within each source;
 /// hard exclude outbound + cool-down + in-flight resolve). Socket candidates are
@@ -248,6 +269,14 @@ pub struct PeerSelection {
     /// Contramap target for peer-sharing replies ([`ShareResult`] → [`PeerSelectionMsg::SharePeersResult`]).
     /// Ignored in [`PartialEq`] (lazily wired, test-unstable name).
     share_reply: StageRef<ShareResult>,
+    /// Delay after outbound connect before the first peer-sharing request.
+    share_request_initial_delay: Duration,
+    /// Interval between subsequent peer-sharing requests on a live outbound connection.
+    share_request_interval: Duration,
+    /// Next regular churn wake. Ignored in [`PartialEq`] (schedule id is test-unstable).
+    churn_timer: Option<ScheduleId>,
+    /// Peers demoted from Using that must not be re-promoted until this instant.
+    demoted_until: BTreeMap<Peer, Instant>,
 }
 
 impl PartialEq for PeerSelection {
@@ -263,7 +292,10 @@ impl PartialEq for PeerSelection {
             && self.pending_resolve == other.pending_resolve
             && self.bound == other.bound
             && self.resolve_backoff == other.resolve_backoff
-        // share_reply intentionally omitted
+            && self.share_request_initial_delay == other.share_request_initial_delay
+            && self.share_request_interval == other.share_request_interval
+            && self.demoted_until == other.demoted_until
+        // share_reply and churn_timer intentionally omitted
     }
 }
 
@@ -278,11 +310,30 @@ pub struct Connection {
     id: ConnectionId,
     full_duplex_capable: bool,
     full_duplex: bool,
+    local_use: LocalUse,
 }
 
 impl Connection {
     pub fn new(id: ConnectionId, full_duplex_capable: bool, full_duplex: bool) -> Self {
-        Self { id, full_duplex_capable, full_duplex }
+        Self { id, full_duplex_capable, full_duplex, local_use: LocalUse::None }
+    }
+
+    pub fn with_local_use(mut self, local_use: LocalUse) -> Self {
+        self.local_use = local_use;
+        self
+    }
+}
+
+impl Display for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Connection(id={}, duplex={}/{}, use={})",
+            self.id.as_u64(),
+            self.full_duplex_capable,
+            self.full_duplex,
+            self.local_use.as_str()
+        )
     }
 }
 
@@ -307,13 +358,19 @@ pub enum PeerSelectionMsg {
     /// `advertisable` is the remote handshake peer-sharing willingness (latest wins in Performance).
     Connected(Peer, Connection, ConnectionDirection, bool),
     /// A peer has disconnected and the peer_selection stage can stop tracking it.
-    Disconnected(Peer, ConnectionId, ConnectionDirection, bool),
+    Disconnected(Peer, ConnectionId, ConnectionDirection),
     /// A (re)connection attempt has failed, the Manager has removed this peer.
     ConnectFailed(Peer),
     /// Ask the stage to refill outbound slots (no payload).
     ///
     /// Used by the ledger-check child after it has already written candidates into Performance.
     Regulate,
+    /// Periodic Using-set churn: demote the worst non-static fraction, then refill.
+    Churn,
+    /// ChainSync found no usable intersection (or rolled back past it). Stop diffusion, keep the bearer.
+    Uninteresting { peer: Peer, conn_id: ConnectionId, after_rollback: bool },
+    /// Reconsider a previously demoted outbound bearer as Using.
+    Promote { peer: Peer, conn_id: ConnectionId },
     /// Reply from the peer-sharing initiator (one result per request cycle).
     SharePeersResult { peer: Peer, peers: Vec<SocketAddr> },
     /// Server-side peer-sharing: select addresses to advertise to `peer` and reply on `reply_to`.
@@ -354,7 +411,18 @@ impl PeerSelection {
             bound: BTreeMap::new(),
             resolve_backoff: BTreeMap::new(),
             share_reply: StageRef::blackhole(),
+            share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
+            share_request_interval: SHARE_REQUEST_INTERVAL,
+            churn_timer: None,
+            demoted_until: BTreeMap::new(),
         }
+    }
+
+    /// Override the peer-sharing request cadence (production default is 300s then 900s).
+    pub fn with_share_request_delays(mut self, initial: Duration, interval: Duration) -> Self {
+        self.share_request_initial_delay = initial;
+        self.share_request_interval = interval;
+        self
     }
 }
 
@@ -374,7 +442,7 @@ impl PeerSelection {
                 protocols::peer_selection::peer::REMOVED,
                 peer,
                 direction = "inbound",
-                peer_state = format!("{peer_state:?}"),
+                peer_state = peer_state.to_string(),
                 is_static
             );
             send_remove = true;
@@ -391,6 +459,7 @@ impl PeerSelection {
             send_remove = true;
             refill_outbound = true;
             self.unbind_peer(&peer);
+            self.demoted_until.remove(&peer);
         }
 
         if send_remove {
@@ -463,9 +532,174 @@ impl PeerSelection {
         self.outbound_peers.insert(peer, PeerState::Connecting);
     }
 
+    fn using_occupancy(&self) -> usize {
+        self.pending_resolve.len()
+            + self
+                .outbound_peers
+                .values()
+                .filter(|state| match state {
+                    PeerState::Connecting => true,
+                    PeerState::Connected(conn) => conn.local_use == LocalUse::Diffusion,
+                })
+                .count()
+            + self.inbound_peers.values().filter(|conn| conn.local_use == LocalUse::Diffusion).count()
+    }
+
+    fn using_peers(&self) -> Vec<Peer> {
+        self.outbound_peers
+            .iter()
+            .filter_map(|(peer, state)| match state {
+                PeerState::Connected(conn) if conn.local_use == LocalUse::Diffusion => Some(*peer),
+                PeerState::Connecting | PeerState::Connected(_) => None,
+            })
+            .collect()
+    }
+
+    async fn arm_churn(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        let seed: [u8; 32] = eff.external(GenerateRandomSeed).await;
+        let id = eff.schedule_after(PeerSelectionMsg::Churn, churn_interval(seed)).await;
+        self.churn_timer = Some(id);
+    }
+
+    fn connection_mut(&mut self, peer: Peer, conn_id: ConnectionId) -> Option<&mut Connection> {
+        if let Some(PeerState::Connected(conn)) = self.outbound_peers.get_mut(&peer)
+            && conn.id == conn_id
+        {
+            return Some(conn);
+        }
+        if let Some(conn) = self.inbound_peers.get_mut(&peer)
+            && conn.id == conn_id
+        {
+            return Some(conn);
+        }
+        None
+    }
+
+    async fn demote_to_maintenance(
+        &mut self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        reason: &'static str,
+        until: Instant,
+        eff: &Effects<PeerSelectionMsg>,
+    ) -> bool {
+        let Some(conn) = self.connection_mut(peer, conn_id) else {
+            return false;
+        };
+        if conn.local_use != LocalUse::Diffusion {
+            return false;
+        }
+        conn.local_use = LocalUse::Maintenance;
+        self.demoted_until.insert(peer, until);
+        info!(protocols::peer_selection::peer::DEMOTED, peer, conn_id = conn_id.as_u64(), reason);
+        eff.send(&self.manager, ManagerMessage::SetLocalUse { peer, conn_id, local_use: LocalUse::Maintenance }).await;
+        let _promote = eff.schedule_at(PeerSelectionMsg::Promote { peer, conn_id }, until).await;
+        true
+    }
+
+    async fn try_promote(&mut self, peer: Peer, conn_id: ConnectionId, now: Instant, eff: &Effects<PeerSelectionMsg>) {
+        if self.demoted_until.get(&peer).is_some_and(|until| *until > now) {
+            return;
+        }
+        self.demoted_until.remove(&peer);
+        if self.using_occupancy() >= self.target_upstream_peers {
+            return;
+        }
+        let Some(conn) = self.connection_mut(peer, conn_id) else {
+            return;
+        };
+        if conn.local_use == LocalUse::Diffusion {
+            return;
+        }
+        conn.local_use = LocalUse::Diffusion;
+        eff.send(&self.manager, ManagerMessage::SetLocalUse { peer, conn_id, local_use: LocalUse::Diffusion }).await;
+    }
+
+    async fn churn(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        let using = self.using_peers();
+        if using.is_empty() {
+            return;
+        }
+        let want = (using.len() * CHURN_FRACTION_PERCENT / 100).max(1).min(using.len());
+        let now = eff.clock().await;
+        let ranked = eff.external(Performance::rank_peers_for_churn(using, now)).await;
+        let mut demoted = 0;
+        for (peer, _) in ranked {
+            if demoted >= want {
+                break;
+            }
+            if eff.external(Performance::is_static_peer(peer)).await {
+                continue;
+            }
+            let Some(PeerState::Connected(conn)) = self.outbound_peers.get(&peer) else {
+                continue;
+            };
+            if conn.local_use != LocalUse::Diffusion {
+                continue;
+            }
+            let conn_id = conn.id;
+            if self.demote_to_maintenance(peer, conn_id, "churn", now + CHURN_REPROMOTE_DELAY, eff).await {
+                demoted += 1;
+            }
+        }
+        if demoted > 0 {
+            self.regulate_peers(eff).await;
+        }
+    }
+
+    async fn promote_duplex_inbounds(&mut self, now: Instant, eff: &Effects<PeerSelectionMsg>) {
+        let candidates: Vec<(Peer, ConnectionId)> = self
+            .inbound_peers
+            .iter()
+            .filter_map(|(peer, conn)| {
+                if conn.full_duplex
+                    && conn.local_use != LocalUse::Diffusion
+                    && !self.demoted_until.get(peer).is_some_and(|until| *until > now)
+                    && !self.cooldowns.is_cooling(peer)
+                {
+                    Some((*peer, conn.id))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (peer, conn_id) in candidates {
+            if self.using_occupancy() >= self.target_upstream_peers {
+                break;
+            }
+            self.try_promote(peer, conn_id, now, eff).await;
+        }
+    }
+
+    async fn promote_eligible_maintenance(&mut self, now: Instant, eff: &Effects<PeerSelectionMsg>) {
+        let candidates: Vec<(Peer, ConnectionId)> = self
+            .outbound_peers
+            .iter()
+            .filter_map(|(peer, state)| match state {
+                PeerState::Connected(conn)
+                    if conn.local_use == LocalUse::Maintenance
+                        && !self.demoted_until.get(peer).is_some_and(|until| *until > now) =>
+                {
+                    Some((*peer, conn.id))
+                }
+                PeerState::Connecting | PeerState::Connected(_) => None,
+            })
+            .collect();
+        for (peer, conn_id) in candidates {
+            if self.using_occupancy() >= self.target_upstream_peers {
+                break;
+            }
+            self.try_promote(peer, conn_id, now, eff).await;
+        }
+    }
+
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        let now = eff.clock().await;
+        // TODO: this is for testing the feature, should use peer mix quota and metrics ranking
+        self.promote_duplex_inbounds(now, eff).await;
+        self.promote_eligible_maintenance(now, eff).await;
         let target_upstream_peers = self.target_upstream_peers;
-        let outbound = self.outbound_peers.len() + self.pending_resolve.len();
+        let outbound = self.using_occupancy();
         if outbound >= target_upstream_peers {
             return;
         }
@@ -475,6 +709,12 @@ impl PeerSelection {
         let now = eff.clock().await;
         let mut excluded: BTreeSet<PeerCandidate> =
             self.outbound_peers.keys().copied().map(PeerCandidate::from).collect();
+        excluded.extend(
+            self.inbound_peers
+                .iter()
+                .filter(|(_, conn)| conn.local_use == LocalUse::Diffusion)
+                .map(|(peer, _)| PeerCandidate::from(*peer)),
+        );
         for p in self.cooldowns.cooling_peers() {
             excluded.insert(PeerCandidate::from(p));
         }
@@ -515,8 +755,8 @@ impl PeerSelection {
             ManagerMessage::RequestSharePeers {
                 peer,
                 amount: SHARE_REQUEST_AMOUNT,
-                initial_delay: SHARE_REQUEST_INITIAL_DELAY,
-                interval: SHARE_REQUEST_INTERVAL,
+                initial_delay: self.share_request_initial_delay,
+                interval: self.share_request_interval,
                 reply_to: self.share_reply.clone(),
             },
         )
@@ -612,6 +852,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             // Mix includes static sockets and names; Host/SRV are resolved just before dialling
             // and stay in their pool so a later pick re-resolves.
             state.regulate_peers(&eff).await;
+            state.arm_churn(&eff).await;
             // NOTE: no supervision, failure in ledger-check shall tear down the node.
             let ledger_check = eff
                 .wire_up(
@@ -678,7 +919,10 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 );
                 drop(span);
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, conn.id)).await;
+            } else {
+                drop(span);
             }
+            state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Outbound, advertisable) => {
             let now = eff.clock().await;
@@ -692,6 +936,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 full_duplex = connection.full_duplex,
             )
             .entered();
+            let mut connection = connection;
+            connection.local_use = LocalUse::Diffusion;
             let old = state.outbound_peers.insert(peer, PeerState::Connected(connection));
             let disconnect_old = if let Some(PeerState::Connected(conn)) = old {
                 warn!(
@@ -708,13 +954,18 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             if let Some(old_id) = disconnect_old {
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, old_id)).await;
             }
+            eff.send(
+                &state.manager,
+                ManagerMessage::SetLocalUse { peer, conn_id: connection.id, local_use: LocalUse::Diffusion },
+            )
+            .await;
             // Only ask peers that advertised peer-sharing willingness (they run the server).
             // Cadence lives on the peer-sharing initiator until the connection ends.
             if advertisable {
                 state.start_peer_sharing(peer, &eff).await;
             }
         }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound, _) => {
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound) => {
             {
                 let _span = debug_span!(
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
@@ -731,23 +982,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
             state.clear_availability_if_gone(&peer, &eff).await;
         }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, true) => {
-            if let Entry::Occupied(mut entry) = state.outbound_peers.entry(peer)
-                && let PeerState::Connected(conn) = entry.get()
-                && conn.id == conn_id
-            {
-                let _span = debug_span!(
-                    amaru::protocols::peer_selection::peer::DISCONNECTED,
-                    peer,
-                    conn_id = conn_id.as_u64(),
-                    direction = ConnectionDirection::Outbound,
-                )
-                .entered();
-                entry.insert(PeerState::Connecting);
-            }
-            state.clear_availability_if_gone(&peer, &eff).await;
-        }
-        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, _) => {
+        PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound) => {
             if let Entry::Occupied(entry) = state.outbound_peers.entry(peer)
                 && let PeerState::Connected(conn) = entry.get()
                 && conn.id == conn_id
@@ -762,6 +997,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 entry.remove();
                 drop(span);
                 state.unbind_peer(&peer);
+                state.demoted_until.remove(&peer);
                 state.clear_availability_if_gone(&peer, &eff).await;
                 state.regulate_peers(&eff).await;
             }
@@ -771,6 +1007,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             eff.external(Performance::record_connection_failure(peer, now)).await;
             state.outbound_peers.remove(&peer);
             state.unbind_peer(&peer);
+            state.demoted_until.remove(&peer);
             state.clear_availability_if_gone(&peer, &eff).await;
             state.regulate_peers(&eff).await;
         }
@@ -800,7 +1037,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 let now = eff.clock().await;
                 state.resolve_backoff.insert(candidate, now + RESOLUTION_RETRY_DELAY);
                 state.regulate_peers(&eff).await;
-                if state.outbound_peers.len() + state.pending_resolve.len() < state.target_upstream_peers {
+                if state.using_occupancy() < state.target_upstream_peers {
                     eff.schedule_at(PeerSelectionMsg::Regulate, now + RESOLUTION_RETRY_DELAY).await;
                 }
                 return state;
@@ -820,6 +1057,24 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
             state.start_dial(candidate, origin, peer, &eff).await;
             state.regulate_peers(&eff).await;
+        }
+        PeerSelectionMsg::Churn => {
+            if let Some(id) = state.churn_timer.take() {
+                eff.cancel_schedule(id).await;
+            }
+            state.churn(&eff).await;
+            state.arm_churn(&eff).await;
+        }
+        PeerSelectionMsg::Uninteresting { peer, conn_id, after_rollback } => {
+            let now = eff.clock().await;
+            let delay = if after_rollback { UNINTERESTING_RETRY_AFTER_ROLLBACK } else { UNINTERESTING_RETRY };
+            if state.demote_to_maintenance(peer, conn_id, "uninteresting", now + delay, &eff).await {
+                state.regulate_peers(&eff).await;
+            }
+        }
+        PeerSelectionMsg::Promote { peer, conn_id } => {
+            let now = eff.clock().await;
+            state.try_promote(peer, conn_id, now, &eff).await;
         }
     }
     state

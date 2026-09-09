@@ -6677,6 +6677,32 @@
       "description": "A mini-protocol stage running on a connection died",
       "public": true
     },
+    "amaru::protocols::connection::CHILD_STOPPED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "child": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "child"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "child_stopped",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "A mini-protocol stage running on a connection stopped upon request",
+      "public": true
+    },
     "amaru::protocols::connection::HANDSHAKE_QUERY_REPLY": {
       "type": "object",
       "properties": {
@@ -7136,6 +7162,32 @@
       "description": "The handshake completed on a connection",
       "public": true
     },
+    "amaru::protocols::manager::peer::LOCAL_USE_APPLIED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "local_use": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "local_use"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "local_use_applied",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "The connection finished converging to this local use",
+      "public": true
+    },
     "amaru::protocols::manager::peer::REMOVE": {
       "type": "object",
       "properties": {
@@ -7152,6 +7204,32 @@
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
       "description": "A peer was removed from the manager",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::SET_LOCAL_USE": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "local_use": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "local_use"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "set_local_use",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A change of local use was requested on a connection",
       "public": true
     },
     "amaru::protocols::mux::EMPTY_SEGMENT": {
@@ -7203,7 +7281,7 @@
       "name": "failed",
       "level": "TRACE",
       "target": "amaru::protocols::mux",
-      "description": "The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.",
+      "description": "The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing, after_done}.",
       "public": true
     },
     "amaru::protocols::mux::protocol::BUFFER_EXCEEDED": {
@@ -7388,6 +7466,32 @@
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::peer",
       "description": "A connection has been established and the handshake completed successfully.",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::DEMOTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "demoted",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}.",
       "public": true
     },
     "amaru::protocols::peer_selection::peer::DISCONNECTED": {

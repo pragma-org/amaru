@@ -44,6 +44,15 @@ pub enum SampleAncestorPointsResult {
     Found(Vec<Point>),
 }
 
+impl SampleAncestorPointsResult {
+    pub fn as_slice(&self) -> Option<&[Point]> {
+        match self {
+            SampleAncestorPointsResult::Found(points) => Some(points.as_slice()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Error, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum StoreError {
     WriteError { error: String },

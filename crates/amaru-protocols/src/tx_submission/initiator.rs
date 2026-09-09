@@ -90,7 +90,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
 
     async fn local(
         mut self,
-        _proto: &State,
+        proto: &State,
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
@@ -111,6 +111,14 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
                 }
                 action
             }
+            InitiatorLocalIn::Close => {
+                if matches!(proto, crate::tx_submission::State::TxIdsBlocking) {
+                    Some(InitiatorAction::Done)
+                } else {
+                    self.pending_close = true;
+                    None
+                }
+            }
         };
         Ok((action, self))
     }
@@ -128,6 +136,9 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
             let mempool = MemoryPool::new(eff.clone());
 
             let action = match input {
+                InitiatorResult::RequestTxIds { blocking: Blocking::Yes, .. } if self.pending_close => {
+                    Some(InitiatorAction::Done)
+                }
                 InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
                     self.request_tx_ids_blocking(eff, ack, req).await?
                 }
@@ -207,7 +218,7 @@ impl ProtocolState<Initiator> for State {
             (State::Txs, InitiatorAction::SendReplyTxs(txs)) => {
                 (outcome().send(Message::ReplyTxs(txs)).want_next(), State::Idle)
             }
-            (State::TxIdsBlocking, InitiatorAction::Done) => (outcome().send(Message::Done), State::Done),
+            (State::TxIdsBlocking, InitiatorAction::Done) => (outcome().send(Message::Done).finish(), State::Done),
             (_, InitiatorAction::Error(e)) => (outcome().terminate_with(e), State::Done),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
@@ -284,6 +295,7 @@ pub struct TxSubmissionInitiator {
     muxer: StageRef<MuxMessage>,
     /// Era history used to derive the current era tag for outgoing wire messages.
     era_history: Arc<EraHistory>,
+    pending_close: bool,
 }
 
 impl TxSubmissionInitiator {
@@ -304,6 +316,7 @@ impl TxSubmissionInitiator {
                 wait_for_at_least_callback: StageRef::blackhole(),
                 muxer,
                 era_history,
+                pending_close: false,
             },
         )
     }
@@ -536,6 +549,7 @@ impl TxSubmissionInitiator {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorLocalIn {
     WaitForAtLeastReached,
+    Close,
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

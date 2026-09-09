@@ -22,7 +22,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use amaru_consensus::performance::PeerMix;
+use amaru_consensus::{
+    performance::PeerMix,
+    stages::peer_selection::{SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
+};
 use amaru_kernel::{
     ConsensusParameters, EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
     PREPROD_GLOBAL_PARAMETERS, Peer, PeerCandidate,
@@ -81,6 +84,12 @@ pub struct Config {
 
     /// BlockFetch initiator pipeline depth. `1` is the lock-step instance; `N > 1` pipelines.
     pub blockfetch_pipeline_n: NonZeroU8,
+
+    /// Delay after outbound connect before the first peer-sharing request (production 300s).
+    pub share_request_initial_delay: Duration,
+
+    /// Interval between subsequent peer-sharing requests (production 900s).
+    pub share_request_interval: Duration,
 
     /// Optional embedder observers (adopted blocks, full stake summaries).
     pub observers: amaru_ledger::LedgerObservers,
@@ -160,6 +169,8 @@ impl Default for Config {
             mempool: MempoolConfig::default(),
             tx_submission_responder_params: ResponderParams::default(),
             blockfetch_pipeline_n: NonZeroU8::MIN,
+            share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
+            share_request_interval: SHARE_REQUEST_INTERVAL,
             observers: amaru_ledger::LedgerObservers::default(),
             meter: None,
             realign_chain_store: true,

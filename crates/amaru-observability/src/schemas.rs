@@ -1888,10 +1888,19 @@ define_schemas! {
                         required conn_id: u64
                         required peer: %amaru_kernel::Peer
                         required role: String
+                        required local_use: String
+                        required duplex: bool
+                        required stopping: u64
                     }
                 }
                 /// A mini-protocol stage running on a connection died
                 public CHILD_DIED {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                    required child: String
+                }
+                /// A mini-protocol stage running on a connection stopped upon request
+                public CHILD_STOPPED {
                     required peer: %amaru_kernel::Peer
                     required conn_id: u64
                     required child: String
@@ -2002,6 +2011,18 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required error: String
                     }
+                    /// A change of local use was requested on a connection
+                    public SET_LOCAL_USE {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required local_use: String
+                    }
+                    /// The connection finished converging to this local use
+                    public LOCAL_USE_APPLIED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required local_use: String
+                    }
                 }
                 listen {
                     tags: setup
@@ -2102,6 +2123,12 @@ define_schemas! {
                     ADVERSARIAL {
                         required peer: %amaru_kernel::Peer
                     }
+                    /// Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}.
+                    public DEMOTED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required reason: String
+                    }
                 }
                 ledger {
                     /// Look for peer candidates registered as relays in the ledger
@@ -2156,7 +2183,7 @@ define_schemas! {
                     }
                     /// Sample stored points to propose as chain intersections
                     INTERSECT_POINTS {
-                        optional points: String
+                        optional points: Option<&[amaru_kernel::Point]>
                     }
                     /// A rollback target announced by the peer is not in the chain store
                     public ROLLBACK_POINT_NOT_FOUND {
@@ -2478,7 +2505,7 @@ define_schemas! {
                     }
                 }
                 /// The muxer failed while moving data between a protocol and the network.
-                /// Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.
+                /// Operation ∈ {send, recv_header, decode_header, recv_data, muxing, after_done}.
                 public FAILED {
                     required role: String
                     required peer: %amaru_kernel::Peer

@@ -57,7 +57,6 @@ fn test_incoming_tip_not_in_store() {
         ],
     );
     logs.assert_and_remove(Level::WARN, &["block.header_not_found", r#"role="incoming_tip""#])
-        .assert_and_remove(Level::INFO, &["terminated"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -84,7 +83,6 @@ fn test_current_best_not_loadable() {
         ],
     );
     logs.assert_and_remove(Level::WARN, &["block.header_not_found", r#"role="current_best""#])
-        .assert_and_remove(Level::INFO, &["terminated"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 

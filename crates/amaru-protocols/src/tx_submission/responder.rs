@@ -146,7 +146,7 @@ impl ProtocolState<Responder> for State {
                 let txs = tagged_txs.into_iter().map(|t| t.tx).collect();
                 (outcome().result(ResponderResult::ReplyTxs(txs)), State::Idle)
             }
-            (State::TxIdsBlocking, Message::Done) => (outcome().result(ResponderResult::Done), State::Done),
+            (State::TxIdsBlocking, Message::Done) => (outcome().want_next(), State::Init),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

@@ -61,7 +61,7 @@ pub async fn register_peer_sharing_responder<M: amaru_pure_stage::SendData>(
     use crate::{mux::Frame, peer_sharing::MAX_MESSAGE_BYTES};
 
     let (state, stage) = PeerSharingResponder::new(muxer.clone(), peer, manager);
-    let ps = eff.stage("peer_sharing", responder()).await;
+    let ps = eff.stage("peer_sharing-responder", responder()).await;
     let ps = eff.supervise(ps, tombstone);
     let ps = eff.wire_up(ps, (state, stage)).await;
     eff.send(
@@ -183,7 +183,7 @@ impl ProtocolState<Responder> for State {
             (Idle, Message::ShareRequest { amount }) => {
                 (outcome().result(ResponderResult::ShareRequest { amount }), Busy)
             }
-            (Idle, Message::Done) => (outcome().result(ResponderResult::Done), Done),
+            (Idle, Message::Done) => (outcome().want_next(), Idle),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

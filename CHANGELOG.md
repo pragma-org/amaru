@@ -47,12 +47,23 @@ Other guiding principles:
 ### Added
 
 - **amaru-protocols**: BlockFetch times out after 60s if the peer stalls while serving a range. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
+- **amaru-protocols**: `manager.peer.local_use_applied` is logged when a connection has finished changing local use (for example to Maintenance after an uninteresting demotion).
 
 ### Changed
 
 - **amaru-protocols**: handshake agrees version data per the node-to-node spec: network magics must match, initiator-only and query are OR, peer-sharing is AND. The initiator drops the connection if `MsgAcceptVersion` does not carry that record. ([#884](https://github.com/pragma-org/amaru/issues/884))
 - **amaru-protocols**: mux SDU assembly waits indefinitely for the first header byte, then 10s for the rest of the first Handshake message and 30s afterwards. Exceeding that limit tears the connection down.
 - **amaru**: the `mempool_max_bytes` startup trace field is now an IEC size such as `176 KiB` instead of a raw integer.
+- **amaru-protocols**: a connection is one established session whose local use is None, Maintenance, or Diffusion. The manager no longer redials when a session drops; peer selection fills outbound slots. ([#736](https://github.com/pragma-org/amaru/issues/736))
+- **amaru-protocols**: lowering local use sends `MsgDone` to the initiator mini-protocols and waits for them to finish (300s from Diffusion, 120s from Maintenance). Unexpected protocol death still tears the connection down.
+- **amaru-consensus**: after an outbound handshake, the node starts diffusion (ChainSync, BlockFetch, PeerSharing) on that connection. Peer-sharing asks every 300s at first, then every 900s.
+- **amaru-protocols**: BlockFetch and PeerSharing run only on connections whose local use is Diffusion.
+- **amaru-consensus**: peer selection churns about 20% of Using peers per hour (worst first, never static bootstrap peers) by demoting them to Maintenance, without incrementing malus.
+- **amaru-consensus**: ChainSync `IntersectNotFound` treats the peer as uninteresting as an upstream (retry after 120s), not as adversarial.
+- **amaru-protocols**: outbound handshake now offers duplex. When both sides agree, responders run on that bearer; promoting an inbound connection to Diffusion starts our initiators there too. ([#751](https://github.com/pragma-org/amaru/issues/751), [#660](https://github.com/pragma-org/amaru/issues/660))
+- **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of opening a second outbound connection; Using inbounds count toward the upstream target. ([#660](https://github.com/pragma-org/amaru/issues/660))
+- **amaru-protocols**: connection traces include `local_use`, `duplex`, and `stopping`.
+- **amaru-pure-stage**: a stage that stops on purpose is logged at debug. A stage that aborts because of an error still logs that error at info or above before exiting.
 
 ### Fixed
 
@@ -63,6 +74,7 @@ Other guiding principles:
 - **amaru-tui**: the log scrollbar can be clicked and dragged to jump through the buffer. `|` focuses it for large keyboard steps (`↑↓`, page, home/end), and `@` jumps to a UTC time (`HH:MM[:SS]` or `YYYY-MM-DD[ HH:MM[:SS]]`). Log `↑`/`↓`/page/wheel now follow that same older/newer direction.
 - **amaru-tui**: `w` or the log `[ WRAP ]` control turns off wrapping so `←`/`→` (and shift-wheel / horizontal wheel) pan long lines; the column offset is kept while scrolling vertically. Pane focus on a tab moved to `Ctrl-←`/`Ctrl-→`.
 - **amaru-tui**: switching the log pane to DEBUG no longer panics when the retained debug stream is larger than ratatui’s `u16` paragraph scroll; the pane renders a visible window around the tail instead of the whole buffer.
+- **amaru-protocols**: the first peer-share request after an outbound handshake is no longer dropped.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 

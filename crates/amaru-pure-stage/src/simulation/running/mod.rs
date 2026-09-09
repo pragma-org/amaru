@@ -1263,7 +1263,7 @@ impl SimulationRunning {
             },
             Effect::Detach { at_stage, effect } => return self.handle_detach(at_stage, effect),
             Effect::Terminate { at_stage } => {
-                tracing::info!(stage = %at_stage, "terminated");
+                tracing::debug!(stage = %at_stage, "terminated");
                 let (supervised_by, msg) = self.terminate_stage(at_stage.clone(), TerminationReason::Voluntary)?;
                 if supervised_by == *BLACKHOLE_NAME {
                     // top-level stage terminated, terminate the simulation

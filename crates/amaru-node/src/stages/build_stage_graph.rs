@@ -70,7 +70,8 @@ pub fn build_stage_graph(
             config.target_upstream_peers,
             config.target_downstream_peers,
             config.peer_removal_cooldown_secs,
-        ),
+        )
+        .with_share_request_delays(config.share_request_initial_delay, config.share_request_interval),
     );
 
     let peer_selection_notify = peer_selection_ref.contramap(|n: PeerSelectionNotify| match n {
@@ -82,8 +83,8 @@ pub fn build_stage_graph(
                 advertisable,
             )
         }
-        PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry } => {
-            PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
+        PeerSelectionNotify::Disconnected { peer, conn_id, direction } => {
+            PeerSelectionMsg::Disconnected(peer, conn_id, direction)
         }
         PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
         PeerSelectionNotify::ShareRequest { peer, amount, reply_to } => {

@@ -2481,6 +2481,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `accept_failed` | `TRACE` | public | An inbound connection could not be accepted. Reason ∈ {aborted, error}. | reason | error |
 | `child_died` | `TRACE` | public | A mini-protocol stage running on a connection died | peer, conn_id, child |  |
+| `child_stopped` | `TRACE` | public | A mini-protocol stage running on a connection stopped upon request | peer, conn_id, child |  |
 | `handshake_query_reply` | `TRACE` | public | The peer answered a version query instead of negotiating | version_table |  |
 | `handshake_refused` | `TRACE` | public | The peer refused our proposed protocol versions | reason |  |
 
@@ -2494,6 +2495,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 </details>
 
 <details><summary>span: `child_died`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `child` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `child_stopped`</summary>
 
 | field | type | required |
 | --- | --- | --- |
@@ -2605,7 +2616,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `disconnecting` | `TRACE` | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
 | `duplicate_terminated` | `TRACE` | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
 | `handshake_completed` | `TRACE` | public | The handshake completed on a connection | peer, conn_id, full_duplex_capable, full_duplex, advertisable |  |
+| `local_use_applied` | `TRACE` | public | The connection finished converging to this local use | peer, conn_id, local_use |  |
 | `remove` | `TRACE` | public | A peer was removed from the manager | peer |  |
+| `set_local_use` | `TRACE` | public | A change of local use was requested on a connection | peer, conn_id, local_use |  |
 
 <details><summary>span: `accepted`</summary>
 
@@ -2736,6 +2749,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `local_use_applied`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `local_use` | `string` | ✓ |
+
+</details>
+
 <details><summary>span: `remove`</summary>
 
 | field | type | required |
@@ -2744,12 +2767,22 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `set_local_use`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `local_use` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::mux`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | role, peer |  |
-| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | role, peer, operation, error |  |
+| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing, after_done}. | role, peer, operation, error |  |
 
 <details><summary>span: `empty_segment`</summary>
 
@@ -2833,6 +2866,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `added` | `TRACE` | public | A peer was added to the outbound set | peer, was_banned |  |
 | `address_rejected` | `TRACE` | public | A candidate address was rejected and will not be used as a Peer. | address, reason |  |
 | `connected` | `TRACE` | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
+| `demoted` | `TRACE` | public | Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}. | peer, conn_id, reason |  |
 | `disconnected` | `TRACE` | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
 | `reconnected` | `TRACE` | public | A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}. | peer, direction, conn_id |  |
 | `removed` | `TRACE` | public | A peer was removed after behaving adversarially | peer, direction, peer_state, is_static |  |
@@ -2875,6 +2909,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `direction` | `string` | ✓ |
 | `full_duplex_capable` | `boolean` | ✓ |
 | `full_duplex` | `boolean` | ✓ |
+
+</details>
+
+<details><summary>span: `demoted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
 
 </details>
 
