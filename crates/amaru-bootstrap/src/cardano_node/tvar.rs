@@ -23,11 +23,13 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
     iter,
+    sync::Arc,
 };
 
 use amaru_kernel::{
     Credential, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, MemoizedTransactionOutput, NetworkName, Point,
-    TransactionInput, cbor, cbor::lazy::LazyDecoder,
+    TransactionInput, cbor,
+    cbor::lazy::{Checkpoint, LazyDecoder},
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot_with_decoder,
@@ -38,7 +40,7 @@ use amaru_progress_bar::ProgressBarFactory;
 use anyhow::anyhow;
 
 use super::{extract_snapshot_chain_state_after_ledger, mempack, parse_state_snapshot_prefix};
-use crate::bootstrap::ChainState;
+use crate::bootstrap::{BootstrapCancellation, ChainState, checkpoint};
 
 #[expect(clippy::too_many_arguments)]
 pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
@@ -57,6 +59,7 @@ where
     State: Read,
     Utxo: Read,
 {
+    let cancellation = BootstrapCancellation::new();
     let (epoch, point, era_history, chain_state) = import_state_from_tvar(
         db,
         state_file,
@@ -65,13 +68,15 @@ where
         nonce_tail,
         previous_accounts,
         &with_progress,
+        &cancellation,
     )?;
 
-    import_utxo_from_tvar(utxo_file, db, &with_progress, &point, &era_history, network)?;
+    import_utxo_from_tvar(utxo_file, db, &with_progress, &point, &era_history, network, &cancellation)?;
 
     Ok((epoch, point, chain_state))
 }
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn import_state_from_tvar<S, State>(
     db: &S,
     state_file: &mut State,
@@ -80,12 +85,15 @@ pub(crate) fn import_state_from_tvar<S, State>(
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<Credential>,
     with_progress: &impl ProgressBarFactory,
+    cancellation: &BootstrapCancellation,
 ) -> anyhow::Result<(Epoch, Point, EraHistory, Option<ChainState>)>
 where
     S: Store,
     State: Read,
 {
-    let mut decoder = LazyDecoder::new(state_file);
+    let decoder_control = cancellation.clone();
+    let checkpoint: Arc<Checkpoint> = Arc::new(move || checkpoint(&decoder_control).map_err(Into::into));
+    let mut decoder = LazyDecoder::with_checkpoint(state_file, checkpoint);
     let parsed_snapshot = decoder.with_decoder(|d| parse_state_snapshot_prefix(d, global_parameters))?;
     let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
 
@@ -115,12 +123,15 @@ pub(crate) fn import_utxo_from_tvar<S, Utxo>(
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
+    cancellation: &BootstrapCancellation,
 ) -> anyhow::Result<()>
 where
     S: Store,
     Utxo: Read,
 {
-    let mut decoder = LazyDecoder::new(utxo_file);
+    let decoder_control = cancellation.clone();
+    let checkpoint: Arc<Checkpoint> = Arc::new(move || checkpoint(&decoder_control).map_err(Into::into));
+    let mut decoder = LazyDecoder::with_checkpoint(utxo_file, checkpoint);
     import_tvar_utxo(&mut decoder, db, with_progress, point, era_history, network)
 }
 
@@ -216,6 +227,7 @@ where
                     iter::empty(),
                 )
             })?;
+            decoder.checkpoint()?;
         }
 
         if done {

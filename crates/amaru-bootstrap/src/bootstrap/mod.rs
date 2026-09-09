@@ -36,6 +36,7 @@ use tokio::{
     fs as async_fs,
     time::{Instant, timeout},
 };
+pub use tokio_util::sync::CancellationToken as BootstrapCancellation;
 use zstd::Decoder as ZstdDecoder;
 
 mod chain_sync_client;
@@ -62,6 +63,9 @@ impl Snapshot {
 
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapError {
+    #[error("bootstrap cancelled")]
+    Cancelled,
+
     #[error("Can not create snapshots directory {0}: {1}")]
     CreateSnapshotsDir(PathBuf, io::Error),
 
@@ -92,6 +96,10 @@ pub enum BootstrapError {
         display_collection(required_epochs)
     )]
     SnapshotSelectionLatestEpoch { latest_epoch: Epoch, required_epochs: [Epoch; 3], available_epochs: Vec<Epoch> },
+}
+
+pub(crate) fn checkpoint(cancellation: &BootstrapCancellation) -> Result<(), BootstrapError> {
+    if cancellation.is_cancelled() { Err(BootstrapError::Cancelled) } else { Ok(()) }
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
@@ -310,12 +318,14 @@ async fn download_snapshots(
     snapshots: &[&Snapshot],
     snapshots_dir: &Path,
     s3: &AnonymousS3Client,
+    cancellation: &BootstrapCancellation,
 ) -> Result<(), BootstrapError> {
     async_fs::create_dir_all(snapshots_dir)
         .await
         .map_err(|err| BootstrapError::CreateSnapshotsDir(snapshots_dir.to_path_buf(), err))?;
 
     for snapshot in snapshots {
+        checkpoint(cancellation)?;
         let archive_path = snapshot_archive_path(snapshots_dir, snapshot);
 
         if !should_download_snapshot(snapshots_dir, snapshot) {
@@ -337,9 +347,13 @@ async fn download_snapshots(
 
         info!(bootstrap::snapshot::DOWNLOAD, epoch = snapshot.epoch, point = snapshot.point);
 
-        s3.download_object(&snapshot.key, &partial_archive_path)
-            .await
-            .map_err(|e| BootstrapError::DownloadError(snapshot.key.clone(), e.to_string()))?;
+        tokio::select! {
+            biased;
+            result = s3.download_object(&snapshot.key, &partial_archive_path) => {
+                result.map_err(|error| BootstrapError::DownloadError(snapshot.key.clone(), error.to_string()))?;
+            }
+            () = cancellation.cancelled() => return Err(BootstrapError::Cancelled),
+        }
 
         validate_snapshot_archive(&partial_archive_path)
             .map_err(|err| BootstrapError::InvalidSnapshotArchive(partial_archive_path.clone(), err.to_string()))?;
@@ -435,7 +449,16 @@ fn snapshot_archive_entry_root(path: &Path, expected: &Path) -> Option<PathBuf> 
     }
 }
 
-/// Set the internal dbs in such a state that amaru can run
+/// Bootstrap with cooperative cancellation at decoder and database work-unit boundaries.
+///
+/// To stop bootstrap, call [`BootstrapCancellation::cancel`] on a cloned handle and continue
+/// awaiting this function until it returns an error containing [`BootstrapError::Cancelled`]. Do not
+/// drop the bootstrap future after requesting cancellation. The cancellation result is returned only
+/// after the importer has stopped and released its store handles. During snapshot import,
+/// cancellation latency is bounded by the decoder read/sequence chunk or RocksDB batch currently in
+/// progress; snapshot downloads are interrupted immediately. Cancellation can leave partial bootstrap
+/// stores, which must be removed and bootstrapped again rather than opened as node stores.
+#[expect(clippy::too_many_arguments)]
 pub async fn bootstrap(
     network: NetworkName,
     global_parameters: &GlobalParameters,
@@ -444,13 +467,43 @@ pub async fn bootstrap(
     snapshots_dir: PathBuf,
     target_epoch: Option<Epoch>,
     s3_config: S3Config,
+    cancellation: BootstrapCancellation,
+) -> anyhow::Result<()> {
+    let cancel_on_drop = cancellation.clone().drop_guard();
+    let result = bootstrap_inner(
+        network,
+        global_parameters,
+        ledger_dir,
+        chain_dir,
+        snapshots_dir,
+        target_epoch,
+        s3_config,
+        cancellation,
+    )
+    .await;
+    cancel_on_drop.disarm();
+    result
+}
+
+#[expect(clippy::too_many_arguments)]
+async fn bootstrap_inner(
+    network: NetworkName,
+    global_parameters: &GlobalParameters,
+    ledger_dir: PathBuf,
+    chain_dir: PathBuf,
+    snapshots_dir: PathBuf,
+    target_epoch: Option<Epoch>,
+    s3_config: S3Config,
+    cancellation: BootstrapCancellation,
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
+    checkpoint(&cancellation)?;
     let s3 = AnonymousS3Client::new(s3_config);
     let snapshots = bootstrap_snapshots(network, &s3, &snapshots_dir).await?;
     let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, target_epoch)?;
 
-    download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir, &s3).await?;
+    download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir, &s3, &cancellation).await?;
+    checkpoint(&cancellation)?;
 
     let first_snapshot_path = resolve_snapshot_path(&snapshots_dir, first_snapshot)
         .ok_or_else(|| BootstrapError::MissingSnapshot(snapshot_archive_path(&snapshots_dir, first_snapshot)))?;
@@ -459,7 +512,16 @@ pub async fn bootstrap(
     let third_snapshot_path = resolve_snapshot_path(&snapshots_dir, third_snapshot)
         .ok_or_else(|| BootstrapError::MissingSnapshot(snapshot_archive_path(&snapshots_dir, third_snapshot)))?;
 
-    import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir).await?;
+    import_snapshot_with_optional_nonces(
+        network,
+        global_parameters,
+        &first_snapshot_path,
+        &ledger_dir,
+        None,
+        &cancellation,
+    )
+    .await?;
+    checkpoint(&cancellation)?;
 
     // Extract nonces for the second snapshot tip as well: packaged bootstrap headers must enter
     // the chain store already carrying nonces so that "nonces present ⇔ header validated" holds
@@ -470,8 +532,10 @@ pub async fn bootstrap(
         &second_snapshot_path,
         &ledger_dir,
         Some(snapshot_hash(first_snapshot)?),
+        &cancellation,
     )
     .await?;
+    checkpoint(&cancellation)?;
 
     let imported_third_snapshot = import_snapshot_with_optional_nonces(
         network,
@@ -479,10 +543,12 @@ pub async fn bootstrap(
         &third_snapshot_path,
         &ledger_dir,
         Some(snapshot_hash(second_snapshot)?),
+        &cancellation,
     )
     .await?;
 
-    let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone()))?;
+    checkpoint(&cancellation)?;
+    let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone())).map_err(anyhow::Error::from)?;
     let second_chain_state = imported_second_snapshot
         .chain_state
         .ok_or_else(|| anyhow!("bootstrap import must produce the chain state for the second snapshot"))?;
@@ -500,6 +566,7 @@ pub async fn bootstrap(
         third_snapshot,
     )?;
     import_packaged_blocks(&chain_db, blocks).await?;
+    checkpoint(&cancellation)?;
 
     info!(
         bootstrap::COMPLETE,
@@ -689,7 +756,8 @@ async fn import_snapshot(
     snapshot: &Path,
     ledger_dir: &Path,
 ) -> anyhow::Result<()> {
-    import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None).await?;
+    let cancellation = BootstrapCancellation::new();
+    import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None, &cancellation).await?;
     Ok(())
 }
 
@@ -699,9 +767,18 @@ async fn import_snapshot_with_optional_nonces(
     snapshot: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    cancellation: &BootstrapCancellation,
 ) -> anyhow::Result<ImportedSnapshot> {
     if snapshot.is_file() && has_snapshot_archive_extension(snapshot) {
-        return import_node_snapshot_archive(network, global_parameters, snapshot, ledger_dir, nonce_tail).await;
+        return import_node_snapshot_archive(
+            network,
+            global_parameters,
+            snapshot,
+            ledger_dir,
+            nonce_tail,
+            cancellation,
+        )
+        .await;
     }
 
     Err(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf()).into())
@@ -713,9 +790,11 @@ async fn import_node_snapshot_archive(
     snapshot_archive: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    cancellation: &BootstrapCancellation,
 ) -> anyhow::Result<ImportedSnapshot> {
     info!(bootstrap::snapshot::IMPORT_ARCHIVE, path = snapshot_archive.display().to_string());
-    import_node_snapshot_source(network, global_parameters, snapshot_archive, ledger_dir, nonce_tail).await
+    import_node_snapshot_source(network, global_parameters, snapshot_archive, ledger_dir, nonce_tail, cancellation)
+        .await
 }
 
 async fn import_node_snapshot_source(
@@ -724,15 +803,17 @@ async fn import_node_snapshot_source(
     archive_path: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    cancellation: &BootstrapCancellation,
 ) -> anyhow::Result<ImportedSnapshot> {
     fs::create_dir_all(ledger_dir)?;
 
     let previous_accounts = if fs::exists(ledger_dir.join("live"))? {
-        let live = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
+        let live = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf())).map_err(anyhow::Error::from)?;
         let previous_accounts = live
-            .iter_accounts()?
+            .iter_accounts()
+            .map_err(anyhow::Error::from)?
             .map(|(credential, _)| credential)
-            .chain(live.iter_recently_unregistered_accounts()?)
+            .chain(live.iter_recently_unregistered_accounts().map_err(anyhow::Error::from)?)
             .collect();
 
         fs::remove_dir_all(ledger_dir.join("live"))?;
@@ -742,21 +823,40 @@ async fn import_node_snapshot_source(
         BTreeSet::new()
     };
 
-    let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
-    let (epoch, _point, chain_state) = import_node_snapshot_archive_data(
-        archive_path,
-        &db,
-        network,
-        global_parameters,
-        nonce_tail,
-        previous_accounts,
-    )?;
+    let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.to_path_buf())).map_err(anyhow::Error::from)?;
+    let global_parameters = global_parameters.clone();
+    let archive_path = archive_path.to_path_buf();
+    let importer_control = cancellation.clone();
+    let import_thread = std::thread::Builder::new().stack_size(10_000_000).spawn(move || {
+        import_node_snapshot_archive_data(
+            &archive_path,
+            &db,
+            network,
+            &global_parameters,
+            nonce_tail,
+            previous_accounts,
+            &importer_control,
+        )
+        .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
+    })?;
 
-    db.next_snapshot(epoch)?;
+    let (db, epoch, chain_state) = await_import_thread(import_thread).await?;
 
-    db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
+    db.next_snapshot(epoch).map_err(anyhow::Error::from)?;
+
+    db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))
+        .map_err(anyhow::Error::from)?;
 
     Ok(ImportedSnapshot { epoch, chain_state })
+}
+
+async fn await_import_thread<T: Send + 'static>(
+    import_thread: std::thread::JoinHandle<anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    let joined = tokio::task::spawn_blocking(move || import_thread.join())
+        .await
+        .map_err(|error| anyhow!("bootstrap import join task failed: {error}"))?;
+    joined.map_err(|_| anyhow!("bootstrap import task panicked"))?
 }
 
 fn import_node_snapshot_archive_data(
@@ -766,6 +866,7 @@ fn import_node_snapshot_archive_data(
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<Credential>,
+    cancellation: &BootstrapCancellation,
 ) -> anyhow::Result<(Epoch, Point, Option<ChainState>)> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
@@ -773,7 +874,12 @@ fn import_node_snapshot_archive_data(
     let mut imported_state = None;
     let mut previous_accounts: Option<BTreeSet<Credential>> = Some(previous_accounts);
 
-    for entry in archive.entries()? {
+    let mut entries = archive.entries()?;
+    loop {
+        checkpoint(cancellation)?;
+        let Some(entry) = entries.next() else {
+            break;
+        };
         let mut entry = entry?;
         let path = entry.path()?.into_owned();
 
@@ -788,6 +894,7 @@ fn import_node_snapshot_archive_data(
                     anyhow!("multiple {SNAPSHOT_STATE_FILE_NAME} in archive {}?", archive_path.display())
                 })?,
                 &BootstrapProgressFactory,
+                cancellation,
             )?);
         } else if snapshot_archive_entry_matches(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
             let (epoch, point, era_history, chain_state) = imported_state.take().ok_or_else(|| {
@@ -796,8 +903,15 @@ fn import_node_snapshot_archive_data(
                     archive_path.display()
                 )
             })?;
-
-            import_utxo_from_tvar(&mut entry, db, &BootstrapProgressFactory, &point, &era_history, network)?;
+            import_utxo_from_tvar(
+                &mut entry,
+                db,
+                &BootstrapProgressFactory,
+                &point,
+                &era_history,
+                network,
+                cancellation,
+            )?;
 
             return Ok((epoch, point, chain_state));
         }
@@ -812,6 +926,10 @@ mod tests {
         fs,
         io::Cursor,
         path::{Path, PathBuf},
+        sync::{
+            Arc, Barrier,
+            atomic::{AtomicBool, Ordering},
+        },
         time::Duration,
     };
 
@@ -820,9 +938,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, read_snapshot_archive_entry, select_bootstrap_snapshots, should_download_snapshot,
-        snapshot_archive_entry_matches, sort_snapshots_by_slot, validate_publishable_snapshot_archive,
-        validate_snapshot_archive,
+        BootstrapCancellation, BootstrapError, Snapshot, await_import_thread, checkpoint, read_snapshot_archive_entry,
+        select_bootstrap_snapshots, should_download_snapshot, snapshot_archive_entry_matches, sort_snapshots_by_slot,
+        validate_publishable_snapshot_archive, validate_snapshot_archive,
     };
     use crate::cardano_node::ParsedStateSnapshot;
 
@@ -853,6 +971,54 @@ mod tests {
         }
 
         archive.into_inner().unwrap().finish().unwrap();
+    }
+
+    #[test]
+    fn cancellation_is_reported() {
+        let cancellation = BootstrapCancellation::new();
+        assert!(checkpoint(&cancellation).is_ok());
+
+        cancellation.cancel();
+
+        assert!(matches!(checkpoint(&cancellation), Err(BootstrapError::Cancelled)));
+    }
+
+    #[test]
+    fn cancellation_waits_for_the_import_thread_to_release_its_resources() {
+        struct Released(Arc<AtomicBool>);
+
+        impl Drop for Released {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let cancellation = BootstrapCancellation::new();
+        let importer_control = cancellation.clone();
+        let importer_ready = Arc::new(Barrier::new(2));
+        let importer_continue = Arc::new(Barrier::new(2));
+        let released = Arc::new(AtomicBool::new(false));
+        let import_thread = {
+            let importer_ready = Arc::clone(&importer_ready);
+            let importer_continue = Arc::clone(&importer_continue);
+            let released = Arc::clone(&released);
+            std::thread::spawn(move || -> anyhow::Result<()> {
+                let _released = Released(released);
+                importer_ready.wait();
+                importer_continue.wait();
+                checkpoint(&importer_control)?;
+                Ok(())
+            })
+        };
+
+        importer_ready.wait();
+        cancellation.cancel();
+        importer_continue.wait();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let error = runtime.block_on(await_import_thread(import_thread)).unwrap_err();
+
+        assert!(matches!(error.downcast_ref(), Some(BootstrapError::Cancelled)));
+        assert!(released.load(Ordering::SeqCst));
     }
 
     #[test]
