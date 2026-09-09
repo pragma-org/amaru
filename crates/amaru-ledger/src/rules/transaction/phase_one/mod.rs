@@ -225,7 +225,7 @@ where
         // NOTE(2): We must process collateral before processing normal outputs, or, store
         // the output length elsewhere since after having consumed the outputs, the .len()
         // will always return zero.
-        transaction_body.outputs.len(),
+        transaction_body.outputs.len() as u16,
         |_context, index, _value| {
             if is_valid {
                 return None;

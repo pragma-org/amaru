@@ -66,7 +66,7 @@ pub fn execute<C>(
     network: Network,
     outputs: Vec<MemoizedTransactionOutput>,
     supplemental_datum_policy: SupplementalDatumPolicy,
-    first_index: usize,
+    first_index: u16,
     construct_utxo: impl Fn(&mut C, u16, &Value) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
@@ -96,8 +96,7 @@ where
                 .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
         }
 
-        let index = u16::try_from(first_index + position)
-            .unwrap_or_else(|_| unreachable!("more than {} outputs in a single transaction", u16::MAX));
+        let index = first_index + position as u16;
         if let Some(input) = construct_utxo(context, index, &output.value) {
             context.produce(input, output);
         }
