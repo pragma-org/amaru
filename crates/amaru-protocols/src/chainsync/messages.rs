@@ -271,6 +271,12 @@ mod tests {
     mod message {
         use super::*;
         prop_cbor_roundtrip!(Message, any_message());
+
+        #[test]
+        fn rejects_indefinite_length_array() {
+            assert!(matches!(cbor::from_cbor_no_leftovers::<Message>(&[0x81, 0x00]), Ok(Message::RequestNext(_))));
+            assert!(cbor::from_cbor_no_leftovers::<Message>(&[0x9f, 0x00, 0xff]).is_err());
+        }
     }
 
     // HELPERS

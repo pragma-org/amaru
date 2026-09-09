@@ -32,8 +32,7 @@ impl fmt::Display for RationalNumber {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for RationalNumber {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        // FIXME(cbor): Enforce tag == 30
-        d.tag()?;
+        cbor::expect_tag(d, cbor::Tag::new(30))?;
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
             Ok(RationalNumber { numerator: d.decode_with(ctx)?, denominator: d.decode_with(ctx)? })

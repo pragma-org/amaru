@@ -16,7 +16,7 @@ use std::ops::Deref;
 
 use sha3::{Digest, Sha3_256};
 
-use crate::{BootstrapWitness, Hash, Hasher, Network, cbor};
+use crate::{BootstrapWitness, Hash, Hasher, Network, cbor, hash};
 
 const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
@@ -36,20 +36,21 @@ impl Deref for ByronAddress {
 
 impl ByronAddress {
     pub fn from_bytes(value: &[u8]) -> Option<Self> {
-        cbor::decode(value).ok()
+        cbor::from_cbor_no_leftovers(value).ok()
     }
 
     /// Re-compute an address (verification key) root from a transaction witness.
+    ///
+    /// The chain code is hashed as-is even when it is not 32 bytes long so that such a
+    /// witness yields the same root on both implementations.
     pub fn root(witness: &BootstrapWitness) -> Hash<28> {
-        let mut xpub = [0u8; 64];
-        xpub[..32].copy_from_slice(&witness.public_key[..]);
-        xpub[32..].copy_from_slice(&witness.chain_code[..]);
+        // Serialised `SpendingData::VerificationKey`, with the byte string length pinned to 64
+        // regardless of the actual chain code length.
+        let mut xpub = vec![0x82, 0x00, 0x58, 0x40];
+        xpub.extend_from_slice(&witness.public_key[..]);
+        xpub.extend_from_slice(&witness.chain_code[..]);
 
-        AddressPayload::root(
-            AddressType::VerificationKey,
-            &SpendingData::VerificationKey(xpub),
-            witness.attributes.as_slice(),
-        )
+        AddressPayload::root_from_raw(AddressType::VerificationKey, &xpub, witness.attributes.as_slice())
     }
 
     // Tries to decode an address from its hex representation
@@ -130,30 +131,44 @@ impl<C> cbor::Encode<C> for ByronAddress {
 
 impl<'b, C> cbor::Decode<'b, C> for ByronAddress {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(2)?;
+        if d.array()? != Some(2) {
+            return Err(cbor::decode::Error::message("Byron address must be a definite-length array of 2"));
+        }
 
-            if d.tag()? != cbor::IanaTag::Cbor.tag() {
-                return Err(cbor::decode::Error::message("invalid tag for Byron address payload"));
-            }
+        if d.tag()? != cbor::IanaTag::Cbor.tag() {
+            return Err(cbor::decode::Error::message("invalid tag for Byron address payload"));
+        }
 
-            // Conformance: the Haskell node reads the tag-24 payload with cborg's `decodeBytes`
-            // (via `decodeCrcProtected`, always at the Byron protocol version), which rejects
-            // indefinite-length byte strings, so we reject them too.
-            #[allow(clippy::disallowed_methods)]
-            let payload = d.bytes()?.to_vec();
-            let crc = d.u32()?;
+        // Conformance: the Haskell node reads the tag-24 payload with cborg's `decodeBytes`
+        // (via `decodeCrcProtected`, always at the Byron protocol version), which rejects
+        // indefinite-length byte strings, so we reject them too.
+        #[allow(clippy::disallowed_methods)]
+        let payload = d.bytes()?;
+        let crc = d.u32()?;
 
-            if CRC.checksum(&payload) != crc {
-                return Err(cbor::decode::Error::message("invalid Byron address checksum"));
-            }
+        if CRC.checksum(payload) != crc {
+            return Err(cbor::decode::Error::message("invalid Byron address checksum"));
+        }
 
-            Ok(Self(
-                cbor::from_cbor(&payload)
-                    .ok_or_else(|| cbor::decode::Error::message("invalid Byron address payload"))?,
-            ))
-        })
+        Ok(Self(
+            cbor::from_cbor_no_leftovers(payload)
+                .map_err(|e| cbor::decode::Error::message(format!("invalid Byron address payload: {e}")))?,
+        ))
     }
+}
+
+/// Decode an item whose canonical encoding fits in its initial byte, as is the case for array
+/// lengths and unsigned integers below 24, and reject the same value spelled out over more bytes.
+fn decode_single_byte<'b, T>(
+    d: &mut cbor::Decoder<'b>,
+    decode: impl FnOnce(&mut cbor::Decoder<'b>) -> Result<T, cbor::decode::Error>,
+) -> Result<T, cbor::decode::Error> {
+    let start = d.position();
+    let item = decode(d)?;
+    if d.position() != start + 1 {
+        return Err(cbor::decode::Error::message("non-canonical length or integer in Byron address"));
+    }
+    Ok(item)
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -174,13 +189,17 @@ impl AddressPayload {
     }
 
     pub fn root(address_type: AddressType, spending_data: &SpendingData, raw_attributes: &[u8]) -> Hash<28> {
+        Self::root_from_raw(address_type, &cbor::to_cbor(spending_data), raw_attributes)
+    }
+
+    fn root_from_raw(address_type: AddressType, raw_spending_data: &[u8], raw_attributes: &[u8]) -> Hash<28> {
         let mut sha3 = Sha3_256::new();
 
         // This is fundamentally to_cbor((address_type, spending_data, attributes)); but with the
-        // attributes pre-serialised.
+        // spending data and attributes pre-serialised.
         sha3.update([0x83]);
         sha3.update(cbor::to_cbor(&address_type));
-        sha3.update(cbor::to_cbor(spending_data));
+        sha3.update(raw_spending_data);
         sha3.update(raw_attributes);
 
         Hasher::<224>::hash(&sha3.finalize())
@@ -207,14 +226,17 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressPayload {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for AddressPayload {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(3)?;
-            let root = d.decode_with(ctx)?;
-            let attributes = d.decode_with(ctx)?;
-            let address_type = d.decode_with(ctx)?;
+        if decode_single_byte(d, |d| d.array())? != Some(3) {
+            return Err(cbor::decode::Error::message("Byron address payload must be an array of 3"));
+        }
 
-            Ok(Self { root, attributes, address_type })
-        })
+        #[allow(clippy::disallowed_methods)]
+        let root = hash::try_from_slice(d.bytes()?)
+            .ok_or_else(|| cbor::decode::Error::message("invalid Byron address root size"))?;
+        let attributes = d.decode_with(ctx)?;
+        let address_type = d.decode_with(ctx)?;
+
+        Ok(Self { root, attributes, address_type })
     }
 }
 
@@ -241,7 +263,6 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressAttributes {
         e: &mut cbor::Encoder<W>,
         _ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        // FIXME(cbor): Worry about definite vs indefinite length here?
         e.map(self.0.len() as u64)?;
 
         for (k, v) in &self.0 {
@@ -255,27 +276,31 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressAttributes {
 
 impl<'b, C> cbor::Decode<'b, C> for AddressAttributes {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let attributes = cbor::heterogeneous_map(
-            d,
-            Vec::new(),
-            |d| d.u8(),
-            |d, s, k| {
-                // Conformance: the Haskell node decodes every attribute value as a bytestring
-                // with cborg's `decodeBytes`, which rejects indefinite-length byte strings, so we
-                // reject them too.
-                #[allow(clippy::disallowed_methods)]
-                let bytes = d.bytes()?.to_vec();
-                s.push((
-                    k,
-                    match k {
-                        1 => AddressAttribute::DerivationPath(bytes),
-                        2 => AddressAttribute::NetworkTag(bytes),
-                        _ => AddressAttribute::Unknown(bytes),
-                    },
-                ));
-                Ok(())
-            },
-        )?;
+        let Some(len) = d.map()? else {
+            return Err(cbor::decode::Error::message("Byron address attributes must be a definite-length map"));
+        };
+
+        let mut attributes: Vec<(u8, AddressAttribute)> = Vec::new();
+        for _ in 0..len {
+            let k = d.u8()?;
+            if attributes.last().is_some_and(|(previous, _)| k <= *previous) {
+                return Err(cbor::decode::Error::message("Byron address attribute keys must be strictly increasing"));
+            }
+
+            // Conformance: the Haskell node decodes every attribute value as a bytestring
+            // with cborg's `decodeBytes`, which rejects indefinite-length byte strings, so we
+            // reject them too.
+            #[allow(clippy::disallowed_methods)]
+            let bytes = d.bytes()?.to_vec();
+            attributes.push((
+                k,
+                match k {
+                    1 => AddressAttribute::DerivationPath(bytes),
+                    2 => AddressAttribute::NetworkTag(bytes),
+                    _ => AddressAttribute::Unknown(bytes),
+                },
+            ));
+        }
 
         Ok(Self(attributes))
     }
@@ -330,7 +355,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressType {
 
 impl<'b, C> cbor::Decode<'b, C> for AddressType {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        match d.u8()? {
+        match decode_single_byte(d, |d| d.u8())? {
             0 => Ok(AddressType::VerificationKey),
             2 => Ok(AddressType::RedemptionVoucher),
             _ => Err(cbor::decode::Error::message("invalid legacy address type")),
@@ -390,8 +415,22 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for SpendingData {
 
 #[cfg(test)]
 mod tests {
-    use super::ByronAddress;
-    use crate::cbor;
+    use test_case::test_case;
+
+    use super::{AddressPayload, ByronAddress, CRC};
+    use crate::{BootstrapWitness, Bytes, ChainCode, cardano::fixed_bytes::FixedBytes, cbor, hash};
+
+    #[test]
+    fn root_hashes_a_short_chain_code_as_is() {
+        let witness = BootstrapWitness {
+            public_key: FixedBytes::from([0x11; 32]),
+            signature: FixedBytes::zeroes(),
+            chain_code: ChainCode::from(vec![0x22; 31]),
+            attributes: Bytes::from(vec![0xa0]),
+        };
+
+        assert_eq!(ByronAddress::root(&witness), hash!("d8f63978917c31cb9b692d6441a434f56e29779e86af070c564d1f71"));
+    }
 
     const TEST_VECTORS: [&str; 3] = [
         "37btjrVyb4KDXBNC4haBVPCrro8AQPHwvCMp3RFhhSVWwfFmZ6wwzSK6JK1hY6wHNmtrpTf1kdbva8TCneM2YsiXT7mrzT21EacHnPpz5YyUdj64na",
@@ -444,16 +483,52 @@ mod tests {
     }
 
     #[test]
-    fn reject_indefinite_length_attribute_value() {
-        // {1: (_ h'0102', h'0304')}
-        let bytes = hex::decode("a1015f420102420304ff").unwrap();
-        assert!(cbor::from_cbor::<super::AddressAttributes>(&bytes).is_none());
-    }
-
-    #[test]
     fn well_formed_envelope_with_invalid_payload() {
         let bytes = hex::decode("82D818582082581C8518129A3C0DF8E33C40E04B8D26AD3B0422D0FA9CA9255806A3F38B001AE781CD5B")
             .unwrap();
         assert!(dbg!(ByronAddress::from_bytes(&bytes)).is_none())
+    }
+
+    fn root() -> Vec<u8> {
+        [vec![0x58, 0x1c], vec![0x11; 28]].concat()
+    }
+
+    fn chunked_root() -> Vec<u8> {
+        [vec![0x5f, 0x4e], vec![0x11; 14], vec![0x4e], vec![0x11; 14], vec![0xff]].concat()
+    }
+
+    fn payload(head: &[u8], root: &[u8], attributes: &[u8], address_type: &[u8]) -> Vec<u8> {
+        [head, root, attributes, address_type].concat()
+    }
+
+    fn envelope(head: &[u8], payload: &[u8], tail: &[u8]) -> Vec<u8> {
+        let mut inner = Vec::new();
+        let mut e = cbor::Encoder::new(&mut inner);
+        e.tag(cbor::IanaTag::Cbor).unwrap().bytes(payload).unwrap().u32(CRC.checksum(payload)).unwrap();
+        [head, inner.as_slice(), tail].concat()
+    }
+
+    #[test_case(payload(&[0x83], &root(), &[0xa0], &[0x00]) => matches Ok(_))]
+    #[test_case(payload(&[0x83], &root(), &[0xa2, 0x01, 0x41, 0x00, 0x02, 0x41, 0x00], &[0x02]) => matches Ok(_))]
+    #[test_case(payload(&[0x9f], &root(), &[0xa0], &[0x00, 0xff]) => matches Err(e) if e.to_string().contains("array of 3"))]
+    #[test_case(payload(&[0x98, 0x03], &root(), &[0xa0], &[0x00]) => matches Err(e) if e.to_string().contains("non-canonical"))]
+    #[test_case(payload(&[0x83], &chunked_root(), &[0xa0], &[0x00]) => matches Err(_))]
+    #[test_case(payload(&[0x83], &root(), &[0xbf, 0xff], &[0x00]) => matches Err(e) if e.to_string().contains("definite-length map"))]
+    #[test_case(payload(&[0x83], &root(), &[0xa2, 0x01, 0x41, 0x00, 0x01, 0x41, 0x00], &[0x00]) => matches Err(e) if e.to_string().contains("strictly increasing"))]
+    #[test_case(payload(&[0x83], &root(), &[0xa2, 0x02, 0x41, 0x00, 0x01, 0x41, 0x00], &[0x00]) => matches Err(e) if e.to_string().contains("strictly increasing"))]
+    #[test_case(payload(&[0x83], &root(), &[0xa1, 0x01, 0x5f, 0x41, 0x00, 0xff], &[0x00]) => matches Err(_))]
+    #[test_case(payload(&[0x83], &root(), &[0xa0], &[0x18, 0x00]) => matches Err(e) if e.to_string().contains("non-canonical"))]
+    #[test_case(payload(&[0x83], &root(), &[0xa0], &[0x01]) => matches Err(e) if e.to_string().contains("invalid legacy address type"))]
+    #[test_case(payload(&[0x83], &root(), &[0xa0], &[0x00, 0x00]) => matches Err(e) if e.to_string().contains("leftovers"))]
+    fn decode_payload(bytes: Vec<u8>) -> Result<AddressPayload, cbor::decode::Error> {
+        cbor::from_cbor_no_leftovers(&bytes)
+    }
+
+    #[test_case(envelope(&[0x82], &payload(&[0x83], &root(), &[0xa0], &[0x00]), &[]) => matches Ok(_))]
+    #[test_case(envelope(&[0x9f], &payload(&[0x83], &root(), &[0xa0], &[0x00]), &[0xff]) => matches Err(e) if e.to_string().contains("array of 2"))]
+    #[test_case(envelope(&[0x82], &payload(&[0x83], &root(), &[0xa0], &[0x00]), &[0x00]) => matches Err(e) if e.to_string().contains("leftovers"))]
+    #[test_case(envelope(&[0x82], &payload(&[0x83], &root(), &[0xbf, 0xff], &[0x00]), &[]) => matches Err(e) if e.to_string().contains("definite-length map"))]
+    fn decode_address(bytes: Vec<u8>) -> Result<ByronAddress, cbor::decode::Error> {
+        cbor::from_cbor_no_leftovers(&bytes)
     }
 }

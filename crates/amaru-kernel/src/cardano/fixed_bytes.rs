@@ -31,6 +31,10 @@ impl<const N: usize> FixedBytes<N> {
         &self.0
     }
 
+    pub fn as_array(&self) -> &[u8; N] {
+        &self.0
+    }
+
     fn checked(bytes: &[u8]) -> Result<Self, FixedBytesError> {
         let got = bytes.len();
         if got != N {

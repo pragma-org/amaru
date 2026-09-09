@@ -1235,7 +1235,7 @@ mod tests {
         let rt = Runtime::new().unwrap();
         let mut h = timeout_harness(&rt);
         let n = amaru_pure_stage::PRIORITY_MAILBOX_SIZE + 2;
-        let txs = create_transactions(n as u64);
+        let txs = create_transactions(u16::try_from(n).unwrap());
 
         feed(&mut h, Message::Init);
         pump_without_advancing(&mut h).assert_idle();

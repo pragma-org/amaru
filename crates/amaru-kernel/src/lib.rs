@@ -56,9 +56,9 @@ pub mod cbor {
     pub use amaru_minicbor_extra::{
         TAG_MAP_259, TAG_SET_258, WithOriginalBytes, WithSize, allow_tag, check_tagged_array_length,
         collect_array_item_bytes, collect_map_value_bytes, count_bytes, decode_break, decode_bytes, decode_string,
-        encode_variable_length_map, expect_tag, from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with,
-        heterogeneous_array, heterogeneous_map, heterogeneous_map_with, lazy, missing_field, tee, to_cbor,
-        to_cbor_with, unexpected_field,
+        encode_bytestring, encode_variable_length_map, expect_tag, from_cbor, from_cbor_no_leftovers,
+        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, heterogeneous_map_with, lazy,
+        missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -85,6 +85,7 @@ pub use cardano::{
     bytes::{self, Bytes},
     certificate::Certificate,
     certificate_pointer::CertificatePointer,
+    chain_code::{CHAIN_CODE_SIZE, ChainCode},
     consensus_parameters::ConsensusParameters,
     constitution::Constitution,
     constitutional_committee::ConstitutionalCommittee,
@@ -115,7 +116,7 @@ pub use cardano::{
     },
     governance_action::GovernanceAction,
     hash::{self, Hash, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, size},
-    header::Header,
+    header::{Header, KES_SIGNATURE, KesSignature},
     header_body::HeaderBody,
     int::Int,
     language_view::LanguageView,
@@ -139,7 +140,7 @@ pub use cardano::{
     orphan_proposal::{self, OrphanProposal},
     output_reference::OutputReference,
     peer::{DnsName, DnsNameError, Peer, PeerCandidate, PeerCandidateParseError, PeerError},
-    plutus_data::{self, BoundedBytes, PlutusData, PlutusDataSet, PlutusDatums},
+    plutus_data::{self, PlutusData, PlutusDataSet, PlutusDatums},
     plutus_script::PlutusScript,
     plutus_version::{IsKnownPlutusVersion, KnownPlutusVersion, PlutusVersion, reify_plutus_version},
     point::Point,

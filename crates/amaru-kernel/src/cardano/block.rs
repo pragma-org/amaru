@@ -171,16 +171,9 @@ impl<'a> IntoIterator for &'a Block {
     }
 }
 
-// FIXME(cbor): Constraints & multi-era decoding
+// FIXME(cbor): Multi-era decoding
 //
-// There are various decoding rules that aren't enforced but that should be; for example (and
-// non-exhaustively):
-//
-// - indices are constrained by the maximum number of elements in each arrays
-// - there must be exactly the same number of witnesses and bodies
-// - ...
-//
-// Also, we will likely require multi-era decoding too here. Even if we don't expect blocks from
+// We will likely require multi-era decoding too here. Even if we don't expect blocks from
 // previous eras in normal operation (albeit, to be confirmed...), we will require to re-validate
 // that a given chain is indeed at least well-formed, and that means drilling through headers to
 // ensure they form a chain. So at least *some level* of multi-era decoding is necessary.
@@ -191,25 +184,51 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
 
             let (header, header_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
-            let (transaction_bodies, transaction_bodies_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
+            let (transaction_bodies, transaction_bodies_bytes) = cbor::tee(d, |d| d.decode_with::<_, Vec<_>>(ctx))?;
 
-            let (transaction_witnesses, transaction_witnesses_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
+            let (transaction_witnesses, transaction_witnesses_bytes) =
+                cbor::tee(d, |d| d.decode_with::<_, Vec<_>>(ctx))?;
 
-            let (auxiliary_data, auxiliary_data_bytes) =
-                // FIXME(cbor): duplicate keys in aux data top-level map?
-                //
-                // We must double-check and confirm (i.e. have tests for) the behaviour of the
-                // decoder regarding duplicate keys: if allowed, should they overwrite a previously
-                // decoded value or give precedence to the first value decoded? If not allowed,
-                // we should loudly fail.
-                //
-                // See #866.
-                cbor::tee(d, |d| cbor::heterogeneous_map(d, BTreeMap::new(), |d| d.u16(), |d, st, field| {
-                    st.insert(field, d.decode_with(ctx)?);
-                    Ok(())
-                }))?;
+            let transaction_count = transaction_bodies.len();
+            if transaction_count != transaction_witnesses.len() {
+                return Err(cbor::decode::Error::message(format!(
+                    "inconsistent block: {transaction_count} transaction bodies but {} witness sets",
+                    transaction_witnesses.len()
+                )));
+            }
 
-            let (invalid_transactions, invalid_transactions_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
+            let (auxiliary_data, auxiliary_data_bytes) = cbor::tee(d, |d| {
+                cbor::heterogeneous_map(
+                    d,
+                    BTreeMap::new(),
+                    |d| d.u16(),
+                    |d, st, field| {
+                        if st.contains_key(&field) {
+                            return Err(cbor::decode::Error::message(format!(
+                                "duplicate auxiliary data entry with transaction index {field}"
+                            )));
+                        }
+                        if usize::from(field) >= transaction_count {
+                            return Err(cbor::decode::Error::message(format!(
+                                "auxiliary data index {field} out of bounds for {transaction_count} transaction bodies"
+                            )));
+                        }
+                        st.insert(field, d.decode_with(ctx)?);
+                        Ok(())
+                    },
+                )
+            })?;
+
+            let (invalid_transactions, invalid_transactions_bytes) =
+                cbor::tee(d, |d| d.decode_with::<_, Option<BTreeSet<TransactionIndex>>>(ctx))?;
+
+            for index in invalid_transactions.iter().flatten() {
+                if usize::from(*index) >= transaction_count {
+                    return Err(cbor::decode::Error::message(format!(
+                        "invalid transaction index {index} out of bounds for {transaction_count} transaction bodies"
+                    )));
+                }
+            }
 
             Ok(Block {
                 original_body_size: (transaction_bodies_bytes.len()

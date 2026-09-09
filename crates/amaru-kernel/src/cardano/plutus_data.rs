@@ -19,9 +19,6 @@ use crate::{Bytes, Hash, MemoizedPlutusData, NonEmptyVec, cbor, size::DATUM};
 mod bigint;
 pub use bigint::*;
 
-mod bounded_bytes;
-pub use bounded_bytes::*;
-
 mod constr;
 pub use constr::*;
 
@@ -29,13 +26,34 @@ pub use constr::*;
 // PlutusData
 // ---------------------------------------------------------------------------------------------
 
+/// Largest byte string accepted inside Plutus data, whether as a definite-length
+/// string or as a single chunk of an indefinite-length one.
+pub const MAX_BOUNDED_BYTES_CHUNK: usize = 64;
+
+/// Decode a Plutus data byte string, accepting both the definite-length form and the
+/// indefinite-length (chunked) form as long as no piece exceeds [`MAX_BOUNDED_BYTES_CHUNK`].
+pub fn decode_bounded_bytes(d: &mut cbor::Decoder<'_>) -> Result<Bytes, cbor::decode::Error> {
+    let mut bytes = Vec::new();
+    for chunk in d.bytes_iter()? {
+        let chunk = chunk?;
+        if chunk.len() > MAX_BOUNDED_BYTES_CHUNK {
+            return Err(cbor::decode::Error::message(format!(
+                "plutus data byte string of {} bytes exceeds the {MAX_BOUNDED_BYTES_CHUNK}-byte limit",
+                chunk.len()
+            )));
+        }
+        bytes.extend_from_slice(chunk);
+    }
+    Ok(Bytes::from(bytes))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum PlutusData {
     Constr(Constr<PlutusData>),
     Map(Vec<(PlutusData, PlutusData)>),
     Array(Vec<PlutusData>),
     BigInt(BigInt),
-    BoundedBytes(BoundedBytes),
+    BoundedBytes(Bytes),
 }
 
 // NOTE: Dubious choices of encoding in this encoder?
@@ -80,7 +98,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PlutusData {
                 e.encode_with(i, ctx)?;
             }
             Self::BoundedBytes(bytes) => {
-                e.encode_with(bytes, ctx)?;
+                cbor::encode_bytestring(e, bytes)?;
             }
         };
 
@@ -122,16 +140,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PlutusData
             | cbor::data::Type::I64
             | cbor::data::Type::Int => Ok(Self::BigInt(d.decode_with(ctx)?)),
 
-            cbor::data::Type::Bytes => Ok(Self::BoundedBytes(d.decode_with(ctx)?)),
-            cbor::data::Type::BytesIndef => {
-                let mut full = Vec::new();
-
-                for slice in d.bytes_iter()? {
-                    full.extend(slice?);
-                }
-
-                Ok(Self::BoundedBytes(BoundedBytes::from(full)))
-            }
+            cbor::data::Type::Bytes | cbor::data::Type::BytesIndef => Ok(Self::BoundedBytes(decode_bounded_bytes(d)?)),
 
             any => Err(cbor::decode::Error::message(format!("bad cbor data type ({any:?}) for plutus data"))),
         }
@@ -217,7 +226,11 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::plutus_data::{any_bigint, any_bounded_bytes, any_constr};
+    use crate::plutus_data::{any_bigint, any_constr};
+
+    pub fn any_bounded_bytes() -> impl Strategy<Value = Bytes> {
+        any::<Vec<u8>>().prop_map(Bytes::from)
+    }
 
     pub fn any_plutus_data(depth: u8) -> BoxedStrategy<PlutusData> {
         let int = any_bigint().prop_map(PlutusData::BigInt);
@@ -249,8 +262,8 @@ mod tests {
 
         use super::any_plutus_data;
         use crate::{
-            PlutusData, cbor,
-            plutus_data::{BigInt, BoundedBytes, Constr},
+            Bytes, PlutusData, cbor,
+            plutus_data::{BigInt, Constr},
         };
 
         proptest! {
@@ -262,20 +275,40 @@ mod tests {
             }
         }
 
+        fn definite(len: u8) -> Vec<u8> {
+            [vec![0x58, len], vec![0; len as usize]].concat()
+        }
+
+        fn chunked(lens: &[u8]) -> Vec<u8> {
+            [vec![0x5f], lens.iter().flat_map(|len| definite(*len)).collect(), vec![0xff]].concat()
+        }
+
+        #[test_case(definite(64) => matches Ok(PlutusData::BoundedBytes(_)))]
+        #[test_case(definite(65) => matches Err(_))]
+        #[test_case(chunked(&[64, 64]) => matches Ok(PlutusData::BoundedBytes(_)))]
+        #[test_case(chunked(&[65]) => matches Err(_))]
+        #[test_case([vec![0xc2], definite(64)].concat() => matches Ok(PlutusData::BigInt(BigInt::BigUInt(_))))]
+        #[test_case([vec![0xc2], definite(65)].concat() => matches Err(_))]
+        #[test_case([vec![0xc3], chunked(&[64, 1])].concat() => matches Ok(PlutusData::BigInt(BigInt::BigNInt(_))))]
+        #[test_case([vec![0xc3], chunked(&[1, 65])].concat() => matches Err(_))]
+        fn decode_bounded_bytes_limit(bytes: Vec<u8>) -> Result<PlutusData, cbor::decode::Error> {
+            cbor::from_cbor_no_leftovers(&bytes)
+        }
+
         fn int(i: i64) -> PlutusData {
             PlutusData::BigInt(BigInt::Int(i.into()))
         }
 
         fn biguint(bs: &[u8]) -> PlutusData {
-            PlutusData::BigInt(BigInt::BigUInt(BoundedBytes::from(bs.to_vec())))
+            PlutusData::BigInt(BigInt::BigUInt(Bytes::from(bs.to_vec())))
         }
 
         fn bignint(bs: &[u8]) -> PlutusData {
-            PlutusData::BigInt(BigInt::BigNInt(BoundedBytes::from(bs.to_vec())))
+            PlutusData::BigInt(BigInt::BigNInt(Bytes::from(bs.to_vec())))
         }
 
         fn bytes(bs: &[u8]) -> PlutusData {
-            PlutusData::BoundedBytes(BoundedBytes::from(bs.to_vec()))
+            PlutusData::BoundedBytes(Bytes::from(bs.to_vec()))
         }
 
         fn array(xs: &[PlutusData]) -> PlutusData {
