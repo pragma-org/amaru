@@ -227,7 +227,8 @@ struct Connection {
     direction: ConnectionDirection,
     /// Whether we may initiate mini-protocols on this connection.
     ///
-    /// False until [`ManagerMessage::LocalUseApplied`] reports [`LocalUse::Diffusion`].
+    /// Outbound handshake already starts Diffusion initiators, so this is true from insert.
+    /// Inbound stays false until [`ManagerMessage::LocalUseApplied`] reports [`LocalUse::Diffusion`].
     may_initiate: bool,
     full_duplex_capable: bool,
 }
@@ -489,6 +490,10 @@ impl Manager {
             }
         };
         if accept_this {
+            // Outbound handshake starts Diffusion initiators in the same connection turn,
+            // so share/fetch must see `may_initiate` before `Connected` is processed.
+            let may_initiate = direction == ConnectionDirection::Outbound;
+            self.connections.insert(conn_id, Connection { stage, direction, full_duplex_capable, peer, may_initiate });
             eff.send(
                 &self.peer_selection,
                 PeerSelectionNotify::Connected {
@@ -501,8 +506,6 @@ impl Manager {
                 },
             )
             .await;
-            self.connections
-                .insert(conn_id, Connection { stage, direction, full_duplex_capable, peer, may_initiate: false });
         } else {
             info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer, conn_id = conn_id.as_u64());
             eff.send(&stage, ConnectionMessage::Disconnect).await;
