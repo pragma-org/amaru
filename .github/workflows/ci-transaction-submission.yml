@@ -27,6 +27,7 @@ jobs:
       AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+      CARDANO_NODE_DB_URL: ${{ vars.CARDANO_NODE_DB_URL }}
       E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
       RUST_BACKTRACE: 1
 
@@ -66,16 +67,13 @@ jobs:
 
       - name: Download cardano-node database
         shell: bash
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-          OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/preprod.tar.zstd"
         run: |
           set -euo pipefail
+          : "${CARDANO_NODE_DB_URL:?CARDANO_NODE_DB_URL is not configured}"
           mkdir -p "$CARDANO_NODE_DB" "$(dirname "$CARDANO_NODE_SOCKET_FILE")"
-          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "$CARDANO_NODE_DB"
+          archive_url="${CARDANO_NODE_DB_URL%/}/preprod.tar.zstd"
+          curl --fail --location "$archive_url" \
+            | tar --zstd -xf - -C "$CARDANO_NODE_DB"
           touch "$CARDANO_NODE_DB/clean"
 
       - name: Spawn cardano-node
