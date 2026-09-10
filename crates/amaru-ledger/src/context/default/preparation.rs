@@ -438,28 +438,34 @@ fn resolve_committee<'block, 'volatile>(
             }
         }
 
+        // NOTE: Scanning stable proposals when resolving committee
+        //
         // A credential neither layer resolves may still be a candidate of a pending `UpdateCommittee`
         // proposal, entitled to authorize a hot key or resign before holding any committee row. Only
         // the proposals vouch for it, discounting those the pending boundary pruned.
+        //
+        // Note that pending `UpdateCommittee` in the volatile are already taken into account by
+        // resolve_cc_members. So here, an unresolved credential can only come from a pending
+        // proposal in the stable store we had no information about.
         let candidates: BTreeSet<&Credential> = cold_credentials_in_certificates
             .into_iter()
             .filter(|cold_credential| !cc_members.contains_key(cold_credential))
             .collect();
 
         if !candidates.is_empty() {
-            let mut proposed = volatile.resolve_committee_candidates();
-
             for (id, row) in db.iter_proposals().map_err(ContextHydratationError::ResolveCommittee)? {
-                if let GovernanceAction::UpdateCommittee(_, _, added, _) = row.proposal.gov_action
-                    && !matches!(volatile.resolve_proposal(&id), Existence::Gone)
-                {
-                    proposed.extend(added.into_iter().map(|(cold_credential, _)| cold_credential));
+                if matches!(volatile.resolve_proposal(&id), Existence::Gone) {
+                    // Discard any proposal that is stable but has been pruned at the not-yet-stable
+                    // epoch boundary.
+                    continue;
                 }
-            }
 
-            for cold_credential in candidates {
-                if proposed.contains(cold_credential) {
-                    cc_members.entry(*cold_credential).or_default();
+                if let GovernanceAction::UpdateCommittee(_, _, added, _) = row.proposal.gov_action {
+                    for (cold_credential, _) in
+                        added.into_iter().filter(|(candidate, _)| candidates.contains(candidate))
+                    {
+                        cc_members.entry(cold_credential).or_default();
+                    }
                 }
             }
         }
@@ -526,16 +532,17 @@ pub fn resolve_proposals(
 mod tests {
     #[cfg(test)]
     mod resolve_committee {
-        use std::collections::{BTreeMap, BTreeSet};
+        use std::collections::BTreeMap;
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            any_credential, any_proposal, any_proposal_id, any_rational_number, utils::tests::run_strategy,
+            any_credential, any_epoch, any_proposal, any_proposal_id, any_proposal_pointer, any_rational_number,
+            utils::tests::run_strategy,
         };
 
         use super::super::resolve_committee;
         use crate::{
-            context::{CCMember, ProposalStateSlim},
+            context::{CCMember, ProposalState, ProposalStateSlim},
             state::volatile::{Bind, CommitteeMemberBind, Empty, Existence, Resettable, VolatileState},
             store::{
                 ReadStore, StoreError,
@@ -547,9 +554,9 @@ mod tests {
         struct Mock {
             volatile_cc_members: Vec<(Credential, Existence<Bind<ConstitutionalCommitteeMemberStatus, Epoch, Empty>>)>,
             stable_cc_members: Vec<(Credential, Option<Epoch>, Option<ConstitutionalCommitteeMemberStatus>)>,
-            proposals: Vec<Proposal>,
-            volatile_candidates: Vec<Credential>,
-            proposals_pruned_at_boundary: bool,
+            volatile_proposals: Vec<(ProposalId, Proposal)>,
+            pruned_proposals: Vec<ProposalId>,
+            stable_proposals: Vec<Proposal>,
         }
 
         impl VolatileState for Mock {
@@ -560,12 +567,23 @@ mod tests {
             type Proposal = Existence<ProposalStateSlim>;
             type CCMembers<'a> = BTreeMap<&'a Credential, Existence<CommitteeMemberBind<'a>>>;
 
-            fn resolve_proposal(&self, _: &ProposalId) -> Self::Proposal {
-                if self.proposals_pruned_at_boundary { Existence::Gone } else { Existence::Unknown }
-            }
+            fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal {
+                match self.volatile_proposals.iter().find(|(id, _)| id == proposal_id) {
+                    None => Existence::Unknown,
+                    Some((id, proposal)) => {
+                        if self.pruned_proposals.contains(id) {
+                            return Existence::Gone;
+                        }
 
-            fn resolve_committee_candidates(&self) -> BTreeSet<Credential> {
-                self.volatile_candidates.iter().copied().collect()
+                        let proposal_state = ProposalState {
+                            proposed_in: run_strategy(any_proposal_pointer(u64::MAX)),
+                            valid_until: run_strategy(any_epoch()),
+                            proposal: proposal.clone(),
+                        };
+
+                        Existence::Exists(ProposalStateSlim::from(&proposal_state))
+                    }
+                }
             }
 
             fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
@@ -573,6 +591,17 @@ mod tests {
 
                 for (k, v) in &self.volatile_cc_members {
                     map.insert(k, v.as_refs());
+                }
+
+                for (id, proposal) in &self.volatile_proposals {
+                    if !self.pruned_proposals.contains(id)
+                        && let GovernanceAction::UpdateCommittee(_, removed, added, ..) = &proposal.gov_action
+                    {
+                        assert!(removed.is_empty(), "removed not supported in Mock at the moment");
+                        for (cold_credential, _valid_until) in added.iter() {
+                            map.insert(cold_credential, Existence::Exists(Bind::default()));
+                        }
+                    }
                 }
 
                 map
@@ -587,7 +616,7 @@ mod tests {
             }
 
             fn iter_proposals(&self) -> Result<impl Iterator<Item = (ProposalId, proposals::Row)>, StoreError> {
-                Ok(self.proposals.iter().map(|proposal| {
+                Ok(self.stable_proposals.iter().map(|proposal| {
                     (
                         run_strategy(any_proposal_id()),
                         proposals::Row {
@@ -627,7 +656,7 @@ mod tests {
             let mock = Mock {
                 volatile_cc_members: vec![(cold_credential, Existence::Gone)],
                 stable_cc_members: vec![(cold_credential, Some(Epoch::default()), None)],
-                proposals: vec![any_update_committee_proposal(cold_credential)],
+                stable_proposals: vec![any_update_committee_proposal(cold_credential)],
                 ..Default::default()
             };
 
@@ -640,7 +669,8 @@ mod tests {
         fn candidate_of_a_stable_proposal_with_no_row_is_resolved_for_certificates() {
             let cold_credential: Credential = run_strategy(any_credential());
 
-            let mock = Mock { proposals: vec![any_update_committee_proposal(cold_credential)], ..Default::default() };
+            let mock =
+                Mock { stable_proposals: vec![any_update_committee_proposal(cold_credential)], ..Default::default() };
 
             let context = resolve_committee(&mock, &mock, From::from([&cold_credential]), Default::default()).unwrap();
 
@@ -651,7 +681,10 @@ mod tests {
         fn candidate_of_a_volatile_proposal_with_no_row_is_resolved_for_certificates() {
             let cold_credential: Credential = run_strategy(any_credential());
 
-            let mock = Mock { volatile_candidates: vec![cold_credential], ..Default::default() };
+            let proposal_id = run_strategy(any_proposal_id());
+            let proposal = any_update_committee_proposal(cold_credential);
+
+            let mock = Mock { volatile_proposals: vec![(proposal_id, proposal)], ..Default::default() };
 
             let context = resolve_committee(&mock, &mock, From::from([&cold_credential]), Default::default()).unwrap();
 
@@ -659,18 +692,21 @@ mod tests {
         }
 
         #[test]
-        fn candidate_of_a_proposal_pruned_at_the_pending_boundary_is_not_resolved() {
+        fn candidate_of_a_volatile_proposal_pruned_at_the_pending_boundary_is_not_resolved() {
             let cold_credential: Credential = run_strategy(any_credential());
 
+            let proposal_id = run_strategy(any_proposal_id());
+            let proposal = any_update_committee_proposal(cold_credential);
+
             let mock = Mock {
-                proposals: vec![any_update_committee_proposal(cold_credential)],
-                proposals_pruned_at_boundary: true,
+                volatile_proposals: vec![(proposal_id, proposal)],
+                pruned_proposals: vec![proposal_id],
                 ..Default::default()
             };
 
             let context = resolve_committee(&mock, &mock, From::from([&cold_credential]), Default::default()).unwrap();
 
-            assert!(context.is_empty())
+            assert!(dbg!(context).is_empty())
         }
 
         #[test]
@@ -678,11 +714,11 @@ mod tests {
             let cold_credential: Credential = run_strategy(any_credential());
             let candidate: Credential = run_strategy(any_credential());
 
-            let mock = Mock { proposals: vec![any_update_committee_proposal(candidate)], ..Default::default() };
+            let mock = Mock { stable_proposals: vec![any_update_committee_proposal(candidate)], ..Default::default() };
 
             let context = resolve_committee(&mock, &mock, From::from([&cold_credential]), Default::default()).unwrap();
 
-            assert!(context.is_empty())
+            assert!(dbg!(context).is_empty())
         }
 
         #[test]
@@ -693,13 +729,13 @@ mod tests {
             let mock = Mock {
                 volatile_cc_members: vec![(cold_credential, Existence::Gone)],
                 stable_cc_members: vec![(cold_credential, Some(Epoch::default()), Some(hot_credential.into()))],
-                proposals: vec![any_update_committee_proposal(cold_credential)],
+                stable_proposals: vec![any_update_committee_proposal(cold_credential)],
                 ..Default::default()
             };
 
             let context = resolve_committee(&mock, &mock, Default::default(), From::from([hot_credential])).unwrap();
 
-            assert!(context.is_empty())
+            assert!(dbg!(context).is_empty())
         }
 
         #[test]
@@ -713,7 +749,6 @@ mod tests {
                     Existence::Exists(Bind { left: Resettable::Set(hot_credential.into()), ..Bind::default() }),
                 )],
                 stable_cc_members: vec![(cold_credential, Some(Epoch::default()), None)],
-                proposals: vec![],
                 ..Default::default()
             };
 
@@ -735,8 +770,7 @@ mod tests {
                     cold_credential,
                     Existence::Exists(Bind { left: Resettable::Set(hot_credential.into()), ..Bind::default() }),
                 )],
-                stable_cc_members: vec![],
-                proposals: vec![any_update_committee_proposal(cold_credential)],
+                stable_proposals: vec![any_update_committee_proposal(cold_credential)],
                 ..Default::default()
             };
 
@@ -762,7 +796,7 @@ mod tests {
                     (first_cold_credential, Some(Epoch::default()), None),
                     (second_cold_credential, Some(Epoch::default()), None),
                 ],
-                proposals: vec![any_update_committee_proposal_with_members(vec![
+                stable_proposals: vec![any_update_committee_proposal_with_members(vec![
                     first_cold_credential,
                     second_cold_credential,
                 ])],
@@ -787,9 +821,7 @@ mod tests {
             let hot_credential: Credential = run_strategy(any_credential());
 
             let mock = Mock {
-                volatile_cc_members: vec![],
                 stable_cc_members: vec![(cold_credential, Some(Epoch::default()), Some(hot_credential.into()))],
-                proposals: vec![],
                 ..Default::default()
             };
 

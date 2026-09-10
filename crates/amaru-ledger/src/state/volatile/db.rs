@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, btree_map::Entry},
+    collections::{BTreeMap, btree_map::Entry},
     mem,
 };
 
@@ -31,8 +31,8 @@ use crate::{
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
-            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
-            VolatileSeries, VolatileState, overlay::StateOverlay,
+            AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery,
+            VolatileSequence, VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
     store::{HistoricalStores, Store},
@@ -150,9 +150,21 @@ impl VolatileState for VolatileDB {
     fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
         let mut cc_members: BTreeMap<&'a Credential, Vec<Existence<CommitteeMemberBind<'a>>>> = BTreeMap::new();
 
-        let current = self.current.resolve_cc_members();
+        let current = self.current.resolve_cc_members().chain(
+            self.current.committee_candidates().map(|(_, credential)| (credential, Existence::Exists(Bind::default()))),
+        );
+
         let overlay = self.overlay.cc_members();
-        let drainin = self.draining.resolve_cc_members();
+
+        let drainin = self.draining.resolve_cc_members().chain(self.draining.committee_candidates().filter_map(
+            |(id, credential)| {
+                if self.overlay.has_pruned_proposal(id) {
+                    None
+                } else {
+                    Some((credential, Existence::Exists(Bind::default())))
+                }
+            },
+        ));
 
         // Re-aggregate the binds per cold-credential
         for (cold_credential, cc_member) in current.chain(overlay).chain(drainin) {
@@ -186,16 +198,6 @@ impl VolatileState for VolatileDB {
         } else {
             self.draining.resolve_proposal(id)
         }
-    }
-
-    fn resolve_committee_candidates(&self) -> BTreeSet<Credential> {
-        // Same precedence as `resolve_proposal`: a closing-epoch proposal the pending boundary pruned
-        // no longer vouches for its candidates.
-        self.current
-            .committee_candidates()
-            .chain(self.draining.committee_candidates().filter(|(id, _)| !self.overlay.has_pruned_proposal(id)))
-            .map(|(_, candidate)| *candidate)
-            .collect()
     }
 
     // ---------------------------------------------------------------------------------------- Pots
@@ -1394,23 +1396,41 @@ mod tests {
     }
 
     #[test]
-    fn resolve_committee_candidates_discounts_proposals_pruned_at_the_pending_boundary() {
+    fn resolve_cc_members_yield_committee_candidates() {
+        let mut db = VolatileDB::default();
+
         let proposal_id = run_strategy(any_proposal_id());
 
-        let mut db = VolatileDB::default();
         db.push_back(update_committee_block(10, proposal_id, cred(1)));
-        assert_eq!(db.resolve_committee_candidates(), BTreeSet::from([cred(1)]), "named by a proposal in current");
+        assert_eq!(
+            db.resolve_cc_members().get(&cred(1)),
+            Some(&Existence::Exists(Bind::default())),
+            "named by a proposal in current"
+        );
 
         db.simple_transition(committee_update(None));
-        assert_eq!(db.resolve_committee_candidates(), BTreeSet::from([cred(1)]), "still named once the block drains");
 
+        assert_eq!(
+            db.resolve_cc_members().get(&cred(1)),
+            Some(&Existence::Exists(Bind::default())),
+            "still named once the block drains"
+        );
+    }
+
+    #[test]
+    fn resolve_committee_candidates_discounts_proposals_pruned_at_the_pending_boundary() {
         let mut db = VolatileDB::default();
+
+        let proposal_id = run_strategy(any_proposal_id());
+
         db.push_back(update_committee_block(10, proposal_id, cred(1)));
+
         db.simple_transition(GovernanceUpdates {
             pruned_proposals: BTreeMap::from([(proposal_id, RatificationStatus::NotRatified)]),
             ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
         });
-        assert!(db.resolve_committee_candidates().is_empty(), "the boundary dropped the proposal");
+
+        assert!(db.resolve_cc_members().is_empty(), "the boundary dropped the proposal");
     }
 
     #[test]

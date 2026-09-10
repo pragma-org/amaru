@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeSet, VecDeque},
-    mem,
-};
+use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
     Credential, Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, TransactionInput,
@@ -80,10 +77,6 @@ impl VolatileState for VolatileSeries {
     type Proposal = Existence<ProposalStateSlim>;
     fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {
         self.aggregate.resolve_proposal(id)
-    }
-
-    fn resolve_committee_candidates(&self) -> BTreeSet<Credential> {
-        self.committee_candidates().map(|(_, candidate)| *candidate).collect()
     }
 
     // ---------------------------------------------------------------------------------------- Pots
