@@ -216,6 +216,8 @@ Changes to `main` are proposed via pull requests, and guarded by a [continuous i
 
 Contributors part of the [Amaru committers][] GitHub team shall seek review from one or more other Amaru committers. Yet each member of this team is entrusted with the ability to make judgment on the mergeability of their changes and shall use that power with great care.
 
+Members of the [Amaru committers][] are people [under contract](https://github.com/pragma-org/amaru-treasury/tree/main/journal/2026/contracts) part of the yearly budget set for Amaru.
+
 External contributors must have their contributions approved by at **least two members** of the [Amaru committers][].
 
 Occasionally, members of the [Amaru Maintainers Committee](https://github.com/orgs/pragma-org/teams/amaru-maintainers-committee) may request additional reviews or inputs from any contribution.
