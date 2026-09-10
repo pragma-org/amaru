@@ -99,13 +99,14 @@ fn test_against_node() {
     running.run(Run::skip_and_resolve());
     rt.block_on(running.await_external_effect());
     let result = rx.try_next().unwrap();
-    assert_eq!(
-        result,
-        handshake::HandshakeResult::Accepted(
-            VersionNumber::V14,
-            VersionData::new(network_magic, true, PeerSharing::Disabled, false),
-        )
-    );
+    match result {
+        handshake::HandshakeResult::Accepted(version, data) => {
+            assert!(version >= VersionNumber::V14, "{version:?}");
+            assert_eq!(data, VersionData::new(network_magic, true, PeerSharing::Disabled, false));
+        }
+        handshake::HandshakeResult::Refused(reason) => panic!("{reason:?}"),
+        handshake::HandshakeResult::Query(table) => panic!("{table:?}"),
+    }
 }
 
 #[test]
@@ -162,13 +163,14 @@ fn test_against_node_with_tokio() {
     let running = network.run(rt.handle().clone());
 
     let result = rt.block_on(rx.next()).unwrap();
-    assert_eq!(
-        result,
-        handshake::HandshakeResult::Accepted(
-            VersionNumber::V14,
-            VersionData::new(NetworkMagic::MAINNET, true, PeerSharing::Disabled, false),
-        )
-    );
+    match result {
+        handshake::HandshakeResult::Accepted(version, data) => {
+            assert!(version >= VersionNumber::V14, "{version:?}");
+            assert_eq!(data, VersionData::new(NetworkMagic::MAINNET, true, PeerSharing::Disabled, false));
+        }
+        handshake::HandshakeResult::Refused(reason) => panic!("{reason:?}"),
+        handshake::HandshakeResult::Query(table) => panic!("{table:?}"),
+    }
 
     running.abort();
 }

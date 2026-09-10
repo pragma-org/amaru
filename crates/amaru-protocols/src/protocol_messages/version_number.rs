@@ -40,6 +40,14 @@ impl VersionNumber {
     pub const V12: VersionNumber = VersionNumber::new(12);
     pub const V13: VersionNumber = VersionNumber::new(13);
     pub const V14: VersionNumber = VersionNumber::new(14);
+    /// CIP-0155 SRV records may appear in peer-sharing on this version.
+    pub const V15: VersionNumber = VersionNumber::new(15);
+
+    /// Highest node-to-node version offered by default.
+    pub const CURRENT: VersionNumber = Self::V15;
+
+    /// Versions this node can encode, in ascending order.
+    pub const SUPPORTED: [VersionNumber; 5] = [Self::V11, Self::V12, Self::V13, Self::V14, Self::V15];
 
     pub const fn new(value: u64) -> Self {
         Self(value)
@@ -88,6 +96,7 @@ pub(crate) mod tests {
             1 => Just(VersionNumber::V12),
             1 => Just(VersionNumber::V13),
             1 => Just(VersionNumber::V14),
+            1 => Just(VersionNumber::V15),
         ]
     }
 }

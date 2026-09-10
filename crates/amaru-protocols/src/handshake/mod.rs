@@ -232,6 +232,28 @@ mod negotiation_tests {
         }
     }
 
+    #[test]
+    fn v15_and_v14_agree_on_v14() {
+        let magic = NetworkMagic::PREPROD;
+        let v15 = VersionTable::v11_and_above(magic, false, true);
+        let v14 = VersionTable::v11_through(VersionNumber::V14, magic, false, true);
+        assert_eq!(
+            compute_negotiation_result(&v15, &v14),
+            HandshakeResult::Accepted(VersionNumber::V14, data(magic, false, true, false))
+        );
+    }
+
+    #[test]
+    fn two_v15_offers_agree_on_v15() {
+        let magic = NetworkMagic::PREPROD;
+        let ours = VersionTable::v11_and_above(magic, false, true);
+        let theirs = VersionTable::v11_and_above(magic, false, true);
+        assert_eq!(
+            compute_negotiation_result(&ours, &theirs),
+            HandshakeResult::Accepted(VersionNumber::V15, data(magic, false, true, false))
+        );
+    }
+
     fn decode_hex(hex: &str) -> Message<VersionData> {
         let bytes = hex::decode(hex).expect(hex);
         cbor::decode(&bytes).unwrap_or_else(|e| panic!("{hex}: {e}"))

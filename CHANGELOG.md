@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
+### Added
+
+- **amaru-protocols**: handshake offers node-to-node protocol version 15 by default, advertising CIP-0155 SRV support. Minimum offered version is still 11. ([#1332](https://github.com/pragma-org/amaru/issues/1332))
+
 ### Fixed
 
 - **amaru-bootstrap**: allow cancellation of the bootstrap process.

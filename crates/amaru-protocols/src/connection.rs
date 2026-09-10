@@ -346,7 +346,10 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
     .await;
 }
 
-async fn do_initialize(Params { conn_id, role, magic, peer, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {
+async fn do_initialize(
+    Params { conn_id, role, magic, peer, config, .. }: &Params,
+    eff: Effects<ConnectionMessage>,
+) -> State {
     let peer = *peer;
     let muxer = eff.stage("mux", mux::stage).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
@@ -363,7 +366,7 @@ async fn do_initialize(Params { conn_id, role, magic, peer, .. }: &Params, eff: 
                 handshake::HandshakeInitiator::new(
                     muxer.clone(),
                     handshake_result,
-                    VersionTable::v11_and_above(*magic, false, true),
+                    VersionTable::v11_through(config.max_n2n_version, *magic, false, true),
                 ),
             )
             .await
@@ -378,7 +381,7 @@ async fn do_initialize(Params { conn_id, role, magic, peer, .. }: &Params, eff: 
                     handshake_result,
                     // Use initiator_only_diffusion_mode = false so downstream peers
                     // know we can serve as chainsync/blockfetch server
-                    VersionTable::v11_and_above(*magic, false, true),
+                    VersionTable::v11_through(config.max_n2n_version, *magic, false, true),
                 ),
             )
             .await

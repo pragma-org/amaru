@@ -22,7 +22,10 @@ use amaru_mempool::InMemoryMempool;
 use amaru_observability::tracing;
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 
-use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
+use crate::{
+    protocol_messages::version_number::VersionNumber,
+    tx_submission::{create_transactions, create_transactions_in_mempool},
+};
 
 /// Configuration for running 2 test nodes, initiator and responder communicating over TCP:
 ///  - They both have their own chain store and mempool.
@@ -38,6 +41,7 @@ pub(super) struct Configuration {
     pub(super) processing_wait: Option<Duration>,
     pub(super) chain_length: usize,
     pub(super) slow_manager: bool,
+    pub(super) max_n2n_version: VersionNumber,
 }
 
 impl Configuration {
@@ -50,6 +54,7 @@ impl Configuration {
             reconnect_delay: Duration::from_secs(1),
             processing_wait: None,
             slow_manager: false,
+            max_n2n_version: VersionNumber::CURRENT,
         };
         initiator.with_best_chain_of_length(INITIATOR_BLOCKS_NB).with_txs(INITIATOR_TXS_NB)
     }
@@ -63,6 +68,7 @@ impl Configuration {
             reconnect_delay: Duration::from_secs(1),
             processing_wait: None,
             slow_manager: false,
+            max_n2n_version: VersionNumber::CURRENT,
         };
         responder.with_best_chain_of_length(RESPONDER_BLOCKS_NB).with_txs(RESPONDER_TXS_NB)
     }
@@ -95,6 +101,11 @@ impl Configuration {
 
     pub(super) fn with_processing_wait(mut self, wait: Duration) -> Self {
         self.processing_wait = Some(wait);
+        self
+    }
+
+    pub(super) fn with_max_n2n_version(mut self, version: VersionNumber) -> Self {
+        self.max_n2n_version = version;
         self
     }
 }

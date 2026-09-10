@@ -27,6 +27,7 @@ use crate::{
     network_effects::{ConnectError, Network, NetworkOps},
     peer_sharing::{SharePeersReply, ShareResult},
     protocol::Role,
+    protocol_messages::version_number::VersionNumber,
     tx_submission::ResponderParams,
 };
 
@@ -275,6 +276,10 @@ pub struct ManagerConfig {
     pub diffusion_stop_timeout: Duration,
     /// Last-to-finish bound when stopping the maintenance initiator group.
     pub maintenance_stop_timeout: Duration,
+    /// Highest node-to-node protocol version offered in handshake.
+    ///
+    /// Defaults to [`VersionNumber::CURRENT`] (V15). Tests pin V14 to check fallback.
+    pub max_n2n_version: VersionNumber,
 }
 
 impl ManagerConfig {
@@ -307,6 +312,11 @@ impl ManagerConfig {
         self.blockfetch_pipeline_n = n;
         self
     }
+
+    pub fn with_max_n2n_version(mut self, version: VersionNumber) -> Self {
+        self.max_n2n_version = version;
+        self
+    }
 }
 
 impl Default for ManagerConfig {
@@ -320,6 +330,7 @@ impl Default for ManagerConfig {
             blockfetch_pipeline_n: NonZeroU8::MIN,
             diffusion_stop_timeout: Duration::from_secs(300),
             maintenance_stop_timeout: Duration::from_secs(120),
+            max_n2n_version: VersionNumber::CURRENT,
         }
     }
 }

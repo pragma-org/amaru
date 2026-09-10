@@ -28,6 +28,7 @@ use crate::{
     chainsync::ChainSyncInitiatorMsg,
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
+    protocol_messages::version_number::VersionNumber,
     tests::{
         accept_stage::{AcceptState, PullAccept, accept_stage},
         assertions::{check_state, wait_for_termination},
@@ -51,6 +52,19 @@ use crate::{
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     setup_logging();
     let (responder, addr, responder_done) = start_responder().await?;
+    let (initiator, initiator_done, _) = start_initiator_at(addr).await?;
+
+    wait_for_termination(responder_done, initiator_done).await?;
+    check_state(initiator, responder)?;
+    Ok(())
+}
+
+/// V15 is the default offer; a node that still only speaks V14 must keep working.
+#[tokio::test]
+async fn test_connect_v15_initiator_v14_responder() -> anyhow::Result<()> {
+    setup_logging();
+    let (responder, addr, responder_done) =
+        start_responder_with_configuration(Configuration::responder().with_max_n2n_version(VersionNumber::V14)).await?;
     let (initiator, initiator_done, _) = start_initiator_at(addr).await?;
 
     wait_for_termination(responder_done, initiator_done).await?;
@@ -173,7 +187,10 @@ async fn start_responder_with_configuration(
     } else {
         responder_network.stage("responder", manager::stage)
     };
-    let responder_manager = create_manager(ManagerConfig::default(), StageRef::blackhole());
+    let responder_manager = create_manager(
+        ManagerConfig::default().with_max_n2n_version(configuration.max_n2n_version),
+        StageRef::blackhole(),
+    );
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
 
     // Create a connection that notifies the accept stage about new connections
@@ -232,8 +249,10 @@ async fn start_initiator_with_configuration(
         ChainSyncStageState::new(initiator_stage.sender(), fetcher_ref, configuration.processing_wait),
     );
 
-    let manager_config =
-        ManagerConfig::default().with_reconnect_delay(configuration.reconnect_delay).with_connect_retries(10);
+    let manager_config = ManagerConfig::default()
+        .with_reconnect_delay(configuration.reconnect_delay)
+        .with_connect_retries(10)
+        .with_max_n2n_version(configuration.max_n2n_version);
     let initiator_manager = create_manager(manager_config, chainsync_stage.without_state());
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
     let initiator_sender = initiator_network.input(initiator_stage);
@@ -280,7 +299,10 @@ async fn start_responder_with_failing_accept(
     );
     let chainsync_stage = responder_network
         .wire_up(chainsync_stage, ChainSyncStageState::new(responder_stage.sender(), fetcher_ref, None));
-    let responder_manager = create_manager(ManagerConfig::default(), chainsync_stage.without_state());
+    let responder_manager = create_manager(
+        ManagerConfig::default().with_max_n2n_version(configuration.max_n2n_version),
+        chainsync_stage.without_state(),
+    );
 
     // Wire up the manager stage
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);

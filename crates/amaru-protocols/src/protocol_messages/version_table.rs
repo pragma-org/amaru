@@ -37,33 +37,35 @@ impl VersionTable<VersionData> {
 
     pub fn query(network_magic: NetworkMagic) -> VersionTable<VersionData> {
         let data = VersionData::new(network_magic, false, PeerSharing::Disabled, true);
-        VersionTable {
-            values: vec![
-                (VersionNumber::V11, data.clone()),
-                (VersionNumber::V12, data.clone()),
-                (VersionNumber::V13, data.clone()),
-                (VersionNumber::V14, data),
-            ]
-            .into_iter()
-            .collect::<BTreeMap<VersionNumber, VersionData>>(),
-        }
+        Self::from_v11_through(VersionNumber::CURRENT, data)
     }
 
+    /// Handshake offer from V11 through [`VersionNumber::CURRENT`] (V15).
     pub fn v11_and_above(
         network_magic: NetworkMagic,
         initiator_only_diffusion_mode: bool,
         advertisable: bool,
     ) -> VersionTable<VersionData> {
-        let data = VersionData::new(network_magic, initiator_only_diffusion_mode, advertisable.into(), false);
-        let values = vec![
-            (VersionNumber::V11, data.clone()),
-            (VersionNumber::V12, data.clone()),
-            (VersionNumber::V13, data.clone()),
-            (VersionNumber::V14, data),
-        ]
-        .into_iter()
-        .collect::<BTreeMap<VersionNumber, VersionData>>();
+        Self::v11_through(VersionNumber::CURRENT, network_magic, initiator_only_diffusion_mode, advertisable)
+    }
 
+    /// Handshake offer from V11 up to and including `max` (clamped to [`VersionNumber::CURRENT`]).
+    pub fn v11_through(
+        max: VersionNumber,
+        network_magic: NetworkMagic,
+        initiator_only_diffusion_mode: bool,
+        advertisable: bool,
+    ) -> VersionTable<VersionData> {
+        let data = VersionData::new(network_magic, initiator_only_diffusion_mode, advertisable.into(), false);
+        Self::from_v11_through(max, data)
+    }
+
+    fn from_v11_through(max: VersionNumber, data: VersionData) -> VersionTable<VersionData> {
+        let values = VersionNumber::SUPPORTED
+            .into_iter()
+            .filter(|version| *version <= max)
+            .map(|version| (version, data.clone()))
+            .collect();
         VersionTable { values }
     }
 }
@@ -138,5 +140,19 @@ pub(crate) mod tests {
         pub fn any_version_table()(values in proptest::collection::btree_map(any_version_number(), any_version_data(), 0..3)) -> VersionTable<VersionData> {
             VersionTable { values }
         }
+    }
+
+    #[test]
+    fn v11_and_above_offers_current_version() {
+        let table = VersionTable::v11_and_above(NetworkMagic::PREPROD, true, true);
+        assert_eq!(table.values.keys().copied().collect::<Vec<_>>(), VersionNumber::SUPPORTED.to_vec());
+        assert_eq!(table.values.keys().next_back().copied(), Some(VersionNumber::CURRENT));
+    }
+
+    #[test]
+    fn v11_through_v14_excludes_v15() {
+        let table = VersionTable::v11_through(VersionNumber::V14, NetworkMagic::PREPROD, false, true);
+        assert!(table.values.contains_key(&VersionNumber::V14));
+        assert!(!table.values.contains_key(&VersionNumber::V15));
     }
 }
