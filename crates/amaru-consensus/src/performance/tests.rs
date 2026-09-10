@@ -336,9 +336,14 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
     let mut good_picks = 0;
     for i in 0..20u8 {
         let seed = [i; 32];
-        let picked =
-            peers.apply_select_outbound(SelectOutboundParams { open: 1, excluded: BTreeSet::new(), seed, now: t(1) });
-        if picked.iter().map(|p| p.candidate.as_peer()).collect::<Vec<_>>() == vec![Some(good)] {
+        let picked = peers.apply_select_outbound(SelectOutboundParams {
+            open: 1,
+            excluded: BTreeSet::new(),
+            eligible_inbound: 0,
+            seed,
+            now: t(1),
+        });
+        if picked.outbound.iter().map(|p| p.candidate.as_peer()).collect::<Vec<_>>() == vec![Some(good)] {
             good_picks += 1;
         }
     }
@@ -363,10 +368,12 @@ fn outbound_selection_picks_unresolved_host() {
     let picked = peers.apply_select_outbound(SelectOutboundParams {
         open: 1,
         excluded: BTreeSet::new(),
+        eligible_inbound: 0,
         seed: [0x42; 32],
         now: t(1),
     });
-    assert_eq!(picked, vec![OutboundPick { candidate: host, origin: PeerSource::Static }]);
+    assert_eq!(picked.inbound, 0);
+    assert_eq!(picked.outbound, vec![OutboundPick { candidate: host, origin: PeerSource::Static }]);
 }
 
 #[test]
@@ -387,10 +394,12 @@ fn outbound_selection_skips_excluded_unresolved_host() {
     let picked = peers.apply_select_outbound(SelectOutboundParams {
         open: 1,
         excluded: BTreeSet::from([host]),
+        eligible_inbound: 0,
         seed: [0x42; 32],
         now: t(1),
     });
-    assert!(picked.is_empty());
+    assert!(picked.outbound.is_empty());
+    assert_eq!(picked.inbound, 0);
 }
 
 #[test]
@@ -414,10 +423,36 @@ fn note_dial_keeps_hostname_in_pool_and_marks_origin() {
     let picked = peers.apply_select_outbound(SelectOutboundParams {
         open: 1,
         excluded: BTreeSet::new(),
+        eligible_inbound: 0,
         seed: [0x42; 32],
         now: t(1),
     });
-    assert_eq!(picked, vec![OutboundPick { candidate: host, origin: PeerSource::Static }]);
+    assert_eq!(picked.outbound, vec![OutboundPick { candidate: host, origin: PeerSource::Static }]);
+}
+
+#[test]
+fn inbound_mix_slots_are_allotted_not_dialed() {
+    use std::collections::BTreeSet;
+
+    use crate::performance::{PeerMix, PeerSource, SelectOutboundParams};
+
+    let static_peer = peer("10.0.0.1:1");
+    let peers = PeerPerformance::with_sources(
+        BTreeSet::from([static_peer]).into_iter().map(amaru_kernel::PeerCandidate::from).collect(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        PeerMix::parse("inbound~1, static~1").unwrap(),
+    );
+    let picked = peers.apply_select_outbound(SelectOutboundParams {
+        open: 2,
+        excluded: BTreeSet::new(),
+        eligible_inbound: 5,
+        seed: [0x11; 32],
+        now: t(1),
+    });
+    assert_eq!(picked.inbound, 1);
+    assert_eq!(picked.outbound.len(), 1);
+    assert_eq!(picked.outbound[0].origin, PeerSource::Static);
 }
 
 #[test]

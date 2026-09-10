@@ -21,16 +21,19 @@ use amaru_pure_stage::{
 };
 
 use super::*;
-use crate::stages::{
-    peer_selection::test_setup::{
-        TestPrep, cooldown_duration, cooldown_instant, first_schedule_id, first_static_schedule_id,
-        peer_selection_stage, second_schedule_id_at, setup, setup_preload, setup_preload_until_sleeping, sim_at,
-        sim_t0, static_cooldown_instant, te_cancel_schedule, te_clear_peer_availability, te_clock, te_clock_suspend,
-        te_is_static_peer, te_peer_adversarial, te_random_seed, te_rank_peers_for_churn, te_record_advertisability,
-        te_record_connection_failure, te_schedule, te_send, test_prep, test_prep_with_snapshot,
-        tm_add_stage_starts_with, with_single_cooldown,
+use crate::{
+    performance::PeerMix,
+    stages::{
+        peer_selection::test_setup::{
+            TestPrep, cooldown_duration, cooldown_instant, first_schedule_id, first_static_schedule_id,
+            peer_selection_stage, second_schedule_id_at, setup, setup_preload, setup_preload_until_sleeping, sim_at,
+            sim_t0, static_cooldown_instant, te_cancel_schedule, te_clear_peer_availability, te_clock,
+            te_clock_suspend, te_is_static_peer, te_peer_adversarial, te_random_seed, te_rank_peers_for_churn,
+            te_record_advertisability, te_record_connection_failure, te_schedule, te_send, test_prep,
+            test_prep_with_snapshot, tm_add_stage_starts_with, with_single_cooldown,
+        },
+        test_utils::{assert_trace, te_input, te_state, tm_state},
     },
-    test_utils::{assert_trace, te_input, te_state, tm_state},
 };
 
 fn conn() -> Connection {
@@ -1571,6 +1574,7 @@ fn test_connected_inbound_duplex_promotes_to_using() {
 #[test]
 fn test_regulate_promotes_duplex_inbound_instead_of_dial() {
     let mut prep = test_prep(&["10.0.0.1:1"]);
+    prep.peer_mix = PeerMix::parse("inbound~1").unwrap();
     prep.state.target_upstream_peers = 1;
     let inbound = TestPrep::peer("8.8.8.8:8");
     prep.state.inbound_peers.insert(inbound, duplex_conn());
@@ -1602,6 +1606,35 @@ fn test_regulate_promotes_duplex_inbound_instead_of_dial() {
         &[tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_)))],
     );
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_regulate_does_not_promote_inbound_when_mix_omits_it() {
+    let mut prep = test_prep(&["10.0.0.1:1"]);
+    prep.peer_mix = PeerMix::parse("static~1").unwrap();
+    prep.state.target_upstream_peers = 1;
+    let inbound = TestPrep::peer("8.8.8.8:8");
+    prep.state.inbound_peers.insert(inbound, duplex_conn());
+    let static_p = TestPrep::peer("10.0.0.1:1");
+    let after = {
+        let mut s = prep.state.clone();
+        s.outbound_peers.insert(static_p, PeerState::Connecting);
+        s
+    };
+
+    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::Regulate);
+    assert_trace_contains(
+        &running,
+        &[te_send("ps-1", "manager", ManagerMessage::AddPeer(static_p)).into(), te_state("ps-1", &after).into()],
+    );
+    assert_trace_does_not_contain(
+        &running,
+        &[tm_send_match::<ManagerMessage>("ps-1", "manager", |m| {
+            matches!(m, ManagerMessage::SetLocalUse { local_use: LocalUse::Diffusion, .. })
+        })],
+    );
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="10.0.0.1:1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]

@@ -39,17 +39,6 @@ Other guiding principles:
 
 ### Added
 
-- **amaru-protocols**: handshake offers node-to-node protocol version 15 by default, advertising CIP-0155 SRV support. Minimum offered version is still 11. ([#1332](https://github.com/pragma-org/amaru/issues/1332))
-
-### Fixed
-
-- **amaru-bootstrap**: allow cancellation of the bootstrap process.
-
-
-## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
-
-### Added
-
 - **amaru-protocols**: BlockFetch times out after 60s if the peer stalls while serving a range. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru-protocols**: `manager.peer.local_use_applied` is logged when a connection has finished changing local use (for example to Maintenance after an uninteresting demotion).
 
@@ -68,6 +57,8 @@ Other guiding principles:
 - **amaru-consensus**: peer selection prefers promoting a duplex inbound to Using instead of opening a second outbound connection; Using inbounds count toward the upstream target. ([#660](https://github.com/pragma-org/amaru/issues/660))
 - **amaru-protocols**: connection traces include `local_use`, `duplex`, and `stopping`.
 - **amaru-pure-stage**: a stage that stops on purpose is logged at debug. A stage that aborts because of an error still logs that error at info or above before exiting.
+- **amaru**: `--peer-mix` / `AMARU_PEER_MIX` accepts an `inbound` group that shares Using slots with `static` / `shared` / `snapshot` / `ledger`. The default formula includes `inbound~6`. Omitting `inbound` means duplex inbound connections stay downstream-only. ([#1334](https://github.com/pragma-org/amaru/issues/1334))
+- **amaru-protocols**: handshake offers node-to-node protocol version 15 by default, advertising CIP-0155 SRV support. Minimum offered version is still 11. ([#1332](https://github.com/pragma-org/amaru/issues/1332))
 
 ### Fixed
 
@@ -79,6 +70,7 @@ Other guiding principles:
 - **amaru-tui**: `w` or the log `[ WRAP ]` control turns off wrapping so `←`/`→` (and shift-wheel / horizontal wheel) pan long lines; the column offset is kept while scrolling vertically. Pane focus on a tab moved to `Ctrl-←`/`Ctrl-→`.
 - **amaru-tui**: switching the log pane to DEBUG no longer panics when the retained debug stream is larger than ratatui’s `u16` paragraph scroll; the pane renders a visible window around the tail instead of the whole buffer.
 - **amaru-protocols**: the first peer-share request after an outbound handshake is no longer dropped.
+- **amaru-bootstrap**: allow cancellation of the bootstrap process.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 

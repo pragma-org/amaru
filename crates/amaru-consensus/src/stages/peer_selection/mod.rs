@@ -33,7 +33,7 @@ use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
 pub use crate::performance::{DEFAULT_PEER_MIX, PeerMix, PeerMixParseError};
 use crate::{
     effects::{GenerateRandomSeed, Ledger, LedgerOps, ResolvePeerCandidate, ResolvePeerCandidateResult},
-    performance::{Performance, SelectOutboundParams, SharedIngestResult},
+    performance::{Performance, SelectOutboundParams, SelectUsing, SharedIngestResult},
 };
 
 const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
@@ -210,10 +210,11 @@ fn churn_interval(seed: [u8; 32]) -> Duration {
 /// `regulate_peers` (called from `CheckCooldowns`, outbound non-retry disconnect,
 /// `ConnectFailed`, `Regulate`, churn/uninteresting demotion, and outbound removal
 /// inside `ban_peer` after the ban is recorded)
-/// early-returns if Using occupancy (`Diffusion` outbound + in-flight dials) is at
-/// `target_upstream_peers`. Eligible Maintenance outbound is promoted first. Otherwise it
-/// obtains a seed via `eff.external(GenerateRandomSeed)` and asks Performance to
-/// select [`PeerCandidate`]s (mix + quality-weighted sample within each source;
+/// early-returns if Using occupancy (`Diffusion` outbound + in-flight dials + inbound
+/// Using) is at `target_upstream_peers`. Eligible Maintenance outbound is promoted first.
+/// Otherwise it obtains a seed via `eff.external(GenerateRandomSeed)` and asks Performance
+/// to allot remaining slots across the mix, including `inbound` (duplex inbound promotions)
+/// and outbound [`PeerCandidate`]s (quality-weighted sample within each source;
 /// hard exclude outbound + cool-down + in-flight resolve). Socket candidates are
 /// dialled immediately; Host/SRV candidates are resolved via
 /// [`ResolvePeerCandidate`] and dialled when [`PeerSelectionMsg::Resolved`] arrives.
@@ -647,9 +648,8 @@ impl PeerSelection {
         }
     }
 
-    async fn promote_duplex_inbounds(&mut self, now: Instant, eff: &Effects<PeerSelectionMsg>) {
-        let candidates: Vec<(Peer, ConnectionId)> = self
-            .inbound_peers
+    fn promotable_duplex_inbounds(&self, now: Instant) -> Vec<(Peer, ConnectionId)> {
+        self.inbound_peers
             .iter()
             .filter_map(|(peer, conn)| {
                 if conn.full_duplex
@@ -662,12 +662,24 @@ impl PeerSelection {
                     None
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    async fn promote_duplex_inbounds(&mut self, now: Instant, limit: usize, eff: &Effects<PeerSelectionMsg>) {
+        if limit == 0 {
+            return;
+        }
+        let candidates = self.promotable_duplex_inbounds(now);
+        let mut promoted = 0;
         for (peer, conn_id) in candidates {
-            if self.using_occupancy() >= self.target_upstream_peers {
+            if promoted >= limit || self.using_occupancy() >= self.target_upstream_peers {
                 break;
             }
+            let before = self.using_occupancy();
             self.try_promote(peer, conn_id, now, eff).await;
+            if self.using_occupancy() > before {
+                promoted += 1;
+            }
         }
     }
 
@@ -695,15 +707,14 @@ impl PeerSelection {
 
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
         let now = eff.clock().await;
-        // TODO: this is for testing the feature, should use peer mix quota and metrics ranking
-        self.promote_duplex_inbounds(now, eff).await;
         self.promote_eligible_maintenance(now, eff).await;
         let target_upstream_peers = self.target_upstream_peers;
-        let outbound = self.using_occupancy();
-        if outbound >= target_upstream_peers {
+        let occupancy = self.using_occupancy();
+        if occupancy >= target_upstream_peers {
             return;
         }
-        let open = target_upstream_peers - outbound;
+        let open = target_upstream_peers - occupancy;
+        let eligible_inbound = self.promotable_duplex_inbounds(now).len();
 
         let seed: [u8; 32] = eff.external(GenerateRandomSeed).await;
         let now = eff.clock().await;
@@ -722,9 +733,17 @@ impl PeerSelection {
         excluded.extend(self.bound.keys().cloned());
         self.resolve_backoff.retain(|_, until| *until > now);
         excluded.extend(self.resolve_backoff.keys().cloned());
-        let picked =
-            eff.external(Performance::select_outbound(SelectOutboundParams { open, excluded, seed, now })).await;
-        for pick in picked {
+        let SelectUsing { inbound, outbound } = eff
+            .external(Performance::select_outbound(SelectOutboundParams {
+                open,
+                excluded,
+                eligible_inbound,
+                seed,
+                now,
+            }))
+            .await;
+        self.promote_duplex_inbounds(now, inbound, eff).await;
+        for pick in outbound {
             match pick.candidate.as_peer() {
                 Some(peer) => {
                     if self.outbound_peers.contains_key(&peer) {
