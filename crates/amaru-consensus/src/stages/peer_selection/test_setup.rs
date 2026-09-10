@@ -164,6 +164,8 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RankPeersForChurnEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::OkForSharingEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectOutboundEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::performance::SelectUsing>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::performance::OutboundPick>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IsStaticPeerEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::NoteDialEffect>().boxed(),

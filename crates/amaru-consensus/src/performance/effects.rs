@@ -32,9 +32,9 @@ use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendDat
 use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, OutboundPick, PeerScores,
-    PeerShareFlags, PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams,
-    SelectPeersParams, SharedIngestResult,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerShareFlags,
+    PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams, SelectPeersParams,
+    SelectUsing, SharedIngestResult,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -634,7 +634,7 @@ pub struct SelectOutboundEffect {
 }
 
 impl ExternalEffectAPI for SelectOutboundEffect {
-    type Response = Vec<OutboundPick>;
+    type Response = SelectUsing;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);

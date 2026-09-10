@@ -14,7 +14,8 @@
 
 //! Peer availability claims, quality scores, and outbound peer-source pools.
 //!
-//! Candidate sources (`static` / `shared` / `snapshot` / `ledger`) and the admin [`PeerMix`]
+//! Candidate sources (`static` / `shared` / `snapshot` / `ledger`) plus [`PeerSource::Inbound`]
+//! Using slots, and the admin [`PeerMix`]
 //! live here so connection malus can always evolve with the peer’s source half-life, and so
 //! large peer sets are not copied through pure-stage messages/traces (EDR-031).
 
@@ -135,16 +136,26 @@ pub struct SourceCounts {
     pub ledger_candidates: usize,
 }
 
-/// Parameters for mix + quality outbound selection.
+/// Parameters for mix + quality Using selection (outbound dials and inbound promotions).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SelectOutboundParams {
-    /// How many new outbound dials to return (typically `target − |outbound| − |pending resolve|`).
+    /// How many new Using slots to fill (typically `target − occupancy`).
     pub open: usize,
     /// Candidates that must not be picked (already outbound, cooling down, or resolving).
     pub excluded: BTreeSet<PeerCandidate>,
+    /// Duplex inbound connections that could be promoted to Using.
+    pub eligible_inbound: usize,
     /// Deterministic RNG seed from peer selection’s random effect.
     pub seed: [u8; 32],
     pub now: Instant,
+}
+
+/// Mix result: inbound Using promotions plus outbound dials.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SelectUsing {
+    /// How many duplex inbound connections to promote to Using.
+    pub inbound: usize,
+    pub outbound: Vec<OutboundPick>,
 }
 
 /// One mix pick: a [`PeerCandidate`] from a named source, not yet resolved to a dial address.
@@ -354,21 +365,26 @@ impl PeerPerformance {
             .unwrap_or(DEFAULT_PEER_MALUS_HALF_LIFE)
     }
 
-    /// Mix allotment + quality-weighted sample of candidates to dial (resolve names afterward).
-    pub fn apply_select_outbound(&self, params: SelectOutboundParams) -> Vec<OutboundPick> {
+    /// Mix allotment: inbound Using promotions plus quality-weighted outbound dials.
+    pub fn apply_select_outbound(&self, params: SelectOutboundParams) -> SelectUsing {
         if params.open == 0 {
-            return Vec::new();
+            return SelectUsing { inbound: 0, outbound: Vec::new() };
         }
         let mut eligible_counts = BTreeMap::new();
         let mut eligible_by_source: BTreeMap<PeerSource, Vec<PeerCandidate>> = BTreeMap::new();
         for entry in self.peer_mix.entries() {
+            if entry.source.is_inbound() {
+                eligible_counts.insert(PeerSource::Inbound, params.eligible_inbound);
+                continue;
+            }
             let list = self.eligible_for_source(entry.source, &params.excluded);
             eligible_counts.insert(entry.source, list.len());
             eligible_by_source.insert(entry.source, list);
         }
         let allotment = self.peer_mix.allot(params.open, &eligible_counts);
+        let inbound = allotment.get(&PeerSource::Inbound).copied().unwrap_or(0);
         if allotment.values().all(|&n| n == 0) {
-            return Vec::new();
+            return SelectUsing { inbound: 0, outbound: Vec::new() };
         }
 
         let mut rng = StdRng::from_seed(params.seed);
@@ -376,6 +392,9 @@ impl PeerPerformance {
         let mut already: BTreeSet<PeerCandidate> = BTreeSet::new();
 
         for entry in self.peer_mix.entries() {
+            if entry.source.is_inbound() {
+                continue;
+            }
             let n = allotment.get(&entry.source).copied().unwrap_or(0);
             if n == 0 {
                 continue;
@@ -392,7 +411,7 @@ impl PeerPerformance {
                 picked.push(OutboundPick { candidate, origin: entry.source });
             }
         }
-        picked
+        SelectUsing { inbound, outbound: picked }
     }
 
     /// Addresses to advertise in a share reply (origin filter + sticky sample + reputation).
@@ -451,6 +470,7 @@ impl PeerPerformance {
             PeerSource::Shared => &self.shared_peers,
             PeerSource::Snapshot => &self.snapshot_candidates,
             PeerSource::Ledger => &self.ledger_candidates,
+            PeerSource::Inbound => return Vec::new(),
         };
         pool.iter().filter(|c| !excluded.contains(*c)).cloned().collect()
     }

@@ -226,11 +226,13 @@ pub struct Args {
     )]
     peer_removal_cooldown_secs: u64,
 
-    /// Outbound peer source mix formula (floors `!n`, weights `~n`, optional malus half-lives `@Nd`).
+    /// Using-slot mix formula (floors `!n`, weights `~n`, optional malus half-lives `@Nd`).
     ///
-    /// Leaving a source out of the formula disables it, peer slots not used by the formula are filled from the remaining sources in proportion to their weights.
+    /// Sources: `static`, `shared`, `snapshot`, `ledger`, and `inbound` (duplex inbound
+    /// connections promoted to Using). Leaving a source out disables it; unused slots spill
+    /// to remaining sources in declaration order.
     ///
-    /// Example: `@12h, static!2, shared~6, snapshot~8, ledger~4@48h` (naked `@12h` is the default half-life for following sources)
+    /// Example: `@12h, static!2, inbound~6, shared~6, snapshot~8, ledger~4@48h` (naked `@12h` is the default half-life for following sources)
     #[arg(
         long,
         value_name = amaru::value_names::PEER_MIX,

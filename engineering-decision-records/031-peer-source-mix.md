@@ -7,7 +7,7 @@ status: accepted
 
 ## Context
 
-Peer selection maintains four outbound candidate sources: **static**, **shared** (peer-sharing), **snapshot** (big-ledger file), and **ledger** (live registrations).
+Peer selection maintains four outbound candidate sources: **static**, **shared** (peer-sharing), **snapshot** (big-ledger file), and **ledger** (live registrations), plus **inbound** Using slots filled by promoting duplex inbound connections.
 A hard-coded waterfall (static → shared → snapshot → ledger) starves later sources whenever earlier ones can fill `target_upstream_peers` ([#1180](https://github.com/pragma-org/amaru/issues/1180)).
 
 [EDR-030][edr-performance] stores connection `failure_count` and a sticky `adversarial` flag for peer-sharing filters, but `regulate_peers` only skipped cool-downs and already-outbound peers.
@@ -31,7 +31,9 @@ peer-mix = item ("," item)*
 item     = entry | naked_decay
 entry    = name floor? weight? decay?
 naked_decay = "@" duration                        # sets default half-life for *following* entries
-name     = static | shared | snapshot | ledger   # registry; unknown ⇒ config error
+name     = static | shared | snapshot | ledger | inbound   # registry; unknown ⇒ config error
+                                                 # inbound is Using slots filled by promoting
+                                                 # duplex inbound connections, not a dial pool
 floor    = "!" uint                               # minimum slots if eligible peers exist
 weight   = "~" uint                               # proportionality (not numeric equality)
 decay    = "@" duration                           # malus half-life for this source only
@@ -60,7 +62,8 @@ Defaults when a field is omitted:
 
 ### Allotment and spill
 
-For `open = target_upstream_peers − |outbound|` eligible peers:
+For `open = target_upstream_peers − using_occupancy` eligible peers
+(`using_occupancy` is pending Host/SRV resolution plus Using outbound plus Using inbound):
 
 1. Assign **floors** in declaration order, each capped by eligible count and remaining open slots.
 2. Distribute any remainder **proportionally** by `~weight` (largest-remainder), only among sources with weight &gt; 0 and remaining eligible peers.
@@ -151,7 +154,7 @@ After allotting `n` slots to a source:
 ## Default formula
 
 ```text
-static!2@2h, shared~6@6h, snapshot~8@12h, ledger~4@24h
+static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h
 ```
 
 ## Future work

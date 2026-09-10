@@ -14,6 +14,8 @@
 
 //! Admin `peer-mix` formula: floors, proportional weights, per-source malus half-lives.
 //!
+//! `inbound` is a Using-slot group filled by promoting duplex inbound connections.
+//!
 //! A comma-separated token that is only `@duration` (no source name) sets the default
 //! half-life for **following** entries until another naked `@…` appears. Per-entry `@…`
 //! still overrides that default for that source only.
@@ -24,19 +26,22 @@ use std::{collections::BTreeMap, fmt, str::FromStr, time::Duration};
 
 use thiserror::Error;
 
-/// Default formula shipped with the node (static floor, then shared / snapshot / ledger proportions).
-pub const DEFAULT_PEER_MIX: &str = "static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h";
+/// Default formula shipped with the node (static floor, then inbound / shared / snapshot / ledger).
+pub const DEFAULT_PEER_MIX: &str = "static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h";
 
 /// Initial running half-life before any naked `@…` token (and fallback when none is set).
 pub const DEFAULT_MALUS_HALF_LIFE: Duration = Duration::from_secs(6 * 60 * 60);
 
-/// Named outbound candidate source (extensible registry).
+/// Named Using-slot source (extensible registry).
+///
+/// `Inbound` is not a dial pool: it caps how many duplex inbound connections may be Using.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum PeerSource {
     Static,
     Shared,
     Snapshot,
     Ledger,
+    Inbound,
 }
 
 impl PeerSource {
@@ -46,7 +51,12 @@ impl PeerSource {
             PeerSource::Shared => "shared",
             PeerSource::Snapshot => "snapshot",
             PeerSource::Ledger => "ledger",
+            PeerSource::Inbound => "inbound",
         }
+    }
+
+    pub fn is_inbound(self) -> bool {
+        matches!(self, PeerSource::Inbound)
     }
 
     fn parse(name: &str) -> Option<Self> {
@@ -55,6 +65,7 @@ impl PeerSource {
             "shared" => Some(PeerSource::Shared),
             "snapshot" => Some(PeerSource::Snapshot),
             "ledger" => Some(PeerSource::Ledger),
+            "inbound" => Some(PeerSource::Inbound),
             _ => None,
         }
     }
@@ -91,6 +102,7 @@ impl Default for PeerMix {
         Self {
             entries: vec![
                 MixEntry { source: PeerSource::Static, floor: 2, weight: 1, half_life: Duration::from_secs(15 * 60) },
+                MixEntry { source: PeerSource::Inbound, floor: 0, weight: 6, half_life: DEFAULT_MALUS_HALF_LIFE },
                 MixEntry { source: PeerSource::Shared, floor: 0, weight: 6, half_life: Duration::from_secs(6 * 3600) },
                 MixEntry { source: PeerSource::Snapshot, floor: 0, weight: 3, half_life: Duration::from_secs(3600) },
                 MixEntry { source: PeerSource::Ledger, floor: 0, weight: 3, half_life: Duration::from_secs(24 * 3600) },
@@ -138,9 +150,11 @@ impl PeerMix {
         Ok(Self { entries })
     }
 
-    /// How many new outbound slots to take from each source for `open` free slots.
+    /// How many new Using slots to take from each source for `open` free slots.
     ///
-    /// `eligible` counts candidates already filtered (not outbound, not cooling, canonical origin).
+    /// `eligible` is remaining capacity per source: filtered outbound candidates (not already
+    /// outbound, not cooling, canonical origin), or promotable duplex inbounds for
+    /// [`PeerSource::Inbound`]. Inbound counts are promotion slots, not dials.
     /// Short buckets **spill** remaining demand to later sources in declaration order.
     pub fn allot(&self, open: usize, eligible: &BTreeMap<PeerSource, usize>) -> BTreeMap<PeerSource, usize> {
         if open == 0 || self.entries.is_empty() {
@@ -421,10 +435,12 @@ mod tests {
     #[test]
     fn default_formula_parses() {
         let m = PeerMix::default();
-        assert_eq!(m.entries().len(), 4);
+        assert_eq!(m.entries().len(), 5);
         assert_eq!(m.entries()[0].source, PeerSource::Static);
         assert_eq!(m.entries()[0].floor, 2);
+        assert_eq!(m.entries()[1].source, PeerSource::Inbound);
         assert_eq!(m.entries()[1].weight, 6);
+        assert_eq!(m.entries()[2].weight, 6);
 
         let def = PeerMix::parse(DEFAULT_PEER_MIX).unwrap();
         assert_eq!(m, def);
@@ -513,5 +529,34 @@ mod tests {
         elig.insert(PeerSource::Ledger, 4);
         let got = m.allot(2, &elig);
         assert_eq!(got.get(&PeerSource::Ledger).copied().unwrap_or(0), 2);
+    }
+
+    #[test]
+    fn parse_inbound() {
+        let m = PeerMix::parse("static~1, inbound~2").unwrap();
+        assert_eq!(m.entries()[1].source, PeerSource::Inbound);
+        assert_eq!(m.entries()[1].weight, 2);
+    }
+
+    #[test]
+    fn inbound_competes_for_open_slots() {
+        let m = PeerMix::parse("inbound~1, static~1").unwrap();
+        let mut elig = BTreeMap::new();
+        elig.insert(PeerSource::Inbound, 10);
+        elig.insert(PeerSource::Static, 10);
+        let got = m.allot(4, &elig);
+        assert_eq!(got.get(&PeerSource::Inbound).copied().unwrap_or(0), 2);
+        assert_eq!(got.get(&PeerSource::Static).copied().unwrap_or(0), 2);
+    }
+
+    #[test]
+    fn omitted_inbound_gets_no_slots() {
+        let m = PeerMix::parse("static~1").unwrap();
+        let mut elig = BTreeMap::new();
+        elig.insert(PeerSource::Inbound, 10);
+        elig.insert(PeerSource::Static, 10);
+        let got = m.allot(4, &elig);
+        assert_eq!(got.get(&PeerSource::Inbound).copied().unwrap_or(0), 0);
+        assert_eq!(got.get(&PeerSource::Static).copied().unwrap_or(0), 4);
     }
 }

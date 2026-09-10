@@ -54,8 +54,8 @@ use parking_lot::Mutex;
 pub use peer::{
     ADVERSARIAL_IMPULSE, BlockClaim, CONNECT_FAIL_IMPULSE, ClaimKind, DEFAULT_PEER_MALUS_HALF_LIFE, FetchPeerSet,
     NEVER_CONNECTED_BONUS, OutboundPick, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot,
-    SHARE_MALUS_THRESHOLD, SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SharedIngestResult, SourceCounts,
-    malus_at,
+    SHARE_MALUS_THRESHOLD, SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SelectUsing, SharedIngestResult,
+    SourceCounts, malus_at,
 };
 pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
 use tokio::{
@@ -160,7 +160,7 @@ pub(crate) enum PerformanceOp {
     OkForSharing { effect: OkForSharingEffect, reply: oneshot::Sender<bool> },
     SetLedgerCandidates { effect: SetLedgerCandidatesEffect },
     IngestSharedPeers { effect: IngestSharedPeersEffect, reply: oneshot::Sender<SharedIngestResult> },
-    SelectOutbound { effect: SelectOutboundEffect, reply: oneshot::Sender<Vec<OutboundPick>> },
+    SelectOutbound { effect: SelectOutboundEffect, reply: oneshot::Sender<SelectUsing> },
     SelectSharePeers { effect: SelectSharePeersEffect, reply: oneshot::Sender<Vec<std::net::SocketAddr>> },
     IsStaticPeer { effect: IsStaticPeerEffect, reply: oneshot::Sender<bool> },
     NoteDial { effect: NoteDialEffect },

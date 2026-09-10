@@ -399,7 +399,7 @@ fn test_world_duplex_inbound_upstream_syncs_injector_chain() {
         generated_node(run.seed, 1, listen_b)
             .with_no_upstream_peers()
             .with_target_upstream_peers(1)
-            .with_peer_mix("static~1"),
+            .with_peer_mix("inbound~1"),
         &headers[0],
     );
     let mut world = run.injector_world(

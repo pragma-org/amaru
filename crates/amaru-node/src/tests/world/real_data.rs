@@ -144,7 +144,7 @@ fn test_world_disseminates_preprod_fragment() {
             .with_listen_address(listen)
             .with_seed(31 + i as u64)
             .with_target_upstream_peers(3)
-            .with_peer_mix("static!1, shared~6")
+            .with_peer_mix("static!1, inbound~2, shared~6")
             .with_trace_buffer(TraceBuffer::new_shared(50_000, 64_000_000))
             .with_store_dirs(node_tmps[i].path().join("chain"), node_tmps[i].path().join("ledger"))
             .with_global_epoch_offset(offset);
