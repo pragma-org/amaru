@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, PoolId, ProposalId, TransactionInput,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch,
+    GovernanceAction, Lovelace, MemoizedTransactionOutput, PoolId, ProposalId, TransactionInput,
 };
 
 use crate::{
@@ -124,6 +124,21 @@ impl VolatileAggregate {
             Some(state) => Existence::Exists(ProposalStateSlim::from(state.as_ref())),
             None => Existence::Unknown,
         }
+    }
+
+    /// Every cold credential an `UpdateCommittee` proposal folded here proposes to seat, paired with
+    /// the proposal naming it. Candidates may authorize a hot key or resign ahead of their election.
+    pub fn resolve_committee_candidates(&self) -> impl Iterator<Item = (&ProposalId, &Credential)> {
+        self.proposals
+            .iter()
+            .filter_map(|(id, state)| {
+                if let GovernanceAction::UpdateCommittee(_, _, added, _) = &state.proposal.gov_action {
+                    Some(added.iter().map(move |(candidate, _)| (id, candidate)))
+                } else {
+                    None
+                }
+            })
+            .flatten()
     }
 }
 

@@ -31,8 +31,8 @@ use crate::{
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
-            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
-            VolatileSeries, VolatileState, overlay::StateOverlay,
+            AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery,
+            VolatileSequence, VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
     store::{HistoricalStores, Store},
@@ -150,9 +150,21 @@ impl VolatileState for VolatileDB {
     fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
         let mut cc_members: BTreeMap<&'a Credential, Vec<Existence<CommitteeMemberBind<'a>>>> = BTreeMap::new();
 
-        let current = self.current.resolve_cc_members();
+        let current = self.current.resolve_cc_members().chain(
+            self.current.committee_candidates().map(|(_, credential)| (credential, Existence::Exists(Bind::default()))),
+        );
+
         let overlay = self.overlay.cc_members();
-        let drainin = self.draining.resolve_cc_members();
+
+        let drainin = self.draining.resolve_cc_members().chain(self.draining.committee_candidates().filter_map(
+            |(id, credential)| {
+                if self.overlay.has_pruned_proposal(id) {
+                    None
+                } else {
+                    Some((credential, Existence::Exists(Bind::default())))
+                }
+            },
+        ));
 
         // Re-aggregate the binds per cold-credential
         for (cold_credential, cc_member) in current.chain(overlay).chain(drainin) {
@@ -543,8 +555,10 @@ mod tests {
     };
 
     use amaru_kernel::{
-        BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        Point, SafeRatio, Slot, SortedPairs, any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, SafeRatio, Slot, SortedPairs,
+        any_modern_output, any_proposal, any_proposal_id, any_rational_number, any_transaction_input,
+        utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -552,6 +566,7 @@ mod tests {
     use super::*;
     use crate::{
         AccountState,
+        context::ProposalState,
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
         state::volatile::{Bind, Resettable},
     };
@@ -1381,6 +1396,44 @@ mod tests {
     }
 
     #[test]
+    fn resolve_cc_members_yield_committee_candidates() {
+        let mut db = VolatileDB::default();
+
+        let proposal_id = run_strategy(any_proposal_id());
+
+        db.push_back(update_committee_block(10, proposal_id, cred(1)));
+        assert_eq!(
+            db.resolve_cc_members().get(&cred(1)),
+            Some(&Existence::Exists(Bind::default())),
+            "named by a proposal in current"
+        );
+
+        db.simple_transition(committee_update(None));
+
+        assert_eq!(
+            db.resolve_cc_members().get(&cred(1)),
+            Some(&Existence::Exists(Bind::default())),
+            "still named once the block drains"
+        );
+    }
+
+    #[test]
+    fn resolve_committee_candidates_discounts_proposals_pruned_at_the_pending_boundary() {
+        let mut db = VolatileDB::default();
+
+        let proposal_id = run_strategy(any_proposal_id());
+
+        db.push_back(update_committee_block(10, proposal_id, cred(1)));
+
+        db.simple_transition(GovernanceUpdates {
+            pruned_proposals: BTreeMap::from([(proposal_id, RatificationStatus::NotRatified)]),
+            ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
+        });
+
+        assert!(db.resolve_cc_members().is_empty(), "the boundary dropped the proposal");
+    }
+
+    #[test]
     fn resolve_committee_lets_a_resignation_clear_a_hot_key_across_the_boundary() {
         let mut db = VolatileDB::default();
 
@@ -1468,6 +1521,24 @@ mod tests {
             CommitteeAct::Resign => block.fragment.committee.bind_left(cred(1), None),
         }
         .unwrap();
+        block
+    }
+
+    fn update_committee_block(slot: u64, id: ProposalId, candidate: Credential) -> AnchoredVolatileFragment {
+        let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
+        let proposal = Proposal {
+            gov_action: GovernanceAction::UpdateCommittee(
+                None,
+                Vec::new(),
+                vec![(candidate, Epoch::from(99))].try_into().unwrap(),
+                run_strategy(any_rational_number()),
+            ),
+            ..run_strategy(any_proposal())
+        };
+        block.fragment.proposals.insert(
+            id,
+            Arc::new(ProposalState { proposed_in: Default::default(), valid_until: Default::default(), proposal }),
+        );
         block
     }
 

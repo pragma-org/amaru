@@ -137,6 +137,12 @@ impl VolatileSequence for VolatileSeries {
 }
 
 impl VolatileSeries {
+    /// The committee candidates named by this series' proposals, paired with the proposal naming
+    /// them so a caller can discount proposals a pending boundary pruned.
+    pub fn committee_candidates(&self) -> impl Iterator<Item = (&ProposalId, &Credential)> {
+        self.aggregate.resolve_committee_candidates()
+    }
+
     /// Rebuild the aggregate from scratch by re-folding the surviving sequence. Only rollback uses
     /// this; stabilization retracts a single fragment off the front exactly and incrementally (see
     /// [`VolatileAggregate::remove_fragment`]).
