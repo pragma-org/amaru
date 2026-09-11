@@ -18,7 +18,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{BorderType, Paragraph},
+    widgets::{BorderType, Borders, Padding, Paragraph},
 };
 
 use super::theme::{border_primary, border_secondary, emphasis_primary, emphasis_white_color};
@@ -29,6 +29,10 @@ pub(super) fn button_label(label: &str) -> String {
 }
 
 pub(super) fn border_title_line(spans: Vec<Span<'static>>, mode: InteractionMode, focused: bool) -> Line<'static> {
+    if mode == InteractionMode::Copy {
+        return Line::from(spans);
+    }
+
     let style = scroll_panel_border(focused, mode);
     let horizontal = if focused { "═" } else { "─" };
     let mut line = Vec::with_capacity(spans.len() + 2);
@@ -39,6 +43,10 @@ pub(super) fn border_title_line(spans: Vec<Span<'static>>, mode: InteractionMode
 }
 
 pub(super) fn panel_title(mode: InteractionMode, focused: bool, title: &str) -> Line<'static> {
+    if mode == InteractionMode::Copy {
+        return Line::from(Span::styled(title.to_string(), emphasis_primary(mode)));
+    }
+
     let style = scroll_panel_border(focused, mode);
     let horizontal = if focused { "═" } else { "─" };
     Line::from(vec![
@@ -46,6 +54,14 @@ pub(super) fn panel_title(mode: InteractionMode, focused: bool, title: &str) -> 
         Span::styled(title.to_string(), emphasis_primary(mode)),
         Span::styled(format!(" {horizontal}"), style),
     ])
+}
+
+pub(super) fn panel_borders(mode: InteractionMode) -> Borders {
+    if mode == InteractionMode::Copy { Borders::NONE } else { Borders::ALL }
+}
+
+pub(super) fn panel_padding(mode: InteractionMode) -> Padding {
+    if mode == InteractionMode::Copy { Padding::new(0, 0, 1, 0) } else { Padding::ZERO }
 }
 
 pub(super) fn render_scrollbar(
@@ -58,7 +74,7 @@ pub(super) fn render_scrollbar(
     focused: bool,
 ) {
     let height = area.height as usize;
-    if height == 0 || area.width == 0 {
+    if mode == InteractionMode::Copy || height == 0 || area.width == 0 {
         return;
     }
 
@@ -128,10 +144,6 @@ pub(super) fn border_title_chrome_width() -> u16 {
     4
 }
 
-pub(super) fn show_config_env_column(area: Rect) -> bool {
-    area.width >= 140
-}
-
 pub(super) fn level_controls_width() -> u16 {
     spans_width(LevelFilter::ALL.into_iter().map(|filter| button_label(filter.label()).len() as u16))
 }
@@ -153,7 +165,7 @@ pub(super) fn scroll_panel_border_type(focused: bool) -> BorderType {
 }
 
 pub(super) fn render_horizontal_separator(frame: &mut Frame<'_>, area: Rect, mode: InteractionMode, focused: bool) {
-    if area.width == 0 || area.height == 0 {
+    if mode == InteractionMode::Copy || area.width == 0 || area.height == 0 {
         return;
     }
 

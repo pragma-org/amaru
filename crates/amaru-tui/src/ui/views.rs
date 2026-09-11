@@ -29,7 +29,9 @@ pub struct Views {
     pub logs_body: Rect,
     pub logs_scrollbar: Rect,
     pub peers_area: Rect,
+    pub peers_body: Rect,
     pub proposals_area: Rect,
+    pub proposals_body: Rect,
     pub config_area: Rect,
 }
 
@@ -46,7 +48,9 @@ impl Views {
         self.logs_body = Rect::default();
         self.logs_scrollbar = Rect::default();
         self.peers_area = Rect::default();
+        self.peers_body = Rect::default();
         self.proposals_area = Rect::default();
+        self.proposals_body = Rect::default();
         self.config_area = Rect::default();
     }
 

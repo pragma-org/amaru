@@ -29,6 +29,10 @@ pub(super) fn accent_primary(mode: InteractionMode) -> Color {
 }
 
 pub(super) fn block_title(mode: InteractionMode, title: &str) -> Line<'static> {
+    if mode == InteractionMode::Copy {
+        return Line::from(Span::styled(title.to_string(), emphasis_primary(mode)));
+    }
+
     Line::from(vec![
         Span::styled("─ ", border_secondary(mode)),
         Span::styled(title.to_string(), emphasis_primary(mode)),

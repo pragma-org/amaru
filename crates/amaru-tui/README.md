@@ -48,14 +48,21 @@ Throughput and peer timing widgets use exponential moving averages, rollback
 widgets keep a bounded recent history, and the log pane keeps a memory-bounded
 stream (default 100MiB, `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION`) with
 staggered thinning toward older times: 70% debug and up, 10% info and up, 10%
-warn and up, 10% error. The visible list is then filtered by level, target, and
-an optional `&` regex; `/` highlights matching lines; `@` jumps to a UTC time;
-the log scrollbar can be clicked or dragged, and `|` focuses it for large
-keyboard steps. `w` toggles wrapping; with wrap off, `←`/`→` pan horizontally
-and the column offset is kept across vertical motion. Pane focus uses `Ctrl-←`/
-`Ctrl-→`. Process and host resource gauges are simpler: they render from
-the latest merged `SystemSample` snapshot rather than keeping historical
-TUI-local copies.
+warn and up, 10% error. Process and host resource gauges render from the latest
+merged `SystemSample` snapshot rather than keeping historical TUI-local copies.
+
+Keyboard controls deliberately use a small command hierarchy. Directional keys
+scroll the focused panel, with `Ctrl` taking a scrollbar-sized step; `PgUp`,
+`PgDn`, `Home`, and `End` remain available without cluttering the footer. `;`
+cycles focus and `Tab` changes page. Press `f` before selecting log filtering,
+highlighting, time jumps, or wrapping; press `q` then `y` before shutdown.
+`Esc` always leaves the current command level, switching between normal and
+copy mode only at the top level. Copy mode removes shell and panel borders,
+scrollbars, and separators so selected multiline text can be pasted cleanly.
+
+Configuration and protocol tables size their identifier columns from the
+content currently displayed. The environment-variable column is omitted when
+the terminal cannot show it without compromising the option and value columns.
 
 For telemetry, prefer the schema-generated helpers exported by
 `amaru-observability` for both event matching and field decoding. Avoid raw

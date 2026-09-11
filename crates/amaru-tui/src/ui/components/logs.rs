@@ -18,14 +18,14 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Modifier,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
 };
 
 use super::super::{
     common::{
         border_title_chrome_width, border_title_line, border_title_prefix_width, button_label, level_controls_width,
-        render_horizontal_separator, render_scrollbar, scroll_panel_border, scroll_panel_border_type, spans_width,
-        target_controls_width,
+        panel_borders, panel_padding, render_horizontal_separator, render_scrollbar, scroll_panel_border,
+        scroll_panel_border_type, spans_width, target_controls_width,
     },
     format::format_log_wall_time,
     theme::{
@@ -54,9 +54,10 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     let block = Block::default()
         .title(title)
         .title_top(toggle.right_aligned())
-        .borders(Borders::ALL)
+        .borders(panel_borders(model.interaction_mode))
         .border_style(scroll_panel_border(focused, model.interaction_mode))
-        .border_type(scroll_panel_border_type(focused));
+        .border_type(scroll_panel_border_type(focused))
+        .padding(panel_padding(model.interaction_mode));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     views.log_toggle = Rect {
@@ -76,14 +77,20 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)])
+        .constraints(if model.is_copy_mode() {
+            vec![Constraint::Length(1), Constraint::Min(1)]
+        } else {
+            vec![Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)]
+        })
         .split(inner);
 
     render_log_controls(frame, layout[0], model, views);
-    render_horizontal_separator(frame, layout[1], model.interaction_mode, focused);
+    if !model.is_copy_mode() {
+        render_horizontal_separator(frame, layout[1], model.interaction_mode, focused);
+    }
 
     let items = model.log_view();
-    let body = layout[2];
+    let body = if model.is_copy_mode() { layout[1] } else { layout[2] };
     views.logs_body = body;
     if items.len() > body.height as usize && body.width > 0 && body.height > 0 {
         views.logs_scrollbar =
