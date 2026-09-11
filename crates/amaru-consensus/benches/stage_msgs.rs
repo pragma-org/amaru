@@ -19,7 +19,7 @@ use amaru_consensus::stages::{
     select_chain::SelectChainMsg, track_peers::TrackPeersMsg, validate_block::ValidateBlockMsg,
 };
 use amaru_kernel::{
-    BlockHeight, EraHistory, EraName, Peer, Point, any_header_hash,
+    BlockHeight, EraHistory, EraName, HeaderHash, Peer, Point,
     cardano::network_block::{NetworkBlock, make_block},
     make_header,
     utils::tests::run_strategy,
@@ -28,13 +28,14 @@ use amaru_ouroboros::ConnectionId;
 use amaru_protocols::chainsync::{ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorResult};
 use amaru_pure_stage::{SendData, serde::to_cbor};
 use criterion::{Criterion, criterion_group, criterion_main};
+use proptest::prelude::any;
 
 fn stage_msgs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Stage Messages");
     group.measurement_time(Duration::from_secs(5));
 
     let bh = BlockHeight::from(123_456_789);
-    let point = Point::Specific(1_234_567_890.into(), run_strategy(any_header_hash()), bh);
+    let point = Point::Specific(1_234_567_890.into(), run_strategy(any::<HeaderHash>()), bh);
 
     let msg = ValidateBlockMsg::new(point, point, bh);
     let msg: Box<dyn SendData> = Box::new(msg);

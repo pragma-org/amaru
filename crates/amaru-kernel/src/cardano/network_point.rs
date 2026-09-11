@@ -198,7 +198,7 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{NetworkPoint, Slot, any_header_hash, prop_cbor_roundtrip};
+    use crate::{HeaderHash, NetworkPoint, Slot, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(NetworkPoint, any_network_point());
 
@@ -209,7 +209,7 @@ mod tests {
     }
 
     prop_compose! {
-        pub fn any_specific_network_point()(slot in any_slot(), header_hash in any_header_hash()) -> NetworkPoint {
+        pub fn any_specific_network_point()(slot in any_slot(), header_hash in any::<HeaderHash>()) -> NetworkPoint {
             NetworkPoint::Specific(slot, header_hash)
         }
     }

@@ -219,9 +219,8 @@ pub use cardano::{
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
     era_name::any_era_name,
     era_params::any_era_params,
-    hash::{any_hash28, any_hash32},
     header::{
-        any_header, any_header_hash, any_header_with_parent, any_header_with_some_parent, any_headers_chain,
+        any_header, any_header_with_parent, any_header_with_some_parent, any_headers_chain,
         any_headers_chain_with_root, make_header, make_header_with_op_cert_seq,
     },
     memoized::{any_datum, any_legacy_output, any_modern_output},

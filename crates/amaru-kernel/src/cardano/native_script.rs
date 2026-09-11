@@ -148,7 +148,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::NativeScript;
-    use crate::any_hash28;
+    use crate::{Hash, size::KEY};
 
     // --------------------------------------------------------------------------------------------
     // Generators
@@ -157,7 +157,7 @@ mod tests {
     pub fn any_native_script(depth: u8) -> BoxedStrategy<NativeScript> {
         use NativeScript::*;
 
-        let sig = any_hash28().prop_map(ScriptPubkey);
+        let sig = any::<Hash<KEY>>().prop_map(ScriptPubkey);
         let before = any::<u64>().prop_map(InvalidBefore);
         let after = any::<u64>().prop_map(InvalidHereafter);
 

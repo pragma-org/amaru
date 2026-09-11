@@ -74,7 +74,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{Hash, NativeScript, any_hash28, cbor, size::KEY, to_cbor, utils::cbor::CborArray};
+    use crate::{Hash, NativeScript, cbor, size::KEY, to_cbor, utils::cbor::CborArray};
 
     // --------------------------------------------------------------------------------------------
     // Tests
@@ -120,7 +120,7 @@ mod tests {
         fn any(depth: u8) -> BoxedStrategy<Self> {
             use VariableEncodingNativeScript::*;
 
-            let sig = any_hash28().prop_map(ScriptPubkey);
+            let sig = any::<Hash<KEY>>().prop_map(ScriptPubkey);
             let before = any::<u64>().prop_map(InvalidBefore);
             let after = any::<u64>().prop_map(InvalidHereafter);
             if depth > 0 {

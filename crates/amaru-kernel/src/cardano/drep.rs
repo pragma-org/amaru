@@ -145,12 +145,15 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{DRep, any_hash28};
+    use crate::{
+        DRep, Hash,
+        size::{KEY, SCRIPT},
+    };
 
     pub fn any_drep() -> impl Strategy<Value = DRep> {
         prop_oneof![
-            any_hash28().prop_map(DRep::Key),
-            any_hash28().prop_map(DRep::Script),
+            any::<Hash<KEY>>().prop_map(DRep::Key),
+            any::<Hash<SCRIPT>>().prop_map(DRep::Script),
             Just(DRep::Abstain),
             Just(DRep::NoConfidence),
         ]
