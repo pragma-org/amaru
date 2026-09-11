@@ -12,8 +12,7 @@ permissions:
 
 concurrency:
   group: preprod-e2e-transaction-submission
-  cancel-in-progress: false
-  queue: max
+  cancel-in-progress: true
 
 jobs:
   transaction-submission:

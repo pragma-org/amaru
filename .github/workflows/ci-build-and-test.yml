@@ -36,6 +36,16 @@ jobs:
       target: x86_64-unknown-linux-gnu
       cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
 
+  # To populate the cache on the Blacksmith runners too.
+  build-linux-x86_64-blacksmith:
+    name: Build/Test x86_64/linux
+    uses: ./.github/workflows/template-cargo-test.yml
+    with:
+      runner: blacksmith-8vcpu-ubuntu-2404
+      target: x86_64-unknown-linux-gnu
+      command: test -p amaru --no-run
+      cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+
   build-linux-aarch64:
     name: Build/Test aarch64/linux
     uses: ./.github/workflows/template-cargo-test.yml
@@ -57,7 +67,7 @@ jobs:
     name: Build/Test x86_64/windows
     uses: ./.github/workflows/template-cargo-test.yml
     with:
-      runner: windows-2025
+      runner: blacksmith-4vcpu-windows-2025
       target: x86_64-pc-windows-msvc
       command: test --tests --workspace --profile dev-debug
       cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
