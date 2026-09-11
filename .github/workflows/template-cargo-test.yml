@@ -48,12 +48,20 @@ on:
 
 jobs:
   cargo-test:
+    name: ${{ format('{0} - {1}', inputs.runner, inputs.command) }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     steps:
       - name: Support longpaths
         if: runner.os == 'Windows'
         run: git config --system core.longpaths true
+
+      - name: Install LLVM
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install llvm --yes --no-progress
+          Add-Content -Path $env:GITHUB_ENV -Value 'LIBCLANG_PATH=C:\Program Files\LLVM\bin'
 
       - uses: actions/checkout@v6
         with:

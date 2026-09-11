@@ -29,7 +29,7 @@ permissions:
 jobs:
   snapshots:
     name: End-to-end snapshot tests
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     concurrency:
       group: ledger-epoch-snapshots-${{ matrix.network.name }}-${{ github.head_ref || github.ref }}
       cancel-in-progress: true
