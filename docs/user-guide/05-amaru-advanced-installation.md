@@ -40,24 +40,25 @@ sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 The Debian and RPM packages don't just ship the amaru binary, they also install a dedicated `amaru` [system user](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/postinst), a [systemd unit](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/amaru.service), and a default [environment file](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/amaru.env).
 
 :::warning TUI Limitation
-The use of the TUI is currently only possible when running Amaru directly in a CLI.  
--> A way of using the TUI as a detached process is being explored by the team.  
+The use of the TUI is currently only possible when running Amaru directly in a CLI.
+-> A way of using the TUI as a detached process is being explored by the team.
 Please refer to #Monitoring section to learn how to retrieve logs and metrics when Amaru is running as a service.
 :::
 
 ### The systemd unit (Debian)
 
 - `amaru` user's home is under `/var/lib/amaru` with `nologin`
-- `amaru.service` is installed at `/lib/systemd/system/amaru.service` but **not enabled or started**.
+- `amaru.service` is installed at `/usr/lib/systemd/system/amaru.service` but **not enabled or started**.
+- `amaru-bootstrap.service` is installed at `/usr/lib/systemd/system/amaru-bootstrap.service` but **not enabled or started**.
 - `amaru.env` is installed as `/etc/default/amaru`
 
 ```bash title="/etc/default/amaru"
 AMARU_NETWORK=mainnet
 AMARU_CHAIN_DIR=/var/lib/amaru/chain.mainnet.db
 AMARU_LEDGER_DIR=/var/lib/amaru/ledger.mainnet.db
-AMARU_PEER_ADDRESS=backbone.mainnet.cardanofoundation.org:3001
 AMARU_MIGRATE_CHAIN_DB=true
 AMARU_PID_FILE=/run/amaru/amaru.pid
+AMARU_WITH_JSON_TRACES=true
 ```
 
 ## 2. Bootstrapping the node
@@ -67,13 +68,21 @@ Assuming you are using the default db location:
 cd /var/lib/amaru
 ```
 :::note
-Because the `/var/lib/amaru` folder is owned by the user `amaru` you need to run commands using `sudo -u amaru`.  
+Because the `/var/lib/amaru` folder is owned by the user `amaru` you need to run commands using `sudo -u amaru`.
 Also the Amaru user is set to `nologin` for security concerns.
 :::
 
 Amaru bootstraps itself with Mithril-derived snapshots:
+
 ```bash
 sudo -u amaru amaru node bootstrap --network mainnet
+```
+
+Alternatively, you can also run the one-shot bootstrap service:
+
+```bash
+sudo systemctl enable --now amaru-bootstrap.service
+sudo systemctl start amaru-bootstrap
 ```
 
 This downloads a window of pre-generated, Mithril-derived ledger snapshots from Amaru's snapshot bucket and imports them directly into the chain and ledger databases.
@@ -100,12 +109,12 @@ If the desired epoch snapshot is not available, the cli will respond by listing 
 
 ## 3. Configuring the node
 
-You can override the defaults in `/etc/default/amaru` or add new one as needed.  
+You can override the defaults in `/etc/default/amaru` or add new one as needed.
 Every `amaru node run` [flag](01-amaru-fast-forward.md#4-running-the-node) has a matching `AMARU_*` environment variable, for example:
 
 ```bash title="/etc/default/amaru"
 [...]
-AMARU_PEER_ADDRESS=backbone.mainnet.cardanofoundation.org:3001,my-own-peer.example.com:3001
+AMARU_PEER_ADDRESS=my-own-peer.example.com:3001
 AMARU_LISTEN_ADDRESS=0.0.0.0:3001
 AMARU_UPSTREAM_PEERS=10
 AMARU_WITH_OPEN_TELEMETRY=true
@@ -113,11 +122,11 @@ OTEL_METRIC_EXPORT_INTERVAL=1000
 ```
 
 :::note
-`AMARU_WITH_OPEN_TELEMETRY` allow Amaru to send traces to the OTLP collector  
-`OTEL_METRIC_EXPORT_INTERVAL` is the time between two OTLP metrics export (default is [60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader), here set to 1s) 
+`AMARU_WITH_OPEN_TELEMETRY` allow Amaru to send traces to the OTLP collector
+`OTEL_METRIC_EXPORT_INTERVAL` is the time between two OTLP metrics export (default is [60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader), here set to 1s)
 :::
 
-You can get the full config list with the TUI under the config menu (pressing `ESC` enter copy mode, enabling cursor selection): 
+You can get the full config list with the TUI under the config menu (pressing `ESC` enter copy mode, enabling cursor selection):
 
 ![Amuru_config_TUI.png](img/Amuru_Config_TUI.png)
 
@@ -185,12 +194,12 @@ You can then read Amaru logs with `journalctl -fu amaru`
 
 ## 5. Logs, Metrics and Monitoring
 
-Amaru uses OpenTelemetry to export its Metrics, Logs and Traces. 
+Amaru uses OpenTelemetry to export its Metrics, Logs and Traces.
 
-When running Amaru in CLI use `--with-open-telemetry`: 
+When running Amaru in CLI use `--with-open-telemetry`:
 
 ```bash
-amaru --with-open-telemetry node run --network preprod 
+amaru --with-open-telemetry node run --network preprod
 ```
 
 When running Amaru as a systemd service set the env variable `AMARU_WITH_OPEN_TELEMETRY`:
@@ -221,9 +230,9 @@ The stack includes:
 See all details in the [Amaru Monitoring Readme](https://github.com/pragma-org/amaru/tree/main/monitoring#readme)
 
 :::note
-If you already have a running Monitoring Stack, feel free to setup the otlp collector to your needs. 
+If you already have a running Monitoring Stack, feel free to setup the otlp collector to your needs.
 
-For example if you are only interested in Prometheus metrics to scrape : 
+For example if you are only interested in Prometheus metrics to scrape :
 
 <details>
 <summary>docker-compose.yml</summary>
@@ -287,7 +296,7 @@ Using the nop exporter allows otlp to receive logs and traces from Amaru and dis
 
 </details>
 
-You can then scrape the metrics at `127.0.0.1:8889/metrics`  
+You can then scrape the metrics at `127.0.0.1:8889/metrics`
 ```bash
 $ watch -n1 "curl -s 127.0.0.1:8889/metrics | grep -E 'cardano_node_metrics_epoch_int{|cardano_node_metrics_blockNum_int{|cardano_node_metrics_slotInEpoch_int{' | sed 's/{/ /g' | cut -d' ' -f1,3 | column -t -s' ' "
 
@@ -318,7 +327,7 @@ See Amaru [Submit API](https://github.com/pragma-org/amaru/blob/main/docs/SUBMIT
 Amaru is still in an exploratory phase, so check the [release notes](https://github.com/pragma-org/amaru/releases) before every upgrade.
 
 - **Release Binaries** — replace the `amaru` binary on your `$PATH` and restart the process.
-- **Debian/RPM package** — download and install the new package the same way as the initial install.  
+- **Debian/RPM package** — download and install the new package the same way as the initial install.
 run `systemctl restart amaru.service` afterwards.
 - **Docker** — pull the new tag and recreate the container.
 - **Homebrew / Nix** — `brew upgrade amaru` / re-run the `nix profile install` command with the new ref.
@@ -329,6 +338,6 @@ Best practice is to back up `--chain-dir`/`--ledger-dir` before upgrading across
 :::
 
 :::warning
-When using the CLI directly, `AMARU_MIGRATE_CHAIN_DB` defaults to `false`, so if a db migration is needed, Amaru won't start and will ask to use `--migrate-chain-db` in order to perform the upgrade. 
+When using the CLI directly, `AMARU_MIGRATE_CHAIN_DB` defaults to `false`, so if a db migration is needed, Amaru won't start and will ask to use `--migrate-chain-db` in order to perform the upgrade.
 :::
 
