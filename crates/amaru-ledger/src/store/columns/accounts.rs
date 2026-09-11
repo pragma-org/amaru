@@ -72,7 +72,7 @@ impl<'a, C: cbor::HasProtocolVersion> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{CertificatePointer, Lovelace, PoolId, Slot, SlotUpperBound, any_drep, prop_cbor_roundtrip};
+    use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, Slot, SlotUpperBound, prop_cbor_roundtrip};
     use proptest::{option, prelude::*, prop_compose};
 
     use super::Row;
@@ -82,7 +82,7 @@ pub mod tests {
             pool in option::of(any::<PoolId>()),
             pool_delegation_at in any_with::<CertificatePointer>(SlotUpperBound(Slot::from(max_slot))),
             deposit in any::<Lovelace>(),
-            drep in option::of(any_drep()),
+            drep in option::of(any::<DRep>()),
             drep_delegation_at in any_with::<CertificatePointer>(SlotUpperBound(Slot::from(max_slot))),
             rewards in any::<Lovelace>(),
         ) -> Row {

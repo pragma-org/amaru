@@ -557,7 +557,7 @@ mod tests {
     use amaru_kernel::{
         BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, RationalNumber, SafeRatio, Slot,
-        SortedPairs, any_modern_output, any_proposal, any_transaction_input, utils::tests::run_strategy,
+        SortedPairs, any_modern_output, any_proposal, utils::tests::run_strategy,
     };
     use num::Zero;
     use proptest::prelude::any;
@@ -997,7 +997,7 @@ mod tests {
 
     #[test]
     fn test_consumed_input_is_tracked() {
-        let input = run_strategy(any_transaction_input());
+        let input = run_strategy(any::<TransactionInput>());
         let mut anchored = AnchoredVolatileFragment::fixture(10, 1);
         anchored.fragment.utxo.consume(input);
 
@@ -1009,7 +1009,7 @@ mod tests {
 
     #[test]
     fn test_rollback_removes_consumed_input_from_cache() {
-        let input = run_strategy(any_transaction_input());
+        let input = run_strategy(any::<TransactionInput>());
         let mut db = VolatileDB::default();
         let first = AnchoredVolatileFragment::fixture(10, 1);
         let first_point = first.point();
@@ -1105,7 +1105,7 @@ mod tests {
         resolvable: bool,
         consumed: bool,
     ) {
-        let input = run_strategy(any_transaction_input());
+        let input = run_strategy(any::<TransactionInput>());
         let mut draining_block = AnchoredVolatileFragment::fixture(10, 1);
         let mut current_block = AnchoredVolatileFragment::fixture(20, 2);
 

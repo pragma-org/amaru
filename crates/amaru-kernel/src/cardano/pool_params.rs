@@ -89,7 +89,7 @@ mod tests {
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
-    use crate::{Bytes, MaxString128, RationalNumber, Relay, any_reward_account, prop_cbor_roundtrip};
+    use crate::{Bytes, MaxString128, RationalNumber, Relay, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
 
@@ -145,7 +145,7 @@ mod tests {
             pledge in any::<u64>(),
             cost in any::<u64>(),
             margin in 0..100u64,
-            reward_account in any_reward_account(),
+            reward_account in any::<RewardAccount>(),
             owners in proptest::collection::vec(any::<Hash<KEY>>(), 1..3),
             relays in proptest::collection::vec(any_relay(), 0..10),
         ) -> PoolParams {

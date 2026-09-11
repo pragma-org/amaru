@@ -743,7 +743,7 @@ mod tests {
         MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal,
         ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
         RationalNumber, RewardAccount, Slot, TransactionPointer, any_constitution, any_constitutional_committee_update,
-        any_gov_action, any_proposal_enum, any_protocol_params_update, any_reward_account,
+        any_gov_action, any_proposal_enum, any_protocol_params_update,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -1277,7 +1277,7 @@ mod tests {
             1 => Just(GovernanceAction::Information),
             4 =>
                 collection::btree_map(
-                    any_reward_account(),
+                    any::<RewardAccount>(),
                     any::<Lovelace>(),
                     1..3
                 ).prop_map(|kvs|

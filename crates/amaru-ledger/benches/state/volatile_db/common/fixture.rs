@@ -14,9 +14,9 @@
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, TransactionInput,
-    any_ballot, any_ballot_id, any_credential, any_drep, any_drep_registration, any_modern_output, any_pool_params,
-    any_proposals_roots, any_reward_account,
+    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, RewardAccount, Slot,
+    TransactionInput, any_ballot, any_ballot_id, any_drep_registration, any_modern_output, any_pool_params,
+    any_proposals_roots,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
 use proptest::prelude::any;
@@ -37,7 +37,7 @@ pub fn comparable_proposal_id(rng: &mut impl Rng) -> ProposalId {
 }
 
 pub fn drep(rng: &mut impl Rng) -> DRep {
-    run_strategy_with_rng(rng, any_drep())
+    run_strategy_with_rng(rng, any::<DRep>())
 }
 
 pub fn drep_registration(rng: &mut impl Rng) -> DRepRegistration {
@@ -77,7 +77,7 @@ pub fn point(rng: &mut impl Rng, ix: u64) -> Point {
 pub fn proposal(rng: &mut impl Rng) -> Proposal {
     Proposal {
         deposit: rng.random(),
-        reward_account: run_strategy_with_rng(rng, any_reward_account()),
+        reward_account: run_strategy_with_rng(rng, any::<RewardAccount>()),
         gov_action: GovernanceAction::Information,
         anchor: run_strategy_with_rng(rng, any::<Anchor>()),
     }
@@ -88,7 +88,7 @@ pub fn proposals_roots(rng: &mut impl Rng) -> ProposalsRoots {
 }
 
 pub fn stake_credential(rng: &mut impl Rng) -> Credential {
-    run_strategy_with_rng(rng, any_credential())
+    run_strategy_with_rng(rng, any::<Credential>())
 }
 
 pub fn tip(rng: &mut impl Rng, ix: u64) -> Point {

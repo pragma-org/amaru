@@ -31,7 +31,7 @@ pub mod tests {
         Anchor, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential,
         DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot,
-        TransactionInput, any_credential, any_pool_params,
+        TransactionInput, any_pool_params,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -100,7 +100,7 @@ pub mod tests {
         let utxos_iter = std::iter::once((txin, output.clone()));
 
         // accounts
-        let account_key = any_credential().new_tree(runner).unwrap().current();
+        let account_key = any::<Credential>().new_tree(runner).unwrap().current();
         let account_key_clone = account_key;
 
         let account_row =
@@ -135,7 +135,7 @@ pub mod tests {
         let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit));
 
         // dreps
-        let drep_key = any_credential().new_tree(runner).unwrap().current();
+        let drep_key = any::<Credential>().new_tree(runner).unwrap().current();
         let mut drep_row =
             amaru_ledger::store::columns::dreps::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
 
@@ -172,12 +172,12 @@ pub mod tests {
         let votes_iter = std::iter::empty();
 
         // cc_members
-        let cc_member_key = any_credential().new_tree(runner).unwrap().current();
+        let cc_member_key = any::<Credential>().new_tree(runner).unwrap().current();
         let mut cc_member_row =
             amaru_ledger::store::columns::cc_members::tests::any_row().new_tree(runner).unwrap().current();
 
         // Ensure hot_credential is always Some
-        cc_member_row.status.get_or_insert_with(|| any_credential().new_tree(runner).unwrap().current().into());
+        cc_member_row.status.get_or_insert_with(|| any::<Credential>().new_tree(runner).unwrap().current().into());
 
         let member_status = cc_member_row.status.unwrap();
 
@@ -538,7 +538,7 @@ pub mod tests {
         assert_eq!(rewards_after, rewards_before + refund_amount, "Rewards should increase by refund amount");
 
         {
-            let unknown = any_credential().new_tree(runner).unwrap().current();
+            let unknown = any::<Credential>().new_tree(runner).unwrap().current();
             assert_ne!(unknown, fixture.account_key);
 
             let context = store.create_transaction();
@@ -601,7 +601,7 @@ pub mod tests {
             "an enacted withdrawal must be credited to the target account"
         );
 
-        let unknown = any_credential().new_tree(runner).unwrap().current();
+        let unknown = any::<Credential>().new_tree(runner).unwrap().current();
         assert_ne!(unknown, fixture.account_key);
 
         let context = store.create_transaction();
