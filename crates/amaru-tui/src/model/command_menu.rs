@@ -12,22 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod card;
-mod config_sections;
-mod epoch_progress;
-mod gauge_card;
-mod logs;
-mod memory_card;
-mod peers;
-mod proposals;
-
-pub(super) use self::{
-    card::render_card,
-    config_sections::{render_section_groups, sections_content_width},
-    epoch_progress::render_epoch_progress,
-    gauge_card::render_gauge_card,
-    logs::render_logs,
-    memory_card::{render_process_memory_card, render_rss_memory_card},
-    peers::render_peers_table,
-    proposals::render_proposals_table,
-};
+/// The active level of the keyboard command menu.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandMenu {
+    /// Direct navigation and mode-switching commands.
+    #[default]
+    Default,
+    /// Commands that operate on the log pane.
+    Logs,
+    /// Explicit confirmation before requesting shutdown.
+    Quit,
+}

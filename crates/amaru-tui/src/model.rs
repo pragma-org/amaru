@@ -34,6 +34,7 @@ use crate::{
     startup::StartupContext,
 };
 
+mod command_menu;
 mod exponential_moving_average;
 mod governance_summary;
 mod initial_stake_distribution_state;
@@ -60,6 +61,7 @@ mod telemetry_update;
 mod terminal_event_outcome;
 mod tip_state;
 
+pub(crate) use self::command_menu::CommandMenu;
 pub use self::{
     initial_stake_distribution_state::InitialStakeDistributionState,
     interaction_mode::InteractionMode,
@@ -79,6 +81,7 @@ pub struct Model {
     pub startup: StartupContext,
     pub page: Page,
     pub interaction_mode: InteractionMode,
+    pub(crate) command_menu: CommandMenu,
     pub log_pane_mode: PaneMode,
     pub peer_pane_mode: PaneMode,
     pub proposal_pane_mode: PaneMode,
@@ -118,6 +121,10 @@ pub struct Model {
     highlight: Option<regex::Regex>,
     log_cursor: Option<Rc<TelemetryRecord>>,
     logs_viewport_rows: usize,
+    logs_viewport_columns: usize,
+    peers_viewport_rows: usize,
+    proposals_viewport_rows: usize,
+    config_viewport_rows: usize,
     pub system_sample: Option<SystemSample>,
     pub block_rate: RateCounter,
     pub transaction_rate: RateCounter,
@@ -137,6 +144,7 @@ impl Model {
             startup,
             page: Page::Amaru,
             interaction_mode: InteractionMode::Normal,
+            command_menu: CommandMenu::Default,
             log_pane_mode: PaneMode::Normal,
             peer_pane_mode: PaneMode::Normal,
             proposal_pane_mode: PaneMode::Normal,
@@ -174,6 +182,10 @@ impl Model {
             highlight: None,
             log_cursor: None,
             logs_viewport_rows: 10,
+            logs_viewport_columns: 80,
+            peers_viewport_rows: 10,
+            proposals_viewport_rows: 10,
+            config_viewport_rows: 10,
             system_sample: None,
             block_rate: RateCounter::new(config.block_sample_capacity),
             transaction_rate: RateCounter::new(config.transaction_sample_capacity),
@@ -799,7 +811,8 @@ mod tests {
     #[test]
     fn stake_distribution_begin_closes_an_open_prompt() {
         let mut model = ready_model();
-        model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
         assert!(model.prompt_is_open());
 
         model.handle_message(Message::Telemetry(telemetry!(
@@ -911,15 +924,21 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_navigation_uses_ctrl_arrows_for_focus_and_enter_for_pane_toggle() {
+    fn keyboard_navigation_uses_semicolon_for_focus_and_control_arrows_for_large_steps() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.initial_stake_distributions_ready = true;
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        model.logs_viewport_rows = 10;
 
         assert_eq!(model.page, Page::Amaru);
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.page, Page::Amaru);
@@ -932,11 +951,11 @@ mod tests {
         assert_eq!(model.peer_pane_mode, PaneMode::Maximized);
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
-        assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL)),
-            TerminalEventOutcome::Continue
-        );
+        model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE));
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL));
+        assert!(model.log_scroll > 1, "control-up should move by a full scrollbar step");
 
         assert_eq!(
             model.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
@@ -945,10 +964,7 @@ mod tests {
         assert_eq!(model.page, Page::Cardano);
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
 
-        assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
-            TerminalEventOutcome::Continue
-        );
+        model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE));
         assert_eq!(model.scroll_focus, ScrollFocus::Proposals);
 
         assert_eq!(
@@ -982,7 +998,7 @@ mod tests {
         assert_eq!(model.config_scroll, 1);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Config);
@@ -1039,13 +1055,17 @@ mod tests {
     }
 
     #[test]
-    fn ampersand_filters_log_view_by_regex() {
+    fn log_filter_menu_filters_log_view_by_regex() {
         let mut model = ready_model();
         model.handle_message(named_log("keep-me"));
         model.handle_message(named_log("drop-me"));
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         assert!(model.prompt_is_open());
@@ -1081,6 +1101,7 @@ mod tests {
         assert_eq!(model.log_hscroll, 0, "wrap on: left/right do not pan");
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
 
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
         model.handle_key_event(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
         assert!(!model.log_wrap);
 
@@ -1094,19 +1115,61 @@ mod tests {
     }
 
     #[test]
-    fn copy_mode_allows_scrolling() {
+    fn copy_mode_allows_full_log_navigation() {
         let mut model = ready_model();
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        model.logs_viewport_rows = 10;
+
         assert_eq!(
             model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             TerminalEventOutcome::EnterCopyMode
         );
         assert!(model.is_copy_mode());
+
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
-        assert_eq!(model.log_scroll, 1);
+        assert!(model.log_scroll > 1, "control-up should move by a scrollbar step");
+
+        model.handle_key_event(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 0);
+        model.handle_key_event(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 10);
+        model.handle_key_event(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 30);
+        model.handle_key_event(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 0);
         assert!(model.is_copy_mode());
+    }
+
+    #[test]
+    fn command_menus_require_confirmation_and_escape_returns_to_the_previous_level() {
+        let mut model = ready_model();
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Logs);
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert!(model.prompt_is_open());
+        model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!model.prompt_is_open());
+        assert_eq!(model.command_menu, CommandMenu::Logs);
+        model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Default);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Quit);
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Default);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Shutdown
+        );
     }
 
     #[test]
@@ -1118,7 +1181,11 @@ mod tests {
         model.sync_logs();
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         for character in "alpha".chars() {
@@ -1157,31 +1224,21 @@ mod tests {
     }
 
     #[test]
-    fn pipe_focuses_the_log_scrollbar_for_large_steps() {
+    fn control_arrows_scrub_logs_by_a_scrollbar_step() {
         let mut model = ready_model();
         for index in 0..40 {
             model.handle_message(named_log(&format!("row-{index}")));
         }
         model.sync_logs();
+        model.logs_viewport_rows = 10;
         assert_eq!(model.log_scroll, 0);
 
-        assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE)),
-            TerminalEventOutcome::Continue
-        );
-        assert!(model.log_scrollbar_focused);
-        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
-
-        let before = model.log_scroll;
-        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-        assert!(model.log_scroll > before, "scrub up should move toward older logs");
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL));
+        assert!(model.log_scroll > 1, "control-up should move toward older logs by a scrollbar step");
         model.handle_key_event(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
         assert_eq!(model.log_scroll, 30);
         model.handle_key_event(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
         assert_eq!(model.log_scroll, 0);
-
-        model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE));
-        assert!(!model.log_scrollbar_focused);
     }
 
     #[test]
@@ -1192,7 +1249,8 @@ mod tests {
         }
         model.sync_logs();
 
-        model.handle_key_event(KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
         assert!(model.prompt_is_open());
         for character in "13:00".chars() {
             model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));

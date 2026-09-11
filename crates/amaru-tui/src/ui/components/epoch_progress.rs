@@ -14,15 +14,10 @@
 
 use std::time::SystemTime;
 
-use ratatui::{
-    Frame,
-    layout::Rect,
-    text::Span,
-    widgets::{Block, Borders},
-};
+use ratatui::{Frame, layout::Rect, text::Span, widgets::Block};
 
 use super::super::{
-    common::{border_title_line, render_gradient_progress_bar},
+    common::{border_title_line, panel_borders, panel_padding, render_gradient_progress_bar},
     format::{format_count, format_duration, format_ratio},
     theme::{border_primary, emphasis_primary, emphasis_white},
 };
@@ -61,8 +56,9 @@ pub(in crate::ui) fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, mo
             )
             .left_aligned(),
         )
-        .borders(Borders::ALL)
-        .border_style(border_primary(model.interaction_mode));
+        .borders(panel_borders(model.interaction_mode))
+        .border_style(border_primary(model.interaction_mode))
+        .padding(panel_padding(model.interaction_mode));
 
     if model.catching_up {
         block = block.title_top(

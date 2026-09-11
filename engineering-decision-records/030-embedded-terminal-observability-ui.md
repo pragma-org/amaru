@@ -198,7 +198,18 @@ While copy mode is active:
 - the header indicates the mode clearly
 - command hints reflect the reduced interaction surface
 - mouse capture is released so the terminal can select text
-- keyboard scrolling, `&` view filtering, and `/` highlighting still work
+- shell and widget borders, scrollbars, and separators are omitted so selected
+  multiline content can be pasted without terminal presentation characters
+- directional keys keep scrolling available, while `f` opens the log command
+  menu for filtering, highlighting, time jumps, and wrapping
+
+The normal command footer is deliberately shallow. `Tab` changes page, `;`
+cycles panel focus, and directional keys scroll or pan the focused content.
+Holding `Ctrl` moves by one scrollbar step; `PgUp`, `PgDn`, `Home`, and `End`
+remain available without permanently consuming footer space. Log operations are
+grouped behind `f`, and shutdown requires `q` followed by `y`. `Esc` moves back
+one command level before it exits copy mode. This keeps the always-visible
+controls compact while retaining discoverable labels for less frequent actions.
 
 The same shell chrome also supports a non-interactive shutdown mode. When the
 first termination signal is observed:

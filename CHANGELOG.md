@@ -54,6 +54,13 @@ Other guiding principles:
 - **amaru-kernel**: reject malformed Byron addresses in transaction outputs.
 
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
+### Changed
+
+- **amaru-tui**: configuration tables now reserve space for complete option and parameter names, hiding the environment column on narrow terminals.
+- **amaru-tui**: copy mode removes panel chrome for clean text selection.
+- **amaru-tui**: log actions and shutdown now use compact confirmation menus.
+
+## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
 ### Added
 
