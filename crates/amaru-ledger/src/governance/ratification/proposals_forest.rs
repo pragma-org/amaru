@@ -743,7 +743,7 @@ mod tests {
         MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal,
         ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
         RationalNumber, RewardAccount, Slot, TransactionPointer, any_constitution, any_constitutional_committee_update,
-        any_gov_action, any_proposal_enum, any_proposal_pointer, any_protocol_params_update, any_reward_account,
+        any_gov_action, any_proposal_enum, any_protocol_params_update, any_reward_account,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -815,7 +815,7 @@ mod tests {
             DebugAsDisplay(mut forest) in any_proposals_forest(),
             id in any::<ProposalId>(),
             mut action in any_gov_action(),
-            pointer in any_proposal_pointer(u64::MAX),
+            pointer in any::<ProposalPointer>(),
             parent in any::<u8>()
         ) {
             let size_before = check_invariants(&forest);
@@ -1020,7 +1020,7 @@ mod tests {
     #[test]
     fn prop_cannot_insert_root() {
         assert_strategy_sometimes_panics(
-            (any_grown_proposals_forest(), any_gov_action(), any_proposal_pointer(u64::MAX)),
+            (any_grown_proposals_forest(), any_gov_action(), any::<ProposalPointer>()),
             ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
             |((DebugAsDisplay(mut forest), root), action, proposed_in)| {
                 let _ = forest.insert(&ERA_HISTORY, Rc::new(root), proposed_in, action);
@@ -1157,7 +1157,7 @@ mod tests {
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
             let any_orphans = (
                 Just(ids[lo..hi].into()),
-                collection::vec(any_proposal_pointer(u64::MAX), MAX_TREE_SIZE),
+                collection::vec(any::<ProposalPointer>(), MAX_TREE_SIZE),
                 collection::vec(any_orphan_action(), 0..MAX_TREE_SIZE),
             )
                 .prop_map(|(ids, pointers, orphans): (Vec<Rc<ProposalId>>, _, _)| {
@@ -1245,7 +1245,7 @@ mod tests {
         let any_root = prop_oneof![Just(None), Just(Some(0))];
         let any_parents = collection::vec(any::<u8>(), 0..MAX_TREE_SIZE);
         let any_action_args = collection::vec(any_action_arg, MAX_TREE_SIZE);
-        let any_pointers = collection::vec(any_proposal_pointer(u64::MAX), MAX_TREE_SIZE);
+        let any_pointers = collection::vec(any::<ProposalPointer>(), MAX_TREE_SIZE);
 
         (Just(ids), any_root, any_parents, any_pointers, any_action_args).prop_map(
             move |(ids, root, parents, mut pointers, mut args)| {

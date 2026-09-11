@@ -167,14 +167,14 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{NetworkTip, any_block_height, any_network_point, prop_cbor_roundtrip};
+    use crate::{BlockHeight, NetworkTip, any_network_point, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(NetworkTip, any_network_tip());
 
     prop_compose! {
         pub fn any_network_tip()(
             point in any_network_point(),
-            block_height in any_block_height(),
+            block_height in any::<BlockHeight>(),
         ) -> NetworkTip {
             NetworkTip::new(point, block_height)
         }

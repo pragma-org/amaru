@@ -206,8 +206,6 @@ pub use cardano::{
     address::any_shelley_address,
     ballot::any_ballot,
     ballot_id::{any_ballot_id, any_voter},
-    block_height::any_block_height,
-    certificate_pointer::any_certificate_pointer,
     constitution::any_constitution,
     constitutional_committee_member_status::any_constitutional_committee_member_status,
     constitutional_committee_status::any_constitutional_committee_status,
@@ -216,7 +214,6 @@ pub use cardano::{
     drep::any_drep,
     drep_registration::any_drep_registration,
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
-    era_name::any_era_name,
     era_params::any_era_params,
     header::{
         any_header, any_header_with_parent, any_header_with_some_parent, any_headers_chain,
@@ -224,9 +221,6 @@ pub use cardano::{
     },
     memoized::{any_datum, any_legacy_output, any_modern_output},
     native_script::any_native_script,
-    network::any_network,
-    network_magic::any_network_magic,
-    network_name::any_network_name,
     network_point::{any_network_point, any_specific_network_point},
     network_tip::any_network_tip,
     orphan_proposal::any_orphan_proposal,
@@ -235,7 +229,6 @@ pub use cardano::{
     pool_params::any_pool_params,
     proposal::any_proposal,
     proposal_enum::any_proposal_enum,
-    proposal_pointer::any_proposal_pointer,
     proposals_roots::any_proposals_roots,
     protocol_parameters::{
         any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_gov_action,
@@ -244,6 +237,6 @@ pub use cardano::{
     },
     reward_account::any_reward_account,
     transaction_input::any_transaction_input,
-    transaction_pointer::any_transaction_pointer,
+    transaction_pointer::SlotUpperBound,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote_ref},
 };
