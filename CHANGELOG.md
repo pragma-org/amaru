@@ -35,12 +35,15 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20260917 _[unreleased; planned for 2026-09-17]_
+
 ## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
 ### Added
 
 - **amaru-protocols**: BlockFetch times out after 60s if the peer stalls while serving a range. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru-protocols**: `manager.peer.local_use_applied` is logged when a connection has finished changing local use (for example to Maintenance after an uninteresting demotion).
+- **amaru**: `amaru-bootstrap.service` is now installed alongside amaru for Debian and RPM targets; this is a one-shot systemd service to bootstrap Amaru on first start.
 
 ### Changed
 
@@ -59,6 +62,7 @@ Other guiding principles:
 - **amaru-pure-stage**: a stage that stops on purpose is logged at debug. A stage that aborts because of an error still logs that error at info or above before exiting.
 - **amaru**: `--peer-mix` / `AMARU_PEER_MIX` accepts an `inbound` group that shares Using slots with `static` / `shared` / `snapshot` / `ledger`. The default formula includes `inbound~6`. Omitting `inbound` means duplex inbound connections stay downstream-only. ([#1334](https://github.com/pragma-org/amaru/issues/1334))
 - **amaru-protocols**: handshake offers node-to-node protocol version 15 by default, advertising CIP-0155 SRV support. Minimum offered version is still 11. ([#1332](https://github.com/pragma-org/amaru/issues/1332))
+- **amaru**: the default `/etc/default/amaru` env configuration packages with Debian and RPM no longer define defaults backbone peers and enables JSON traces by default.
 
 ### Fixed
 

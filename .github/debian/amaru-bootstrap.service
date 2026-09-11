@@ -1,0 +1,24 @@
+[Unit]
+Description=Bootstrap Amaru Cardano node
+Documentation=https://github.com/pragma-org/amaru
+Wants=network-online.target NetworkManager-wait-online.service
+After=network-online.target NetworkManager-wait-online.service
+
+[Service]
+Type=oneshot
+User=amaru
+Group=amaru
+EnvironmentFile=-/etc/default/amaru
+EnvironmentFile=-/etc/sysconfig/amaru
+WorkingDirectory=/var/lib/amaru
+StateDirectory=amaru
+UMask=0027
+ExecStart=/usr/bin/amaru node bootstrap
+TimeoutStartSec=infinity
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+PrivateDevices=yes
+ProtectHome=true
+RestrictSUIDSGID=true
+LockPersonality=true
