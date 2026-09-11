@@ -19,7 +19,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use self::{
@@ -28,7 +28,7 @@ use self::{
     screens::{render_amaru, render_cardano, render_config, render_splash},
     theme::{border_primary, emphasis_primary, emphasis_white, emphasis_white_color},
 };
-use crate::model::{Model, Page};
+use crate::model::{CommandMenu, Model, Page};
 
 mod common;
 mod components;
@@ -43,15 +43,33 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
     views.reset();
 
     let is_ready = model.is_ready(now);
-    let progress_height = u16::from(model.tip.is_some()) * 3;
-    let shell = shell_block(model, is_ready);
     let shell_area = frame.area();
-    let inner = shell.inner(shell_area);
-
-    frame.render_widget(shell, shell_area);
-    if model.prompt_is_open() {
-        set_prompt_cursor(frame, shell_area, model);
-    }
+    let progress_height = u16::from(model.tip.is_some()) * 3;
+    let inner = if model.is_copy_mode() {
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)])
+            .split(shell_area);
+        frame.render_widget(Paragraph::new(shell_title(model).centered()), layout[0]);
+        let footer = if model.prompt_is_open() {
+            prompt_line(model, layout[2].width)
+        } else {
+            shell_hint(model).right_aligned()
+        };
+        frame.render_widget(Paragraph::new(footer), layout[2]);
+        if model.prompt_is_open() {
+            set_prompt_cursor(frame, layout[2], model);
+        }
+        layout[1]
+    } else {
+        let shell = shell_block(model, is_ready, shell_area.width);
+        let inner = shell.inner(shell_area);
+        frame.render_widget(shell, shell_area);
+        if model.prompt_is_open() {
+            set_prompt_cursor(frame, shell_area, model);
+        }
+        inner
+    };
     if !is_ready {
         render_splash(frame, inner, model, views);
         if model.is_shutdown_mode() {
@@ -60,7 +78,9 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
         return;
     }
 
-    populate_shell_hotspots(views, shell_area, model);
+    if !model.is_copy_mode() {
+        populate_shell_hotspots(views, shell_area, model);
+    }
 
     if model.page == Page::Amaru && model.peer_pane_mode.is_maximized() {
         render_peers_table(frame, inner, model, views, now);
@@ -132,13 +152,13 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
     }
 }
 
-fn shell_block(model: &Model, is_ready: bool) -> Block<'static> {
+fn shell_block(model: &Model, is_ready: bool, width: u16) -> Block<'static> {
     let block = Block::default().borders(Borders::ALL).border_style(border_primary(model.interaction_mode));
 
     if is_ready {
         let block = block.title_top(page_tabs_line(model).left_aligned()).title_top(shell_title(model).centered());
         if model.prompt_is_open() {
-            block.title_bottom(prompt_line(model).left_aligned())
+            block.title_bottom(prompt_line(model, width).left_aligned())
         } else {
             block.title_bottom(shell_hint(model).right_aligned())
         }
@@ -227,89 +247,50 @@ fn shell_hint(model: &Model) -> Line<'static> {
         );
     }
 
-    if model.log_scrollbar_focused {
-        return border_title_line(
-            vec![
-                Span::styled("<|>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" LOGS  ", theme::muted()),
-                Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" SCRUB  ", theme::muted()),
-                Span::styled("<pgup/pgdn>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" PAGE  ", theme::muted()),
-                Span::styled("<home/end>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" ENDS  ", theme::muted()),
-                Span::styled("<@>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" TIME", theme::muted()),
-            ],
-            model.interaction_mode,
-            false,
-        );
+    let mut spans = Vec::new();
+    match (model.is_copy_mode(), model.command_menu) {
+        (_, CommandMenu::Logs) => {
+            append_control(&mut spans, "f", "FILTER", model);
+            append_control(&mut spans, "h", "HIGHLIGHT", model);
+            append_control(&mut spans, "t", "TIME", model);
+            append_control(&mut spans, "w", model.log_wrap_toggle_label(), model);
+            append_control(&mut spans, "esc", "CANCEL", model);
+        }
+        (_, CommandMenu::Quit) => {
+            append_control(&mut spans, "y", "CONFIRM", model);
+            append_control(&mut spans, "esc|n", "CANCEL", model);
+        }
+        (true, CommandMenu::Default) => {
+            append_control(&mut spans, "esc", "NORMAL MODE", model);
+            append_control(&mut spans, "[c-]←→↑↓", "SCROLL", model);
+            append_control(&mut spans, "f", "LOGS & FILTERS", model);
+            append_control(&mut spans, "q", "QUIT", model);
+        }
+        (false, CommandMenu::Default) => {
+            append_control(&mut spans, "esc", "COPY MODE", model);
+            append_control(&mut spans, "[s-]tab", "NEXT/PREV PAGE", model);
+            append_control(&mut spans, "[c-]←→↑↓", "SCROLL", model);
+            append_control(&mut spans, ";", "FOCUS NEXT", model);
+            if let Some(label) = model.focused_pane_toggle_label() {
+                append_control(&mut spans, "enter", label, model);
+            }
+            append_control(&mut spans, "f", "LOGS & FILTERS", model);
+            append_control(&mut spans, "q", "QUIT", model);
+        }
     }
 
-    if model.is_copy_mode() {
-        let arrow_hint = if model.highlight_pattern.is_empty() { " SCROLL  " } else { " MATCHES  " };
-        return border_title_line(
-            vec![
-                Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" NORMAL  ", theme::muted()),
-                Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
-                Span::styled(arrow_hint, theme::muted()),
-                Span::styled("<←→>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" COLS  ", theme::muted()),
-                Span::styled("<w>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" WRAP  ", theme::muted()),
-                Span::styled("<home/end>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" ENDS  ", theme::muted()),
-                Span::styled("<|>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" SCRUB  ", theme::muted()),
-                Span::styled("<&>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" FILTER  ", theme::muted()),
-                Span::styled("</>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" HIGHLIGHT  ", theme::muted()),
-                Span::styled("<@>", emphasis_primary(model.interaction_mode)),
-                Span::styled(" TIME", theme::muted()),
-            ],
-            model.interaction_mode,
-            false,
-        );
-    }
-
-    let arrow_hint = if model.highlight_pattern.is_empty() { " SCROLL  " } else { " MATCHES  " };
-    border_title_line(
-        vec![
-            Span::styled("<mouse>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" NAV  ", theme::muted()),
-            Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" COPY  ", theme::muted()),
-            Span::styled("<tab>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" PAGE  ", theme::muted()),
-            Span::styled("<c-←→>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" FOCUS  ", theme::muted()),
-            Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
-            Span::styled(arrow_hint, theme::muted()),
-            Span::styled("<←→>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" COLS  ", theme::muted()),
-            Span::styled("<w>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" WRAP  ", theme::muted()),
-            Span::styled("<enter>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" MAX  ", theme::muted()),
-            Span::styled("<|>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" SCRUB  ", theme::muted()),
-            Span::styled("<&>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" FILTER  ", theme::muted()),
-            Span::styled("</>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" HIGHLIGHT  ", theme::muted()),
-            Span::styled("<@>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" TIME  ", theme::muted()),
-            Span::styled("<q>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" QUIT", theme::muted()),
-        ],
-        model.interaction_mode,
-        false,
-    )
+    border_title_line(spans, model.interaction_mode, false)
 }
 
-fn prompt_line(model: &Model) -> Line<'static> {
+fn append_control(spans: &mut Vec<Span<'static>>, key: &str, label: &str, model: &Model) {
+    if !spans.is_empty() {
+        spans.push(Span::raw("  "));
+    }
+    spans.push(Span::styled(format!("<{key}>"), emphasis_primary(model.interaction_mode)));
+    spans.push(Span::styled(format!(" {label}"), theme::muted()));
+}
+
+fn prompt_line(model: &Model, width: u16) -> Line<'static> {
     let Some(prompt) = model.prompt.as_ref() else {
         return Line::default();
     };
@@ -317,15 +298,23 @@ fn prompt_line(model: &Model) -> Line<'static> {
     let mut spans = vec![
         Span::styled(prompt.prefix().to_string(), emphasis_primary(model.interaction_mode)),
         Span::styled(prompt.input.clone(), emphasis_white()),
-        Span::raw("  "),
     ];
     if let Some(error) = &prompt.error {
+        spans.push(Span::raw("  "));
         spans.push(Span::styled(
             error.clone(),
             Style::default().fg(Color::Rgb(244, 86, 86)).add_modifier(Modifier::BOLD),
         ));
     } else {
-        spans.push(Span::styled("enter apply  esc cancel", theme::muted()));
+        let left_width = prompt.prefix().chars().count().saturating_add(prompt.input.chars().count()) as u16;
+        let mut help = Vec::new();
+        append_control(&mut help, "enter", "APPLY", model);
+        append_control(&mut help, "esc", "CANCEL", model);
+        let help_width = "<enter> APPLY  <esc> CANCEL".len() as u16;
+        let chrome_width = if model.is_copy_mode() { 0 } else { 6 };
+        let padding = width.saturating_sub(chrome_width).saturating_sub(left_width).saturating_sub(help_width);
+        spans.push(Span::raw(" ".repeat(padding as usize)));
+        spans.extend(help);
     }
 
     border_title_line(spans, model.interaction_mode, false)
@@ -338,14 +327,15 @@ fn set_prompt_cursor(frame: &mut Frame<'_>, area: Rect, model: &Model) {
 
     let prefix = prompt.prefix().chars().count() as u16;
     let cursor = prompt.cursor.min(prompt.input.chars().count()) as u16;
-    let x = area
-        .x
-        .saturating_add(1)
-        .saturating_add(border_title_prefix_width())
-        .saturating_add(prefix)
-        .saturating_add(cursor);
+    let content_x = if model.is_copy_mode() { area.x } else { area.x.saturating_add(1 + border_title_prefix_width()) };
+    let x = content_x.saturating_add(prefix).saturating_add(cursor);
     let y = area.y.saturating_add(area.height.saturating_sub(1));
-    if x < area.x.saturating_add(area.width.saturating_sub(1)) {
+    let right = if model.is_copy_mode() {
+        area.x.saturating_add(area.width)
+    } else {
+        area.x.saturating_add(area.width.saturating_sub(1))
+    };
+    if x < right {
         frame.set_cursor_position(Position { x, y });
     }
 }

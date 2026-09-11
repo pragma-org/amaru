@@ -19,13 +19,14 @@ use ratatui::{
 };
 
 use super::super::{
-    common::{render_scrollbar, show_config_env_column},
-    components::render_section_groups,
+    common::render_scrollbar,
+    components::{render_section_groups, sections_content_width},
 };
 use crate::{model::Model, ui::Views};
 
+const TABLE_GUTTER: u16 = 1;
+
 pub(in crate::ui) fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
-    views.config_area = area;
     frame.render_widget(Clear, area);
     let total_height = page_content_height(model) as usize;
     let visible_height = area.height as usize;
@@ -40,19 +41,77 @@ pub(in crate::ui) fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Mo
     } else {
         (area, Rect::default())
     };
+    views.config_area = content_area;
 
-    let left_width = if show_config_env_column(content_area) { 60 } else { 64 };
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(left_width), Constraint::Percentage(100 - left_width)])
-        .split(content_area);
+    let show_environment =
+        should_show_environment(content_area, &model.startup.runtime_sections, &model.startup.protocol_sections);
+    let columns = config_columns(
+        content_area,
+        &model.startup.runtime_sections,
+        &model.startup.protocol_sections,
+        show_environment,
+    );
 
-    render_section_groups(frame, columns[0], &[&model.startup.runtime_sections], scroll, model.interaction_mode);
-    render_section_groups(frame, columns[1], &[&model.startup.protocol_sections], scroll, model.interaction_mode);
+    render_section_groups(
+        frame,
+        columns[0],
+        &[&model.startup.runtime_sections],
+        show_environment,
+        scroll,
+        model.interaction_mode,
+    );
+    render_section_groups(
+        frame,
+        columns[1],
+        &[&model.startup.protocol_sections],
+        false,
+        scroll,
+        model.interaction_mode,
+    );
 
     if overflowing {
         render_scrollbar(frame, scrollbar_area, total_height, visible_height, scroll, model.interaction_mode, false);
     }
+}
+
+fn config_columns(
+    area: Rect,
+    runtime_sections: &[crate::startup::ConfigSection],
+    protocol_sections: &[crate::startup::ConfigSection],
+    show_environment: bool,
+) -> [Rect; 2] {
+    let protocol_width = sections_content_width(protocol_sections, false);
+    let runtime_width = sections_content_width(runtime_sections, show_environment);
+
+    if runtime_width.saturating_add(protocol_width).saturating_add(TABLE_GUTTER) <= area.width {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .spacing(TABLE_GUTTER)
+            .constraints([Constraint::Length(runtime_width), Constraint::Min(protocol_width)])
+            .split(area);
+        [columns[0], columns[1]]
+    } else {
+        let total_width = runtime_width.saturating_add(protocol_width).max(1);
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Ratio(u32::from(runtime_width), u32::from(total_width)),
+                Constraint::Ratio(u32::from(protocol_width), u32::from(total_width)),
+            ])
+            .split(area);
+        [columns[0], columns[1]]
+    }
+}
+
+fn should_show_environment(
+    area: Rect,
+    runtime_sections: &[crate::startup::ConfigSection],
+    protocol_sections: &[crate::startup::ConfigSection],
+) -> bool {
+    sections_content_width(runtime_sections, true)
+        .saturating_add(sections_content_width(protocol_sections, false))
+        .saturating_add(TABLE_GUTTER)
+        <= area.width
 }
 
 pub(in crate::ui) fn page_content_height(model: &Model) -> u16 {
@@ -65,4 +124,54 @@ fn config_column_height(sections: &[crate::startup::ConfigSection]) -> u16 {
 
 fn section_height(section: &crate::startup::ConfigSection) -> u16 {
     section.entries.len().saturating_add(3) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::startup::{ConfigEntry, ConfigSection};
+
+    fn configuration_sections() -> (Vec<ConfigSection>, Vec<ConfigSection>) {
+        let runtime = vec![ConfigSection::new(
+            "Runtime",
+            vec![ConfigEntry::new(
+                "peer removal cooldown",
+                Some("--peer-removal-cooldown-secs"),
+                Some("AMARU_PEER_REMOVAL_COOLDOWN_SECS"),
+                "/var/lib/amaru/peer-removal-cooldown-seconds",
+            )],
+        )];
+        let protocol = vec![ConfigSection::new(
+            "Protocol",
+            vec![ConfigEntry::new("maximum transaction size", None::<String>, None::<String>, "16384")],
+        )];
+        (runtime, protocol)
+    }
+
+    #[test]
+    fn configuration_tables_give_the_protocol_values_all_remaining_width() {
+        let (runtime, protocol) = configuration_sections();
+        let area = Rect::new(0, 0, 160, 1);
+        assert!(should_show_environment(area, &runtime, &protocol));
+        let columns = config_columns(area, &runtime, &protocol, true);
+
+        assert_eq!(columns[0].width, sections_content_width(&runtime, true));
+        assert_eq!(columns[1].x, columns[0].x.saturating_add(columns[0].width).saturating_add(TABLE_GUTTER));
+        assert_eq!(columns[1].x.saturating_add(columns[1].width), 160);
+        assert!(columns[1].width > sections_content_width(&protocol, false));
+    }
+
+    #[test]
+    fn configuration_tables_hide_environment_before_shrinking_identifiers() {
+        let (runtime, protocol) = configuration_sections();
+        let runtime_without_environment = sections_content_width(&runtime, false);
+        let protocol_width = sections_content_width(&protocol, false);
+        let width = runtime_without_environment.saturating_add(protocol_width).saturating_add(TABLE_GUTTER);
+        let area = Rect::new(0, 0, width, 1);
+        assert!(!should_show_environment(area, &runtime, &protocol));
+        let columns = config_columns(area, &runtime, &protocol, false);
+
+        assert_eq!(columns[0].width, runtime_without_environment);
+        assert_eq!(columns[1].width, protocol_width);
+    }
 }

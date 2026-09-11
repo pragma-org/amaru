@@ -19,13 +19,13 @@ use ratatui::{
     layout::{Constraint, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Row, Table},
+    widgets::{Block, Cell, Row, Table},
 };
 
 use super::super::{
     common::{
-        border_title_chrome_width, border_title_line, border_title_prefix_width, button_label, panel_title,
-        render_scrollbar, scroll_panel_border, scroll_panel_border_type, table_body_area,
+        border_title_chrome_width, border_title_line, border_title_prefix_width, button_label, panel_borders,
+        panel_padding, panel_title, render_scrollbar, scroll_panel_border, scroll_panel_border_type, table_body_area,
     },
     format::{format_count, format_micros},
     theme::{
@@ -57,11 +57,13 @@ pub(in crate::ui) fn render_peers_table(
             )
             .right_aligned(),
         )
-        .borders(Borders::ALL)
+        .borders(panel_borders(model.interaction_mode))
         .border_style(scroll_panel_border(focused, model.interaction_mode))
-        .border_type(scroll_panel_border_type(focused));
+        .border_type(scroll_panel_border_type(focused))
+        .padding(panel_padding(model.interaction_mode));
     let inner = block.inner(area);
     let body = table_body_area(inner);
+    views.peers_body = body;
     let peers = model.sorted_peers();
     let visible = body.height as usize;
     let start = model.peer_scroll.min(peers.len().saturating_sub(visible));

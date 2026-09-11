@@ -16,10 +16,13 @@ use ratatui::{
     Frame,
     layout::Rect,
     text::Line,
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
 };
 
-use super::super::theme::{block_title, border_secondary};
+use super::super::{
+    common::{panel_borders, panel_padding},
+    theme::{block_title, border_secondary},
+};
 use crate::model::InteractionMode;
 
 pub(in crate::ui) fn render_card(
@@ -30,7 +33,11 @@ pub(in crate::ui) fn render_card(
     mode: InteractionMode,
 ) {
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true }).block(
-        Block::default().title(block_title(mode, title)).borders(Borders::ALL).border_style(border_secondary(mode)),
+        Block::default()
+            .title(block_title(mode, title))
+            .borders(panel_borders(mode))
+            .border_style(border_secondary(mode))
+            .padding(panel_padding(mode)),
     );
     frame.render_widget(paragraph, area);
 }

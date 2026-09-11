@@ -12,16 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::Color,
-    text::Span,
-    widgets::{Block, Borders},
-};
+use ratatui::{Frame, layout::Rect, style::Color, text::Span, widgets::Block};
 
 use super::super::{
-    common::{border_title_line, render_solid_progress_bar},
+    common::{border_title_line, panel_borders, panel_padding, render_solid_progress_bar},
     theme::{accent_primary, block_title, border_primary, emphasis_white},
 };
 use crate::model::InteractionMode;
@@ -36,8 +30,11 @@ pub(in crate::ui) fn render_gauge_card(
     mode: InteractionMode,
 ) {
     let title = value.map_or_else(|| title.to_string(), |value| format!("{title} · {value}"));
-    let mut card =
-        Block::default().title(block_title(mode, &title)).borders(Borders::ALL).border_style(border_primary(mode));
+    let mut card = Block::default()
+        .title(block_title(mode, &title))
+        .borders(panel_borders(mode))
+        .border_style(border_primary(mode))
+        .padding(panel_padding(mode));
     if let Some(percent) = percent {
         card = card
             .title_top(border_title_line(vec![Span::styled(percent, emphasis_white())], mode, false).right_aligned());
