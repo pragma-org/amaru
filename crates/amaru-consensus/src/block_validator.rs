@@ -175,7 +175,7 @@ impl BlockValidator {
     ) -> std::io::Result<Self>
     where
         S: Store + Send + 'static,
-        HS: HistoricalStores + Send + 'static,
+        HS: HistoricalStores + Send + Sync + 'static,
     {
         let (sender, mut receiver) = mpsc::channel(REQUEST_QUEUE_BOUND);
         let phase = Arc::new(Mutex::new(LedgerThreadPhase::WaitingForRequests));
@@ -329,7 +329,7 @@ struct LedgerThread<S: Store, HS: HistoricalStores> {
     vm_eval_pool: ArenaPool,
 }
 
-impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS> {
+impl<S: Store + Send, HS: HistoricalStores + Send + Sync + 'static> LedgerThread<S, HS> {
     fn handle(&mut self, request: LedgerRequest, phase: &Mutex<LedgerThreadPhase>) {
         match request {
             LedgerRequest::RollForwardBlock(block, reply) => {
