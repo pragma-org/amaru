@@ -536,8 +536,7 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            any_credential, any_proposal, any_proposal_id, any_proposal_pointer, any_rational_number,
-            utils::tests::run_strategy,
+            RationalNumber, any_credential, any_proposal, any_proposal_pointer, utils::tests::run_strategy,
         };
         use proptest::prelude::any;
 
@@ -619,7 +618,7 @@ mod tests {
             fn iter_proposals(&self) -> Result<impl Iterator<Item = (ProposalId, proposals::Row)>, StoreError> {
                 Ok(self.stable_proposals.iter().map(|proposal| {
                     (
-                        run_strategy(any_proposal_id()),
+                        run_strategy(any::<ProposalId>()),
                         proposals::Row {
                             proposal: proposal.clone(),
                             ..run_strategy(proposals::tests::any_row(u64::MAX))
@@ -644,7 +643,7 @@ mod tests {
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
-                run_strategy(any_rational_number()),
+                run_strategy(any::<RationalNumber>()),
             );
 
             Proposal { gov_action, ..run_strategy(any_proposal()) }
@@ -682,7 +681,7 @@ mod tests {
         fn candidate_of_a_volatile_proposal_with_no_row_is_resolved_for_certificates() {
             let cold_credential: Credential = run_strategy(any_credential());
 
-            let proposal_id = run_strategy(any_proposal_id());
+            let proposal_id = run_strategy(any::<ProposalId>());
             let proposal = any_update_committee_proposal(cold_credential);
 
             let mock = Mock { volatile_proposals: vec![(proposal_id, proposal)], ..Default::default() };
@@ -696,7 +695,7 @@ mod tests {
         fn candidate_of_a_volatile_proposal_pruned_at_the_pending_boundary_is_not_resolved() {
             let cold_credential: Credential = run_strategy(any_credential());
 
-            let proposal_id = run_strategy(any_proposal_id());
+            let proposal_id = run_strategy(any::<ProposalId>());
             let proposal = any_update_committee_proposal(cold_credential);
 
             let mock = Mock {

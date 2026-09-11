@@ -182,24 +182,24 @@ mod tests {
     use proptest::{option, prelude::*};
 
     use crate::{
-        Epoch, ProposalEnum, any_constitution, any_constitutional_committee_update, any_orphan_proposal,
-        any_proposal_id, any_protocol_params_update, any_protocol_version,
+        Epoch, ProposalEnum, ProposalId, ProtocolVersion, any_constitution, any_constitutional_committee_update,
+        any_orphan_proposal, any_protocol_params_update,
     };
 
     pub fn any_proposal_enum() -> impl Strategy<Value = ProposalEnum> {
         let any_protocol_parameters =
-            (option::of(any_proposal_id()), any_protocol_params_update()).prop_map(|(parent, params_update)| {
+            (option::of(any::<ProposalId>()), any_protocol_params_update()).prop_map(|(parent, params_update)| {
                 ProposalEnum::ProtocolParameters(Box::new(params_update), parent.map(Rc::new))
             });
 
-        let any_hard_fork = (option::of(any_proposal_id()), any_protocol_version())
+        let any_hard_fork = (option::of(any::<ProposalId>()), any::<ProtocolVersion>())
             .prop_map(|(parent, protocol_version)| ProposalEnum::HardFork(protocol_version, parent.map(Rc::new)));
 
         let any_constitutional_committee =
-            (option::of(any_proposal_id()), any_constitutional_committee_update(any::<Epoch>()))
+            (option::of(any::<ProposalId>()), any_constitutional_committee_update(any::<Epoch>()))
                 .prop_map(|(parent, committee)| ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new)));
 
-        let any_constitution = (option::of(any_proposal_id()), any_constitution())
+        let any_constitution = (option::of(any::<ProposalId>()), any_constitution())
             .prop_map(|(parent, constitution)| ProposalEnum::Constitution(constitution, parent.map(Rc::new)));
 
         let any_orphan = any_orphan_proposal().prop_map(ProposalEnum::Orphan);

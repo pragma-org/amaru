@@ -14,6 +14,9 @@
 
 use std::{fmt, fmt::Debug, str::FromStr};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::cbor;
 
 pub const PROTOCOL_VERSION_10: ProtocolVersion = ProtocolVersion::new(10, 0);
@@ -60,6 +63,16 @@ impl ProtocolVersion {
     pub fn can_follow(&self, other: ProtocolVersion) -> bool {
         (self.major == other.major() + 1 && self.minor == 0)
             || (self.major == other.major() && self.minor == other.minor() + 1)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for ProtocolVersion {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (0..=Self::MAX_MAJOR, any::<u64>()).prop_map(|(major, minor)| ProtocolVersion::new(major, minor)).boxed()
     }
 }
 

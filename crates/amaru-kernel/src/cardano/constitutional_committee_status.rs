@@ -79,11 +79,11 @@ mod tests {
     use proptest::prelude::*;
 
     use super::ConstitutionalCommitteeStatus::{self, *};
-    use crate::{any_rational_number, prop_cbor_roundtrip};
+    use crate::{RationalNumber, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(ConstitutionalCommitteeStatus, any_constitutional_committee_status());
 
     pub fn any_constitutional_committee_status() -> impl Strategy<Value = ConstitutionalCommitteeStatus> {
-        prop_oneof![Just(NoConfidence), any_rational_number().prop_map(|threshold| Trusted { threshold }),]
+        prop_oneof![Just(NoConfidence), any::<RationalNumber>().prop_map(|threshold| Trusted { threshold }),]
     }
 }

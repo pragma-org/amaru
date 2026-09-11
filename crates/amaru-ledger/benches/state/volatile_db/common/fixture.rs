@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
+    Anchor, Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
     MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, TransactionInput,
-    any_anchor, any_ballot, any_ballot_id, any_credential, any_drep, any_drep_registration, any_modern_output,
-    any_pool_params, any_proposal_id, any_proposals_roots, any_reward_account,
+    any_ballot, any_ballot_id, any_credential, any_drep, any_drep_registration, any_modern_output, any_pool_params,
+    any_proposals_roots, any_reward_account,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
+use proptest::prelude::any;
 use rand::Rng;
 
 // -------------------------------------------------------------------------------------- Generators
@@ -32,7 +33,7 @@ pub fn ballot_id(rng: &mut impl Rng) -> BallotId {
 }
 
 pub fn comparable_proposal_id(rng: &mut impl Rng) -> ProposalId {
-    run_strategy_with_rng(rng, any_proposal_id())
+    run_strategy_with_rng(rng, any::<ProposalId>())
 }
 
 pub fn drep(rng: &mut impl Rng) -> DRep {
@@ -78,7 +79,7 @@ pub fn proposal(rng: &mut impl Rng) -> Proposal {
         deposit: rng.random(),
         reward_account: run_strategy_with_rng(rng, any_reward_account()),
         gov_action: GovernanceAction::Information,
-        anchor: run_strategy_with_rng(rng, any_anchor()),
+        anchor: run_strategy_with_rng(rng, any::<Anchor>()),
     }
 }
 

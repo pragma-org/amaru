@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any},
+    string::string_regex,
+};
+
 use crate::{Hash, MaxString128, cbor};
 
 // NOTE: keep fields in lexicographic order
@@ -46,29 +52,15 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Anchor {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Anchor {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{prelude::*, prop_compose, string};
-
-    use super::Anchor;
-    use crate::{Hash, MaxString128};
-
-    prop_compose! {
-        #[expect(clippy::unwrap_used)]
-        pub fn any_anchor()(
-            url in {
-                string::string_regex(
-                    r"(https:)?[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})(\.[a-zA-Z0-9]{2,})?"
-                ).unwrap()
-            },
-            content_hash in any::<[u8; 32]>(),
-        ) -> Anchor {
-            Anchor {
-                url: MaxString128::try_from(url).unwrap(),
-                content_hash: Hash::from(content_hash),
-            }
-        }
+    #[expect(clippy::unwrap_used)]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let url = string_regex(r"(https:)?[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})(\.[a-zA-Z0-9]{2,})?").unwrap();
+        (url, any::<Hash<32>>())
+            .prop_map(|(url, content_hash)| Anchor { url: MaxString128::try_from(url).unwrap(), content_hash })
+            .boxed()
     }
 }

@@ -150,7 +150,7 @@ mod tests {
         }
 
         #[test]
-        fn decode_with_anchor(anchor in crate::any_anchor()) {
+        fn decode_with_anchor(anchor in any::<crate::Anchor>()) {
             use crate::{from_cbor, to_cbor, utils::cbor::SerialisedAsArray};
 
             let bytes = to_cbor(&(1, SerialisedAsArray(Some(anchor))));

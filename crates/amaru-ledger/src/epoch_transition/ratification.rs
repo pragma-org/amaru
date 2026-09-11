@@ -411,7 +411,7 @@ fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
 mod tests {
     use amaru_kernel::{
         Ballot, CertificatePointer, DRep, GovernanceAction, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        PREPROD_ERA_HISTORY, RewardAccount, Vote, Voter, any_proposal_id, any_reward_account, safe_ratio,
+        PREPROD_ERA_HISTORY, RewardAccount, Vote, Voter, any_reward_account, safe_ratio,
     };
     use proptest::{
         prelude::{Strategy, any},
@@ -465,8 +465,8 @@ mod tests {
         let mut runner = TestRunner::default();
         let epoch = Epoch::from(10);
 
-        let ratified_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
-        let expired_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
+        let ratified_id = any::<ProposalId>().new_tree(&mut runner).unwrap().current();
+        let expired_id = any::<ProposalId>().new_tree(&mut runner).unwrap().current();
 
         let account = any_reward_account().new_tree(&mut runner).unwrap().current();
 
