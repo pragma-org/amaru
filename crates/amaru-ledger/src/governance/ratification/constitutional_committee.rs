@@ -277,7 +277,7 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Credential, Epoch, NULL_HASH28, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_credential, any_rational_number,
+        Credential, Epoch, NULL_HASH28, RationalNumber, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_credential,
         any_vote_ref, into_safe_ratio, utils::tests::assert_strategy_sometimes_fails,
     };
     use num::{One, Zero};
@@ -649,7 +649,7 @@ mod tests {
 
     prop_compose! {
         pub fn any_constitutional_committee()(
-            threshold in any_rational_number(),
+            threshold in any::<RationalNumber>(),
             members in collection::btree_map(
                 any_credential(),
                 (

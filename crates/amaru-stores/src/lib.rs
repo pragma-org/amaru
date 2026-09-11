@@ -26,7 +26,7 @@ pub mod tests {
     };
 
     #[cfg(not(target_os = "windows"))]
-    use amaru_kernel::any_proposal_id;
+    use amaru_kernel::ProposalId;
     use amaru_kernel::{
         Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, Credential, DRepRegistration, Epoch,
         EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
@@ -160,7 +160,7 @@ pub mod tests {
         // proposals (Does not generate proposal row on Windows due to stack overflow)
         #[cfg(not(target_os = "windows"))]
         let (proposal_iter, proposal_key, proposal_row) = {
-            let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
+            let proposal_key = any::<ProposalId>().new_tree(runner).unwrap().current();
             let proposal_row =
                 amaru_ledger::store::columns::proposals::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
             (std::iter::once((proposal_key, proposal_row.clone())), proposal_key, proposal_row)

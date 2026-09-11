@@ -204,7 +204,6 @@ pub use cardano::{
 #[cfg(any(test, feature = "test-utils"))]
 pub use cardano::{
     address::any_shelley_address,
-    anchor::any_anchor,
     ballot::any_ballot,
     ballot_id::{any_ballot_id, any_voter},
     block_height::any_block_height,
@@ -234,20 +233,17 @@ pub use cardano::{
     plutus_data::any_plutus_data,
     point::{any_point, any_specific_point},
     pool_params::any_pool_params,
-    pots::any_pots,
     proposal::any_proposal,
     proposal_enum::any_proposal_enum,
-    proposal_id::any_proposal_id,
     proposal_pointer::any_proposal_pointer,
     proposals_roots::any_proposals_roots,
     protocol_parameters::{
-        any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_ex_units, any_gov_action,
+        any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_gov_action,
         any_guardrails_script, any_pool_voting_thresholds, any_protocol_parameter, any_protocol_params_update,
-        any_protocol_version, any_withdrawal,
+        any_withdrawal,
     },
-    rational_number::any_rational_number,
     reward_account::any_reward_account,
     transaction_input::any_transaction_input,
     transaction_pointer::any_transaction_pointer,
-    vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
+    vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote_ref},
 };

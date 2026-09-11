@@ -116,19 +116,19 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use proptest::{option, prop_compose};
+    use proptest::{option, prelude::any, prop_compose};
 
     use super::ProposalsRoots;
-    use crate::{any_proposal_id, prop_cbor_roundtrip};
+    use crate::{ProposalId, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(ProposalsRoots, any_proposals_roots());
 
     prop_compose! {
         pub fn any_proposals_roots()(
-            protocol_parameters in option::of(any_proposal_id()),
-            hard_fork in option::of(any_proposal_id()),
-            constitutional_committee in option::of(any_proposal_id()),
-            constitution in option::of(any_proposal_id()),
+            protocol_parameters in option::of(any::<ProposalId>()),
+            hard_fork in option::of(any::<ProposalId>()),
+            constitutional_committee in option::of(any::<ProposalId>()),
+            constitution in option::of(any::<ProposalId>()),
         ) -> ProposalsRoots  {
             ProposalsRoots {
                 protocol_parameters,

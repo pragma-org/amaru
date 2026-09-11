@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{Hash, cbor, size::TRANSACTION_BODY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
@@ -58,26 +61,21 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ProposalId {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for ProposalId {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{prelude::*, prop_compose};
-
-    use super::ProposalId;
-    use crate::{Hash, prop_cbor_roundtrip};
-
-    prop_cbor_roundtrip!(ProposalId, any_proposal_id());
-
-    prop_compose! {
-        pub fn any_proposal_id()(
-            transaction_id in any::<[u8; 32]>(),
-            proposal_index in any::<u32>(),
-        ) -> ProposalId {
-            ProposalId {
-                transaction_id: Hash::new(transaction_id),
-                proposal_index,
-            }
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<Hash<TRANSACTION_BODY>>(), any::<u32>())
+            .prop_map(|(transaction_id, proposal_index)| ProposalId { transaction_id, proposal_index })
+            .boxed()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProposalId;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(ProposalId);
 }

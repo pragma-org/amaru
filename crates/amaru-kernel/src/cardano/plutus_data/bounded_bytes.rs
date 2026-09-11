@@ -14,6 +14,9 @@
 
 use std::{fmt, ops::Deref};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::cbor;
 
 // FIXME(cbor): BoundedBytes should not exists
@@ -112,19 +115,11 @@ impl<'b, C> cbor::Decode<'b, C> for BoundedBytes {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for BoundedBytes {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::BoundedBytes;
-
-    prop_compose! {
-        pub fn any_bounded_bytes()(
-            bytes in any::<Vec<u8>>(),
-        ) -> BoundedBytes {
-            BoundedBytes::from(bytes)
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<Vec<u8>>().prop_map(BoundedBytes::from).boxed()
     }
 }

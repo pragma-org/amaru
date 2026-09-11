@@ -15,6 +15,8 @@
 use std::fmt;
 
 use num::{BigUint, rational::Ratio};
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{Lovelace, cbor};
 
@@ -55,6 +57,18 @@ impl<C> cbor::encode::Encode<C> for RationalNumber {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for RationalNumber {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<u64>(), 1..u64::MAX)
+            .prop_map(|(numerator, denominator)| RationalNumber { numerator, denominator })
+            .boxed()
+    }
+}
+
 // ------------------------------------------------------------------- SafeRatio
 
 pub type SafeRatio = Ratio<BigUint>;
@@ -70,26 +84,4 @@ pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
 pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
     Lovelace::try_from(n.floor().to_integer())
         .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::*;
-
-    prop_compose! {
-        pub fn any_rational_number()(
-            numerator in any::<u64>(),
-            denominator in 1..u64::MAX,
-        ) -> RationalNumber {
-            RationalNumber {
-                numerator,
-                denominator,
-            }
-        }
-    }
 }

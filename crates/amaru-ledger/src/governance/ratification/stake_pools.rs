@@ -122,10 +122,9 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use amaru_kernel::{
-        CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, Hash, Network, PoolId, PoolParams,
-        ProposalEnum, ProtocolParamUpdate, RationalNumber, RewardAccount, SafeRatio, Vote, any_ex_units,
-        any_pool_voting_thresholds, any_proposal_enum, any_proposal_id, any_protocol_params_update,
-        any_rational_number, any_vote_ref, safe_ratio,
+        CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, ExUnits, Hash, Network, PoolId,
+        PoolParams, ProposalEnum, ProposalId, ProtocolParamUpdate, RationalNumber, RewardAccount, SafeRatio, Vote,
+        any_pool_voting_thresholds, any_proposal_enum, any_protocol_params_update, any_vote_ref, safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};
@@ -179,7 +178,7 @@ mod tests {
             is_no_confidence in any::<bool>(),
             update_in_security_group in any_protocol_params_update_in_security_group(),
             update_no_security_group in any_protocol_params_update_no_security_group(),
-            parent in option::of(any_proposal_id()),
+            parent in option::of(any::<ProposalId>()),
             thresholds in any_pool_voting_thresholds()
         ) {
             let parent = parent.map(Rc::new);
@@ -233,10 +232,10 @@ mod tests {
             option::of(any::<u64>()),
             option::of(any::<u64>()),
             option::of(any::<u64>()),
-            option::of(any_ex_units()),
+            option::of(any::<ExUnits>()),
             option::of(any::<u64>()),
             option::of(any::<u64>()),
-            option::of(any_rational_number()),
+            option::of(any::<RationalNumber>()),
         );
 
         (

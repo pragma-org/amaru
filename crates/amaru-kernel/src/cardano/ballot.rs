@@ -77,12 +77,12 @@ mod tests {
     use proptest::{option, prelude::*};
 
     use super::Ballot;
-    use crate::{any_anchor, any_vote, prop_cbor_roundtrip};
+    use crate::{Anchor, Vote, prop_cbor_roundtrip};
 
     prop_compose! {
         pub fn any_ballot()(
-            vote in any_vote(),
-            anchor in option::of(any_anchor()),
+            vote in any::<Vote>(),
+            anchor in option::of(any::<Anchor>()),
         ) -> Ballot  {
             Ballot::new(vote, anchor)
         }
