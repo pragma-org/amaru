@@ -252,16 +252,18 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{Address, Credential, Network, ShelleyAddress, StakeReference, any_hash28};
+    use crate::{Address, Credential, Hash, Network, ShelleyAddress, StakeReference, size::KEY};
 
     pub fn any_shelley_address() -> impl Strategy<Value = Address> {
-        (any::<bool>(), any_hash28(), any_hash28()).prop_map(|(is_mainnet, payment_hash, delegation_hash)| {
-            let network = if is_mainnet { Network::Mainnet } else { Network::Testnet };
+        (any::<bool>(), any::<Hash<KEY>>(), any::<Hash<KEY>>()).prop_map(
+            |(is_mainnet, payment_hash, delegation_hash)| {
+                let network = if is_mainnet { Network::Mainnet } else { Network::Testnet };
 
-            let payment = Credential::KeyHash(payment_hash);
-            let delegation = Some(StakeReference::Credential(Credential::KeyHash(delegation_hash)));
+                let payment = Credential::KeyHash(payment_hash);
+                let delegation = Some(StakeReference::Credential(Credential::KeyHash(delegation_hash)));
 
-            Address::Shelley(ShelleyAddress::new(network, payment, delegation))
-        })
+                Address::Shelley(ShelleyAddress::new(network, payment, delegation))
+            },
+        )
     }
 }

@@ -332,18 +332,15 @@ pub mod tests {
 
     use super::*;
     #[cfg(test)]
-    use crate::{
-        Hash,
-        cbor::{self, Encode},
-    };
-    use crate::{any_hash32, any_shelley_address};
+    use crate::cbor::{self, Encode};
+    use crate::{Hash, any_shelley_address, size::DATUM};
 
     fn any_value() -> impl Strategy<Value = Value> {
         any::<u64>().prop_map(Value::Coin)
     }
 
     pub fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
-        prop_oneof![Just(MemoizedDatum::None), any_hash32().prop_map(MemoizedDatum::from)]
+        prop_oneof![Just(MemoizedDatum::None), any::<Hash<DATUM>>().prop_map(MemoizedDatum::from)]
     }
 
     pub fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
@@ -352,7 +349,7 @@ pub mod tests {
     }
 
     pub fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
-        (any_shelley_address(), any_value(), option::of(any_hash32().prop_map(MemoizedDatum::from))).prop_map(
+        (any_shelley_address(), any_value(), option::of(any::<Hash<DATUM>>().prop_map(MemoizedDatum::from))).prop_map(
             |(address, value, datum_opt)| {
                 MemoizedTransactionOutput::new(true, address, value, datum_opt.unwrap_or(MemoizedDatum::None), None)
             },

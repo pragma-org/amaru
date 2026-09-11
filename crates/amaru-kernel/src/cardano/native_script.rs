@@ -254,7 +254,7 @@ mod variable_encoding_native_script {
     use proptest::prelude::*;
 
     use super::NativeScriptTree;
-    use crate::{Hash, NativeScript, any_hash28, cbor, size::KEY, to_cbor, utils::cbor::CborArray};
+    use crate::{Hash, NativeScript, cbor, size::KEY, to_cbor, utils::cbor::CborArray};
 
     /// A native script that also picks, at every branch, whether to encode its children as a
     /// definite or an indefinite array.
@@ -274,7 +274,7 @@ mod variable_encoding_native_script {
         pub fn any(depth: u8) -> BoxedStrategy<Self> {
             use VariableEncodingNativeScript::*;
 
-            let sig = any_hash28().prop_map(ScriptPubkey);
+            let sig = any::<Hash<KEY>>().prop_map(ScriptPubkey);
             let before = any::<u64>().prop_map(InvalidBefore);
             let after = any::<u64>().prop_map(InvalidHereafter);
 
@@ -396,7 +396,7 @@ mod tests {
     use stacksafe::StackSafe;
 
     use super::NativeScriptTree;
-    use crate::{NativeScript, any_hash28};
+    use crate::{Hash, NativeScript, size::KEY};
 
     /// A script nested up to `depth` levels, encoded with every array of a definite length.
     pub fn any_native_script(depth: u8) -> impl Strategy<Value = NativeScript> {
@@ -406,7 +406,7 @@ mod tests {
     fn any_native_script_tree(depth: u8) -> BoxedStrategy<NativeScriptTree> {
         use NativeScriptTree::*;
 
-        let sig = any_hash28().prop_map(VerificationKey);
+        let sig = any::<Hash<KEY>>().prop_map(VerificationKey);
         let before = any::<u64>().prop_map(InvalidBefore);
         let after = any::<u64>().prop_map(InvalidAfter);
 

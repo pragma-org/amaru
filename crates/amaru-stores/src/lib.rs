@@ -31,7 +31,7 @@ pub mod tests {
         Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, Credential, DRepRegistration, Epoch,
         EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot, TransactionInput,
-        any_certificate_pointer, any_credential, any_hash28, any_pool_params,
+        any_certificate_pointer, any_credential, any_pool_params,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -185,7 +185,7 @@ pub mod tests {
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot, Hash::from([0u8; 32]), BlockHeight::from(u64::from(slot)));
-        let slot_leader = any_hash28().new_tree(runner).unwrap().current();
+        let slot_leader = any::<PoolId>().new_tree(runner).unwrap().current();
 
         {
             let context = store.create_transaction();

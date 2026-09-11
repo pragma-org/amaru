@@ -51,12 +51,12 @@ pub use tests::*;
 mod tests {
     use proptest::{option, prelude::*};
 
-    use crate::{Constitution, any_anchor, any_hash28};
+    use crate::{Constitution, Hash, any_anchor, size::SCRIPT};
 
     prop_compose! {
         pub fn any_constitution()(
             anchor in any_anchor(),
-            guardrail_script in option::of(any_hash28())
+            guardrail_script in option::of(any::<Hash<SCRIPT>>())
         ) -> Constitution {
             Constitution {
                 anchor,
