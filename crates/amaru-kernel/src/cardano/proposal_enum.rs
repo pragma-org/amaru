@@ -182,7 +182,7 @@ mod tests {
     use proptest::{option, prelude::*};
 
     use crate::{
-        ProposalEnum, any_constitution, any_constitutional_committee_update, any_epoch, any_orphan_proposal,
+        Epoch, ProposalEnum, any_constitution, any_constitutional_committee_update, any_orphan_proposal,
         any_proposal_id, any_protocol_params_update, any_protocol_version,
     };
 
@@ -196,7 +196,7 @@ mod tests {
             .prop_map(|(parent, protocol_version)| ProposalEnum::HardFork(protocol_version, parent.map(Rc::new)));
 
         let any_constitutional_committee =
-            (option::of(any_proposal_id()), any_constitutional_committee_update(any_epoch()))
+            (option::of(any_proposal_id()), any_constitutional_committee_update(any::<Epoch>()))
                 .prop_map(|(parent, committee)| ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new)));
 
         let any_constitution = (option::of(any_proposal_id()), any_constitution())

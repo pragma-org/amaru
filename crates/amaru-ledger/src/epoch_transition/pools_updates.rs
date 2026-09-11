@@ -210,7 +210,7 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, any_certificate_pointer, any_credential, any_lovelace,
+        Epoch, Lovelace, Network, PoolId, PoolParams, RewardAccount, any_certificate_pointer, any_credential,
         any_pool_params, utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
@@ -279,7 +279,7 @@ mod tests {
         #[test]
         fn prop_tick_pool(
             registered_at in any_certificate_pointer(u64::MAX),
-            deposit in any_lovelace(),
+            deposit in any::<Lovelace>(),
             (initial_params, sequence) in any_pool_params().prop_flat_map(|params| {
                 any_row_seq_updates(params.id).prop_map(move |seq| (params.clone(), seq))
             }),
@@ -348,7 +348,7 @@ mod tests {
         #[test]
         fn prop_pool_stake_deposit(
             registered_at in any_certificate_pointer(u64::MAX),
-            deposit in any_lovelace(),
+            deposit in any::<Lovelace>(),
             initial_params in any_pool_params(),
         ) {
             let epoch = Epoch::from(1);

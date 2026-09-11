@@ -536,9 +536,10 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            any_credential, any_epoch, any_proposal, any_proposal_id, any_proposal_pointer, any_rational_number,
+            any_credential, any_proposal, any_proposal_id, any_proposal_pointer, any_rational_number,
             utils::tests::run_strategy,
         };
+        use proptest::prelude::any;
 
         use super::super::resolve_committee;
         use crate::{
@@ -577,7 +578,7 @@ mod tests {
 
                         let proposal_state = ProposalState {
                             proposed_in: run_strategy(any_proposal_pointer(u64::MAX)),
-                            valid_until: run_strategy(any_epoch()),
+                            valid_until: run_strategy(any::<Epoch>()),
                             proposal: proposal.clone(),
                         };
 

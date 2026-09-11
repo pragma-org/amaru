@@ -31,7 +31,7 @@ pub mod tests {
         Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, Credential, DRepRegistration, Epoch,
         EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot, TransactionInput,
-        any_certificate_pointer, any_credential, any_hash28, any_lovelace, any_pool_params,
+        any_certificate_pointer, any_credential, any_hash28, any_pool_params,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -47,7 +47,11 @@ pub mod tests {
             },
         },
     };
-    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+    use proptest::{
+        prelude::{Strategy, any},
+        strategy::ValueTree,
+        test_runner::TestRunner,
+    };
 
     #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]
@@ -125,7 +129,7 @@ pub mod tests {
         // pools
         let pool_params = any_pool_params().new_tree(runner).unwrap().current();
         let registered_at = any_certificate_pointer(u64::MAX).new_tree(runner).unwrap().current();
-        let deposit = any_lovelace().new_tree(runner).unwrap().current();
+        let deposit = any::<Lovelace>().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 
         let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit));
