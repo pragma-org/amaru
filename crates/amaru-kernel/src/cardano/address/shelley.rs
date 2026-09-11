@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{AsHash, Credential, Network, RewardAccount, StakeReference, bech32};
+#[cfg(any(test, feature = "test-utils"))]
+use crate::{Hash, size::KEY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
 pub struct ShelleyAddress {
@@ -95,5 +100,23 @@ impl TryFrom<ShelleyAddress> for RewardAccount {
         let credential = addr.delegation().and_then(StakeReference::credential).ok_or(())?;
 
         Ok(Self::new(addr.network(), credential))
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for ShelleyAddress {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<Network>(), any::<Hash<KEY>>(), any::<Hash<KEY>>())
+            .prop_map(|(network, payment, delegation)| {
+                ShelleyAddress::new(
+                    network,
+                    Credential::KeyHash(payment),
+                    Some(StakeReference::Credential(Credential::KeyHash(delegation))),
+                )
+            })
+            .boxed()
     }
 }

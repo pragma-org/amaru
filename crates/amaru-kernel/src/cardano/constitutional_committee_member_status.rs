@@ -133,14 +133,14 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{ConstitutionalCommitteeMemberStatus, any_credential, prop_cbor_roundtrip};
+    use crate::{ConstitutionalCommitteeMemberStatus, Credential, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(ConstitutionalCommitteeMemberStatus, any_constitutional_committee_member_status());
 
     proptest! {
         // ensure compatibility with legacy format.
         #[test]
-        fn decode_from_stake_credential(stake_credential in any_credential()) {
+        fn decode_from_stake_credential(stake_credential in any::<Credential>()) {
             use crate::{from_cbor,  to_cbor};
 
             let bytes = to_cbor(&stake_credential);
@@ -162,7 +162,7 @@ mod tests {
 
     pub fn any_constitutional_committee_member_status() -> impl Strategy<Value = ConstitutionalCommitteeMemberStatus> {
         prop_oneof![
-            any_credential().prop_map(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential),
+            any::<Credential>().prop_map(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential),
             Just(ConstitutionalCommitteeMemberStatus::Resigned),
         ]
     }

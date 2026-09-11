@@ -203,15 +203,12 @@ pub use cardano::{
 };
 #[cfg(any(test, feature = "test-utils"))]
 pub use cardano::{
-    address::any_shelley_address,
     ballot::any_ballot,
     ballot_id::{any_ballot_id, any_voter},
     constitution::any_constitution,
     constitutional_committee_member_status::any_constitutional_committee_member_status,
     constitutional_committee_status::any_constitutional_committee_status,
     constitutional_committee_update::any_constitutional_committee_update,
-    credential::any_credential,
-    drep::any_drep,
     drep_registration::any_drep_registration,
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
     era_params::any_era_params,
@@ -235,8 +232,6 @@ pub use cardano::{
         any_guardrails_script, any_pool_voting_thresholds, any_protocol_parameter, any_protocol_params_update,
         any_withdrawal,
     },
-    reward_account::any_reward_account,
-    transaction_input::any_transaction_input,
     transaction_pointer::SlotUpperBound,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote_ref},
 };

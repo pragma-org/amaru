@@ -74,12 +74,12 @@ pub use tests::*;
 mod tests {
     use proptest::{prelude::*, prop_compose};
 
-    use crate::{Anchor, Lovelace, Proposal, any_gov_action, any_reward_account};
+    use crate::{Anchor, Lovelace, Proposal, RewardAccount, any_gov_action};
 
     prop_compose! {
         pub fn any_proposal()(
             deposit in any::<Lovelace>(),
-            reward_account in any_reward_account(),
+            reward_account in any::<RewardAccount>(),
             gov_action in any_gov_action(),
             anchor in any::<Anchor>(),
         ) -> Proposal {
