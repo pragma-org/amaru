@@ -741,10 +741,9 @@ mod tests {
     use amaru_kernel::{
         Anchor, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
         MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal,
-        ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, RewardAccount,
-        Slot, TransactionPointer, any_constitution, any_constitutional_committee_update, any_gov_action,
-        any_proposal_enum, any_proposal_id, any_proposal_pointer, any_protocol_params_update, any_protocol_version,
-        any_reward_account,
+        ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
+        RationalNumber, RewardAccount, Slot, TransactionPointer, any_constitution, any_constitutional_committee_update,
+        any_gov_action, any_proposal_enum, any_proposal_pointer, any_protocol_params_update, any_reward_account,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -814,7 +813,7 @@ mod tests {
         #[test]
         fn prop_insert_increase_sizes_by_one(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
-            id in any_proposal_id(),
+            id in any::<ProposalId>(),
             mut action in any_gov_action(),
             pointer in any_proposal_pointer(u64::MAX),
             parent in any::<u8>()
@@ -1010,7 +1009,7 @@ mod tests {
         #[test]
         fn prop_cannot_enact_unknown_proposal(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
-            proposal_id in any_proposal_id(),
+            proposal_id in any::<ProposalId>(),
             proposal in any_proposal_enum(),
         ) {
             let mut compass = forest.new_compass();
@@ -1116,7 +1115,7 @@ mod tests {
     // Generate a *somewhat meaningful* proposal forest, with relationships and links between
     // proposals.
     fn any_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
-        let any_ids = collection::btree_set(any_proposal_id().prop_map(Rc::new), 5 * (MAX_TREE_SIZE + 2))
+        let any_ids = collection::btree_set(any::<ProposalId>().prop_map(Rc::new), 5 * (MAX_TREE_SIZE + 2))
             .prop_map(|ids| ids.into_iter().collect::<Vec<_>>());
 
         any_ids.prop_flat_map(|ids: Vec<Rc<ProposalId>>| {
@@ -1128,7 +1127,7 @@ mod tests {
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
             let any_hard_fork_tree =
-                any_proposals_tree(ids[lo..hi].into(), any_protocol_version(), GovernanceAction::HardForkInitiation);
+                any_proposals_tree(ids[lo..hi].into(), any::<ProtocolVersion>(), GovernanceAction::HardForkInitiation);
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
             let any_constitution_tree =

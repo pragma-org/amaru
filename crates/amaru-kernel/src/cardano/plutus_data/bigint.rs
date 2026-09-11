@@ -128,14 +128,13 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use super::BigInt;
-    use crate::plutus_data::any_bounded_bytes;
+    use super::{BigInt, BoundedBytes};
 
     pub fn any_bigint() -> impl Strategy<Value = BigInt> {
         prop_oneof![
             any::<i64>().prop_map(|i| BigInt::Int(i.into())),
-            any_bounded_bytes().prop_map(BigInt::BigUInt),
-            any_bounded_bytes().prop_map(BigInt::BigNInt),
+            any::<BoundedBytes>().prop_map(BigInt::BigUInt),
+            any::<BoundedBytes>().prop_map(BigInt::BigNInt),
         ]
     }
 }

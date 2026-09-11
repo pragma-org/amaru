@@ -556,11 +556,11 @@ mod tests {
 
     use amaru_kernel::{
         BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, SafeRatio, Slot, SortedPairs,
-        any_modern_output, any_proposal, any_proposal_id, any_rational_number, any_transaction_input,
-        utils::tests::run_strategy,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, RationalNumber, SafeRatio, Slot,
+        SortedPairs, any_modern_output, any_proposal, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
+    use proptest::prelude::any;
     use test_case::test_case;
 
     use super::*;
@@ -1399,7 +1399,7 @@ mod tests {
     fn resolve_cc_members_yield_committee_candidates() {
         let mut db = VolatileDB::default();
 
-        let proposal_id = run_strategy(any_proposal_id());
+        let proposal_id = run_strategy(any::<ProposalId>());
 
         db.push_back(update_committee_block(10, proposal_id, cred(1)));
         assert_eq!(
@@ -1421,7 +1421,7 @@ mod tests {
     fn resolve_committee_candidates_discounts_proposals_pruned_at_the_pending_boundary() {
         let mut db = VolatileDB::default();
 
-        let proposal_id = run_strategy(any_proposal_id());
+        let proposal_id = run_strategy(any::<ProposalId>());
 
         db.push_back(update_committee_block(10, proposal_id, cred(1)));
 
@@ -1531,7 +1531,7 @@ mod tests {
                 None,
                 Vec::new(),
                 vec![(candidate, Epoch::from(99))].try_into().unwrap(),
-                run_strategy(any_rational_number()),
+                run_strategy(any::<RationalNumber>()),
             ),
             ..run_strategy(any_proposal())
         };

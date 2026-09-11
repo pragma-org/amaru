@@ -411,8 +411,12 @@ fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, any_proposal_id};
-    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+    use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY};
+    use proptest::{
+        prelude::{Strategy, any},
+        strategy::ValueTree,
+        test_runner::TestRunner,
+    };
 
     use super::*;
     use crate::{store::columns::proposals, summary::stake_distribution::StakeDistribution};
@@ -444,8 +448,8 @@ mod tests {
         let mut runner = TestRunner::default();
         let epoch = Epoch::from(10);
 
-        let ratified_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
-        let expired_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
+        let ratified_id = any::<ProposalId>().new_tree(&mut runner).unwrap().current();
+        let expired_id = any::<ProposalId>().new_tree(&mut runner).unwrap().current();
 
         let ratified = any_information_proposal(&mut runner, epoch + 5);
         let expired = any_information_proposal(&mut runner, epoch);

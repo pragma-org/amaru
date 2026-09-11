@@ -567,46 +567,25 @@ mod tests {
     use crate::{
         CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
         KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RewardAccount, any_constitution, any_credential, any_proposal_id, any_rational_number,
-        any_reward_account, size::SCRIPT,
+        ProtocolVersion, RationalNumber, RewardAccount, any_constitution, any_credential, any_reward_account,
+        size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
     crate::prop_cbor_roundtrip!(ProtocolParameters, any_protocol_parameter());
 
     prop_compose! {
-        pub fn any_ex_units()(
-            mem in any::<u64>(),
-            steps in any::<u64>(),
-        ) -> ExUnits {
-            ExUnits {
-                mem,
-                steps,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_protocol_version()(
-            major in any::<u8>(),
-            minor in any::<u64>(),
-        ) -> ProtocolVersion {
-            ProtocolVersion::new((major % 13) as u64, minor)
-        }
-    }
-
-    prop_compose! {
         pub fn any_drep_voting_thresholds()(
-            motion_no_confidence in any_rational_number(),
-            committee_normal in any_rational_number(),
-            committee_no_confidence in any_rational_number(),
-            update_constitution in any_rational_number(),
-            hard_fork_initiation in any_rational_number(),
-            pp_network_group in any_rational_number(),
-            pp_economic_group in any_rational_number(),
-            pp_technical_group in any_rational_number(),
-            pp_governance_group in any_rational_number(),
-            treasury_withdrawal in any_rational_number(),
+            motion_no_confidence in any::<RationalNumber>(),
+            committee_normal in any::<RationalNumber>(),
+            committee_no_confidence in any::<RationalNumber>(),
+            update_constitution in any::<RationalNumber>(),
+            hard_fork_initiation in any::<RationalNumber>(),
+            pp_network_group in any::<RationalNumber>(),
+            pp_economic_group in any::<RationalNumber>(),
+            pp_technical_group in any::<RationalNumber>(),
+            pp_governance_group in any::<RationalNumber>(),
+            treasury_withdrawal in any::<RationalNumber>(),
         ) -> DRepVotingThresholds {
             DRepVotingThresholds {
                 motion_no_confidence,
@@ -625,11 +604,11 @@ mod tests {
 
     prop_compose! {
         pub fn any_pool_voting_thresholds()(
-            motion_no_confidence in any_rational_number(),
-            committee_normal in any_rational_number(),
-            committee_no_confidence in any_rational_number(),
-            hard_fork_initiation in any_rational_number(),
-            security_voting_threshold in any_rational_number(),
+            motion_no_confidence in any::<RationalNumber>(),
+            committee_normal in any::<RationalNumber>(),
+            committee_no_confidence in any::<RationalNumber>(),
+            hard_fork_initiation in any::<RationalNumber>(),
+            security_voting_threshold in any::<RationalNumber>(),
         ) -> PoolVotingThresholds {
             PoolVotingThresholds {
                 motion_no_confidence,
@@ -674,8 +653,8 @@ mod tests {
 
     prop_compose! {
         pub fn any_ex_unit_prices()(
-            mem_price in any_rational_number(),
-            step_price in any_rational_number(),
+            mem_price in any::<RationalNumber>(),
+            step_price in any::<RationalNumber>(),
         ) -> ExUnitPrices {
             ExUnitPrices {
                 mem_price,
@@ -695,15 +674,15 @@ mod tests {
             pool_deposit in option::of(any::<Lovelace>()),
             maximum_epoch in option::of(any::<u64>()),
             desired_number_of_stake_pools in option::of(any::<u64>()),
-            pool_pledge_influence in option::of(any_rational_number()),
-            expansion_rate in option::of(any_rational_number()),
-            treasury_growth_rate in option::of(any_rational_number()),
+            pool_pledge_influence in option::of(any::<RationalNumber>()),
+            expansion_rate in option::of(any::<RationalNumber>()),
+            treasury_growth_rate in option::of(any::<RationalNumber>()),
             min_pool_cost in option::of(any::<Lovelace>()),
             ada_per_utxo_byte in option::of(any::<Lovelace>()),
             cost_models_for_script_languages in option::of(any_cost_models()),
             execution_costs in option::of(any_ex_unit_prices()),
-            max_tx_ex_units in option::of(any_ex_units()),
-            max_block_ex_units in option::of(any_ex_units()),
+            max_tx_ex_units in option::of(any::<ExUnits>()),
+            max_block_ex_units in option::of(any::<ExUnits>()),
             max_value_size in option::of(any::<u64>()),
             collateral_percentage in option::of(any::<u64>()),
             max_collateral_inputs in option::of(any::<u64>()),
@@ -715,7 +694,7 @@ mod tests {
             governance_action_deposit in option::of(any::<Lovelace>()),
             drep_deposit in option::of(any::<Lovelace>()),
             drep_inactivity_period in option::of(any::<u64>()),
-            minfee_refscript_cost_per_byte in option::of(any_rational_number()),
+            minfee_refscript_cost_per_byte in option::of(any::<RationalNumber>()),
         ) -> ProtocolParamUpdate {
             ProtocolParamUpdate {
                 minfee_a,
@@ -755,7 +734,7 @@ mod tests {
     pub fn any_gov_action() -> impl Strategy<Value = GovernanceAction> {
         prop_compose! {
             fn any_parent_proposal_id()(
-                proposal_id in option::of(any_proposal_id()),
+                proposal_id in option::of(any::<ProposalId>()),
             ) -> Option<ProposalId> {
                 proposal_id
             }
@@ -774,7 +753,7 @@ mod tests {
         prop_compose! {
             fn any_hardfork_initiation()(
                 parent_proposal_id in any_parent_proposal_id(),
-                protocol_version in any_protocol_version(),
+                protocol_version in any::<ProtocolVersion>(),
             ) -> GovernanceAction {
                 GovernanceAction::HardForkInitiation(parent_proposal_id, protocol_version)
             }
@@ -816,7 +795,7 @@ mod tests {
                 parent_proposal_id in any_parent_proposal_id(),
                 to_remove in collection::btree_set(any_credential(), 0..3),
                 to_add in collection::vec(any_committee_registration(), 0..3),
-                quorum in any_rational_number(),
+                quorum in any::<RationalNumber>(),
             ) -> GovernanceAction {
                 GovernanceAction::UpdateCommittee(
                     parent_proposal_id,
@@ -866,27 +845,27 @@ mod tests {
 
     prop_compose! {
         pub fn any_protocol_parameter()(
-            protocol_version in any_protocol_version(),
+            protocol_version in any::<ProtocolVersion>(),
             max_block_body_size in any::<u64>(),
             max_transaction_size in any::<u64>(),
             max_block_header_size in any::<u16>(),
-            max_tx_ex_units in any_ex_units(),
-            max_block_ex_units in any_ex_units(),
+            max_tx_ex_units in any::<ExUnits>(),
+            max_block_ex_units in any::<ExUnits>(),
             max_value_size in any::<u64>(),
             max_collateral_inputs in any::<u16>(),
             min_fee_a in any::<Lovelace>(),
             min_fee_b in any::<Lovelace>(),
             stake_credential_deposit in any::<Lovelace>(),
             stake_pool_deposit in any::<Lovelace>(),
-            monetary_expansion_rate in any_rational_number(),
-            treasury_expansion_rate in any_rational_number(),
+            monetary_expansion_rate in any::<RationalNumber>(),
+            treasury_expansion_rate in any::<RationalNumber>(),
             min_pool_cost in any::<Lovelace>(),
             lovelace_per_utxo_byte in any::<Lovelace>(),
             prices in any_ex_unit_prices(),
-            min_fee_ref_script_lovelace_per_byte in any_rational_number(),
+            min_fee_ref_script_lovelace_per_byte in any::<RationalNumber>(),
             stake_pool_max_retirement_epoch in any::<u64>(),
             optimal_stake_pools_count in any::<u16>(),
-            pledge_influence in any_rational_number(),
+            pledge_influence in any::<RationalNumber>(),
             collateral_percentage in any::<u16>(),
             cost_models in any_cost_models(),
             pool_voting_thresholds in any_pool_voting_thresholds(),

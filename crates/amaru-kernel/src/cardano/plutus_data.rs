@@ -217,12 +217,12 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::plutus_data::{any_bigint, any_bounded_bytes, any_constr};
+    use crate::plutus_data::{any_bigint, any_constr};
 
     pub fn any_plutus_data(depth: u8) -> BoxedStrategy<PlutusData> {
         let int = any_bigint().prop_map(PlutusData::BigInt);
 
-        let bytes = any_bounded_bytes().prop_map(PlutusData::BoundedBytes);
+        let bytes = any::<BoundedBytes>().prop_map(PlutusData::BoundedBytes);
 
         if depth > 0 {
             let constr = any_constr(depth).prop_map(PlutusData::Constr);

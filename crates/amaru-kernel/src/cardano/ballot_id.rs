@@ -64,7 +64,7 @@ mod tests {
 
     use super::BallotId;
     use crate::{
-        Hash, Voter, any_proposal_id, prop_cbor_roundtrip,
+        Hash, ProposalId, Voter, prop_cbor_roundtrip,
         size::{KEY, POOL_COLD_KEY, SCRIPT},
     };
 
@@ -82,7 +82,7 @@ mod tests {
 
     prop_compose! {
         pub fn any_ballot_id()(
-            proposal in any_proposal_id(),
+            proposal in any::<ProposalId>(),
             voter in any_voter(),
         ) -> BallotId {
             BallotId {
