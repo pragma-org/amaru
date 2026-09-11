@@ -36,12 +36,12 @@ mod tests {
     use proptest::prelude::*;
 
     use super::DRepRegistration;
-    use crate::{Epoch, Lovelace, any_certificate_pointer};
+    use crate::{CertificatePointer, Epoch, Lovelace};
 
     prop_compose! {
         pub fn any_drep_registration()(
             deposit in any::<Lovelace>(),
-            registered_at in any_certificate_pointer(u64::MAX),
+            registered_at in any::<CertificatePointer>(),
             valid_until in any::<Epoch>(),
         ) -> DRepRegistration {
             DRepRegistration { deposit, registered_at, valid_until }

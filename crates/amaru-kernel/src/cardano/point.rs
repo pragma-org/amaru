@@ -226,7 +226,7 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{HeaderHash, Point, Slot, any_block_height};
+    use crate::{BlockHeight, HeaderHash, Point, Slot};
 
     prop_compose! {
         fn any_slot()(n in 0u64..=1000) -> Slot {
@@ -238,7 +238,7 @@ mod tests {
         pub fn any_specific_point()(
             slot in any_slot(),
             header_hash in any::<HeaderHash>(),
-            block_height in any_block_height(),
+            block_height in any::<BlockHeight>(),
         ) -> Point {
             Point::Specific(slot, header_hash, block_height)
         }

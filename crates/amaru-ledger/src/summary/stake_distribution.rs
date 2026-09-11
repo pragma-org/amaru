@@ -397,7 +397,7 @@ pub mod tests {
     use std::collections::BTreeMap;
 
     use amaru_kernel::{
-        Anchor, Epoch, Lovelace, PoolId, any_certificate_pointer, any_credential, any_drep, any_pool_params, safe_ratio,
+        Anchor, CertificatePointer, Epoch, Lovelace, PoolId, any_credential, any_drep, any_pool_params, safe_ratio,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
 
@@ -511,7 +511,7 @@ pub mod tests {
 
     prop_compose! {
         pub fn any_pool_state()(
-            registered_at in any_certificate_pointer(u64::MAX),
+            registered_at in any::<CertificatePointer>(),
             blocks_count in any::<u64>(),
             stake in 0_u64..1_000_000_000_000,
             voting_stake in 0_u64..1_000_000_000_000,
@@ -543,7 +543,7 @@ pub mod tests {
             valid_until in min_epoch..=max_epoch,
             metadata in option::of(any::<Anchor>()),
             voting_stake in 0_u64..1_000_000_000_000,
-            registered_at in any_certificate_pointer(u64::MAX),
+            registered_at in any::<CertificatePointer>(),
         ) -> DRepState {
             DRepState {
                 valid_until: Some(Epoch::from(valid_until)),

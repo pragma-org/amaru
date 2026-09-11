@@ -18,6 +18,9 @@ use std::{
     num::ParseIntError,
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, prop_oneof};
+
 use crate::cbor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -98,26 +101,25 @@ impl<'b, C> cbor::Decode<'b, C> for NetworkMagic {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for NetworkMagic {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            Just(NetworkMagic::MAINNET),
+            Just(NetworkMagic::PREVIEW),
+            Just(NetworkMagic::PREPROD),
+            Just(NetworkMagic::TESTNET),
+        ]
+        .boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::{
-        prelude::{Just, Strategy},
-        prop_oneof,
-    };
-
-    use super::*;
+    use super::NetworkMagic;
     use crate::prop_cbor_roundtrip;
 
-    prop_cbor_roundtrip!(NetworkMagic, any_network_magic());
-
-    pub fn any_network_magic() -> impl Strategy<Value = NetworkMagic> {
-        prop_oneof![
-            1 => Just(NetworkMagic::MAINNET),
-            1 => Just(NetworkMagic::PREVIEW),
-            1 => Just(NetworkMagic::PREPROD),
-            1 => Just(NetworkMagic::TESTNET),
-        ]
-    }
+    prop_cbor_roundtrip!(NetworkMagic);
 }

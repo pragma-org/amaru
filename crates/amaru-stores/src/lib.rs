@@ -28,10 +28,10 @@ pub mod tests {
     #[cfg(not(target_os = "windows"))]
     use amaru_kernel::ProposalId;
     use amaru_kernel::{
-        Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, Credential, DRepRegistration, Epoch,
-        EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot, TransactionInput,
-        any_certificate_pointer, any_credential, any_pool_params,
+        Anchor, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential,
+        DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot,
+        TransactionInput, any_credential, any_pool_params,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -128,7 +128,7 @@ pub mod tests {
 
         // pools
         let pool_params = any_pool_params().new_tree(runner).unwrap().current();
-        let registered_at = any_certificate_pointer(u64::MAX).new_tree(runner).unwrap().current();
+        let registered_at = any::<CertificatePointer>().new_tree(runner).unwrap().current();
         let deposit = any::<Lovelace>().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 

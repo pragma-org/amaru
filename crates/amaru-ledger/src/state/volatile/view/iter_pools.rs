@@ -131,7 +131,7 @@ mod tests {
         sync::LazyLock,
     };
 
-    use amaru_kernel::{any_certificate_pointer, any_pool_params};
+    use amaru_kernel::any_pool_params;
     use proptest::{
         arbitrary::any,
         strategy::{Strategy, ValueTree},
@@ -233,7 +233,7 @@ mod tests {
     }
 
     fn mock_pool(ix: u8) -> (PoolParams, CertificatePointer, Lovelace) {
-        let registered_at = sample(ix, any_certificate_pointer(u64::MAX));
+        let registered_at = sample(ix, any::<CertificatePointer>());
         let deposit = sample(ix, any::<Lovelace>());
         let pool_params = PoolParams { id: mock_pool_id(ix), ..mock_pool_params(ix) };
         (pool_params, registered_at, deposit)

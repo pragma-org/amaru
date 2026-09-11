@@ -720,7 +720,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        Epoch, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY, Slot, any_era_params, any_network_name,
+        Epoch, MAINNET_ERA_HISTORY, NetworkName, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY, Slot, any_era_params,
         from_cbor_no_leftovers_with, to_cbor,
     };
 
@@ -1197,7 +1197,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_can_parse_pretty_print_network_name(network in any_network_name()) {
+        fn prop_can_parse_pretty_print_network_name(network in any::<NetworkName>()) {
             let name = format!("{}", network);
             assert_eq!(
                 FromStr::from_str(&name),

@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, prop_oneof};
+
 use crate::{
     EraHistory, GlobalParameters, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, MAINNET_ERA_HISTORY, MAINNET_GLOBAL_PARAMETERS,
     Network, NetworkMagic, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
@@ -132,15 +135,17 @@ impl NetworkName {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for NetworkName {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{prelude::*, prop_oneof};
-
-    use super::NetworkName::{self, *};
-
-    pub fn any_network_name() -> impl Strategy<Value = NetworkName> {
-        prop_oneof![Just(Mainnet), Just(Preprod), Just(Preview), (3..u32::MAX).prop_map(Testnet)]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            Just(NetworkName::Mainnet),
+            Just(NetworkName::Preprod),
+            Just(NetworkName::Preview),
+            (3..u32::MAX).prop_map(NetworkName::Testnet),
+        ]
+        .boxed()
     }
 }
