@@ -1,8 +1,8 @@
 [Unit]
 Description=Amaru Cardano node
 Documentation=https://github.com/pragma-org/amaru
-Wants=network-online.target
-After=network-online.target
+Wants=time-sync.target network-online.target NetworkManager-wait-online.service
+After=time-sync.target network-online.target NetworkManager-wait-online.service
 
 [Service]
 Type=simple
@@ -20,10 +20,13 @@ TimeoutStopSec=30
 LimitNOFILE=65536
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=strict
+PrivateDevices=yes
 ProtectHome=true
 RestrictSUIDSGID=true
 LockPersonality=true
+MemoryHigh=1G
+StandardOutput=journal
 
 [Install]
 WantedBy=multi-user.target

@@ -145,6 +145,7 @@ assets = [
   { source = "target/release/amaru", dest = "/usr/bin/amaru", mode = "0755" },
   { source = "../../.github/debian/amaru.env", dest = "/etc/sysconfig/amaru", mode = "0644", config = "noreplace" },
   { source = "../../.github/debian/amaru.service", dest = "/usr/lib/systemd/system/amaru.service", mode = "0644" },
+  { source = "../../.github/debian/amaru-bootstrap.service", dest = "/usr/lib/systemd/system/amaru-bootstrap.service", mode = "0644" },
   { source = "../../dist/share/man/man1/amaru.1", dest = "/usr/share/man/man1/amaru.1", mode = "0644" },
   { source = "../../dist/share/bash-completion/completions/amaru", dest = "/usr/share/bash-completion/completions/amaru", mode = "0644" },
   { source = "../../dist/share/zsh/site-functions/_amaru", dest = "/usr/share/zsh/vendor-completions/_amaru", mode = "0644" },
