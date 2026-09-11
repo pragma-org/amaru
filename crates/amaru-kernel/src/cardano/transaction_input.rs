@@ -53,11 +53,11 @@ mod tests {
     use proptest::prelude::*;
 
     use super::TransactionInput;
-    use crate::any_hash32;
+    use crate::{Hash, size::TRANSACTION_BODY};
 
     prop_compose! {
         pub fn any_transaction_input()(
-            id in any_hash32(),
+            id in any::<Hash<TRANSACTION_BODY>>(),
             ix in any::<u64>(),
         ) -> TransactionInput {
             TransactionInput { transaction_id: id, index: ix }

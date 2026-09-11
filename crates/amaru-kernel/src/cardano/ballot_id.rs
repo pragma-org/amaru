@@ -63,17 +63,20 @@ mod tests {
     use proptest::{prelude::*, prop_compose};
 
     use super::BallotId;
-    use crate::{Voter, any_hash28, any_proposal_id, prop_cbor_roundtrip};
+    use crate::{
+        Hash, Voter, any_proposal_id, prop_cbor_roundtrip,
+        size::{KEY, POOL_COLD_KEY, SCRIPT},
+    };
 
     prop_cbor_roundtrip!(BallotId, any_ballot_id());
 
     pub fn any_voter() -> impl Strategy<Value = Voter> {
         prop_oneof![
-            any_hash28().prop_map(Voter::ConstitutionalCommitteeKey),
-            any_hash28().prop_map(Voter::ConstitutionalCommitteeScript),
-            any_hash28().prop_map(Voter::DRepKey),
-            any_hash28().prop_map(Voter::DRepScript),
-            any_hash28().prop_map(Voter::StakePoolKey),
+            any::<Hash<KEY>>().prop_map(Voter::ConstitutionalCommitteeKey),
+            any::<Hash<SCRIPT>>().prop_map(Voter::ConstitutionalCommitteeScript),
+            any::<Hash<KEY>>().prop_map(Voter::DRepKey),
+            any::<Hash<SCRIPT>>().prop_map(Voter::DRepScript),
+            any::<Hash<POOL_COLD_KEY>>().prop_map(Voter::StakePoolKey),
         ]
     }
 

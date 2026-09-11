@@ -221,7 +221,7 @@ mod tests {
             fixed_bytes::FixedBytes,
             network_block::{EncodedTestBlock, make_block},
         },
-        size::{BLOCK_BODY, HEADER},
+        size::BLOCK_BODY,
     };
 
     /// Body hash and size of a test block, so seed headers are close to the blocks
@@ -307,7 +307,7 @@ mod tests {
 
     /// Create an arbitrary Header, with an arbitrary parent, possibly set to None
     pub fn any_header() -> impl Strategy<Value = Header> {
-        (0u64..=1_000_000, 0u64..=1_000_000, prop::option::weighted(0.01, any_header_hash()))
+        (0u64..=1_000_000, 0u64..=1_000_000, prop::option::weighted(0.01, any::<HeaderHash>()))
             .prop_map(|(block_number, slot, prev_hash)| make_header(block_number, slot, prev_hash))
     }
 
@@ -320,10 +320,5 @@ mod tests {
     /// Create an arbitrary Header, with an arbitrary parent that is guaranteed to be Some
     pub fn any_header_with_some_parent() -> impl Strategy<Value = Header> {
         any_header().prop_flat_map(|h| any_header_with_parent(h.hash()))
-    }
-
-    /// Create an arbitrary header hash with the right number of bytes
-    pub fn any_header_hash() -> impl Strategy<Value = HeaderHash> {
-        any::<[u8; HEADER]>().prop_map(Hash::from)
     }
 }

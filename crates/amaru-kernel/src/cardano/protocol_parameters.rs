@@ -567,8 +567,8 @@ mod tests {
     use crate::{
         CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
         KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RewardAccount, any_constitution, any_credential, any_hash28, any_proposal_id,
-        any_rational_number, any_reward_account, size::SCRIPT,
+        ProtocolVersion, RewardAccount, any_constitution, any_credential, any_proposal_id, any_rational_number,
+        any_reward_account, size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -861,7 +861,7 @@ mod tests {
     }
 
     pub fn any_guardrails_script() -> impl Strategy<Value = Option<Hash<SCRIPT>>> {
-        option::of(any_hash28())
+        option::of(any::<Hash<SCRIPT>>())
     }
 
     prop_compose! {

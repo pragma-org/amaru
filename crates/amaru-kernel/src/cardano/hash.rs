@@ -14,6 +14,9 @@
 
 use std::{fmt, ops::Deref, str::FromStr};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::cbor;
 
 // -----------------------------------------------------------------------------
@@ -78,6 +81,16 @@ impl<const BYTES: usize> From<[u8; BYTES]> for Hash<BYTES> {
     #[inline]
     fn from(bytes: [u8; BYTES]) -> Self {
         Self::new(bytes)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl<const BYTES: usize> Arbitrary for Hash<BYTES> {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<[u8; BYTES]>().prop_map(Hash::from).boxed()
     }
 }
 
@@ -275,24 +288,10 @@ pub fn try_from_slice<const N: usize>(slice: &[u8]) -> Option<Hash<N>> {
 // Test
 // -----------------------------------------------------------------------------
 
-#[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
-
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
-
     use super::*;
 
-    pub fn any_hash28() -> impl Strategy<Value = Hash<28>> {
-        any::<[u8; 28]>().prop_map(Hash::from)
-    }
-
-    pub fn any_hash32() -> impl Strategy<Value = Hash<32>> {
-        any::<[u8; 32]>().prop_map(Hash::from)
-    }
-
-    #[cfg(test)]
     mod serde_format {
         use super::*;
 
