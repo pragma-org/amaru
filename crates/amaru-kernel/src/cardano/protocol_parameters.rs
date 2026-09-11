@@ -567,7 +567,7 @@ mod tests {
     use crate::{
         CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
         KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RewardAccount, any_constitution, any_credential, any_epoch, any_hash28, any_proposal_id,
+        ProtocolVersion, RewardAccount, any_constitution, any_credential, any_hash28, any_proposal_id,
         any_rational_number, any_reward_account, size::SCRIPT,
     };
 
@@ -582,18 +582,6 @@ mod tests {
             ExUnits {
                 mem,
                 steps,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_ex_units_prices()(
-            mem_price in any_rational_number(),
-            step_price in any_rational_number(),
-        ) -> ExUnitPrices {
-            ExUnitPrices {
-                mem_price,
-                step_price,
             }
         }
     }
@@ -816,7 +804,7 @@ mod tests {
         prop_compose! {
             fn any_committee_registration()(
                 credential in any_credential(),
-                epoch in any_epoch(),
+                epoch in any::<Epoch>(),
             ) -> (Credential, Epoch) {
                 (credential, epoch)
             }
@@ -894,7 +882,7 @@ mod tests {
             treasury_expansion_rate in any_rational_number(),
             min_pool_cost in any::<Lovelace>(),
             lovelace_per_utxo_byte in any::<Lovelace>(),
-            prices in any_ex_units_prices(),
+            prices in any_ex_unit_prices(),
             min_fee_ref_script_lovelace_per_byte in any_rational_number(),
             stake_pool_max_retirement_epoch in any::<u64>(),
             optimal_stake_pools_count in any::<u16>(),
