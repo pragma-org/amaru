@@ -170,13 +170,13 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use proptest::prop_compose;
+    use proptest::{prelude::any, prop_compose};
 
-    use crate::{RewardAccount, any_credential, any_network};
+    use crate::{Network, RewardAccount, any_credential};
 
     prop_compose! {
         pub fn any_reward_account()(
-            network in any_network(),
+            network in any::<Network>(),
             credential in any_credential(),
         ) -> RewardAccount {
             RewardAccount::new(network, credential)

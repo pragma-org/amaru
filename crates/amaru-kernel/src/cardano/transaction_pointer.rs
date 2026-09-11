@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{Slot, cbor};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -50,27 +53,35 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
     }
 }
 
+/// Exclusive upper bound on the slots an `Arbitrary` impl draws. Defaults to the whole slot range,
+/// so `any::<T>()` places no restriction.
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlotUpperBound(pub Slot);
 
 #[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{prelude::*, prop_compose};
-
-    use super::*;
-    use crate::{Slot, prop_cbor_roundtrip};
-
-    prop_cbor_roundtrip!(TransactionPointer, any_transaction_pointer(u64::MAX));
-
-    prop_compose! {
-        pub fn any_transaction_pointer(max_slot: u64)(
-            slot in 0..max_slot,
-            transaction_index in any::<usize>(),
-        ) -> TransactionPointer {
-            TransactionPointer {
-                slot: Slot::from(slot),
-                transaction_index,
-            }
-        }
+impl Default for SlotUpperBound {
+    fn default() -> Self {
+        Self(Slot::new(u64::MAX))
     }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for TransactionPointer {
+    type Parameters = SlotUpperBound;
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(SlotUpperBound(max_slot): Self::Parameters) -> Self::Strategy {
+        (0..max_slot.as_u64(), any::<usize>())
+            .prop_map(|(slot, transaction_index)| TransactionPointer { slot: Slot::from(slot), transaction_index })
+            .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TransactionPointer;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(TransactionPointer);
 }

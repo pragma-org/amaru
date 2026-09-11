@@ -61,7 +61,7 @@ impl<'a, C: cbor::HasProtocolVersion> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{any_certificate_pointer, prop_cbor_roundtrip};
+    use amaru_kernel::{Slot, SlotUpperBound, prop_cbor_roundtrip};
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
@@ -72,7 +72,7 @@ pub mod tests {
         pub fn any_row(max_slot: u64)(
             deposit in any::<Lovelace>(),
             anchor in option::of(any::<Anchor>()),
-            registered_at in any_certificate_pointer(max_slot),
+            registered_at in any_with::<CertificatePointer>(SlotUpperBound(Slot::from(max_slot))),
             valid_until in any::<Epoch>(),
         ) -> Row {
             Row {

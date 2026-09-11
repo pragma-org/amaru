@@ -536,7 +536,7 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            RationalNumber, any_credential, any_proposal, any_proposal_pointer, utils::tests::run_strategy,
+            ProposalPointer, RationalNumber, any_credential, any_proposal, utils::tests::run_strategy,
         };
         use proptest::prelude::any;
 
@@ -576,7 +576,7 @@ mod tests {
                         }
 
                         let proposal_state = ProposalState {
-                            proposed_in: run_strategy(any_proposal_pointer(u64::MAX)),
+                            proposed_in: run_strategy(any::<ProposalPointer>()),
                             valid_until: run_strategy(any::<Epoch>()),
                             proposal: proposal.clone(),
                         };

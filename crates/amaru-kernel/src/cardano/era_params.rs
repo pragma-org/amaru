@@ -91,10 +91,10 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{any_era_name, prop_cbor_roundtrip};
+    use crate::prop_cbor_roundtrip;
 
     prop_compose! {
-        pub fn any_era_params()(epoch_size_slots in 1u64..65535, slot_length in 1u64..65535, era_name in any_era_name()) -> EraParams {
+        pub fn any_era_params()(epoch_size_slots in 1u64..65535, slot_length in 1u64..65535, era_name in any::<EraName>()) -> EraParams {
             EraParams {
                 epoch_size_slots,
                 slot_length: Duration::from_secs(slot_length),
