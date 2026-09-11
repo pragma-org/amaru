@@ -547,8 +547,7 @@ mod tests {
     use crate::{
         CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
         KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RationalNumber, RewardAccount, any_constitution, any_credential, any_reward_account,
-        size::SCRIPT,
+        ProtocolVersion, RationalNumber, RewardAccount, any_constitution, size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -762,7 +761,7 @@ mod tests {
 
         prop_compose! {
             fn any_committee_registration()(
-                credential in any_credential(),
+                credential in any::<Credential>(),
                 epoch in any::<Epoch>(),
             ) -> (Credential, Epoch) {
                 (credential, epoch)
@@ -773,7 +772,7 @@ mod tests {
             #[allow(clippy::unwrap_used)]
             fn any_committee_update()(
                 parent_proposal_id in any_parent_proposal_id(),
-                to_remove in collection::btree_set(any_credential(), 0..3),
+                to_remove in collection::btree_set(any::<Credential>(), 0..3),
                 to_add in collection::vec(any_committee_registration(), 0..3),
                 quorum in any::<RationalNumber>(),
             ) -> GovernanceAction {
@@ -812,7 +811,7 @@ mod tests {
 
     prop_compose! {
         pub fn any_withdrawal()(
-            reward_account in any_reward_account(),
+            reward_account in any::<RewardAccount>(),
             amount in any::<Lovelace>(),
         ) -> (RewardAccount, Lovelace) {
             (reward_account, amount)

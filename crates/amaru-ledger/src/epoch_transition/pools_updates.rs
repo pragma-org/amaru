@@ -210,8 +210,8 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        CertificatePointer, Epoch, Lovelace, Network, PoolId, PoolParams, RewardAccount, any_credential,
-        any_pool_params, utils::tests::run_strategy,
+        CertificatePointer, Credential, Epoch, Lovelace, Network, PoolId, PoolParams, RewardAccount, any_pool_params,
+        utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
 
@@ -396,7 +396,7 @@ mod tests {
             (any_pool_params(), any_pool_params())
                 .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id != pool_b.id),
         );
-        let reward_credential = run_strategy(any_credential());
+        let reward_credential = run_strategy(any::<Credential>());
         let reward_account = RewardAccount::new(Network::Testnet, reward_credential);
 
         let deposit_a = 1_000_000;

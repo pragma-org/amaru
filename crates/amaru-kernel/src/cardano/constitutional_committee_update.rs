@@ -61,7 +61,7 @@ pub use tests::*;
 mod tests {
     use proptest::{collection, prelude::*};
 
-    use crate::{ConstitutionalCommitteeUpdate, Epoch, any_credential, safe_ratio};
+    use crate::{ConstitutionalCommitteeUpdate, Credential, Epoch, safe_ratio};
 
     pub fn any_constitutional_committee_update(
         any_epoch: impl Strategy<Value = Epoch>,
@@ -70,8 +70,8 @@ mod tests {
 
         let any_change_members = (
             any::<u8>(),
-            collection::btree_set(any_credential(), 0..3),
-            collection::btree_map(any_credential(), any_epoch, 0..3),
+            collection::btree_set(any::<Credential>(), 0..3),
+            collection::btree_map(any::<Credential>(), any_epoch, 0..3),
         )
             .prop_map(|(numerator, removed, added)| ConstitutionalCommitteeUpdate::ChangeMembers {
                 removed,

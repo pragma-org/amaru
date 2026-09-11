@@ -244,26 +244,3 @@ macro_rules! parse_stake_fn {
 // types 14-15 are Stake addresses
 parse_stake_fn!(parse_type_14, KeyHash);
 parse_stake_fn!(parse_type_15, ScriptHash);
-
-#[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use crate::{Address, Credential, Hash, Network, ShelleyAddress, StakeReference, size::KEY};
-
-    pub fn any_shelley_address() -> impl Strategy<Value = Address> {
-        (any::<bool>(), any::<Hash<KEY>>(), any::<Hash<KEY>>()).prop_map(
-            |(is_mainnet, payment_hash, delegation_hash)| {
-                let network = if is_mainnet { Network::Mainnet } else { Network::Testnet };
-
-                let payment = Credential::KeyHash(payment_hash);
-                let delegation = Some(StakeReference::Credential(Credential::KeyHash(delegation_hash)));
-
-                Address::Shelley(ShelleyAddress::new(network, payment, delegation))
-            },
-        )
-    }
-}

@@ -277,8 +277,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Credential, Epoch, NULL_HASH28, RationalNumber, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_credential,
-        any_vote_ref, into_safe_ratio, utils::tests::assert_strategy_sometimes_fails,
+        Credential, Epoch, NULL_HASH28, RationalNumber, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_vote_ref,
+        into_safe_ratio, utils::tests::assert_strategy_sometimes_fails,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
@@ -294,9 +294,10 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate,
-            Credential, Epoch, RationalNumber, SafeRatio, any_credential, rational_number::safe_ratio,
+            Credential, Epoch, RationalNumber, SafeRatio, rational_number::safe_ratio,
             utils::tests::run_strategy_with_seed,
         };
+        use proptest::prelude::any;
         use test_case::test_case;
 
         use super::super::ConstitutionalCommittee;
@@ -326,7 +327,7 @@ mod tests {
         }
 
         fn credential(seed: u64) -> Credential {
-            run_strategy_with_seed(seed, any_credential())
+            run_strategy_with_seed(seed, any::<Credential>())
         }
 
         fn no_confidence() -> ConstitutionalCommitteeStatus {
@@ -651,9 +652,9 @@ mod tests {
         pub fn any_constitutional_committee()(
             threshold in any::<RationalNumber>(),
             members in collection::btree_map(
-                any_credential(),
+                any::<Credential>(),
                 (
-                    prop_oneof![3 => any_credential().prop_map(Some), 1 => Just(None)],
+                    prop_oneof![3 => any::<Credential>().prop_map(Some), 1 => Just(None)],
                     any_epoch()
                 ),
                 0..MAX_COMMITTEE_SIZE,
