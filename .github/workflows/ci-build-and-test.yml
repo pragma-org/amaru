@@ -38,13 +38,14 @@ jobs:
 
   # To populate the cache on the Blacksmith runners too.
   build-linux-x86_64-blacksmith:
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: Build/Test x86_64/linux
     uses: ./.github/workflows/template-cargo-test.yml
     with:
-      runner: blacksmith-8vcpu-ubuntu-2404
+      runner: blacksmith-2vcpu-ubuntu-2404
       target: x86_64-unknown-linux-gnu
       command: test -p amaru --no-run
-      cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
+      cache-mode: WRITE
 
   build-linux-aarch64:
     name: Build/Test aarch64/linux
