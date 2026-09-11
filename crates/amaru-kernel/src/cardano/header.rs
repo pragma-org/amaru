@@ -326,10 +326,4 @@ mod tests {
     pub fn any_header_hash() -> impl Strategy<Value = HeaderHash> {
         any::<[u8; HEADER]>().prop_map(Hash::from)
     }
-
-    /// Create an arbitrary FakeHeader
-    pub fn any_fake_header() -> impl Strategy<Value = Header> {
-        (0u64..=1_000_000, 0u64..=1_000_000, prop::option::weighted(0.01, any_header_hash()))
-            .prop_map(|(block_number, slot, parent)| make_header(block_number, slot, parent))
-    }
 }
