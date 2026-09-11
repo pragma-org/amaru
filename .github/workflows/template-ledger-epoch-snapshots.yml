@@ -31,9 +31,8 @@ jobs:
     name: End-to-end snapshot tests
     runs-on: ubuntu-24.04
     concurrency:
-      group: ledger-epoch-snapshots-${{ matrix.network.name }}
-      cancel-in-progress: false
-      queue: max
+      group: ledger-epoch-snapshots-${{ matrix.network.name }}-${{ github.head_ref || github.ref }}
+      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
