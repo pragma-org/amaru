@@ -138,7 +138,7 @@ impl BlockValidator {
     ) -> std::io::Result<Self>
     where
         S: Store + Send + 'static,
-        HS: HistoricalStores + Send + 'static,
+        HS: HistoricalStores + Send + Sync + 'static,
     {
         let (sender, mut receiver) = mpsc::channel(REQUEST_QUEUE_BOUND);
         let join = thread::Builder::new().name("ledger".into()).spawn(move || {
@@ -263,7 +263,7 @@ struct LedgerThread<S: Store, HS: HistoricalStores> {
     vm_eval_pool: ArenaPool,
 }
 
-impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS> {
+impl<S: Store + Send, HS: HistoricalStores + Send + Sync + 'static> LedgerThread<S, HS> {
     fn handle(&mut self, request: LedgerRequest) {
         match request {
             LedgerRequest::RollForwardBlock(block, reply) => {
