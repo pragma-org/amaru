@@ -14,7 +14,7 @@
 
 use std::{
     borrow::BorrowMut,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     fmt::{Debug, Display},
     str::FromStr,
     sync::{Arc, Mutex},
@@ -167,7 +167,8 @@ pub fn make_state_in_epoch_with_snapshots_and_store(
         protocol_parameters,
         GovernanceActivity::default(),
         None,
-        VecDeque::new(),
+        None,
+        None,
     );
     (state, stable)
 }
