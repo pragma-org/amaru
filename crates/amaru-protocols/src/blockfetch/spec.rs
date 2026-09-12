@@ -163,7 +163,7 @@ pub(crate) fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &Project
     assert_eq!(cfg.wire_payload, dummy_messages());
 }
 
-fn map_i(state: &StateId) -> StateId {
+pub(crate) fn map_i(state: &StateId) -> StateId {
     match state {
         StateId::Named("Idle" | "Busy" | "Streaming" | "Done") => state.clone(),
         StateId::Named(other) => panic!("unexpected named state {other}"),
@@ -171,7 +171,7 @@ fn map_i(state: &StateId) -> StateId {
     }
 }
 
-fn map_r(state: &StateId) -> StateId {
+pub(crate) fn map_r(state: &StateId) -> StateId {
     match state {
         StateId::Named("Idle" | "Done") => state.clone(),
         StateId::Named(other) => panic!("unexpected named state {other}"),
@@ -183,7 +183,7 @@ fn map_r(state: &StateId) -> StateId {
     }
 }
 
-fn initiator_type_graph() -> TypeGraph {
+pub(crate) fn initiator_type_graph() -> TypeGraph {
     typestate_graph! {
         proto: super::initiator::Proto,
         receiving: { Idle, Busy, Streaming },
@@ -191,7 +191,7 @@ fn initiator_type_graph() -> TypeGraph {
     }
 }
 
-fn responder_type_graph() -> TypeGraph {
+pub(crate) fn responder_type_graph() -> TypeGraph {
     use super::responder::{Done, Idle, Proto};
     typestate_graph! {
         proto: Proto,
@@ -202,12 +202,7 @@ fn responder_type_graph() -> TypeGraph {
 
 #[test]
 fn collapsed_responder_dual_equals_collapsed_initiator() {
-    let spec = session_spec();
-    let spec_i = spec.project(Role::Initiator);
-    let spec_r = spec.project(Role::Responder);
     let h_i = project(&initiator_type_graph(), &ProjectionConfig::blockfetch_initiator()).unwrap();
     let h_r = project(&responder_type_graph(), &ProjectionConfig::blockfetch_responder()).unwrap();
-    h_i.assert_refines(&spec_i, map_i);
-    h_r.assert_refines(&spec_r, map_r);
     h_r.collapse(map_r).dual().assert_bisimilar(&h_i.collapse(map_i));
 }

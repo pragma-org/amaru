@@ -304,12 +304,11 @@ pub mod tests {
         StageGraph,
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
         typestate::{FmtPar, OnReceive, Session, State},
-        typestate_graph,
     };
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{assert_wire_inputs_cover_receives, dummy_messages, session_spec},
+        super::spec::{assert_wire_inputs_cover_receives, dummy_messages, map_r, responder_type_graph, session_spec},
         *,
     };
     use crate::{
@@ -356,27 +355,9 @@ pub mod tests {
         assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Done", send_desc::<ToMux, WantNext>()));
     }
 
-    fn map_r(state: &StateId) -> StateId {
-        match state {
-            StateId::Named("Idle" | "Done") => state.clone(),
-            StateId::Named(other) => panic!("unexpected named state {other}"),
-            StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange"] => {
-                StateId::Named("Busy")
-            }
-            StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange", "StartBatch"] => {
-                StateId::Named("Streaming")
-            }
-            StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
-        }
-    }
-
     #[test]
     fn responder_projects_to_table_3_7() {
-        let g = typestate_graph! {
-            proto: Proto,
-            receiving: { Idle },
-            empty: { Done },
-        };
+        let g = responder_type_graph();
         // No occupancy: responder `make_states!` has no switch.
         assert!(g.occupancy.is_empty());
         // Empty Done is extracted; occupancy-empty would also hold without it.
@@ -669,7 +650,6 @@ pub mod tests {
         assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
     }
 
-    /// Remainder dest is Done; after this invocation the live token is Idle and WantNext was sent.
     #[test]
     fn close_idle_resets() {
         let mut network = SimulationBuilder::default();
@@ -684,6 +664,7 @@ pub mod tests {
         let log = running.get_state(&mux).cloned().unwrap();
         assert!(log.sends.is_empty());
         assert_eq!(log.wants, 2);
+        assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Done", send_desc::<ToMux, WantNext>()));
         assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
     }
 

@@ -469,34 +469,24 @@ mod tests {
         StageGraph,
         simulation::{Run, SimulationBuilder},
         typestate::State,
-        typestate_graph,
     };
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{assert_message_alphabet_covered, assert_wire_inputs_cover_receives, session_spec},
+        super::spec::{
+            assert_message_alphabet_covered, assert_wire_inputs_cover_receives, initiator_type_graph, map_i,
+            session_spec,
+        },
         *,
     };
     use crate::{
         mux::{MuxMessage, Sent},
-        protocol::{Inputs, ProjectionConfig, Role, StateId, check_timeouts, check_want_next, project},
+        protocol::{Inputs, ProjectionConfig, Role, check_timeouts, check_want_next, project},
     };
-
-    fn map_i(state: &StateId) -> StateId {
-        match state {
-            StateId::Named("Idle" | "Busy" | "Streaming" | "Done") => state.clone(),
-            StateId::Named(other) => panic!("unexpected named state {other}"),
-            StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
-        }
-    }
 
     #[test]
     fn initiator_projects_to_table_3_7() {
-        let g = typestate_graph! {
-            proto: Proto,
-            receiving: { Idle, Busy, Streaming },
-            empty: { Done },
-        };
+        let g = initiator_type_graph();
         let cfg = ProjectionConfig::blockfetch_initiator();
         let spec = session_spec();
         assert_eq!(spec.timeout(&Idle::NAME), None);
