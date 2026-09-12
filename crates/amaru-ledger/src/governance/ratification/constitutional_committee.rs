@@ -277,8 +277,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Credential, Epoch, Hash, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_credential, any_rational_number, any_vote_ref,
-        into_safe_ratio, utils::tests::assert_strategy_sometimes_fails,
+        Credential, Epoch, NULL_HASH28, SafeRatio, VOTE_NO, VOTE_YES, Vote, any_credential, any_rational_number,
+        any_vote_ref, into_safe_ratio, utils::tests::assert_strategy_sometimes_fails,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
@@ -288,7 +288,171 @@ mod tests {
     const MIN_ARBITRARY_EPOCH: u64 = 10;
     const MAX_COMMITTEE_SIZE: usize = 10;
 
-    const NULL_HASH: [u8; 28] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    #[cfg(test)]
+    mod constitutional_committee_resolve {
+        use std::collections::BTreeMap;
+
+        use amaru_kernel::{
+            ConstitutionalCommitteeMemberStatus, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate,
+            Credential, Epoch, RationalNumber, SafeRatio, any_credential, rational_number::safe_ratio,
+            utils::tests::run_strategy_with_seed,
+        };
+        use test_case::test_case;
+
+        use super::super::ConstitutionalCommittee;
+        use crate::store::{ReadStore, StoreError, columns::cc_members};
+
+        type Member = (Credential, Option<Credential>, Option<u64>);
+
+        struct Mock {
+            committee: ConstitutionalCommitteeStatus,
+            members: Vec<(Credential, cc_members::Row)>,
+        }
+
+        impl ReadStore for Mock {
+            fn constitutional_committee(&self) -> Result<ConstitutionalCommitteeStatus, StoreError> {
+                Ok(self.committee.clone())
+            }
+
+            fn iter_cc_members(&self) -> Result<impl Iterator<Item = (Credential, cc_members::Row)>, StoreError> {
+                Ok(self.members.iter().copied())
+            }
+        }
+
+        #[derive(Debug, PartialEq, Eq)]
+        enum ExpectedCommittee {
+            None,
+            Committee { threshold: SafeRatio, members: BTreeMap<Credential, (Option<Credential>, Epoch)> },
+        }
+
+        fn credential(seed: u64) -> Credential {
+            run_strategy_with_seed(seed, any_credential())
+        }
+
+        fn no_confidence() -> ConstitutionalCommitteeStatus {
+            ConstitutionalCommitteeStatus::NoConfidence
+        }
+
+        fn trusted(numerator: u64, denominator: u64) -> ConstitutionalCommitteeStatus {
+            ConstitutionalCommitteeStatus::Trusted { threshold: RationalNumber { numerator, denominator } }
+        }
+
+        fn change_members(
+            removed: &[Credential],
+            added: &[(Credential, u64)],
+            threshold: SafeRatio,
+        ) -> ConstitutionalCommitteeUpdate {
+            ConstitutionalCommitteeUpdate::ChangeMembers {
+                removed: removed.iter().copied().collect(),
+                added: added.iter().copied().map(|(cold, epoch)| (cold, Epoch::from(epoch))).collect(),
+                threshold,
+            }
+        }
+
+        fn stored_member((cold, hot, valid_until): Member) -> (Credential, cc_members::Row) {
+            (
+                cold,
+                cc_members::Row {
+                    valid_until: valid_until.map(Epoch::from),
+                    status: hot.map(ConstitutionalCommitteeMemberStatus::from),
+                },
+            )
+        }
+
+        #[test_case(
+            no_confidence(),
+            vec![
+                (credential(1), Some(credential(10)), Some(99)),
+            ],
+            None
+            => ExpectedCommittee::None;
+            "no confidence without an update"
+        )]
+        #[test_case(
+            trusted(2, 3),
+            vec![
+                (credential(1), Some(credential(10)), Some(99)),
+            ],
+            Some(ConstitutionalCommitteeUpdate::NoConfidence)
+            => ExpectedCommittee::None;
+            "no-confidence update overrides a trusted committee"
+        )]
+        #[test_case(
+            no_confidence(),
+            vec![
+                (credential(1), Some(credential(10)),     None),
+                (credential(2), Some(credential(20)), Some(99)),
+                (credential(3),                 None, Some(99)),
+            ],
+            Some(change_members(
+                &[],
+                &[(credential(1), 100), (credential(3), 300), (credential(4), 400)],
+                safe_ratio(2, 3)
+            ))
+            => ExpectedCommittee::Committee {
+                threshold: safe_ratio(2, 3),
+                members: BTreeMap::from([
+                    (credential(1), (Some(credential(10)), Epoch::from(100))),
+                    (credential(3), (                None, Epoch::from(300))),
+                    (credential(4), (                None, Epoch::from(400))),
+                ]),
+            };
+            "an update restores a committee from no confidence"
+        )]
+        #[test_case(
+            trusted(2, 3),
+            vec![
+                (credential(1), Some(credential(10)), Some(99)),
+                (credential(2), Some(credential(20)), Some(99)),
+                (credential(3), Some(credential(30)),     None),
+                (credential(4),                 None, Some(99)),
+            ],
+            None
+            => ExpectedCommittee::Committee {
+                threshold: safe_ratio(2, 3),
+                members: BTreeMap::from([
+                    (credential(1), (Some(credential(10)), Epoch::from(99))),
+                    (credential(2), (Some(credential(20)), Epoch::from(99))),
+                    (credential(4), (                None, Epoch::from(99))),
+                ]),
+            };
+            "trusted committee keeps only seated members"
+        )]
+        #[test_case(
+            trusted(1, 2),
+            vec![
+                (credential(1), Some(credential(10)), Some(99)),
+                (credential(2), Some(credential(20)), Some(99)),
+                (credential(3), Some(credential(30)),     None),
+            ],
+            Some(change_members(
+                &[credential(1), credential(2)],
+                &[(credential(3), 300), (credential(4), 400)],
+                safe_ratio(3, 4)
+            ))
+            => ExpectedCommittee::Committee {
+                threshold: safe_ratio(3, 4),
+                members: BTreeMap::from([
+                    (credential(3), (Some(credential(30)), Epoch::from(300))),
+                    (credential(4), (                None, Epoch::from(400))),
+                ]),
+            };
+            "update removes, re-adds, and introduces committee members"
+        )]
+        fn resolve(
+            committee: ConstitutionalCommitteeStatus,
+            members: Vec<Member>,
+            update: Option<ConstitutionalCommitteeUpdate>,
+        ) -> ExpectedCommittee {
+            let db = Mock { committee, members: members.into_iter().map(stored_member).collect() };
+            match ConstitutionalCommittee::resolve(&db, update).unwrap() {
+                None => ExpectedCommittee::None,
+                Some(committee) => {
+                    ExpectedCommittee::Committee { threshold: committee.threshold, members: committee.members }
+                }
+            }
+        }
+    }
 
     proptest! {
         #[test]
@@ -299,7 +463,7 @@ mod tests {
 
             // If no active members, let's add one.
             if active_members.is_empty() {
-                let cold_credential = Credential::KeyHash(Hash::from(NULL_HASH));
+                let cold_credential = Credential::KeyHash(NULL_HASH28);
                 let hot_credential = cold_credential;
                 committee.update(
                     committee.threshold().clone(),
