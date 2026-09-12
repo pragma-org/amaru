@@ -18,6 +18,9 @@
 //! [`SessionSpec::project`] orients that table for one [`Role`]. Handler
 //! [`project`] hides mux plumbing, timers, and local roles, unfolding remainder
 //! sequences onto a [`Cfsm`]. Comparisons run in tests and panic on mismatch.
+//!
+//! [`check_want_next`] and [`check_timeouts`] inspect the unprojected graph
+//! (driven vs undriven tables). They do not compare timeout durations.
 
 #![expect(clippy::panic, clippy::unwrap_used)]
 
@@ -473,7 +476,7 @@ where
     }
 }
 
-/// Hand-written per protocol. `driven` is stored for later WantNext/timeout checkers.
+/// Hand-written per protocol. `driven` selects the WantNext and timeout tables.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectionConfig<M> {
     pub role: Role,
@@ -935,6 +938,472 @@ fn duplicate_wire_payload<M: Ord>(cfg: &ProjectionConfig<M>) -> Option<(PayloadN
         }
     }
     None
+}
+
+const WANT_NEXT_PAYLOAD: PayloadName = "WantNext";
+
+/// Why [`check_want_next`] rejected a remainder graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WantNextError {
+    WantNextInStar { state: StateName, input: InputName },
+    WantNextMustBeSend { state: StateName, input: InputName },
+    DuplicateWantNext { state: StateName, input: InputName },
+    WantNextForbidden { state: StateName, input: InputName },
+    WantNextMissing { state: StateName, input: InputName },
+    DestNotSelf { state: StateName, input: InputName },
+    MissingPull { dest: StateName },
+}
+
+impl Display for WantNextError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WantNextError::WantNextInStar { state, input } => {
+                write!(f, "WantNext inside Repeat at {state} + {input}")
+            }
+            WantNextError::WantNextMustBeSend { state, input } => {
+                write!(f, "WantNext must be Send (not Call) at {state} + {input}")
+            }
+            WantNextError::DuplicateWantNext { state, input } => {
+                write!(f, "more than one WantNext at {state} + {input}")
+            }
+            WantNextError::WantNextForbidden { state, input } => {
+                write!(f, "WantNext forbidden at {state} + {input}")
+            }
+            WantNextError::WantNextMissing { state, input } => {
+                write!(f, "WantNext required at {state} + {input}")
+            }
+            WantNextError::DestNotSelf { state, input } => {
+                write!(f, "Pull WantNext dest must be self at {state} + {input}")
+            }
+            WantNextError::MissingPull { dest } => {
+                write!(f, "driven Switch to Remote requires a Pull arm on {dest}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WantNextError {}
+
+/// Why [`check_timeouts`] rejected a remainder graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TimeoutError {
+    SetTimeoutForbidden { state: StateName, input: InputName },
+    SetTimeoutMissing { state: StateName, input: InputName },
+    ClearTimeoutForbidden { state: StateName, input: InputName },
+    ClearTimeoutMissing { state: StateName, input: InputName },
+}
+
+impl Display for TimeoutError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TimeoutError::SetTimeoutForbidden { state, input } => {
+                write!(f, "SetTimeout forbidden at {state} + {input}")
+            }
+            TimeoutError::SetTimeoutMissing { state, input } => {
+                write!(f, "SetTimeout required at {state} + {input}")
+            }
+            TimeoutError::ClearTimeoutForbidden { state, input } => {
+                write!(f, "ClearTimeout forbidden at {state} + {input}")
+            }
+            TimeoutError::ClearTimeoutMissing { state, input } => {
+                write!(f, "ClearTimeout required at {state} + {input}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TimeoutError {}
+
+#[derive(Clone, Copy)]
+enum InputKind {
+    Plumbing,
+    Local,
+    Wire,
+    Unknown,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    Required,
+    Forbidden,
+    Optional,
+}
+
+/// Mux `WantNext` well-formedness on the unprojected remainder graph.
+///
+/// `WantNext` is `Send<ToMux, WantNext>`, at most once per alternative, never
+/// inside `Repeat`. Driven vs undriven tables follow occupancy / waiting states.
+pub fn check_want_next<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>) -> Result<(), WantNextError> {
+    let mut need_pull = BTreeSet::new();
+
+    for (state, inputs) in &graph.receives {
+        for (input, rem) in inputs {
+            let kind = input_kind(cfg, input);
+            for alt in &rem.alternatives {
+                let present = want_next_present(state, input, alt, cfg.mux_role)?;
+                apply_want_next_rule(graph, cfg, state, input, kind, alt.next, present, &mut need_pull)?;
+            }
+        }
+    }
+
+    if cfg.driven {
+        for dest in need_pull {
+            if !has_pull_arm(graph, cfg, dest) {
+                return Err(WantNextError::MissingPull { dest });
+            }
+        }
+    } else if is_waiting(graph, cfg, graph.initial) && !has_pull_arm(graph, cfg, graph.initial) {
+        return Err(WantNextError::MissingPull { dest: graph.initial });
+    }
+
+    Ok(())
+}
+
+/// Agency-timer presence on the unprojected remainder graph.
+///
+/// Looks up [`SessionSpec`] timeouts by typestate constructor name (`rem.next` /
+/// occupancy dest). Duration values are not compared.
+pub fn check_timeouts<M>(
+    graph: &TypeGraph,
+    cfg: &ProjectionConfig<M>,
+    spec: &SessionSpec<StateName, M>,
+) -> Result<(), TimeoutError>
+where
+    M: Clone + Ord + std::fmt::Debug,
+{
+    for (state, inputs) in &graph.receives {
+        for (input, rem) in inputs {
+            let kind = input_kind(cfg, input);
+            for alt in &rem.alternatives {
+                let timers = timer_presence(alt);
+                let holds_agency = holds_peer_agency(alt, cfg.peer_role);
+                apply_timeout_rule(graph, cfg, spec, state, input, kind, alt.next, timers, holds_agency)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Test helper: spec timeout for a named constructor, if any.
+pub fn spec_timeout<S, M>(spec: &SessionSpec<S, M>, name: S) -> Option<Duration>
+where
+    S: Clone + Ord + std::fmt::Debug,
+    M: Clone + Ord + std::fmt::Debug,
+{
+    spec.timeout(&name)
+}
+
+fn input_kind<M>(cfg: &ProjectionConfig<M>, input: InputName) -> InputKind {
+    if cfg.plumbing_inputs.contains(input) {
+        InputKind::Plumbing
+    } else if cfg.local_inputs.contains(input) {
+        InputKind::Local
+    } else if cfg.wire_inputs.contains_key(input) {
+        InputKind::Wire
+    } else {
+        InputKind::Unknown
+    }
+}
+
+fn occupancy_of(graph: &TypeGraph, name: StateName) -> Option<Occupancy> {
+    graph.occupancy.get(name).copied()
+}
+
+fn is_waiting<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>, state: StateName) -> bool {
+    match occupancy_of(graph, state) {
+        Some(Occupancy::Remote) => true,
+        Some(Occupancy::Switch | Occupancy::Terminal) => false,
+        None => graph.receives.get(state).is_some_and(|inputs| {
+            inputs.keys().any(|input| cfg.plumbing_inputs.contains(input) || cfg.wire_inputs.contains_key(input))
+        }),
+    }
+}
+
+fn has_pull_arm<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>, state: StateName) -> bool {
+    graph.receives.get(state).is_some_and(|inputs| inputs.keys().any(|input| cfg.plumbing_inputs.contains(input)))
+}
+
+fn want_next_present(state: StateName, input: InputName, alt: &ThenAst, mux: RoleName) -> Result<bool, WantNextError> {
+    let mut scan = WantNextScan::default();
+    for branch in &alt.parallel {
+        scan_want_next(branch, mux, false, &mut scan);
+    }
+    if scan.in_star {
+        return Err(WantNextError::WantNextInStar { state, input });
+    }
+    if scan.calls > 0 {
+        return Err(WantNextError::WantNextMustBeSend { state, input });
+    }
+    if scan.sends > 1 {
+        return Err(WantNextError::DuplicateWantNext { state, input });
+    }
+    Ok(scan.sends == 1)
+}
+
+#[derive(Default)]
+struct WantNextScan {
+    sends: usize,
+    calls: usize,
+    in_star: bool,
+}
+
+fn scan_want_next(effects: &[EffectAst], mux: RoleName, in_star: bool, scan: &mut WantNextScan) {
+    for e in effects {
+        match e {
+            EffectAst::Repeat(body) => scan_want_next(body, mux, true, scan),
+            EffectAst::Send { role, payload } if *role == mux && *payload == WANT_NEXT_PAYLOAD => {
+                scan.sends += 1;
+                scan.in_star |= in_star;
+            }
+            EffectAst::Call { role, payload } if *role == mux && *payload == WANT_NEXT_PAYLOAD => {
+                scan.calls += 1;
+                scan.in_star |= in_star;
+            }
+            EffectAst::Send { .. }
+            | EffectAst::Call { .. }
+            | EffectAst::SendAny { .. }
+            | EffectAst::SetTimeout
+            | EffectAst::ClearTimeout
+            | EffectAst::Wait
+            | EffectAst::Terminate
+            | EffectAst::Clock
+            | EffectAst::Schedule { .. }
+            | EffectAst::CancelSchedule
+            | EffectAst::External { .. }
+            | EffectAst::AddStage => {}
+        }
+    }
+}
+
+#[expect(clippy::too_many_arguments)]
+fn apply_want_next_rule<M>(
+    graph: &TypeGraph,
+    cfg: &ProjectionConfig<M>,
+    state: StateName,
+    input: InputName,
+    kind: InputKind,
+    next: StateName,
+    present: bool,
+    need_pull: &mut BTreeSet<StateName>,
+) -> Result<(), WantNextError> {
+    let (rule, dest_self) = want_next_rule(graph, cfg, state, kind, next, need_pull);
+    match (rule, present) {
+        (Presence::Required, false) => Err(WantNextError::WantNextMissing { state, input }),
+        (Presence::Forbidden, true) => Err(WantNextError::WantNextForbidden { state, input }),
+        _ => {
+            if dest_self && next != state {
+                Err(WantNextError::DestNotSelf { state, input })
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
+fn want_next_rule<M>(
+    graph: &TypeGraph,
+    cfg: &ProjectionConfig<M>,
+    state: StateName,
+    kind: InputKind,
+    next: StateName,
+    need_pull: &mut BTreeSet<StateName>,
+) -> (Presence, bool) {
+    if cfg.driven {
+        driven_want_next_rule(graph, state, kind, next, need_pull)
+    } else {
+        undriven_want_next_rule(graph, cfg, kind, next)
+    }
+}
+
+fn driven_want_next_rule(
+    graph: &TypeGraph,
+    state: StateName,
+    kind: InputKind,
+    next: StateName,
+    need_pull: &mut BTreeSet<StateName>,
+) -> (Presence, bool) {
+    let Some(src) = occupancy_of(graph, state) else {
+        return (Presence::Optional, matches!(kind, InputKind::Plumbing));
+    };
+    let Some(dst) = occupancy_of(graph, next) else {
+        return (Presence::Optional, matches!(kind, InputKind::Plumbing));
+    };
+    if dst == Occupancy::Terminal {
+        return (Presence::Forbidden, false);
+    }
+    match (src, dst, kind) {
+        (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => {
+            need_pull.insert(next);
+            (Presence::Forbidden, false)
+        }
+        (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing) => (Presence::Required, true),
+        (Occupancy::Remote, Occupancy::Remote, InputKind::Wire) => (Presence::Required, false),
+        (Occupancy::Remote, Occupancy::Switch, InputKind::Wire) => (Presence::Forbidden, false),
+        _ => (Presence::Optional, matches!(kind, InputKind::Plumbing)),
+    }
+}
+
+fn undriven_want_next_rule<M>(
+    graph: &TypeGraph,
+    cfg: &ProjectionConfig<M>,
+    kind: InputKind,
+    next: StateName,
+) -> (Presence, bool) {
+    let dest_self = matches!(kind, InputKind::Plumbing);
+    if dest_self || is_waiting(graph, cfg, next) {
+        (Presence::Required, dest_self)
+    } else {
+        (Presence::Optional, dest_self)
+    }
+}
+
+struct TimerPresence {
+    set: bool,
+    clear: bool,
+}
+
+fn timer_presence(alt: &ThenAst) -> TimerPresence {
+    let mut set = false;
+    let mut clear = false;
+    for branch in &alt.parallel {
+        scan_timers(branch, &mut set, &mut clear);
+    }
+    TimerPresence { set, clear }
+}
+
+fn scan_timers(effects: &[EffectAst], set: &mut bool, clear: &mut bool) {
+    for e in effects {
+        match e {
+            EffectAst::SetTimeout => *set = true,
+            EffectAst::ClearTimeout => *clear = true,
+            EffectAst::Repeat(body) => scan_timers(body, set, clear),
+            EffectAst::Send { .. }
+            | EffectAst::Call { .. }
+            | EffectAst::SendAny { .. }
+            | EffectAst::Wait
+            | EffectAst::Terminate
+            | EffectAst::Clock
+            | EffectAst::Schedule { .. }
+            | EffectAst::CancelSchedule
+            | EffectAst::External { .. }
+            | EffectAst::AddStage => {}
+        }
+    }
+}
+
+#[expect(clippy::too_many_arguments)]
+fn apply_timeout_rule<M>(
+    graph: &TypeGraph,
+    cfg: &ProjectionConfig<M>,
+    spec: &SessionSpec<StateName, M>,
+    state: StateName,
+    input: InputName,
+    kind: InputKind,
+    next: StateName,
+    timers: TimerPresence,
+    holds_agency: bool,
+) -> Result<(), TimeoutError>
+where
+    M: Clone + Ord + std::fmt::Debug,
+{
+    let (set_rule, clear_rule) = if cfg.driven {
+        driven_timeout_rules(graph, spec, state, kind, next)
+    } else {
+        undriven_timeout_rules(graph, cfg, spec, next, holds_agency)
+    };
+    match (set_rule, timers.set) {
+        (Presence::Required, false) => {
+            return Err(TimeoutError::SetTimeoutMissing { state, input });
+        }
+        (Presence::Forbidden, true) => {
+            return Err(TimeoutError::SetTimeoutForbidden { state, input });
+        }
+        _ => {}
+    }
+    match (clear_rule, timers.clear) {
+        (Presence::Required, false) => Err(TimeoutError::ClearTimeoutMissing { state, input }),
+        (Presence::Forbidden, true) => Err(TimeoutError::ClearTimeoutForbidden { state, input }),
+        _ => Ok(()),
+    }
+}
+
+fn driven_timeout_rules<M>(
+    graph: &TypeGraph,
+    spec: &SessionSpec<StateName, M>,
+    state: StateName,
+    kind: InputKind,
+    next: StateName,
+) -> (Presence, Presence)
+where
+    M: Clone + Ord + std::fmt::Debug,
+{
+    let Some(src) = occupancy_of(graph, state) else {
+        return (Presence::Optional, Presence::Optional);
+    };
+    let Some(dst) = occupancy_of(graph, next) else {
+        return (Presence::Optional, Presence::Optional);
+    };
+    if dst == Occupancy::Terminal {
+        return (Presence::Forbidden, Presence::Optional);
+    }
+    let dest_timed = spec.timeout(&next).is_some();
+    let src_timed = spec.timeout(&state).is_some();
+    match (src, dst, kind) {
+        (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => (Presence::Forbidden, Presence::Optional),
+        (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing | InputKind::Wire) => {
+            let set = if dest_timed { Presence::Required } else { Presence::Forbidden };
+            (set, Presence::Optional)
+        }
+        (Occupancy::Remote, Occupancy::Switch, InputKind::Wire) => {
+            let clear = if src_timed { Presence::Required } else { Presence::Optional };
+            (Presence::Forbidden, clear)
+        }
+        _ => (Presence::Optional, Presence::Optional),
+    }
+}
+
+fn undriven_timeout_rules<M>(
+    graph: &TypeGraph,
+    cfg: &ProjectionConfig<M>,
+    spec: &SessionSpec<StateName, M>,
+    next: StateName,
+    holds_agency: bool,
+) -> (Presence, Presence)
+where
+    M: Clone + Ord + std::fmt::Debug,
+{
+    // SetTimeout only if we wait at `next` and do not hold local agency along the remainder.
+    let set = if is_waiting(graph, cfg, next) && !holds_agency && spec.timeout(&next).is_some() {
+        Presence::Required
+    } else {
+        Presence::Forbidden
+    };
+    (set, Presence::Optional)
+}
+
+fn holds_peer_agency(alt: &ThenAst, peer: RoleName) -> bool {
+    alt.parallel.iter().any(|branch| seq_holds_peer(branch, peer))
+}
+
+fn seq_holds_peer(effects: &[EffectAst], peer: RoleName) -> bool {
+    effects.iter().any(|e| match e {
+        EffectAst::Call { role, .. } | EffectAst::Send { role, .. } | EffectAst::SendAny { role } if *role == peer => {
+            true
+        }
+        EffectAst::Repeat(body) => seq_holds_peer(body, peer),
+        EffectAst::Call { .. }
+        | EffectAst::Send { .. }
+        | EffectAst::SendAny { .. }
+        | EffectAst::SetTimeout
+        | EffectAst::ClearTimeout
+        | EffectAst::Wait
+        | EffectAst::Terminate
+        | EffectAst::Clock
+        | EffectAst::Schedule { .. }
+        | EffectAst::CancelSchedule
+        | EffectAst::External { .. }
+        | EffectAst::AddStage => false,
+    })
 }
 
 #[cfg(test)]
@@ -1536,5 +2005,139 @@ mod tests {
         let waiting = spec.project(Role::Initiator);
         assert!(waiting.states.contains(&named("OnlyOpen")));
         assert_eq!(waiting.dest(&named("Busy"), &Msg::ClientDone), named("OnlyOpen"));
+    }
+
+    #[test]
+    fn driven_initiator_want_next_and_timeouts() {
+        let g = initiator_graph();
+        let cfg = cfg_initiator();
+        let spec = table_37();
+        check_want_next(&g, &cfg).unwrap();
+        check_timeouts(&g, &cfg, &spec).unwrap();
+        assert_eq!(spec_timeout(&spec, "Busy"), Some(Duration::from_secs(60)));
+        assert_eq!(spec_timeout(&spec, "Streaming"), Some(Duration::from_secs(60)));
+        assert_eq!(spec_timeout(&spec, "Idle"), None);
+        assert_eq!(spec_timeout(&spec, "Done"), None);
+    }
+
+    #[test]
+    fn undriven_responder_want_next_and_timeouts() {
+        let g = responder_graph();
+        let cfg = cfg_responder();
+        check_want_next(&g, &cfg).unwrap();
+        check_timeouts(&g, &cfg, &table_37()).unwrap();
+    }
+
+    #[test]
+    fn driven_fetch_with_want_next_is_forbidden() {
+        let mut g = initiator_graph();
+        g.receives
+            .get_mut("Idle")
+            .unwrap()
+            .insert("Fetch", seq(vec![call("ToResponder", "RequestRange"), send("ToMux", "WantNext")], "Busy"));
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(matches!(err, WantNextError::WantNextForbidden { state: "Idle", input: "Fetch" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_fetch_with_set_timeout_is_forbidden() {
+        let mut g = initiator_graph();
+        g.receives
+            .get_mut("Idle")
+            .unwrap()
+            .insert("Fetch", seq(vec![call("ToResponder", "RequestRange"), EffectAst::SetTimeout], "Busy"));
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::SetTimeoutForbidden { state: "Idle", input: "Fetch" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_pull_without_set_timeout_when_busy_timed() {
+        let mut g = initiator_graph();
+        g.receives.get_mut("Busy").unwrap().insert("Pull", seq(vec![send("ToMux", "WantNext")], "Busy"));
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::SetTimeoutMissing { state: "Busy", input: "Pull" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_no_blocks_without_clear_timeout() {
+        let mut g = initiator_graph();
+        g.receives
+            .get_mut("Busy")
+            .unwrap()
+            .insert("NoBlocks", seq(vec![repeat(vec![send_any("ToCollector")])], "Idle"));
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::ClearTimeoutMissing { state: "Busy", input: "NoBlocks" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_start_batch_without_want_next() {
+        let mut g = initiator_graph();
+        g.receives.get_mut("Busy").unwrap().insert("StartBatch", seq(vec![EffectAst::SetTimeout], "Streaming"));
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(matches!(err, WantNextError::WantNextMissing { state: "Busy", input: "StartBatch" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_close_forbids_want_next() {
+        let mut g = initiator_graph();
+        g.receives.get_mut("Idle").unwrap().insert(
+            "Close",
+            RemainderAst {
+                alternatives: vec![ThenAst {
+                    parallel: vec![
+                        vec![call("ToResponder", "ClientDone"), send("ToMux", "WantNext")],
+                        vec![repeat(vec![send_any("ToCollector")])],
+                    ],
+                    next: "Done",
+                }],
+            },
+        );
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(matches!(err, WantNextError::WantNextForbidden { state: "Idle", input: "Close" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_fetch_requires_pull_on_remote_dest() {
+        let mut g = initiator_graph();
+        g.receives.get_mut("Busy").unwrap().remove("Pull");
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(matches!(err, WantNextError::MissingPull { dest: "Busy" }), "{err:?}");
+    }
+
+    #[test]
+    fn want_next_in_star() {
+        let graph = idle_graph(BTreeMap::from([("Pull", seq(vec![repeat(vec![send("ToMux", "WantNext")])], "Idle"))]));
+        let err = check_want_next(&graph, &cfg_responder()).unwrap_err();
+        assert!(matches!(err, WantNextError::WantNextInStar { state: "Idle", input: "Pull" }), "{err:?}");
+    }
+
+    #[test]
+    fn want_next_must_be_send() {
+        let graph = idle_graph(BTreeMap::from([("Pull", seq(vec![call("ToMux", "WantNext")], "Idle"))]));
+        let err = check_want_next(&graph, &cfg_responder()).unwrap_err();
+        assert!(matches!(err, WantNextError::WantNextMustBeSend { state: "Idle", input: "Pull" }), "{err:?}");
+    }
+
+    #[test]
+    fn undriven_request_range_forbids_set_timeout() {
+        let mut g = responder_graph();
+        g.receives.get_mut("Idle").unwrap().insert(
+            "RequestRange",
+            choice(vec![
+                then_seq(
+                    vec![
+                        call("ToInitiator", "StartBatch"),
+                        repeat(vec![call("ToInitiator", "Block")]),
+                        call("ToInitiator", "BatchDone"),
+                        send("ToMux", "WantNext"),
+                        EffectAst::SetTimeout,
+                    ],
+                    "Idle",
+                ),
+                then_seq(vec![call("ToInitiator", "NoBlocks"), send("ToMux", "WantNext")], "Idle"),
+            ]),
+        );
+        let err = check_timeouts(&g, &cfg_responder(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::SetTimeoutForbidden { state: "Idle", input: "RequestRange" }), "{err:?}");
     }
 }

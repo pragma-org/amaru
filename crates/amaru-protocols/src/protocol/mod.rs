@@ -30,7 +30,10 @@ pub use miniprotocol::{
     Inputs, Internal, Miniprotocol, Outcome, ProtocolState, Pull, StageState, Timeout, from_wire, miniprotocol, outcome,
 };
 pub(crate) use pipeline::{MuxClient, Pipelined, ToMux, WantNext, drive, pipelined};
-pub use session::{Cfsm, Direction, Label, ProjectError, ProjectionConfig, SessionSpec, StateId, project};
+pub use session::{
+    Cfsm, Direction, Label, ProjectError, ProjectionConfig, SessionSpec, StateId, TimeoutError, WantNextError,
+    check_timeouts, check_want_next, project, spec_timeout,
+};
 
 /// Input to a protocol step
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
