@@ -70,6 +70,57 @@ pub const MIN_LEDGER_SNAPSHOTS: u64 = 3;
 // State
 // ----------------------------------------------------------------------------
 
+/// The in-memory stake distributions retained across epoch boundaries.
+///
+/// The impossible state `(current = None, previous = Some)` is ruled out by construction.
+#[derive(Default)]
+pub enum Distributions {
+    #[default]
+    None,
+    CurrentOnly(StakeDistribution),
+    CurrentAndPrevious {
+        current: StakeDistribution,
+        previous: StakeDistribution,
+    },
+}
+
+impl Distributions {
+    /// Replace the current distribution with `new`, rotating the old current into previous.
+    /// Returns the evicted previous distribution (if any).
+    fn rotate(&mut self, new: StakeDistribution) -> Option<StakeDistribution> {
+        let old = mem::replace(self, Distributions::None);
+        let (next, evicted) = match old {
+            Distributions::None => (Distributions::CurrentOnly(new), None),
+            Distributions::CurrentOnly(current) => {
+                (Distributions::CurrentAndPrevious { current: new, previous: current }, None)
+            }
+            Distributions::CurrentAndPrevious { current, previous } => {
+                (Distributions::CurrentAndPrevious { current: new, previous: current }, Some(previous))
+            }
+        };
+        *self = next;
+        evicted
+    }
+
+    fn current(&self) -> Option<&StakeDistribution> {
+        match self {
+            Distributions::None => None,
+            Distributions::CurrentOnly(d) => Some(d),
+            Distributions::CurrentAndPrevious { current, .. } => Some(current),
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &StakeDistribution> {
+        match self {
+            Distributions::None => [None, None],
+            Distributions::CurrentOnly(d) => [Some(d), None],
+            Distributions::CurrentAndPrevious { current, previous } => [Some(current), Some(previous)],
+        }
+        .into_iter()
+        .flatten()
+    }
+}
+
 /// The state of the ledger split into two sub-components:
 ///
 /// - A _stable_ and persistent storage, which contains the part of the state which known to be
@@ -98,14 +149,10 @@ where
     /// be updated but grouped here to avoid dealing with magic values everywhere.
     global_parameters: Arc<GlobalParameters>,
 
-    /// The most recently computed slim stake distribution. Updated at each epoch transition when
-    /// the background task result is joined. Used for leader schedule verification, governance
-    /// ratification, and the pool-summaries callback.
-    current_distribution: Option<StakeDistribution>,
-
-    /// The distribution computed one epoch before `current_distribution`. Retained so that
-    /// ratification — which runs one epoch behind — can access it without re-reading snapshots.
-    previous_distribution: Option<StakeDistribution>,
+    /// The in-memory stake distributions held for leader schedule verification, governance
+    /// ratification, and pool-summaries callbacks. Updated at each epoch transition when the
+    /// background task result is joined.
+    distributions: Distributions,
 
     /// The era history for the network this store is related to.
     era_history: Arc<EraHistory>,
@@ -202,8 +249,11 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             on_startup(&StartupDatabase::new(&stable, epoch, &protocol_parameters, &era_history))?;
         }
 
-        let current_distribution = initial_distributions.pop_front();
-        let previous_distribution = initial_distributions.pop_front();
+        let distributions = match (initial_distributions.pop_front(), initial_distributions.pop_front()) {
+            (None, _) => Distributions::None,
+            (Some(current), None) => Distributions::CurrentOnly(current),
+            (Some(current), Some(previous)) => Distributions::CurrentAndPrevious { current, previous },
+        };
 
         Ok(Self::new_with(
             stable,
@@ -215,8 +265,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             protocol_parameters,
             governance_activity,
             guardrail_script,
-            current_distribution,
-            previous_distribution,
+            distributions,
         ))
     }
 
@@ -231,8 +280,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         protocol_parameters: ProtocolParameters,
         governance_activity: GovernanceActivity,
         guardrail_script: Option<Hash<SCRIPT>>,
-        current_distribution: Option<StakeDistribution>,
-        previous_distribution: Option<StakeDistribution>,
+        distributions: Distributions,
     ) -> Self {
         Self {
             stable,
@@ -253,9 +301,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
             global_parameters: Arc::new(global_parameters),
 
-            current_distribution,
-
-            previous_distribution,
+            distributions,
 
             era_history: Arc::new(era_history),
 
@@ -285,7 +331,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     /// Project the small pool summaries needed for header validation (and leader schedule)
     /// from the held stake summaries. Only the `.pools` data is included.
     pub fn pool_summaries(&self) -> PoolSummaries {
-        pool_summaries_for(self.current_distribution.iter().chain(self.previous_distribution.iter()))
+        pool_summaries_for(self.distributions.iter())
     }
 
     pub fn network(&self) -> NetworkName {
@@ -414,7 +460,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             let computed_rewards = if let Some(handle) = mem::take(&mut self.rewards_join_handle) {
                 let (new_distribution, rewards) =
                     handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: "rewards".to_string() })??;
-                self.previous_distribution = self.current_distribution.replace(new_distribution);
+                self.distributions.rotate(new_distribution);
                 Some(Rewards::<Computed>::from(rewards))
             } else {
                 // A fork switch that re-crosses the epoch boundary rolled the overlay's rewards
@@ -532,7 +578,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             && Some(self.most_recent_snapshot()) == current_epoch.checked_sub(Epoch::ONE)
             && is_previous_epoch_stable
         {
-            let retained_pool_summaries = pool_summaries_for(self.current_distribution.iter());
+            let retained_pool_summaries = pool_summaries_for(self.distributions.current().into_iter());
 
             let tasks = BackgroundTasks {
                 snapshots: self.snapshots.clone(),
@@ -624,11 +670,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
     /// View the stake distribution for a given epoch, if held in memory.
     fn stake_distribution(&self, epoch: Epoch) -> Result<&StakeDistribution, StateError> {
-        [&self.current_distribution, &self.previous_distribution]
-            .into_iter()
-            .flatten()
-            .find(|d| d.epoch == epoch)
-            .ok_or(StateError::NoSuitableStakeDistribution(epoch))
+        self.distributions.iter().find(|d| d.epoch == epoch).ok_or(StateError::NoSuitableStakeDistribution(epoch))
     }
 
     /// Create a validation context for a whole block.
