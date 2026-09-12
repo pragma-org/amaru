@@ -299,7 +299,7 @@ pub mod tests {
     use amaru_pure_stage::{
         StageGraph,
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
-        typestate::{FmtPar, OnReceive, Session},
+        typestate::{FmtPar, OnReceive, Session, State},
         typestate_graph,
     };
     use tokio::runtime::{Builder, Runtime};
@@ -368,7 +368,8 @@ pub mod tests {
 
     /// Drop ClientDone so RequestRange synthetics can refine Table 3.7.
     /// Today's remainder dest is Idle; spec dest is Done. Do not retarget with
-    /// `with_restart_on_done`.
+    /// `with_restart_on_done`. Dest Idle and dest Done both pass until PR 7
+    /// deletes this helper.
     fn without_client_done(mut cfsm: Cfsm<Message>) -> Cfsm<Message> {
         for edges in cfsm.transitions.values_mut() {
             edges.retain(|label, _| !matches!(label.message, Message::ClientDone(_)));
@@ -385,6 +386,9 @@ pub mod tests {
         };
         // No occupancy: responder `make_states!` has no switch.
         assert!(g.occupancy.is_empty());
+        // Empty Done is extracted; occupancy-empty would also hold without it.
+        assert!(g.states.contains(Done::NAME));
+        assert!(g.receives[Done::NAME].is_empty());
         let cfg = ProjectionConfig::blockfetch_responder();
         let spec = session_spec();
         check_want_next(&g, &cfg).unwrap();
@@ -394,11 +398,11 @@ pub mod tests {
         let dummies = dummy_messages();
         let req = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
         let start = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange", "StartBatch"] };
-        assert_eq!(projected.dest(StateId::Named("Idle"), &dummies["RequestRange"]), req);
-        assert_eq!(projected.dest(req.clone(), &dummies["StartBatch"]), start);
-        assert_eq!(projected.dest(req, &dummies["NoBlocks"]), StateId::Named("Idle"));
-        assert_eq!(projected.dest(start.clone(), &dummies["Block"]), start);
-        assert_eq!(projected.dest(start, &dummies["BatchDone"]), StateId::Named("Idle"));
+        assert_eq!(projected.dest(&StateId::Named("Idle"), &dummies["RequestRange"]), req);
+        assert_eq!(projected.dest(&req, &dummies["StartBatch"]), start);
+        assert_eq!(projected.dest(&req, &dummies["NoBlocks"]), StateId::Named("Idle"));
+        assert_eq!(projected.dest(&start, &dummies["Block"]), start);
+        assert_eq!(projected.dest(&start, &dummies["BatchDone"]), StateId::Named("Idle"));
 
         without_client_done(projected).assert_refines(&without_client_done(spec.project(Role::Responder)), map_r);
         assert_wire_inputs_cover_receives(&g, &cfg);
