@@ -43,6 +43,11 @@ Other guiding principles:
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
+### Changed
+
+- **amaru-kernel**: opaque byte values (raw blocks, mux frames, original CBOR, and similar) are lowercase hex in JSON and CBOR byte strings in binary traces, not arrays of integers, when serialized using `serde`.
+
+## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
 ### Added
 

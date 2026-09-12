@@ -21,10 +21,34 @@ use crate::cbor;
 // Move this as a serialisation/deserialisation helper rather than being a type that
 // transpires through the type system.
 /// Encode bytes as CBOR bytes in chunks of 64 bytes max.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-#[serde(into = "String")]
-#[serde(try_from = "String")]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BoundedBytes(Vec<u8>);
+
+impl serde::Serialize for BoundedBytes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        crate::utils::serde::bytes::serialize(self.as_slice(), serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BoundedBytes {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        crate::utils::serde::bytes::deserialize(deserializer).map(Self)
+    }
+}
+
+impl schemars::JsonSchema for BoundedBytes {
+    fn schema_name() -> String {
+        "BoundedBytes".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        crate::utils::serde::bytes::json_schema("hex-encoded bytes")
+    }
+
+    fn is_referenceable() -> bool {
+        false
+    }
+}
 
 impl BoundedBytes {
     pub fn empty() -> Self {
@@ -126,5 +150,12 @@ mod tests {
         ) -> BoundedBytes {
             BoundedBytes::from(bytes)
         }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn json_is_hex_string_and_cbor_is_byte_string() {
+        let payload = [0xabu8, 0xcd];
+        crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr(&BoundedBytes::from(payload.to_vec()), &payload);
     }
 }

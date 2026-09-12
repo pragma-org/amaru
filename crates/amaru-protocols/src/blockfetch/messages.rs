@@ -22,7 +22,7 @@ define_messages! {
         ClientDone,
         StartBatch,
         NoBlocks,
-        Block { body: Vec<u8> },
+        Block { #[serde(with = "amaru_kernel::utils::serde::bytes")] body: Vec<u8> },
         BatchDone,
     }
 }
@@ -138,6 +138,13 @@ pub(crate) mod tests {
     use super::*;
 
     prop_cbor_roundtrip!(Message, any_message());
+
+    #[test]
+    fn block_body_json_is_hex_string() {
+        let msg: Message = Block { body: vec![0xab, 0xcd] }.into();
+        let json = amaru_kernel::json::to_value(&msg).expect("json");
+        assert_eq!(json["Block"]["body"], "abcd");
+    }
 
     // HELPERS
 

@@ -20,6 +20,7 @@ tracing = ["dep:tracing"]
 
 [dependencies]
 anyhow.workspace = true
+hex.workspace = true
 minicbor.workspace = true
 num-bigint.workspace = true
 num.workspace = true
@@ -27,8 +28,9 @@ serde.workspace = true
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
-hex.workspace = true
+cbor4ii.workspace = true
 proptest.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true

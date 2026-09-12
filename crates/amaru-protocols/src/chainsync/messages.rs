@@ -50,6 +50,7 @@ impl Message {
 pub struct HeaderContent {
     pub variant: EraName,
     pub byron_prefix: Option<(u8, u64)>,
+    #[serde(with = "amaru_kernel::utils::serde::bytes")]
     pub cbor: Vec<u8>,
 }
 
@@ -266,6 +267,13 @@ mod tests {
     mod header_content {
         use super::*;
         prop_cbor_roundtrip!(HeaderContent, any_header_content());
+
+        #[test]
+        fn cbor_field_json_is_hex_string() {
+            let content = HeaderContent::with_bytes(vec![0xab, 0xcd], EraName::Conway);
+            let json = amaru_kernel::json::to_value(&content).expect("json");
+            assert_eq!(json["cbor"], "abcd");
+        }
     }
 
     mod message {
