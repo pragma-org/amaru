@@ -117,13 +117,13 @@ impl<M> Cfsm<M>
 where
     M: Clone + Ord + std::fmt::Debug,
 {
-    /// Panic on mismatch. Compares reachable oriented transitions and `agency`.
-    /// Does **not** compare timeouts.
+    /// Panic on mismatch. Compares reachable oriented transitions, `agency`, and
+    /// mapped `initial`. Does **not** compare timeouts.
     #[track_caller]
     pub fn assert_refines(&self, spec: &Cfsm<M>, map: impl Fn(&StateId) -> StateId) {
         let got = self.reachable_fragment().collapse(map);
         let want = spec.reachable_fragment();
-        if got.transitions != want.transitions || got.agency != want.agency {
+        if got.initial != want.initial || got.transitions != want.transitions || got.agency != want.agency {
             panic!("assert_refines mismatch\nprojected:\n{}\n\nspec:\n{}", got.fmt_table(), want.fmt_table());
         }
     }
@@ -302,12 +302,16 @@ where
 }
 
 /// Same shape as `ProtoSpec` without `ProtocolState`.
+///
+/// The start state is the `from` of the first [`init`](Self::init) /
+/// [`resp`](Self::resp) / [`sim_open`](Self::sim_open) call. Later builder
+/// calls do not change it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSpec<S, M> {
     transitions: BTreeMap<S, PerState<S, M>>,
     /// Receiver's bound. Absence = no timer.
     timeout: BTreeMap<S, Duration>,
-    /// `from` of the first `init` / `resp` / `sim_open`.
+    /// Start state: `from` of the first `init` / `resp` / `sim_open`.
     initial: Option<S>,
 }
 
@@ -859,7 +863,9 @@ where
             if self.is_hidable(e)? {
                 continue;
             }
-            return Ok(self.as_wire_send(e));
+            if let Some(m) = self.as_wire_send(e) {
+                return Ok(Some(m));
+            }
         }
         Ok(None)
     }
@@ -911,7 +917,10 @@ where
         StateId::Named(_) => true,
         StateId::Synthetic { .. } => reach.contains(s),
     });
-    cfsm.transitions.retain(|s, _| cfsm.states.contains(s));
+    cfsm.transitions.retain(|s, _| reach.contains(s));
+    for edges in cfsm.transitions.values_mut() {
+        edges.retain(|_, to| cfsm.states.contains(to));
+    }
     cfsm.agency.retain(|s, _| cfsm.states.contains(s));
 }
 
@@ -1157,6 +1166,7 @@ mod tests {
         let spec = table_37().project(Role::Initiator);
         let got = project(&initiator_graph(), &cfg_initiator()).unwrap();
         assert!(got.states.iter().all(|s| matches!(s, StateId::Named(_))));
+        assert_eq!(got.initial, named("Idle"));
         got.assert_refines(&spec, identity);
         assert_eq!(got.agency.get(&named("Idle")), Some(&Role::Initiator));
         assert_eq!(got.agency.get(&named("Busy")), Some(&Role::Responder));
@@ -1184,6 +1194,44 @@ mod tests {
         assert_eq!(got.dest(named("Idle"), &Msg::ClientDone), named("Done"));
         got.assert_refines(&spec, map_responder);
         got.collapse(map_responder).assert_bisimilar(&spec);
+    }
+
+    #[test]
+    fn sim_open_is_recv_for_waiting_role_only() {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        enum Hs {
+            Propose,
+            Accept,
+            Refuse,
+            QueryReply,
+        }
+
+        let mut spec = SessionSpec::default();
+        spec.init("Propose", Hs::Propose, "Confirm");
+        spec.sim_open("Confirm", Hs::Propose, "Done");
+        spec.resp("Confirm", Hs::Accept, "Done");
+        spec.resp("Confirm", Hs::Refuse, "Done");
+        spec.resp("Confirm", Hs::QueryReply, "Done");
+
+        let spec_i = spec.project(Role::Initiator);
+        assert_eq!(spec_i.initial, named("Propose"));
+        assert_eq!(spec_i.dest(named("Propose"), &Hs::Propose), named("Confirm"));
+        assert_eq!(spec_i.dest(named("Confirm"), &Hs::Propose), named("Done"));
+        assert_eq!(spec_i.dest(named("Confirm"), &Hs::Accept), named("Done"));
+        let confirm_i = spec_i.transitions.get(&named("Confirm")).unwrap();
+        assert!(confirm_i.keys().all(|l| l.direction == Direction::Recv));
+        assert_eq!(spec_i.agency.get(&named("Confirm")), Some(&Role::Responder));
+
+        let spec_r = spec.project(Role::Responder);
+        assert_eq!(spec_r.initial, named("Propose"));
+        assert_eq!(spec_r.dest(named("Propose"), &Hs::Propose), named("Confirm"));
+        assert_eq!(spec_r.dest(named("Confirm"), &Hs::Accept), named("Done"));
+        assert_eq!(spec_r.dest(named("Confirm"), &Hs::Refuse), named("Done"));
+        assert_eq!(spec_r.dest(named("Confirm"), &Hs::QueryReply), named("Done"));
+        let confirm_r = spec_r.transitions.get(&named("Confirm")).unwrap();
+        assert!(confirm_r.keys().all(|l| l.direction == Direction::Send));
+        assert!(confirm_r.keys().all(|l| l.message != Hs::Propose));
+        assert_eq!(spec_r.agency.get(&named("Confirm")), Some(&Role::Responder));
     }
 
     #[test]
@@ -1309,11 +1357,94 @@ mod tests {
                 cfg: cfg_initiator(),
                 check: |e| matches!(e, ProjectError::NoWireFromLocal { state: "Idle", input: "Fetch" }),
             },
+            Case {
+                name: "NondeterministicHidableNexts",
+                graph: idle_graph(BTreeMap::from([(
+                    "ClientDone",
+                    choice(vec![
+                        then_seq(vec![send("ToMux", "WantNext")], "Idle"),
+                        then_seq(vec![send("ToMux", "WantNext")], "Done"),
+                    ]),
+                )])),
+                cfg: cfg_responder(),
+                check: |e| matches!(e, ProjectError::Nondeterministic { state: StateId::Named("Idle"), .. }),
+            },
+            Case {
+                name: "NondeterministicLocalSend",
+                graph: idle_graph(BTreeMap::from([(
+                    "Fetch",
+                    choice(vec![
+                        then_seq(vec![call("ToResponder", "RequestRange")], "Busy"),
+                        then_seq(vec![call("ToResponder", "RequestRange")], "Done"),
+                    ]),
+                )])),
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::Nondeterministic { state: StateId::Named("Idle"), .. }),
+            },
+            Case {
+                name: "AmbiguousRepeatSkipsRepeatInSuffix",
+                graph: idle_graph(BTreeMap::from([(
+                    "Fetch",
+                    seq(
+                        vec![
+                            repeat(vec![call("ToResponder", "RequestRange")]),
+                            repeat(vec![call("ToResponder", "ClientDone")]),
+                            call("ToResponder", "RequestRange"),
+                        ],
+                        "Busy",
+                    ),
+                )])),
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::AmbiguousRepeat { origin: StateId::Named("Idle") }),
+            },
+            Case {
+                name: "MixedAgency",
+                graph: idle_graph(BTreeMap::from([
+                    ("Fetch", seq(vec![call("ToResponder", "RequestRange")], "Busy")),
+                    ("StartBatch", seq(vec![send("ToMux", "WantNext")], "Streaming")),
+                ])),
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::MixedAgency { state: StateId::Named("Idle") }),
+            },
+            Case {
+                name: "OccupancyDisagree",
+                graph: {
+                    let mut g = initiator_graph();
+                    g.occupancy.insert("Idle", Occupancy::Remote);
+                    g
+                },
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::OccupancyDisagree { state: "Idle" }),
+            },
         ];
 
         for case in cases {
             let err = project(&case.graph, &case.cfg).expect_err(case.name);
             assert!((case.check)(&err), "{}: unexpected {err:?}", case.name);
         }
+    }
+
+    #[test]
+    fn unreachable_named_transitions_do_not_keep_dropped_synthetics() {
+        let graph = TypeGraph {
+            states: BTreeSet::from(["Idle", "Extra", "Done"]),
+            initial: "Idle",
+            occupancy: BTreeMap::new(),
+            receives: BTreeMap::from([
+                ("Idle", BTreeMap::from([("Pull", seq(vec![send("ToMux", "WantNext")], "Idle"))])),
+                (
+                    "Extra",
+                    BTreeMap::from([(
+                        "RequestRange",
+                        seq(vec![call("ToInitiator", "StartBatch"), send("ToMux", "WantNext")], "Idle"),
+                    )]),
+                ),
+            ]),
+        };
+        let got = project(&graph, &cfg_responder()).unwrap();
+        assert!(got.states.contains(&named("Extra")));
+        assert!(got.states.iter().all(|s| matches!(s, StateId::Named(_))));
+        assert!(!got.transitions.contains_key(&named("Extra")));
+        assert!(got.transitions.values().all(|edges| edges.values().all(|to| got.states.contains(to))));
     }
 }
