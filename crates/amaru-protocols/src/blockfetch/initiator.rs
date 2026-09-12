@@ -501,13 +501,13 @@ mod tests {
         let spec = session_spec();
         assert_eq!(spec.timeout(&Idle::NAME), None);
         assert_eq!(spec.timeout(&Done::NAME), None);
-        assert_eq!(spec.timeout(&Busy::NAME), Some(Duration::from_secs(60)));
-        assert_eq!(spec.timeout(&Streaming::NAME), Some(Duration::from_secs(60)));
+        assert_eq!(spec.timeout(&Busy::NAME), Some(BLOCKFETCH_AGENCY_TIMEOUT));
+        assert_eq!(spec.timeout(&Streaming::NAME), Some(BLOCKFETCH_AGENCY_TIMEOUT));
+        assert_eq!(BLOCKFETCH_AGENCY_TIMEOUT, Duration::from_secs(60));
         check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
         let projected = project(&g, &cfg).unwrap();
         projected.assert_refines(&spec.project(Role::Initiator), map_i);
-        assert_eq!(BLOCKFETCH_AGENCY_TIMEOUT, Duration::from_secs(60));
         assert_message_alphabet_covered(&spec, &[]);
         assert_wire_inputs_cover_receives(&g, &cfg);
     }

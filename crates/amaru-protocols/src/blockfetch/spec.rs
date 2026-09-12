@@ -63,12 +63,12 @@ macro_rules! blockfetch_dummies {
             }
         }
 
-        pub(crate) fn dummy_of_same_variant(msg: &Message) -> Message {
+        fn dummy_of_same_variant(msg: &Message) -> Message {
             dummy_payload(msg).1
         }
 
         pub(crate) fn dummy_messages() -> BTreeMap<PayloadName, Message> {
-            [$($dummy,)+].into_iter().map(|m| dummy_payload(&m)).collect()
+            [$((stringify!($var), $dummy),)+].into_iter().collect()
         }
     };
 }
