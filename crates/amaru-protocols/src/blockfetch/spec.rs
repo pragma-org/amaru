@@ -53,27 +53,33 @@ fn dummy_batch_done() -> Message {
     BatchDone.into()
 }
 
-pub(crate) fn dummy_messages() -> BTreeMap<PayloadName, Message> {
-    BTreeMap::from([
-        ("RequestRange", dummy_request_range()),
-        ("ClientDone", dummy_client_done()),
-        ("StartBatch", dummy_start_batch()),
-        ("NoBlocks", dummy_no_blocks()),
-        ("Block", dummy_block()),
-        ("BatchDone", dummy_batch_done()),
-    ])
+/// One listing feeds the exhaustive `Message` match and `dummy_messages()`.
+/// A new variant cannot compile the match without entering the alphabet.
+macro_rules! blockfetch_dummies {
+    ($($var:ident => $dummy:expr),+ $(,)?) => {
+        fn dummy_payload(msg: &Message) -> (PayloadName, Message) {
+            match msg {
+                $(Message::$var(_) => (stringify!($var), $dummy),)+
+            }
+        }
+
+        pub(crate) fn dummy_of_same_variant(msg: &Message) -> Message {
+            dummy_payload(msg).1
+        }
+
+        pub(crate) fn dummy_messages() -> BTreeMap<PayloadName, Message> {
+            [$($dummy,)+].into_iter().map(|m| dummy_payload(&m)).collect()
+        }
+    };
 }
 
-/// Canonical dummy of the same `Message` variant. Adding a variant fails this match.
-pub(crate) fn dummy_of_same_variant(msg: &Message) -> Message {
-    match msg {
-        Message::RequestRange(_) => dummy_request_range(),
-        Message::ClientDone(_) => dummy_client_done(),
-        Message::StartBatch(_) => dummy_start_batch(),
-        Message::NoBlocks(_) => dummy_no_blocks(),
-        Message::Block(_) => dummy_block(),
-        Message::BatchDone(_) => dummy_batch_done(),
-    }
+blockfetch_dummies! {
+    RequestRange => dummy_request_range(),
+    ClientDone => dummy_client_done(),
+    StartBatch => dummy_start_batch(),
+    NoBlocks => dummy_no_blocks(),
+    Block => dummy_block(),
+    BatchDone => dummy_batch_done(),
 }
 
 pub(crate) fn session_spec() -> SessionSpec<StateName, Message> {

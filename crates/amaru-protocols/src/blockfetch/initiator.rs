@@ -468,6 +468,7 @@ mod tests {
     use amaru_pure_stage::{
         StageGraph,
         simulation::{Run, SimulationBuilder},
+        typestate::State,
         typestate_graph,
     };
     use tokio::runtime::{Builder, Runtime};
@@ -498,6 +499,10 @@ mod tests {
         };
         let cfg = ProjectionConfig::blockfetch_initiator();
         let spec = session_spec();
+        assert_eq!(spec.timeout(&Idle::NAME), None);
+        assert_eq!(spec.timeout(&Done::NAME), None);
+        assert_eq!(spec.timeout(&Busy::NAME), Some(Duration::from_secs(60)));
+        assert_eq!(spec.timeout(&Streaming::NAME), Some(Duration::from_secs(60)));
         check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
         let projected = project(&g, &cfg).unwrap();
