@@ -90,15 +90,15 @@ impl ConstitutionalCommittee {
             return active_members.clone();
         }
 
-        let active_members =
-            Rc::new(
-                self.members
-                    .iter()
-                    .filter_map(|(cold_cred, (hot_cred, valid_until))| {
-                        if valid_until >= &current_epoch { Some((*cold_cred, *hot_cred.as_ref()?)) } else { None }
-                    })
-                    .collect::<BTreeMap<_, _>>(),
-            );
+        let active_members = Rc::new(
+            self.members
+                .iter()
+                .filter_map(|(cold_cred, (hot_cred, valid_until))| {
+                    // tally is always done with an epoch of delay; hence the strict inequality.
+                    if valid_until > &current_epoch { Some((*cold_cred, *hot_cred.as_ref()?)) } else { None }
+                })
+                .collect::<BTreeMap<_, _>>(),
+        );
 
         *self.active_members.borrow_mut() = Some((current_epoch, active_members.clone()));
 
@@ -212,7 +212,7 @@ mod tests {
                 committee.update(
                     committee.threshold().clone(),
                     BTreeMap::from([
-                        (cold_credential, (Some(hot_credential), epoch))
+                        (cold_credential, (Some(hot_credential), epoch + 1))
                     ]),
                     BTreeSet::new(),
 
