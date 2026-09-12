@@ -56,7 +56,8 @@ pub use list::{
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleCall, IntoRoleMail, Role, RoleTag};
 pub use session::{
-    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, initial_state,
+    DescribeReceives, DescribeStates, ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive,
+    Session, State, To, TypeGraph, initial_state,
 };
 
 pub mod prelude {
@@ -65,7 +66,9 @@ pub mod prelude {
         IntoRoleMail, Nil, Occupancy, OccupancyOf, OnReceive, Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny,
         Session, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
-    pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
+    pub use crate::{
+        define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star, typestate_graph,
+    };
 }
 
 #[cfg(test)]

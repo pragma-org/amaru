@@ -44,35 +44,43 @@
 /// be initial). `terminal $State` names a state with no agency. Remaining
 /// variants are remote agency. [`OccupancyOf`](crate::typestate::OccupancyOf)
 /// is generated only when `switch` is present.
+/// [`DescribeStates`](crate::typestate::DescribeStates) is always generated;
+/// its occupancy map is empty without `switch`.
 #[macro_export]
 macro_rules! make_states {
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
         $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
         $crate::typestate_occupancy!($enum, $switch, $term);
+        $crate::typestate_describe_states!($enum ; $($init),+ ; $($other),+ ; switch $switch, terminal $term);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident) => {
         $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
         $crate::typestate_occupancy!($enum, $switch);
+        $crate::typestate_describe_states!($enum ; $($init),+ ; $($other),+ ; switch $switch);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? }) => {
         $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
+        $crate::typestate_describe_states!($enum ; $($init),+ ; $($other),+ ;);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
         $crate::typestate_state_structs!($vis $($init),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+ });
         $crate::typestate_occupancy!($enum, $switch, $term);
+        $crate::typestate_describe_states!($enum ; $($init),+ ; ; switch $switch, terminal $term);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)? } switch $switch:ident) => {
         $crate::typestate_state_structs!($vis $($init),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+ });
         $crate::typestate_occupancy!($enum, $switch);
+        $crate::typestate_describe_states!($enum ; $($init),+ ; ; switch $switch);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)? }) => {
         $crate::typestate_state_structs!($vis $($init),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+ });
+        $crate::typestate_describe_states!($enum ; $($init),+ ; ;);
     };
 }
 
@@ -101,6 +109,63 @@ macro_rules! typestate_occupancy {
                 }
             }
         }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_describe_states {
+    ($enum:ident ; $init:ident $(, $init_rest:ident)* ; $($other:ident),* ; $($occ:tt)*) => {
+        impl $crate::typestate::DescribeStates for $enum {
+            fn initial() -> $crate::typestate::StateName {
+                <$init as $crate::typestate::State>::NAME
+            }
+
+            fn describe_states() -> ::std::collections::BTreeMap<
+                $crate::typestate::StateName,
+                $crate::typestate::Occupancy,
+            > {
+                $crate::typestate_occupancy_map!($($occ)* ; $init $(, $init_rest)* $(, $other)*)
+            }
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_occupancy_map {
+    ( ; $($state:ident),+) => {
+        ::std::collections::BTreeMap::new()
+    };
+    (switch $switch:ident, terminal $term:ident ; $($state:ident),+) => {
+        ::std::collections::BTreeMap::from([
+            $(
+                (
+                    <$state as $crate::typestate::State>::NAME,
+                    if <$state as $crate::typestate::State>::NAME == stringify!($switch) {
+                        $crate::typestate::Occupancy::Switch
+                    } else if <$state as $crate::typestate::State>::NAME == stringify!($term) {
+                        $crate::typestate::Occupancy::Terminal
+                    } else {
+                        $crate::typestate::Occupancy::Remote
+                    },
+                ),
+            )+
+        ])
+    };
+    (switch $switch:ident ; $($state:ident),+) => {
+        ::std::collections::BTreeMap::from([
+            $(
+                (
+                    <$state as $crate::typestate::State>::NAME,
+                    if <$state as $crate::typestate::State>::NAME == stringify!($switch) {
+                        $crate::typestate::Occupancy::Switch
+                    } else {
+                        $crate::typestate::Occupancy::Remote
+                    },
+                ),
+            )+
+        ])
     };
 }
 
@@ -399,7 +464,9 @@ macro_rules! define_messages_struct {
 /// `=> State` groups is choice of next state.
 ///
 /// Single-input form only implements [`OnReceive`](crate::typestate::OnReceive)
-/// (used for type-level descriptions).
+/// (used for type-level descriptions). Grouped form also implements
+/// [`DescribeReceives`](crate::typestate::DescribeReceives). Terminals that
+/// receive nothing use the empty body: `on_receive!(Done as DoneIn {});`.
 #[macro_export]
 macro_rules! on_receive {
     ($from:ident as $inputs:ident { $($body:tt)* }) => {
@@ -438,6 +505,22 @@ macro_rules! typestate_on_receive_body {
                 type Then = $crate::typestate_par!($($then)*);
             }
         )*
+
+        impl $crate::typestate::DescribeReceives for $from {
+            fn describe_receives() -> ::std::collections::BTreeMap<
+                $crate::typestate::InputName,
+                $crate::typestate::RemainderAst,
+            > {
+                ::std::collections::BTreeMap::from([
+                    $(
+                        (
+                            stringify!($in),
+                            <<$from as $crate::typestate::OnReceive<$in>>::Then as $crate::typestate::DescribeAst>::describe_ast(),
+                        ),
+                    )*
+                ])
+            }
+        }
     };
 }
 
@@ -534,5 +617,69 @@ macro_rules! typestate_seq {
 macro_rules! star {
     ($($e:ty),+) => {
         $crate::typestate::Repeat<$crate::typestate_seq!($($e),+)>
+    };
+}
+
+/// Build a [`TypeGraph`](crate::typestate::TypeGraph) from grouped `on_receive!`
+/// remainders and `make_states!` occupancy.
+///
+/// `receiving` states must implement [`DescribeReceives`](crate::typestate::DescribeReceives)
+/// (grouped `on_receive!`). `empty` names are terminals / unused states that
+/// receive nothing and must use `on_receive!(Done as DoneIn {})`. Occupancy
+/// comes from [`DescribeStates`](crate::typestate::DescribeStates) on `proto`.
+/// `empty` may be omitted when extracting a subset of states.
+///
+/// Name lists are braced so `empty` is not parsed as another receiving ident.
+///
+/// ```ignore
+/// let g = typestate_graph! {
+///     proto: initiator::Proto,
+///     receiving: { Idle, Busy, Streaming },
+///     empty: { Done },
+/// };
+/// ```
+#[macro_export]
+macro_rules! typestate_graph {
+    (
+        proto: $proto:ty,
+        receiving: { $($recv:ident),+ $(,)? },
+        empty: { $($empty:ident),+ $(,)? } $(,)?
+    ) => {
+        $crate::typestate_graph_build!($proto ; $($recv),+ ; $($empty),+)
+    };
+    (
+        proto: $proto:ty,
+        receiving: { $($recv:ident),+ $(,)? } $(,)?
+    ) => {
+        $crate::typestate_graph_build!($proto ; $($recv),+ ;)
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_graph_build {
+    ($proto:ty ; $($recv:ident),+ ; $($empty:ident),*) => {
+        $crate::typestate::TypeGraph {
+            states: ::std::collections::BTreeSet::from([
+                $(<$recv as $crate::typestate::State>::NAME,)+
+                $(<$empty as $crate::typestate::State>::NAME,)*
+            ]),
+            initial: <$proto as $crate::typestate::DescribeStates>::initial(),
+            occupancy: <$proto as $crate::typestate::DescribeStates>::describe_states(),
+            receives: ::std::collections::BTreeMap::from([
+                $(
+                    (
+                        <$recv as $crate::typestate::State>::NAME,
+                        <$recv as $crate::typestate::DescribeReceives>::describe_receives(),
+                    ),
+                )+
+                $(
+                    (
+                        <$empty as $crate::typestate::State>::NAME,
+                        <$empty as $crate::typestate::DescribeReceives>::describe_receives(),
+                    ),
+                )*
+            ]),
+        }
     };
 }

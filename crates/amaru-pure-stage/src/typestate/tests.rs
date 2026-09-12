@@ -421,6 +421,18 @@ mod exclusive_choice {
     }
 
     #[test]
+    fn typestate_graph_extracts_grouped_remainders() {
+        let g = typestate_graph! {
+            proto: Live,
+            receiving: { Idle },
+        };
+        assert_eq!(g.initial, Idle::NAME);
+        assert_eq!(g.states, std::collections::BTreeSet::from([Idle::NAME]));
+        assert!(g.occupancy.is_empty());
+        assert_eq!(g.receives[Idle::NAME].get("Go"), Some(&describe_ast::<Rem>()));
+    }
+
+    #[test]
     fn after_c_only_d_remains() {
         assert_after::<Rem, Send<RoleC, C1>, AfterCExpect, _>();
         fn assert_d<R: Select<Send<RoleD, D1>, I>, I>() {}
@@ -478,7 +490,7 @@ fn initial_state_wraps_into_live_enum() {
 
 #[allow(dead_code)]
 mod convert {
-    use crate::typestate::prelude::*;
+    use crate::typestate::{DescribeAst, OnReceive, prelude::*};
 
     make_states!(Live { Idle; Done });
 
@@ -490,6 +502,23 @@ mod convert {
     define_mailbox!(Mail { Ping(Ping), Pong(Pong) });
     on_receive!(Idle as IdleIn { Ping => { Done } });
     on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn empty_done_extracts_no_receives() {
+        let g = typestate_graph! {
+            proto: Live,
+            receiving: { Idle },
+            empty: { Done },
+        };
+        assert_eq!(g.initial, Idle::NAME);
+        assert_eq!(g.states, std::collections::BTreeSet::from([Done::NAME, Idle::NAME]));
+        assert!(g.occupancy.is_empty());
+        assert_eq!(
+            g.receives[Idle::NAME].get("Ping"),
+            Some(&<<Idle as OnReceive<Ping>>::Then as DescribeAst>::describe_ast())
+        );
+        assert!(g.receives[Done::NAME].is_empty());
+    }
 
     #[test]
     fn convert_input_rejects_inadmissible_mailbox() {
@@ -549,7 +578,7 @@ mod messages_macro {
 
 #[allow(dead_code)]
 mod occupancy {
-    use crate::typestate::prelude::*;
+    use crate::typestate::{DescribeStates, prelude::*};
 
     make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
 
@@ -560,5 +589,114 @@ mod occupancy {
         assert!(idle.in_switch());
         assert!(!idle.is_remote());
         assert!(!idle.is_terminal());
+    }
+
+    #[test]
+    fn describe_states_maps_occupancy_when_switch_is_named() {
+        let occ = <Live as DescribeStates>::describe_states();
+        assert_eq!(<Live as DescribeStates>::initial(), Idle::NAME);
+        assert_eq!(occ.get(Idle::NAME), Some(&Occupancy::Switch));
+        assert_eq!(occ.get(Busy::NAME), Some(&Occupancy::Remote));
+        assert_eq!(occ.get(Done::NAME), Some(&Occupancy::Terminal));
+    }
+}
+
+#[allow(dead_code)]
+mod occupancy_switch_only {
+    use crate::typestate::{DescribeStates, prelude::*};
+
+    make_states!(Live { Start; RemoteSt } switch Start);
+
+    #[test]
+    fn unnamed_terminal_is_remote() {
+        let occ = <Live as DescribeStates>::describe_states();
+        assert_eq!(occ.get(Start::NAME), Some(&Occupancy::Switch));
+        assert_eq!(occ.get(RemoteSt::NAME), Some(&Occupancy::Remote));
+        assert_eq!(occ.len(), 2);
+    }
+}
+
+#[allow(dead_code)]
+mod extract_graph {
+    use crate::typestate::{DescribeAst, Occupancy, OnReceive, prelude::*};
+
+    define_role_tag!(Peer);
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Ping;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Pong;
+
+    make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
+
+    on_receive!(Idle as IdleIn {
+        Ping => { Send<Peer, u8> => Busy }
+        Pong => { Done }
+    });
+    on_receive!(Busy as BusyIn {
+        Ping => { Wait => Idle }
+    });
+    on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn extracts_remainders_occupancy_and_empty_done() {
+        let g = typestate_graph! {
+            proto: Live,
+            receiving: { Idle, Busy },
+            empty: { Done },
+        };
+        assert_eq!(g.initial, Idle::NAME);
+        assert_eq!(g.states, std::collections::BTreeSet::from([Busy::NAME, Done::NAME, Idle::NAME]));
+        assert_eq!(g.occupancy.get(Idle::NAME), Some(&Occupancy::Switch));
+        assert_eq!(g.occupancy.get(Busy::NAME), Some(&Occupancy::Remote));
+        assert_eq!(g.occupancy.get(Done::NAME), Some(&Occupancy::Terminal));
+        assert_eq!(
+            g.receives[Idle::NAME].get("Ping"),
+            Some(&<<Idle as OnReceive<Ping>>::Then as DescribeAst>::describe_ast())
+        );
+        assert_eq!(
+            g.receives[Idle::NAME].get("Pong"),
+            Some(&<<Idle as OnReceive<Pong>>::Then as DescribeAst>::describe_ast())
+        );
+        assert_eq!(
+            g.receives[Busy::NAME].get("Ping"),
+            Some(&<<Busy as OnReceive<Ping>>::Then as DescribeAst>::describe_ast())
+        );
+        assert!(g.receives[Done::NAME].is_empty());
+    }
+
+    #[test]
+    fn receiving_only_omits_empty_states() {
+        let g = typestate_graph! {
+            proto: Live,
+            receiving: { Idle, Busy },
+        };
+        assert!(!g.states.contains(Done::NAME));
+        assert!(!g.receives.contains_key(Done::NAME));
+        assert_eq!(g.occupancy.get(Done::NAME), Some(&Occupancy::Terminal));
+    }
+}
+
+#[allow(dead_code)]
+mod two_initial {
+    use crate::typestate::prelude::*;
+
+    make_states!(Live { Alpha, Beta; Done });
+    on_receive!(Alpha as AlphaIn {});
+    on_receive!(Beta as BetaIn {});
+    on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn initial_is_first_name_before_semicolon() {
+        let g = typestate_graph! {
+            proto: Live,
+            receiving: { Alpha, Beta },
+            empty: { Done },
+        };
+        assert_eq!(g.initial, Alpha::NAME);
+        assert!(g.receives[Alpha::NAME].is_empty());
+        assert!(g.receives[Beta::NAME].is_empty());
+        assert!(g.receives[Done::NAME].is_empty());
+        assert!(g.occupancy.is_empty());
     }
 }
