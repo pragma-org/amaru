@@ -250,32 +250,37 @@ fn shell_hint(model: &Model) -> Line<'static> {
     let mut spans = Vec::new();
     match (model.is_copy_mode(), model.command_menu) {
         (_, CommandMenu::Logs) => {
-            append_control(&mut spans, "f", "FILTER", model);
-            append_control(&mut spans, "h", "HIGHLIGHT", model);
-            append_control(&mut spans, "t", "TIME", model);
-            append_control(&mut spans, "w", model.log_wrap_toggle_label(), model);
-            append_control(&mut spans, "esc", "CANCEL", model);
+            append_control(&mut spans, &model.key_label("f"), "FILTER", model);
+            append_control(&mut spans, &model.key_label("h"), "HIGHLIGHT", model);
+            append_control(&mut spans, &model.key_label("t"), "TIME", model);
+            append_control(&mut spans, &model.key_label("w"), model.log_wrap_toggle_label(), model);
+            append_control(&mut spans, &model.key_label("esc"), "CANCEL", model);
         }
         (_, CommandMenu::Quit) => {
-            append_control(&mut spans, "y", "CONFIRM", model);
-            append_control(&mut spans, "esc|n", "CANCEL", model);
+            append_control(&mut spans, &model.key_label("y"), "CONFIRM", model);
+            append_control(
+                &mut spans,
+                &format!("{}|{}", model.key_label("esc"), model.key_label("n")),
+                "CANCEL",
+                model,
+            );
         }
         (true, CommandMenu::Default) => {
-            append_control(&mut spans, "esc", "NORMAL MODE", model);
-            append_control(&mut spans, "[c-]←→↑↓", "SCROLL", model);
-            append_control(&mut spans, "f", "LOGS & FILTERS", model);
-            append_control(&mut spans, "q", "QUIT", model);
+            append_control(&mut spans, &model.key_label("esc"), "NORMAL MODE", model);
+            append_control(&mut spans, model.scroll_navigation_key_label(), "SCROLL", model);
+            append_control(&mut spans, &model.key_label("f"), "LOGS & FILTERS", model);
+            append_control(&mut spans, &model.key_label("q"), "QUIT", model);
         }
         (false, CommandMenu::Default) => {
-            append_control(&mut spans, "esc", "COPY MODE", model);
-            append_control(&mut spans, "[s-]tab", "NEXT/PREV PAGE", model);
-            append_control(&mut spans, "[c-]←→↑↓", "SCROLL", model);
-            append_control(&mut spans, ";", "FOCUS NEXT", model);
+            append_control(&mut spans, &model.key_label("esc"), "COPY MODE", model);
+            append_control(&mut spans, model.page_navigation_key_label(), "NEXT/PREV PAGE", model);
+            append_control(&mut spans, model.scroll_navigation_key_label(), "SCROLL", model);
+            append_control(&mut spans, &model.key_label(";"), "FOCUS NEXT", model);
             if let Some(label) = model.focused_pane_toggle_label() {
-                append_control(&mut spans, "enter", label, model);
+                append_control(&mut spans, &model.key_label("enter"), label, model);
             }
-            append_control(&mut spans, "f", "LOGS & FILTERS", model);
-            append_control(&mut spans, "q", "QUIT", model);
+            append_control(&mut spans, &model.key_label("f"), "LOGS & FILTERS", model);
+            append_control(&mut spans, &model.key_label("q"), "QUIT", model);
         }
     }
 
@@ -308,9 +313,11 @@ fn prompt_line(model: &Model, width: u16) -> Line<'static> {
     } else {
         let left_width = prompt.prefix().chars().count().saturating_add(prompt.input.chars().count()) as u16;
         let mut help = Vec::new();
-        append_control(&mut help, "enter", "APPLY", model);
-        append_control(&mut help, "esc", "CANCEL", model);
-        let help_width = "<enter> APPLY  <esc> CANCEL".len() as u16;
+        let enter = model.key_label("enter");
+        let esc = model.key_label("esc");
+        append_control(&mut help, &enter, "APPLY", model);
+        append_control(&mut help, &esc, "CANCEL", model);
+        let help_width = format!("<{enter}> APPLY  <{esc}> CANCEL").len() as u16;
         let chrome_width = if model.is_copy_mode() { 0 } else { 6 };
         let padding = width.saturating_sub(chrome_width).saturating_sub(left_width).saturating_sub(help_width);
         spans.push(Span::raw(" ".repeat(padding as usize)));

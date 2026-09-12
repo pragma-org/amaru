@@ -211,6 +211,13 @@ grouped behind `f`, and shutdown requires `q` followed by `y`. `Esc` moves back
 one command level before it exits copy mode. This keeps the always-visible
 controls compact while retaining discoverable labels for less frequent actions.
 
+Operators may replace controls through `AMARU_TUI_ALIASES`, a comma-separated
+list of `key=alias` entries. `c-` and `s-` use Vim-style Ctrl and Shift
+prefixes. Resolution must produce a unique physical key for every built-in
+control: ambiguity aborts startup and names the conflicting controls. The
+footer renders individual aliases and conservatively labels page or scrolling
+groups as `aliased` whenever any binding in the group changes.
+
 The same shell chrome also supports a non-interactive shutdown mode. When the
 first termination signal is observed:
 

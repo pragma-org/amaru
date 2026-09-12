@@ -56,6 +56,7 @@ Other guiding principles:
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
 ### Changed
 
+- **amaru-tui**: keyboard controls can be remapped with comma-separated `key=alias` entries in `AMARU_TUI_ALIASES`; `c-` and `s-` denote Ctrl and Shift. Startup reports conflicting bindings instead of accepting ambiguous controls.
 - **amaru-tui**: configuration tables now reserve space for complete option and parameter names, hiding the environment column on narrow terminals.
 - **amaru-tui**: copy mode removes panel chrome for clean text selection.
 - **amaru-tui**: log actions and shutdown now use compact confirmation menus.

@@ -60,6 +60,13 @@ highlighting, time jumps, or wrapping; press `q` then `y` before shutdown.
 copy mode only at the top level. Copy mode removes shell and panel borders,
 scrollbars, and separators so selected multiline text can be pasted cleanly.
 
+`AMARU_TUI_ALIASES` replaces keyboard controls with comma-separated
+`key=alias` entries, for example `esc=~,c-up=j,c-down=k`. The `c-` and `s-`
+prefixes mean Ctrl and Shift. Aliases must leave every control with a unique
+physical key; the TUI aborts startup with the conflicting controls otherwise.
+The footer renders simple aliases directly and uses `aliased` for grouped page
+or scrolling controls when any key in the group changes.
+
 Configuration and protocol tables size their identifier columns from the
 content currently displayed. The environment-variable column is omitted when
 the terminal cannot show it without compromising the option and value columns.

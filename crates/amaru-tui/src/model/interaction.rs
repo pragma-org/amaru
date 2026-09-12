@@ -277,6 +277,10 @@ impl Model {
     }
 
     pub(super) fn handle_key_event(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        let Some(key) = self.key_aliases.translate(key) else {
+            return TerminalEventOutcome::Continue;
+        };
+
         if self.is_shutdown_mode() {
             return TerminalEventOutcome::Continue;
         }

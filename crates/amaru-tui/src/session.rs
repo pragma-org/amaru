@@ -31,7 +31,7 @@ use crate::{
     Config,
     capture::from_observability,
     events::{Message, MetricRecord},
-    model::{Model, TerminalEventOutcome},
+    model::{ENVIRONMENT_VARIABLE, KeyAliases, Model, TerminalEventOutcome},
     startup::StartupContext,
     terminal_guard::TerminalGuard,
     ui::{self, Views},
@@ -50,6 +50,9 @@ pub struct Session {
 
 impl Session {
     pub fn spawn(config: Config, startup: StartupContext, signal_count: Arc<AtomicU8>) -> io::Result<Self> {
+        #[allow(clippy::panic)]
+        let key_aliases =
+            KeyAliases::from_environment().unwrap_or_else(|error| panic!("invalid {ENVIRONMENT_VARIABLE}: {error}"));
         let (obs_tx, obs_rx) = mpsc::sync_channel(config.channel_capacity);
         let (telemetry_tx, telemetry_rx) = mpsc::sync_channel(config.channel_capacity);
         let (control_tx, control_rx) = mpsc::channel();
@@ -75,7 +78,7 @@ impl Session {
 
         let join = thread::Builder::new()
             .name("amaru-tui".into())
-            .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx, signal_count))
+            .spawn(move || run_terminal(config, startup, key_aliases, telemetry_rx, control_rx, signal_count))
             .map_err(|err| io::Error::other(format!("failed to spawn tui thread: {err}")))?;
 
         Ok(Self {
@@ -143,12 +146,14 @@ enum Control {
 fn run_terminal(
     config: Config,
     startup: StartupContext,
+    key_aliases: KeyAliases,
     telemetry_rx: Receiver<crate::events::Message>,
     control_rx: Receiver<Control>,
     signal_count: Arc<AtomicU8>,
 ) -> io::Result<()> {
     let mut terminal = TerminalGuard::enter()?;
     let mut model = Model::new(config.clone(), startup);
+    model.set_key_aliases(key_aliases);
     let mut views = Views::default();
     let mut next_draw_at = Instant::now();
     let mut immediate_draw = true;

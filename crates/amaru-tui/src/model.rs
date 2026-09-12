@@ -40,6 +40,7 @@ mod governance_summary;
 mod initial_stake_distribution_state;
 mod interaction;
 mod interaction_mode;
+mod key_aliases;
 mod level_filter;
 mod log_buffer;
 mod log_time;
@@ -61,7 +62,10 @@ mod telemetry_update;
 mod terminal_event_outcome;
 mod tip_state;
 
-pub(crate) use self::command_menu::CommandMenu;
+pub(crate) use self::{
+    command_menu::CommandMenu,
+    key_aliases::{ENVIRONMENT_VARIABLE, KeyAliases},
+};
 pub use self::{
     initial_stake_distribution_state::InitialStakeDistributionState,
     interaction_mode::InteractionMode,
@@ -91,6 +95,7 @@ pub struct Model {
     pub text_filter_pattern: String,
     pub highlight_pattern: String,
     pub prompt: Option<PromptState>,
+    key_aliases: KeyAliases,
     pub catching_up: bool,
     pub log_scroll: usize,
     pub log_hscroll: usize,
@@ -154,6 +159,7 @@ impl Model {
             text_filter_pattern: String::new(),
             highlight_pattern: String::new(),
             prompt: None,
+            key_aliases: KeyAliases::default(),
             catching_up: true,
             log_scroll: 0,
             log_hscroll: 0,
@@ -215,6 +221,22 @@ impl Model {
 
     pub fn initial_stake_distributions(&self) -> impl Iterator<Item = &InitialStakeDistributionState> {
         self.initial_stake_distribution_order.iter().filter_map(|epoch| self.initial_stake_distributions.get(epoch))
+    }
+
+    pub(crate) fn set_key_aliases(&mut self, key_aliases: KeyAliases) {
+        self.key_aliases = key_aliases;
+    }
+
+    pub(crate) fn key_label(&self, key: &str) -> String {
+        self.key_aliases.label(key).unwrap_or_else(|| key.to_owned())
+    }
+
+    pub(crate) fn page_navigation_key_label(&self) -> &'static str {
+        self.key_aliases.page_navigation_label()
+    }
+
+    pub(crate) fn scroll_navigation_key_label(&self) -> &'static str {
+        self.key_aliases.scroll_navigation_label()
     }
 }
 
@@ -972,6 +994,24 @@ mod tests {
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.proposal_pane_mode, PaneMode::Maximized);
+    }
+
+    #[test]
+    fn aliases_replace_keyboard_controls() {
+        let mut model = ready_model();
+        model.set_key_aliases(KeyAliases::parse("esc=~").unwrap());
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('~'), KeyModifiers::SHIFT)),
+            TerminalEventOutcome::EnterCopyMode
+        );
+        assert!(model.is_copy_mode());
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.is_copy_mode());
     }
 
     #[test]
