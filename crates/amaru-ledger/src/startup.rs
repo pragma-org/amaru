@@ -14,7 +14,7 @@
 
 use std::ops::Deref;
 
-use amaru_kernel::{Epoch, EraHistory, GovernanceAction, ProtocolParameters};
+use amaru_kernel::{Credential, Epoch, EraHistory, GovernanceAction, ProtocolParameters, hash};
 use amaru_observability::{info, info_span};
 use tracing::field;
 
@@ -198,9 +198,48 @@ impl<'a, S: ReadStore> StartupContext<'a, S> {
         Ok(())
     }
 
+    #[expect(clippy::panic)]
     fn emit_constitutional_committee(&self) -> Result<(), StoreError> {
         info_span!(ledger::constitutional_committee::DUMP, status = self.constitutional_committee()?);
+
+        fn is_invalid_cc_member(cold_credential: &Credential) -> bool {
+            false
+                || cold_credential
+                    == &Credential::ScriptHash(hash!("349e55f83e9af24813e6cb368df6a80d38951b2a334dfcdf26815558"))
+                || cold_credential
+                    == &Credential::ScriptHash(hash!("9cc3f387623f45dae6a68b7096b0c2e403d8601a82dc40221ead41e2"))
+                || cold_credential
+                    == &Credential::KeyHash(hash!("dc0d6ef49590eb6880a50a00adde17596e6d76f7159572fa1ff85f2a"))
+        }
+
         for (cold_credential, member) in self.iter_cc_members()? {
+            if self.epoch == Epoch::from(654) && is_invalid_cc_member(&cold_credential) {
+                panic!(
+                    r#"
+    Corrupted ledger state: bootstrap or manual rollback is required.
+
+    Amaru versions prior to v10.11.20260912 contains an off-by-one error which
+    prevented the correct ratification of CC members at the boundary of 653→654.
+
+    Fixing this requires to either:
+
+    - rollback manually if you still have the appropriate ledger states:
+
+      ```
+      amaru node rollback --epoch 654
+      ```
+
+    - re-bootstrap your node:
+
+      ```
+      amaru node rm --wipe-all-dbs
+      amaru node bootstrap
+      ```
+
+    (sorry for the inconvenience :s)"#
+                );
+            }
+
             info!(
                 ledger::constitutional_committee_member::DUMP,
                 cold_credential = cold_credential,
