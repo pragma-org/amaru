@@ -30,23 +30,33 @@ pub struct MaxBytes<const MAX: usize> {
 
 impl<const MAX: usize> serde::Serialize for MaxBytes<MAX> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if serializer.is_human_readable() {
-            serializer.serialize_str(&hex::encode(self.as_slice()))
-        } else {
-            serializer.serialize_bytes(self.as_slice())
-        }
+        crate::utils::serde::bytes::serialize(self.as_slice(), serializer)
     }
 }
 
 impl<'de, const MAX: usize> serde::Deserialize<'de> for MaxBytes<MAX> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        if deserializer.is_human_readable() {
-            let s = String::deserialize(deserializer)?;
-            Self::from_str(&s).map_err(serde::de::Error::custom)
-        } else {
-            let bytes = <&[u8]>::deserialize(deserializer)?;
-            Self::checked(bytes).map_err(serde::de::Error::custom)
-        }
+        Self::checked(&crate::utils::serde::bytes::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<const MAX: usize> schemars::JsonSchema for MaxBytes<MAX> {
+    fn schema_name() -> String {
+        format!("MaxBytes<{MAX}>")
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        #[allow(clippy::expect_used)]
+        serde_json::from_value(serde_json::json!({
+            "type": "string",
+            "pattern": format!("^([0-9a-f]{{2}}){{0,{MAX}}}$"),
+            "description": "hex-encoded bytes"
+        }))
+        .expect("max-bytes json schema is valid")
+    }
+
+    fn is_referenceable() -> bool {
+        false
     }
 }
 
@@ -144,4 +154,17 @@ pub enum MaxBytesError {
 
     #[error(transparent)]
     InvalidHex(#[from] hex::FromHexError),
+}
+
+#[cfg(test)]
+mod serde_format {
+    use super::*;
+    use crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr;
+
+    #[test]
+    fn json_is_hex_string_and_cbor_is_byte_string() {
+        let payload = [0xabu8, 0xcd];
+        let value = MaxBytes::<8>::try_from(payload.as_slice()).expect("fits");
+        assert_json_hex_and_cbor_bstr(&value, &payload);
+    }
 }

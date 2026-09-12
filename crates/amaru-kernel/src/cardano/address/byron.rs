@@ -287,9 +287,9 @@ impl<'b, C> cbor::Decode<'b, C> for AddressAttributes {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 pub enum AddressAttribute {
-    DerivationPath(Vec<u8>),
-    NetworkTag(Vec<u8>),
-    Unknown(Vec<u8>),
+    DerivationPath(#[serde(with = "crate::utils::serde::bytes")] Vec<u8>),
+    NetworkTag(#[serde(with = "crate::utils::serde::bytes")] Vec<u8>),
+    Unknown(#[serde(with = "crate::utils::serde::bytes")] Vec<u8>),
 }
 
 impl Deref for AddressAttribute {

@@ -19,17 +19,43 @@ use bytes::Bytes;
 use crate::{cbor, utils::debug_bytes};
 
 // Newtype wrapper for custom Debug.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct NonEmptyBytes(Bytes);
+
+impl serde::Serialize for NonEmptyBytes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        crate::utils::serde::bytes::serialize(self.0.as_ref(), serializer)
+    }
+}
 
 impl<'de> serde::Deserialize<'de> for NonEmptyBytes {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let bytes = Bytes::deserialize(deserializer)?;
-        Self::new(bytes).map_err(serde::de::Error::custom)
+        let bytes = crate::utils::serde::bytes::deserialize(deserializer)?;
+        Self::from_slice(&bytes).map_err(serde::de::Error::custom)
+    }
+}
+
+impl schemars::JsonSchema for NonEmptyBytes {
+    fn schema_name() -> String {
+        "NonEmptyBytes".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        #[allow(clippy::expect_used)]
+        serde_json::from_value(serde_json::json!({
+            "type": "string",
+            "pattern": "^([0-9a-f]{2})+$",
+            "description": "hex-encoded non-empty bytes"
+        }))
+        .expect("non-empty hex bytes json schema is valid")
+    }
+
+    fn is_referenceable() -> bool {
+        false
     }
 }
 
@@ -95,5 +121,23 @@ impl fmt::Debug for NonEmptyBytes {
         let preview_hex = debug_bytes(&self.0, 32);
         let total_len = self.0.len();
         write!(f, "Bytes({total_len}, {preview_hex})")
+    }
+}
+
+#[cfg(test)]
+mod serde_format {
+    use super::*;
+    use crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr;
+
+    #[test]
+    fn json_is_hex_string_and_cbor_is_byte_string() {
+        let payload = [0xabu8, 0xcd];
+        let value = NonEmptyBytes::from_slice(&payload).expect("non-empty");
+        assert_json_hex_and_cbor_bstr(&value, &payload);
+    }
+
+    #[test]
+    fn empty_is_rejected() {
+        assert!(serde_json::from_str::<NonEmptyBytes>("\"\"").is_err());
     }
 }
