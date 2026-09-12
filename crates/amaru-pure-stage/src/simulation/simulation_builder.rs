@@ -415,7 +415,7 @@ where
 {
     let runtime = Builder::new_current_thread().enable_all().build().unwrap();
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
-    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    let guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
     set_resources(network.resources());
 
@@ -426,5 +426,7 @@ where
     let mut running = network.run(runtime.handle());
     running.run(Run::skip_and_resolve()).assert_idle();
 
-    running.get_state(&stage).cloned().flatten()
+    let result = running.get_state(&stage).cloned().flatten();
+    guard.defuse();
+    result
 }

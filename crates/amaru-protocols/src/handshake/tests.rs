@@ -56,7 +56,7 @@ fn test_against_node() {
     let conn_id = rt.block_on(async { create_connection(&conn).await }).unwrap();
 
     let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
-    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    let trace_guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
 
     network.resources().put::<ConnectionsResource>(Arc::new(conn));
@@ -107,6 +107,8 @@ fn test_against_node() {
         handshake::HandshakeResult::Refused(reason) => panic!("{reason:?}"),
         handshake::HandshakeResult::Query(table) => panic!("{table:?}"),
     }
+
+    trace_guard.defuse();
 }
 
 #[test]
@@ -126,7 +128,7 @@ fn test_against_node_with_tokio() {
     let conn_id = rt.block_on(create_connection(&conn)).unwrap();
 
     let trace_buffer = TraceBuffer::new_shared(1000, 1000000);
-    let _guard = TraceBuffer::drop_guard(&trace_buffer);
+    let trace_guard = TraceBuffer::drop_guard(&trace_buffer);
     let mut network = TokioBuilder::default();
 
     network.resources().put::<ConnectionsResource>(Arc::new(conn));
@@ -173,4 +175,5 @@ fn test_against_node_with_tokio() {
     }
 
     running.abort();
+    trace_guard.defuse();
 }
