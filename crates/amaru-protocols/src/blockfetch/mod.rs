@@ -15,6 +15,8 @@
 mod initiator;
 pub(crate) mod messages;
 mod responder;
+#[cfg(test)]
+mod spec;
 
 use amaru_pure_stage::DeserializerGuards;
 pub use initiator::{BLOCKFETCH_PIPELINE_N, BlockFetchMessage, Blocks, register_blockfetch_initiator};

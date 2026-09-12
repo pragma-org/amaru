@@ -82,6 +82,7 @@ on_receive!(Streaming as ClientStreamingIn {
     Block => { Send<ToMux, WantNext>, Repeat<SendAny<ToCollector>>, SetTimeout => Streaming }
     BatchDone => { ClearTimeout, Repeat<SendAny<ToCollector>> => Idle }
 });
+on_receive!(Done as DoneIn {});
 
 /// Local request that starts an initiator fetch on one pipeline instance.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -461,60 +462,49 @@ pub async fn register_blockfetch_initiator<M: amaru_pure_stage::SendData>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::OnceLock;
+    use std::{sync::OnceLock, time::Duration};
 
     use amaru_kernel::{NonEmptyBytes, Point, cbor};
     use amaru_pure_stage::{
         StageGraph,
         simulation::{Run, SimulationBuilder},
-        typestate::{FmtPar, OnReceive, Session},
+        typestate_graph,
     };
     use tokio::runtime::{Builder, Runtime};
 
-    use super::*;
+    use super::{
+        super::spec::{assert_message_alphabet_covered, assert_wire_inputs_cover_receives, session_spec},
+        *,
+    };
     use crate::{
         mux::{MuxMessage, Sent},
-        protocol::Inputs,
+        protocol::{Inputs, ProjectionConfig, Role, StateId, check_timeouts, check_want_next, project},
     };
 
-    fn remaining<S, In>() -> String
-    where
-        S: OnReceive<In>,
-        S::Then: FmtPar,
-    {
-        Session::<(), S::Then>::describe()
-    }
-
-    fn send_desc<Tag, T>() -> String {
-        format!("Send<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
-    }
-
-    fn call_desc<Tag, T>() -> String {
-        format!("Call<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
-    }
-
-    fn star_any<Tag>() -> String {
-        format!("Repeat<SendAny<{}>>", std::any::type_name::<Tag>())
+    fn map_i(state: &StateId) -> StateId {
+        match state {
+            StateId::Named("Idle" | "Busy" | "Streaming" | "Done") => state.clone(),
+            StateId::Named(other) => panic!("unexpected named state {other}"),
+            StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
+        }
     }
 
     #[test]
-    fn initiator_receive_allowances() {
-        assert_eq!(remaining::<Idle, Fetch>(), call_desc::<ToResponder, RequestRange>() + " => Busy");
-        assert_eq!(
-            remaining::<Idle, Close>(),
-            format!("{} | {} => Done", call_desc::<ToResponder, ClientDone>(), star_any::<ToCollector>())
-        );
-        assert_eq!(remaining::<Busy, Pull>(), format!("{}, SetTimeout => Busy", send_desc::<ToMux, WantNext>()));
-        assert_eq!(
-            remaining::<Busy, StartBatch>(),
-            format!("{}, SetTimeout => Streaming", send_desc::<ToMux, WantNext>())
-        );
-        assert_eq!(remaining::<Busy, NoBlocks>(), format!("ClearTimeout, {} => Idle", star_any::<ToCollector>()));
-        assert_eq!(
-            remaining::<Streaming, Block>(),
-            format!("{}, {}, SetTimeout => Streaming", send_desc::<ToMux, WantNext>(), star_any::<ToCollector>())
-        );
-        assert_eq!(remaining::<Streaming, BatchDone>(), format!("ClearTimeout, {} => Idle", star_any::<ToCollector>()));
+    fn initiator_projects_to_table_3_7() {
+        let g = typestate_graph! {
+            proto: Proto,
+            receiving: { Idle, Busy, Streaming },
+            empty: { Done },
+        };
+        let cfg = ProjectionConfig::blockfetch_initiator();
+        let spec = session_spec();
+        check_want_next(&g, &cfg).unwrap();
+        check_timeouts(&g, &cfg, &spec).unwrap();
+        let projected = project(&g, &cfg).unwrap();
+        projected.assert_refines(&spec.project(Role::Initiator), map_i);
+        assert_eq!(BLOCKFETCH_AGENCY_TIMEOUT, Duration::from_secs(60));
+        assert_message_alphabet_covered(&spec, &[]);
+        assert_wire_inputs_cover_receives(&g, &cfg);
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
