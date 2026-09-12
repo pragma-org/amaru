@@ -21,14 +21,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::NetworkPoint;
-use amaru_pure_stage::typestate::{PayloadName, RoleTag, State, StateName, TypeGraph};
+use amaru_pure_stage::{
+    typestate::{PayloadName, RoleTag, State, StateName, TypeGraph},
+    typestate_graph,
+};
 
 use super::{
     BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch,
     initiator::{BLOCKFETCH_AGENCY_TIMEOUT, Busy, Done, Idle, Streaming, ToCollector, ToResponder},
     responder::ToInitiator,
 };
-use crate::protocol::{ProjectionConfig, Role, SessionSpec, ToMux};
+use crate::protocol::{ProjectionConfig, Role, SessionSpec, StateId, ToMux, project};
 
 fn dummy_request_range() -> Message {
     RequestRange { from: NetworkPoint::Origin, through: NetworkPoint::Origin }.into()
@@ -158,4 +161,53 @@ pub(crate) fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &Project
         assert_eq!(*msg, dummy_of_same_variant(msg), "wire map dummy must equal session_spec() dummy for {msg:?}");
     }
     assert_eq!(cfg.wire_payload, dummy_messages());
+}
+
+fn map_i(state: &StateId) -> StateId {
+    match state {
+        StateId::Named("Idle" | "Busy" | "Streaming" | "Done") => state.clone(),
+        StateId::Named(other) => panic!("unexpected named state {other}"),
+        StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
+    }
+}
+
+fn map_r(state: &StateId) -> StateId {
+    match state {
+        StateId::Named("Idle" | "Done") => state.clone(),
+        StateId::Named(other) => panic!("unexpected named state {other}"),
+        StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange"] => StateId::Named("Busy"),
+        StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange", "StartBatch"] => {
+            StateId::Named("Streaming")
+        }
+        StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
+    }
+}
+
+fn initiator_type_graph() -> TypeGraph {
+    typestate_graph! {
+        proto: super::initiator::Proto,
+        receiving: { Idle, Busy, Streaming },
+        empty: { Done },
+    }
+}
+
+fn responder_type_graph() -> TypeGraph {
+    use super::responder::{Done, Idle, Proto};
+    typestate_graph! {
+        proto: Proto,
+        receiving: { Idle },
+        empty: { Done },
+    }
+}
+
+#[test]
+fn collapsed_responder_dual_equals_collapsed_initiator() {
+    let spec = session_spec();
+    let spec_i = spec.project(Role::Initiator);
+    let spec_r = spec.project(Role::Responder);
+    let h_i = project(&initiator_type_graph(), &ProjectionConfig::blockfetch_initiator()).unwrap();
+    let h_r = project(&responder_type_graph(), &ProjectionConfig::blockfetch_responder()).unwrap();
+    h_i.assert_refines(&spec_i, map_i);
+    h_r.assert_refines(&spec_r, map_r);
+    h_r.collapse(map_r).dual().assert_bisimilar(&h_i.collapse(map_i));
 }

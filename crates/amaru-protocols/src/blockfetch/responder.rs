@@ -50,7 +50,7 @@ on_receive!(Idle as ServerIdleIn {
         Call<ToInitiator, StartBatch>, Repeat<Call<ToInitiator, Block>>, Call<ToInitiator, BatchDone>, Send<ToMux, WantNext> => Idle
         | Call<ToInitiator, NoBlocks>, Send<ToMux, WantNext> => Idle
     }
-    ClientDone => { Send<ToMux, WantNext> => Idle }
+    ClientDone => { Send<ToMux, WantNext> => Done }
 });
 on_receive!(Done as DoneIn {});
 
@@ -236,7 +236,11 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                     Err(err) => return invalid(peer, idle.name(), err, eff).await,
                 }
             }
-            Ok(ServerIdleIn::ClientDone(done)) => idle.receive(done, eff).send(&mux, WantNext).await.finish().into(),
+            Ok(ServerIdleIn::ClientDone(done)) => {
+                // Remainder dest is spec Done; live token restarts Idle on this mux registration.
+                let _: Done = idle.receive(done, eff).send(&mux, WantNext).await.finish();
+                initial_state::<Idle>().into()
+            }
             Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
             Err(mail) => return invalid(peer, idle.name(), mail, eff).await,
         },
@@ -310,7 +314,7 @@ pub mod tests {
     };
     use crate::{
         mux::{MuxMessage, Sent},
-        protocol::{Cfsm, Inputs, ProjectionConfig, Role, StateId, check_timeouts, check_want_next, project},
+        protocol::{Inputs, ProjectionConfig, Role, StateId, check_timeouts, check_want_next, project},
         store_effects::ResourceHeaderStore,
     };
 
@@ -349,7 +353,7 @@ pub mod tests {
                 send_desc::<ToMux, WantNext>()
             )
         );
-        assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Idle", send_desc::<ToMux, WantNext>()));
+        assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Done", send_desc::<ToMux, WantNext>()));
     }
 
     fn map_r(state: &StateId) -> StateId {
@@ -366,19 +370,8 @@ pub mod tests {
         }
     }
 
-    /// Drop ClientDone so RequestRange synthetics can refine Table 3.7.
-    /// Today's remainder dest is Idle; spec dest is Done. Do not retarget with
-    /// `with_restart_on_done`. Dest Idle and dest Done both pass until PR 7
-    /// deletes this helper.
-    fn without_client_done(mut cfsm: Cfsm<Message>) -> Cfsm<Message> {
-        for edges in cfsm.transitions.values_mut() {
-            edges.retain(|label, _| !matches!(label.message, Message::ClientDone(_)));
-        }
-        cfsm
-    }
-
     #[test]
-    fn responder_projects_request_range_to_table_3_7() {
+    fn responder_projects_to_table_3_7() {
         let g = typestate_graph! {
             proto: Proto,
             receiving: { Idle },
@@ -403,8 +396,9 @@ pub mod tests {
         assert_eq!(projected.dest(&req, &dummies["NoBlocks"]), StateId::Named("Idle"));
         assert_eq!(projected.dest(&start, &dummies["Block"]), start);
         assert_eq!(projected.dest(&start, &dummies["BatchDone"]), StateId::Named("Idle"));
+        assert_eq!(projected.dest(&StateId::Named("Idle"), &dummies["ClientDone"]), StateId::Named("Done"));
 
-        without_client_done(projected).assert_refines(&without_client_done(spec.project(Role::Responder)), map_r);
+        projected.assert_refines(&spec.project(Role::Responder), map_r);
         assert_wire_inputs_cover_receives(&g, &cfg);
     }
 
@@ -675,6 +669,7 @@ pub mod tests {
         assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
     }
 
+    /// Remainder dest is Done; after this invocation the live token is Idle and WantNext was sent.
     #[test]
     fn close_idle_resets() {
         let mut network = SimulationBuilder::default();
