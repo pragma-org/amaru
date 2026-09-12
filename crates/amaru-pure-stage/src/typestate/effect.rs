@@ -22,29 +22,26 @@ use std::{any::type_name, fmt, marker::PhantomData};
 
 use crate::ExternalEffect;
 
+/// Last outermost path segment of `type_name::<T>()` (generic args preserved).
 pub(super) const fn type_last_segment<T>() -> &'static str {
     last_segment(type_name::<T>())
 }
 
+/// Last `::` at angle-bracket depth 0, so `Option<foo::Bar>` is `"Option<foo::Bar>"` not `"Bar>"`.
 const fn last_segment(name: &'static str) -> &'static str {
     let bytes = name.as_bytes();
     let mut i = bytes.len();
+    let mut depth = 0usize;
     while i > 0 {
         i -= 1;
-        if bytes[i] == b':' {
-            return name.split_at(i + 1).1;
+        match bytes[i] {
+            b'>' => depth += 1,
+            b'<' => depth = depth.saturating_sub(1),
+            b':' if depth == 0 => return name.split_at(i + 1).1,
+            _ => {}
         }
     }
     name
-}
-
-/// Last `::` segment of `type_name::<R>()`. Equals [`RoleTag::NAME`](super::RoleTag::NAME) for tag types.
-pub(super) fn role_name<R>() -> &'static str {
-    type_last_segment::<R>()
-}
-
-pub(super) fn payload_name<T>() -> &'static str {
-    type_last_segment::<T>()
 }
 
 /// A type-level tag for an effect that can appear in a session remainder.
@@ -165,5 +162,27 @@ pub struct AddStage;
 impl Effect for AddStage {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "AddStage")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::last_segment;
+
+    #[test]
+    fn last_segment_skips_colons_inside_generic_args() {
+        assert_eq!(last_segment("core::option::Option<foo::Bar>"), "Option<foo::Bar>");
+        assert_ne!(last_segment("core::option::Option<foo::Bar>"), "Bar>");
+    }
+
+    #[test]
+    fn last_segment_plain_path_and_nested_generics() {
+        assert_eq!(last_segment("u8"), "u8");
+        assert_eq!(last_segment("foo::Bar"), "Bar");
+        assert_eq!(last_segment("core::result::Result<foo::Bar, baz::Qux>"), "Result<foo::Bar, baz::Qux>");
+        assert_eq!(
+            last_segment("core::option::Option<alloc::boxed::Box<foo::Bar>>"),
+            "Option<alloc::boxed::Box<foo::Bar>>"
+        );
     }
 }

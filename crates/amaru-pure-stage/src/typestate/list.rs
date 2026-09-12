@@ -41,7 +41,7 @@ use std::{fmt, marker::PhantomData};
 
 use super::{
     Effect, State,
-    effect::{Repeat, SendAny, payload_name, role_name},
+    effect::{Repeat, SendAny, type_last_segment},
 };
 
 pub struct Nil;
@@ -506,9 +506,9 @@ pub fn describe<R: FmtPar>() -> String {
 
 /// [`State::NAME`] of a remainder destination.
 pub type StateName = &'static str;
-/// Role label (`RoleTag::NAME`, or last `::` of `type_name` for phantoms).
+/// Last outermost path segment of a role `type_name`.
 pub type RoleName = &'static str;
-/// Last `::` segment of a payload `type_name`.
+/// Last outermost path segment of a payload `type_name` (generic args preserved).
 pub type PayloadName = &'static str;
 /// Receive-arm identifier (`stringify!($in)` from `on_receive!`).
 pub type InputName = &'static str;
@@ -552,17 +552,17 @@ pub trait DescribeAst {
 }
 
 /// Parallel sequences inside a [`Then`].
-pub trait DescribePar {
+trait DescribePar {
     fn describe_par() -> Vec<Vec<EffectAst>>;
 }
 
 /// Ordered effects in one parallel branch.
-pub trait DescribeSeq {
+trait DescribeSeq {
     fn describe_seq() -> Vec<EffectAst>;
 }
 
 /// A single remainder effect, including [`Repeat`].
-pub trait DescribeEffect {
+trait DescribeEffect {
     fn describe_effect() -> EffectAst;
 }
 
@@ -637,19 +637,19 @@ where
 
 impl<R, T> DescribeEffect for super::effect::Send<R, T> {
     fn describe_effect() -> EffectAst {
-        EffectAst::Send { role: role_name::<R>(), payload: payload_name::<T>() }
+        EffectAst::Send { role: type_last_segment::<R>(), payload: type_last_segment::<T>() }
     }
 }
 
 impl<R, T> DescribeEffect for super::effect::Call<R, T> {
     fn describe_effect() -> EffectAst {
-        EffectAst::Call { role: role_name::<R>(), payload: payload_name::<T>() }
+        EffectAst::Call { role: type_last_segment::<R>(), payload: type_last_segment::<T>() }
     }
 }
 
 impl<R> DescribeEffect for SendAny<R> {
     fn describe_effect() -> EffectAst {
-        EffectAst::SendAny { role: role_name::<R>() }
+        EffectAst::SendAny { role: type_last_segment::<R>() }
     }
 }
 
@@ -700,7 +700,7 @@ impl DescribeEffect for super::effect::Clock {
 
 impl<T> DescribeEffect for super::effect::Schedule<T> {
     fn describe_effect() -> EffectAst {
-        EffectAst::Schedule { payload: payload_name::<T>() }
+        EffectAst::Schedule { payload: type_last_segment::<T>() }
     }
 }
 
@@ -712,7 +712,7 @@ impl DescribeEffect for super::effect::CancelSchedule {
 
 impl<E: crate::ExternalEffect> DescribeEffect for super::effect::External<E> {
     fn describe_effect() -> EffectAst {
-        EffectAst::External { effect: payload_name::<E>() }
+        EffectAst::External { effect: type_last_segment::<E>() }
     }
 }
 

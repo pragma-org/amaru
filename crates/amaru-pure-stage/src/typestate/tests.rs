@@ -154,13 +154,6 @@ fn rem(alternatives: Vec<ThenAst>) -> RemainderAst {
 }
 
 #[test]
-fn describe_ast_sequence_of_sends_then_intersect() {
-    type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
-    let intersect = &describe_ast::<Rem>().alternatives[0];
-    assert_eq!(intersect, &then(vec![vec![send("Peer", "String"), send("Peer", "u8")]], "Intersect"));
-}
-
-#[test]
 fn describe_ast_exclusive_choice_send_or_wait() {
     type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
     assert_eq!(
@@ -230,6 +223,27 @@ fn describe_ast_repeat_of_sequence() {
         describe_ast::<Rem>(),
         rem(vec![then(vec![vec![EffectAst::Repeat(vec![send("Peer", "u8"), send("Peer", "u16")])]], "Idle",)])
     );
+}
+
+#[test]
+fn describe_ast_repeat_call() {
+    type Rem = Cons<Then<Cons<Cons<Repeat<Call<toy::Peer, u8>>, Nil>, Nil>, toy::Idle>, Nil>;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![vec![EffectAst::Repeat(vec![call("Peer", "u8")])]], "Idle")]));
+}
+
+mod payload_generic {
+    pub struct Bar;
+}
+
+#[test]
+fn describe_ast_payload_keeps_generic_args() {
+    type Rem = Cons<Then<Cons<Cons<Send<toy::Peer, Option<payload_generic::Bar>>, Nil>, Nil>, toy::Idle>, Nil>;
+    let EffectAst::Send { payload, .. } = &describe_ast::<Rem>().alternatives[0].parallel[0][0] else {
+        panic!("expected Send");
+    };
+    assert_ne!(*payload, "Bar>");
+    assert!(payload.starts_with("Option<"), "{payload}");
+    assert!(payload.contains("Bar"), "{payload}");
 }
 
 #[test]
@@ -396,7 +410,7 @@ mod exclusive_choice {
     }
 
     #[test]
-    fn describe_ast_uses_role_tag_names() {
+    fn describe_ast_role_last_segment_matches_role_tag_name() {
         assert_eq!(
             describe_ast::<Rem>(),
             rem(vec![
