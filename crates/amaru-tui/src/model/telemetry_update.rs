@@ -66,7 +66,7 @@ impl Model {
                 self.update_pots(record);
                 self.rewards_ready = true;
             }
-            TelemetryEvent::BootstrapPotsImport | TelemetryEvent::PotsLoad => self.update_pots(record),
+            TelemetryEvent::BootstrapPotsImport | TelemetryEvent::PotsDump => self.update_pots(record),
             TelemetryEvent::EpochTransitionCompute => self.rewards_ready = false,
             TelemetryEvent::EpochTransitionRecord => self.epoch_overlay_exists = true,
             TelemetryEvent::EpochTransitionApply => self.epoch_overlay_exists = false,
@@ -96,12 +96,8 @@ impl Model {
             TelemetryEvent::ProtocolUpgrade => {
                 self.protocol_version = ledger::protocol::UPGRADE::new_version(record).to_string();
             }
-            TelemetryEvent::ProtocolParametersLoad | TelemetryEvent::ProtocolParametersRatify => {
-                let version = if ledger::protocol_parameters::LOAD::matches(&record.target, &record.name) {
-                    ledger::protocol_parameters::LOAD::protocol_version(record)
-                } else {
-                    ledger::protocol_parameters::RATIFY::protocol_version(record)
-                };
+            TelemetryEvent::ProtocolParametersDump => {
+                let version = ledger::protocol_parameters::DUMP::protocol_version(record);
                 if let Some(version) = version.map(ToOwned::to_owned) {
                     self.protocol_version = version;
                 }
@@ -226,11 +222,11 @@ impl Model {
             self.reserves = Some(ledger::rewards::SUMMARIZE::pots_reserves(record));
             self.fees = Some(ledger::rewards::SUMMARIZE::pots_fees(record));
             self.donations = self.donations.or(Some(0));
-        } else if ledger::pots::LOAD::matches(&record.target, &record.name) {
-            self.treasury = Some(ledger::pots::LOAD::treasury(record));
-            self.reserves = Some(ledger::pots::LOAD::reserves(record));
-            self.fees = Some(ledger::pots::LOAD::fees(record));
-            self.donations = Some(ledger::pots::LOAD::donations(record));
+        } else if ledger::pots::DUMP::matches(&record.target, &record.name) {
+            self.treasury = Some(ledger::pots::DUMP::treasury(record));
+            self.reserves = Some(ledger::pots::DUMP::reserves(record));
+            self.fees = Some(ledger::pots::DUMP::fees(record));
+            self.donations = Some(ledger::pots::DUMP::donations(record));
         } else if bootstrap::pots::IMPORT::matches(&record.target, &record.name) {
             self.treasury = Some(bootstrap::pots::IMPORT::treasury(record));
             self.reserves = Some(bootstrap::pots::IMPORT::reserves(record));

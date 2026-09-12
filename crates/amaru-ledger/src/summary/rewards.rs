@@ -701,6 +701,7 @@ mod test {
                 dreps_voting_stake: 0,
                 pools: BTreeMap::from([(pool.parameters.id, pool.clone())]),
                 dreps: BTreeMap::new(),
+                cc_update: None,
             },
             accounts: SortedPairs::from(accounts),
         }

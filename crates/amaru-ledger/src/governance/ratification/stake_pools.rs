@@ -360,6 +360,7 @@ mod tests {
                 },
             )]),
             dreps: BTreeMap::new(),
+            cc_update: None,
         }
     }
 }

@@ -46,7 +46,7 @@ use crate::{
         self,
         block::{BlockValidation, TransactionInvalid},
     },
-    startup::{Database as StartupDatabase, StartupHook},
+    startup::{StartupContext, StartupHook},
     state::volatile::{
         AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
@@ -190,18 +190,18 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
         let guardrail_script = stable.constitution()?.guardrail_script;
 
+        let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
+
+        if let Some(on_startup) = on_startup {
+            on_startup(&StartupContext::new(&stable, epoch, &protocol_parameters, &era_history))?;
+        }
+
         let stake_distributions = initial_stake_distributions(
             network,
             &snapshots,
             &era_history,
             emit_initial_stake_distribution_progress_ticks,
         )?;
-
-        let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
-
-        if let Some(on_startup) = on_startup {
-            on_startup(&StartupDatabase::new(&stable, epoch, &protocol_parameters, &era_history))?;
-        }
 
         Ok(Self::new_with(
             stable,

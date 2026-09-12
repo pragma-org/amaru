@@ -363,7 +363,7 @@ impl ProposalsForestCompass {
             unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
         });
 
-        // NOTE(SKIP_PROPOSALS):
+        // NOTE: Skip just-submitted governance proposals
         //
         // Proposals are ratified with an epoch of delay. So
         //
@@ -387,7 +387,7 @@ impl ProposalsForestCompass {
             return None;
         }
 
-        // NOTE(SKIP_PROPOSALS):
+        // NOTE: Skip now-invalid treasury withdrawals
         //
         // On treasury withdrawals, we must ensure there's still enough money in the
         // treasury. This is necessary since there can be an arbitrary number of
@@ -407,14 +407,22 @@ impl ProposalsForestCompass {
             }
         }
 
-        // NOTE(SKIP_PROPOSALS):
+        // NOTE: Skip CC update proposal with invalid members
         //
         // On constitutional committee updates, we should ensure that any term limit is still
         // valid. This can happen if a protocol parameter change that changes the max term limit
         // is ratified *before* a committee update, possibly rendering it invalid.
+        //
+        // Note that we use the *next epoch* (the epoch that just ended) for the validity bound
+        // comparison and not the epoch from which the votes and stake distribution comes from.
+        //
+        // Said differently, during the boundary from e to e+1, we compare the validity of actions
+        // against e, with data coming from e-1.
+        //
+        // This is NOT confusing at all. <insert sobbing emoji>.
         if let ProposalEnum::ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
             let max_term_length = protocol_parameters.max_committee_term_length;
-            let is_now_invalid = |valid_until| valid_until > &(forest.current_epoch + max_term_length);
+            let is_now_invalid = |valid_until| valid_until > &(forest.current_epoch + 1 + max_term_length);
             if added.values().any(is_now_invalid) {
                 let invalid_members =
                     added.iter().filter(|(_, v)| is_now_invalid(v)).map(|(k, _)| k.as_hash()).collect::<Vec<_>>();
@@ -428,7 +436,7 @@ impl ProposalsForestCompass {
             }
         }
 
-        // NOTE(SKIP_PROPOSALS):
+        // NOTE: Skip proposals with non-matching parent roots.
         //
         // Ensures that the next proposal points to an active root. Not being the case isn't
         // necessarily an issue or a sign that something went wrong.
@@ -879,29 +887,42 @@ mod tests {
             let mut compass = forest.new_compass();
             let mut cc_update = None;
             while let Some((id, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                if let ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { added, .. }, _) = proposal {
-                    let min_valid_until = added.values().min();
-                    if min_valid_until >= Some(&Epoch::from(1)) {
-                        cc_update = Some((id, *min_valid_until.unwrap()));
-                    }
+                if let ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { added, .. }, _) = proposal
+                    && let Some(max_valid_until) = added.values().max()
+                    && max_valid_until.as_u64() > 2 {
+                        cc_update = Some((id, *max_valid_until));
                 }
             }
 
-            if let Some((previous_id, min_valid_until)) = cc_update {
-                forest.current_epoch = min_valid_until - 1;
+            let protocol_parameters = ProtocolParameters {
+                max_committee_term_length: 0,
+                ..(*PROTOCOL_PARAMETERS).clone()
+            };
+
+
+            if let Some((target_proposal, max_valid_until)) = cc_update {
+                // Does not yield cc proposals that contains invalid members.
+                forest.current_epoch = max_valid_until - 2;
                 compass = forest.new_compass();
-
-                let protocol_parameters = ProtocolParameters {
-                    max_committee_term_length: 0,
-                    ..(*PROTOCOL_PARAMETERS).clone()
-                };
-
                 while let Some((id, (_, _))) = compass.next(&forest, &protocol_parameters) {
                     prop_assert!(
-                        id != previous_id,
+                        id != target_proposal,
                         "yielded constitutional committee update ({id}) despite now-invalid committee"
                     );
                 }
+
+                // Yield cc proposals that contains barely valid members
+                forest.current_epoch = max_valid_until - 1;
+                compass = forest.new_compass();
+                while let Some((id, (_, _))) = compass.next(&forest, &protocol_parameters) {
+                    if id == target_proposal {
+                        return Ok(());
+                    }
+                }
+                prop_assert!(
+                    false,
+                    "did not yield constitutional committee update ({target_proposal}) with barely-valid committee"
+                );
             } else {
                 prop_assert!(true)
             }
@@ -940,7 +961,7 @@ mod tests {
                             prop_assert!(
                                 added
                                     .values()
-                                    .all(|valid_until| *valid_until <= forest.current_epoch + PROTOCOL_PARAMETERS.max_committee_term_length)
+                                    .all(|valid_until| *valid_until <= forest.current_epoch + 1 + PROTOCOL_PARAMETERS.max_committee_term_length)
                             );
                         }
                     },

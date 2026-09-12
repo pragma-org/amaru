@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260917 _[unreleased; planned for 2026-09-17]_
 
+### Fixed
+
+- **amaru-ledger**: Off-by-one error in constitutional committee member validity upper-bound check.
+
 ## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
 ### Added

@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, Credential, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, ProposalId,
-    RatificationStatus, Slot, TransactionPointer,
+    Anchor, CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, Epoch, EraHistory, EraHistoryError,
+    Lovelace, ProposalId, RatificationStatus, Slot, TransactionPointer, into_safe_ratio,
 };
 
 use crate::{
@@ -32,6 +32,7 @@ pub struct GovernanceSummary {
     pub dreps: BTreeMap<DRep, DRepState>,
     pub dreps_deposits: BTreeMap<Credential, Lovelace>,
     pub pools_deposits: BTreeMap<Credential, Lovelace>,
+    pub cc_update: Option<ConstitutionalCommitteeUpdate>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -75,6 +76,8 @@ impl GovernanceSummary {
 
         let recently_pruned_proposals: BTreeMap<ProposalId, RatificationStatus> =
             db.iter_recently_pruned_proposals()?.collect();
+
+        let mut cc_update = None;
 
         db.iter_proposals()?.try_for_each(|(proposal_id, row)| -> Result<(), Error> {
             let proposed_in = era_history
@@ -133,12 +136,18 @@ impl GovernanceSummary {
                                     .or_insert(*withdrawal);
                             }
                         }
-                        ParameterChange(..)
-                        | HardForkInitiation(..)
-                        | NoConfidence(..)
-                        | UpdateCommittee(..)
-                        | NewConstitution(..)
-                        | Information => (),
+
+                        NoConfidence(..) => cc_update = Some(ConstitutionalCommitteeUpdate::NoConfidence),
+
+                        UpdateCommittee(_, removed, added, threshold) => {
+                            cc_update = Some(ConstitutionalCommitteeUpdate::ChangeMembers {
+                                removed: removed.into_iter().collect(),
+                                added: added.into_iter().collect(),
+                                threshold: into_safe_ratio(&threshold),
+                            })
+                        }
+
+                        ParameterChange(..) | HardForkInitiation(..) | NewConstitution(..) | Information => (),
                     }
                 }
             }
@@ -185,6 +194,6 @@ impl GovernanceSummary {
         dreps.insert(DRep::Abstain, default_protocol_drep());
         dreps.insert(DRep::NoConfidence, default_protocol_drep());
 
-        Ok(GovernanceSummary { dreps, dreps_deposits, pools_deposits })
+        Ok(GovernanceSummary { dreps, dreps_deposits, pools_deposits, cc_update })
     }
 }

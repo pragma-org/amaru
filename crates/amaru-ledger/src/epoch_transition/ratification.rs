@@ -335,13 +335,13 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
     } = new;
 
     info!(
-        ledger::protocol_parameters::RATIFY,
-        protocol_version = @opt_field(&old.protocol_version, protocol_version),
+        ledger::protocol_parameters::DUMP,
+        protocol_version = @opt_display(&old.protocol_version, protocol_version),
         max_block_body_size = @opt_field(&old.max_block_body_size, max_block_body_size),
         max_transaction_size = @opt_field(&old.max_transaction_size, max_transaction_size),
         max_block_header_size = @opt_field(&old.max_block_header_size, max_block_header_size),
-        max_tx_ex_units = @opt_field(&old.max_tx_ex_units, max_tx_ex_units),
-        max_block_ex_units = @opt_field(&old.max_block_ex_units, max_block_ex_units),
+        max_tx_ex_units = @opt_display(&old.max_tx_ex_units, max_tx_ex_units),
+        max_block_ex_units = @opt_display(&old.max_block_ex_units, max_block_ex_units),
         max_value_size = @opt_field(&old.max_value_size, max_value_size),
         max_collateral_inputs = @opt_field(&old.max_collateral_inputs, max_collateral_inputs),
         min_fee_a = @opt_field(&old.min_fee_a, min_fee_a),
@@ -349,13 +349,13 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         stake_credential_deposit = @opt_field(&old.stake_credential_deposit, stake_credential_deposit),
         stake_pool_deposit = @opt_field(&old.stake_pool_deposit, stake_pool_deposit),
         monetary_expansion_rate =
-            @opt_field(&old.monetary_expansion_rate, monetary_expansion_rate),
+            @opt_display(&old.monetary_expansion_rate, monetary_expansion_rate),
         treasury_expansion_rate =
-            @opt_field(&old.treasury_expansion_rate, treasury_expansion_rate),
+            @opt_display(&old.treasury_expansion_rate, treasury_expansion_rate),
         min_pool_cost = @opt_field(&old.min_pool_cost, min_pool_cost),
         lovelace_per_utxo_byte = @opt_field(&old.lovelace_per_utxo_byte, lovelace_per_utxo_byte),
-        prices = @opt_field(&old.prices, prices),
-        min_fee_ref_script_lovelace_per_byte = @opt_field(
+        prices = @opt_display(&old.prices, prices),
+        min_fee_ref_script_lovelace_per_byte = @opt_display(
             &old.min_fee_ref_script_lovelace_per_byte,
             min_fee_ref_script_lovelace_per_byte,
         ),
@@ -363,15 +363,15 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         max_ref_script_size_per_block = @opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
         ref_script_cost_stride = @opt_field(&old.ref_script_cost_stride, ref_script_cost_stride),
         ref_script_cost_multiplier =
-            @opt_field(&old.ref_script_cost_multiplier, ref_script_cost_multiplier),
+            @opt_display(&old.ref_script_cost_multiplier, ref_script_cost_multiplier),
         stake_pool_max_retirement_epoch =
             @opt_field(&old.stake_pool_max_retirement_epoch, stake_pool_max_retirement_epoch),
         optimal_stake_pools_count = @opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
-        pledge_influence = @opt_field(&old.pledge_influence, pledge_influence),
+        pledge_influence = @opt_display(&old.pledge_influence, pledge_influence),
         collateral_percentage = @opt_field(&old.collateral_percentage, collateral_percentage),
-        cost_models = @opt_field(&old.cost_models, cost_models),
-        pool_voting_thresholds = @opt_field(&old.pool_voting_thresholds, pool_voting_thresholds),
-        drep_voting_thresholds = @opt_field(&old.drep_voting_thresholds, drep_voting_thresholds),
+        cost_models = @opt_display(&old.cost_models, cost_models),
+        pool_voting_thresholds = @opt_display(&old.pool_voting_thresholds, pool_voting_thresholds),
+        drep_voting_thresholds = @opt_display(&old.drep_voting_thresholds, drep_voting_thresholds),
         min_committee_size = @opt_field(&old.min_committee_size, min_committee_size),
         max_committee_term_length = @opt_field(&old.max_committee_term_length, max_committee_term_length),
         gov_action_lifetime = @opt_field(&old.gov_action_lifetime, gov_action_lifetime),
@@ -381,8 +381,16 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
     );
 }
 
-fn opt_field<A: Eq + fmt::Display>(old: &A, new: &A) -> Box<dyn tracing::Value> {
-    if old == new { Box::new(tracing::field::Empty) as Box<dyn tracing::Value> } else { Box::new(new.to_string()) }
+fn opt_field<'a, A: Eq + fmt::Display + tracing::Value>(old: &A, new: &'a A) -> Box<dyn tracing::Value + 'a> {
+    if old == new { Box::new(tracing::field::Empty) as Box<dyn tracing::Value> } else { Box::new(new) }
+}
+
+fn opt_display<'a, A: Eq + fmt::Display>(old: &A, new: &'a A) -> Box<dyn tracing::Value + 'a> {
+    if old == new {
+        Box::new(tracing::field::Empty) as Box<dyn tracing::Value>
+    } else {
+        Box::new(tracing::field::display(new))
+    }
 }
 
 fn opt_str(s: String) -> Box<dyn tracing::Value> {
@@ -419,6 +427,7 @@ mod tests {
             dreps_voting_stake: 0,
             pools: BTreeMap::new(),
             dreps: BTreeMap::new(),
+            cc_update: None,
         }
     }
 

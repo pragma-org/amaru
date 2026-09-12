@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use crate::{Credential, cbor, utils::cbor::SerialisedAsArray};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -26,6 +28,15 @@ pub enum ConstitutionalCommitteeMemberStatus {
     // 1. is completely useless to the ledger
     // 2. prevents the type from being `Copy`
     Resigned,
+}
+
+impl fmt::Display for ConstitutionalCommitteeMemberStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DelegatedToHotCredential(hot_credential) => write!(f, "delegated={hot_credential}"),
+            Self::Resigned => write!(f, "resigned"),
+        }
+    }
 }
 
 impl TryFrom<ConstitutionalCommitteeMemberStatus> for Credential {
