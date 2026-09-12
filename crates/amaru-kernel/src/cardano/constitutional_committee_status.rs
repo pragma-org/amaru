@@ -12,12 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstitutionalCommitteeStatus {
     NoConfidence,
     Trusted { threshold: RationalNumber },
+}
+
+impl fmt::Display for ConstitutionalCommitteeStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoConfidence => write!(f, "no-confidence"),
+            Self::Trusted { threshold } => write!(f, "trusted={threshold}"),
+        }
+    }
 }
 
 impl<C> cbor::encode::Encode<C> for ConstitutionalCommitteeStatus {

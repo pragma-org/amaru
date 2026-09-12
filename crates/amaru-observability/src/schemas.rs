@@ -960,6 +960,18 @@ define_schemas! {
                     required min_committee_size: u16
                     required reason: String
                 }
+                /// Load the current constitutional committee on startup
+                public LOAD {
+                    required status: %amaru_kernel::ConstitutionalCommitteeStatus
+                }
+            }
+            constitutional_committee_member {
+                /// Load the current constitutional committee member on startup
+                public LOAD {
+                    required cold_credential: %amaru_kernel::Credential
+                    optional status: %amaru_kernel::ConstitutionalCommitteeMemberStatus
+                    optional valid_until: amaru_kernel::Epoch
+                }
             }
             governance_activity {
                 /// Update the number of consecutive dormant epochs

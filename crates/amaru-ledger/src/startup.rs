@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{Epoch, EraHistory, GovernanceAction, ProtocolParameters};
-use amaru_observability::info;
+use amaru_observability::{info, info_span};
+use tracing::field;
 
 use crate::store::{self, ReadStore, StoreError};
 
@@ -64,6 +65,7 @@ pub fn with_startup_hook<S: ReadStore>(database: &Database<'_, S>) -> Result<(),
     emit_protocol_parameters(database);
     emit_current_pots(database)?;
     emit_active_proposals(database)?;
+    emit_constitutional_committee(database)?;
     Ok(())
 }
 
@@ -137,6 +139,19 @@ fn emit_active_proposals<S: ReadStore>(database: &Database<'_, S>) -> Result<(),
         }
     }
 
+    Ok(())
+}
+
+fn emit_constitutional_committee<S: ReadStore>(database: &Database<'_, S>) -> Result<(), StoreError> {
+    info_span!(ledger::constitutional_committee::LOAD, status = database.stable.constitutional_committee()?);
+    for (cold_credential, member) in database.stable.iter_cc_members()? {
+        info!(
+            ledger::constitutional_committee_member::LOAD,
+            cold_credential = cold_credential,
+            status = @member.status.as_ref().map(field::display),
+            valid_until = @member.valid_until.as_ref().map(|epoch| epoch.as_u64()),
+        );
+    }
     Ok(())
 }
 
