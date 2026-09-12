@@ -328,7 +328,7 @@ where
 /// makes `Busy` the start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSpec<S, M> {
-    transitions: BTreeMap<S, PerState<S, M>>,
+    pub(crate) transitions: BTreeMap<S, PerState<S, M>>,
     /// Receiver's bound. Absence = no timer.
     timeout: BTreeMap<S, Duration>,
     /// Start state: `from` of the first `init` / `resp` / `sim_open` (not an explicit constructor).
@@ -336,15 +336,15 @@ pub struct SessionSpec<S, M> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PerState<S, M> {
-    agency: Role,
-    transitions: BTreeMap<M, Edge<S>>,
+pub(crate) struct PerState<S, M> {
+    pub(crate) agency: Role,
+    pub(crate) transitions: BTreeMap<M, Edge<S>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Edge<S> {
-    to: S,
-    sim_open: bool,
+pub(crate) struct Edge<S> {
+    pub(crate) to: S,
+    pub(crate) sim_open: bool,
 }
 
 impl<S, M> Default for SessionSpec<S, M> {
@@ -354,12 +354,8 @@ impl<S, M> Default for SessionSpec<S, M> {
 }
 
 impl<S, M> PerState<S, M> {
-    fn initiator() -> Self {
-        Self { agency: Role::Initiator, transitions: BTreeMap::new() }
-    }
-
-    fn responder() -> Self {
-        Self { agency: Role::Responder, transitions: BTreeMap::new() }
+    fn role(agency: Role) -> Self {
+        Self { agency, transitions: BTreeMap::new() }
     }
 
     fn insert(&mut self, msg: M, role: Role, to: S, sim_open: bool) -> Option<Edge<S>>
@@ -406,13 +402,21 @@ where
         if self.initial.is_none() {
             self.initial = Some(from.clone());
         }
-        let per = self.transitions.entry(from.clone()).or_insert_with(|| match role {
-            Role::Initiator => PerState::initiator(),
-            Role::Responder => PerState::responder(),
-        });
+        let per = self.transitions.entry(from.clone()).or_insert_with(|| PerState::role(role));
         if let Some(present) = per.insert(msg.clone(), role, to.clone(), sim_open) {
             panic!("transition {from:?} -> {msg:?} -> {present:?} already defined when inserting {to:?}");
         }
+    }
+
+    /// Panic on mismatch. Compares the undirected table after `map`.
+    /// Does **not** compare timeouts.
+    #[track_caller]
+    pub fn assert_refines<S2>(&self, spec: &SessionSpec<S2, M>, map: impl Fn(&S) -> S2)
+    where
+        S2: Clone + Ord + std::fmt::Debug,
+    {
+        let simplified = collapse_undirected(&self.transitions, map);
+        assert_eq!(simplified, spec.transitions);
     }
 
     /// Library helper for protocols whose remainders still loop `MsgDone`.
@@ -474,6 +478,39 @@ where
         cfsm.recompute_terminal();
         cfsm
     }
+}
+
+fn collapse_undirected<S, S2, M>(
+    transitions: &BTreeMap<S, PerState<S, M>>,
+    map: impl Fn(&S) -> S2,
+) -> BTreeMap<S2, PerState<S2, M>>
+where
+    S: Clone + std::fmt::Debug,
+    S2: Clone + Ord + std::fmt::Debug,
+    M: Clone + Ord + std::fmt::Debug,
+{
+    let mut simplified = BTreeMap::<S2, PerState<S2, M>>::new();
+    for (from, per_state) in transitions {
+        let from = map(from);
+        for (message, edge) in &per_state.transitions {
+            let to = map(&edge.to);
+            let existing = simplified.entry(from.clone()).or_insert_with(|| PerState::role(per_state.agency)).insert(
+                message.clone(),
+                per_state.agency,
+                to.clone(),
+                edge.sim_open,
+            );
+            if let Some(existing) = existing.as_ref()
+                && (existing.to != to || existing.sim_open != edge.sim_open)
+            {
+                panic!(
+                    "transition {from:?} -> {message:?} -> {:?} already defined with different target state when inserting {to:?}",
+                    existing.to,
+                );
+            }
+        }
+    }
+    simplified
 }
 
 /// Hand-written per protocol. `driven` selects the WantNext and timeout tables.
@@ -1839,6 +1876,7 @@ mod tests {
         let mut timed = table_37();
         timed.set_timeout("Idle", Duration::from_secs(1));
         timed.project(Role::Initiator).assert_refines(&table_37().project(Role::Initiator), identity);
+        timed.assert_refines(&table_37(), |s| *s);
     }
 
     #[test]
