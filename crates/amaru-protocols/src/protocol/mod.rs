@@ -32,7 +32,7 @@ pub use miniprotocol::{
 pub(crate) use pipeline::{MuxClient, Pipelined, ToMux, WantNext, drive, pipelined};
 pub use session::{
     Cfsm, Direction, Label, ProjectError, ProjectionConfig, SessionSpec, StateId, TimeoutError, WantNextError,
-    check_timeouts, check_want_next, project, spec_timeout,
+    check_timeouts, check_want_next, project,
 };
 
 /// Input to a protocol step

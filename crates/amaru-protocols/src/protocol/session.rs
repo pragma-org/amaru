@@ -953,6 +953,8 @@ pub enum WantNextError {
     DestNotSelf { state: StateName, input: InputName },
     MissingPull { dest: StateName },
     MissingOccupancy { state: StateName },
+    UnlistedOccupancy { state: StateName, input: InputName },
+    UnknownInput { state: StateName, input: InputName },
     WirePayloadMustBeCall { state: StateName, input: InputName, payload: PayloadName },
 }
 
@@ -983,6 +985,12 @@ impl Display for WantNextError {
             WantNextError::MissingOccupancy { state } => {
                 write!(f, "driven graph is missing occupancy for {state}")
             }
+            WantNextError::UnlistedOccupancy { state, input } => {
+                write!(f, "unlisted occupancy/kind at {state} + {input}")
+            }
+            WantNextError::UnknownInput { state, input } => {
+                write!(f, "input {input} at {state} is not plumbing, local, or wire")
+            }
             WantNextError::WirePayloadMustBeCall { state, input, payload } => {
                 write!(f, "wire payload {payload} to peer must be Call (not Send) at {state} + {input}")
             }
@@ -999,6 +1007,8 @@ pub enum TimeoutError {
     SetTimeoutMissing { state: StateName, input: InputName },
     ClearTimeoutMissing { state: StateName, input: InputName },
     MissingOccupancy { state: StateName },
+    UnlistedOccupancy { state: StateName, input: InputName },
+    UnknownInput { state: StateName, input: InputName },
 }
 
 impl Display for TimeoutError {
@@ -1015,6 +1025,12 @@ impl Display for TimeoutError {
             }
             TimeoutError::MissingOccupancy { state } => {
                 write!(f, "driven graph is missing occupancy for {state}")
+            }
+            TimeoutError::UnlistedOccupancy { state, input } => {
+                write!(f, "unlisted occupancy/kind at {state} + {input}")
+            }
+            TimeoutError::UnknownInput { state, input } => {
+                write!(f, "input {input} at {state} is not plumbing, local, or wire")
             }
         }
     }
@@ -1103,15 +1119,6 @@ where
         }
     }
     Ok(())
-}
-
-/// Test helper: spec timeout for a named constructor, if any.
-pub fn spec_timeout<S, M>(spec: &SessionSpec<S, M>, name: S) -> Option<Duration>
-where
-    S: Clone + Ord + std::fmt::Debug,
-    M: Clone + Ord + std::fmt::Debug,
-{
-    spec.timeout(&name)
 }
 
 fn input_kind<M>(cfg: &ProjectionConfig<M>, input: InputName) -> InputKind {
@@ -1262,17 +1269,15 @@ fn apply_want_next_rule<M>(
     present: bool,
     need_pull: &mut BTreeSet<StateName>,
 ) -> Result<(), WantNextError> {
-    let (rule, dest_self) = want_next_rule(graph, cfg, state, kind, next, need_pull)?;
+    if matches!(kind, InputKind::Unknown) {
+        return Err(WantNextError::UnknownInput { state, input });
+    }
+    let (rule, dest_self) = want_next_rule(graph, cfg, state, input, kind, next, need_pull)?;
     match (rule, present) {
         (Presence::Required, false) => Err(WantNextError::WantNextMissing { state, input }),
         (Presence::Forbidden, true) => Err(WantNextError::WantNextForbidden { state, input }),
-        _ => {
-            if dest_self && next != state {
-                Err(WantNextError::DestNotSelf { state, input })
-            } else {
-                Ok(())
-            }
-        }
+        (Presence::Required, true) if dest_self && next != state => Err(WantNextError::DestNotSelf { state, input }),
+        _ => Ok(()),
     }
 }
 
@@ -1280,12 +1285,13 @@ fn want_next_rule<M>(
     graph: &TypeGraph,
     cfg: &ProjectionConfig<M>,
     state: StateName,
+    input: InputName,
     kind: InputKind,
     next: StateName,
     need_pull: &mut BTreeSet<StateName>,
 ) -> Result<(Presence, bool), WantNextError> {
     if cfg.driven {
-        driven_want_next_rule(graph, state, kind, next, need_pull)
+        driven_want_next_rule(graph, state, input, kind, next, need_pull)
     } else {
         Ok(undriven_want_next_rule(graph, cfg, kind, next))
     }
@@ -1294,6 +1300,7 @@ fn want_next_rule<M>(
 fn driven_want_next_rule(
     graph: &TypeGraph,
     state: StateName,
+    input: InputName,
     kind: InputKind,
     next: StateName,
     need_pull: &mut BTreeSet<StateName>,
@@ -1307,16 +1314,16 @@ fn driven_want_next_rule(
     if dst == Occupancy::Terminal {
         return Ok((Presence::Forbidden, false));
     }
-    Ok(match (src, dst, kind) {
+    match (src, dst, kind) {
         (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => {
             need_pull.insert(next);
-            (Presence::Forbidden, false)
+            Ok((Presence::Forbidden, false))
         }
-        (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing) => (Presence::Required, true),
-        (Occupancy::Remote, Occupancy::Remote, InputKind::Wire) => (Presence::Required, false),
-        (Occupancy::Remote, Occupancy::Switch, InputKind::Wire) => (Presence::Forbidden, false),
-        _ => (Presence::Optional, matches!(kind, InputKind::Plumbing)),
-    })
+        (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing) => Ok((Presence::Required, true)),
+        (Occupancy::Remote, Occupancy::Remote, InputKind::Wire) => Ok((Presence::Required, false)),
+        (Occupancy::Remote, Occupancy::Switch, InputKind::Wire) => Ok((Presence::Forbidden, false)),
+        _ => Err(WantNextError::UnlistedOccupancy { state, input }),
+    }
 }
 
 fn undriven_want_next_rule<M>(
@@ -1352,8 +1359,9 @@ fn scan_timers(effects: &[EffectAst], set: &mut bool, clear: &mut bool) {
         match e {
             EffectAst::SetTimeout => *set = true,
             EffectAst::ClearTimeout => *clear = true,
-            EffectAst::Repeat(body) => scan_timers(body, set, clear),
-            EffectAst::Send { .. }
+            // Timers inside Repeat are not present: zero iterations never arm or clear.
+            EffectAst::Repeat(_)
+            | EffectAst::Send { .. }
             | EffectAst::Call { .. }
             | EffectAst::SendAny { .. }
             | EffectAst::Wait
@@ -1382,8 +1390,11 @@ fn apply_timeout_rule<M>(
 where
     M: Clone + Ord + std::fmt::Debug,
 {
+    if matches!(kind, InputKind::Unknown) {
+        return Err(TimeoutError::UnknownInput { state, input });
+    }
     let (set_rule, clear_rule) = if cfg.driven {
-        driven_timeout_rules(graph, spec, state, kind, next)?
+        driven_timeout_rules(graph, spec, state, input, kind, next)?
     } else {
         undriven_timeout_rules(graph, cfg, spec, next, holds_agency)
     };
@@ -1406,6 +1417,7 @@ fn driven_timeout_rules<M>(
     graph: &TypeGraph,
     spec: &SessionSpec<StateName, M>,
     state: StateName,
+    input: InputName,
     kind: InputKind,
     next: StateName,
 ) -> Result<(Presence, Presence), TimeoutError>
@@ -1423,18 +1435,18 @@ where
     }
     let dest_timed = spec.timeout(&next).is_some();
     let src_timed = spec.timeout(&state).is_some();
-    Ok(match (src, dst, kind) {
-        (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => (Presence::Forbidden, Presence::Optional),
+    match (src, dst, kind) {
+        (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => Ok((Presence::Forbidden, Presence::Optional)),
         (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing | InputKind::Wire) => {
             let set = if dest_timed { Presence::Required } else { Presence::Forbidden };
-            (set, Presence::Optional)
+            Ok((set, Presence::Optional))
         }
         (Occupancy::Remote, Occupancy::Switch, InputKind::Wire) => {
             let clear = if src_timed { Presence::Required } else { Presence::Optional };
-            (Presence::Forbidden, clear)
+            Ok((Presence::Forbidden, clear))
         }
-        _ => (Presence::Optional, Presence::Optional),
-    })
+        _ => Err(TimeoutError::UnlistedOccupancy { state, input }),
+    }
 }
 
 fn undriven_timeout_rules<M>(
@@ -2089,10 +2101,10 @@ mod tests {
         let spec = table_37();
         check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
-        assert_eq!(spec_timeout(&spec, "Busy"), Some(Duration::from_secs(60)));
-        assert_eq!(spec_timeout(&spec, "Streaming"), Some(Duration::from_secs(60)));
-        assert_eq!(spec_timeout(&spec, "Idle"), None);
-        assert_eq!(spec_timeout(&spec, "Done"), None);
+        assert_eq!(spec.timeout(&"Busy"), Some(Duration::from_secs(60)));
+        assert_eq!(spec.timeout(&"Streaming"), Some(Duration::from_secs(60)));
+        assert_eq!(spec.timeout(&"Idle"), None);
+        assert_eq!(spec.timeout(&"Done"), None);
     }
 
     #[test]
@@ -2238,5 +2250,67 @@ mod tests {
             ),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn driven_unlisted_occupancy_kind_is_error() {
+        let mut g = initiator_graph();
+        let mut cfg = cfg_initiator();
+        cfg.local_inputs.insert("Pending");
+        g.receives.get_mut("Busy").unwrap().insert("Pending", seq(vec![], "Busy"));
+        let err = check_want_next(&g, &cfg).unwrap_err();
+        assert!(matches!(err, WantNextError::UnlistedOccupancy { state: "Busy", input: "Pending" }), "{err:?}");
+        let err = check_timeouts(&g, &cfg, &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::UnlistedOccupancy { state: "Busy", input: "Pending" }), "{err:?}");
+    }
+
+    #[test]
+    fn unknown_input_is_error() {
+        let mut g = initiator_graph();
+        g.receives.get_mut("Busy").unwrap().insert("NotListed", seq(vec![send("ToMux", "WantNext")], "Busy"));
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(matches!(err, WantNextError::UnknownInput { state: "Busy", input: "NotListed" }), "{err:?}");
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::UnknownInput { state: "Busy", input: "NotListed" }), "{err:?}");
+
+        let mut g = responder_graph();
+        g.receives.get_mut("Idle").unwrap().insert("NotListed", seq(vec![send("ToMux", "WantNext")], "Idle"));
+        let err = check_want_next(&g, &cfg_responder()).unwrap_err();
+        assert!(matches!(err, WantNextError::UnknownInput { state: "Idle", input: "NotListed" }), "{err:?}");
+        let err = check_timeouts(&g, &cfg_responder(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::UnknownInput { state: "Idle", input: "NotListed" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_pull_dest_must_be_self() {
+        let mut g = initiator_graph();
+        g.receives
+            .get_mut("Busy")
+            .unwrap()
+            .insert("Pull", seq(vec![send("ToMux", "WantNext"), EffectAst::SetTimeout], "Streaming"));
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(matches!(err, WantNextError::DestNotSelf { state: "Busy", input: "Pull" }), "{err:?}");
+    }
+
+    #[test]
+    fn set_timeout_inside_repeat_does_not_count() {
+        let mut g = initiator_graph();
+        g.receives
+            .get_mut("Busy")
+            .unwrap()
+            .insert("Pull", seq(vec![send("ToMux", "WantNext"), repeat(vec![EffectAst::SetTimeout])], "Busy"));
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::SetTimeoutMissing { state: "Busy", input: "Pull" }), "{err:?}");
+    }
+
+    #[test]
+    fn clear_timeout_inside_repeat_does_not_count() {
+        let mut g = initiator_graph();
+        g.receives
+            .get_mut("Busy")
+            .unwrap()
+            .insert("NoBlocks", seq(vec![repeat(vec![EffectAst::ClearTimeout, send_any("ToCollector")])], "Idle"));
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::ClearTimeoutMissing { state: "Busy", input: "NoBlocks" }), "{err:?}");
     }
 }
