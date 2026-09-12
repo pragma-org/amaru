@@ -144,7 +144,7 @@ pub trait OnReceive<In>: State {
 /// Generated **only** by grouped [`on_receive`](crate::on_receive), including
 /// `on_receive!(Done as DoneIn {})`. Single-input `on_receive!(S, In => …)` does
 /// not implement this trait.
-pub trait DescribeReceives {
+pub trait DescribeReceives: State {
     fn describe_receives() -> BTreeMap<InputName, RemainderAst>;
 }
 
@@ -162,15 +162,41 @@ pub trait DescribeStates {
 
 /// Remainder graph extracted from grouped `on_receive!` and `make_states!`.
 ///
-/// Built by [`typestate_graph`](crate::typestate_graph). [`Session::describe`] stays
-/// diagnostic; tests should use this structure, not parse those strings.
+/// Built by [`typestate_graph`](crate::typestate_graph) or [`Self::new`].
+/// [`Session::describe`] stays diagnostic; tests should use this structure, not
+/// parse those strings.
+///
+/// Fields stay `pub` for reads and hand-built values. [`Self::new`] derives
+/// [`Self::states`] from [`Self::receives`] keys. `initial` need not be in
+/// `states` (receiving-only extract).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeGraph {
+    /// Names with a remainder map; derived from [`Self::receives`] by [`Self::new`].
     pub states: BTreeSet<StateName>,
     pub initial: StateName,
-    /// Empty if `make_states!` had no `switch`.
+    /// Empty if `make_states!` had no `switch`. Partial extract: occupancy may
+    /// include names without a remainder.
     pub occupancy: BTreeMap<StateName, Occupancy>,
     pub receives: BTreeMap<StateName, BTreeMap<InputName, RemainderAst>>,
+}
+
+impl TypeGraph {
+    /// Derive [`Self::states`] from `receives` keys.
+    ///
+    /// Occupancy is the live-enum map from [`DescribeStates`] and may mention
+    /// names with no remainder (partial extract). `initial` need not be in
+    /// `states`.
+    pub fn new(
+        initial: StateName,
+        occupancy: BTreeMap<StateName, Occupancy>,
+        receives: BTreeMap<StateName, BTreeMap<InputName, RemainderAst>>,
+    ) -> Self {
+        debug_assert!(
+            occupancy.is_empty() || occupancy.contains_key(initial),
+            "non-empty occupancy must include the initial state",
+        );
+        Self { states: receives.keys().copied().collect(), initial, occupancy, receives }
+    }
 }
 
 /// Construct the unique initial state of a protocol. The only other way to

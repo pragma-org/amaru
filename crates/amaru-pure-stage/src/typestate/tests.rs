@@ -370,7 +370,7 @@ fn star_macro_unrolls_the_sequence() {
 #[allow(dead_code)]
 mod exclusive_choice {
     use super::*;
-    use crate::typestate::prelude::*;
+    use crate::{typestate::prelude::*, typestate_graph};
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     pub struct A1;
@@ -490,7 +490,10 @@ fn initial_state_wraps_into_live_enum() {
 
 #[allow(dead_code)]
 mod convert {
-    use crate::typestate::{DescribeAst, OnReceive, prelude::*};
+    use crate::{
+        typestate::{DescribeAst, OnReceive, prelude::*},
+        typestate_graph,
+    };
 
     make_states!(Live { Idle; Done });
 
@@ -618,7 +621,11 @@ mod occupancy_switch_only {
 
 #[allow(dead_code)]
 mod extract_graph {
-    use crate::typestate::{DescribeAst, Occupancy, OnReceive, prelude::*};
+    use super::{rem, send, then};
+    use crate::{
+        typestate::{DescribeAst, Occupancy, OnReceive, prelude::*},
+        typestate_graph,
+    };
 
     define_role_tag!(Peer);
 
@@ -650,10 +657,7 @@ mod extract_graph {
         assert_eq!(g.occupancy.get(Idle::NAME), Some(&Occupancy::Switch));
         assert_eq!(g.occupancy.get(Busy::NAME), Some(&Occupancy::Remote));
         assert_eq!(g.occupancy.get(Done::NAME), Some(&Occupancy::Terminal));
-        assert_eq!(
-            g.receives[Idle::NAME].get("Ping"),
-            Some(&<<Idle as OnReceive<Ping>>::Then as DescribeAst>::describe_ast())
-        );
+        assert_eq!(g.receives[Idle::NAME].get("Ping"), Some(&rem(vec![then(vec![vec![send("Peer", "u8")]], "Busy")])));
         assert_eq!(
             g.receives[Idle::NAME].get("Pong"),
             Some(&<<Idle as OnReceive<Pong>>::Then as DescribeAst>::describe_ast())
@@ -675,11 +679,33 @@ mod extract_graph {
         assert!(!g.receives.contains_key(Done::NAME));
         assert_eq!(g.occupancy.get(Done::NAME), Some(&Occupancy::Terminal));
     }
+
+    #[test]
+    fn initial_need_not_be_in_extracted_states() {
+        let g = typestate_graph! {
+            proto: Live,
+            receiving: { Busy },
+            empty: { Done },
+        };
+        assert_eq!(g.initial, Idle::NAME);
+        assert!(!g.states.contains(Idle::NAME));
+        assert_eq!(g.occupancy.get(Idle::NAME), Some(&Occupancy::Switch));
+    }
+
+    #[test]
+    #[should_panic(expected = "listed as empty")]
+    fn empty_listed_state_must_have_no_receives() {
+        let _ = typestate_graph! {
+            proto: Live,
+            receiving: { Idle },
+            empty: { Busy },
+        };
+    }
 }
 
 #[allow(dead_code)]
 mod two_initial {
-    use crate::typestate::prelude::*;
+    use crate::{typestate::prelude::*, typestate_graph};
 
     make_states!(Live { Alpha, Beta; Done });
     on_receive!(Alpha as AlphaIn {});

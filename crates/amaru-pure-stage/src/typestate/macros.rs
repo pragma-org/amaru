@@ -137,36 +137,47 @@ macro_rules! typestate_occupancy_map {
     ( ; $($state:ident),+) => {
         ::std::collections::BTreeMap::new()
     };
-    (switch $switch:ident, terminal $term:ident ; $($state:ident),+) => {
+    (switch $switch:ident, terminal $term:ident ; $($state:ident),+) => {{
+        #[allow(unused_macro_rules)]
+        macro_rules! __typestate_occ {
+            ($switch) => {
+                $crate::typestate::Occupancy::Switch
+            };
+            ($term) => {
+                $crate::typestate::Occupancy::Terminal
+            };
+            ($_other:ident) => {
+                $crate::typestate::Occupancy::Remote
+            };
+        }
         ::std::collections::BTreeMap::from([
             $(
                 (
                     <$state as $crate::typestate::State>::NAME,
-                    if <$state as $crate::typestate::State>::NAME == stringify!($switch) {
-                        $crate::typestate::Occupancy::Switch
-                    } else if <$state as $crate::typestate::State>::NAME == stringify!($term) {
-                        $crate::typestate::Occupancy::Terminal
-                    } else {
-                        $crate::typestate::Occupancy::Remote
-                    },
+                    __typestate_occ!($state),
                 ),
             )+
         ])
-    };
-    (switch $switch:ident ; $($state:ident),+) => {
+    }};
+    (switch $switch:ident ; $($state:ident),+) => {{
+        #[allow(unused_macro_rules)]
+        macro_rules! __typestate_occ {
+            ($switch) => {
+                $crate::typestate::Occupancy::Switch
+            };
+            ($_other:ident) => {
+                $crate::typestate::Occupancy::Remote
+            };
+        }
         ::std::collections::BTreeMap::from([
             $(
                 (
                     <$state as $crate::typestate::State>::NAME,
-                    if <$state as $crate::typestate::State>::NAME == stringify!($switch) {
-                        $crate::typestate::Occupancy::Switch
-                    } else {
-                        $crate::typestate::Occupancy::Remote
-                    },
+                    __typestate_occ!($state),
                 ),
             )+
         ])
-    };
+    }};
 }
 
 #[macro_export]
@@ -625,11 +636,16 @@ macro_rules! star {
 ///
 /// `receiving` states must implement [`DescribeReceives`](crate::typestate::DescribeReceives)
 /// (grouped `on_receive!`). `empty` names are terminals / unused states that
-/// receive nothing and must use `on_receive!(Done as DoneIn {})`. Occupancy
-/// comes from [`DescribeStates`](crate::typestate::DescribeStates) on `proto`.
-/// `empty` may be omitted when extracting a subset of states.
+/// receive nothing and must use `on_receive!(Done as DoneIn {})`; the expansion
+/// asserts their `describe_receives()` is empty. Occupancy comes from
+/// [`DescribeStates`](crate::typestate::DescribeStates) on `proto` (the full
+/// live-enum map, even when `empty` is omitted). Named states must convert
+/// into `proto` (`From<State> for Proto`).
 ///
-/// Name lists are braced so `empty` is not parsed as another receiving ident.
+/// State names are types (`Idle` or `initiator::Idle`). `empty` may be omitted
+/// when extracting a subset of states.
+///
+/// Name lists are braced so `empty` is not parsed as another receiving type.
 ///
 /// ```ignore
 /// let g = typestate_graph! {
@@ -642,14 +658,14 @@ macro_rules! star {
 macro_rules! typestate_graph {
     (
         proto: $proto:ty,
-        receiving: { $($recv:ident),+ $(,)? },
-        empty: { $($empty:ident),+ $(,)? } $(,)?
+        receiving: { $($recv:ty),+ $(,)? },
+        empty: { $($empty:ty),+ $(,)? } $(,)?
     ) => {
-        $crate::typestate_graph_build!($proto ; $($recv),+ ; $($empty),+)
+        $crate::typestate_graph_build!($proto ; $($recv,)+ $($empty),+ ; $($empty),+)
     };
     (
         proto: $proto:ty,
-        receiving: { $($recv:ident),+ $(,)? } $(,)?
+        receiving: { $($recv:ty),+ $(,)? } $(,)?
     ) => {
         $crate::typestate_graph_build!($proto ; $($recv),+ ;)
     };
@@ -658,28 +674,28 @@ macro_rules! typestate_graph {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! typestate_graph_build {
-    ($proto:ty ; $($recv:ident),+ ; $($empty:ident),*) => {
-        $crate::typestate::TypeGraph {
-            states: ::std::collections::BTreeSet::from([
-                $(<$recv as $crate::typestate::State>::NAME,)+
-                $(<$empty as $crate::typestate::State>::NAME,)*
-            ]),
-            initial: <$proto as $crate::typestate::DescribeStates>::initial(),
-            occupancy: <$proto as $crate::typestate::DescribeStates>::describe_states(),
-            receives: ::std::collections::BTreeMap::from([
+    ($proto:ty ; $($state:ty),+ ; $($empty:ty),*) => {{
+        $(
+            let _: fn($state) -> $proto = ::core::convert::From::from;
+        )+
+        $(
+            ::core::assert!(
+                <$empty as $crate::typestate::DescribeReceives>::describe_receives().is_empty(),
+                "{} is listed as empty but has receive arms",
+                ::core::any::type_name::<$empty>(),
+            );
+        )*
+        $crate::typestate::TypeGraph::new(
+            <$proto as $crate::typestate::DescribeStates>::initial(),
+            <$proto as $crate::typestate::DescribeStates>::describe_states(),
+            ::std::collections::BTreeMap::from([
                 $(
                     (
-                        <$recv as $crate::typestate::State>::NAME,
-                        <$recv as $crate::typestate::DescribeReceives>::describe_receives(),
+                        <$state as $crate::typestate::State>::NAME,
+                        <$state as $crate::typestate::DescribeReceives>::describe_receives(),
                     ),
                 )+
-                $(
-                    (
-                        <$empty as $crate::typestate::State>::NAME,
-                        <$empty as $crate::typestate::DescribeReceives>::describe_receives(),
-                    ),
-                )*
             ]),
-        }
-    };
+        )
+    }};
 }
