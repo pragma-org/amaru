@@ -1517,7 +1517,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `dump` | `TRACE` | public | Load the current constitutional committee on startup | status |  |
 | `ignore` | `TRACE` | public | The constitutional committee votes were ignored during ratification | active_members, min_committee_size, reason |  |
+
+<details><summary>span: `dump`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `status` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `ignore`</summary>
 
@@ -1526,6 +1535,22 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `active_members` | `integer` | ✓ |
 | `min_committee_size` | `integer` | ✓ |
 | `reason` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::ledger::constitutional_committee_member`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `dump` | `TRACE` | public | Load the current constitutional committee member on startup | cold_credential | status, valid_until |
+
+<details><summary>span: `dump`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `cold_credential` | `string` | ✓ |
+| `status` | `string` |  |
+| `valid_until` | `integer` |  |
 
 </details>
 
@@ -1695,9 +1720,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `load` | `TRACE` | public | Load the current ledger pots | treasury, reserves, fees, donations |  |
+| `dump` | `TRACE` | public | Load the current ledger pots | treasury, reserves, fees, donations |  |
 
-<details><summary>span: `load`</summary>
+<details><summary>span: `dump`</summary>
 
 | field | type | required |
 | --- | --- | --- |
@@ -1788,90 +1813,47 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `load` | `TRACE` | public | Load the current protocol parameters |  | protocol_version, max_block_body_size, max_transaction_size, max_block_header_size, max_tx_ex_units, max_block_ex_units, max_value_size, max_collateral_inputs, min_fee_a, min_fee_b, stake_credential_deposit, stake_pool_deposit, monetary_expansion_rate, treasury_expansion_rate, min_pool_cost, lovelace_per_utxo_byte, prices, min_fee_ref_script_lovelace_per_byte, max_ref_script_size_per_tx, max_ref_script_size_per_block, ref_script_cost_stride, ref_script_cost_multiplier, stake_pool_max_retirement_epoch, optimal_stake_pools_count, pledge_influence, collateral_percentage, cost_models, pool_voting_thresholds, drep_voting_thresholds, min_committee_size, max_committee_term_length, gov_action_lifetime, gov_action_deposit, drep_deposit, drep_expiry |
-| `ratify` | `TRACE` | public | Ratify a protocol parameters update; only changed parameters are recorded |  | protocol_version, max_block_body_size, max_transaction_size, max_block_header_size, max_tx_ex_units, max_block_ex_units, max_value_size, max_collateral_inputs, min_fee_a, min_fee_b, stake_credential_deposit, stake_pool_deposit, monetary_expansion_rate, treasury_expansion_rate, min_pool_cost, lovelace_per_utxo_byte, prices, min_fee_ref_script_lovelace_per_byte, max_ref_script_size_per_tx, max_ref_script_size_per_block, ref_script_cost_stride, ref_script_cost_multiplier, stake_pool_max_retirement_epoch, optimal_stake_pools_count, pledge_influence, collateral_percentage, cost_models, pool_voting_thresholds, drep_voting_thresholds, min_committee_size, max_committee_term_length, gov_action_lifetime, gov_action_deposit, drep_deposit, drep_expiry |
+| `dump` | `TRACE` | public | Dump the current protocol parameters |  | protocol_version, max_block_body_size, max_transaction_size, max_block_header_size, max_tx_ex_units, max_block_ex_units, max_value_size, max_collateral_inputs, min_fee_a, min_fee_b, stake_credential_deposit, stake_pool_deposit, monetary_expansion_rate, treasury_expansion_rate, min_pool_cost, lovelace_per_utxo_byte, prices, min_fee_ref_script_lovelace_per_byte, max_ref_script_size_per_tx, max_ref_script_size_per_block, ref_script_cost_stride, ref_script_cost_multiplier, stake_pool_max_retirement_epoch, optimal_stake_pools_count, pledge_influence, cost_models, collateral_percentage, pool_voting_thresholds, drep_voting_thresholds, min_committee_size, max_committee_term_length, gov_action_lifetime, gov_action_deposit, drep_deposit, drep_expiry |
 
-<details><summary>span: `load`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `protocol_version` | `string` |  |
-| `max_block_body_size` | `string` |  |
-| `max_transaction_size` | `string` |  |
-| `max_block_header_size` | `string` |  |
-| `max_tx_ex_units` | `string` |  |
-| `max_block_ex_units` | `string` |  |
-| `max_value_size` | `string` |  |
-| `max_collateral_inputs` | `string` |  |
-| `min_fee_a` | `string` |  |
-| `min_fee_b` | `string` |  |
-| `stake_credential_deposit` | `string` |  |
-| `stake_pool_deposit` | `string` |  |
-| `monetary_expansion_rate` | `string` |  |
-| `treasury_expansion_rate` | `string` |  |
-| `min_pool_cost` | `string` |  |
-| `lovelace_per_utxo_byte` | `string` |  |
-| `prices` | `string` |  |
-| `min_fee_ref_script_lovelace_per_byte` | `string` |  |
-| `max_ref_script_size_per_tx` | `string` |  |
-| `max_ref_script_size_per_block` | `string` |  |
-| `ref_script_cost_stride` | `string` |  |
-| `ref_script_cost_multiplier` | `string` |  |
-| `stake_pool_max_retirement_epoch` | `string` |  |
-| `optimal_stake_pools_count` | `string` |  |
-| `pledge_influence` | `string` |  |
-| `collateral_percentage` | `string` |  |
-| `cost_models` | `string` |  |
-| `pool_voting_thresholds` | `string` |  |
-| `drep_voting_thresholds` | `string` |  |
-| `min_committee_size` | `string` |  |
-| `max_committee_term_length` | `string` |  |
-| `gov_action_lifetime` | `string` |  |
-| `gov_action_deposit` | `string` |  |
-| `drep_deposit` | `string` |  |
-| `drep_expiry` | `string` |  |
-
-</details>
-
-<details><summary>span: `ratify`</summary>
+<details><summary>span: `dump`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `protocol_version` | `string` |  |
-| `max_block_body_size` | `string` |  |
-| `max_transaction_size` | `string` |  |
-| `max_block_header_size` | `string` |  |
+| `max_block_body_size` | `integer` |  |
+| `max_transaction_size` | `integer` |  |
+| `max_block_header_size` | `integer` |  |
 | `max_tx_ex_units` | `string` |  |
 | `max_block_ex_units` | `string` |  |
-| `max_value_size` | `string` |  |
-| `max_collateral_inputs` | `string` |  |
-| `min_fee_a` | `string` |  |
-| `min_fee_b` | `string` |  |
-| `stake_credential_deposit` | `string` |  |
-| `stake_pool_deposit` | `string` |  |
+| `max_value_size` | `integer` |  |
+| `max_collateral_inputs` | `integer` |  |
+| `min_fee_a` | `integer` |  |
+| `min_fee_b` | `integer` |  |
+| `stake_credential_deposit` | `integer` |  |
+| `stake_pool_deposit` | `integer` |  |
 | `monetary_expansion_rate` | `string` |  |
 | `treasury_expansion_rate` | `string` |  |
-| `min_pool_cost` | `string` |  |
-| `lovelace_per_utxo_byte` | `string` |  |
+| `min_pool_cost` | `integer` |  |
+| `lovelace_per_utxo_byte` | `integer` |  |
 | `prices` | `string` |  |
 | `min_fee_ref_script_lovelace_per_byte` | `string` |  |
-| `max_ref_script_size_per_tx` | `string` |  |
-| `max_ref_script_size_per_block` | `string` |  |
-| `ref_script_cost_stride` | `string` |  |
+| `max_ref_script_size_per_tx` | `integer` |  |
+| `max_ref_script_size_per_block` | `integer` |  |
+| `ref_script_cost_stride` | `integer` |  |
 | `ref_script_cost_multiplier` | `string` |  |
-| `stake_pool_max_retirement_epoch` | `string` |  |
-| `optimal_stake_pools_count` | `string` |  |
+| `stake_pool_max_retirement_epoch` | `integer` |  |
+| `optimal_stake_pools_count` | `integer` |  |
 | `pledge_influence` | `string` |  |
-| `collateral_percentage` | `string` |  |
 | `cost_models` | `string` |  |
+| `collateral_percentage` | `integer` |  |
 | `pool_voting_thresholds` | `string` |  |
 | `drep_voting_thresholds` | `string` |  |
-| `min_committee_size` | `string` |  |
-| `max_committee_term_length` | `string` |  |
-| `gov_action_lifetime` | `string` |  |
-| `gov_action_deposit` | `string` |  |
-| `drep_deposit` | `string` |  |
-| `drep_expiry` | `string` |  |
+| `min_committee_size` | `integer` |  |
+| `max_committee_term_length` | `integer` |  |
+| `gov_action_lifetime` | `integer` |  |
+| `gov_action_deposit` | `integer` |  |
+| `drep_deposit` | `integer` |  |
+| `drep_expiry` | `integer` |  |
 
 </details>
 
@@ -1997,7 +1979,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `initial_progress` | `TRACE` | public | Report progress for one of the initial stake distributions loaded on startup | epoch, progress |  |
 | `initial_ready` | `TRACE` | public | Finished computing all initial stake distributions loaded on startup | epochs |  |
 | `rotate` | `TRACE` | public | Rotate stake distributions at an epoch boundary | available_stake_distributions |  |
-| `snapshot` | `TRACE` | public | Snapshot of the stake distribution taken at an epoch boundary | accounts, dreps, pools, active_stake, pools_voting_stake, dreps_voting_stake |  |
+| `snapshot` | `TRACE` | public | Snapshot of the stake distribution taken at an epoch boundary | accounts, dreps, pools, active_stake, pools_voting_stake, dreps_voting_stake | cc_update |
 
 <details><summary>span: `compute`</summary>
 
@@ -2050,6 +2032,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `active_stake` | `integer` | ✓ |
 | `pools_voting_stake` | `integer` | ✓ |
 | `dreps_voting_stake` | `integer` | ✓ |
+| `cc_update` | `string` |  |
 
 </details>
 

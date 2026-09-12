@@ -4343,6 +4343,24 @@
       "description": "Fewer than k blocks were seen within the stability window",
       "public": true
     },
+    "amaru::ledger::constitutional_committee::DUMP": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dump",
+      "level": "TRACE",
+      "target": "amaru::ledger::constitutional_committee",
+      "description": "Load the current constitutional committee on startup",
+      "public": true
+    },
     "amaru::ledger::constitutional_committee::IGNORE": {
       "type": "object",
       "properties": {
@@ -4367,6 +4385,36 @@
       "level": "TRACE",
       "target": "amaru::ledger::constitutional_committee",
       "description": "The constitutional committee votes were ignored during ratification",
+      "public": true
+    },
+    "amaru::ledger::constitutional_committee_member::DUMP": {
+      "type": "object",
+      "properties": {
+        "cold_credential": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "valid_until": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "cold_credential"
+      ],
+      "optional": [
+        "status",
+        "valid_until"
+      ],
+      "additionalProperties": false,
+      "name": "dump",
+      "level": "TRACE",
+      "target": "amaru::ledger::constitutional_committee_member",
+      "description": "Load the current constitutional committee member on startup",
       "public": true
     },
     "amaru::ledger::epoch_transition::APPLY": {
@@ -4788,7 +4836,7 @@
       "description": "No pools updates found in the epoch transition overlay",
       "public": true
     },
-    "amaru::ledger::pots::LOAD": {
+    "amaru::ledger::pots::DUMP": {
       "type": "object",
       "properties": {
         "treasury": {
@@ -4824,7 +4872,7 @@
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "load",
+      "name": "dump",
       "level": "TRACE",
       "target": "amaru::ledger::pots",
       "description": "Load the current ledger pots",
@@ -5004,20 +5052,20 @@
       "description": "Upgrade to a new protocol version",
       "public": true
     },
-    "amaru::ledger::protocol_parameters::LOAD": {
+    "amaru::ledger::protocol_parameters::DUMP": {
       "type": "object",
       "properties": {
         "protocol_version": {
           "type": "string"
         },
         "max_block_body_size": {
-          "type": "string"
+          "type": "integer"
         },
         "max_transaction_size": {
-          "type": "string"
+          "type": "integer"
         },
         "max_block_header_size": {
-          "type": "string"
+          "type": "integer"
         },
         "max_tx_ex_units": {
           "type": "string"
@@ -5026,22 +5074,31 @@
           "type": "string"
         },
         "max_value_size": {
-          "type": "string"
+          "type": "integer"
         },
         "max_collateral_inputs": {
-          "type": "string"
+          "type": "integer"
         },
         "min_fee_a": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "min_fee_b": {
-          "type": "string"
+          "type": "integer"
         },
         "stake_credential_deposit": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "stake_pool_deposit": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "monetary_expansion_rate": {
           "type": "string"
@@ -5050,10 +5107,16 @@
           "type": "string"
         },
         "min_pool_cost": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "lovelace_per_utxo_byte": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "prices": {
           "type": "string"
@@ -5062,31 +5125,31 @@
           "type": "string"
         },
         "max_ref_script_size_per_tx": {
-          "type": "string"
+          "type": "integer"
         },
         "max_ref_script_size_per_block": {
-          "type": "string"
+          "type": "integer"
         },
         "ref_script_cost_stride": {
-          "type": "string"
+          "type": "integer"
         },
         "ref_script_cost_multiplier": {
           "type": "string"
         },
         "stake_pool_max_retirement_epoch": {
-          "type": "string"
+          "type": "integer"
         },
         "optimal_stake_pools_count": {
-          "type": "string"
+          "type": "integer"
         },
         "pledge_influence": {
           "type": "string"
         },
-        "collateral_percentage": {
-          "type": "string"
-        },
         "cost_models": {
           "type": "string"
+        },
+        "collateral_percentage": {
+          "type": "integer"
         },
         "pool_voting_thresholds": {
           "type": "string"
@@ -5095,22 +5158,28 @@
           "type": "string"
         },
         "min_committee_size": {
-          "type": "string"
+          "type": "integer"
         },
         "max_committee_term_length": {
-          "type": "string"
+          "type": "integer"
         },
         "gov_action_lifetime": {
-          "type": "string"
+          "type": "integer"
         },
         "gov_action_deposit": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "drep_deposit": {
-          "type": "string"
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         },
         "drep_expiry": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": [],
@@ -5140,8 +5209,8 @@
         "stake_pool_max_retirement_epoch",
         "optimal_stake_pools_count",
         "pledge_influence",
-        "collateral_percentage",
         "cost_models",
+        "collateral_percentage",
         "pool_voting_thresholds",
         "drep_voting_thresholds",
         "min_committee_size",
@@ -5152,164 +5221,10 @@
         "drep_expiry"
       ],
       "additionalProperties": false,
-      "name": "load",
+      "name": "dump",
       "level": "TRACE",
       "target": "amaru::ledger::protocol_parameters",
-      "description": "Load the current protocol parameters",
-      "public": true
-    },
-    "amaru::ledger::protocol_parameters::RATIFY": {
-      "type": "object",
-      "properties": {
-        "protocol_version": {
-          "type": "string"
-        },
-        "max_block_body_size": {
-          "type": "string"
-        },
-        "max_transaction_size": {
-          "type": "string"
-        },
-        "max_block_header_size": {
-          "type": "string"
-        },
-        "max_tx_ex_units": {
-          "type": "string"
-        },
-        "max_block_ex_units": {
-          "type": "string"
-        },
-        "max_value_size": {
-          "type": "string"
-        },
-        "max_collateral_inputs": {
-          "type": "string"
-        },
-        "min_fee_a": {
-          "type": "string"
-        },
-        "min_fee_b": {
-          "type": "string"
-        },
-        "stake_credential_deposit": {
-          "type": "string"
-        },
-        "stake_pool_deposit": {
-          "type": "string"
-        },
-        "monetary_expansion_rate": {
-          "type": "string"
-        },
-        "treasury_expansion_rate": {
-          "type": "string"
-        },
-        "min_pool_cost": {
-          "type": "string"
-        },
-        "lovelace_per_utxo_byte": {
-          "type": "string"
-        },
-        "prices": {
-          "type": "string"
-        },
-        "min_fee_ref_script_lovelace_per_byte": {
-          "type": "string"
-        },
-        "max_ref_script_size_per_tx": {
-          "type": "string"
-        },
-        "max_ref_script_size_per_block": {
-          "type": "string"
-        },
-        "ref_script_cost_stride": {
-          "type": "string"
-        },
-        "ref_script_cost_multiplier": {
-          "type": "string"
-        },
-        "stake_pool_max_retirement_epoch": {
-          "type": "string"
-        },
-        "optimal_stake_pools_count": {
-          "type": "string"
-        },
-        "pledge_influence": {
-          "type": "string"
-        },
-        "collateral_percentage": {
-          "type": "string"
-        },
-        "cost_models": {
-          "type": "string"
-        },
-        "pool_voting_thresholds": {
-          "type": "string"
-        },
-        "drep_voting_thresholds": {
-          "type": "string"
-        },
-        "min_committee_size": {
-          "type": "string"
-        },
-        "max_committee_term_length": {
-          "type": "string"
-        },
-        "gov_action_lifetime": {
-          "type": "string"
-        },
-        "gov_action_deposit": {
-          "type": "string"
-        },
-        "drep_deposit": {
-          "type": "string"
-        },
-        "drep_expiry": {
-          "type": "string"
-        }
-      },
-      "required": [],
-      "optional": [
-        "protocol_version",
-        "max_block_body_size",
-        "max_transaction_size",
-        "max_block_header_size",
-        "max_tx_ex_units",
-        "max_block_ex_units",
-        "max_value_size",
-        "max_collateral_inputs",
-        "min_fee_a",
-        "min_fee_b",
-        "stake_credential_deposit",
-        "stake_pool_deposit",
-        "monetary_expansion_rate",
-        "treasury_expansion_rate",
-        "min_pool_cost",
-        "lovelace_per_utxo_byte",
-        "prices",
-        "min_fee_ref_script_lovelace_per_byte",
-        "max_ref_script_size_per_tx",
-        "max_ref_script_size_per_block",
-        "ref_script_cost_stride",
-        "ref_script_cost_multiplier",
-        "stake_pool_max_retirement_epoch",
-        "optimal_stake_pools_count",
-        "pledge_influence",
-        "collateral_percentage",
-        "cost_models",
-        "pool_voting_thresholds",
-        "drep_voting_thresholds",
-        "min_committee_size",
-        "max_committee_term_length",
-        "gov_action_lifetime",
-        "gov_action_deposit",
-        "drep_deposit",
-        "drep_expiry"
-      ],
-      "additionalProperties": false,
-      "name": "ratify",
-      "level": "TRACE",
-      "target": "amaru::ledger::protocol_parameters",
-      "description": "Ratify a protocol parameters update; only changed parameters are recorded",
+      "description": "Dump the current protocol parameters",
       "public": true
     },
     "amaru::ledger::ratification::SKIP": {
@@ -5729,6 +5644,9 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
+        },
+        "cc_update": {
+          "type": "string"
         }
       },
       "required": [
@@ -5739,7 +5657,9 @@
         "pools_voting_stake",
         "dreps_voting_stake"
       ],
-      "optional": [],
+      "optional": [
+        "cc_update"
+      ],
       "additionalProperties": false,
       "name": "snapshot",
       "level": "TRACE",
