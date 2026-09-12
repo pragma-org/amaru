@@ -15,10 +15,9 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use amaru_kernel::{
-    Ballot, Constitution, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Credential, DRep, Epoch,
-    EraHistory, Lovelace, OrphanProposal, PoolId, ProposalEnum, ProposalId, ProposalsRootsRc, ProtocolParameters,
-    RatificationStatus, Vote, Voter,
-    rational_number::{SafeRatio, into_safe_ratio},
+    Ballot, Constitution, ConstitutionalCommitteeUpdate, Credential, DRep, Epoch, EraHistory, Lovelace, OrphanProposal,
+    PoolId, ProposalEnum, ProposalId, ProposalsRootsRc, ProtocolParameters, RatificationStatus, Vote, Voter,
+    rational_number::SafeRatio,
 };
 use amaru_observability::{debug_span, info_span};
 use num::Zero;
@@ -94,21 +93,8 @@ impl<'distr> RatificationContext<'distr> {
         let epoch = snapshot.epoch();
 
         info_span!(ledger::governance::NEW_RATIFICATION_CONTEXT, ratifying_epoch = epoch).in_scope(|| {
-            let constitutional_committee = match snapshot.constitutional_committee()? {
-                ConstitutionalCommitteeStatus::NoConfidence => None,
-                ConstitutionalCommitteeStatus::Trusted { threshold } => {
-                    let members = snapshot
-                        .iter_cc_members()?
-                        .filter_map(|(cold_credential, row)| {
-                            row.valid_until.map(|valid_until| {
-                                (cold_credential, (row.status.and_then(|s| s.try_into().ok()), valid_until))
-                            })
-                        })
-                        .collect();
-
-                    Some(ConstitutionalCommittee::new(into_safe_ratio(&threshold), members))
-                }
-            };
+            let constitutional_committee =
+                ConstitutionalCommittee::resolve(&snapshot, stake_distribution.cc_update.clone())?;
 
             // FIXME: votes entirely stored in-memory
             //

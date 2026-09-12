@@ -427,6 +427,7 @@ mod tests {
             dreps_voting_stake: 0,
             pools: BTreeMap::new(),
             dreps: BTreeMap::new(),
+            cc_update: None,
         }
     }
 

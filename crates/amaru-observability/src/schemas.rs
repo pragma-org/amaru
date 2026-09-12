@@ -685,6 +685,7 @@ define_schemas! {
                     required active_stake: amaru_kernel::Lovelace
                     required pools_voting_stake: amaru_kernel::Lovelace
                     required dreps_voting_stake: amaru_kernel::Lovelace
+                    optional cc_update: %amaru_kernel::ConstitutionalCommitteeUpdate
                 }
             }
             rewards {

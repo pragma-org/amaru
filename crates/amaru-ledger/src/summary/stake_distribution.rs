@@ -18,7 +18,10 @@ use std::{
     sync::{OnceLock, atomic, atomic::AtomicUsize},
 };
 
-use amaru_kernel::{Credential, DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, SortedPairs, safe_ratio};
+use amaru_kernel::{
+    ConstitutionalCommitteeUpdate, Credential, DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, SortedPairs,
+    safe_ratio,
+};
 use amaru_observability::info;
 use serde::ser::SerializeStruct;
 
@@ -97,6 +100,10 @@ pub struct StakeDistribution {
 
     /// Mapping of dreps to their relative stake
     pub dreps: BTreeMap<DRep, DRepState>,
+
+    /// Constitutional committee update happening at the boundary; required for building the
+    /// ratification context.
+    pub cc_update: Option<ConstitutionalCommitteeUpdate>,
 }
 
 const PROGRESS_BATCH_SIZE: usize = 1_000;
@@ -107,7 +114,7 @@ impl StakeSummary {
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
         db: &impl Snapshot,
-        GovernanceSummary { mut dreps, pools_deposits, dreps_deposits }: GovernanceSummary,
+        GovernanceSummary { mut dreps, pools_deposits, dreps_deposits, cc_update }: GovernanceSummary,
         network: NetworkName,
         mut notify: impl FnMut(f64),
     ) -> Result<Self, StoreError> {
@@ -267,6 +274,7 @@ impl StakeSummary {
             active_stake,
             pools_voting_stake,
             dreps_voting_stake,
+            cc_update = @cc_update.as_ref().map(tracing::field::display),
         );
 
         Ok(Self {
@@ -279,6 +287,7 @@ impl StakeSummary {
                 dreps_voting_stake,
                 pools,
                 dreps,
+                cc_update,
             },
             accounts,
         })
@@ -422,6 +431,7 @@ pub mod tests {
                 dreps_voting_stake,
                 pools: BTreeMap::new(),
                 pools_voting_stake: 0,
+                cc_update: None,
             }
         }
     }
@@ -480,6 +490,7 @@ pub mod tests {
                 pools_voting_stake,
                 dreps: BTreeMap::new(),
                 dreps_voting_stake: 0,
+                cc_update: None,
             }
         }
     }

@@ -19,7 +19,7 @@ use std::{
 
 use crate::{Credential, Epoch, SafeRatio};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstitutionalCommitteeUpdate {
     NoConfidence,
     ChangeMembers { removed: BTreeSet<Credential>, added: BTreeMap<Credential, Epoch>, threshold: SafeRatio },

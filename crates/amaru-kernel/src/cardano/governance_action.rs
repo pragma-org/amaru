@@ -23,6 +23,7 @@ pub enum GovernanceAction {
     HardForkInitiation(Option<ProposalId>, ProtocolVersion),
     TreasuryWithdrawals(KeyValuePairs<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
     NoConfidence(Option<ProposalId>),
+    // TODO: align types with ConstitutionalCommitteeUpdate
     UpdateCommittee(Option<ProposalId>, Vec<Credential>, KeyValuePairs<Credential, Epoch>, RationalNumber),
     NewConstitution(Option<ProposalId>, Constitution),
     Information,
