@@ -29,7 +29,7 @@ use amaru_kernel::{
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     rules::block::BlockValidation,
-    state::{ForkSwitchOutcome, State, volatile::VolatileFragment},
+    state::{Distributions, ForkSwitchOutcome, State, volatile::VolatileFragment},
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, ReadStore, Store, StoreError, TransactionalContext,
         columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, utxo, votes},
@@ -167,8 +167,7 @@ pub fn make_state_in_epoch_with_snapshots_and_store(
         protocol_parameters,
         GovernanceActivity::default(),
         None,
-        None,
-        None,
+        Distributions::None,
     );
     (state, stable)
 }
