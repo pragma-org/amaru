@@ -503,9 +503,9 @@ where
             if let Some(existing) = existing.as_ref()
                 && (existing.to != to || existing.sim_open != edge.sim_open)
             {
+                let inserted = Edge { sender: edge.sender, to, sim_open: edge.sim_open };
                 panic!(
-                    "transition {from:?} -> {message:?} -> {:?} already defined with different target state when inserting {to:?}",
-                    existing.to,
+                    "transition {from:?} -> {message:?} already defined as {existing:?} when inserting {inserted:?}: disagreeing edge"
                 );
             }
         }
@@ -1901,7 +1901,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "already defined with different target state")]
+    #[should_panic(expected = "disagreeing edge")]
     fn undirected_assert_refines_panics_on_disagreeing_sim_open() {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
         enum Hs {
