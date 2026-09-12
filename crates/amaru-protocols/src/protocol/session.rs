@@ -409,7 +409,7 @@ where
     }
 
     /// Panic on mismatch. Compares the undirected table after `map`.
-    /// Does **not** compare timeouts.
+    /// Does **not** compare timeouts or start state (`initial`).
     #[track_caller]
     pub fn assert_refines<S2>(&self, spec: &SessionSpec<S2, M>, map: impl Fn(&S) -> S2)
     where
@@ -1877,6 +1877,48 @@ mod tests {
         timed.set_timeout("Idle", Duration::from_secs(1));
         timed.project(Role::Initiator).assert_refines(&table_37().project(Role::Initiator), identity);
         timed.assert_refines(&table_37(), |s| *s);
+    }
+
+    #[test]
+    fn undirected_assert_refines_preserves_sim_open() {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        enum Hs {
+            Propose,
+            Accept,
+        }
+
+        let mut spec = SessionSpec::default();
+        spec.init("Propose", Hs::Propose, "Confirm");
+        spec.sim_open("Confirm", Hs::Propose, "Done");
+        spec.resp("Confirm", Hs::Accept, "Done");
+        spec.assert_refines(&spec, |s| *s);
+
+        let mut proto = crate::protocol::ProtoSpec::<_, _, crate::protocol::Initiator>::default();
+        proto.init("Propose", Hs::Propose, "Confirm");
+        proto.sim_open("Confirm", Hs::Propose, "Done");
+        proto.resp("Confirm", Hs::Accept, "Done");
+        proto.assert_refines(&proto, |s| *s);
+    }
+
+    #[test]
+    #[should_panic(expected = "already defined with different target state")]
+    fn undirected_assert_refines_panics_on_disagreeing_sim_open() {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        enum Hs {
+            Propose,
+        }
+
+        let mut got = SessionSpec::default();
+        got.resp("ConfirmA", Hs::Propose, "Done");
+        got.sim_open("ConfirmB", Hs::Propose, "Done");
+
+        let mut want = SessionSpec::default();
+        want.sim_open("Confirm", Hs::Propose, "Done");
+
+        got.assert_refines(&want, |s| match *s {
+            "ConfirmA" | "ConfirmB" => "Confirm",
+            other => other,
+        });
     }
 
     #[test]
