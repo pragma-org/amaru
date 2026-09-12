@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod compact_collections;
-pub mod ignore_eq;
-pub mod key_value_pairs;
-pub mod legacy;
-pub mod non_empty_bytes;
-pub mod non_empty_key_value_pairs;
-pub mod non_empty_set;
-pub mod non_empty_vec;
-pub mod non_zero_duration;
-pub mod set;
-pub mod sorted_pairs;
+//! Sorted collections optimized for the small cardinalities that dominate per-block ledger
+//! state: a compact vector below a per-type promotion threshold `N`, a B-tree above it.
+//! Empty collections allocate nothing, and the handles are the same stack size as their
+//! `BTreeMap`/`BTreeSet` counterparts (plus the discriminant).
+
+mod compact_map;
+mod compact_set;
+mod small_sorted_buffer;
+
+pub use compact_map::{CompactMap, CompactMapIntoIter, CompactMapIter, Entry, OccupiedEntry, VacantEntry};
+pub use compact_set::{CompactSet, CompactSetIntoIter, CompactSetIter};

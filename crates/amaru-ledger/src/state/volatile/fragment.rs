@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep,
-    DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot,
-    TransactionInput,
+    Anchor, Ballot, BallotId, CertificatePointer, CompactMap, CompactSet, ConstitutionalCommitteeMemberStatus,
+    Credential, DRep, DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
+    ProposalId, Slot, TransactionInput,
 };
 
 use crate::{
@@ -51,18 +48,27 @@ pub use tests::*;
 
 // ----------------------------------------------------------------------------------- VolatileFragment
 
+pub type AccountDiff = DiffBind<Credential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace, 4, 2>;
+pub type DRepDiff = DiffBind<Credential, Box<Anchor>, Empty, DRepRegistration, 1, 1>;
+pub type CommitteeDiff = DiffBind<Credential, ConstitutionalCommitteeMemberStatus, Epoch, Empty, 1, 1>;
+pub type DRepDeregistrations = CompactMap<Credential, CertificatePointer, 1>;
+pub type Withdrawals = CompactSet<Credential, 4>;
+pub type Proposals = CompactMap<ProposalId, Arc<ProposalState>, 1>;
+pub type VoteDiff = DiffSet<BallotId, Ballot, 1, 1>;
+pub type UtxoDiff = DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>, 64, 128>;
+
 /// Resulting state change coming from processing a block.
 #[derive(Debug, Default, Clone)]
 pub struct VolatileFragment {
-    pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
+    pub utxo: UtxoDiff,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
-    pub accounts: DiffBind<Credential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<Credential, Box<Anchor>, Empty, DRepRegistration>,
-    pub dreps_deregistrations: BTreeMap<Credential, CertificatePointer>,
-    pub committee: DiffBind<Credential, ConstitutionalCommitteeMemberStatus, Epoch, Empty>,
-    pub withdrawals: BTreeSet<Credential>,
-    pub proposals: BTreeMap<ProposalId, Arc<ProposalState>>,
-    pub votes: DiffSet<BallotId, Ballot>,
+    pub accounts: AccountDiff,
+    pub dreps: DRepDiff,
+    pub dreps_deregistrations: DRepDeregistrations,
+    pub committee: CommitteeDiff,
+    pub withdrawals: Withdrawals,
+    pub proposals: Proposals,
+    pub votes: VoteDiff,
     pub fees: Lovelace,
     pub donations: Lovelace,
 }
@@ -242,7 +248,7 @@ pub(crate) fn add_dreps(
 
 pub(crate) fn remove_dreps(
     iterator: impl Iterator<Item = Credential>,
-    mut deregistrations: BTreeMap<Credential, CertificatePointer>,
+    mut deregistrations: DRepDeregistrations,
 ) -> impl Iterator<Item = (dreps::Key, CertificatePointer)> {
     iterator.map(move |credential| {
         #[expect(clippy::expect_used)]

@@ -22,7 +22,7 @@
 //! - Callbacks receive **short-lived references** and run on the ledger path.
 //!   Long work or panics delay or abort ledger progress; clone needed pieces and
 //!   hand them to another task if processing is non-trivial.
-//! - UTxO deltas are a borrowed [`DiffSet`] of [`Arc<MemoizedTransactionOutput>`]
+//! - UTxO deltas are a borrowed [`UtxoDiff`] of [`Arc`]'d outputs
 //!   so observers can [`Arc::clone`] only when they need ownership (no forced deep
 //!   copy or refcount bump on the hot path).
 //! - [`LedgerObservers::on_block`] (and the adopt/undo convenience setters) fire
@@ -41,19 +41,18 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Block, Epoch, IsHeader, MemoizedTransactionOutput, Point, TransactionInput, TransactionRef};
+use amaru_kernel::{Block, Epoch, IsHeader, Point, TransactionRef};
 
+/// UTxO delta carried by a tip block event (produced + consumed).
+pub use crate::state::volatile::UtxoDiff;
 use crate::{
-    state::volatile::{AnchoredVolatileFragment, DiffSet, VolatileFragment},
+    state::volatile::{AnchoredVolatileFragment, VolatileFragment},
     summary::stake_distribution::StakeSummary,
 };
 
-/// UTxO delta carried by a tip block event (produced + consumed).
-pub type UtxoDiff = DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>;
-
 /// A block that was successfully applied to the ledger tip.
 ///
-/// The source [`Block`] and UTxO [`DiffSet`] are borrowed for the duration of the
+/// The source [`Block`] and UTxO [`UtxoDiff`] are borrowed for the duration of the
 /// observer callback. Clone individual fields (or [`Arc::clone`] outputs) only if
 /// you need them after the callback returns.
 #[derive(Debug, Clone, Copy)]

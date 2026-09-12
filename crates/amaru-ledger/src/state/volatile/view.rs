@@ -68,7 +68,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         }
 
         let accounts = AccountVolatileView {
-            unregistered: accounts.unregistered,
+            unregistered: accounts.unregistered.into_iter().collect(),
             registered: accounts
                 .registered
                 .into_iter()
