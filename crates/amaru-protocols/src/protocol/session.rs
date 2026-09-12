@@ -952,6 +952,8 @@ pub enum WantNextError {
     WantNextMissing { state: StateName, input: InputName },
     DestNotSelf { state: StateName, input: InputName },
     MissingPull { dest: StateName },
+    MissingOccupancy { state: StateName },
+    WirePayloadMustBeCall { state: StateName, input: InputName, payload: PayloadName },
 }
 
 impl Display for WantNextError {
@@ -976,7 +978,13 @@ impl Display for WantNextError {
                 write!(f, "Pull WantNext dest must be self at {state} + {input}")
             }
             WantNextError::MissingPull { dest } => {
-                write!(f, "driven Switch to Remote requires a Pull arm on {dest}")
+                write!(f, "missing Pull arm on {dest}")
+            }
+            WantNextError::MissingOccupancy { state } => {
+                write!(f, "driven graph is missing occupancy for {state}")
+            }
+            WantNextError::WirePayloadMustBeCall { state, input, payload } => {
+                write!(f, "wire payload {payload} to peer must be Call (not Send) at {state} + {input}")
             }
         }
     }
@@ -989,8 +997,8 @@ impl std::error::Error for WantNextError {}
 pub enum TimeoutError {
     SetTimeoutForbidden { state: StateName, input: InputName },
     SetTimeoutMissing { state: StateName, input: InputName },
-    ClearTimeoutForbidden { state: StateName, input: InputName },
     ClearTimeoutMissing { state: StateName, input: InputName },
+    MissingOccupancy { state: StateName },
 }
 
 impl Display for TimeoutError {
@@ -1002,11 +1010,11 @@ impl Display for TimeoutError {
             TimeoutError::SetTimeoutMissing { state, input } => {
                 write!(f, "SetTimeout required at {state} + {input}")
             }
-            TimeoutError::ClearTimeoutForbidden { state, input } => {
-                write!(f, "ClearTimeout forbidden at {state} + {input}")
-            }
             TimeoutError::ClearTimeoutMissing { state, input } => {
                 write!(f, "ClearTimeout required at {state} + {input}")
+            }
+            TimeoutError::MissingOccupancy { state } => {
+                write!(f, "driven graph is missing occupancy for {state}")
             }
         }
     }
@@ -1034,6 +1042,12 @@ enum Presence {
 /// `WantNext` is `Send<ToMux, WantNext>`, at most once per alternative, never
 /// inside `Repeat`. Driven vs undriven tables follow occupancy / waiting states.
 pub fn check_want_next<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>) -> Result<(), WantNextError> {
+    if cfg.driven
+        && let Err(state) = check_driven_occupancy(graph)
+    {
+        return Err(WantNextError::MissingOccupancy { state });
+    }
+
     let mut need_pull = BTreeSet::new();
 
     for (state, inputs) in &graph.receives {
@@ -1041,6 +1055,7 @@ pub fn check_want_next<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>) -> Resul
             let kind = input_kind(cfg, input);
             for alt in &rem.alternatives {
                 let present = want_next_present(state, input, alt, cfg.mux_role)?;
+                reject_peer_wire_send(state, input, alt, cfg)?;
                 apply_want_next_rule(graph, cfg, state, input, kind, alt.next, present, &mut need_pull)?;
             }
         }
@@ -1071,6 +1086,12 @@ pub fn check_timeouts<M>(
 where
     M: Clone + Ord + std::fmt::Debug,
 {
+    if cfg.driven
+        && let Err(state) = check_driven_occupancy(graph)
+    {
+        return Err(TimeoutError::MissingOccupancy { state });
+    }
+
     for (state, inputs) in &graph.receives {
         for (input, rem) in inputs {
             let kind = input_kind(cfg, input);
@@ -1109,6 +1130,20 @@ fn occupancy_of(graph: &TypeGraph, name: StateName) -> Option<Occupancy> {
     graph.occupancy.get(name).copied()
 }
 
+fn check_driven_occupancy(graph: &TypeGraph) -> Result<(), StateName> {
+    for name in &graph.states {
+        occupancy_of(graph, name).ok_or(*name)?;
+    }
+    for inputs in graph.receives.values() {
+        for rem in inputs.values() {
+            for alt in &rem.alternatives {
+                occupancy_of(graph, alt.next).ok_or(alt.next)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn is_waiting<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>, state: StateName) -> bool {
     match occupancy_of(graph, state) {
         Some(Occupancy::Remote) => true,
@@ -1138,6 +1173,47 @@ fn want_next_present(state: StateName, input: InputName, alt: &ThenAst, mux: Rol
         return Err(WantNextError::DuplicateWantNext { state, input });
     }
     Ok(scan.sends == 1)
+}
+
+fn reject_peer_wire_send<M>(
+    state: StateName,
+    input: InputName,
+    alt: &ThenAst,
+    cfg: &ProjectionConfig<M>,
+) -> Result<(), WantNextError> {
+    for branch in &alt.parallel {
+        reject_peer_wire_send_seq(branch, state, input, cfg)?;
+    }
+    Ok(())
+}
+
+fn reject_peer_wire_send_seq<M>(
+    effects: &[EffectAst],
+    state: StateName,
+    input: InputName,
+    cfg: &ProjectionConfig<M>,
+) -> Result<(), WantNextError> {
+    for e in effects {
+        match e {
+            EffectAst::Repeat(body) => reject_peer_wire_send_seq(body, state, input, cfg)?,
+            EffectAst::Send { role, payload } if *role == cfg.peer_role && cfg.wire_payload.contains_key(payload) => {
+                return Err(WantNextError::WirePayloadMustBeCall { state, input, payload });
+            }
+            EffectAst::Send { .. }
+            | EffectAst::Call { .. }
+            | EffectAst::SendAny { .. }
+            | EffectAst::SetTimeout
+            | EffectAst::ClearTimeout
+            | EffectAst::Wait
+            | EffectAst::Terminate
+            | EffectAst::Clock
+            | EffectAst::Schedule { .. }
+            | EffectAst::CancelSchedule
+            | EffectAst::External { .. }
+            | EffectAst::AddStage => {}
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -1186,7 +1262,7 @@ fn apply_want_next_rule<M>(
     present: bool,
     need_pull: &mut BTreeSet<StateName>,
 ) -> Result<(), WantNextError> {
-    let (rule, dest_self) = want_next_rule(graph, cfg, state, kind, next, need_pull);
+    let (rule, dest_self) = want_next_rule(graph, cfg, state, kind, next, need_pull)?;
     match (rule, present) {
         (Presence::Required, false) => Err(WantNextError::WantNextMissing { state, input }),
         (Presence::Forbidden, true) => Err(WantNextError::WantNextForbidden { state, input }),
@@ -1207,11 +1283,11 @@ fn want_next_rule<M>(
     kind: InputKind,
     next: StateName,
     need_pull: &mut BTreeSet<StateName>,
-) -> (Presence, bool) {
+) -> Result<(Presence, bool), WantNextError> {
     if cfg.driven {
         driven_want_next_rule(graph, state, kind, next, need_pull)
     } else {
-        undriven_want_next_rule(graph, cfg, kind, next)
+        Ok(undriven_want_next_rule(graph, cfg, kind, next))
     }
 }
 
@@ -1221,17 +1297,17 @@ fn driven_want_next_rule(
     kind: InputKind,
     next: StateName,
     need_pull: &mut BTreeSet<StateName>,
-) -> (Presence, bool) {
+) -> Result<(Presence, bool), WantNextError> {
     let Some(src) = occupancy_of(graph, state) else {
-        return (Presence::Optional, matches!(kind, InputKind::Plumbing));
+        return Err(WantNextError::MissingOccupancy { state });
     };
     let Some(dst) = occupancy_of(graph, next) else {
-        return (Presence::Optional, matches!(kind, InputKind::Plumbing));
+        return Err(WantNextError::MissingOccupancy { state: next });
     };
     if dst == Occupancy::Terminal {
-        return (Presence::Forbidden, false);
+        return Ok((Presence::Forbidden, false));
     }
-    match (src, dst, kind) {
+    Ok(match (src, dst, kind) {
         (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => {
             need_pull.insert(next);
             (Presence::Forbidden, false)
@@ -1240,7 +1316,7 @@ fn driven_want_next_rule(
         (Occupancy::Remote, Occupancy::Remote, InputKind::Wire) => (Presence::Required, false),
         (Occupancy::Remote, Occupancy::Switch, InputKind::Wire) => (Presence::Forbidden, false),
         _ => (Presence::Optional, matches!(kind, InputKind::Plumbing)),
-    }
+    })
 }
 
 fn undriven_want_next_rule<M>(
@@ -1307,7 +1383,7 @@ where
     M: Clone + Ord + std::fmt::Debug,
 {
     let (set_rule, clear_rule) = if cfg.driven {
-        driven_timeout_rules(graph, spec, state, kind, next)
+        driven_timeout_rules(graph, spec, state, kind, next)?
     } else {
         undriven_timeout_rules(graph, cfg, spec, next, holds_agency)
     };
@@ -1322,7 +1398,6 @@ where
     }
     match (clear_rule, timers.clear) {
         (Presence::Required, false) => Err(TimeoutError::ClearTimeoutMissing { state, input }),
-        (Presence::Forbidden, true) => Err(TimeoutError::ClearTimeoutForbidden { state, input }),
         _ => Ok(()),
     }
 }
@@ -1333,22 +1408,22 @@ fn driven_timeout_rules<M>(
     state: StateName,
     kind: InputKind,
     next: StateName,
-) -> (Presence, Presence)
+) -> Result<(Presence, Presence), TimeoutError>
 where
     M: Clone + Ord + std::fmt::Debug,
 {
     let Some(src) = occupancy_of(graph, state) else {
-        return (Presence::Optional, Presence::Optional);
+        return Err(TimeoutError::MissingOccupancy { state });
     };
     let Some(dst) = occupancy_of(graph, next) else {
-        return (Presence::Optional, Presence::Optional);
+        return Err(TimeoutError::MissingOccupancy { state: next });
     };
     if dst == Occupancy::Terminal {
-        return (Presence::Forbidden, Presence::Optional);
+        return Ok((Presence::Forbidden, Presence::Optional));
     }
     let dest_timed = spec.timeout(&next).is_some();
     let src_timed = spec.timeout(&state).is_some();
-    match (src, dst, kind) {
+    Ok(match (src, dst, kind) {
         (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => (Presence::Forbidden, Presence::Optional),
         (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing | InputKind::Wire) => {
             let set = if dest_timed { Presence::Required } else { Presence::Forbidden };
@@ -1359,7 +1434,7 @@ where
             (Presence::Forbidden, clear)
         }
         _ => (Presence::Optional, Presence::Optional),
-    }
+    })
 }
 
 fn undriven_timeout_rules<M>(
@@ -2139,5 +2214,29 @@ mod tests {
         );
         let err = check_timeouts(&g, &cfg_responder(), &table_37()).unwrap_err();
         assert!(matches!(err, TimeoutError::SetTimeoutForbidden { state: "Idle", input: "RequestRange" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_missing_occupancy_is_error() {
+        let mut g = initiator_graph();
+        g.occupancy.remove("Busy");
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(matches!(err, WantNextError::MissingOccupancy { state: "Busy" }), "{err:?}");
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::MissingOccupancy { state: "Busy" }), "{err:?}");
+    }
+
+    #[test]
+    fn peer_wire_send_must_be_call() {
+        let mut g = initiator_graph();
+        g.receives.get_mut("Idle").unwrap().insert("Fetch", seq(vec![send("ToResponder", "RequestRange")], "Busy"));
+        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                WantNextError::WirePayloadMustBeCall { state: "Idle", input: "Fetch", payload: "RequestRange" }
+            ),
+            "{err:?}"
+        );
     }
 }
