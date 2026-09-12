@@ -53,16 +53,14 @@ where
         self.inner.sim_open(from, msg, to);
     }
 
-    /// Assert that this protocol refines the other protocol.
-    ///
-    /// This means that this protocol has more states than the other
-    /// protocol, thus the state projection must be a surjection.
+    /// Panic on mismatch. Compares the undirected table after `map`.
+    /// Does **not** compare timeouts or start state (`initial`).
     #[track_caller]
-    pub fn assert_refines<S2, R2>(&self, other: &ProtoSpec<S2, Message, R2>, surjection: impl Fn(&State) -> S2)
+    pub fn assert_refines<S2, R2>(&self, other: &ProtoSpec<S2, Message, R2>, map: impl Fn(&State) -> S2)
     where
         S2: Clone + Ord + std::fmt::Debug,
     {
-        self.inner.assert_refines(&other.inner, surjection);
+        self.inner.assert_refines(&other.inner, map);
     }
 }
 

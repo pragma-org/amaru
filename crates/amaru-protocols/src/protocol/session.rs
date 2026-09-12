@@ -480,6 +480,7 @@ where
     }
 }
 
+#[track_caller]
 fn collapse_undirected<S, S2, M>(
     transitions: &BTreeMap<S, PerState<S, M>>,
     map: impl Fn(&S) -> S2,
@@ -503,7 +504,7 @@ where
             if let Some(existing) = existing.as_ref()
                 && (existing.to != to || existing.sim_open != edge.sim_open)
             {
-                let inserted = Edge { sender: edge.sender, to, sim_open: edge.sim_open };
+                let inserted = Edge { to, sim_open: edge.sim_open };
                 panic!(
                     "transition {from:?} -> {message:?} already defined as {existing:?} when inserting {inserted:?}: disagreeing edge"
                 );
