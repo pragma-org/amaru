@@ -1480,16 +1480,16 @@ define_schemas! {
                     required from_chunk: u64
                     required target_dir: String
                 }
-                /// Immutable chunks are being fetched from Mithril
-                public DOWNLOAD_CHUNKS {
-                    required tip: amaru_kernel::Point
-                    required from_chunk: u64
-                }
                 /// Finished replaying downloaded blocks into the stores
                 public INGEST_COMPLETED {
                     required processed: u64
                     required duration_seconds: f64
                     required processed_per_seconds: f64
+                }
+                /// Complete chain-store adoption after an interrupted Mithril ledger update
+                public RECOVER_CHAIN_TIP {
+                    required ledger_tip: amaru_kernel::Point
+                    required chain_tip: amaru_kernel::Point
                 }
                 /// Local cardano-node database is recent enough; skipping Mithril download
                 public SKIP_DOWNLOAD {
@@ -1591,6 +1591,7 @@ define_schemas! {
                 public DOWNLOAD {
                     required target_dir: String
                     required from_chunk: u64
+                    required through_chunk: u64
                 }
                 /// Download and verify the digests for a Mithril snapshot
                 public VERIFY_DIGESTS {
@@ -1603,6 +1604,11 @@ define_schemas! {
                 /// Mithril cardano-node database is ready
                 public READY {
                     required target_dir: String
+                }
+                /// Rebuild an invalid local immutable cache before retrying once
+                public REBUILD_CACHE {
+                    required immutable_dir: String
+                    required reason: String
                 }
             }
         }
