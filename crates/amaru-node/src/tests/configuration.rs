@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::{BTreeMap, BTreeSet},
     fmt::{Debug, Formatter},
     num::NonZeroU8,
     path::PathBuf,
@@ -22,9 +23,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Constitution, Epoch, EraHistory, Header, IsHeader, MaxString128, NetworkName, Peer, Point,
-    ProtocolParameters, Transaction, TransactionId, cardano::network_block::make_encoded_chain,
-    cbor::WithOriginalBytes,
+    Anchor, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Header, IsHeader, MaxString128,
+    NetworkName, Peer, Point, ProtocolParameters, Transaction, TransactionId,
+    cardano::network_block::make_encoded_chain, cbor::WithOriginalBytes,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -415,8 +416,9 @@ impl NodeTestConfig {
                 )?;
                 tx.set_protocol_parameters(pp)?;
                 tx.set_governance_activity(governance_activity)?;
-                // A bootstrapped ledger always has a constitution; these tests never propose one, so
-                // any anchor will do and there is no guardrails script to enforce.
+                // A bootstrapped ledger always has a constitution and a committee status.
+                // These tests never propose a constitution or elect members, so any
+                // constitution anchor will do and the committee starts in no-confidence.
                 tx.set_constitution(&Constitution {
                     anchor: Anchor {
                         url: MaxString128::from_str("https://example.com").map_err(anyhow::Error::msg)?,
@@ -424,6 +426,11 @@ impl NodeTestConfig {
                     },
                     guardrail_script: None,
                 })?;
+                tx.update_constitutional_committee(
+                    &ConstitutionalCommitteeStatus::NoConfidence,
+                    &BTreeMap::new(),
+                    &BTreeSet::new(),
+                )?;
                 tx.commit()?;
                 // initial_stake_distributions needs snapshots at most_recent, most_recent - 1, and
                 // most_recent - 2; take three so that for_epoch(0) and for_epoch(1) both succeed.
