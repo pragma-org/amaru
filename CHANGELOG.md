@@ -37,17 +37,17 @@ Other guiding principles:
 
 ## v10.11.20260917 _[unreleased; planned for 2026-09-17]_
 
-### Fixed
-
-- **amaru-ledger**: Off-by-one error in constitutional committee member validity upper-bound check.
-
-## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
+## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
 
 ### Added
 
 - **amaru-protocols**: BlockFetch times out after 60s if the peer stalls while serving a range. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru-protocols**: `manager.peer.local_use_applied` is logged when a connection has finished changing local use (for example to Maintenance after an uninteresting demotion).
 - **amaru**: `amaru-bootstrap.service` is now installed alongside amaru for Debian and RPM targets; this is a one-shot systemd service to bootstrap Amaru on first start.
+- **amaru-tui**: the log pane thins older lines by severity (newest 70% keep debug and up, then 10% info and up, 10% warn and up, oldest 10% errors only), marks those cut-offs, and shows each bucket’s fill when the row is wide enough. `&` filters visible lines by regex, `/` highlights matches and jumps between them, and copy mode can still scroll.
+- **amaru-tui**: the log scrollbar can be clicked and dragged to jump through the buffer. `|` focuses it for large keyboard steps (`↑↓`, page, home/end), and `@` jumps to a UTC time (`HH:MM[:SS]` or `YYYY-MM-DD[ HH:MM[:SS]]`). Log `↑`/`↓`/page/wheel now follow that same older/newer direction.
+- **amaru-tui**: `w` or the log `[ WRAP ]` control turns off wrapping so `←`/`→` (and shift-wheel / horizontal wheel) pan long lines; the column offset is kept while scrolling vertically. Pane focus on a tab moved to `Ctrl-←`/`Ctrl-→`.
+- **amaru**: `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION` (default `100MiB`) caps how much log text the TUI keeps. SI suffixes (`kB`, `MB`) are powers of 1000; IEC suffixes (`KiB`, `MiB`) are powers of 1024.
 
 ### Changed
 
@@ -73,13 +73,10 @@ Other guiding principles:
 - **amaru-ledger**: accept committee hot-key authorizations and resignations from members that a pending `UpdateCommittee` action proposes to seat.
 - **amaru-protocols**: BlockFetch waits for each block to be accepted by TCP before encoding the next, so a slow peer no longer unbounded-buffers. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
 - **amaru-protocols**: BlockFetch keeps the connection up if a new range is requested before the previous batch finishes. ([#1303](https://github.com/pragma-org/amaru/pull/1303))
-- **amaru**: `--tui-log-retention` / `AMARU_TUI_LOG_RETENTION` (default `100MiB`) caps how much log text the TUI keeps. SI suffixes (`kB`, `MB`) are powers of 1000; IEC suffixes (`KiB`, `MiB`) are powers of 1024.
-- **amaru-tui**: the log pane thins older lines by severity (newest 70% keep debug and up, then 10% info and up, 10% warn and up, oldest 10% errors only), marks those cut-offs, and shows each bucket’s fill when the row is wide enough. `&` filters visible lines by regex, `/` highlights matches and jumps between them, and copy mode can still scroll.
-- **amaru-tui**: the log scrollbar can be clicked and dragged to jump through the buffer. `|` focuses it for large keyboard steps (`↑↓`, page, home/end), and `@` jumps to a UTC time (`HH:MM[:SS]` or `YYYY-MM-DD[ HH:MM[:SS]]`). Log `↑`/`↓`/page/wheel now follow that same older/newer direction.
-- **amaru-tui**: `w` or the log `[ WRAP ]` control turns off wrapping so `←`/`→` (and shift-wheel / horizontal wheel) pan long lines; the column offset is kept while scrolling vertically. Pane focus on a tab moved to `Ctrl-←`/`Ctrl-→`.
 - **amaru-tui**: switching the log pane to DEBUG no longer panics when the retained debug stream is larger than ratatui’s `u16` paragraph scroll; the pane renders a visible window around the tail instead of the whole buffer.
 - **amaru-protocols**: the first peer-share request after an outbound handshake is no longer dropped.
 - **amaru-bootstrap**: allow cancellation of the bootstrap process.
+- **amaru-ledger**: Off-by-one error in constitutional committee member validity upper-bound check.
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 
