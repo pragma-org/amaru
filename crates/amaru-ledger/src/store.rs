@@ -521,7 +521,7 @@ pub trait HistoricalStores {
 
     /// Access a `Snapshot` for a specific `Epoch`. The snapshot is an owned handle that can move
     /// to another thread (e.g. the rewards background computation).
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send + 'static>;
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send>;
 }
 
 // TransactionalContext
