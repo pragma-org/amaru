@@ -879,29 +879,42 @@ mod tests {
             let mut compass = forest.new_compass();
             let mut cc_update = None;
             while let Some((id, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                if let ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { added, .. }, _) = proposal {
-                    let min_valid_until = added.values().min();
-                    if min_valid_until >= Some(&Epoch::from(1)) {
-                        cc_update = Some((id, *min_valid_until.unwrap()));
-                    }
+                if let ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { added, .. }, _) = proposal
+                    && let Some(max_valid_until) = added.values().max()
+                    && max_valid_until.as_u64() > 2 {
+                        cc_update = Some((id, *max_valid_until));
                 }
             }
 
-            if let Some((previous_id, min_valid_until)) = cc_update {
-                forest.current_epoch = min_valid_until - 1;
+            let protocol_parameters = ProtocolParameters {
+                max_committee_term_length: 0,
+                ..(*PROTOCOL_PARAMETERS).clone()
+            };
+
+
+            if let Some((target_proposal, max_valid_until)) = cc_update {
+                // Does not yield cc proposals that contains invalid members.
+                forest.current_epoch = max_valid_until - 2;
                 compass = forest.new_compass();
-
-                let protocol_parameters = ProtocolParameters {
-                    max_committee_term_length: 0,
-                    ..(*PROTOCOL_PARAMETERS).clone()
-                };
-
                 while let Some((id, (_, _))) = compass.next(&forest, &protocol_parameters) {
                     prop_assert!(
-                        id != previous_id,
+                        id != target_proposal,
                         "yielded constitutional committee update ({id}) despite now-invalid committee"
                     );
                 }
+
+                // Yield cc proposals that contains barely valid members
+                forest.current_epoch = max_valid_until - 1;
+                compass = forest.new_compass();
+                while let Some((id, (_, _))) = compass.next(&forest, &protocol_parameters) {
+                    if id == target_proposal {
+                        return Ok(());
+                    }
+                }
+                prop_assert!(
+                    false,
+                    "did not yield constitutional committee update ({target_proposal}) with barely-valid committee"
+                );
             } else {
                 prop_assert!(true)
             }
