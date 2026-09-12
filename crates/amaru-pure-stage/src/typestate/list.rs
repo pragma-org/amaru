@@ -41,7 +41,7 @@ use std::{fmt, marker::PhantomData};
 
 use super::{
     Effect, State,
-    effect::{Repeat, SendAny},
+    effect::{Repeat, SendAny, payload_name, role_name},
 };
 
 pub struct Nil;
@@ -502,4 +502,227 @@ pub fn describe<R: FmtPar>() -> String {
         }
     }
     D::<R>(PhantomData).to_string()
+}
+
+/// [`State::NAME`] of a remainder destination.
+pub type StateName = &'static str;
+/// Role label (`RoleTag::NAME`, or last `::` of `type_name` for phantoms).
+pub type RoleName = &'static str;
+/// Last `::` segment of a payload `type_name`.
+pub type PayloadName = &'static str;
+/// Receive-arm identifier (`stringify!($in)` from `on_receive!`).
+pub type InputName = &'static str;
+
+/// Exclusive choice of remainder alternatives (`A => S | B => T`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemainderAst {
+    pub alternatives: Vec<ThenAst>,
+}
+
+/// Parallel sequences then a next state (`A | B => S`).
+///
+/// Empty `parallel` is `Then<Nil, S>` (hidable-only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThenAst {
+    pub parallel: Vec<Vec<EffectAst>>,
+    pub next: StateName,
+}
+
+/// One effect in a remainder sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectAst {
+    Send { role: RoleName, payload: PayloadName },
+    Call { role: RoleName, payload: PayloadName },
+    SendAny { role: RoleName },
+    Repeat(Vec<EffectAst>),
+    SetTimeout,
+    ClearTimeout,
+    Wait,
+    Terminate,
+    Clock,
+    Schedule { payload: PayloadName },
+    CancelSchedule,
+    External { effect: PayloadName },
+    AddStage,
+}
+
+/// Value-level remainder (exclusive choice of [`ThenAst`]).
+pub trait DescribeAst {
+    fn describe_ast() -> RemainderAst;
+}
+
+/// Parallel sequences inside a [`Then`].
+pub trait DescribePar {
+    fn describe_par() -> Vec<Vec<EffectAst>>;
+}
+
+/// Ordered effects in one parallel branch.
+pub trait DescribeSeq {
+    fn describe_seq() -> Vec<EffectAst>;
+}
+
+/// A single remainder effect, including [`Repeat`].
+pub trait DescribeEffect {
+    fn describe_effect() -> EffectAst;
+}
+
+impl DescribeAst for Nil {
+    fn describe_ast() -> RemainderAst {
+        RemainderAst { alternatives: vec![] }
+    }
+}
+
+impl<P: DescribePar, S: State> DescribeAst for Then<P, S> {
+    fn describe_ast() -> RemainderAst {
+        RemainderAst { alternatives: vec![ThenAst { parallel: P::describe_par(), next: S::NAME }] }
+    }
+}
+
+impl<P: DescribePar, S: State> DescribeAst for Cons<Then<P, S>, Nil> {
+    fn describe_ast() -> RemainderAst {
+        <Then<P, S> as DescribeAst>::describe_ast()
+    }
+}
+
+impl<P: DescribePar, S: State, T1, T2> DescribeAst for Cons<Then<P, S>, Cons<T1, T2>>
+where
+    Cons<T1, T2>: DescribeAst,
+{
+    fn describe_ast() -> RemainderAst {
+        let mut ast = <Then<P, S> as DescribeAst>::describe_ast();
+        ast.alternatives.extend(Cons::<T1, T2>::describe_ast().alternatives);
+        ast
+    }
+}
+
+impl DescribePar for Nil {
+    fn describe_par() -> Vec<Vec<EffectAst>> {
+        Vec::new()
+    }
+}
+
+impl<H: DescribeSeq> DescribePar for Cons<H, Nil> {
+    fn describe_par() -> Vec<Vec<EffectAst>> {
+        vec![H::describe_seq()]
+    }
+}
+
+impl<H: DescribeSeq, T1, T2> DescribePar for Cons<H, Cons<T1, T2>>
+where
+    Cons<T1, T2>: DescribePar,
+{
+    fn describe_par() -> Vec<Vec<EffectAst>> {
+        let mut parallel = vec![H::describe_seq()];
+        parallel.extend(Cons::<T1, T2>::describe_par());
+        parallel
+    }
+}
+
+impl<E: DescribeEffect> DescribeSeq for Cons<E, Nil> {
+    fn describe_seq() -> Vec<EffectAst> {
+        vec![E::describe_effect()]
+    }
+}
+
+impl<E: DescribeEffect, H, T> DescribeSeq for Cons<E, Cons<H, T>>
+where
+    Cons<H, T>: DescribeSeq,
+{
+    fn describe_seq() -> Vec<EffectAst> {
+        let mut seq = vec![E::describe_effect()];
+        seq.extend(Cons::<H, T>::describe_seq());
+        seq
+    }
+}
+
+impl<R, T> DescribeEffect for super::effect::Send<R, T> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Send { role: role_name::<R>(), payload: payload_name::<T>() }
+    }
+}
+
+impl<R, T> DescribeEffect for super::effect::Call<R, T> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Call { role: role_name::<R>(), payload: payload_name::<T>() }
+    }
+}
+
+impl<R> DescribeEffect for SendAny<R> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::SendAny { role: role_name::<R>() }
+    }
+}
+
+impl<E: DescribeEffect> DescribeEffect for Repeat<E> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Repeat(vec![E::describe_effect()])
+    }
+}
+
+impl<H, T> DescribeEffect for Repeat<Cons<H, T>>
+where
+    Cons<H, T>: DescribeSeq,
+{
+    fn describe_effect() -> EffectAst {
+        EffectAst::Repeat(Cons::<H, T>::describe_seq())
+    }
+}
+
+impl DescribeEffect for super::effect::SetTimeout {
+    fn describe_effect() -> EffectAst {
+        EffectAst::SetTimeout
+    }
+}
+
+impl DescribeEffect for super::effect::ClearTimeout {
+    fn describe_effect() -> EffectAst {
+        EffectAst::ClearTimeout
+    }
+}
+
+impl DescribeEffect for super::effect::Wait {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Wait
+    }
+}
+
+impl DescribeEffect for super::effect::Terminate {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Terminate
+    }
+}
+
+impl DescribeEffect for super::effect::Clock {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Clock
+    }
+}
+
+impl<T> DescribeEffect for super::effect::Schedule<T> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Schedule { payload: payload_name::<T>() }
+    }
+}
+
+impl DescribeEffect for super::effect::CancelSchedule {
+    fn describe_effect() -> EffectAst {
+        EffectAst::CancelSchedule
+    }
+}
+
+impl<E: crate::ExternalEffect> DescribeEffect for super::effect::External<E> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::External { effect: payload_name::<E>() }
+    }
+}
+
+impl DescribeEffect for super::effect::AddStage {
+    fn describe_effect() -> EffectAst {
+        EffectAst::AddStage
+    }
+}
+
+/// Extract a remainder AST without constructing a [`super::Session`].
+pub fn describe_ast<R: DescribeAst>() -> RemainderAst {
+    R::describe_ast()
 }

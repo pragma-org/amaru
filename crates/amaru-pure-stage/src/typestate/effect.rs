@@ -22,6 +22,31 @@ use std::{any::type_name, fmt, marker::PhantomData};
 
 use crate::ExternalEffect;
 
+pub(super) const fn type_last_segment<T>() -> &'static str {
+    last_segment(type_name::<T>())
+}
+
+const fn last_segment(name: &'static str) -> &'static str {
+    let bytes = name.as_bytes();
+    let mut i = bytes.len();
+    while i > 0 {
+        i -= 1;
+        if bytes[i] == b':' {
+            return name.split_at(i + 1).1;
+        }
+    }
+    name
+}
+
+/// Last `::` segment of `type_name::<R>()`. Equals [`RoleTag::NAME`](super::RoleTag::NAME) for tag types.
+pub(super) fn role_name<R>() -> &'static str {
+    type_last_segment::<R>()
+}
+
+pub(super) fn payload_name<T>() -> &'static str {
+    type_last_segment::<T>()
+}
+
 /// A type-level tag for an effect that can appear in a session remainder.
 pub trait Effect {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result;

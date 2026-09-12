@@ -26,7 +26,7 @@
 use std::{fmt, future::Future, marker::PhantomData, time::Duration};
 
 use super::{
-    Clean, FmtPar, IntoRoleCall, IntoRoleMail, RoleTag, Select,
+    Clean, DescribeAst, FmtPar, IntoRoleCall, IntoRoleMail, RemainderAst, RoleTag, Select,
     effect::{Call as CallEff, ClearTimeout, Send as SendEff, SendAny, SetTimeout, Terminate, Wait},
     list::{self, CanFinish},
 };
@@ -168,6 +168,14 @@ impl<M, Rem> Session<M, Rem> {
         Rem: FmtPar,
     {
         list::describe::<Rem>()
+    }
+
+    /// Value-level remainder. Does not parse [`Self::describe`].
+    pub fn describe_ast() -> RemainderAst
+    where
+        Rem: DescribeAst,
+    {
+        list::describe_ast::<Rem>()
     }
 
     pub fn me(&self) -> StageRef<M>

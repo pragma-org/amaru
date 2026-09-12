@@ -16,9 +16,9 @@
 //! `tests/typestate.rs`.
 
 use super::{
-    Cons, FmtPar, Here, Nil, OnReceive, Select, Then,
+    Cons, EffectAst, FmtPar, Here, Nil, OnReceive, RemainderAst, Select, Session, Then, ThenAst,
     effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout},
-    list::{CanFinish, Clean, DiscardRepeat, describe},
+    list::{CanFinish, Clean, DiscardRepeat, describe, describe_ast},
     session::describe_receive,
 };
 
@@ -67,11 +67,13 @@ mod toy {
     on_receive!(CanAwait, AwaitReply => MustReply);
     on_receive!(MustReply, String => Idle);
     on_receive!(Idle, ClientDone => Send<Peer, ()> => Done);
+    on_receive!(Idle, Tick => Repeat<SendAny<Peer>>, SetTimeout, Call<Peer, u8> => Idle);
 
     pub struct FindIntersect;
     pub struct RequestNext;
     pub struct AwaitReply;
     pub struct ClientDone;
+    pub struct Tick;
 }
 
 #[test]
@@ -132,6 +134,101 @@ fn describe_remainder() {
             std::any::type_name::<toy::Peer>(),
             std::any::type_name::<toy::Peer>()
         )
+    );
+}
+
+fn send(role: &'static str, payload: &'static str) -> EffectAst {
+    EffectAst::Send { role, payload }
+}
+
+fn call(role: &'static str, payload: &'static str) -> EffectAst {
+    EffectAst::Call { role, payload }
+}
+
+fn then(parallel: Vec<Vec<EffectAst>>, next: &'static str) -> ThenAst {
+    ThenAst { parallel, next }
+}
+
+fn rem(alternatives: Vec<ThenAst>) -> RemainderAst {
+    RemainderAst { alternatives }
+}
+
+#[test]
+fn describe_ast_sequence_of_sends_then_intersect() {
+    type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
+    let intersect = &describe_ast::<Rem>().alternatives[0];
+    assert_eq!(intersect, &then(vec![vec![send("Peer", "String"), send("Peer", "u8")]], "Intersect"));
+}
+
+#[test]
+fn describe_ast_exclusive_choice_send_or_wait() {
+    type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![
+            then(vec![vec![send("Peer", "String"), send("Peer", "u8")]], "Intersect"),
+            then(vec![vec![EffectAst::Wait]], "Idle"),
+        ])
+    );
+    assert_eq!(Session::<(), Rem>::describe_ast(), describe_ast::<Rem>());
+}
+
+#[test]
+fn describe_ast_empty_then_is_hidable_only() {
+    type Rem = <toy::CanAwait as OnReceive<toy::AwaitReply>>::Then;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![], "MustReply")]));
+}
+
+#[test]
+fn describe_ast_single_send_to_done() {
+    type Rem = <toy::Idle as OnReceive<toy::ClientDone>>::Then;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![vec![send("Peer", "()")]], "Done")]));
+}
+
+#[test]
+fn describe_ast_clear_timeout() {
+    type Rem = Cons<Then<Cons<Cons<ClearTimeout, Nil>, Nil>, toy::Idle>, Nil>;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![vec![EffectAst::ClearTimeout]], "Idle")]));
+}
+
+#[test]
+fn describe_ast_repeat_set_timeout_call() {
+    type Rem = <toy::Idle as OnReceive<toy::Tick>>::Then;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![then(
+            vec![vec![
+                EffectAst::Repeat(vec![EffectAst::SendAny { role: "Peer" }]),
+                EffectAst::SetTimeout,
+                call("Peer", "u8"),
+            ]],
+            "Idle",
+        )])
+    );
+}
+
+#[test]
+fn describe_ast_parallel_beside_repeat() {
+    type Rem = Cons<
+        Then<Cons<Cons<Send<toy::Peer, u8>, Nil>, Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>>, toy::Idle>,
+        Nil,
+    >;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![then(
+            vec![vec![send("Peer", "u8")], vec![EffectAst::Repeat(vec![EffectAst::SendAny { role: "Peer" }])],],
+            "Idle",
+        )])
+    );
+}
+
+#[test]
+fn describe_ast_repeat_of_sequence() {
+    type Seq = Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>;
+    type Rem = Cons<Then<Cons<Cons<Repeat<Seq>, Nil>, Nil>, toy::Idle>, Nil>;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![then(vec![vec![EffectAst::Repeat(vec![send("Peer", "u8"), send("Peer", "u16")])]], "Idle",)])
     );
 }
 
@@ -299,6 +396,17 @@ mod exclusive_choice {
     }
 
     #[test]
+    fn describe_ast_uses_role_tag_names() {
+        assert_eq!(
+            describe_ast::<Rem>(),
+            rem(vec![
+                then(vec![vec![send(RoleA::NAME, "A1"), send(RoleB::NAME, "B1")]], "StateA"),
+                then(vec![vec![send(RoleC::NAME, "C1"), send(RoleD::NAME, "D1")]], "StateC"),
+            ])
+        );
+    }
+
+    #[test]
     fn after_c_only_d_remains() {
         assert_after::<Rem, Send<RoleC, C1>, AfterCExpect, _>();
         fn assert_d<R: Select<Send<RoleD, D1>, I>, I>() {}
@@ -333,6 +441,18 @@ mod exclusive_choice {
         fn assert_done<R: CanFinish<StateZ, crate::typestate::list::Here>>() {}
         assert_done::<AfterEExpect>();
         assert_eq!(describe_after::<Rem3, Send<RoleE, E1>, _>(), "=> StateZ");
+    }
+
+    #[test]
+    fn describe_ast_three_way_choice() {
+        assert_eq!(
+            describe_ast::<Rem3>(),
+            rem(vec![
+                then(vec![vec![send(RoleA::NAME, "A1")]], "StateX"),
+                then(vec![vec![send(RoleC::NAME, "C1")]], "StateY"),
+                then(vec![vec![send(RoleE::NAME, "E1")]], "StateZ"),
+            ])
+        );
     }
 }
 

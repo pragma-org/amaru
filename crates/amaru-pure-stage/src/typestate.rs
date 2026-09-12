@@ -49,7 +49,10 @@ pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
 };
-pub use list::{CanFinish, Clean, Cons, DiscardRepeat, FmtPar, Here, Nil, Select, Then};
+pub use list::{
+    CanFinish, Clean, Cons, DescribeAst, DiscardRepeat, EffectAst, FmtPar, Here, InputName, Nil, PayloadName,
+    RemainderAst, RoleName, Select, StateName, Then, ThenAst,
+};
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleCall, IntoRoleMail, Role, RoleTag};
 pub use session::{
