@@ -26,6 +26,7 @@ use amaru_pure_stage::typestate::{PayloadName, RoleTag, State, StateName, TypeGr
 use super::{
     BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch,
     initiator::{BLOCKFETCH_AGENCY_TIMEOUT, Busy, Done, Idle, Streaming, ToCollector, ToResponder},
+    responder::ToInitiator,
 };
 use crate::protocol::{ProjectionConfig, Role, SessionSpec, ToMux};
 
@@ -112,6 +113,20 @@ impl ProjectionConfig<Message> {
             plumbing_inputs: BTreeSet::from(["Pull"]),
             local_inputs: BTreeSet::from(["Fetch", "Close"]),
             driven: true,
+        }
+    }
+
+    pub(crate) fn blockfetch_responder() -> Self {
+        Self {
+            role: Role::Responder,
+            peer_role: ToInitiator::NAME,
+            mux_role: ToMux::NAME,
+            local_roles: BTreeSet::new(),
+            wire_inputs: BTreeMap::from([("RequestRange", dummy_request_range()), ("ClientDone", dummy_client_done())]),
+            wire_payload: dummy_messages(),
+            plumbing_inputs: BTreeSet::from(["Pull"]),
+            local_inputs: BTreeSet::new(),
+            driven: false,
         }
     }
 }

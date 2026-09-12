@@ -52,6 +52,7 @@ on_receive!(Idle as ServerIdleIn {
     }
     ClientDone => { Send<ToMux, WantNext> => Idle }
 });
+on_receive!(Done as DoneIn {});
 
 /// Range of points to fetch, newest first, at least one point.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
@@ -299,13 +300,17 @@ pub mod tests {
         StageGraph,
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
         typestate::{FmtPar, OnReceive, Session},
+        typestate_graph,
     };
     use tokio::runtime::{Builder, Runtime};
 
-    use super::*;
+    use super::{
+        super::spec::{assert_wire_inputs_cover_receives, dummy_messages, session_spec},
+        *,
+    };
     use crate::{
         mux::{MuxMessage, Sent},
-        protocol::Inputs,
+        protocol::{Cfsm, Inputs, ProjectionConfig, Role, StateId, check_timeouts, check_want_next, project},
         store_effects::ResourceHeaderStore,
     };
 
@@ -345,6 +350,58 @@ pub mod tests {
             )
         );
         assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Idle", send_desc::<ToMux, WantNext>()));
+    }
+
+    fn map_r(state: &StateId) -> StateId {
+        match state {
+            StateId::Named("Idle" | "Done") => state.clone(),
+            StateId::Named(other) => panic!("unexpected named state {other}"),
+            StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange"] => {
+                StateId::Named("Busy")
+            }
+            StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange", "StartBatch"] => {
+                StateId::Named("Streaming")
+            }
+            StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
+        }
+    }
+
+    /// Drop ClientDone so RequestRange synthetics can refine Table 3.7.
+    /// Today's remainder dest is Idle; spec dest is Done. Do not retarget with
+    /// `with_restart_on_done`.
+    fn without_client_done(mut cfsm: Cfsm<Message>) -> Cfsm<Message> {
+        for edges in cfsm.transitions.values_mut() {
+            edges.retain(|label, _| !matches!(label.message, Message::ClientDone(_)));
+        }
+        cfsm
+    }
+
+    #[test]
+    fn responder_projects_request_range_to_table_3_7() {
+        let g = typestate_graph! {
+            proto: Proto,
+            receiving: { Idle },
+            empty: { Done },
+        };
+        // No occupancy: responder `make_states!` has no switch.
+        assert!(g.occupancy.is_empty());
+        let cfg = ProjectionConfig::blockfetch_responder();
+        let spec = session_spec();
+        check_want_next(&g, &cfg).unwrap();
+        check_timeouts(&g, &cfg, &spec).unwrap();
+        let projected = project(&g, &cfg).unwrap();
+
+        let dummies = dummy_messages();
+        let req = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
+        let start = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange", "StartBatch"] };
+        assert_eq!(projected.dest(StateId::Named("Idle"), &dummies["RequestRange"]), req);
+        assert_eq!(projected.dest(req.clone(), &dummies["StartBatch"]), start);
+        assert_eq!(projected.dest(req, &dummies["NoBlocks"]), StateId::Named("Idle"));
+        assert_eq!(projected.dest(start.clone(), &dummies["Block"]), start);
+        assert_eq!(projected.dest(start, &dummies["BatchDone"]), StateId::Named("Idle"));
+
+        without_client_done(projected).assert_refines(&without_client_done(spec.project(Role::Responder)), map_r);
+        assert_wire_inputs_cover_receives(&g, &cfg);
     }
 
     #[test]
