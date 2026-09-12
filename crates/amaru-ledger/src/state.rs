@@ -46,7 +46,7 @@ use crate::{
         self,
         block::{BlockValidation, TransactionInvalid},
     },
-    startup::{Database as StartupDatabase, StartupHook},
+    startup::{StartupContext, StartupHook},
     state::volatile::{
         AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
@@ -200,7 +200,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
 
         if let Some(on_startup) = on_startup {
-            on_startup(&StartupDatabase::new(&stable, epoch, &protocol_parameters, &era_history))?;
+            on_startup(&StartupContext::new(&stable, epoch, &protocol_parameters, &era_history))?;
         }
 
         Ok(Self::new_with(

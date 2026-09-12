@@ -37,12 +37,11 @@ pub enum TelemetryEvent {
     PeerConnected,
     PeerDisconnected,
     PeerResolved,
-    PotsLoad,
+    PotsDump,
     ProposalActive,
     ProposalDrop,
     ProposalSkip,
-    ProtocolParametersLoad,
-    ProtocolParametersRatify,
+    ProtocolParametersDump,
     ProtocolUpgrade,
     RatificationSummarize,
     RewardsSummarize,
@@ -76,8 +75,8 @@ impl TelemetryEvent {
             Some(Self::StakeSnapshot)
         } else if ledger::rewards::SUMMARIZE::matches(&record.target, &record.name) {
             Some(Self::RewardsSummarize)
-        } else if ledger::pots::LOAD::matches(&record.target, &record.name) {
-            Some(Self::PotsLoad)
+        } else if ledger::pots::DUMP::matches(&record.target, &record.name) {
+            Some(Self::PotsDump)
         } else if ledger::state::SWITCH_TO_FORK::matches(&record.target, &record.name) {
             Some(Self::StateSwitchToFork)
         } else if ledger::epoch_transition::COMPUTE::matches(&record.target, &record.name) {
@@ -116,10 +115,8 @@ impl TelemetryEvent {
             Some(Self::ProposalSkip)
         } else if ledger::protocol::UPGRADE::matches(&record.target, &record.name) {
             Some(Self::ProtocolUpgrade)
-        } else if ledger::protocol_parameters::LOAD::matches(&record.target, &record.name) {
-            Some(Self::ProtocolParametersLoad)
-        } else if ledger::protocol_parameters::RATIFY::matches(&record.target, &record.name) {
-            Some(Self::ProtocolParametersRatify)
+        } else if ledger::protocol_parameters::DUMP::matches(&record.target, &record.name) {
+            Some(Self::ProtocolParametersDump)
         } else if ledger::ratification::SUMMARIZE::matches(&record.target, &record.name) {
             Some(Self::RatificationSummarize)
         } else {
