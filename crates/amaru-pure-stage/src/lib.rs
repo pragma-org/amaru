@@ -57,8 +57,8 @@ pub use serde::{
     serialize_send_data::register_data_deserializer,
 };
 pub use session::{
-    Agency, Cfsm, Direction, Label, ProjectError, ProjectionConfig, SessionSpec, TimeoutError, Vertex, WantNextError,
-    assert_projects, assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project,
+    Agency, Cfsm, Direction, Label, ProjectError, ProjectionConfig, SessionSpec, TimeoutError, Vertex, assert_projects,
+    assert_wire_inputs_cover_receives, check_timeouts, project,
 };
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};

@@ -16,8 +16,8 @@
 //! of typestate remainder graphs onto a binary session.
 //!
 //! [`SessionSpec`] stores the network-spec table (who sends). [`SessionSpec::project`]
-//! orients that table for one [`Agency`]. Handler [`project`] hides mux plumbing,
-//! timers, and local roles, unfolding remainder sequences onto a [`Cfsm`].
+//! orients that table for one [`Agency`]. Handler [`project`] hides configured
+//! plumbing roles, timers, and local roles, unfolding remainder sequences onto a [`Cfsm`].
 //!
 //! Typestate remainder *use* lives in [`crate::typestate`].
 
@@ -514,7 +514,7 @@ fn collapse_undirected(
     simplified
 }
 
-/// Hand-written per protocol. `driven` selects the WantNext and timeout tables.
+/// Hand-written per protocol. `driven` selects occupancy-based timeout tables.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectionConfig {
     pub role: Agency,
@@ -735,11 +735,10 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
 
 /// Project `graph` with `cfg` and check it against `spec`.
 ///
-/// Runs WantNext / timeout well-formedness, mux projection, structural
-/// refinement of `spec.project(cfg.role)`, and wire-input coverage.
+/// Runs timeout well-formedness, projection, structural refinement of
+/// `spec.project(cfg.role)`, and wire-input coverage.
 #[track_caller]
 pub fn assert_projects(graph: &TypeGraph, cfg: &ProjectionConfig, spec: &SessionSpec) -> Cfsm {
-    check_want_next(graph, cfg).unwrap_or_else(|e| panic!("{e}"));
     check_timeouts(graph, cfg, spec).unwrap_or_else(|e| panic!("{e}"));
     let projected = project(graph, cfg).unwrap_or_else(|e| panic!("{e}"));
     projected.assert_refines(&spec.project(cfg.role));
@@ -1015,66 +1014,6 @@ fn overlapping_input(cfg: &ProjectionConfig) -> Option<InputName> {
     None
 }
 
-const WANT_NEXT_PAYLOAD: PayloadName = "WantNext";
-
-/// Why [`check_want_next`] rejected a remainder graph.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WantNextError {
-    WantNextInStar { state: StateName, input: InputName },
-    WantNextMustBeSend { state: StateName, input: InputName },
-    DuplicateWantNext { state: StateName, input: InputName },
-    WantNextForbidden { state: StateName, input: InputName },
-    WantNextMissing { state: StateName, input: InputName },
-    DestNotSelf { state: StateName, input: InputName },
-    MissingPull { dest: StateName },
-    MissingOccupancy { state: StateName },
-    UnlistedOccupancy { state: StateName, input: InputName },
-    UnknownInput { state: StateName, input: InputName },
-    WirePayloadMustBeCall { state: StateName, input: InputName, payload: PayloadName },
-}
-
-impl Display for WantNextError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WantNextError::WantNextInStar { state, input } => {
-                write!(f, "WantNext inside Repeat at {state} + {input}")
-            }
-            WantNextError::WantNextMustBeSend { state, input } => {
-                write!(f, "WantNext must be Send (not Call) at {state} + {input}")
-            }
-            WantNextError::DuplicateWantNext { state, input } => {
-                write!(f, "more than one WantNext at {state} + {input}")
-            }
-            WantNextError::WantNextForbidden { state, input } => {
-                write!(f, "WantNext forbidden at {state} + {input}")
-            }
-            WantNextError::WantNextMissing { state, input } => {
-                write!(f, "WantNext required at {state} + {input}")
-            }
-            WantNextError::DestNotSelf { state, input } => {
-                write!(f, "Pull WantNext dest must be self at {state} + {input}")
-            }
-            WantNextError::MissingPull { dest } => {
-                write!(f, "missing Pull arm on {dest}")
-            }
-            WantNextError::MissingOccupancy { state } => {
-                write!(f, "driven graph is missing occupancy for {state}")
-            }
-            WantNextError::UnlistedOccupancy { state, input } => {
-                write!(f, "unlisted occupancy/kind at {state} + {input}")
-            }
-            WantNextError::UnknownInput { state, input } => {
-                write!(f, "input {input} at {state} is not plumbing, local, or wire")
-            }
-            WantNextError::WirePayloadMustBeCall { state, input, payload } => {
-                write!(f, "wire payload {payload} to peer must be Call (not Send) at {state} + {input}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for WantNextError {}
-
 /// Why [`check_timeouts`] rejected a remainder graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TimeoutError {
@@ -1126,43 +1065,6 @@ enum Presence {
     Required,
     Forbidden,
     Optional,
-}
-
-/// Mux `WantNext` well-formedness on the unprojected remainder graph.
-///
-/// `WantNext` is `Send<ToMux, WantNext>`, at most once per alternative, never
-/// inside `Repeat`. Driven vs undriven tables follow occupancy / waiting states.
-pub fn check_want_next(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<(), WantNextError> {
-    if cfg.driven
-        && let Err(state) = check_driven_occupancy(graph)
-    {
-        return Err(WantNextError::MissingOccupancy { state });
-    }
-
-    let mut need_pull = BTreeSet::new();
-
-    for (state, inputs) in &graph.receives {
-        for (input, rem) in inputs {
-            let kind = input_kind(cfg, input);
-            for alt in &rem.alternatives {
-                let present = want_next_present(state, input, alt, cfg.mux_role)?;
-                reject_peer_wire_send(state, input, alt, cfg)?;
-                apply_want_next_rule(graph, cfg, state, input, kind, alt.next, present, &mut need_pull)?;
-            }
-        }
-    }
-
-    if cfg.driven {
-        for dest in need_pull {
-            if !has_pull_arm(graph, cfg, dest) {
-                return Err(WantNextError::MissingPull { dest });
-            }
-        }
-    } else if is_waiting(graph, cfg, graph.initial) && !has_pull_arm(graph, cfg, graph.initial) {
-        return Err(WantNextError::MissingPull { dest: graph.initial });
-    }
-
-    Ok(())
 }
 
 /// Agency-timer presence on the unprojected remainder graph.
@@ -1226,185 +1128,6 @@ fn is_waiting(graph: &TypeGraph, cfg: &ProjectionConfig, state: StateName) -> bo
         None => graph.receives.get(state).is_some_and(|inputs| {
             inputs.keys().any(|input| cfg.plumbing_inputs.contains(input) || cfg.wire_inputs.contains(input))
         }),
-    }
-}
-
-fn has_pull_arm(graph: &TypeGraph, cfg: &ProjectionConfig, state: StateName) -> bool {
-    graph.receives.get(state).is_some_and(|inputs| inputs.keys().any(|input| cfg.plumbing_inputs.contains(input)))
-}
-
-fn want_next_present(state: StateName, input: InputName, alt: &ThenAst, mux: RoleName) -> Result<bool, WantNextError> {
-    let mut scan = WantNextScan::default();
-    for branch in &alt.parallel {
-        scan_want_next(branch, mux, false, &mut scan);
-    }
-    if scan.in_star {
-        return Err(WantNextError::WantNextInStar { state, input });
-    }
-    if scan.calls > 0 {
-        return Err(WantNextError::WantNextMustBeSend { state, input });
-    }
-    if scan.sends > 1 {
-        return Err(WantNextError::DuplicateWantNext { state, input });
-    }
-    Ok(scan.sends == 1)
-}
-
-fn reject_peer_wire_send(
-    state: StateName,
-    input: InputName,
-    alt: &ThenAst,
-    cfg: &ProjectionConfig,
-) -> Result<(), WantNextError> {
-    for branch in &alt.parallel {
-        reject_peer_wire_send_seq(branch, state, input, cfg)?;
-    }
-    Ok(())
-}
-
-fn reject_peer_wire_send_seq(
-    effects: &[EffectAst],
-    state: StateName,
-    input: InputName,
-    cfg: &ProjectionConfig,
-) -> Result<(), WantNextError> {
-    for e in effects {
-        match e {
-            EffectAst::Repeat(body) => reject_peer_wire_send_seq(body, state, input, cfg)?,
-            EffectAst::Send { role, payload } if *role == cfg.peer_role && cfg.wire_payload.contains(payload) => {
-                return Err(WantNextError::WirePayloadMustBeCall { state, input, payload });
-            }
-            EffectAst::Send { .. }
-            | EffectAst::Call { .. }
-            | EffectAst::SendAny { .. }
-            | EffectAst::SetTimeout
-            | EffectAst::ClearTimeout
-            | EffectAst::Wait
-            | EffectAst::Terminate
-            | EffectAst::Clock
-            | EffectAst::Schedule { .. }
-            | EffectAst::CancelSchedule
-            | EffectAst::External { .. }
-            | EffectAst::AddStage => {}
-        }
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct WantNextScan {
-    sends: usize,
-    calls: usize,
-    in_star: bool,
-}
-
-fn scan_want_next(effects: &[EffectAst], mux: RoleName, in_star: bool, scan: &mut WantNextScan) {
-    for e in effects {
-        match e {
-            EffectAst::Repeat(body) => scan_want_next(body, mux, true, scan),
-            EffectAst::Send { role, payload } if *role == mux && *payload == WANT_NEXT_PAYLOAD => {
-                scan.sends += 1;
-                scan.in_star |= in_star;
-            }
-            EffectAst::Call { role, payload } if *role == mux && *payload == WANT_NEXT_PAYLOAD => {
-                scan.calls += 1;
-                scan.in_star |= in_star;
-            }
-            EffectAst::Send { .. }
-            | EffectAst::Call { .. }
-            | EffectAst::SendAny { .. }
-            | EffectAst::SetTimeout
-            | EffectAst::ClearTimeout
-            | EffectAst::Wait
-            | EffectAst::Terminate
-            | EffectAst::Clock
-            | EffectAst::Schedule { .. }
-            | EffectAst::CancelSchedule
-            | EffectAst::External { .. }
-            | EffectAst::AddStage => {}
-        }
-    }
-}
-
-#[expect(clippy::too_many_arguments)]
-fn apply_want_next_rule(
-    graph: &TypeGraph,
-    cfg: &ProjectionConfig,
-    state: StateName,
-    input: InputName,
-    kind: InputKind,
-    next: StateName,
-    present: bool,
-    need_pull: &mut BTreeSet<StateName>,
-) -> Result<(), WantNextError> {
-    if matches!(kind, InputKind::Unknown) {
-        return Err(WantNextError::UnknownInput { state, input });
-    }
-    let (rule, dest_self) = want_next_rule(graph, cfg, state, input, kind, next, need_pull)?;
-    match (rule, present) {
-        (Presence::Required, false) => Err(WantNextError::WantNextMissing { state, input }),
-        (Presence::Forbidden, true) => Err(WantNextError::WantNextForbidden { state, input }),
-        (Presence::Required, true) if dest_self && next != state => Err(WantNextError::DestNotSelf { state, input }),
-        _ => Ok(()),
-    }
-}
-
-fn want_next_rule(
-    graph: &TypeGraph,
-    cfg: &ProjectionConfig,
-    state: StateName,
-    input: InputName,
-    kind: InputKind,
-    next: StateName,
-    need_pull: &mut BTreeSet<StateName>,
-) -> Result<(Presence, bool), WantNextError> {
-    if cfg.driven {
-        driven_want_next_rule(graph, state, input, kind, next, need_pull)
-    } else {
-        Ok(undriven_want_next_rule(graph, cfg, kind, next))
-    }
-}
-
-fn driven_want_next_rule(
-    graph: &TypeGraph,
-    state: StateName,
-    input: InputName,
-    kind: InputKind,
-    next: StateName,
-    need_pull: &mut BTreeSet<StateName>,
-) -> Result<(Presence, bool), WantNextError> {
-    let Some(src) = occupancy_of(graph, state) else {
-        return Err(WantNextError::MissingOccupancy { state });
-    };
-    let Some(dst) = occupancy_of(graph, next) else {
-        return Err(WantNextError::MissingOccupancy { state: next });
-    };
-    if dst == Occupancy::Terminal {
-        return Ok((Presence::Forbidden, false));
-    }
-    match (src, dst, kind) {
-        (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => {
-            need_pull.insert(next);
-            Ok((Presence::Forbidden, false))
-        }
-        (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing) => Ok((Presence::Required, true)),
-        (Occupancy::Remote, Occupancy::Remote, InputKind::Wire) => Ok((Presence::Required, false)),
-        (Occupancy::Remote, Occupancy::Switch, InputKind::Wire) => Ok((Presence::Forbidden, false)),
-        _ => Err(WantNextError::UnlistedOccupancy { state, input }),
-    }
-}
-
-fn undriven_want_next_rule(
-    graph: &TypeGraph,
-    cfg: &ProjectionConfig,
-    kind: InputKind,
-    next: StateName,
-) -> (Presence, bool) {
-    let dest_self = matches!(kind, InputKind::Plumbing);
-    if dest_self || is_waiting(graph, cfg, next) {
-        (Presence::Required, dest_self)
-    } else {
-        (Presence::Optional, dest_self)
     }
 }
 
@@ -2112,11 +1835,10 @@ mod tests {
     }
 
     #[test]
-    fn driven_initiator_want_next_and_timeouts() {
+    fn driven_initiator_timeouts() {
         let g = initiator_graph();
         let cfg = cfg_initiator();
         let spec = table_37();
-        check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
         assert_eq!(spec.timeout("Busy"), Some(Duration::from_secs(60)));
         assert_eq!(spec.timeout("Streaming"), Some(Duration::from_secs(60)));
@@ -2125,22 +1847,10 @@ mod tests {
     }
 
     #[test]
-    fn undriven_responder_want_next_and_timeouts() {
+    fn undriven_responder_timeouts() {
         let g = responder_graph();
         let cfg = cfg_responder();
-        check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &table_37()).unwrap();
-    }
-
-    #[test]
-    fn driven_fetch_with_want_next_is_forbidden() {
-        let mut g = initiator_graph();
-        g.receives
-            .get_mut("Idle")
-            .unwrap()
-            .insert("Fetch", seq(vec![call("ToResponder", "RequestRange"), send("ToMux", "WantNext")], "Busy"));
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(matches!(err, WantNextError::WantNextForbidden { state: "Idle", input: "Fetch" }), "{err:?}");
     }
 
     #[test]
@@ -2174,55 +1884,6 @@ mod tests {
     }
 
     #[test]
-    fn driven_start_batch_without_want_next() {
-        let mut g = initiator_graph();
-        g.receives.get_mut("Busy").unwrap().insert("StartBatch", seq(vec![EffectAst::SetTimeout], "Streaming"));
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(matches!(err, WantNextError::WantNextMissing { state: "Busy", input: "StartBatch" }), "{err:?}");
-    }
-
-    #[test]
-    fn driven_close_forbids_want_next() {
-        let mut g = initiator_graph();
-        g.receives.get_mut("Idle").unwrap().insert(
-            "Close",
-            RemainderAst {
-                alternatives: vec![ThenAst {
-                    parallel: vec![
-                        vec![call("ToResponder", "ClientDone"), send("ToMux", "WantNext")],
-                        vec![repeat(vec![send_any("ToCollector")])],
-                    ],
-                    next: "Done",
-                }],
-            },
-        );
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(matches!(err, WantNextError::WantNextForbidden { state: "Idle", input: "Close" }), "{err:?}");
-    }
-
-    #[test]
-    fn driven_fetch_requires_pull_on_remote_dest() {
-        let mut g = initiator_graph();
-        g.receives.get_mut("Busy").unwrap().remove("Pull");
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(matches!(err, WantNextError::MissingPull { dest: "Busy" }), "{err:?}");
-    }
-
-    #[test]
-    fn want_next_in_star() {
-        let graph = idle_graph(BTreeMap::from([("Pull", seq(vec![repeat(vec![send("ToMux", "WantNext")])], "Idle"))]));
-        let err = check_want_next(&graph, &cfg_responder()).unwrap_err();
-        assert!(matches!(err, WantNextError::WantNextInStar { state: "Idle", input: "Pull" }), "{err:?}");
-    }
-
-    #[test]
-    fn want_next_must_be_send() {
-        let graph = idle_graph(BTreeMap::from([("Pull", seq(vec![call("ToMux", "WantNext")], "Idle"))]));
-        let err = check_want_next(&graph, &cfg_responder()).unwrap_err();
-        assert!(matches!(err, WantNextError::WantNextMustBeSend { state: "Idle", input: "Pull" }), "{err:?}");
-    }
-
-    #[test]
     fn undriven_request_range_forbids_set_timeout() {
         let mut g = responder_graph();
         g.receives.get_mut("Idle").unwrap().insert(
@@ -2249,24 +1910,8 @@ mod tests {
     fn driven_missing_occupancy_is_error() {
         let mut g = initiator_graph();
         g.occupancy.remove("Busy");
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(matches!(err, WantNextError::MissingOccupancy { state: "Busy" }), "{err:?}");
         let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
         assert!(matches!(err, TimeoutError::MissingOccupancy { state: "Busy" }), "{err:?}");
-    }
-
-    #[test]
-    fn peer_wire_send_must_be_call() {
-        let mut g = initiator_graph();
-        g.receives.get_mut("Idle").unwrap().insert("Fetch", seq(vec![send("ToResponder", "RequestRange")], "Busy"));
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(
-            matches!(
-                err,
-                WantNextError::WirePayloadMustBeCall { state: "Idle", input: "Fetch", payload: "RequestRange" }
-            ),
-            "{err:?}"
-        );
     }
 
     #[test]
@@ -2275,8 +1920,6 @@ mod tests {
         let mut cfg = cfg_initiator();
         cfg.local_inputs.insert("Pending");
         g.receives.get_mut("Busy").unwrap().insert("Pending", seq(vec![], "Busy"));
-        let err = check_want_next(&g, &cfg).unwrap_err();
-        assert!(matches!(err, WantNextError::UnlistedOccupancy { state: "Busy", input: "Pending" }), "{err:?}");
         let err = check_timeouts(&g, &cfg, &table_37()).unwrap_err();
         assert!(matches!(err, TimeoutError::UnlistedOccupancy { state: "Busy", input: "Pending" }), "{err:?}");
     }
@@ -2285,28 +1928,13 @@ mod tests {
     fn unknown_input_is_error() {
         let mut g = initiator_graph();
         g.receives.get_mut("Busy").unwrap().insert("NotListed", seq(vec![send("ToMux", "WantNext")], "Busy"));
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(matches!(err, WantNextError::UnknownInput { state: "Busy", input: "NotListed" }), "{err:?}");
         let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
         assert!(matches!(err, TimeoutError::UnknownInput { state: "Busy", input: "NotListed" }), "{err:?}");
 
         let mut g = responder_graph();
         g.receives.get_mut("Idle").unwrap().insert("NotListed", seq(vec![send("ToMux", "WantNext")], "Idle"));
-        let err = check_want_next(&g, &cfg_responder()).unwrap_err();
-        assert!(matches!(err, WantNextError::UnknownInput { state: "Idle", input: "NotListed" }), "{err:?}");
         let err = check_timeouts(&g, &cfg_responder(), &table_37()).unwrap_err();
         assert!(matches!(err, TimeoutError::UnknownInput { state: "Idle", input: "NotListed" }), "{err:?}");
-    }
-
-    #[test]
-    fn driven_pull_dest_must_be_self() {
-        let mut g = initiator_graph();
-        g.receives
-            .get_mut("Busy")
-            .unwrap()
-            .insert("Pull", seq(vec![send("ToMux", "WantNext"), EffectAst::SetTimeout], "Streaming"));
-        let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
-        assert!(matches!(err, WantNextError::DestNotSelf { state: "Busy", input: "Pull" }), "{err:?}");
     }
 
     #[test]

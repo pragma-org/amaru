@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Network-spec BlockFetch machine (Tables 3.7 / 3.8) as a [`SessionSpec`].
-//!
-//! State keys and message labels are type names (`Idle`, `RequestRange`, …),
-//! not dummy payload values.
-
 use std::collections::BTreeSet;
 
 use amaru_pure_stage::{
@@ -30,7 +25,7 @@ use super::{
     initiator::{self, Busy, Done, Idle, Streaming},
     responder,
 };
-use crate::protocol::{Pull, ToMux};
+use crate::protocol::{Pull, ToMux, check_want_next};
 
 pub(crate) fn session_spec() -> SessionSpec {
     session_spec! {
@@ -91,7 +86,9 @@ fn blockfetch_responder() -> ProjectionConfig {
 }
 
 #[test]
-fn responder_dual_equals_initiator() {
+fn protocol_conformance() {
+    check_want_next(&initiator::Proto::type_graph(), &blockfetch_initiator()).unwrap();
+    check_want_next(&responder::Proto::type_graph(), &blockfetch_responder()).unwrap();
     let spec = session_spec();
     let h_i = assert_projects(&initiator::Proto::type_graph(), &blockfetch_initiator(), &spec);
     let h_r = assert_projects(&responder::Proto::type_graph(), &blockfetch_responder(), &spec);

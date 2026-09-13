@@ -302,13 +302,12 @@ pub mod tests {
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use amaru_pure_stage::{
         StageGraph,
-        session::assert_projects,
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
-        typestate::{FmtPar, OnReceive, Session, State},
+        typestate::{FmtPar, OnReceive, Session},
     };
     use tokio::runtime::{Builder, Runtime};
 
-    use super::{super::spec::session_spec, *};
+    use super::*;
     use crate::{
         mux::{MuxMessage, Sent},
         protocol::Inputs,
