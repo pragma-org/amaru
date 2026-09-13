@@ -5,8 +5,9 @@ status: proposed
 
 # Block Forging
 
-Currently, Amaru follows the chain but does not extend it. This document describes how a stake pool running Amaru would produce blocks.
-The goal is a valid block with limited wasted work. The Haskell node is our reference for what "valid" means, and this document links to the relevant code, but the shape of our implementation is our own.
+Currently, Amaru follows the chain but does not extend it. This document describes how a stake pool running Amaru would produce blocks in Ouroboros Praos. The goal is a valid block with limited wasted work. The Haskell node is our reference for what "valid" means, and this document links to the relevant code, but the shape of our implementation is our own.
+
+Ouroboros Leios will introduce many changes for Amaru overall, but they are orthagonal to this document. For example, there will be mempool improvements, new independent processes for votes, announcements, and handling of endorsement blocks (EBs), and changes to the ledger. In theory, there will be no changes directly to the block forging architecture, though that may change as we learn more about Leios.
 
 ## Context
 
@@ -67,26 +68,32 @@ Note the graph below only contains the stages that are relevant to block forging
 flowchart LR
     subgraph existing
         track_peers --> select_chain --> fetch_blocks --> validate_block --> adopt_chain
-        adopt_chain -->|NewTip| mempool
+        validate_block -->|validation result| select_chain
+        adopt_chain -->|NewTip, delayed purge of included txs| mempool
         adopt_chain -->|NewTip| manager
     end
     adopt_chain -->|NewTip| forge_block
     forge_block -->|new tip| select_chain
     forge_block -.->|leader_schedule, forge_header| creds[(forging credentials)]
     forge_block -.->|transactions for parent, slot| pool[(mempool)]
-    forge_block -.->|build_body| ledger[(ledger)]
     forge_block -.->|schedule_at| clock[(clock)]
 ```
 
 ### Once per epoch
 
-On the first `NewTip` whose header is inside the stability window, the stage:
+The candidate nonce freezes at slot `NextEpoch - 4k/f`. On the first `NewTip` whose header is inside that window, the stage:
 
 1. Computes the next epoch's nonce with `Nonces::next_active` from the tip's stored nonces.
-2. Asks the credentials resource for the slots we lead in that epoch, given the nonce and our stake share from `PoolSummaries`.
+2. Asks the credentials resource for the slots we lead in that epoch, given the nonce and our stake share from `PoolSummaries`. This runs asynchronously and at low priority; it is 432,000 VRF evaluations on mainnet.
 3. Converts each led slot to a wall-clock instant with `EraHistory::slot_to_posix_time` and schedules a `LeadSlot(slot)` message for it with `Effects::schedule_at`.
 
-On startup the same steps run for the current epoch from the tip's active nonce, scheduling only the slots still ahead. Nothing runs on the slots we do not lead.
+The last block that contributed to the candidate is not yet `k` deep when the window opens, so the schedule is not settled until `k` blocks have been adopted past the freeze. Until then a rollback that reaches back before the window can change the candidate, and if one does, the stage cancels the scheduled slots with `Effects::cancel_schedule` and repeats the steps above from the new tip. A rollback that stays inside the window does not touch the candidate and needs no action. Once `k` blocks have passed, the schedule can no longer change.
+
+If the epoch boundary arrives before `k` blocks have been adopted, nothing changes. We keep using the schedule we have. The remaining risk is a rollback into the previous epoch that reaches past the window, and in a healthy network that does not happen.
+
+The stage reports the schedule, with how many of the `k` blocks since the freeze have been adopted, so the TUI can show operators upcoming slots and whether they are settled.
+
+On startup the same steps run for the current, and the next, epoch from the tip's active nonce, scheduling only the slots still ahead.
 
 ### Once per led slot
 
@@ -94,36 +101,39 @@ When `LeadSlot(slot)` fires:
 
 1. Check that the operational certificate covers the slot's KES period. If not, log a warning and stop.
 2. Pick the parent: the current tip, or the tip's parent if the tip's slot equals ours.
-3. Ask the mempool for a sequence of transactions that is valid on the parent's state as of our slot and fits in a block. Ask the ledger to apply it and keep the resulting state fragment, keyed by the body hash.
+3. Ask the mempool for a sequence of transactions that is valid on the parent's state as of our slot and fits in a block. That sequence is the block body as-is; the stage does not validate it and does not consult the ledger.
 4. Ask the credentials resource to forge the header: VRF proof for the slot, block body hash, KES signature for the period.
-5. Run the header through the same `validate_header` every peer header passes. This costs one VRF verify and one KES verify, and yields the evolved nonces we must store with the header anyway.
+5. Run the header through the same `validate_header` every peer header passes. In theory, we only need the `evolve_nonces` effect, but the full `validate_header` function costs us almost nothing.
 6. Store the header and the block, and send the new tip to `select_chain`.
 
-`select_chain` ranks the tip. `fetch_blocks` sees the body is already stored. `validate_block` asks the ledger to roll forward, and the ledger recognises the block it just built and commits the kept fragment instead of running the rules again. `adopt_chain` then tells the mempool, the manager and `forge_block` about the new tip, and the manager serves the block to peers.
+`select_chain` ranks the tip. `fetch_blocks` sees the body is already stored. `validate_block` asks the ledger to roll forward, applying our block exactly as it would a peer's. This is the first and only time the ledger sees the body. `adopt_chain` then tells the mempool, the manager and `forge_block` about the new tip, and the manager serves the block to peers.
 
 ### Rules
 
 - **Secrets never enter stage state.** Stage state is serialised into the trace buffer on every message. The VRF and KES keys live in a resource and answer two effects, `leader_schedule` and `forge_header`. The stage keeps only public facts: the led slots, the certificate's start period and evolution limit.
-- **Compute the schedule once.** Every input to the leader check is fixed before the epoch starts. There is no per-slot loop.
-- **Enter the pipeline at `select_chain`, not `adopt_chain`.** `adopt_chain` assumes the ledger has applied the block and that `validate_block` and `select_chain` have moved their tip. Skipping them leaves `validate_block` believing the old tip is current, so the next upstream sibling of our block would be applied as an extension and fail. Entering at `select_chain` keeps every stage's bookkeeping right, and the kept fragment removes the double validation that route would otherwise cost.
-- **Everything is simulatable.** Time comes from `schedule_at`, keys from a resource, the ledger and mempool from resources. A pure-stage test can drive an epoch boundary and a led slot with a mocked credentials resource and assert the exact effect trace.
+- **Compute the schedule once per epoch.** Every input to the leader check is fixed once the candidate freezes, so the stage computes the schedule when the window opens and recomputes only if a rollback reaches past the window. There is no per-slot loop.
+- **Enter the pipeline at `select_chain`, not `adopt_chain`.** `adopt_chain` assumes the ledger has applied the block and that `validate_block` and `select_chain` have moved their tip. Skipping them leaves `validate_block` believing the old tip is current, so the next upstream sibling of our block would be applied as an extension and fail. Entering at `select_chain` keeps every stage's bookkeeping right. Our block is validated once, on that path, like any other.
+- **The ledger plays no part in forging.** The mempool hands us a body that is valid on the parent, and the stage builds a header over it. The ledger first sees the block when `validate_block` applies it.
+- **Everything is simulatable.** Time comes from `schedule_at`, keys from a resource, the mempool from a resource. A pure-stage test can drive an epoch boundary and a led slot with a mocked credentials resource and assert the exact effect trace.
+- **The header identifies Amaru as the forger.** The header's protocol version carries a major and a minor. The Haskell node's `chainChecks` rejects a header only when the major exceeds the ledger's current version, and it fills the minor from node configuration, zero on mainnet. Amaru's `validate_header` does not read the field. We set the minor to a 64-bit value that names Amaru and the git commit it was built from, so anyone reading the chain can tell which node produced a block and which build. The exact encoding is decided when it is implemented.
 
 ## Consequences
 
 ### Mempool
 
-Forging needs one thing from the mempool: given a parent state and a slot, a sequence of transactions that is valid in that order on that state and fits within the block limits. How the mempool produces it is its own concern and is not decided here. Today's `Mempool::take` does not offer this.
+Forging needs one thing from the mempool: given a parent and a slot, a sequence of transactions that is valid in that order on the parent's state as of that slot and fits within the block limits (max body size, max execution units). The stage treats the result as a well-formed body. How the mempool produces it, including how it reaches the parent's state when the parent is the tip's parent, is its own concern and is not decided here. Today's `Mempool::take` does not offer this.
 
-### Ledger
-
-The ledger gains two entry points: build a body on a given parent at a given slot, and commit a kept fragment on roll forward. Building on the tip's parent means producing the state at tip minus one. The volatile store holds the last `k` blocks and `switch_to_fork` already rolls back, so the pieces exist, but the builder needs a parent argument rather than assuming the tip. Block limits (max body size, max execution units, max header size) come from the protocol parameters in the parent state after the epoch tick, not from the stage.
+Taking transactions for a block does not remove them from the mempool. Our block may lose to a competing one, and dropping its transactions at forge time would lose them for good. Instead the mempool should purge a transaction only once a block containing it has been adopted, triggered by the `NewTip` messages it already receives from `adopt_chain`.
 
 ### Operations
 
-Forging depends on the wall clock, so the NTP requirement from [EDR 014](./014-time-in-amaru.md) becomes a hard requirement for pools.Operators must also rotate the KES key and certificate before the 62-period limit, as with the Haskell node. A missed slot is logged with the reason: certificate not yet valid, expired, or the tip moved under us.
+Forging depends on the wall clock, so the NTP requirement from [EDR 014](./014-time-in-amaru.md) becomes a hard requirement for pools. Operators are expected to configure NTP correctly. As a later addition, not part of this decision, the node may periodically check the local clock against a reference and emit a `WARN` when it drifts, with an option to disable the check. Operators must also rotate the KES key and certificate before the 62-period limit, as with the Haskell node. A missed slot is logged with the reason: certificate not yet valid, expired, or the tip moved under us.
+
+### TUI
+
+The terminal UI from [EDR 030](./030-embedded-terminal-observability-ui.md) can give an operator a view of forging. For example: the led slots still ahead in this epoch and the next, the time to the next one, the KES period in use and how many remain on the certificate, and the outcome of each led slot, whether the block was adopted, lost to a competitor, or missed and why. The TUI is a consumer of telemetry, so all of this comes from traces the `forge_block` stage emits and from nothing else. None of it is required for block production. A pool with the TUI disabled forges exactly the same blocks.
 
 ## Discussion points
 
 - **KES key source.** The Haskell node can read the key from a file or talk to a KES agent that holds it in locked memory. We need to decide on our source.
-- **Schedule stability.** At the freeze slot the last contributing block is not yet `k` deep, so a rollback could change the candidate. The stage should compare the stored candidate on each `NewTip` and rebuild the schedule if it changed.
 - **Schedule while syncing.** During catch-up, `NewTip` crosses many historical windows. The stage should only build a schedule when the slots it would produce are in the future.
