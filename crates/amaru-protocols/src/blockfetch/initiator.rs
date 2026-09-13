@@ -478,9 +478,7 @@ mod tests {
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{
-            blockfetch_initiator, initiator_type_graph, map_i, session_spec,
-        },
+        super::spec::{blockfetch_initiator, initiator_type_graph, session_spec},
         *,
     };
     use crate::{
@@ -501,7 +499,7 @@ mod tests {
         check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
         let projected = project(&g, &cfg).unwrap();
-        projected.assert_refines(&spec.project(Agency::Initiator), map_i);
+        projected.assert_refines(&spec.project(Agency::Initiator));
         assert_message_alphabet_covered::<Message>(spec.edge_labels(), &[]);
         assert_wire_inputs_cover_receives(&g, &cfg, &spec);
     }

@@ -56,26 +56,13 @@ impl std::fmt::Display for Agency {
     }
 }
 
-/// Named typestate constructor, or a synthetic unfolding of a remainder sequence.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum StateId {
-    Named(StateName),
-    Synthetic { parent: StateName, path: Vec<PayloadName> },
-}
+/// Anonymous vertex in a projected CFSM. Names are not part of the automaton.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Vertex(u32);
 
-impl Display for StateId {
+impl Display for Vertex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StateId::Named(name) => f.write_str(name),
-            StateId::Synthetic { parent, path } => {
-                f.write_str(parent)?;
-                for p in path {
-                    f.write_char('#')?;
-                    f.write_str(p)?;
-                }
-                Ok(())
-            }
-        }
+        write!(f, "v{}", self.0)
     }
 }
 
@@ -126,40 +113,104 @@ impl Display for Label {
 }
 
 /// Oriented exclusive-agency machine. Timeouts live on [`SessionSpec`], not here.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Vertex identities are arbitrary; comparison is structural (labels + agency).
+/// [`names`](Self::names) is diagnostic only (SessionSpec / typestate constructors).
+#[derive(Debug, Clone)]
 pub struct Cfsm {
-    pub states: BTreeSet<StateId>,
-    pub initial: StateId,
-    pub terminal: BTreeSet<StateId>,
+    pub states: BTreeSet<Vertex>,
+    pub initial: Vertex,
+    pub terminal: BTreeSet<Vertex>,
     /// Who may send. Omitted for [`terminal`](Self::terminal) states.
-    pub agency: BTreeMap<StateId, Agency>,
-    pub transitions: BTreeMap<StateId, BTreeMap<Label, StateId>>,
+    pub agency: BTreeMap<Vertex, Agency>,
+    pub transitions: BTreeMap<Vertex, BTreeMap<Label, Vertex>>,
+    names: BTreeMap<Vertex, StateName>,
 }
 
+impl PartialEq for Cfsm {
+    fn eq(&self, other: &Self) -> bool {
+        self.states == other.states
+            && self.initial == other.initial
+            && self.terminal == other.terminal
+            && self.agency == other.agency
+            && self.transitions == other.transitions
+    }
+}
+
+impl Eq for Cfsm {}
+
 impl Cfsm {
-    /// Panic on mismatch. Compares reachable oriented transitions, `agency`, and
-    /// mapped `initial`. Does **not** compare timeouts.
+    /// Panic unless the reachable fragments are isomorphic (edge labels + agency).
     #[track_caller]
-    pub fn assert_refines(&self, spec: &Cfsm, map: impl Fn(&StateId) -> StateId) {
-        let got = self.reachable_fragment().collapse(map);
-        let want = spec.reachable_fragment();
-        if got.initial != want.initial || got.transitions != want.transitions || got.agency != want.agency {
-            panic!("assert_refines mismatch\nprojected:\n{}\n\nspec:\n{}", got.fmt_table(), want.fmt_table());
+    pub fn assert_refines(&self, spec: &Cfsm) {
+        if let Err(reason) = self.structural_eq(spec) {
+            panic!(
+                "assert_refines mismatch: {reason}\nprojected:\n{}\n\nspec:\n{}",
+                self.fmt_table(),
+                spec.fmt_table()
+            );
         }
     }
 
-    /// Reachable-table equality (transitions + agency + terminal). No search.
+    /// Same as [`assert_refines`](Self::assert_refines): names are not compared.
     #[track_caller]
     pub fn assert_bisimilar(&self, other: &Cfsm) {
-        let got = self.reachable_fragment();
-        let want = other.reachable_fragment();
-        if got.initial != want.initial
-            || got.transitions != want.transitions
-            || got.agency != want.agency
-            || got.terminal != want.terminal
-        {
-            panic!("assert_bisimilar mismatch\nleft:\n{}\n\nright:\n{}", got.fmt_table(), want.fmt_table());
+        if let Err(reason) = self.structural_eq(other) {
+            panic!("assert_bisimilar mismatch: {reason}\nleft:\n{}\n\nright:\n{}", self.fmt_table(), other.fmt_table());
         }
+    }
+
+    fn structural_eq(&self, other: &Cfsm) -> Result<(), String> {
+        let a = self.reachable_fragment();
+        let b = other.reachable_fragment();
+        let mut fwd = BTreeMap::new();
+        let mut rev = BTreeMap::new();
+        let mut stack = vec![(a.initial, b.initial)];
+        fwd.insert(a.initial, b.initial);
+        rev.insert(b.initial, a.initial);
+        while let Some((x, y)) = stack.pop() {
+            let xn = a.fmt_vertex(x);
+            let yn = b.fmt_vertex(y);
+            if a.terminal.contains(&x) != b.terminal.contains(&y) {
+                return Err(format!(
+                    "{xn} terminal={} vs {yn} terminal={}",
+                    a.terminal.contains(&x),
+                    b.terminal.contains(&y)
+                ));
+            }
+            if a.agency.get(&x) != b.agency.get(&y) {
+                return Err(format!("{xn} agency {:?} vs {yn} agency {:?}", a.agency.get(&x), b.agency.get(&y)));
+            }
+            let empty = BTreeMap::new();
+            let xe = a.transitions.get(&x).unwrap_or(&empty);
+            let ye = b.transitions.get(&y).unwrap_or(&empty);
+            let xk: BTreeSet<_> = xe.keys().collect();
+            let yk: BTreeSet<_> = ye.keys().collect();
+            if xk != yk {
+                return Err(format!("{xn} labels {xk:?} vs {yn} labels {yk:?}"));
+            }
+            for (lab, &xto) in xe {
+                let yto = ye[lab];
+                match (fwd.get(&xto), rev.get(&yto)) {
+                    (None, None) => {
+                        fwd.insert(xto, yto);
+                        rev.insert(yto, xto);
+                        stack.push((xto, yto));
+                    }
+                    (Some(&y2), Some(&x2)) if y2 == yto && x2 == xto => {}
+                    _ => {
+                        return Err(format!(
+                            "{xn} --{lab}--> {} disagrees with {yn} --{lab}--> {}",
+                            a.fmt_vertex(xto),
+                            b.fmt_vertex(yto)
+                        ));
+                    }
+                }
+            }
+        }
+        if fwd.len() != a.states.len() || rev.len() != b.states.len() {
+            return Err(format!("visited {}/{} vs {}/{}", fwd.len(), a.states.len(), rev.len(), b.states.len()));
+        }
+        Ok(())
     }
 
     /// Swap `Send`/`Recv` only. **Copy** `agency` (who-sends) and `terminal`.
@@ -176,75 +227,30 @@ impl Cfsm {
             .map(|(from, edges)| {
                 let swapped = edges
                     .iter()
-                    .map(|(label, to)| {
-                        (Label { direction: label.direction.opposite(), message: label.message }, to.clone())
-                    })
+                    .map(|(label, to)| (Label { direction: label.direction.opposite(), message: label.message }, *to))
                     .collect();
-                (from.clone(), swapped)
+                (*from, swapped)
             })
             .collect();
         Cfsm {
             states: self.states.clone(),
-            initial: self.initial.clone(),
+            initial: self.initial,
             terminal: self.terminal.clone(),
             agency: self.agency.clone(),
             transitions,
+            names: self.names.clone(),
         }
-    }
-
-    /// Apply a declared surjection; panic if two sources map to one dest with disagreeing destinations.
-    #[must_use]
-    #[track_caller]
-    pub fn collapse(&self, map: impl Fn(&StateId) -> StateId) -> Cfsm {
-        let mut states = BTreeSet::new();
-        let mut transitions: BTreeMap<StateId, BTreeMap<Label, StateId>> = BTreeMap::new();
-        let mut agency = BTreeMap::new();
-
-        for s in &self.states {
-            states.insert(map(s));
-        }
-
-        for (from, edges) in &self.transitions {
-            let from2 = map(from);
-            for (label, to) in edges {
-                let to2 = map(to);
-                states.insert(to2.clone());
-                let slot = transitions.entry(from2.clone()).or_default();
-                if let Some(existing) = slot.get(label)
-                    && existing != &to2
-                {
-                    panic!(
-                        "collapse: {from2} --{label}--> {to2} already defined as {existing} (disagreeing destinations)"
-                    );
-                }
-                slot.insert(label.clone(), to2);
-            }
-        }
-
-        for (s, role) in &self.agency {
-            let s2 = map(s);
-            if let Some(existing) = agency.get(&s2)
-                && existing != role
-            {
-                panic!("collapse: {s2} agency {role} disagrees with existing {existing}");
-            }
-            agency.insert(s2, *role);
-        }
-
-        let mut out = Cfsm { states, initial: map(&self.initial), terminal: BTreeSet::new(), agency, transitions };
-        out.recompute_terminal();
-        out
     }
 
     /// Retarget every edge whose message is `done` to `new_to`. Other edges unchanged.
     #[must_use]
-    pub fn retarget(&self, done: &str, new_to: StateId) -> Cfsm {
+    pub fn retarget(&self, done: &str, new_to: Vertex) -> Cfsm {
         let mut out = self.clone();
-        out.states.insert(new_to.clone());
+        out.states.insert(new_to);
         for edges in out.transitions.values_mut() {
             for (label, to) in edges.iter_mut() {
                 if label.message == done {
-                    *to = new_to.clone();
+                    *to = new_to;
                 }
             }
         }
@@ -254,33 +260,31 @@ impl Cfsm {
 
     /// Destination of the unique edge from `from` whose message is `msg`.
     #[track_caller]
-    pub fn dest(&self, from: &StateId, msg: &str) -> StateId {
-        let Some(edges) = self.transitions.get(from) else {
-            panic!("dest: no transitions from {from}");
+    pub fn dest(&self, from: Vertex, msg: &str) -> Vertex {
+        let Some(edges) = self.transitions.get(&from) else {
+            panic!("dest: no transitions from {}", self.fmt_vertex(from));
         };
         let mut found = None;
         for (label, to) in edges {
             if label.message == msg {
                 if found.is_some() {
-                    panic!("dest: multiple edges from {from} with message {msg:?}");
+                    panic!("dest: multiple edges from {} with message {msg:?}", self.fmt_vertex(from));
                 }
-                found = Some(to.clone());
+                found = Some(*to);
             }
         }
-        found.unwrap_or_else(|| panic!("dest: no edge from {from} with message {msg:?}"))
+        found.unwrap_or_else(|| panic!("dest: no edge from {} with message {msg:?}", self.fmt_vertex(from)))
     }
 
-    fn reachable(&self) -> BTreeSet<StateId> {
+    fn reachable(&self) -> BTreeSet<Vertex> {
         let mut seen = BTreeSet::new();
-        let mut stack = vec![self.initial.clone()];
+        let mut stack = vec![self.initial];
         while let Some(s) = stack.pop() {
-            if !seen.insert(s.clone()) {
+            if !seen.insert(s) {
                 continue;
             }
             if let Some(edges) = self.transitions.get(&s) {
-                for to in edges.values() {
-                    stack.push(to.clone());
-                }
+                stack.extend(edges.values().copied());
             }
         }
         seen
@@ -289,10 +293,11 @@ impl Cfsm {
     fn reachable_fragment(&self) -> Cfsm {
         let reach = self.reachable();
         let transitions =
-            self.transitions.iter().filter(|(s, _)| reach.contains(s)).map(|(s, e)| (s.clone(), e.clone())).collect();
-        let agency = self.agency.iter().filter(|(s, _)| reach.contains(s)).map(|(s, r)| (s.clone(), *r)).collect();
+            self.transitions.iter().filter(|(s, _)| reach.contains(s)).map(|(s, e)| (*s, e.clone())).collect();
+        let agency = self.agency.iter().filter(|(s, _)| reach.contains(s)).map(|(s, r)| (*s, *r)).collect();
+        let names = self.names.iter().filter(|(s, _)| reach.contains(s)).map(|(s, n)| (*s, *n)).collect();
         let mut out =
-            Cfsm { states: reach, initial: self.initial.clone(), terminal: BTreeSet::new(), agency, transitions };
+            Cfsm { states: reach, initial: self.initial, terminal: BTreeSet::new(), agency, transitions, names };
         out.recompute_terminal();
         out
     }
@@ -308,16 +313,20 @@ impl Cfsm {
         self.agency.retain(|s, _| !self.terminal.contains(s));
     }
 
+    fn fmt_vertex(&self, v: Vertex) -> String {
+        self.names.get(&v).map(|n| (*n).to_string()).unwrap_or_else(|| v.to_string())
+    }
+
     fn fmt_table(&self) -> String {
         let mut s = String::new();
-        let _ = writeln!(s, "initial: {}", self.initial);
+        let _ = writeln!(s, "initial: {}", self.fmt_vertex(self.initial));
         for state in &self.states {
             let agency = self.agency.get(state);
             let terminal = self.terminal.contains(state);
-            let _ = writeln!(s, "{state} agency={agency:?} terminal={terminal}");
+            let _ = writeln!(s, "{} agency={agency:?} terminal={terminal}", self.fmt_vertex(*state));
             if let Some(edges) = self.transitions.get(state) {
                 for (label, to) in edges {
-                    let _ = writeln!(s, "  {label} -> {to}");
+                    let _ = writeln!(s, "  {label} -> {}", self.fmt_vertex(*to));
                 }
             }
         }
@@ -426,15 +435,16 @@ impl SessionSpec {
         let Some(initial) = self.initial else {
             panic!("SessionSpec::project on empty spec");
         };
-        let named = |s: StateName| StateId::Named(s);
+        let mut alloc = Alloc::default();
+        let initial_v = alloc.named(initial);
 
         let mut states = BTreeSet::new();
-        let mut transitions: BTreeMap<StateId, BTreeMap<Label, StateId>> = BTreeMap::new();
+        let mut transitions: BTreeMap<Vertex, BTreeMap<Label, Vertex>> = BTreeMap::new();
         let mut agency = BTreeMap::new();
 
         for (from, per) in &self.transitions {
-            let from_id = named(*from);
-            states.insert(from_id.clone());
+            let from_id = alloc.named(from);
+            states.insert(from_id);
             let mut edges = BTreeMap::new();
             for (msg, edge) in &per.transitions {
                 let direction = if edge.sim_open {
@@ -447,17 +457,18 @@ impl SessionSpec {
                 } else {
                     Direction::Recv
                 };
-                let to_id = named(edge.to);
-                states.insert(to_id.clone());
+                let to_id = alloc.named(edge.to);
+                states.insert(to_id);
                 edges.insert(Label { direction, message: msg }, to_id);
             }
             if !edges.is_empty() {
-                transitions.insert(from_id.clone(), edges);
+                transitions.insert(from_id, edges);
                 agency.insert(from_id, per.agency);
             }
         }
 
-        let mut cfsm = Cfsm { states, initial: named(initial), terminal: BTreeSet::new(), agency, transitions };
+        let mut cfsm =
+            Cfsm { states, initial: initial_v, terminal: BTreeSet::new(), agency, transitions, names: alloc.names };
         cfsm.recompute_terminal();
         cfsm
     }
@@ -527,10 +538,10 @@ pub enum ProjectError {
     MixedHidableWireChoice { state: StateName, input: InputName },
     EmptyWireAlternatives { state: StateName, input: InputName },
     OverlappingInput { input: InputName },
-    Nondeterministic { state: StateId, label: String },
-    MixedAgency { state: StateId },
-    AmbiguousRepeat { origin: StateId },
-    RepeatStarTooWide { origin: StateId },
+    Nondeterministic { state: Vertex, label: String },
+    MixedAgency { state: Vertex },
+    AmbiguousRepeat { origin: Vertex },
+    RepeatStarTooWide { origin: Vertex },
     PeerSendAny { role: RoleName },
     UnknownPeerPayload { payload: PayloadName },
     UnknownRole { role: RoleName },
@@ -589,10 +600,11 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
         return Err(ProjectError::OverlappingInput { input });
     }
 
-    let mut proj = Projector { cfg, states: BTreeSet::new(), transitions: BTreeMap::new() };
+    let mut proj = Projector { cfg, alloc: Alloc::default(), states: BTreeSet::new(), transitions: BTreeMap::new() };
 
     for name in &graph.states {
-        proj.states.insert(StateId::Named(name));
+        let v = proj.alloc.named(name);
+        proj.states.insert(v);
     }
 
     for (state, inputs) in &graph.receives {
@@ -619,9 +631,9 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
                 if wire_bearing.is_empty() {
                     return Err(ProjectError::NoWireFromLocal { state, input });
                 }
-                let origin = StateId::Named(state);
+                let origin = proj.alloc.named(state);
                 for (seq, next) in wire_bearing {
-                    proj.expand_seq(origin.clone(), &seq, next)?;
+                    proj.expand_seq(origin, &seq, next)?;
                 }
                 continue;
             }
@@ -641,17 +653,20 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
                     }
                     if nexts.len() != 1 {
                         return Err(ProjectError::Nondeterministic {
-                            state: StateId::Named(state),
+                            state: proj.alloc.named(state),
                             label: Label::recv(m).to_string(),
                         });
                     }
                     let next = *nexts.iter().next().unwrap();
-                    proj.emit(StateId::Named(state), Label::recv(m), StateId::Named(next))?;
+                    let from = proj.alloc.named(state);
+                    let to = proj.alloc.named(next);
+                    proj.emit(from, Label::recv(m), to)?;
                 } else {
-                    let dest = next_synthetic(&StateId::Named(state), input);
-                    proj.emit(StateId::Named(state), Label::recv(m), dest.clone())?;
+                    let from = proj.alloc.named(state);
+                    let dest = proj.alloc.fresh();
+                    proj.emit(from, Label::recv(m), dest)?;
                     for (seq, next) in wire_bearing {
-                        proj.expand_seq(dest.clone(), &seq, next)?;
+                        proj.expand_seq(dest, &seq, next)?;
                     }
                 }
                 continue;
@@ -678,17 +693,19 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
             }
         }
         let inferred = match (has_send, has_recv) {
-            (true, true) => return Err(ProjectError::MixedAgency { state: state.clone() }),
+            (true, true) => {
+                return Err(ProjectError::MixedAgency { state: *state });
+            }
             (true, false) => cfg.role,
             (false, true) => cfg.role.opposite(),
             (false, false) => continue,
         };
-        agency.insert(state.clone(), inferred);
+        agency.insert(*state, inferred);
     }
 
     if !graph.occupancy.is_empty() {
         for (name, occ) in &graph.occupancy {
-            let id = StateId::Named(name);
+            let id = proj.alloc.named(name);
             let outgoing = proj.transitions.get(&id).is_some_and(|e| !e.is_empty());
             let inferred = agency.get(&id).copied();
             let ok = match occ {
@@ -702,9 +719,15 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
         }
     }
 
-    let initial = StateId::Named(graph.initial);
-    let mut cfsm =
-        Cfsm { states: proj.states, initial, terminal: BTreeSet::new(), agency, transitions: proj.transitions };
+    let initial = proj.alloc.named(graph.initial);
+    let mut cfsm = Cfsm {
+        states: proj.states,
+        initial,
+        terminal: BTreeSet::new(),
+        agency,
+        transitions: proj.transitions,
+        names: proj.alloc.names,
+    };
     drop_unreachable(&mut cfsm);
     cfsm.recompute_terminal();
     Ok(cfsm)
@@ -728,10 +751,36 @@ pub fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &ProjectionConf
     }
 }
 
+#[derive(Default)]
+struct Alloc {
+    next: u32,
+    named: BTreeMap<StateName, Vertex>,
+    names: BTreeMap<Vertex, StateName>,
+}
+
+impl Alloc {
+    fn named(&mut self, name: StateName) -> Vertex {
+        if let Some(&v) = self.named.get(name) {
+            return v;
+        }
+        let v = self.fresh();
+        self.named.insert(name, v);
+        self.names.insert(v, name);
+        v
+    }
+
+    fn fresh(&mut self) -> Vertex {
+        let v = Vertex(self.next);
+        self.next += 1;
+        v
+    }
+}
+
 struct Projector<'a> {
     cfg: &'a ProjectionConfig,
-    states: BTreeSet<StateId>,
-    transitions: BTreeMap<StateId, BTreeMap<Label, StateId>>,
+    alloc: Alloc,
+    states: BTreeSet<Vertex>,
+    transitions: BTreeMap<Vertex, BTreeMap<Label, Vertex>>,
 }
 
 impl Projector<'_> {
@@ -813,7 +862,7 @@ impl Projector<'_> {
     }
 
     /// `seq` is already hide-filtered (`Call` / `Send` / non-hidable `Repeat` only).
-    fn expand_seq(&mut self, origin: StateId, seq: &[&EffectAst], named_next: StateName) -> Result<(), ProjectError> {
+    fn expand_seq(&mut self, origin: Vertex, seq: &[&EffectAst], named_next: StateName) -> Result<(), ProjectError> {
         assert!(!seq.is_empty(), "expand_seq on hide-filtered empty seq at {origin}");
         let mut state = origin;
         for (i, e) in seq.iter().copied().enumerate() {
@@ -825,7 +874,7 @@ impl Projector<'_> {
                         if self.first_wire(&seq[i + 1..]).is_some_and(|head| head == m) {
                             return Err(ProjectError::AmbiguousRepeat { origin: state });
                         }
-                        self.emit(state.clone(), Label::send(m), state.clone())?;
+                        self.emit(state, Label::send(m), state)?;
                     } else {
                         return Err(ProjectError::RepeatStarTooWide { origin: state });
                     }
@@ -836,11 +885,12 @@ impl Projector<'_> {
                     }
                     let m = *payload;
                     if i + 1 == seq.len() {
-                        self.emit(state, Label::send(m), StateId::Named(named_next))?;
+                        let to = self.alloc.named(named_next);
+                        self.emit(state, Label::send(m), to)?;
                         return Ok(());
                     }
-                    let dest = next_synthetic(&state, payload);
-                    self.emit(state, Label::send(m), dest.clone())?;
+                    let dest = self.alloc.fresh();
+                    self.emit(state, Label::send(m), dest)?;
                     state = dest;
                 }
                 EffectAst::SendAny { .. }
@@ -912,10 +962,10 @@ impl Projector<'_> {
         suffix.iter().copied().find_map(|e| self.as_wire_send(e))
     }
 
-    fn emit(&mut self, from: StateId, label: Label, to: StateId) -> Result<(), ProjectError> {
-        self.states.insert(from.clone());
-        self.states.insert(to.clone());
-        let edges = self.transitions.entry(from.clone()).or_default();
+    fn emit(&mut self, from: Vertex, label: Label, to: Vertex) -> Result<(), ProjectError> {
+        self.states.insert(from);
+        self.states.insert(to);
+        let edges = self.transitions.entry(from).or_default();
         if let Some(existing) = edges.get(&label)
             && existing != &to
         {
@@ -923,17 +973,6 @@ impl Projector<'_> {
         }
         edges.insert(label, to);
         Ok(())
-    }
-}
-
-fn next_synthetic(state: &StateId, payload: PayloadName) -> StateId {
-    match state {
-        StateId::Named(parent) => StateId::Synthetic { parent, path: vec![payload] },
-        StateId::Synthetic { parent, path } => {
-            let mut path = path.clone();
-            path.push(payload);
-            StateId::Synthetic { parent, path }
-        }
     }
 }
 
@@ -945,6 +984,7 @@ fn drop_unreachable(cfsm: &mut Cfsm) {
         edges.retain(|_, to| cfsm.states.contains(to));
     }
     cfsm.agency.retain(|s, _| cfsm.states.contains(s));
+    cfsm.names.retain(|s, _| cfsm.states.contains(s));
 }
 
 fn overlapping_input(cfg: &ProjectionConfig) -> Option<InputName> {
@@ -1671,25 +1711,6 @@ mod tests {
         }
     }
 
-    fn named(s: StateName) -> StateId {
-        StateId::Named(s)
-    }
-
-    fn identity(id: &StateId) -> StateId {
-        id.clone()
-    }
-
-    fn map_responder(id: &StateId) -> StateId {
-        match id {
-            StateId::Named(_) => id.clone(),
-            StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange"] => named("Busy"),
-            StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange", "StartBatch"] => {
-                named("Streaming")
-            }
-            other => panic!("unmapped responder state {other}"),
-        }
-    }
-
     fn idle_graph(receives: BTreeMap<InputName, RemainderAst>) -> TypeGraph {
         TypeGraph {
             states: BTreeSet::from(["Idle", "Done"]),
@@ -1703,35 +1724,33 @@ mod tests {
     fn initiator_graph_projects_to_table_37() {
         let spec = table_37().project(Agency::Initiator);
         let got = project(&initiator_graph(), &cfg_initiator()).unwrap();
-        assert!(got.states.iter().all(|s| matches!(s, StateId::Named(_))));
-        assert_eq!(got.initial, named("Idle"));
-        got.assert_refines(&spec, identity);
-        assert_eq!(got.agency.get(&named("Idle")), Some(&Agency::Initiator));
-        assert_eq!(got.agency.get(&named("Busy")), Some(&Agency::Responder));
-        assert_eq!(got.agency.get(&named("Streaming")), Some(&Agency::Responder));
-        assert!(got.terminal.contains(&named("Done")));
-        assert_eq!(got.dest(&named("Idle"), "RequestRange"), named("Busy"));
-        assert_eq!(got.dest(&named("Idle"), "ClientDone"), named("Done"));
-        assert_eq!(got.dest(&named("Busy"), "NoBlocks"), named("Idle"));
-        assert_eq!(got.dest(&named("Busy"), "StartBatch"), named("Streaming"));
-        assert_eq!(got.dest(&named("Streaming"), "Block"), named("Streaming"));
-        assert_eq!(got.dest(&named("Streaming"), "BatchDone"), named("Idle"));
+        got.assert_refines(&spec);
+        let idle = got.initial;
+        assert_eq!(got.agency.get(&idle), Some(&Agency::Initiator));
+        let busy = got.dest(idle, "RequestRange");
+        assert_eq!(got.agency.get(&busy), Some(&Agency::Responder));
+        let streaming = got.dest(busy, "StartBatch");
+        assert_eq!(got.agency.get(&streaming), Some(&Agency::Responder));
+        let done = got.dest(idle, "ClientDone");
+        assert!(got.terminal.contains(&done));
+        assert_eq!(got.dest(busy, "NoBlocks"), idle);
+        assert_eq!(got.dest(streaming, "Block"), streaming);
+        assert_eq!(got.dest(streaming, "BatchDone"), idle);
     }
 
     #[test]
     fn responder_request_range_synthetics_refine_spec() {
         let spec = table_37().project(Agency::Responder);
         let got = project(&responder_graph(), &cfg_responder()).unwrap();
-        let req = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
-        let start = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange", "StartBatch"] };
-        assert_eq!(got.dest(&named("Idle"), "RequestRange"), req);
-        assert_eq!(got.dest(&req, "StartBatch"), start.clone());
-        assert_eq!(got.dest(&req, "NoBlocks"), named("Idle"));
-        assert_eq!(got.dest(&start, "Block"), start.clone());
-        assert_eq!(got.dest(&start, "BatchDone"), named("Idle"));
-        assert_eq!(got.dest(&named("Idle"), "ClientDone"), named("Done"));
-        got.assert_refines(&spec, map_responder);
-        got.collapse(map_responder).assert_bisimilar(&spec);
+        let idle = got.initial;
+        let req = got.dest(idle, "RequestRange");
+        let start = got.dest(req, "StartBatch");
+        assert_eq!(got.dest(req, "NoBlocks"), idle);
+        assert_eq!(got.dest(start, "Block"), start);
+        assert_eq!(got.dest(start, "BatchDone"), idle);
+        assert!(got.terminal.contains(&got.dest(idle, "ClientDone")));
+        got.assert_refines(&spec);
+        got.assert_bisimilar(&spec);
     }
 
     #[test]
@@ -1744,26 +1763,33 @@ mod tests {
         spec.resp("Confirm", "QueryReply", "Done");
 
         let spec_i = spec.project(Agency::Initiator);
-        assert_eq!(spec_i.initial, named("Propose"));
-        assert_eq!(spec_i.dest(&named("Propose"), "Propose"), named("Confirm"));
-        assert_eq!(spec_i.dest(&named("Confirm"), "Propose"), named("Done"));
-        assert_eq!(spec_i.dest(&named("Confirm"), "Accept"), named("Done"));
-        let confirm_i = spec_i.transitions.get(&named("Confirm")).unwrap();
-        assert!(confirm_i.keys().all(|l| l.direction == Direction::Recv));
-        assert_eq!(spec_i.agency.get(&named("Confirm")), Some(&Agency::Responder));
+        let propose_i = spec_i.initial;
+        let confirm_i = spec_i.dest(propose_i, "Propose");
+        let done_i = spec_i.dest(confirm_i, "Propose");
+        assert_eq!(spec_i.dest(confirm_i, "Accept"), done_i);
+        assert!(spec_i.transitions.get(&confirm_i).unwrap().keys().all(|l| l.direction == Direction::Recv));
+        assert_eq!(spec_i.agency.get(&confirm_i), Some(&Agency::Responder));
 
         let spec_r = spec.project(Agency::Responder);
-        assert_eq!(spec_r.initial, named("Propose"));
-        assert_eq!(spec_r.dest(&named("Propose"), "Propose"), named("Confirm"));
-        assert_eq!(spec_r.dest(&named("Confirm"), "Accept"), named("Done"));
-        assert_eq!(spec_r.dest(&named("Confirm"), "Refuse"), named("Done"));
-        assert_eq!(spec_r.dest(&named("Confirm"), "QueryReply"), named("Done"));
-        let confirm_r = spec_r.transitions.get(&named("Confirm")).unwrap();
-        assert!(confirm_r.keys().all(|l| l.direction == Direction::Send));
-        assert!(confirm_r.keys().all(|l| l.message != "Propose"));
-        assert_eq!(spec_r.agency.get(&named("Confirm")), Some(&Agency::Responder));
+        let propose_r = spec_r.initial;
+        let confirm_r = spec_r.dest(propose_r, "Propose");
+        let done_r = spec_r.dest(confirm_r, "Accept");
+        assert_eq!(spec_r.dest(confirm_r, "Refuse"), done_r);
+        assert_eq!(spec_r.dest(confirm_r, "QueryReply"), done_r);
+        assert!(spec_r.transitions.get(&confirm_r).unwrap().keys().all(|l| l.direction == Direction::Send));
+        assert!(spec_r.transitions.get(&confirm_r).unwrap().keys().all(|l| l.message != "Propose"));
+        assert_eq!(spec_r.agency.get(&confirm_r), Some(&Agency::Responder));
         // Handshake is not dual(project(I)) == project(R): sim_open is Recv for
         // the waiting role and omitted for the agency holder.
+    }
+
+    #[test]
+    fn spec_projection_table_uses_session_spec_names() {
+        let dump = table_37().project(Agency::Initiator).fmt_table();
+        assert!(dump.contains("Idle"), "{dump}");
+        assert!(dump.contains("Busy"), "{dump}");
+        assert!(dump.contains("Streaming"), "{dump}");
+        assert!(!dump.contains("v0"), "{dump}");
     }
 
     #[test]
@@ -1773,33 +1799,38 @@ mod tests {
         let spec_i = spec.project(Agency::Initiator);
         let spec_r = spec.project(Agency::Responder);
         spec_i.dual().assert_bisimilar(&spec_r);
-        assert_eq!(spec_i.agency.get(&named("Idle")), Some(&Agency::Initiator));
-        assert_eq!(spec_r.agency.get(&named("Idle")), Some(&Agency::Initiator));
-        assert_eq!(spec_i.dual().agency.get(&named("Idle")), Some(&Agency::Initiator));
-        assert_eq!(spec_i.agency.get(&named("Busy")), Some(&Agency::Responder));
-        assert_eq!(spec_r.agency.get(&named("Busy")), Some(&Agency::Responder));
+        assert_eq!(spec_i.agency.get(&spec_i.initial), Some(&Agency::Initiator));
+        assert_eq!(spec_r.agency.get(&spec_r.initial), Some(&Agency::Initiator));
+        assert_eq!(spec_i.dual().agency.get(&spec_i.dual().initial), Some(&Agency::Initiator));
+        let busy_i = spec_i.dest(spec_i.initial, "RequestRange");
+        let busy_r = spec_r.dest(spec_r.initial, "RequestRange");
+        assert_eq!(spec_i.agency.get(&busy_i), Some(&Agency::Responder));
+        assert_eq!(spec_r.agency.get(&busy_r), Some(&Agency::Responder));
     }
 
     #[test]
     fn with_restart_on_done_retargets_only_the_done_edge() {
         let spec = table_37().with_restart_on_done("ClientDone", "Idle");
         let cfsm = spec.project(Agency::Initiator);
-        assert_eq!(cfsm.dest(&named("Idle"), "ClientDone"), named("Idle"));
-        assert_eq!(cfsm.dest(&named("Idle"), "RequestRange"), named("Busy"));
-        assert_eq!(cfsm.dest(&named("Busy"), "StartBatch"), named("Streaming"));
+        let idle = cfsm.initial;
+        assert_eq!(cfsm.dest(idle, "ClientDone"), idle);
+        let busy = cfsm.dest(idle, "RequestRange");
+        let streaming = cfsm.dest(busy, "StartBatch");
+        assert_ne!(streaming, busy);
         assert_eq!(spec.timeout("Busy"), Some(Duration::from_secs(60)));
         let original = table_37().project(Agency::Initiator);
-        assert_eq!(original.dest(&named("Idle"), "ClientDone"), named("Done"));
-        let retargeted = original.retarget("ClientDone", named("Idle"));
-        assert_eq!(retargeted.dest(&named("Idle"), "ClientDone"), named("Idle"));
-        assert_eq!(retargeted.dest(&named("Idle"), "RequestRange"), named("Busy"));
+        let done = original.dest(original.initial, "ClientDone");
+        assert!(original.terminal.contains(&done));
+        let retargeted = original.retarget("ClientDone", original.initial);
+        assert_eq!(retargeted.dest(retargeted.initial, "ClientDone"), retargeted.initial);
+        assert_ne!(retargeted.dest(retargeted.initial, "RequestRange"), retargeted.initial);
     }
 
     #[test]
     fn assert_refines_ignores_timeouts() {
         let mut timed = table_37();
         timed.set_timeout("Idle", Duration::from_secs(1));
-        timed.project(Agency::Initiator).assert_refines(&table_37().project(Agency::Initiator), identity);
+        timed.project(Agency::Initiator).assert_refines(&table_37().project(Agency::Initiator));
         timed.assert_refines(&table_37(), |s| *s);
     }
 
@@ -1842,9 +1873,9 @@ mod tests {
             ),
         )]));
         let got = project(&graph, &cfg_responder()).unwrap();
-        let syn = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
-        assert_eq!(got.dest(&syn, "Block"), syn.clone());
-        assert_eq!(got.dest(&syn, "BatchDone"), named("Idle"));
+        let syn = got.dest(got.initial, "RequestRange");
+        assert_eq!(got.dest(syn, "Block"), syn);
+        assert_eq!(got.dest(syn, "BatchDone"), got.initial);
     }
 
     #[test]
@@ -1926,7 +1957,7 @@ mod tests {
                     ]),
                 )])),
                 cfg: cfg_responder(),
-                check: |e| matches!(e, ProjectError::Nondeterministic { state: StateId::Named("Idle"), .. }),
+                check: |e| matches!(e, ProjectError::Nondeterministic { .. }),
             },
             Case {
                 name: "NondeterministicLocalSend",
@@ -1938,7 +1969,7 @@ mod tests {
                     ]),
                 )])),
                 cfg: cfg_initiator(),
-                check: |e| matches!(e, ProjectError::Nondeterministic { state: StateId::Named("Idle"), .. }),
+                check: |e| matches!(e, ProjectError::Nondeterministic { .. }),
             },
             Case {
                 name: "AmbiguousRepeatSkipsRepeatInSuffix",
@@ -1954,7 +1985,7 @@ mod tests {
                     ),
                 )])),
                 cfg: cfg_initiator(),
-                check: |e| matches!(e, ProjectError::AmbiguousRepeat { origin: StateId::Named("Idle") }),
+                check: |e| matches!(e, ProjectError::AmbiguousRepeat { .. }),
             },
             Case {
                 name: "MixedAgency",
@@ -1963,7 +1994,7 @@ mod tests {
                     ("StartBatch", seq(vec![send("ToMux", "WantNext")], "Streaming")),
                 ])),
                 cfg: cfg_initiator(),
-                check: |e| matches!(e, ProjectError::MixedAgency { state: StateId::Named("Idle") }),
+                check: |e| matches!(e, ProjectError::MixedAgency { .. }),
             },
             Case {
                 name: "OccupancyDisagree",
@@ -2041,11 +2072,8 @@ mod tests {
             ]),
         };
         let got = project(&graph, &cfg_responder()).unwrap();
-        assert!(got.states.contains(&named("Idle")));
-        assert!(!got.states.contains(&named("Extra")));
-        assert!(!got.states.contains(&named("Done")));
-        assert!(got.states.iter().all(|s| matches!(s, StateId::Named(_))));
-        assert!(!got.transitions.contains_key(&named("Extra")));
+        assert_eq!(got.states.len(), 1);
+        assert!(got.states.contains(&got.initial));
         assert!(got.transitions.values().all(|edges| edges.values().all(|to| got.states.contains(to))));
     }
 
@@ -2057,12 +2085,16 @@ mod tests {
         spec.resp("Busy", "StartBatch", "Streaming");
 
         let holder = spec.project(Agency::Responder);
-        assert!(!holder.states.contains(&named("OnlyOpen")));
-        assert!(holder.states.contains(&named("Streaming")));
+        let busy_h = holder.dest(holder.initial, "RequestRange");
+        assert!(holder.transitions[&busy_h].keys().all(|l| l.message != "ClientDone"));
+        let streaming = holder.dest(busy_h, "StartBatch");
+        assert_ne!(streaming, busy_h);
 
         let waiting = spec.project(Agency::Initiator);
-        assert!(waiting.states.contains(&named("OnlyOpen")));
-        assert_eq!(waiting.dest(&named("Busy"), "ClientDone"), named("OnlyOpen"));
+        let busy_w = waiting.dest(waiting.initial, "RequestRange");
+        let only_open = waiting.dest(busy_w, "ClientDone");
+        assert_ne!(only_open, busy_w);
+        assert!(waiting.terminal.contains(&only_open) || waiting.transitions.contains_key(&only_open));
     }
 
     #[test]

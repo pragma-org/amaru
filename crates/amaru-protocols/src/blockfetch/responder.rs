@@ -302,16 +302,14 @@ pub mod tests {
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use amaru_pure_stage::{
         StageGraph,
-        session::{Agency, StateId, assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project},
+        session::{Agency, assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project},
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
         typestate::{FmtPar, OnReceive, Session, State},
     };
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{
-            blockfetch_responder, map_r, responder_type_graph, session_spec,
-        },
+        super::spec::{blockfetch_responder, responder_type_graph, session_spec},
         *,
     };
     use crate::{
@@ -372,16 +370,15 @@ pub mod tests {
         check_timeouts(&g, &cfg, &spec).unwrap();
         let projected = project(&g, &cfg).unwrap();
 
-        let req = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
-        let start = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange", "StartBatch"] };
-        assert_eq!(projected.dest(&StateId::Named("Idle"), "RequestRange"), req);
-        assert_eq!(projected.dest(&req, "StartBatch"), start);
-        assert_eq!(projected.dest(&req, "NoBlocks"), StateId::Named("Idle"));
-        assert_eq!(projected.dest(&start, "Block"), start);
-        assert_eq!(projected.dest(&start, "BatchDone"), StateId::Named("Idle"));
-        assert_eq!(projected.dest(&StateId::Named("Idle"), "ClientDone"), StateId::Named("Done"));
+        let idle = projected.initial;
+        let req = projected.dest(idle, "RequestRange");
+        let start = projected.dest(req, "StartBatch");
+        assert_eq!(projected.dest(req, "NoBlocks"), idle);
+        assert_eq!(projected.dest(start, "Block"), start);
+        assert_eq!(projected.dest(start, "BatchDone"), idle);
+        assert!(projected.terminal.contains(&projected.dest(idle, "ClientDone")));
 
-        projected.assert_refines(&spec.project(Agency::Responder), map_r);
+        projected.assert_refines(&spec.project(Agency::Responder));
         assert_wire_inputs_cover_receives(&g, &cfg, &spec);
     }
 

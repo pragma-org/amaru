@@ -20,7 +20,7 @@
 use std::collections::BTreeSet;
 
 use amaru_pure_stage::{
-    session::{Agency, ProjectionConfig, SessionSpec, StateId, project},
+    session::{Agency, ProjectionConfig, SessionSpec, project},
     session_spec,
     typestate::{RoleTag, TypeGraph, labels},
     typestate_graph,
@@ -91,26 +91,6 @@ pub(crate) fn blockfetch_responder() -> ProjectionConfig {
     }
 }
 
-pub(crate) fn map_i(state: &StateId) -> StateId {
-    match state {
-        StateId::Named("Idle" | "Busy" | "Streaming" | "Done") => state.clone(),
-        StateId::Named(other) => panic!("unexpected named state {other}"),
-        StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
-    }
-}
-
-pub(crate) fn map_r(state: &StateId) -> StateId {
-    match state {
-        StateId::Named("Idle" | "Done") => state.clone(),
-        StateId::Named(other) => panic!("unexpected named state {other}"),
-        StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange"] => StateId::Named("Busy"),
-        StateId::Synthetic { parent: "Idle", path } if path.as_slice() == ["RequestRange", "StartBatch"] => {
-            StateId::Named("Streaming")
-        }
-        StateId::Synthetic { parent, path } => panic!("unexpected synthetic {parent}#{path:?}"),
-    }
-}
-
 pub(crate) fn initiator_type_graph() -> TypeGraph {
     typestate_graph! {
         proto: super::initiator::Proto,
@@ -132,5 +112,5 @@ pub(crate) fn responder_type_graph() -> TypeGraph {
 fn collapsed_responder_dual_equals_collapsed_initiator() {
     let h_i = project(&initiator_type_graph(), &blockfetch_initiator()).unwrap();
     let h_r = project(&responder_type_graph(), &blockfetch_responder()).unwrap();
-    h_r.collapse(map_r).dual().assert_bisimilar(&h_i.collapse(map_i));
+    h_r.dual().assert_bisimilar(&h_i);
 }
