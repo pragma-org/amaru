@@ -720,7 +720,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        Epoch, MAINNET_ERA_HISTORY, NetworkName, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY, Slot, any_era_params,
+        Epoch, MAINNET_ERA_HISTORY, NetworkName, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY, Slot,
         from_cbor_no_leftovers_with, to_cbor,
     };
 
@@ -743,7 +743,7 @@ mod tests {
             boundaries in any_boundaries()
         )(
             stability_window in any::<u64>(),
-            era_params in prop::collection::vec(any_era_params(), boundaries.len()),
+            era_params in prop::collection::vec(any::<EraParams>(), boundaries.len()),
             boundaries in Just(boundaries),
         ) -> EraHistory {
             let genesis = EraBound {
