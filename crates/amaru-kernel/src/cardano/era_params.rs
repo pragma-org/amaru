@@ -14,6 +14,9 @@
 
 use std::time::Duration;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{EraBound, EraName, cbor, utils::cbor::SerialisedAsMillis};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -84,24 +87,25 @@ impl<'b, C> cbor::Decode<'b, C> for EraParams {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for EraParams {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::*;
-    use crate::prop_cbor_roundtrip;
-
-    prop_compose! {
-        pub fn any_era_params()(epoch_size_slots in 1u64..65535, slot_length in 1u64..65535, era_name in any::<EraName>()) -> EraParams {
-            EraParams {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (1u64..65535, 1u64..65535, any::<EraName>())
+            .prop_map(|(epoch_size_slots, slot_length, era_name)| EraParams {
                 epoch_size_slots,
                 slot_length: Duration::from_secs(slot_length),
                 era_name,
-            }
-        }
+            })
+            .boxed()
     }
+}
 
-    prop_cbor_roundtrip!(EraParams, any_era_params());
+#[cfg(test)]
+mod tests {
+    use super::EraParams;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(EraParams);
 }

@@ -14,6 +14,9 @@
 
 use std::time::Duration;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any};
+
 use crate::{Epoch, Slot, cbor, utils::cbor::SerialisedAsPico};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -52,36 +55,30 @@ impl<'b, C> cbor::Decode<'b, C> for EraBound {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for EraBound {
+    type Parameters = Option<Epoch>;
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(epoch: Self::Parameters) -> Self::Strategy {
+        let any_epoch = match epoch {
+            Some(epoch) => Just(epoch).boxed(),
+            None => any::<Epoch>().boxed(),
+        };
+
+        (any::<u32>(), any::<u32>(), any_epoch)
+            .prop_map(|(secs, slot, epoch)| EraBound {
+                time: Duration::from_secs(secs as u64),
+                slot: Slot::new(slot as u64),
+                epoch,
+            })
+            .boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
-
-    use super::*;
+    use super::EraBound;
     use crate::prop_cbor_roundtrip;
 
-    prop_compose! {
-        pub fn any_era_bound_time()(secs in any::<u32>()) -> Duration {
-            Duration::from_secs(secs as u64)
-        }
-    }
-
-    prop_compose! {
-        pub fn any_era_bound()(time in any_era_bound_time(), slot in any::<u32>(), epoch in any::<Epoch>()) -> EraBound {
-            EraBound {
-                time, slot: Slot::new(slot as u64), epoch
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_era_bound_for_epoch(epoch: Epoch)(time in any_era_bound_time(), slot in any::<u32>()) -> EraBound {
-            EraBound {
-                time, slot: Slot::new(slot as u64), epoch
-            }
-        }
-    }
-
-    prop_cbor_roundtrip!(EraBound, any_era_bound());
+    prop_cbor_roundtrip!(EraBound);
 }
