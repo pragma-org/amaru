@@ -14,6 +14,12 @@
 
 use std::rc::Rc;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    option,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any},
+};
+
 use crate::{ProposalId, ProposalSlim, cbor};
 
 pub type ProposalsRoots = GenericProposalsRoots<ProposalId>;
@@ -108,34 +114,27 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for GenericPro
     }
 }
 
-// Tests
-// ----------------------------------------------------------------------------
-
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl<T: Arbitrary + 'static> Arbitrary for GenericProposalsRoots<T>
+where
+    T::Strategy: 'static,
+{
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{option, prelude::any, prop_compose};
-
-    use super::ProposalsRoots;
-    use crate::{ProposalId, prop_cbor_roundtrip};
-
-    prop_cbor_roundtrip!(ProposalsRoots, any_proposals_roots());
-
-    prop_compose! {
-        pub fn any_proposals_roots()(
-            protocol_parameters in option::of(any::<ProposalId>()),
-            hard_fork in option::of(any::<ProposalId>()),
-            constitutional_committee in option::of(any::<ProposalId>()),
-            constitution in option::of(any::<ProposalId>()),
-        ) -> ProposalsRoots  {
-            ProposalsRoots {
-                protocol_parameters,
-                hard_fork,
-                constitutional_committee,
-                constitution,
-            }
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (option::of(any::<T>()), option::of(any::<T>()), option::of(any::<T>()), option::of(any::<T>()))
+            .prop_map(|(protocol_parameters, hard_fork, constitutional_committee, constitution)| {
+                GenericProposalsRoots { protocol_parameters, hard_fork, constitutional_committee, constitution }
+            })
+            .boxed()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProposalsRoots;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(ProposalsRoots);
 }

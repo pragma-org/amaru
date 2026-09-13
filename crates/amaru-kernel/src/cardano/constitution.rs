@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    option,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any},
+};
+
 use crate::{Anchor, Hash, cbor, size::SCRIPT};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -45,23 +51,13 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Constitution {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Constitution {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{option, prelude::*};
-
-    use crate::{Anchor, Constitution, Hash, size::SCRIPT};
-
-    prop_compose! {
-        pub fn any_constitution()(
-            anchor in any::<Anchor>(),
-            guardrail_script in option::of(any::<Hash<SCRIPT>>())
-        ) -> Constitution {
-            Constitution {
-                anchor,
-                guardrail_script,
-            }
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<Anchor>(), option::of(any::<Hash<SCRIPT>>()))
+            .prop_map(|(anchor, guardrail_script)| Constitution { anchor, guardrail_script })
+            .boxed()
     }
 }
