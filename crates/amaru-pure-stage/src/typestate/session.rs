@@ -162,9 +162,9 @@ pub trait DescribeStates {
 
 /// Remainder graph extracted from grouped `on_receive!` and `make_states!`.
 ///
-/// Built by [`typestate_graph`](crate::typestate_graph) or [`Self::new`].
-/// [`Session::describe`] stays diagnostic; tests should use this structure, not
-/// parse those strings.
+/// Built by the live enum's `type_graph()` (from [`make_states`](crate::make_states))
+/// or [`Self::new`]. [`Session::describe`] stays diagnostic; tests should use
+/// this structure, not parse those strings.
 ///
 /// Fields stay `pub` for reads and hand-built values. [`Self::new`] derives
 /// [`Self::states`] from [`Self::receives`] keys. `initial` need not be in

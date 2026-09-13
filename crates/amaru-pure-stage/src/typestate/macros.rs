@@ -46,6 +46,9 @@
 /// is generated only when `switch` is present.
 /// [`DescribeStates`](crate::typestate::DescribeStates) is always generated;
 /// its occupancy map is empty without `switch`.
+/// [`type_graph`](crate::typestate::TypeGraph) is generated on the live enum;
+/// calling it requires grouped [`on_receive`](crate::on_receive) on every
+/// variant (use `on_receive!(Done as DoneIn {})` for unused terminals).
 #[macro_export]
 macro_rules! make_states {
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
@@ -53,34 +56,71 @@ macro_rules! make_states {
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
         $crate::typestate_occupancy!($enum, $switch, $term);
         $crate::typestate_describe_states!($enum ; $($init),+ ; $($other),+ ; switch $switch, terminal $term);
+        $crate::typestate_type_graph!($enum ; $($init),+, $($other),+);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident) => {
         $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
         $crate::typestate_occupancy!($enum, $switch);
         $crate::typestate_describe_states!($enum ; $($init),+ ; $($other),+ ; switch $switch);
+        $crate::typestate_type_graph!($enum ; $($init),+, $($other),+);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? }) => {
         $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
         $crate::typestate_describe_states!($enum ; $($init),+ ; $($other),+ ;);
+        $crate::typestate_type_graph!($enum ; $($init),+, $($other),+);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
         $crate::typestate_state_structs!($vis $($init),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+ });
         $crate::typestate_occupancy!($enum, $switch, $term);
         $crate::typestate_describe_states!($enum ; $($init),+ ; ; switch $switch, terminal $term);
+        $crate::typestate_type_graph!($enum ; $($init),+);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)? } switch $switch:ident) => {
         $crate::typestate_state_structs!($vis $($init),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+ });
         $crate::typestate_occupancy!($enum, $switch);
         $crate::typestate_describe_states!($enum ; $($init),+ ; ; switch $switch);
+        $crate::typestate_type_graph!($enum ; $($init),+);
     };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)? }) => {
         $crate::typestate_state_structs!($vis $($init),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+ });
         $crate::typestate_describe_states!($enum ; $($init),+ ; ;);
+        $crate::typestate_type_graph!($enum ; $($init),+);
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_type_graph {
+    ($enum:ident ; $($state:ident),+) => {
+        impl $enum {
+            /// Remainder graph for every state in this live enum.
+            ///
+            /// Each state must have a grouped [`on_receive`](crate::on_receive),
+            /// including empty `on_receive!(Done as DoneIn {})` for unused terminals.
+            #[allow(dead_code)]
+            pub fn type_graph() -> $crate::typestate::TypeGraph
+            where
+                $($state: $crate::typestate::DescribeReceives),+
+            {
+                $crate::typestate::TypeGraph::new(
+                    <Self as $crate::typestate::DescribeStates>::initial(),
+                    <Self as $crate::typestate::DescribeStates>::describe_states(),
+                    ::std::collections::BTreeMap::from([
+                        $(
+                            (
+                                <$state as $crate::typestate::State>::NAME,
+                                <$state as $crate::typestate::DescribeReceives>::describe_receives(),
+                            ),
+                        )+
+                    ]),
+                )
+            }
+        }
     };
 }
 
@@ -539,6 +579,7 @@ macro_rules! typestate_on_receive_body {
         $crate::typestate_on_receive_body!($from, $inputs, [$($done)* [$in, $($then)*]], $($rest)*);
     };
     ($from:ident, $inputs:ident, [$([$in:ident, $($then:tt)*])*] $(,)?) => {
+        #[allow(dead_code, non_camel_case_types)]
         #[derive(Debug, Clone, PartialEq, Eq)]
         enum $inputs {
             $($in($in),)*
@@ -671,73 +712,4 @@ macro_rules! star {
     ($($e:ty),+) => {
         $crate::typestate::Repeat<$crate::typestate_seq!($($e),+)>
     };
-}
-
-/// Build a [`TypeGraph`](crate::typestate::TypeGraph) from grouped `on_receive!`
-/// remainders and `make_states!` occupancy.
-///
-/// `receiving` states must implement [`DescribeReceives`](crate::typestate::DescribeReceives)
-/// (grouped `on_receive!`). `empty` names are terminals / unused states that
-/// receive nothing and must use `on_receive!(Done as DoneIn {})`; the expansion
-/// asserts their `describe_receives()` is empty. Occupancy comes from
-/// [`DescribeStates`](crate::typestate::DescribeStates) on `proto` (the full
-/// live-enum map, even when `empty` is omitted). Named states must convert
-/// into `proto` (`From<State> for Proto`).
-///
-/// State names are types (`Idle` or `initiator::Idle`). `empty` may be omitted
-/// when extracting a subset of states.
-///
-/// Name lists are braced so `empty` is not parsed as another receiving type.
-///
-/// ```ignore
-/// let g = typestate_graph! {
-///     proto: initiator::Proto,
-///     receiving: { Idle, Busy, Streaming },
-///     empty: { Done },
-/// };
-/// ```
-#[macro_export]
-macro_rules! typestate_graph {
-    (
-        proto: $proto:ty,
-        receiving: { $($recv:ty),+ $(,)? },
-        empty: { $($empty:ty),+ $(,)? } $(,)?
-    ) => {
-        $crate::typestate_graph_build!($proto ; $($recv,)+ $($empty),+ ; $($empty),+)
-    };
-    (
-        proto: $proto:ty,
-        receiving: { $($recv:ty),+ $(,)? } $(,)?
-    ) => {
-        $crate::typestate_graph_build!($proto ; $($recv),+ ;)
-    };
-}
-
-#[macro_export]
-#[doc(hidden)]
-macro_rules! typestate_graph_build {
-    ($proto:ty ; $($state:ty),+ ; $($empty:ty),*) => {{
-        $(
-            let _: fn($state) -> $proto = ::core::convert::From::from;
-        )+
-        $(
-            ::core::assert!(
-                <$empty as $crate::typestate::DescribeReceives>::describe_receives().is_empty(),
-                "{} is listed as empty but has receive arms",
-                ::core::any::type_name::<$empty>(),
-            );
-        )*
-        $crate::typestate::TypeGraph::new(
-            <$proto as $crate::typestate::DescribeStates>::initial(),
-            <$proto as $crate::typestate::DescribeStates>::describe_states(),
-            ::std::collections::BTreeMap::from([
-                $(
-                    (
-                        <$state as $crate::typestate::State>::NAME,
-                        <$state as $crate::typestate::DescribeReceives>::describe_receives(),
-                    ),
-                )+
-            ]),
-        )
-    }};
 }

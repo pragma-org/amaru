@@ -23,12 +23,11 @@ use amaru_pure_stage::{
     session::{Agency, ProjectionConfig, SessionSpec, project},
     session_spec,
     typestate::{RoleTag, TypeGraph, labels},
-    typestate_graph,
 };
 
 use super::{
-    BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch,
-    initiator::{BLOCKFETCH_AGENCY_TIMEOUT, Busy, Close, Done, Fetch, Idle, Streaming, ToCollector, ToResponder},
+    BLOCKFETCH_AGENCY_TIMEOUT, BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch,
+    initiator::{Busy, Close, Done, Fetch, Idle, Streaming, ToCollector, ToResponder},
     responder::ToInitiator,
 };
 use crate::protocol::{Pull, ToMux};
@@ -91,26 +90,9 @@ pub(crate) fn blockfetch_responder() -> ProjectionConfig {
     }
 }
 
-pub(crate) fn initiator_type_graph() -> TypeGraph {
-    typestate_graph! {
-        proto: super::initiator::Proto,
-        receiving: { Idle, Busy, Streaming },
-        empty: { Done },
-    }
-}
-
-pub(crate) fn responder_type_graph() -> TypeGraph {
-    use super::responder::{Done, Idle, Proto};
-    typestate_graph! {
-        proto: Proto,
-        receiving: { Idle },
-        empty: { Done },
-    }
-}
-
 #[test]
 fn collapsed_responder_dual_equals_collapsed_initiator() {
-    let h_i = project(&initiator_type_graph(), &blockfetch_initiator()).unwrap();
-    let h_r = project(&responder_type_graph(), &blockfetch_responder()).unwrap();
+    let h_i = project(&super::initiator::Proto::type_graph(), &blockfetch_initiator()).unwrap();
+    let h_r = project(&super::responder::Proto::type_graph(), &blockfetch_responder()).unwrap();
     h_r.dual().assert_bisimilar(&h_i);
 }

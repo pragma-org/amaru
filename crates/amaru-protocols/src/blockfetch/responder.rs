@@ -309,7 +309,7 @@ pub mod tests {
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{blockfetch_responder, responder_type_graph, session_spec},
+        super::spec::{blockfetch_responder, session_spec},
         *,
     };
     use crate::{
@@ -358,7 +358,7 @@ pub mod tests {
 
     #[test]
     fn responder_projects_to_table_3_7() {
-        let g = responder_type_graph();
+        let g = super::Proto::type_graph();
         // No occupancy: responder `make_states!` has no switch.
         assert!(g.occupancy.is_empty());
         // Empty Done is extracted; occupancy-empty would also hold without it.

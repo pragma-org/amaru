@@ -31,6 +31,7 @@ use amaru_pure_stage::{
 
 use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch, responder::MAX_FETCHED_BLOCKS};
 use crate::{
+    blockfetch::BLOCKFETCH_AGENCY_TIMEOUT,
     mux::{Frame, HandlerMessage, MuxMessage, Sent},
     protocol::{
         Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pipelined, Pull, ToMux, WantNext,
@@ -42,12 +43,6 @@ pub const BLOCKFETCH_PIPELINE_N: NonZeroU8 = match NonZeroU8::new(2) {
     Some(n) => n,
     None => unreachable!(),
 };
-
-/// Receive timeout while the responder has agency (`StBusy` / `StStreaming`).
-///
-/// From the Cardano Blueprint networking notes: `StIdle` has no receive timeout;
-/// `StBusy` and `StStreaming` wait at most 60 seconds.
-pub const BLOCKFETCH_AGENCY_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub const BLOCKFETCH_MAX_BLOCK_WIRE_BYTES: usize = 96 * 1024;
 
@@ -478,7 +473,7 @@ mod tests {
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{blockfetch_initiator, initiator_type_graph, session_spec},
+        super::spec::{blockfetch_initiator, session_spec},
         *,
     };
     use crate::{
@@ -488,7 +483,7 @@ mod tests {
 
     #[test]
     fn initiator_projects_to_table_3_7() {
-        let g = initiator_type_graph();
+        let g = super::Proto::type_graph();
         let cfg = blockfetch_initiator();
         let spec = session_spec();
         assert_eq!(spec.timeout(Idle::NAME), None);

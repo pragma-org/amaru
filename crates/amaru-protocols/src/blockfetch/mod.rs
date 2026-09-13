@@ -18,10 +18,18 @@ mod responder;
 #[cfg(test)]
 mod spec;
 
+use std::time::Duration;
+
 use amaru_pure_stage::DeserializerGuards;
 pub use initiator::{BLOCKFETCH_PIPELINE_N, BlockFetchMessage, Blocks, register_blockfetch_initiator};
 pub use messages::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
 pub use responder::register_blockfetch_responder;
+
+/// Receive timeout while the responder has agency (`StBusy` / `StStreaming`).
+///
+/// From the Cardano Blueprint networking notes: `StIdle` has no receive timeout;
+/// `StBusy` and `StStreaming` wait at most 60 seconds.
+pub const BLOCKFETCH_AGENCY_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()

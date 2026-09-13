@@ -60,19 +60,33 @@ mod toy {
 
     pub struct Peer;
 
-    on_receive!(Idle, FindIntersect => Send<Peer, String>, Send<Peer, u8> => Intersect | Wait => Idle);
-    on_receive!(Intersect, u8 => Idle);
-    on_receive!(Idle, RequestNext => Send<Peer, ()> => CanAwait);
-    on_receive!(CanAwait, String => Idle);
-    on_receive!(CanAwait, AwaitReply => MustReply);
-    on_receive!(MustReply, String => Idle);
-    on_receive!(Idle, ClientDone => Send<Peer, ()> => Done);
-    on_receive!(Idle, Tick => Repeat<SendAny<Peer>>, SetTimeout, Call<Peer, u8> => Idle);
+    on_receive!(Idle as IdleIn {
+        FindIntersect => { Send<Peer, String>, Send<Peer, u8> => Intersect | Wait => Idle }
+        RequestNext => { Send<Peer, ()> => CanAwait }
+        ClientDone => { Send<Peer, ()> => Done }
+        Tick => { Repeat<SendAny<Peer>>, SetTimeout, Call<Peer, u8> => Idle }
+    });
+    on_receive!(Intersect as IntersectIn {
+        u8 => { Idle }
+    });
+    on_receive!(CanAwait as CanAwaitIn {
+        String => { Idle }
+        AwaitReply => { MustReply }
+    });
+    on_receive!(MustReply as MustReplyIn {
+        String => { Idle }
+    });
+    on_receive!(Done as DoneIn {});
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct FindIntersect;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct RequestNext;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct AwaitReply;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct ClientDone;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Tick;
 }
 
@@ -370,7 +384,7 @@ fn star_macro_unrolls_the_sequence() {
 #[allow(dead_code)]
 mod exclusive_choice {
     use super::*;
-    use crate::{typestate::prelude::*, typestate_graph};
+    use crate::typestate::prelude::*;
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     pub struct A1;
@@ -393,6 +407,8 @@ mod exclusive_choice {
     on_receive!(Idle as IdleIn {
         Go => { Send<RoleA, A1>, Send<RoleB, B1> => StateA | Send<RoleC, C1>, Send<RoleD, D1> => StateC }
     });
+    on_receive!(StateA as StateAIn {});
+    on_receive!(StateC as StateCIn {});
 
     type Rem = <Idle as OnReceive<Go>>::Then;
     type AfterAExpect = Cons<Then<Cons<Cons<Send<RoleB, B1>, Nil>, Nil>, StateA>, Nil>;
@@ -422,14 +438,13 @@ mod exclusive_choice {
 
     #[test]
     fn typestate_graph_extracts_grouped_remainders() {
-        let g = typestate_graph! {
-            proto: Live,
-            receiving: { Idle },
-        };
+        let g = Live::type_graph();
         assert_eq!(g.initial, Idle::NAME);
-        assert_eq!(g.states, std::collections::BTreeSet::from([Idle::NAME]));
+        assert_eq!(g.states, std::collections::BTreeSet::from([Idle::NAME, StateA::NAME, StateC::NAME]));
         assert!(g.occupancy.is_empty());
         assert_eq!(g.receives[Idle::NAME].get("Go"), Some(&describe_ast::<Rem>()));
+        assert!(g.receives[StateA::NAME].is_empty());
+        assert!(g.receives[StateC::NAME].is_empty());
     }
 
     #[test]
@@ -457,6 +472,9 @@ mod exclusive_choice {
             | Send<RoleE, E1> => StateZ
         }
     });
+    on_receive!(StateX as StateXIn {});
+    on_receive!(StateY as StateYIn {});
+    on_receive!(StateZ as StateZIn {});
 
     type Rem3 = <Start as OnReceive<Kick>>::Then;
     type AfterEExpect = Cons<Then<Nil, StateZ>, Nil>;
@@ -490,10 +508,7 @@ fn initial_state_wraps_into_live_enum() {
 
 #[allow(dead_code)]
 mod convert {
-    use crate::{
-        typestate::{DescribeAst, OnReceive, prelude::*},
-        typestate_graph,
-    };
+    use crate::typestate::{DescribeAst, OnReceive, prelude::*};
 
     make_states!(Live { Idle; Done });
 
@@ -508,11 +523,7 @@ mod convert {
 
     #[test]
     fn empty_done_extracts_no_receives() {
-        let g = typestate_graph! {
-            proto: Live,
-            receiving: { Idle },
-            empty: { Done },
-        };
+        let g = Live::type_graph();
         assert_eq!(g.initial, Idle::NAME);
         assert_eq!(g.states, std::collections::BTreeSet::from([Done::NAME, Idle::NAME]));
         assert!(g.occupancy.is_empty());
@@ -600,6 +611,9 @@ mod occupancy {
     use crate::typestate::{DescribeStates, prelude::*};
 
     make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
+    on_receive!(Idle as IdleIn {});
+    on_receive!(Busy as BusyIn {});
+    on_receive!(Done as DoneIn {});
 
     #[test]
     fn switch_and_terminal_are_named() {
@@ -625,6 +639,8 @@ mod occupancy_switch_only {
     use crate::typestate::{DescribeStates, prelude::*};
 
     make_states!(Live { Start; RemoteSt } switch Start);
+    on_receive!(Start as StartIn {});
+    on_receive!(RemoteSt as RemoteStIn {});
 
     #[test]
     fn unnamed_terminal_is_remote() {
@@ -638,10 +654,7 @@ mod occupancy_switch_only {
 #[allow(dead_code)]
 mod extract_graph {
     use super::{rem, send, then};
-    use crate::{
-        typestate::{DescribeAst, Occupancy, OnReceive, prelude::*},
-        typestate_graph,
-    };
+    use crate::typestate::{DescribeAst, Occupancy, OnReceive, prelude::*};
 
     define_role_tag!(Peer);
 
@@ -663,11 +676,7 @@ mod extract_graph {
 
     #[test]
     fn extracts_remainders_occupancy_and_empty_done() {
-        let g = typestate_graph! {
-            proto: Live,
-            receiving: { Idle, Busy },
-            empty: { Done },
-        };
+        let g = Live::type_graph();
         assert_eq!(g.initial, Idle::NAME);
         assert_eq!(g.states, std::collections::BTreeSet::from([Busy::NAME, Done::NAME, Idle::NAME]));
         assert_eq!(g.occupancy.get(Idle::NAME), Some(&Occupancy::Switch));
@@ -684,44 +693,11 @@ mod extract_graph {
         );
         assert!(g.receives[Done::NAME].is_empty());
     }
-
-    #[test]
-    fn receiving_only_omits_empty_states() {
-        let g = typestate_graph! {
-            proto: Live,
-            receiving: { Idle, Busy },
-        };
-        assert!(!g.states.contains(Done::NAME));
-        assert!(!g.receives.contains_key(Done::NAME));
-        assert_eq!(g.occupancy.get(Done::NAME), Some(&Occupancy::Terminal));
-    }
-
-    #[test]
-    fn initial_need_not_be_in_extracted_states() {
-        let g = typestate_graph! {
-            proto: Live,
-            receiving: { Busy },
-            empty: { Done },
-        };
-        assert_eq!(g.initial, Idle::NAME);
-        assert!(!g.states.contains(Idle::NAME));
-        assert_eq!(g.occupancy.get(Idle::NAME), Some(&Occupancy::Switch));
-    }
-
-    #[test]
-    #[should_panic(expected = "listed as empty")]
-    fn empty_listed_state_must_have_no_receives() {
-        let _ = typestate_graph! {
-            proto: Live,
-            receiving: { Idle },
-            empty: { Busy },
-        };
-    }
 }
 
 #[allow(dead_code)]
 mod two_initial {
-    use crate::{typestate::prelude::*, typestate_graph};
+    use crate::typestate::prelude::*;
 
     make_states!(Live { Alpha, Beta; Done });
     on_receive!(Alpha as AlphaIn {});
@@ -730,11 +706,7 @@ mod two_initial {
 
     #[test]
     fn initial_is_first_name_before_semicolon() {
-        let g = typestate_graph! {
-            proto: Live,
-            receiving: { Alpha, Beta },
-            empty: { Done },
-        };
+        let g = Live::type_graph();
         assert_eq!(g.initial, Alpha::NAME);
         assert!(g.receives[Alpha::NAME].is_empty());
         assert!(g.receives[Beta::NAME].is_empty());
