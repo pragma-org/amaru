@@ -21,8 +21,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Hash, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Nonce, ORIGIN_HASH, Point,
-    PoolId, RawBlock, Slot, any_header, any_header_with_parent, any_headers_chain,
+    BlockHeight, EraHistory, Hash, Header, HeaderHash, HeaderParams, IsHeader, NetworkPoint, NonEmptyVec, Nonce,
+    ORIGIN_HASH, Point, PoolId, RawBlock, Slot, any_headers_chain,
     cardano::network_block::{EncodedTestBlock, make_encoded_chain},
     make_header, make_header_with_op_cert_seq,
     size::HEADER,
@@ -35,7 +35,7 @@ use amaru_ouroboros_traits::{
     OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore,
     in_memory_chain_store::InMemoryChainStore,
 };
-use proptest::prelude::any;
+use proptest::prelude::{any, any_with};
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
 
 use super::*;
@@ -181,7 +181,7 @@ fn best_chain_hash_when_store_is_empty() {
 #[test]
 fn store_best_chain_tip() {
     with_db(|db| {
-        let tip = run_strategy(any_header()).point();
+        let tip = run_strategy(any::<Header>()).point();
         db.set_best_chain_tip(&tip).unwrap();
         assert_eq!(db.get_best_chain_tip(), tip);
     })
@@ -197,7 +197,7 @@ fn anchor_hash_when_store_is_empty() {
 #[test]
 fn store_anchor_point() {
     with_db(|db| {
-        let anchor = run_strategy(any_header()).point();
+        let anchor = run_strategy(any::<Header>()).point();
         db.set_anchor_point(&anchor).unwrap();
         assert_eq!(db.get_anchor_point(), anchor);
     })
@@ -213,7 +213,7 @@ fn anchor_tip_when_store_is_empty() {
 #[test]
 fn anchor_tip_returns_stored_point_without_loading_header() {
     with_db(|db| {
-        let anchor = run_strategy(any_header()).point();
+        let anchor = run_strategy(any::<Header>()).point();
         db.set_anchor_point(&anchor).unwrap();
         assert_eq!(db.get_anchor_point(), anchor);
     })
@@ -236,7 +236,7 @@ fn store_parent_children_relationship_for_header() {
         //      \
         //       -> h3
         let mut chain = run_strategy(any_headers_chain(3));
-        let h3 = run_strategy(any_header_with_parent(chain[1].hash()));
+        let h3 = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[1].hash())));
         chain.push(h3.clone());
 
         for header in &chain {
@@ -291,9 +291,9 @@ fn load_parents_children() {
         //      \
         //       -> h3 -> h4
         let mut chain = run_strategy(any_headers_chain(3));
-        let h3 = run_strategy(any_header_with_parent(chain[1].hash()));
+        let h3 = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[1].hash())));
         chain.push(h3.clone());
-        let h4 = run_strategy(any_header_with_parent(h3.hash()));
+        let h4 = run_strategy(any_with::<Header>(HeaderParams::WithParent(h3.hash())));
         chain.push(h4);
 
         let mut expected = BTreeMap::new();
@@ -383,7 +383,7 @@ fn test_retrieve_best_chain() {
 fn is_on_best_chain_root_header() {
     with_db(|store| {
         let chain = populate_db(store.clone());
-        let root = run_strategy(any_header_with_parent(chain[0].hash()));
+        let root = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[0].hash())));
 
         store.roll_forward_chain(&root.point()).expect("should roll forward successfully");
 
@@ -396,7 +396,7 @@ fn is_on_best_chain_root_header() {
 fn update_best_chain_to_block_slot_given_new_block_is_valid() {
     with_db(|store| {
         let chain = populate_db(store.clone());
-        let new_tip = run_strategy(any_header_with_parent(chain[9].hash()));
+        let new_tip = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[9].hash())));
 
         store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
 

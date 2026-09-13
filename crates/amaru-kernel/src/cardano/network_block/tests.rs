@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use proptest::prelude::*;
-
 use super::*;
-use crate::{EraHistory, Header, HeaderHash, any_header};
+use crate::{EraHistory, Header, HeaderHash};
 
 /// A network-block blob together with the header actually encoded in it.
 ///
@@ -86,14 +84,6 @@ pub fn make_block_with_header(header: &Header) -> Block {
     let mut block = cbor::decode::<Block>(bytes.as_slice()).expect("block encoding should round-trip");
     block.header.body_mut().block_body_hash = block.body_hash();
     cbor::decode(&to_cbor(&block)).expect("block encoding should round-trip")
-}
-
-/// Generate an arbitrary network block at Conway era for property-based testing.
-pub fn any_network_block() -> impl Strategy<Value = NetworkBlock> {
-    any_header().prop_map(|header| {
-        let block = make_block_with_header(&header);
-        NetworkBlock { era_tag: EraName::Conway, encoded_block: to_cbor(&block) }
-    })
 }
 
 #[expect(clippy::expect_used)]
