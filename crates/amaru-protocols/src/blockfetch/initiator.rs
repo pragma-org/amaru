@@ -467,36 +467,39 @@ mod tests {
     use amaru_kernel::{NonEmptyBytes, Point, cbor};
     use amaru_pure_stage::{
         StageGraph,
+        session::{Agency, assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project},
         simulation::{Run, SimulationBuilder},
         typestate::{State, assert_message_alphabet_covered},
     };
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{assert_wire_inputs_cover_receives, initiator_type_graph, map_i, session_spec},
+        super::spec::{
+            blockfetch_initiator, initiator_type_graph, map_i, session_spec,
+        },
         *,
     };
     use crate::{
         mux::{MuxMessage, Sent},
-        protocol::{Inputs, ProjectionConfig, Role, check_timeouts, check_want_next, project},
+        protocol::Inputs,
     };
 
     #[test]
     fn initiator_projects_to_table_3_7() {
         let g = initiator_type_graph();
-        let cfg = ProjectionConfig::blockfetch_initiator();
+        let cfg = blockfetch_initiator();
         let spec = session_spec();
-        assert_eq!(spec.timeout(&Idle::NAME), None);
-        assert_eq!(spec.timeout(&Done::NAME), None);
-        assert_eq!(spec.timeout(&Busy::NAME), Some(BLOCKFETCH_AGENCY_TIMEOUT));
-        assert_eq!(spec.timeout(&Streaming::NAME), Some(BLOCKFETCH_AGENCY_TIMEOUT));
+        assert_eq!(spec.timeout(Idle::NAME), None);
+        assert_eq!(spec.timeout(Done::NAME), None);
+        assert_eq!(spec.timeout(Busy::NAME), Some(BLOCKFETCH_AGENCY_TIMEOUT));
+        assert_eq!(spec.timeout(Streaming::NAME), Some(BLOCKFETCH_AGENCY_TIMEOUT));
         assert_eq!(BLOCKFETCH_AGENCY_TIMEOUT, Duration::from_secs(60));
         check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
         let projected = project(&g, &cfg).unwrap();
-        projected.assert_refines(&spec.project(Role::Initiator), map_i);
-        assert_message_alphabet_covered::<Message>(spec.edge_labels().copied(), &[]);
-        assert_wire_inputs_cover_receives(&g, &cfg);
+        projected.assert_refines(&spec.project(Agency::Initiator), map_i);
+        assert_message_alphabet_covered::<Message>(spec.edge_labels(), &[]);
+        assert_wire_inputs_cover_receives(&g, &cfg, &spec);
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]

@@ -20,7 +20,9 @@
 use std::collections::BTreeSet;
 
 use amaru_pure_stage::{
-    typestate::{RoleTag, StateName, TypeGraph},
+    session::{Agency, ProjectionConfig, SessionSpec, StateId, project},
+    session_input_names, session_labels, session_spec,
+    typestate::{RoleTag, TypeGraph},
     typestate_graph,
 };
 
@@ -29,12 +31,9 @@ use super::{
     initiator::{BLOCKFETCH_AGENCY_TIMEOUT, Busy, Close, Done, Fetch, Idle, Streaming, ToCollector, ToResponder},
     responder::ToInitiator,
 };
-use crate::{
-    protocol::{ProjectionConfig, Pull, Role, SessionSpec, StateId, ToMux, project},
-    session_input_names, session_labels, session_spec,
-};
+use crate::protocol::{Pull, ToMux};
 
-pub(crate) fn session_spec() -> SessionSpec<StateName, &'static str> {
+pub(crate) fn session_spec() -> SessionSpec {
     session_spec! {
         Message;
         [*] --> Idle
@@ -50,55 +49,31 @@ pub(crate) fn session_spec() -> SessionSpec<StateName, &'static str> {
     }
 }
 
-impl ProjectionConfig<&'static str> {
-    pub(crate) fn blockfetch_initiator() -> Self {
-        Self {
-            role: Role::Initiator,
-            peer_role: ToResponder::NAME,
-            mux_role: ToMux::NAME,
-            local_roles: BTreeSet::from([ToCollector::NAME]),
-            wire_inputs: session_labels!(Message; StartBatch, NoBlocks, Block, BatchDone),
-            wire_payload: session_labels!(
-                Message;
-                RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone
-            ),
-            plumbing_inputs: session_input_names!(Pull),
-            local_inputs: session_input_names!(Fetch, Close),
-            driven: true,
-        }
-    }
-
-    pub(crate) fn blockfetch_responder() -> Self {
-        Self {
-            role: Role::Responder,
-            peer_role: ToInitiator::NAME,
-            mux_role: ToMux::NAME,
-            local_roles: BTreeSet::new(),
-            wire_inputs: session_labels!(Message; RequestRange, ClientDone),
-            wire_payload: session_labels!(
-                Message;
-                RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone
-            ),
-            plumbing_inputs: session_input_names!(Pull),
-            local_inputs: BTreeSet::new(),
-            driven: false,
-        }
+pub(crate) fn blockfetch_initiator() -> ProjectionConfig {
+    ProjectionConfig {
+        role: Agency::Initiator,
+        peer_role: ToResponder::NAME,
+        mux_role: ToMux::NAME,
+        local_roles: BTreeSet::from([ToCollector::NAME]),
+        wire_inputs: session_labels!(Message; StartBatch, NoBlocks, Block, BatchDone),
+        wire_payload: session_labels!(Message; RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone),
+        plumbing_inputs: session_input_names!(Pull),
+        local_inputs: session_input_names!(Fetch, Close),
+        driven: true,
     }
 }
 
-pub(crate) fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &ProjectionConfig<&'static str>) {
-    for (state, inputs) in &graph.receives {
-        for input in inputs.keys() {
-            if cfg.plumbing_inputs.contains(input) || cfg.local_inputs.contains(input) {
-                continue;
-            }
-            assert!(cfg.wire_inputs.contains_key(input), "wire receive arm {input} at {state} is not in wire_inputs");
-        }
-    }
-    let table: BTreeSet<&str> =
-        session_spec().transitions.values().flat_map(|per| per.transitions.keys().copied()).collect();
-    for label in cfg.wire_inputs.values().chain(cfg.wire_payload.values()) {
-        assert!(table.contains(label), "wire map label {label} is not in session_spec()");
+pub(crate) fn blockfetch_responder() -> ProjectionConfig {
+    ProjectionConfig {
+        role: Agency::Responder,
+        peer_role: ToInitiator::NAME,
+        mux_role: ToMux::NAME,
+        local_roles: BTreeSet::new(),
+        wire_inputs: session_labels!(Message; RequestRange, ClientDone),
+        wire_payload: session_labels!(Message; RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone),
+        plumbing_inputs: session_input_names!(Pull),
+        local_inputs: BTreeSet::new(),
+        driven: false,
     }
 }
 
@@ -141,7 +116,7 @@ pub(crate) fn responder_type_graph() -> TypeGraph {
 
 #[test]
 fn collapsed_responder_dual_equals_collapsed_initiator() {
-    let h_i = project(&initiator_type_graph(), &ProjectionConfig::blockfetch_initiator()).unwrap();
-    let h_r = project(&responder_type_graph(), &ProjectionConfig::blockfetch_responder()).unwrap();
+    let h_i = project(&initiator_type_graph(), &blockfetch_initiator()).unwrap();
+    let h_r = project(&responder_type_graph(), &blockfetch_responder()).unwrap();
     h_r.collapse(map_r).dual().assert_bisimilar(&h_i.collapse(map_i));
 }

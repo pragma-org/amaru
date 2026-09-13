@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Undirected session spec and mux projection of typestate remainder graphs.
+//! External communication discipline: undirected session specs and projection
+//! of typestate remainder graphs onto a binary session.
 //!
-//! [`SessionSpec`] stores the network-spec table (who sends, not who we are).
-//! [`SessionSpec::project`] orients that table for one [`Role`]. Handler
-//! [`project`] hides mux plumbing, timers, and local roles, unfolding remainder
-//! sequences onto a [`Cfsm`]. Comparisons run in tests and panic on mismatch.
+//! [`SessionSpec`] stores the network-spec table (who sends). [`SessionSpec::project`]
+//! orients that table for one [`Agency`]. Handler [`project`] hides mux plumbing,
+//! timers, and local roles, unfolding remainder sequences onto a [`Cfsm`].
 //!
-//! [`check_want_next`] and [`check_timeouts`] inspect the unprojected graph
-//! (driven vs undriven tables). They do not compare timeout durations.
+//! Typestate remainder *use* lives in [`crate::typestate`].
 
 #![expect(clippy::panic, clippy::unwrap_used)]
 
@@ -30,11 +29,32 @@ use std::{
     time::Duration,
 };
 
-use amaru_pure_stage::typestate::{
-    EffectAst, InputName, Occupancy, PayloadName, RoleName, StateName, ThenAst, TypeGraph,
-};
+use crate::typestate::{EffectAst, InputName, Occupancy, PayloadName, RoleName, StateName, ThenAst, TypeGraph};
 
-use super::Role;
+/// Who may send in a binary session (network-spec Client / Server).
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub enum Agency {
+    Initiator,
+    Responder,
+}
+
+impl Agency {
+    pub const fn opposite(self) -> Self {
+        match self {
+            Agency::Initiator => Agency::Responder,
+            Agency::Responder => Agency::Initiator,
+        }
+    }
+}
+
+impl std::fmt::Display for Agency {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Agency::Initiator => write!(f, "initiator"),
+            Agency::Responder => write!(f, "responder"),
+        }
+    }
+}
 
 /// Named typestate constructor, or a synthetic unfolding of a remainder sequence.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -84,22 +104,22 @@ impl Direction {
 
 /// Oriented message on a [`Cfsm`] edge.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Label<M> {
+pub struct Label {
     pub direction: Direction,
-    pub message: M,
+    pub message: &'static str,
 }
 
-impl<M> Label<M> {
-    fn send(message: M) -> Self {
+impl Label {
+    fn send(message: &'static str) -> Self {
         Self { direction: Direction::Send, message }
     }
 
-    fn recv(message: M) -> Self {
+    fn recv(message: &'static str) -> Self {
         Self { direction: Direction::Recv, message }
     }
 }
 
-impl<M: Display> Display for Label<M> {
+impl Display for Label {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}{}", self.direction.as_bang_query(), self.message)
     }
@@ -107,26 +127,20 @@ impl<M: Display> Display for Label<M> {
 
 /// Oriented exclusive-agency machine. Timeouts live on [`SessionSpec`], not here.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Cfsm<M> {
+pub struct Cfsm {
     pub states: BTreeSet<StateId>,
     pub initial: StateId,
     pub terminal: BTreeSet<StateId>,
     /// Who may send. Omitted for [`terminal`](Self::terminal) states.
-    pub agency: BTreeMap<StateId, Role>,
-    pub transitions: BTreeMap<StateId, BTreeMap<Label<M>, StateId>>,
+    pub agency: BTreeMap<StateId, Agency>,
+    pub transitions: BTreeMap<StateId, BTreeMap<Label, StateId>>,
 }
 
-impl<M> Cfsm<M>
-where
-    M: Clone + Ord + std::fmt::Debug,
-{
+impl Cfsm {
     /// Panic on mismatch. Compares reachable oriented transitions, `agency`, and
     /// mapped `initial`. Does **not** compare timeouts.
     #[track_caller]
-    pub fn assert_refines(&self, spec: &Cfsm<M>, map: impl Fn(&StateId) -> StateId)
-    where
-        M: Display,
-    {
+    pub fn assert_refines(&self, spec: &Cfsm, map: impl Fn(&StateId) -> StateId) {
         let got = self.reachable_fragment().collapse(map);
         let want = spec.reachable_fragment();
         if got.initial != want.initial || got.transitions != want.transitions || got.agency != want.agency {
@@ -136,10 +150,7 @@ where
 
     /// Reachable-table equality (transitions + agency + terminal). No search.
     #[track_caller]
-    pub fn assert_bisimilar(&self, other: &Cfsm<M>)
-    where
-        M: Display,
-    {
+    pub fn assert_bisimilar(&self, other: &Cfsm) {
         let got = self.reachable_fragment();
         let want = other.reachable_fragment();
         if got.initial != want.initial
@@ -158,7 +169,7 @@ where
     /// on the agency holder, so the two projections are not duals; do not
     /// [`assert_bisimilar`](Self::assert_bisimilar) them.
     #[must_use]
-    pub fn dual(&self) -> Cfsm<M> {
+    pub fn dual(&self) -> Cfsm {
         let transitions = self
             .transitions
             .iter()
@@ -166,7 +177,7 @@ where
                 let swapped = edges
                     .iter()
                     .map(|(label, to)| {
-                        (Label { direction: label.direction.opposite(), message: label.message.clone() }, to.clone())
+                        (Label { direction: label.direction.opposite(), message: label.message }, to.clone())
                     })
                     .collect();
                 (from.clone(), swapped)
@@ -184,12 +195,9 @@ where
     /// Apply a declared surjection; panic if two sources map to one dest with disagreeing destinations.
     #[must_use]
     #[track_caller]
-    pub fn collapse(&self, map: impl Fn(&StateId) -> StateId) -> Cfsm<M>
-    where
-        M: Display,
-    {
+    pub fn collapse(&self, map: impl Fn(&StateId) -> StateId) -> Cfsm {
         let mut states = BTreeSet::new();
-        let mut transitions: BTreeMap<StateId, BTreeMap<Label<M>, StateId>> = BTreeMap::new();
+        let mut transitions: BTreeMap<StateId, BTreeMap<Label, StateId>> = BTreeMap::new();
         let mut agency = BTreeMap::new();
 
         for s in &self.states {
@@ -230,12 +238,12 @@ where
 
     /// Retarget every edge whose message is `done` to `new_to`. Other edges unchanged.
     #[must_use]
-    pub fn retarget(&self, done: &M, new_to: StateId) -> Cfsm<M> {
+    pub fn retarget(&self, done: &str, new_to: StateId) -> Cfsm {
         let mut out = self.clone();
         out.states.insert(new_to.clone());
         for edges in out.transitions.values_mut() {
             for (label, to) in edges.iter_mut() {
-                if &label.message == done {
+                if label.message == done {
                     *to = new_to.clone();
                 }
             }
@@ -246,13 +254,13 @@ where
 
     /// Destination of the unique edge from `from` whose message is `msg`.
     #[track_caller]
-    pub fn dest(&self, from: &StateId, msg: &M) -> StateId {
+    pub fn dest(&self, from: &StateId, msg: &str) -> StateId {
         let Some(edges) = self.transitions.get(from) else {
             panic!("dest: no transitions from {from}");
         };
         let mut found = None;
         for (label, to) in edges {
-            if &label.message == msg {
+            if label.message == msg {
                 if found.is_some() {
                     panic!("dest: multiple edges from {from} with message {msg:?}");
                 }
@@ -278,7 +286,7 @@ where
         seen
     }
 
-    fn reachable_fragment(&self) -> Cfsm<M> {
+    fn reachable_fragment(&self) -> Cfsm {
         let reach = self.reachable();
         let transitions =
             self.transitions.iter().filter(|(s, _)| reach.contains(s)).map(|(s, e)| (s.clone(), e.clone())).collect();
@@ -300,10 +308,7 @@ where
         self.agency.retain(|s, _| !self.terminal.contains(s));
     }
 
-    fn fmt_table(&self) -> String
-    where
-        M: Display,
-    {
+    fn fmt_table(&self) -> String {
         let mut s = String::new();
         let _ = writeln!(s, "initial: {}", self.initial);
         for state in &self.states {
@@ -320,103 +325,75 @@ where
     }
 }
 
-/// Same shape as `ProtoSpec` without `ProtocolState`.
+/// Undirected binary session: exclusive agency, labeled edges, optional timeouts.
 ///
 /// The start state is [`start`](Self::start) if called, otherwise the `from` of
 /// the first [`init`](Self::init) / [`resp`](Self::resp) / [`sim_open`](Self::sim_open).
 /// Later builder calls do not change it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionSpec<S, M> {
-    pub(crate) transitions: BTreeMap<S, PerState<S, M>>,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SessionSpec {
+    pub(crate) transitions: BTreeMap<StateName, PerState>,
     /// Receiver's bound. Absence = no timer.
-    timeout: BTreeMap<S, Duration>,
+    timeout: BTreeMap<StateName, Duration>,
     /// Start state: `from` of the first `init` / `resp` / `sim_open` (not an explicit constructor).
-    initial: Option<S>,
+    initial: Option<StateName>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PerState<S, M> {
-    pub(crate) agency: Role,
-    pub(crate) transitions: BTreeMap<M, Edge<S>>,
+pub(crate) struct PerState {
+    pub(crate) agency: Agency,
+    pub(crate) transitions: BTreeMap<&'static str, Edge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Edge<S> {
-    pub(crate) to: S,
+pub(crate) struct Edge {
+    pub(crate) to: StateName,
     pub(crate) sim_open: bool,
 }
 
-impl<S, M> Default for SessionSpec<S, M> {
-    fn default() -> Self {
-        Self { transitions: BTreeMap::new(), timeout: BTreeMap::new(), initial: None }
-    }
-}
-
-impl<S, M> SessionSpec<S, M> {
+impl SessionSpec {
     /// Labels on undirected edges, in table order.
-    pub fn edge_labels(&self) -> impl Iterator<Item = &M> {
-        self.transitions.values().flat_map(|per| per.transitions.keys())
-    }
-}
-
-impl<S, M> PerState<S, M> {
-    fn role(agency: Role) -> Self {
-        Self { agency, transitions: BTreeMap::new() }
+    pub fn edge_labels(&self) -> impl Iterator<Item = &'static str> {
+        self.transitions.values().flat_map(|per| per.transitions.keys().copied())
     }
 
-    fn insert(&mut self, msg: M, role: Role, to: S, sim_open: bool) -> Option<Edge<S>>
-    where
-        M: std::fmt::Debug + Ord,
-        S: std::fmt::Debug,
-    {
-        assert_eq!(self.agency, role, "inserting {msg:?}@{role:?} to {to:?}");
-        // Agency is `PerState.agency`; a per-edge sender would only duplicate it.
-        self.transitions.insert(msg, Edge { to, sim_open })
-    }
-}
-
-impl<S, M> SessionSpec<S, M>
-where
-    S: Clone + Ord + std::fmt::Debug,
-    M: Clone + Ord + std::fmt::Debug,
-{
     /// Add a transition that the initiator sends.
-    pub fn init(&mut self, from: S, msg: M, to: S) {
-        self.insert_edge(from, msg, to, Role::Initiator, false);
+    pub fn init(&mut self, from: StateName, msg: &'static str, to: StateName) {
+        self.insert_edge(from, msg, to, Agency::Initiator, false);
     }
 
     /// Add a transition that the responder sends.
-    pub fn resp(&mut self, from: S, msg: M, to: S) {
-        self.insert_edge(from, msg, to, Role::Responder, false);
+    pub fn resp(&mut self, from: StateName, msg: &'static str, to: StateName) {
+        self.insert_edge(from, msg, to, Agency::Responder, false);
     }
 
     /// Simultaneous-open alias: Recv of `msg` for the waiting role, not mixed agency.
-    pub fn sim_open(&mut self, from: S, msg: M, to: S) {
-        self.insert_edge(from, msg, to, Role::Responder, true);
+    pub fn sim_open(&mut self, from: StateName, msg: &'static str, to: StateName) {
+        self.insert_edge(from, msg, to, Agency::Responder, true);
     }
 
     /// Set the start state. Used by [`session_spec!`](crate::session_spec) for `[*] --> S`.
     /// Later [`init`](Self::init) / [`resp`](Self::resp) / [`sim_open`](Self::sim_open)
     /// calls do not override it.
-    pub fn start(&mut self, s: S) {
+    pub fn start(&mut self, s: StateName) {
         self.initial = Some(s);
     }
 
-    pub fn set_timeout(&mut self, state: S, d: Duration) {
+    pub fn set_timeout(&mut self, state: StateName, d: Duration) {
         self.timeout.insert(state, d);
     }
 
     /// Receiver timeout for `state`, if any.
-    pub fn timeout(&self, state: &S) -> Option<Duration> {
+    pub fn timeout(&self, state: &str) -> Option<Duration> {
         self.timeout.get(state).copied()
     }
 
-    fn insert_edge(&mut self, from: S, msg: M, to: S, role: Role, sim_open: bool) {
+    fn insert_edge(&mut self, from: StateName, msg: &'static str, to: StateName, agency: Agency, sim_open: bool) {
         if self.initial.is_none() {
-            self.initial = Some(from.clone());
+            self.initial = Some(from);
         }
-        let per = self.transitions.entry(from.clone()).or_insert_with(|| PerState::role(role));
-        if let Some(present) = per.insert(msg.clone(), role, to.clone(), sim_open) {
+        let per = self.transitions.entry(from).or_insert_with(|| PerState::role(agency));
+        if let Some(present) = per.insert(msg, agency, to, sim_open) {
             panic!("transition {from:?} -> {msg:?} -> {present:?} already defined when inserting {to:?}");
         }
     }
@@ -424,10 +401,7 @@ where
     /// Panic on mismatch. Compares the undirected table after `map`.
     /// Does **not** compare timeouts or start state (`initial`).
     #[track_caller]
-    pub fn assert_refines<S2>(&self, spec: &SessionSpec<S2, M>, map: impl Fn(&S) -> S2)
-    where
-        S2: Clone + Ord + std::fmt::Debug,
-    {
+    pub fn assert_refines(&self, spec: &SessionSpec, map: impl Fn(&StateName) -> StateName) {
         let simplified = collapse_undirected(&self.transitions, map);
         assert_eq!(simplified, spec.transitions);
     }
@@ -435,11 +409,11 @@ where
     /// Library helper for protocols whose remainders still loop `MsgDone`.
     /// Retargets only the undirected done-edge destinations.
     #[must_use]
-    pub fn with_restart_on_done(mut self, done: M, to: S) -> Self {
+    pub fn with_restart_on_done(mut self, done: &'static str, to: StateName) -> Self {
         for per in self.transitions.values_mut() {
             for (msg, edge) in per.transitions.iter_mut() {
-                if msg == &done {
-                    edge.to = to.clone();
+                if *msg == done {
+                    edge.to = to;
                 }
             }
         }
@@ -448,26 +422,22 @@ where
 
     /// Orient: from a state where `role == agency`, outgoing labels are Send; otherwise Recv.
     /// `sim_open` edges are Recv of the aliased message for the waiting role.
-    pub fn project(&self, role: Role) -> Cfsm<M>
-    where
-        S: Into<StateName>,
-    {
-        let Some(initial) = &self.initial else {
+    pub fn project(&self, role: Agency) -> Cfsm {
+        let Some(initial) = self.initial else {
             panic!("SessionSpec::project on empty spec");
         };
-        let named = |s: &S| StateId::Named(s.clone().into());
+        let named = |s: StateName| StateId::Named(s);
 
         let mut states = BTreeSet::new();
-        let mut transitions: BTreeMap<StateId, BTreeMap<Label<M>, StateId>> = BTreeMap::new();
+        let mut transitions: BTreeMap<StateId, BTreeMap<Label, StateId>> = BTreeMap::new();
         let mut agency = BTreeMap::new();
 
         for (from, per) in &self.transitions {
-            let from_id = named(from);
+            let from_id = named(*from);
             states.insert(from_id.clone());
             let mut edges = BTreeMap::new();
             for (msg, edge) in &per.transitions {
                 let direction = if edge.sim_open {
-                    // Waiting role only; skip on the agency holder so labels stay exclusive.
                     if role == per.agency {
                         continue;
                     }
@@ -477,9 +447,9 @@ where
                 } else {
                     Direction::Recv
                 };
-                let to_id = named(&edge.to);
+                let to_id = named(edge.to);
                 states.insert(to_id.clone());
-                edges.insert(Label { direction, message: msg.clone() }, to_id);
+                edges.insert(Label { direction, message: msg }, to_id);
             }
             if !edges.is_empty() {
                 transitions.insert(from_id.clone(), edges);
@@ -493,25 +463,31 @@ where
     }
 }
 
+impl PerState {
+    fn role(agency: Agency) -> Self {
+        Self { agency, transitions: BTreeMap::new() }
+    }
+
+    fn insert(&mut self, msg: &'static str, agency: Agency, to: StateName, sim_open: bool) -> Option<Edge> {
+        assert_eq!(self.agency, agency, "inserting {msg:?}@{agency:?} to {to:?}");
+        self.transitions.insert(msg, Edge { to, sim_open })
+    }
+}
+
 #[track_caller]
-fn collapse_undirected<S, S2, M>(
-    transitions: &BTreeMap<S, PerState<S, M>>,
-    map: impl Fn(&S) -> S2,
-) -> BTreeMap<S2, PerState<S2, M>>
-where
-    S: Clone + std::fmt::Debug,
-    S2: Clone + Ord + std::fmt::Debug,
-    M: Clone + Ord + std::fmt::Debug,
-{
-    let mut simplified = BTreeMap::<S2, PerState<S2, M>>::new();
+fn collapse_undirected(
+    transitions: &BTreeMap<StateName, PerState>,
+    map: impl Fn(&StateName) -> StateName,
+) -> BTreeMap<StateName, PerState> {
+    let mut simplified = BTreeMap::<StateName, PerState>::new();
     for (from, per_state) in transitions {
         let from = map(from);
         for (message, edge) in &per_state.transitions {
             let to = map(&edge.to);
-            let existing = simplified.entry(from.clone()).or_insert_with(|| PerState::role(per_state.agency)).insert(
-                message.clone(),
+            let existing = simplified.entry(from).or_insert_with(|| PerState::role(per_state.agency)).insert(
+                message,
                 per_state.agency,
-                to.clone(),
+                to,
                 edge.sim_open,
             );
             if let Some(existing) = existing.as_ref()
@@ -529,15 +505,15 @@ where
 
 /// Hand-written per protocol. `driven` selects the WantNext and timeout tables.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectionConfig<M> {
-    pub role: Role,
+pub struct ProjectionConfig {
+    pub role: Agency,
     pub peer_role: RoleName,
     pub mux_role: RoleName,
     pub local_roles: BTreeSet<RoleName>,
-    /// Receive-arm identifiers (`stringify!($in)`) → spec message.
-    pub wire_inputs: BTreeMap<InputName, M>,
-    /// Remainder `Call`/`Send` payload last-segments → the same dummy `M` as the spec table.
-    pub wire_payload: BTreeMap<PayloadName, M>,
+    /// Receive-arm identifiers (`stringify!($in)`) → spec message label.
+    pub wire_inputs: BTreeMap<InputName, &'static str>,
+    /// Remainder `Call`/`Send` payload last-segments → spec message label.
+    pub wire_payload: BTreeMap<PayloadName, &'static str>,
     pub plumbing_inputs: BTreeSet<InputName>,
     pub local_inputs: BTreeSet<InputName>,
     pub driven: bool,
@@ -612,10 +588,7 @@ impl Display for ProjectError {
 impl std::error::Error for ProjectError {}
 
 /// Project a remainder graph onto the mux participant.
-pub fn project<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>) -> Result<Cfsm<M>, ProjectError>
-where
-    M: Clone + Ord + std::fmt::Debug + Display,
-{
+pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, ProjectError> {
     if let Some(input) = overlapping_input(cfg) {
         return Err(ProjectError::OverlappingInput { input });
     }
@@ -675,14 +648,14 @@ where
                     if nexts.len() != 1 {
                         return Err(ProjectError::Nondeterministic {
                             state: StateId::Named(state),
-                            label: Label::recv(m.clone()).to_string(),
+                            label: Label::recv(m).to_string(),
                         });
                     }
                     let next = *nexts.iter().next().unwrap();
-                    proj.emit(StateId::Named(state), Label::recv(m.clone()), StateId::Named(next))?;
+                    proj.emit(StateId::Named(state), Label::recv(m), StateId::Named(next))?;
                 } else {
                     let dest = next_synthetic(&StateId::Named(state), input);
-                    proj.emit(StateId::Named(state), Label::recv(m.clone()), dest.clone())?;
+                    proj.emit(StateId::Named(state), Label::recv(m), dest.clone())?;
                     for (seq, next) in wire_bearing {
                         proj.expand_seq(dest.clone(), &seq, next)?;
                     }
@@ -743,16 +716,31 @@ where
     Ok(cfsm)
 }
 
-struct Projector<'a, M> {
-    cfg: &'a ProjectionConfig<M>,
-    states: BTreeSet<StateId>,
-    transitions: BTreeMap<StateId, BTreeMap<Label<M>, StateId>>,
+/// Every receive arm is plumbing, local, or in `wire_inputs`. Every wire-map
+/// label is an edge of `spec`.
+#[track_caller]
+pub fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &ProjectionConfig, spec: &SessionSpec) {
+    for (state, inputs) in &graph.receives {
+        for input in inputs.keys() {
+            if cfg.plumbing_inputs.contains(input) || cfg.local_inputs.contains(input) {
+                continue;
+            }
+            assert!(cfg.wire_inputs.contains_key(input), "wire receive arm {input} at {state} is not in wire_inputs");
+        }
+    }
+    let table: BTreeSet<&str> = spec.edge_labels().collect();
+    for label in cfg.wire_inputs.values().chain(cfg.wire_payload.values()) {
+        assert!(table.contains(label), "wire map label {label} is not in the session spec");
+    }
 }
 
-impl<M> Projector<'_, M>
-where
-    M: Clone + Ord + std::fmt::Debug + Display,
-{
+struct Projector<'a> {
+    cfg: &'a ProjectionConfig,
+    states: BTreeSet<StateId>,
+    transitions: BTreeMap<StateId, BTreeMap<Label, StateId>>,
+}
+
+impl Projector<'_> {
     fn hide_parallel<'b>(
         &self,
         state: StateName,
@@ -843,7 +831,7 @@ where
                         if self.first_wire(&seq[i + 1..]).is_some_and(|head| head == m) {
                             return Err(ProjectError::AmbiguousRepeat { origin: state });
                         }
-                        self.emit(state.clone(), Label::send(m.clone()), state.clone())?;
+                        self.emit(state.clone(), Label::send(m), state.clone())?;
                     } else {
                         return Err(ProjectError::RepeatStarTooWide { origin: state });
                     }
@@ -853,11 +841,11 @@ where
                         panic!("expand_seq: payload {payload} missing from wire_payload at {state}")
                     });
                     if i + 1 == seq.len() {
-                        self.emit(state, Label::send(m.clone()), StateId::Named(named_next))?;
+                        self.emit(state, Label::send(m), StateId::Named(named_next))?;
                         return Ok(());
                     }
                     let dest = next_synthetic(&state, payload);
-                    self.emit(state, Label::send(m.clone()), dest.clone())?;
+                    self.emit(state, Label::send(m), dest.clone())?;
                     state = dest;
                 }
                 EffectAst::SendAny { .. }
@@ -895,18 +883,18 @@ where
         Ok(out)
     }
 
-    fn single_wire_send<'a>(&'a self, body: &'a [&EffectAst]) -> Option<&'a M> {
+    fn single_wire_send<'a>(&'a self, body: &'a [&EffectAst]) -> Option<&'static str> {
         match body {
             [e] => self.as_wire_send(e),
             _ => None,
         }
     }
 
-    fn as_wire_send<'a>(&'a self, e: &'a EffectAst) -> Option<&'a M> {
+    fn as_wire_send<'a>(&'a self, e: &'a EffectAst) -> Option<&'static str> {
         match e {
             EffectAst::Call { role, payload } | EffectAst::Send { role, payload } => {
                 if *role == self.cfg.peer_role {
-                    self.cfg.wire_payload.get(payload)
+                    self.cfg.wire_payload.get(payload).copied()
                 } else {
                     None
                 }
@@ -925,11 +913,11 @@ where
         }
     }
 
-    fn first_wire<'a>(&'a self, suffix: &'a [&EffectAst]) -> Option<&'a M> {
+    fn first_wire<'a>(&'a self, suffix: &'a [&EffectAst]) -> Option<&'static str> {
         suffix.iter().copied().find_map(|e| self.as_wire_send(e))
     }
 
-    fn emit(&mut self, from: StateId, label: Label<M>, to: StateId) -> Result<(), ProjectError> {
+    fn emit(&mut self, from: StateId, label: Label, to: StateId) -> Result<(), ProjectError> {
         self.states.insert(from.clone());
         self.states.insert(to.clone());
         let edges = self.transitions.entry(from.clone()).or_default();
@@ -954,10 +942,7 @@ fn next_synthetic(state: &StateId, payload: PayloadName) -> StateId {
     }
 }
 
-fn drop_unreachable<M>(cfsm: &mut Cfsm<M>)
-where
-    M: Clone + Ord + std::fmt::Debug,
-{
+fn drop_unreachable(cfsm: &mut Cfsm) {
     let reach = cfsm.reachable();
     cfsm.states.retain(|s| reach.contains(s));
     cfsm.transitions.retain(|s, _| reach.contains(s));
@@ -967,7 +952,7 @@ where
     cfsm.agency.retain(|s, _| cfsm.states.contains(s));
 }
 
-fn overlapping_input<M>(cfg: &ProjectionConfig<M>) -> Option<InputName> {
+fn overlapping_input(cfg: &ProjectionConfig) -> Option<InputName> {
     for input in &cfg.plumbing_inputs {
         if cfg.local_inputs.contains(input) || cfg.wire_inputs.contains_key(input) {
             return Some(*input);
@@ -981,8 +966,8 @@ fn overlapping_input<M>(cfg: &ProjectionConfig<M>) -> Option<InputName> {
     None
 }
 
-fn duplicate_wire_payload<M: Ord>(cfg: &ProjectionConfig<M>) -> Option<(PayloadName, PayloadName)> {
-    let mut seen: BTreeMap<&M, PayloadName> = BTreeMap::new();
+fn duplicate_wire_payload(cfg: &ProjectionConfig) -> Option<(PayloadName, PayloadName)> {
+    let mut seen: BTreeMap<&'static str, PayloadName> = BTreeMap::new();
     for (name, dummy) in &cfg.wire_payload {
         if let Some(first) = seen.insert(dummy, *name) {
             return Some((first, *name));
@@ -1108,7 +1093,7 @@ enum Presence {
 ///
 /// `WantNext` is `Send<ToMux, WantNext>`, at most once per alternative, never
 /// inside `Repeat`. Driven vs undriven tables follow occupancy / waiting states.
-pub fn check_want_next<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>) -> Result<(), WantNextError> {
+pub fn check_want_next(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<(), WantNextError> {
     if cfg.driven
         && let Err(state) = check_driven_occupancy(graph)
     {
@@ -1145,14 +1130,7 @@ pub fn check_want_next<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>) -> Resul
 ///
 /// Looks up [`SessionSpec`] timeouts by typestate constructor name (`rem.next` /
 /// occupancy dest). Duration values are not compared.
-pub fn check_timeouts<M>(
-    graph: &TypeGraph,
-    cfg: &ProjectionConfig<M>,
-    spec: &SessionSpec<StateName, M>,
-) -> Result<(), TimeoutError>
-where
-    M: Clone + Ord + std::fmt::Debug,
-{
+pub fn check_timeouts(graph: &TypeGraph, cfg: &ProjectionConfig, spec: &SessionSpec) -> Result<(), TimeoutError> {
     if cfg.driven
         && let Err(state) = check_driven_occupancy(graph)
     {
@@ -1172,7 +1150,7 @@ where
     Ok(())
 }
 
-fn input_kind<M>(cfg: &ProjectionConfig<M>, input: InputName) -> InputKind {
+fn input_kind(cfg: &ProjectionConfig, input: InputName) -> InputKind {
     if cfg.plumbing_inputs.contains(input) {
         InputKind::Plumbing
     } else if cfg.local_inputs.contains(input) {
@@ -1202,7 +1180,7 @@ fn check_driven_occupancy(graph: &TypeGraph) -> Result<(), StateName> {
     Ok(())
 }
 
-fn is_waiting<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>, state: StateName) -> bool {
+fn is_waiting(graph: &TypeGraph, cfg: &ProjectionConfig, state: StateName) -> bool {
     match occupancy_of(graph, state) {
         Some(Occupancy::Remote) => true,
         Some(Occupancy::Switch | Occupancy::Terminal) => false,
@@ -1212,7 +1190,7 @@ fn is_waiting<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>, state: StateName)
     }
 }
 
-fn has_pull_arm<M>(graph: &TypeGraph, cfg: &ProjectionConfig<M>, state: StateName) -> bool {
+fn has_pull_arm(graph: &TypeGraph, cfg: &ProjectionConfig, state: StateName) -> bool {
     graph.receives.get(state).is_some_and(|inputs| inputs.keys().any(|input| cfg.plumbing_inputs.contains(input)))
 }
 
@@ -1233,11 +1211,11 @@ fn want_next_present(state: StateName, input: InputName, alt: &ThenAst, mux: Rol
     Ok(scan.sends == 1)
 }
 
-fn reject_peer_wire_send<M>(
+fn reject_peer_wire_send(
     state: StateName,
     input: InputName,
     alt: &ThenAst,
-    cfg: &ProjectionConfig<M>,
+    cfg: &ProjectionConfig,
 ) -> Result<(), WantNextError> {
     for branch in &alt.parallel {
         reject_peer_wire_send_seq(branch, state, input, cfg)?;
@@ -1245,11 +1223,11 @@ fn reject_peer_wire_send<M>(
     Ok(())
 }
 
-fn reject_peer_wire_send_seq<M>(
+fn reject_peer_wire_send_seq(
     effects: &[EffectAst],
     state: StateName,
     input: InputName,
-    cfg: &ProjectionConfig<M>,
+    cfg: &ProjectionConfig,
 ) -> Result<(), WantNextError> {
     for e in effects {
         match e {
@@ -1310,9 +1288,9 @@ fn scan_want_next(effects: &[EffectAst], mux: RoleName, in_star: bool, scan: &mu
 }
 
 #[expect(clippy::too_many_arguments)]
-fn apply_want_next_rule<M>(
+fn apply_want_next_rule(
     graph: &TypeGraph,
-    cfg: &ProjectionConfig<M>,
+    cfg: &ProjectionConfig,
     state: StateName,
     input: InputName,
     kind: InputKind,
@@ -1332,9 +1310,9 @@ fn apply_want_next_rule<M>(
     }
 }
 
-fn want_next_rule<M>(
+fn want_next_rule(
     graph: &TypeGraph,
-    cfg: &ProjectionConfig<M>,
+    cfg: &ProjectionConfig,
     state: StateName,
     input: InputName,
     kind: InputKind,
@@ -1377,9 +1355,9 @@ fn driven_want_next_rule(
     }
 }
 
-fn undriven_want_next_rule<M>(
+fn undriven_want_next_rule(
     graph: &TypeGraph,
-    cfg: &ProjectionConfig<M>,
+    cfg: &ProjectionConfig,
     kind: InputKind,
     next: StateName,
 ) -> (Presence, bool) {
@@ -1427,20 +1405,17 @@ fn scan_timers(effects: &[EffectAst], set: &mut bool, clear: &mut bool) {
 }
 
 #[expect(clippy::too_many_arguments)]
-fn apply_timeout_rule<M>(
+fn apply_timeout_rule(
     graph: &TypeGraph,
-    cfg: &ProjectionConfig<M>,
-    spec: &SessionSpec<StateName, M>,
+    cfg: &ProjectionConfig,
+    spec: &SessionSpec,
     state: StateName,
     input: InputName,
     kind: InputKind,
     next: StateName,
     timers: TimerPresence,
     holds_agency: bool,
-) -> Result<(), TimeoutError>
-where
-    M: Clone + Ord + std::fmt::Debug,
-{
+) -> Result<(), TimeoutError> {
     if matches!(kind, InputKind::Unknown) {
         return Err(TimeoutError::UnknownInput { state, input });
     }
@@ -1464,17 +1439,14 @@ where
     }
 }
 
-fn driven_timeout_rules<M>(
+fn driven_timeout_rules(
     graph: &TypeGraph,
-    spec: &SessionSpec<StateName, M>,
+    spec: &SessionSpec,
     state: StateName,
     input: InputName,
     kind: InputKind,
     next: StateName,
-) -> Result<(Presence, Presence), TimeoutError>
-where
-    M: Clone + Ord + std::fmt::Debug,
-{
+) -> Result<(Presence, Presence), TimeoutError> {
     let Some(src) = occupancy_of(graph, state) else {
         return Err(TimeoutError::MissingOccupancy { state });
     };
@@ -1484,8 +1456,8 @@ where
     if dst == Occupancy::Terminal {
         return Ok((Presence::Forbidden, Presence::Optional));
     }
-    let dest_timed = spec.timeout(&next).is_some();
-    let src_timed = spec.timeout(&state).is_some();
+    let dest_timed = spec.timeout(next).is_some();
+    let src_timed = spec.timeout(state).is_some();
     match (src, dst, kind) {
         (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => Ok((Presence::Forbidden, Presence::Optional)),
         (Occupancy::Remote, Occupancy::Remote, InputKind::Plumbing | InputKind::Wire) => {
@@ -1500,18 +1472,15 @@ where
     }
 }
 
-fn undriven_timeout_rules<M>(
+fn undriven_timeout_rules(
     graph: &TypeGraph,
-    cfg: &ProjectionConfig<M>,
-    spec: &SessionSpec<StateName, M>,
+    cfg: &ProjectionConfig,
+    spec: &SessionSpec,
     next: StateName,
     holds_agency: bool,
-) -> (Presence, Presence)
-where
-    M: Clone + Ord + std::fmt::Debug,
-{
+) -> (Presence, Presence) {
     // SetTimeout only if we wait at `next` and do not hold local agency along the remainder.
-    let set = if is_waiting(graph, cfg, next) && !holds_agency && spec.timeout(&next).is_some() {
+    let set = if is_waiting(graph, cfg, next) && !holds_agency && spec.timeout(next).is_some() {
         Presence::Required
     } else {
         Presence::Forbidden
@@ -1546,32 +1515,8 @@ fn seq_holds_peer(effects: &[EffectAst], peer: RoleName) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use amaru_pure_stage::typestate::RemainderAst;
-
     use super::*;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    enum Msg {
-        RequestRange,
-        ClientDone,
-        StartBatch,
-        NoBlocks,
-        Block,
-        BatchDone,
-    }
-
-    impl Display for Msg {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str(match self {
-                Msg::RequestRange => "RequestRange",
-                Msg::ClientDone => "ClientDone",
-                Msg::StartBatch => "StartBatch",
-                Msg::NoBlocks => "NoBlocks",
-                Msg::Block => "Block",
-                Msg::BatchDone => "BatchDone",
-            })
-        }
-    }
+    use crate::typestate::RemainderAst;
 
     fn call(role: RoleName, payload: PayloadName) -> EffectAst {
         EffectAst::Call { role, payload }
@@ -1601,41 +1546,41 @@ mod tests {
         ThenAst { parallel: vec![effects], next }
     }
 
-    fn payloads() -> BTreeMap<PayloadName, Msg> {
+    fn payloads() -> BTreeMap<PayloadName, &'static str> {
         BTreeMap::from([
-            ("RequestRange", Msg::RequestRange),
-            ("ClientDone", Msg::ClientDone),
-            ("StartBatch", Msg::StartBatch),
-            ("NoBlocks", Msg::NoBlocks),
-            ("Block", Msg::Block),
-            ("BatchDone", Msg::BatchDone),
+            ("RequestRange", "RequestRange"),
+            ("ClientDone", "ClientDone"),
+            ("StartBatch", "StartBatch"),
+            ("NoBlocks", "NoBlocks"),
+            ("Block", "Block"),
+            ("BatchDone", "BatchDone"),
         ])
     }
 
-    fn table_37() -> SessionSpec<&'static str, Msg> {
+    fn table_37() -> SessionSpec {
         let mut spec = SessionSpec::default();
-        spec.init("Idle", Msg::RequestRange, "Busy");
-        spec.init("Idle", Msg::ClientDone, "Done");
-        spec.resp("Busy", Msg::NoBlocks, "Idle");
-        spec.resp("Busy", Msg::StartBatch, "Streaming");
-        spec.resp("Streaming", Msg::Block, "Streaming");
-        spec.resp("Streaming", Msg::BatchDone, "Idle");
+        spec.init("Idle", "RequestRange", "Busy");
+        spec.init("Idle", "ClientDone", "Done");
+        spec.resp("Busy", "NoBlocks", "Idle");
+        spec.resp("Busy", "StartBatch", "Streaming");
+        spec.resp("Streaming", "Block", "Streaming");
+        spec.resp("Streaming", "BatchDone", "Idle");
         spec.set_timeout("Busy", Duration::from_secs(60));
         spec.set_timeout("Streaming", Duration::from_secs(60));
         spec
     }
 
-    fn cfg_initiator() -> ProjectionConfig<Msg> {
+    fn cfg_initiator() -> ProjectionConfig {
         ProjectionConfig {
-            role: Role::Initiator,
+            role: Agency::Initiator,
             peer_role: "ToResponder",
             mux_role: "ToMux",
             local_roles: BTreeSet::from(["ToCollector"]),
             wire_inputs: BTreeMap::from([
-                ("StartBatch", Msg::StartBatch),
-                ("NoBlocks", Msg::NoBlocks),
-                ("Block", Msg::Block),
-                ("BatchDone", Msg::BatchDone),
+                ("StartBatch", "StartBatch"),
+                ("NoBlocks", "NoBlocks"),
+                ("Block", "Block"),
+                ("BatchDone", "BatchDone"),
             ]),
             wire_payload: payloads(),
             plumbing_inputs: BTreeSet::from(["Pull"]),
@@ -1644,13 +1589,13 @@ mod tests {
         }
     }
 
-    fn cfg_responder() -> ProjectionConfig<Msg> {
+    fn cfg_responder() -> ProjectionConfig {
         ProjectionConfig {
-            role: Role::Responder,
+            role: Agency::Responder,
             peer_role: "ToInitiator",
             mux_role: "ToMux",
             local_roles: BTreeSet::new(),
-            wire_inputs: BTreeMap::from([("RequestRange", Msg::RequestRange), ("ClientDone", Msg::ClientDone)]),
+            wire_inputs: BTreeMap::from([("RequestRange", "RequestRange"), ("ClientDone", "ClientDone")]),
             wire_payload: payloads(),
             plumbing_inputs: BTreeSet::from(["Pull"]),
             local_inputs: BTreeSet::new(),
@@ -1783,75 +1728,67 @@ mod tests {
 
     #[test]
     fn initiator_graph_projects_to_table_37() {
-        let spec = table_37().project(Role::Initiator);
+        let spec = table_37().project(Agency::Initiator);
         let got = project(&initiator_graph(), &cfg_initiator()).unwrap();
         assert!(got.states.iter().all(|s| matches!(s, StateId::Named(_))));
         assert_eq!(got.initial, named("Idle"));
         got.assert_refines(&spec, identity);
-        assert_eq!(got.agency.get(&named("Idle")), Some(&Role::Initiator));
-        assert_eq!(got.agency.get(&named("Busy")), Some(&Role::Responder));
-        assert_eq!(got.agency.get(&named("Streaming")), Some(&Role::Responder));
+        assert_eq!(got.agency.get(&named("Idle")), Some(&Agency::Initiator));
+        assert_eq!(got.agency.get(&named("Busy")), Some(&Agency::Responder));
+        assert_eq!(got.agency.get(&named("Streaming")), Some(&Agency::Responder));
         assert!(got.terminal.contains(&named("Done")));
-        assert_eq!(got.dest(&named("Idle"), &Msg::RequestRange), named("Busy"));
-        assert_eq!(got.dest(&named("Idle"), &Msg::ClientDone), named("Done"));
-        assert_eq!(got.dest(&named("Busy"), &Msg::NoBlocks), named("Idle"));
-        assert_eq!(got.dest(&named("Busy"), &Msg::StartBatch), named("Streaming"));
-        assert_eq!(got.dest(&named("Streaming"), &Msg::Block), named("Streaming"));
-        assert_eq!(got.dest(&named("Streaming"), &Msg::BatchDone), named("Idle"));
+        assert_eq!(got.dest(&named("Idle"), "RequestRange"), named("Busy"));
+        assert_eq!(got.dest(&named("Idle"), "ClientDone"), named("Done"));
+        assert_eq!(got.dest(&named("Busy"), "NoBlocks"), named("Idle"));
+        assert_eq!(got.dest(&named("Busy"), "StartBatch"), named("Streaming"));
+        assert_eq!(got.dest(&named("Streaming"), "Block"), named("Streaming"));
+        assert_eq!(got.dest(&named("Streaming"), "BatchDone"), named("Idle"));
     }
 
     #[test]
     fn responder_request_range_synthetics_refine_spec() {
-        let spec = table_37().project(Role::Responder);
+        let spec = table_37().project(Agency::Responder);
         let got = project(&responder_graph(), &cfg_responder()).unwrap();
         let req = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
         let start = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange", "StartBatch"] };
-        assert_eq!(got.dest(&named("Idle"), &Msg::RequestRange), req);
-        assert_eq!(got.dest(&req, &Msg::StartBatch), start.clone());
-        assert_eq!(got.dest(&req, &Msg::NoBlocks), named("Idle"));
-        assert_eq!(got.dest(&start, &Msg::Block), start.clone());
-        assert_eq!(got.dest(&start, &Msg::BatchDone), named("Idle"));
-        assert_eq!(got.dest(&named("Idle"), &Msg::ClientDone), named("Done"));
+        assert_eq!(got.dest(&named("Idle"), "RequestRange"), req);
+        assert_eq!(got.dest(&req, "StartBatch"), start.clone());
+        assert_eq!(got.dest(&req, "NoBlocks"), named("Idle"));
+        assert_eq!(got.dest(&start, "Block"), start.clone());
+        assert_eq!(got.dest(&start, "BatchDone"), named("Idle"));
+        assert_eq!(got.dest(&named("Idle"), "ClientDone"), named("Done"));
         got.assert_refines(&spec, map_responder);
         got.collapse(map_responder).assert_bisimilar(&spec);
     }
 
     #[test]
     fn sim_open_is_recv_for_waiting_role_only() {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-        enum Hs {
-            Propose,
-            Accept,
-            Refuse,
-            QueryReply,
-        }
-
         let mut spec = SessionSpec::default();
-        spec.init("Propose", Hs::Propose, "Confirm");
-        spec.sim_open("Confirm", Hs::Propose, "Done");
-        spec.resp("Confirm", Hs::Accept, "Done");
-        spec.resp("Confirm", Hs::Refuse, "Done");
-        spec.resp("Confirm", Hs::QueryReply, "Done");
+        spec.init("Propose", "Propose", "Confirm");
+        spec.sim_open("Confirm", "Propose", "Done");
+        spec.resp("Confirm", "Accept", "Done");
+        spec.resp("Confirm", "Refuse", "Done");
+        spec.resp("Confirm", "QueryReply", "Done");
 
-        let spec_i = spec.project(Role::Initiator);
+        let spec_i = spec.project(Agency::Initiator);
         assert_eq!(spec_i.initial, named("Propose"));
-        assert_eq!(spec_i.dest(&named("Propose"), &Hs::Propose), named("Confirm"));
-        assert_eq!(spec_i.dest(&named("Confirm"), &Hs::Propose), named("Done"));
-        assert_eq!(spec_i.dest(&named("Confirm"), &Hs::Accept), named("Done"));
+        assert_eq!(spec_i.dest(&named("Propose"), "Propose"), named("Confirm"));
+        assert_eq!(spec_i.dest(&named("Confirm"), "Propose"), named("Done"));
+        assert_eq!(spec_i.dest(&named("Confirm"), "Accept"), named("Done"));
         let confirm_i = spec_i.transitions.get(&named("Confirm")).unwrap();
         assert!(confirm_i.keys().all(|l| l.direction == Direction::Recv));
-        assert_eq!(spec_i.agency.get(&named("Confirm")), Some(&Role::Responder));
+        assert_eq!(spec_i.agency.get(&named("Confirm")), Some(&Agency::Responder));
 
-        let spec_r = spec.project(Role::Responder);
+        let spec_r = spec.project(Agency::Responder);
         assert_eq!(spec_r.initial, named("Propose"));
-        assert_eq!(spec_r.dest(&named("Propose"), &Hs::Propose), named("Confirm"));
-        assert_eq!(spec_r.dest(&named("Confirm"), &Hs::Accept), named("Done"));
-        assert_eq!(spec_r.dest(&named("Confirm"), &Hs::Refuse), named("Done"));
-        assert_eq!(spec_r.dest(&named("Confirm"), &Hs::QueryReply), named("Done"));
+        assert_eq!(spec_r.dest(&named("Propose"), "Propose"), named("Confirm"));
+        assert_eq!(spec_r.dest(&named("Confirm"), "Accept"), named("Done"));
+        assert_eq!(spec_r.dest(&named("Confirm"), "Refuse"), named("Done"));
+        assert_eq!(spec_r.dest(&named("Confirm"), "QueryReply"), named("Done"));
         let confirm_r = spec_r.transitions.get(&named("Confirm")).unwrap();
         assert!(confirm_r.keys().all(|l| l.direction == Direction::Send));
-        assert!(confirm_r.keys().all(|l| l.message != Hs::Propose));
-        assert_eq!(spec_r.agency.get(&named("Confirm")), Some(&Role::Responder));
+        assert!(confirm_r.keys().all(|l| l.message != "Propose"));
+        assert_eq!(spec_r.agency.get(&named("Confirm")), Some(&Agency::Responder));
         // Handshake is not dual(project(I)) == project(R): sim_open is Recv for
         // the waiting role and omitted for the agency holder.
     }
@@ -1860,74 +1797,57 @@ mod tests {
     fn dual_of_spec_initiator_equals_spec_responder() {
         // Table 3.7 has exclusive agency and no sim_open; duality holds only then.
         let spec = table_37();
-        let spec_i = spec.project(Role::Initiator);
-        let spec_r = spec.project(Role::Responder);
+        let spec_i = spec.project(Agency::Initiator);
+        let spec_r = spec.project(Agency::Responder);
         spec_i.dual().assert_bisimilar(&spec_r);
-        assert_eq!(spec_i.agency.get(&named("Idle")), Some(&Role::Initiator));
-        assert_eq!(spec_r.agency.get(&named("Idle")), Some(&Role::Initiator));
-        assert_eq!(spec_i.dual().agency.get(&named("Idle")), Some(&Role::Initiator));
-        assert_eq!(spec_i.agency.get(&named("Busy")), Some(&Role::Responder));
-        assert_eq!(spec_r.agency.get(&named("Busy")), Some(&Role::Responder));
+        assert_eq!(spec_i.agency.get(&named("Idle")), Some(&Agency::Initiator));
+        assert_eq!(spec_r.agency.get(&named("Idle")), Some(&Agency::Initiator));
+        assert_eq!(spec_i.dual().agency.get(&named("Idle")), Some(&Agency::Initiator));
+        assert_eq!(spec_i.agency.get(&named("Busy")), Some(&Agency::Responder));
+        assert_eq!(spec_r.agency.get(&named("Busy")), Some(&Agency::Responder));
     }
 
     #[test]
     fn with_restart_on_done_retargets_only_the_done_edge() {
-        let spec = table_37().with_restart_on_done(Msg::ClientDone, "Idle");
-        let cfsm = spec.project(Role::Initiator);
-        assert_eq!(cfsm.dest(&named("Idle"), &Msg::ClientDone), named("Idle"));
-        assert_eq!(cfsm.dest(&named("Idle"), &Msg::RequestRange), named("Busy"));
-        assert_eq!(cfsm.dest(&named("Busy"), &Msg::StartBatch), named("Streaming"));
-        assert_eq!(spec.timeout(&"Busy"), Some(Duration::from_secs(60)));
-        let original = table_37().project(Role::Initiator);
-        assert_eq!(original.dest(&named("Idle"), &Msg::ClientDone), named("Done"));
-        let retargeted = original.retarget(&Msg::ClientDone, named("Idle"));
-        assert_eq!(retargeted.dest(&named("Idle"), &Msg::ClientDone), named("Idle"));
-        assert_eq!(retargeted.dest(&named("Idle"), &Msg::RequestRange), named("Busy"));
+        let spec = table_37().with_restart_on_done("ClientDone", "Idle");
+        let cfsm = spec.project(Agency::Initiator);
+        assert_eq!(cfsm.dest(&named("Idle"), "ClientDone"), named("Idle"));
+        assert_eq!(cfsm.dest(&named("Idle"), "RequestRange"), named("Busy"));
+        assert_eq!(cfsm.dest(&named("Busy"), "StartBatch"), named("Streaming"));
+        assert_eq!(spec.timeout("Busy"), Some(Duration::from_secs(60)));
+        let original = table_37().project(Agency::Initiator);
+        assert_eq!(original.dest(&named("Idle"), "ClientDone"), named("Done"));
+        let retargeted = original.retarget("ClientDone", named("Idle"));
+        assert_eq!(retargeted.dest(&named("Idle"), "ClientDone"), named("Idle"));
+        assert_eq!(retargeted.dest(&named("Idle"), "RequestRange"), named("Busy"));
     }
 
     #[test]
     fn assert_refines_ignores_timeouts() {
         let mut timed = table_37();
         timed.set_timeout("Idle", Duration::from_secs(1));
-        timed.project(Role::Initiator).assert_refines(&table_37().project(Role::Initiator), identity);
+        timed.project(Agency::Initiator).assert_refines(&table_37().project(Agency::Initiator), identity);
         timed.assert_refines(&table_37(), |s| *s);
     }
 
     #[test]
     fn undirected_assert_refines_preserves_sim_open() {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-        enum Hs {
-            Propose,
-            Accept,
-        }
-
         let mut spec = SessionSpec::default();
-        spec.init("Propose", Hs::Propose, "Confirm");
-        spec.sim_open("Confirm", Hs::Propose, "Done");
-        spec.resp("Confirm", Hs::Accept, "Done");
+        spec.init("Propose", "Propose", "Confirm");
+        spec.sim_open("Confirm", "Propose", "Done");
+        spec.resp("Confirm", "Accept", "Done");
         spec.assert_refines(&spec, |s| *s);
-
-        let mut proto = crate::protocol::ProtoSpec::<_, _, crate::protocol::Initiator>::default();
-        proto.init("Propose", Hs::Propose, "Confirm");
-        proto.sim_open("Confirm", Hs::Propose, "Done");
-        proto.resp("Confirm", Hs::Accept, "Done");
-        proto.assert_refines(&proto, |s| *s);
     }
 
     #[test]
     #[should_panic(expected = "disagreeing edge")]
     fn undirected_assert_refines_panics_on_disagreeing_sim_open() {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-        enum Hs {
-            Propose,
-        }
-
         let mut got = SessionSpec::default();
-        got.resp("ConfirmA", Hs::Propose, "Done");
-        got.sim_open("ConfirmB", Hs::Propose, "Done");
+        got.resp("ConfirmA", "Propose", "Done");
+        got.sim_open("ConfirmB", "Propose", "Done");
 
         let mut want = SessionSpec::default();
-        want.sim_open("Confirm", Hs::Propose, "Done");
+        want.sim_open("Confirm", "Propose", "Done");
 
         got.assert_refines(&want, |s| match *s {
             "ConfirmA" | "ConfirmB" => "Confirm",
@@ -1950,8 +1870,8 @@ mod tests {
         )]));
         let got = project(&graph, &cfg_responder()).unwrap();
         let syn = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
-        assert_eq!(got.dest(&syn, &Msg::Block), syn.clone());
-        assert_eq!(got.dest(&syn, &Msg::BatchDone), named("Idle"));
+        assert_eq!(got.dest(&syn, "Block"), syn.clone());
+        assert_eq!(got.dest(&syn, "BatchDone"), named("Idle"));
     }
 
     #[test]
@@ -1959,7 +1879,7 @@ mod tests {
         struct Case {
             name: &'static str,
             graph: TypeGraph,
-            cfg: ProjectionConfig<Msg>,
+            cfg: ProjectionConfig,
             check: fn(&ProjectError) -> bool,
         }
 
@@ -2093,7 +2013,7 @@ mod tests {
                 graph: idle_graph(BTreeMap::from([("Fetch", seq(vec![call("ToResponder", "RequestRange")], "Busy"))])),
                 cfg: {
                     let mut cfg = cfg_initiator();
-                    cfg.wire_inputs.insert("Fetch", Msg::RequestRange);
+                    cfg.wire_inputs.insert("Fetch", "RequestRange");
                     cfg
                 },
                 check: |e| matches!(e, ProjectError::OverlappingInput { input: "Fetch" }),
@@ -2103,7 +2023,7 @@ mod tests {
                 graph: idle_graph(BTreeMap::from([("Fetch", seq(vec![call("ToResponder", "RequestRange")], "Busy"))])),
                 cfg: {
                     let mut cfg = cfg_initiator();
-                    cfg.wire_payload.insert("AlsoRequestRange", Msg::RequestRange);
+                    cfg.wire_payload.insert("AlsoRequestRange", "RequestRange");
                     cfg
                 },
                 check: |e| {
@@ -2175,17 +2095,17 @@ mod tests {
     #[test]
     fn sim_open_dest_is_omitted_on_agency_holder() {
         let mut spec = SessionSpec::default();
-        spec.init("Idle", Msg::RequestRange, "Busy");
-        spec.sim_open("Busy", Msg::ClientDone, "OnlyOpen");
-        spec.resp("Busy", Msg::StartBatch, "Streaming");
+        spec.init("Idle", "RequestRange", "Busy");
+        spec.sim_open("Busy", "ClientDone", "OnlyOpen");
+        spec.resp("Busy", "StartBatch", "Streaming");
 
-        let holder = spec.project(Role::Responder);
+        let holder = spec.project(Agency::Responder);
         assert!(!holder.states.contains(&named("OnlyOpen")));
         assert!(holder.states.contains(&named("Streaming")));
 
-        let waiting = spec.project(Role::Initiator);
+        let waiting = spec.project(Agency::Initiator);
         assert!(waiting.states.contains(&named("OnlyOpen")));
-        assert_eq!(waiting.dest(&named("Busy"), &Msg::ClientDone), named("OnlyOpen"));
+        assert_eq!(waiting.dest(&named("Busy"), "ClientDone"), named("OnlyOpen"));
     }
 
     #[test]
@@ -2195,10 +2115,10 @@ mod tests {
         let spec = table_37();
         check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
-        assert_eq!(spec.timeout(&"Busy"), Some(Duration::from_secs(60)));
-        assert_eq!(spec.timeout(&"Streaming"), Some(Duration::from_secs(60)));
-        assert_eq!(spec.timeout(&"Idle"), None);
-        assert_eq!(spec.timeout(&"Done"), None);
+        assert_eq!(spec.timeout("Busy"), Some(Duration::from_secs(60)));
+        assert_eq!(spec.timeout("Streaming"), Some(Duration::from_secs(60)));
+        assert_eq!(spec.timeout("Idle"), None);
+        assert_eq!(spec.timeout("Done"), None);
     }
 
     #[test]

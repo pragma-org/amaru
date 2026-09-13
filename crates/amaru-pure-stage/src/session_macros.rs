@@ -15,12 +15,12 @@
 //! Mermaid-like [`session_spec!`] syntax. Labels are type names (`stringify!`),
 //! not dummy payload values.
 
-/// Build a [`SessionSpec`](crate::protocol::SessionSpec) from a mermaid-like
+/// Build a [`SessionSpec`](crate::session::SessionSpec) from a mermaid-like
 /// state diagram. Message labels are identifiers (the `define_messages!` variant
 /// structs). The automaton stores `stringify!` of those names; values are not
 /// part of the spec.
 ///
-/// States must implement [`State`](amaru_pure_stage::typestate::State). Messages
+/// States must implement [`State`](crate::typestate::State). Messages
 /// must implement `Into<$enum>`. Agency (and optional timeout) is mermaid
 /// `note left of` / `note right of`.
 ///
@@ -119,7 +119,7 @@ macro_rules! __session_spec_emit {
         [$(($ts:ident, $dur:expr))*]
     ) => {{
         {
-            fn __state<S: ::amaru_pure_stage::typestate::State>() {}
+            fn __state<S: $crate::typestate::State>() {}
             fn __wire<T: ::core::convert::Into<$enum>>() {}
             $(__state::<$start>();)?
             $(
@@ -131,34 +131,31 @@ macro_rules! __session_spec_emit {
             $(__state::<$ts>();)*
         }
 
-        let mut spec = $crate::protocol::SessionSpec::<
-            ::amaru_pure_stage::typestate::StateName,
-            &'static str,
-        >::default();
-        $(spec.start(<$start as ::amaru_pure_stage::typestate::State>::NAME);)?
+        let mut spec = $crate::session::SessionSpec::default();
+        $(spec.start(<$start as $crate::typestate::State>::NAME);)?
 
         let mut agency = ::std::collections::BTreeMap::<
-            ::amaru_pure_stage::typestate::StateName,
-            $crate::protocol::Role,
+            $crate::typestate::StateName,
+            $crate::session::Agency,
         >::new();
         $(
             agency.insert(
-                <$note_s as ::amaru_pure_stage::typestate::State>::NAME,
-                $crate::protocol::Role::$note_role,
+                <$note_s as $crate::typestate::State>::NAME,
+                $crate::session::Agency::$note_role,
             );
         )*
 
         $(
             {
-                let from = <$from as ::amaru_pure_stage::typestate::State>::NAME;
-                let to = <$to as ::amaru_pure_stage::typestate::State>::NAME;
+                let from = <$from as $crate::typestate::State>::NAME;
+                let to = <$to as $crate::typestate::State>::NAME;
                 let msg = stringify!($msg);
                 if $sim {
                     spec.sim_open(from, msg, to);
                 } else {
                     match agency.get(from).copied() {
-                        Some($crate::protocol::Role::Initiator) => spec.init(from, msg, to),
-                        Some($crate::protocol::Role::Responder) => spec.resp(from, msg, to),
+                        Some($crate::session::Agency::Initiator) => spec.init(from, msg, to),
+                        Some($crate::session::Agency::Responder) => spec.resp(from, msg, to),
                         None => panic!(
                             "session_spec!: missing `note left of {from}: Initiator` or `Responder`"
                         ),
@@ -168,7 +165,7 @@ macro_rules! __session_spec_emit {
         )*
 
         $(
-            spec.set_timeout(<$ts as ::amaru_pure_stage::typestate::State>::NAME, $dur);
+            spec.set_timeout(<$ts as $crate::typestate::State>::NAME, $dur);
         )*
 
         spec

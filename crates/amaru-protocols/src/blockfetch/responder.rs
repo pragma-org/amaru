@@ -302,18 +302,21 @@ pub mod tests {
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use amaru_pure_stage::{
         StageGraph,
+        session::{Agency, StateId, assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project},
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
         typestate::{FmtPar, OnReceive, Session, State},
     };
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{assert_wire_inputs_cover_receives, map_r, responder_type_graph, session_spec},
+        super::spec::{
+            blockfetch_responder, map_r, responder_type_graph, session_spec,
+        },
         *,
     };
     use crate::{
         mux::{MuxMessage, Sent},
-        protocol::{Inputs, ProjectionConfig, Role, StateId, check_timeouts, check_want_next, project},
+        protocol::Inputs,
         store_effects::ResourceHeaderStore,
     };
 
@@ -363,7 +366,7 @@ pub mod tests {
         // Empty Done is extracted; occupancy-empty would also hold without it.
         assert!(g.states.contains(Done::NAME));
         assert!(g.receives[Done::NAME].is_empty());
-        let cfg = ProjectionConfig::blockfetch_responder();
+        let cfg = blockfetch_responder();
         let spec = session_spec();
         check_want_next(&g, &cfg).unwrap();
         check_timeouts(&g, &cfg, &spec).unwrap();
@@ -371,15 +374,15 @@ pub mod tests {
 
         let req = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
         let start = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange", "StartBatch"] };
-        assert_eq!(projected.dest(&StateId::Named("Idle"), &"RequestRange"), req);
-        assert_eq!(projected.dest(&req, &"StartBatch"), start);
-        assert_eq!(projected.dest(&req, &"NoBlocks"), StateId::Named("Idle"));
-        assert_eq!(projected.dest(&start, &"Block"), start);
-        assert_eq!(projected.dest(&start, &"BatchDone"), StateId::Named("Idle"));
-        assert_eq!(projected.dest(&StateId::Named("Idle"), &"ClientDone"), StateId::Named("Done"));
+        assert_eq!(projected.dest(&StateId::Named("Idle"), "RequestRange"), req);
+        assert_eq!(projected.dest(&req, "StartBatch"), start);
+        assert_eq!(projected.dest(&req, "NoBlocks"), StateId::Named("Idle"));
+        assert_eq!(projected.dest(&start, "Block"), start);
+        assert_eq!(projected.dest(&start, "BatchDone"), StateId::Named("Idle"));
+        assert_eq!(projected.dest(&StateId::Named("Idle"), "ClientDone"), StateId::Named("Done"));
 
-        projected.assert_refines(&spec.project(Role::Responder), map_r);
-        assert_wire_inputs_cover_receives(&g, &cfg);
+        projected.assert_refines(&spec.project(Agency::Responder), map_r);
+        assert_wire_inputs_cover_receives(&g, &cfg, &spec);
     }
 
     #[test]
