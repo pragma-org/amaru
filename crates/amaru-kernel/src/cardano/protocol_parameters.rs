@@ -565,9 +565,9 @@ mod tests {
 
     use super::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
     use crate::{
-        CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
-        KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RationalNumber, RewardAccount, any_constitution, size::SCRIPT,
+        Constitution, CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits,
+        GovernanceAction, Hash, KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate,
+        ProtocolParameters, ProtocolVersion, RationalNumber, RewardAccount, size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -808,7 +808,7 @@ mod tests {
         prop_compose! {
             fn any_new_constitution()(
                 parent_proposal_id in any_parent_proposal_id(),
-                constitution in any_constitution(),
+                constitution in any::<Constitution>(),
             ) -> GovernanceAction {
                 GovernanceAction::NewConstitution(parent_proposal_id, constitution)
             }

@@ -15,8 +15,7 @@
 use amaru_kernel::{
     Anchor, Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
     MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, RewardAccount, Slot,
-    TransactionInput, any_ballot, any_ballot_id, any_drep_registration, any_modern_output, any_pool_params,
-    any_proposals_roots,
+    TransactionInput, any_modern_output, any_pool_params,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
 use proptest::prelude::any;
@@ -25,11 +24,11 @@ use rand::Rng;
 // -------------------------------------------------------------------------------------- Generators
 
 pub fn ballot(rng: &mut impl Rng) -> Ballot {
-    run_strategy_with_rng(rng, any_ballot())
+    run_strategy_with_rng(rng, any::<Ballot>())
 }
 
 pub fn ballot_id(rng: &mut impl Rng) -> BallotId {
-    run_strategy_with_rng(rng, any_ballot_id())
+    run_strategy_with_rng(rng, any::<BallotId>())
 }
 
 pub fn comparable_proposal_id(rng: &mut impl Rng) -> ProposalId {
@@ -41,7 +40,7 @@ pub fn drep(rng: &mut impl Rng) -> DRep {
 }
 
 pub fn drep_registration(rng: &mut impl Rng) -> DRepRegistration {
-    run_strategy_with_rng(rng, any_drep_registration())
+    run_strategy_with_rng(rng, any::<DRepRegistration>())
 }
 
 pub fn hash28(rng: &mut impl Rng) -> Hash<28> {
@@ -84,7 +83,7 @@ pub fn proposal(rng: &mut impl Rng) -> Proposal {
 }
 
 pub fn proposals_roots(rng: &mut impl Rng) -> ProposalsRoots {
-    run_strategy_with_rng(rng, any_proposals_roots())
+    run_strategy_with_rng(rng, any::<ProposalsRoots>())
 }
 
 pub fn stake_credential(rng: &mut impl Rng) -> Credential {

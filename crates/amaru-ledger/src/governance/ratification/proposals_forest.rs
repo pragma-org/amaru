@@ -739,11 +739,11 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Anchor, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
-        MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal,
-        ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
-        RationalNumber, RewardAccount, Slot, TransactionPointer, any_constitution, any_constitutional_committee_update,
-        any_gov_action, any_proposal_enum, any_protocol_params_update,
+        Anchor, Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs,
+        Lovelace, MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10,
+        Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
+        RationalNumber, RewardAccount, Slot, TransactionPointer, any_gov_action, any_proposal_enum,
+        any_protocol_params_update,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -1131,12 +1131,14 @@ mod tests {
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
             let any_constitution_tree =
-                any_proposals_tree(ids[lo..hi].into(), any_constitution(), GovernanceAction::NewConstitution);
+                any_proposals_tree(ids[lo..hi].into(), any::<Constitution>(), GovernanceAction::NewConstitution);
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
             let any_constitutional_committee_tree = any_proposals_tree(
                 ids[lo..hi].into(),
-                any_constitutional_committee_update((MIN_ARBITRARY_EPOCH..MAX_ARBITRARY_EPOCH).prop_map(Epoch::from)),
+                any_with::<ConstitutionalCommitteeUpdate>(Some(
+                    (MIN_ARBITRARY_EPOCH..MAX_ARBITRARY_EPOCH).prop_map(Epoch::from).boxed(),
+                )),
                 |parent, update| match update {
                     ConstitutionalCommitteeUpdate::NoConfidence => GovernanceAction::NoConfidence(parent),
                     ConstitutionalCommitteeUpdate::ChangeMembers { threshold, added, removed } => {

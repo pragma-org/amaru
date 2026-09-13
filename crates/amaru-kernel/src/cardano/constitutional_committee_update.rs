@@ -17,6 +17,14 @@ use std::{
     fmt,
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    collection,
+    prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof},
+};
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::safe_ratio;
 use crate::{Credential, Epoch, SafeRatio};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,17 +63,13 @@ impl fmt::Display for ConstitutionalCommitteeUpdate {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for ConstitutionalCommitteeUpdate {
+    type Parameters = Option<BoxedStrategy<Epoch>>;
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{collection, prelude::*};
+    fn arbitrary_with(any_epoch: Self::Parameters) -> Self::Strategy {
+        let any_epoch = any_epoch.unwrap_or_else(|| any::<Epoch>().boxed());
 
-    use crate::{ConstitutionalCommitteeUpdate, Credential, Epoch, safe_ratio};
-
-    pub fn any_constitutional_committee_update(
-        any_epoch: impl Strategy<Value = Epoch>,
-    ) -> impl Strategy<Value = ConstitutionalCommitteeUpdate> {
         let any_no_confidence = Just(ConstitutionalCommitteeUpdate::NoConfidence);
 
         let any_change_members = (
@@ -79,6 +83,6 @@ mod tests {
                 threshold: safe_ratio(numerator as u64, 1),
             });
 
-        prop_oneof![1 => any_no_confidence, 2 => any_change_members]
+        prop_oneof![1 => any_no_confidence, 2 => any_change_members].boxed()
     }
 }
