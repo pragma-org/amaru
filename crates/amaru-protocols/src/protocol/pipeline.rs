@@ -34,6 +34,8 @@ define_role_tag!(pub ToMux);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WantNext;
 
+amaru_pure_stage::impl_label!(WantNext);
+
 /// Destination for instance mux I/O. Holds the protocol id so [`WantNext`] and
 /// wire payloads can become [`MuxMessage`] values.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
