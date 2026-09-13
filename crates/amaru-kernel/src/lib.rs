@@ -203,10 +203,7 @@ pub use cardano::{
 };
 #[cfg(any(test, feature = "test-utils"))]
 pub use cardano::{
-    header::{
-        any_header, any_header_with_parent, any_header_with_some_parent, any_headers_chain,
-        any_headers_chain_with_root, make_header, make_header_with_op_cert_seq,
-    },
+    header::{HeaderParams, any_headers_chain, any_headers_chain_with_root, make_header, make_header_with_op_cert_seq},
     memoized::{any_datum, any_legacy_output, any_modern_output},
     native_script::any_native_script,
     plutus_data::any_plutus_data,
