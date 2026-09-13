@@ -203,18 +203,13 @@ pub use cardano::{
 };
 #[cfg(any(test, feature = "test-utils"))]
 pub use cardano::{
-    era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
-    era_params::any_era_params,
     header::{
         any_header, any_header_with_parent, any_header_with_some_parent, any_headers_chain,
         any_headers_chain_with_root, make_header, make_header_with_op_cert_seq,
     },
     memoized::{any_datum, any_legacy_output, any_modern_output},
     native_script::any_native_script,
-    network_point::{any_network_point, any_specific_network_point},
-    network_tip::any_network_tip,
     plutus_data::any_plutus_data,
-    point::{any_point, any_specific_point},
     pool_params::any_pool_params,
     proposal::any_proposal,
     proposal_enum::any_proposal_enum,

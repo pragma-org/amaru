@@ -23,6 +23,9 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
+
 use crate::{BlockHeight, Hash, HeaderHash, ORIGIN_HASH, Point, Slot, cbor, size::HEADER};
 
 #[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -192,113 +195,95 @@ impl<'de> serde::Deserialize<'de> for NetworkPoint {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for NetworkPoint {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let any_specific = (0u64..=1000, any::<HeaderHash>())
+            .prop_map(|(slot, header_hash)| NetworkPoint::Specific(Slot::from(slot), header_hash));
+
+        prop_oneof![1 => Just(NetworkPoint::Origin), 3 => any_specific].boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
+    use test_case::test_case;
 
-    use crate::{HeaderHash, NetworkPoint, Slot, prop_cbor_roundtrip};
+    use crate::{Hash, NetworkPoint, Slot, prop_cbor_roundtrip};
 
-    prop_cbor_roundtrip!(NetworkPoint, any_network_point());
+    prop_cbor_roundtrip!(NetworkPoint);
 
-    prop_compose! {
-        fn any_slot()(n in 0u64..=1000) -> Slot {
-            Slot::from(n)
-        }
+    #[test_case(NetworkPoint::Origin => "Origin")]
+    #[test_case(
+        NetworkPoint::Specific(
+            Slot::from(42),
+            Hash::new([
+              254, 252, 156,   3, 124,  63, 156, 139,
+               79, 183, 138, 155,  15,  19, 123,  94,
+              208, 128,  60,  61,  70, 189,  45,  14,
+               64, 197, 159, 169,  12, 160,   2, 193
+            ])
+        ) => "Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1)";
+        "specific"
+    )]
+    fn better_debug_network_point(point: NetworkPoint) -> String {
+        format!("{point:?}")
     }
 
-    prop_compose! {
-        pub fn any_specific_network_point()(slot in any_slot(), header_hash in any::<HeaderHash>()) -> NetworkPoint {
-            NetworkPoint::Specific(slot, header_hash)
-        }
+    #[test_case(
+        NetworkPoint::Origin => "origin";
+       "origin"
+    )]
+    #[test_case(
+        NetworkPoint::Specific(
+            Slot::from(42),
+            Hash::new([
+              254, 252, 156,   3, 124,  63, 156, 139,
+               79, 183, 138, 155,  15,  19, 123,  94,
+              208, 128,  60,  61,  70, 189,  45,  14,
+               64, 197, 159, 169,  12, 160,   2, 193
+            ])
+        ) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
+        "specific"
+    )]
+    fn better_display_network_point(point: NetworkPoint) -> String {
+        format!("{point}")
     }
 
-    pub fn any_network_point() -> impl Strategy<Value = NetworkPoint> {
-        prop_oneof![
-            1 => Just(NetworkPoint::Origin),
-            3 => any_specific_network_point(),
-        ]
+    #[test]
+    fn test_parse_network_point() {
+        let error = NetworkPoint::try_from("42.0123456789abcdef").unwrap_err();
+        assert_eq!(error, "failed to parse block header hash: Invalid string length");
     }
 
-    #[cfg(test)]
-    mod internal {
-        use test_case::test_case;
+    #[test]
+    fn json() {
+        let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
+        let point = NetworkPoint::try_from(point_str).expect("failed to parse from string");
+        let point_json = serde_json::to_string(&point).expect("failed to serialize");
+        assert_eq!(format!("\"{point_str}\""), point_json);
+        assert_eq!(point, serde_json::from_str(&point_json).expect("failed to deserialize"));
+    }
 
-        use super::*;
-        use crate::Hash;
-
-        #[test_case(NetworkPoint::Origin => "Origin")]
-        #[test_case(
-            NetworkPoint::Specific(
-                Slot::from(42),
-                Hash::new([
-                  254, 252, 156,   3, 124,  63, 156, 139,
-                   79, 183, 138, 155,  15,  19, 123,  94,
-                  208, 128,  60,  61,  70, 189,  45,  14,
-                   64, 197, 159, 169,  12, 160,   2, 193
-                ])
-            ) => "Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1)";
-            "specific"
-        )]
-        fn better_debug_network_point(point: NetworkPoint) -> String {
-            format!("{point:?}")
-        }
-
-        #[test_case(
-            NetworkPoint::Origin => "origin";
-           "origin"
-        )]
-        #[test_case(
-            NetworkPoint::Specific(
-                Slot::from(42),
-                Hash::new([
-                  254, 252, 156,   3, 124,  63, 156, 139,
-                   79, 183, 138, 155,  15,  19, 123,  94,
-                  208, 128,  60,  61,  70, 189,  45,  14,
-                   64, 197, 159, 169,  12, 160,   2, 193
-                ])
-            ) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
-            "specific"
-        )]
-        fn better_display_network_point(point: NetworkPoint) -> String {
-            format!("{point}")
-        }
-
-        #[test]
-        fn test_parse_network_point() {
-            let error = NetworkPoint::try_from("42.0123456789abcdef").unwrap_err();
-            assert_eq!(error, "failed to parse block header hash: Invalid string length");
-        }
-
-        #[test]
-        fn json() {
-            let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
-            let point = NetworkPoint::try_from(point_str).expect("failed to parse from string");
-            let point_json = serde_json::to_string(&point).expect("failed to serialize");
-            assert_eq!(format!("\"{point_str}\""), point_json);
-            assert_eq!(point, serde_json::from_str(&point_json).expect("failed to deserialize"));
-        }
-
-        #[test]
-        fn test_parse_real_network_point() {
-            let point =
-                NetworkPoint::try_from("70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d")
-                    .unwrap();
-            match point {
-                NetworkPoint::Specific(slot, _hash) => {
-                    assert_eq!(70070379, slot.as_u64());
-                }
-                _ => panic!("expected a specific network point"),
+    #[test]
+    fn test_parse_real_network_point() {
+        let point = NetworkPoint::try_from("70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d")
+            .unwrap();
+        match point {
+            NetworkPoint::Specific(slot, _hash) => {
+                assert_eq!(70070379, slot.as_u64());
             }
+            _ => panic!("expected a specific network point"),
         }
+    }
 
-        #[test]
-        fn reject_indefinite_length_hash() {
-            // [42, (_ h'fefc9c037c3f9c8b4fb78a9b0f137b5e', h'd0803c3d46bd2d0e40c59fa90ca002c1')]
-            let bytes =
-                hex::decode("82182a5f50fefc9c037c3f9c8b4fb78a9b0f137b5e50d0803c3d46bd2d0e40c59fa90ca002c1ff").unwrap();
-            assert!(crate::from_cbor::<NetworkPoint>(&bytes).is_none());
-        }
+    #[test]
+    fn reject_indefinite_length_hash() {
+        // [42, (_ h'fefc9c037c3f9c8b4fb78a9b0f137b5e', h'd0803c3d46bd2d0e40c59fa90ca002c1')]
+        let bytes =
+            hex::decode("82182a5f50fefc9c037c3f9c8b4fb78a9b0f137b5e50d0803c3d46bd2d0e40c59fa90ca002c1ff").unwrap();
+        assert!(crate::from_cbor::<NetworkPoint>(&bytes).is_none());
     }
 }

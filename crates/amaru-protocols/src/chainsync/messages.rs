@@ -257,7 +257,7 @@ impl cbor::Encode<()> for HeaderContent {
 /// Roundtrip property tests for chainsync messages.
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{any_network_point, any_point, prop_cbor_roundtrip};
+    use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
@@ -304,31 +304,31 @@ mod tests {
     }
 
     prop_compose! {
-        fn roll_forward_message()(header_content in any_header_content(), tip in any_point()) -> Message {
+        fn roll_forward_message()(header_content in any_header_content(), tip in any::<Point>()) -> Message {
             RollForward(header_content, tip)
         }
     }
 
     prop_compose! {
-        fn roll_backward_message()(point in any_network_point(), tip in any_point()) -> Message {
+        fn roll_backward_message()(point in any::<NetworkPoint>(), tip in any::<Point>()) -> Message {
             RollBackward(point, tip)
         }
     }
 
     prop_compose! {
-        fn find_intersect_message()(points in proptest::collection::vec(any_network_point(), 0..3)) -> Message {
+        fn find_intersect_message()(points in proptest::collection::vec(any::<NetworkPoint>(), 0..3)) -> Message {
             FindIntersect(points)
         }
     }
 
     prop_compose! {
-        fn intersect_found_message()(point in any_network_point(), tip in any_point()) -> Message {
+        fn intersect_found_message()(point in any::<NetworkPoint>(), tip in any::<Point>()) -> Message {
             IntersectFound(point, tip)
         }
     }
 
     prop_compose! {
-        fn intersect_not_found_message()(tip in any_point()) -> Message {
+        fn intersect_not_found_message()(tip in any::<Point>()) -> Message {
             IntersectNotFound(tip)
         }
     }

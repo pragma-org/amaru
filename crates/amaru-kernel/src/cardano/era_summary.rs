@@ -14,6 +14,9 @@
 
 use std::time::Duration;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, any_with};
+
 use crate::{Epoch, EraBound, Slot, cardano::era_params::EraParams, cbor};
 
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
@@ -124,39 +127,35 @@ impl<'b, C> cbor::Decode<'b, C> for EraSummary {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for EraSummary {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use std::cmp::{max, min};
-
-    use proptest::prelude::*;
-
-    use super::*;
-    use crate::{Epoch, any_era_bound_for_epoch, any_era_params, prop_cbor_roundtrip};
-
-    prop_compose! {
-        pub fn any_era_summary()(
-            b1 in any::<u16>(),
-            b2 in any::<u16>(),
-            params in any_era_params(),
-        )(
-            first_epoch in Just(min(b1, b2) as u64),
-            last_epoch in Just(max(b1, b2) as u64),
-            params in Just(params),
-            start in any_era_bound_for_epoch(Epoch::from(max(b1, b2) as u64)),
-        ) -> EraSummary {
-            let epochs_elapsed = last_epoch - first_epoch;
-            let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
-            let time_elapsed = params.slot_length * slots_elapsed as u32;
-            let end = Some(EraBound {
-                time: start.time + time_elapsed,
-                slot: start.slot.offset_by(slots_elapsed),
-                epoch: Epoch::from(last_epoch),
-            });
-            EraSummary { start, end, params }
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<u16>(), any::<u16>(), any::<EraParams>())
+            .prop_flat_map(|(b1, b2, params)| {
+                let first_epoch = b1.min(b2) as u64;
+                let last_epoch = b1.max(b2) as u64;
+                any_with::<EraBound>(Some(Epoch::from(last_epoch))).prop_map(move |start| {
+                    let epochs_elapsed = last_epoch - first_epoch;
+                    let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
+                    let time_elapsed = params.slot_length * slots_elapsed as u32;
+                    let end = Some(EraBound {
+                        time: start.time + time_elapsed,
+                        slot: start.slot.offset_by(slots_elapsed),
+                        epoch: Epoch::from(last_epoch),
+                    });
+                    EraSummary { start, end, params: params.clone() }
+                })
+            })
+            .boxed()
     }
+}
 
-    prop_cbor_roundtrip!(EraSummary, any_era_summary());
+#[cfg(test)]
+mod tests {
+    use super::EraSummary;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(EraSummary);
 }
