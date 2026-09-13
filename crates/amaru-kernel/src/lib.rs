@@ -203,13 +203,6 @@ pub use cardano::{
 };
 #[cfg(any(test, feature = "test-utils"))]
 pub use cardano::{
-    ballot::any_ballot,
-    ballot_id::{any_ballot_id, any_voter},
-    constitution::any_constitution,
-    constitutional_committee_member_status::any_constitutional_committee_member_status,
-    constitutional_committee_status::any_constitutional_committee_status,
-    constitutional_committee_update::any_constitutional_committee_update,
-    drep_registration::any_drep_registration,
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
     era_params::any_era_params,
     header::{
@@ -220,13 +213,11 @@ pub use cardano::{
     native_script::any_native_script,
     network_point::{any_network_point, any_specific_network_point},
     network_tip::any_network_tip,
-    orphan_proposal::any_orphan_proposal,
     plutus_data::any_plutus_data,
     point::{any_point, any_specific_point},
     pool_params::any_pool_params,
     proposal::any_proposal,
     proposal_enum::any_proposal_enum,
-    proposals_roots::any_proposals_roots,
     protocol_parameters::{
         any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_gov_action,
         any_guardrails_script, any_pool_voting_thresholds, any_protocol_parameter, any_protocol_params_update,
