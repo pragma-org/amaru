@@ -48,6 +48,7 @@ mod describe;
 mod effect;
 mod list;
 mod macros;
+mod message;
 mod occupancy;
 mod role;
 mod session;
@@ -57,12 +58,16 @@ pub use effect::{
     AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
     SetTimeout, Terminate, Wait,
 };
-pub use list::{CanFinish, Choice, Clean, DiscardRepeat, FinishIn, FmtPar, Here, Par, Select, Take, Then};
+pub use list::{
+    CanFinish, Choice, Clean, DescribeAst, DiscardRepeat, EffectAst, FinishIn, FmtPar, Here, InputName, Par,
+    PayloadName, RemainderAst, RoleName, Select, StateName, Take, Then, ThenAst,
+};
+pub use message::{MessageLabel, MessageLabels, assert_message_alphabet_covered, labels};
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleCall, IntoRoleMail, Role, RoleTag};
 pub use session::{
-    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, SendAnyOp, Session, SessionOps, State,
-    To, initial_state,
+    DescribeReceives, DescribeStates, ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive,
+    SendAnyOp, Session, SessionOps, State, To, TypeGraph, initial_state,
 };
 
 pub mod prelude {
@@ -72,7 +77,8 @@ pub mod prelude {
         Send, SendAny, Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
     pub use crate::{
-        define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, reveal_remainder, star,
+        define_mailbox, define_messages, define_role, define_role_tag, impl_label, make_states, on_receive,
+        reveal_remainder, star,
     };
 }
 

@@ -16,9 +16,9 @@
 //! `tests/typestate.rs`.
 
 use super::{
-    Choice, FmtPar, Here, OnReceive, Par, Select, Then,
+    Choice, EffectAst, FmtPar, Here, OnReceive, Par, RemainderAst, Select, Session, Then, ThenAst,
     effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout},
-    list::{CanFinish, ConsIfPresent, DiscardRepeat, describe},
+    list::{CanFinish, ConsIfPresent, DiscardRepeat, describe, describe_ast},
     session::describe_receive,
 };
 
@@ -60,18 +60,34 @@ mod toy {
 
     pub struct Peer;
 
-    on_receive!(Idle, FindIntersect => Send<Peer, String>, Send<Peer, u8> => Intersect | Wait => Idle);
-    on_receive!(Intersect, u8 => Idle);
-    on_receive!(Idle, RequestNext => Send<Peer, ()> => CanAwait);
-    on_receive!(CanAwait, String => Idle);
-    on_receive!(CanAwait, AwaitReply => MustReply);
-    on_receive!(MustReply, String => Idle);
-    on_receive!(Idle, ClientDone => Send<Peer, ()> => Done);
+    on_receive!(Idle as IdleIn {
+        FindIntersect => { Send<Peer, String>, Send<Peer, u8> => Intersect | Wait => Idle }
+        RequestNext => { Send<Peer, ()> => CanAwait }
+        ClientDone => { Send<Peer, ()> => Done }
+        Tick => { Repeat<SendAny<Peer>>, SetTimeout, Call<Peer, u8> => Idle }
+    });
+    on_receive!(Intersect as IntersectIn {
+        u8 => { Idle }
+    });
+    on_receive!(CanAwait as CanAwaitIn {
+        String => { Idle }
+        AwaitReply => { MustReply }
+    });
+    on_receive!(MustReply as MustReplyIn {
+        String => { Idle }
+    });
+    on_receive!(Done as DoneIn {});
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct FindIntersect;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct RequestNext;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct AwaitReply;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct ClientDone;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Tick;
 }
 
 #[test]
@@ -136,6 +152,112 @@ fn describe_remainder() {
             std::any::type_name::<toy::Peer>()
         )
     );
+}
+
+fn send(role: &'static str, payload: &'static str) -> EffectAst {
+    EffectAst::Send { role, payload }
+}
+
+fn call(role: &'static str, payload: &'static str) -> EffectAst {
+    EffectAst::Call { role, payload }
+}
+
+fn then(parallel: Vec<Vec<EffectAst>>, next: &'static str) -> ThenAst {
+    ThenAst { parallel, next }
+}
+
+fn rem(alternatives: Vec<ThenAst>) -> RemainderAst {
+    RemainderAst { alternatives }
+}
+
+#[test]
+fn describe_ast_exclusive_choice_send_or_wait() {
+    type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![
+            then(vec![vec![send("Peer", "String"), send("Peer", "u8")]], "Intersect"),
+            then(vec![vec![EffectAst::Wait]], "Idle"),
+        ])
+    );
+    assert_eq!(Session::<(), Rem>::describe_ast(), describe_ast::<Rem>());
+}
+
+#[test]
+fn describe_ast_empty_then_is_hidable_only() {
+    type Rem = <toy::CanAwait as OnReceive<toy::AwaitReply>>::Then;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![], "MustReply")]));
+}
+
+#[test]
+fn describe_ast_single_send_to_done() {
+    type Rem = <toy::Idle as OnReceive<toy::ClientDone>>::Then;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![vec![send("Peer", "()")]], "Done")]));
+}
+
+#[test]
+fn describe_ast_clear_timeout() {
+    type Rem = Choice<(Then<Par<((ClearTimeout,),)>, toy::Idle>,)>;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![vec![EffectAst::ClearTimeout]], "Idle")]));
+}
+
+#[test]
+fn describe_ast_repeat_set_timeout_call() {
+    type Rem = <toy::Idle as OnReceive<toy::Tick>>::Then;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![then(
+            vec![vec![
+                EffectAst::Repeat(vec![EffectAst::SendAny { role: "Peer" }]),
+                EffectAst::SetTimeout,
+                call("Peer", "u8"),
+            ]],
+            "Idle",
+        )])
+    );
+}
+
+#[test]
+fn describe_ast_parallel_beside_repeat() {
+    type Rem = Choice<(Then<Par<((Send<toy::Peer, u8>,), (Repeat<SendAny<toy::Peer>>,))>, toy::Idle>,)>;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![then(
+            vec![vec![send("Peer", "u8")], vec![EffectAst::Repeat(vec![EffectAst::SendAny { role: "Peer" }])],],
+            "Idle",
+        )])
+    );
+}
+
+#[test]
+fn describe_ast_repeat_of_sequence() {
+    type Seq = (Send<toy::Peer, u8>, Send<toy::Peer, u16>);
+    type Rem = Choice<(Then<Par<((Repeat<Seq>,),)>, toy::Idle>,)>;
+    assert_eq!(
+        describe_ast::<Rem>(),
+        rem(vec![then(vec![vec![EffectAst::Repeat(vec![send("Peer", "u8"), send("Peer", "u16")])]], "Idle",)])
+    );
+}
+
+#[test]
+fn describe_ast_repeat_call() {
+    type Rem = Choice<(Then<Par<((Repeat<Call<toy::Peer, u8>>,),)>, toy::Idle>,)>;
+    assert_eq!(describe_ast::<Rem>(), rem(vec![then(vec![vec![EffectAst::Repeat(vec![call("Peer", "u8")])]], "Idle")]));
+}
+
+mod payload_generic {
+    pub struct Bar;
+}
+
+#[test]
+fn describe_ast_payload_keeps_generic_args() {
+    type Rem = Choice<(Then<Par<((Send<toy::Peer, Option<payload_generic::Bar>>,),)>, toy::Idle>,)>;
+    let EffectAst::Send { payload, .. } = &describe_ast::<Rem>().alternatives[0].parallel[0][0] else {
+        panic!("expected Send");
+    };
+    assert_ne!(*payload, "Bar>");
+    assert!(payload.starts_with("Option<"), "{payload}");
+    assert!(payload.contains("Bar"), "{payload}");
 }
 
 #[test]
@@ -281,6 +403,8 @@ mod exclusive_choice {
     on_receive!(Idle as IdleIn {
         Go => { Send<RoleA, A1>, Send<RoleB, B1> => StateA | Send<RoleC, C1>, Send<RoleD, D1> => StateC }
     });
+    on_receive!(StateA as StateAIn {});
+    on_receive!(StateC as StateCIn {});
 
     type Rem = <Idle as OnReceive<Go>>::Then;
     type AfterAExpect = Choice<(Then<Par<((Send<RoleB, B1>,),)>, StateA>,)>;
@@ -295,6 +419,28 @@ mod exclusive_choice {
             describe_after::<Rem, Send<RoleA, A1>, _>(),
             format!("Send<{}, {}> => StateA", std::any::type_name::<RoleB>(), std::any::type_name::<B1>())
         );
+    }
+
+    #[test]
+    fn describe_ast_role_last_segment_matches_role_tag_name() {
+        assert_eq!(
+            describe_ast::<Rem>(),
+            rem(vec![
+                then(vec![vec![send(RoleA::NAME, "A1"), send(RoleB::NAME, "B1")]], "StateA"),
+                then(vec![vec![send(RoleC::NAME, "C1"), send(RoleD::NAME, "D1")]], "StateC"),
+            ])
+        );
+    }
+
+    #[test]
+    fn typestate_graph_extracts_grouped_remainders() {
+        let g = Live::type_graph();
+        assert_eq!(g.initial, Idle::NAME);
+        assert_eq!(g.states, std::collections::BTreeSet::from([Idle::NAME, StateA::NAME, StateC::NAME]));
+        assert!(g.occupancy.is_empty());
+        assert_eq!(g.receives[Idle::NAME].get("Go"), Some(&describe_ast::<Rem>()));
+        assert!(g.receives[StateA::NAME].is_empty());
+        assert!(g.receives[StateC::NAME].is_empty());
     }
 
     #[test]
@@ -322,6 +468,9 @@ mod exclusive_choice {
             | Send<RoleE, E1> => StateZ
         }
     });
+    on_receive!(StateX as StateXIn {});
+    on_receive!(StateY as StateYIn {});
+    on_receive!(StateZ as StateZIn {});
 
     type Rem3 = <Start as OnReceive<Kick>>::Then;
     type AfterEExpect = Choice<(Then<Par<()>, StateZ>,)>;
@@ -333,6 +482,18 @@ mod exclusive_choice {
         assert_done::<AfterEExpect>();
         assert_eq!(describe_after::<Rem3, Send<RoleE, E1>, _>(), "=> StateZ");
     }
+
+    #[test]
+    fn describe_ast_three_way_choice() {
+        assert_eq!(
+            describe_ast::<Rem3>(),
+            rem(vec![
+                then(vec![vec![send(RoleA::NAME, "A1")]], "StateX"),
+                then(vec![vec![send(RoleC::NAME, "C1")]], "StateY"),
+                then(vec![vec![send(RoleE::NAME, "E1")]], "StateZ"),
+            ])
+        );
+    }
 }
 
 #[test]
@@ -343,7 +504,7 @@ fn initial_state_wraps_into_live_enum() {
 
 #[allow(dead_code)]
 mod convert {
-    use crate::typestate::prelude::*;
+    use crate::typestate::{DescribeAst, OnReceive, prelude::*};
 
     make_states!(Live { Idle; Done });
 
@@ -355,6 +516,19 @@ mod convert {
     define_mailbox!(Mail { Ping(Ping), Pong(Pong) });
     on_receive!(Idle as IdleIn { Ping => { Done } });
     on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn empty_done_extracts_no_receives() {
+        let g = Live::type_graph();
+        assert_eq!(g.initial, Idle::NAME);
+        assert_eq!(g.states, std::collections::BTreeSet::from([Done::NAME, Idle::NAME]));
+        assert!(g.occupancy.is_empty());
+        assert_eq!(
+            g.receives[Idle::NAME].get("Ping"),
+            Some(&<<Idle as OnReceive<Ping>>::Then as DescribeAst>::describe_ast())
+        );
+        assert!(g.receives[Done::NAME].is_empty());
+    }
 
     #[test]
     fn convert_input_rejects_inadmissible_mailbox() {
@@ -410,13 +584,32 @@ mod messages_macro {
     fn extra_enum_derive_is_ord() {
         assert!(Mail::from(Ping { n: 1 }) < Mail::from(Ping { n: 2 }));
     }
+
+    #[test]
+    fn message_labels_are_variant_names() {
+        use crate::typestate::{MessageLabel, MessageLabels, assert_message_alphabet_covered};
+
+        assert_eq!(Mail::labels(), &["Ping", "Pong", "Bye"]);
+        assert_eq!(Mail::from(Ping { n: 1 }).label(), "Ping");
+        assert_eq!(Mail::from(Pong(2)).label(), "Pong");
+        assert_eq!(Mail::from(Bye).label(), "Bye");
+        assert_message_alphabet_covered::<Mail>(["Ping", "Pong"], &["Bye"]);
+        assert_eq!(
+            crate::typestate::labels([Ping::LABEL, Pong::LABEL, Bye::LABEL]),
+            ["Ping", "Pong", "Bye"].into_iter().collect()
+        );
+        assert_eq!(Ping { n: 0 }.label(), "Ping");
+    }
 }
 
 #[allow(dead_code)]
 mod occupancy {
-    use crate::typestate::prelude::*;
+    use crate::typestate::{DescribeStates, prelude::*};
 
     make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
+    on_receive!(Idle as IdleIn {});
+    on_receive!(Busy as BusyIn {});
+    on_receive!(Done as DoneIn {});
 
     #[test]
     fn switch_and_terminal_are_named() {
@@ -425,5 +618,95 @@ mod occupancy {
         assert!(idle.in_switch());
         assert!(!idle.is_remote());
         assert!(!idle.is_terminal());
+    }
+
+    #[test]
+    fn describe_states_maps_occupancy_when_switch_is_named() {
+        let occ = <Live as DescribeStates>::describe_states();
+        assert_eq!(<Live as DescribeStates>::initial(), Idle::NAME);
+        assert_eq!(occ.get(Idle::NAME), Some(&Occupancy::Switch));
+        assert_eq!(occ.get(Busy::NAME), Some(&Occupancy::Remote));
+        assert_eq!(occ.get(Done::NAME), Some(&Occupancy::Terminal));
+    }
+}
+
+#[allow(dead_code)]
+mod occupancy_switch_only {
+    use crate::typestate::{DescribeStates, prelude::*};
+
+    make_states!(Live { Start; RemoteSt } switch Start);
+    on_receive!(Start as StartIn {});
+    on_receive!(RemoteSt as RemoteStIn {});
+
+    #[test]
+    fn unnamed_terminal_is_remote() {
+        let occ = <Live as DescribeStates>::describe_states();
+        assert_eq!(occ.get(Start::NAME), Some(&Occupancy::Switch));
+        assert_eq!(occ.get(RemoteSt::NAME), Some(&Occupancy::Remote));
+        assert_eq!(occ.len(), 2);
+    }
+}
+
+#[allow(dead_code)]
+mod extract_graph {
+    use super::{rem, send, then};
+    use crate::typestate::{DescribeAst, Occupancy, OnReceive, prelude::*};
+
+    define_role_tag!(Peer);
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Ping;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Pong;
+
+    make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
+
+    on_receive!(Idle as IdleIn {
+        Ping => { Send<Peer, u8> => Busy }
+        Pong => { Done }
+    });
+    on_receive!(Busy as BusyIn {
+        Ping => { Wait => Idle }
+    });
+    on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn extracts_remainders_occupancy_and_empty_done() {
+        let g = Live::type_graph();
+        assert_eq!(g.initial, Idle::NAME);
+        assert_eq!(g.states, std::collections::BTreeSet::from([Busy::NAME, Done::NAME, Idle::NAME]));
+        assert_eq!(g.occupancy.get(Idle::NAME), Some(&Occupancy::Switch));
+        assert_eq!(g.occupancy.get(Busy::NAME), Some(&Occupancy::Remote));
+        assert_eq!(g.occupancy.get(Done::NAME), Some(&Occupancy::Terminal));
+        assert_eq!(g.receives[Idle::NAME].get("Ping"), Some(&rem(vec![then(vec![vec![send("Peer", "u8")]], "Busy")])));
+        assert_eq!(
+            g.receives[Idle::NAME].get("Pong"),
+            Some(&<<Idle as OnReceive<Pong>>::Then as DescribeAst>::describe_ast())
+        );
+        assert_eq!(
+            g.receives[Busy::NAME].get("Ping"),
+            Some(&<<Busy as OnReceive<Ping>>::Then as DescribeAst>::describe_ast())
+        );
+        assert!(g.receives[Done::NAME].is_empty());
+    }
+}
+
+#[allow(dead_code)]
+mod two_initial {
+    use crate::typestate::prelude::*;
+
+    make_states!(Live { Alpha, Beta; Done });
+    on_receive!(Alpha as AlphaIn {});
+    on_receive!(Beta as BetaIn {});
+    on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn initial_is_first_name_before_semicolon() {
+        let g = Live::type_graph();
+        assert_eq!(g.initial, Alpha::NAME);
+        assert!(g.receives[Alpha::NAME].is_empty());
+        assert!(g.receives[Beta::NAME].is_empty());
+        assert!(g.receives[Done::NAME].is_empty());
+        assert!(g.occupancy.is_empty());
     }
 }

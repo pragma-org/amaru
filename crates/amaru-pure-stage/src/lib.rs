@@ -38,6 +38,9 @@ pub mod trace_buffer;
 pub mod trace_match;
 mod types;
 
+#[macro_use]
+mod session_macros;
+pub mod session;
 pub mod simulation;
 pub mod typestate;
 
@@ -52,6 +55,10 @@ pub use sender::{CallError, SendError, Sender};
 pub use serde::{
     DeserializerGuard, DeserializerGuards, serialize_external_effect::register_effect_deserializer,
     serialize_send_data::register_data_deserializer,
+};
+pub use session::{
+    Agency, Cfsm, Direction, Label, ProjectError, ProjectionConfig, SessionSpec, TimeoutError, Vertex, assert_projects,
+    assert_wire_inputs_cover_receives, check_timeouts, project,
 };
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};
