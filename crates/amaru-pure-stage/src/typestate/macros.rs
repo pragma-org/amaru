@@ -241,6 +241,34 @@ macro_rules! typestate_live_enum {
     };
 }
 
+/// [`MessageLabel`] and `LABEL` for a type whose `stringify!` is a graph name.
+///
+/// Used by [`define_messages`](crate::define_messages) and by local/plumbing
+/// inputs (`Pull`, `Fetch`, …) that are not message payloads.
+#[macro_export]
+macro_rules! impl_label {
+    ($name:ident) => {
+        impl $crate::typestate::MessageLabel for $name {
+            fn label(&self) -> &'static str {
+                stringify!($name)
+            }
+        }
+
+        impl $name {
+            /// [`MessageLabel`] without constructing a value.
+            pub const LABEL: &'static dyn $crate::typestate::MessageLabel = {
+                struct __Label;
+                impl $crate::typestate::MessageLabel for __Label {
+                    fn label(&self) -> &'static str {
+                        stringify!($name)
+                    }
+                }
+                &__Label
+            };
+        }
+    };
+}
+
 /// A ZST tag naming a send destination (`Send<$name, T>`).
 #[macro_export]
 macro_rules! define_role_tag {
@@ -401,6 +429,8 @@ macro_rules! define_messages_emit {
         }
 
         $crate::define_mailbox_conversions!($name { $($var ($var)),+ });
+
+        $( $crate::impl_label!($var); )+
 
         impl $crate::typestate::MessageLabels for $name {
             fn labels() -> &'static [&'static str] {

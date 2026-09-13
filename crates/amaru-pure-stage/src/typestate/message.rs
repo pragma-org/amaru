@@ -16,6 +16,21 @@
 
 use std::collections::BTreeSet;
 
+/// Label of a type whose `stringify!` is a remainder-graph name.
+///
+/// Implemented for `define_messages!` payloads and for local/plumbing inputs
+/// via [`impl_label!`](crate::impl_label). Object-safe so [`labels`] can take a
+/// mixed list. Use `T::LABEL` without constructing a value.
+pub trait MessageLabel {
+    /// `stringify!` of this payload type.
+    fn label(&self) -> &'static str;
+}
+
+/// Collect payload type names. `BTreeSet` because projection looks up by name.
+pub fn labels<'a>(items: impl IntoIterator<Item = &'a dyn MessageLabel>) -> BTreeSet<&'static str> {
+    items.into_iter().map(MessageLabel::label).collect()
+}
+
 /// Names of the variants of a protocol message enum.
 ///
 /// [`define_messages!`](crate::define_messages) implements this. `labels` and

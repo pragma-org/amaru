@@ -93,9 +93,13 @@ pub struct Fetch {
     pub cr: StageRef<Blocks>,
 }
 
+amaru_pure_stage::impl_label!(Fetch);
+
 /// Local request that closes an idle initiator instance.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Close;
+
+amaru_pure_stage::impl_label!(Close);
 
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks {

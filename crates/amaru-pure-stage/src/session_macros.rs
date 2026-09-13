@@ -46,28 +46,6 @@ macro_rules! session_spec {
     };
 }
 
-/// Map message-struct identifiers to spec labels (`stringify!` → `stringify!`).
-/// Each `$name` must implement `Into<$enum>`.
-#[macro_export]
-macro_rules! session_labels {
-    ($enum:ty; $($name:ident),+ $(,)?) => {{
-        {
-            fn __into<T: ::core::convert::Into<$enum>>() {}
-            $(__into::<$name>();)+
-        }
-        ::std::collections::BTreeMap::from([$((stringify!($name), stringify!($name))),+])
-    }};
-}
-
-/// Input-arm identifiers as a set (`stringify!`). The types must exist.
-#[macro_export]
-macro_rules! session_input_names {
-    ($($name:ident),+ $(,)?) => {{
-        $(let _: &'static str = ::core::any::type_name::<$name>();)+
-        ::std::collections::BTreeSet::from([$(stringify!($name)),+])
-    }};
-}
-
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __session_spec {

@@ -580,13 +580,18 @@ mod messages_macro {
 
     #[test]
     fn message_labels_are_variant_names() {
-        use crate::typestate::{MessageLabels, assert_message_alphabet_covered};
+        use crate::typestate::{MessageLabel, MessageLabels, assert_message_alphabet_covered};
 
         assert_eq!(Mail::labels(), &["Ping", "Pong", "Bye"]);
         assert_eq!(Mail::from(Ping { n: 1 }).label(), "Ping");
         assert_eq!(Mail::from(Pong(2)).label(), "Pong");
         assert_eq!(Mail::from(Bye).label(), "Bye");
         assert_message_alphabet_covered::<Mail>(["Ping", "Pong"], &["Bye"]);
+        assert_eq!(
+            crate::typestate::labels([Ping::LABEL, Pong::LABEL, Bye::LABEL]),
+            ["Ping", "Pong", "Bye"].into_iter().collect()
+        );
+        assert_eq!(Ping { n: 0 }.label(), "Ping");
     }
 }
 

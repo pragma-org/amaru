@@ -510,10 +510,10 @@ pub struct ProjectionConfig {
     pub peer_role: RoleName,
     pub mux_role: RoleName,
     pub local_roles: BTreeSet<RoleName>,
-    /// Receive-arm identifiers (`stringify!($in)`) → spec message label.
-    pub wire_inputs: BTreeMap<InputName, &'static str>,
-    /// Remainder `Call`/`Send` payload last-segments → spec message label.
-    pub wire_payload: BTreeMap<PayloadName, &'static str>,
+    /// Receive-arm identifiers that are mux wire messages (`stringify!($in)`).
+    pub wire_inputs: BTreeSet<InputName>,
+    /// Remainder `Call`/`Send` payload last-segments that are mux wire messages.
+    pub wire_payload: BTreeSet<PayloadName>,
     pub plumbing_inputs: BTreeSet<InputName>,
     pub local_inputs: BTreeSet<InputName>,
     pub driven: bool,
@@ -527,7 +527,6 @@ pub enum ProjectError {
     MixedHidableWireChoice { state: StateName, input: InputName },
     EmptyWireAlternatives { state: StateName, input: InputName },
     OverlappingInput { input: InputName },
-    DuplicateWirePayload { first: PayloadName, second: PayloadName },
     Nondeterministic { state: StateId, label: String },
     MixedAgency { state: StateId },
     AmbiguousRepeat { origin: StateId },
@@ -556,9 +555,6 @@ impl Display for ProjectError {
             }
             ProjectError::OverlappingInput { input } => {
                 write!(f, "input {input} is listed in more than one of plumbing, local, and wire")
-            }
-            ProjectError::DuplicateWirePayload { first, second } => {
-                write!(f, "wire_payload keys {first} and {second} share the same dummy message")
             }
             ProjectError::Nondeterministic { state, label } => {
                 write!(f, "nondeterministic {label} from {state}")
@@ -591,9 +587,6 @@ impl std::error::Error for ProjectError {}
 pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, ProjectError> {
     if let Some(input) = overlapping_input(cfg) {
         return Err(ProjectError::OverlappingInput { input });
-    }
-    if let Some((first, second)) = duplicate_wire_payload(cfg) {
-        return Err(ProjectError::DuplicateWirePayload { first, second });
     }
 
     let mut proj = Projector { cfg, states: BTreeSet::new(), transitions: BTreeMap::new() };
@@ -633,7 +626,8 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
                 continue;
             }
 
-            if let Some(m) = cfg.wire_inputs.get(input) {
+            if cfg.wire_inputs.contains(input) {
+                let m = *input;
                 if !hidable_only.is_empty() && !wire_bearing.is_empty() {
                     return Err(ProjectError::MixedHidableWireChoice { state, input });
                 }
@@ -725,11 +719,11 @@ pub fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &ProjectionConf
             if cfg.plumbing_inputs.contains(input) || cfg.local_inputs.contains(input) {
                 continue;
             }
-            assert!(cfg.wire_inputs.contains_key(input), "wire receive arm {input} at {state} is not in wire_inputs");
+            assert!(cfg.wire_inputs.contains(input), "wire receive arm {input} at {state} is not in wire_inputs");
         }
     }
     let table: BTreeSet<&str> = spec.edge_labels().collect();
-    for label in cfg.wire_inputs.values().chain(cfg.wire_payload.values()) {
+    for label in cfg.wire_inputs.iter().chain(cfg.wire_payload.iter()) {
         assert!(table.contains(label), "wire map label {label} is not in the session spec");
     }
 }
@@ -787,7 +781,7 @@ impl Projector<'_> {
             | EffectAst::AddStage => Ok(true),
             EffectAst::Send { role, payload } | EffectAst::Call { role, payload } => {
                 if *role == self.cfg.peer_role {
-                    if self.cfg.wire_payload.contains_key(payload) {
+                    if self.cfg.wire_payload.contains(payload) {
                         Ok(false)
                     } else {
                         Err(ProjectError::UnknownPeerPayload { payload })
@@ -837,9 +831,10 @@ impl Projector<'_> {
                     }
                 }
                 EffectAst::Call { payload, .. } | EffectAst::Send { payload, .. } => {
-                    let m = self.cfg.wire_payload.get(payload).unwrap_or_else(|| {
-                        panic!("expand_seq: payload {payload} missing from wire_payload at {state}")
-                    });
+                    if !self.cfg.wire_payload.contains(payload) {
+                        panic!("expand_seq: payload {payload} missing from wire_payload at {state}");
+                    }
+                    let m = *payload;
                     if i + 1 == seq.len() {
                         self.emit(state, Label::send(m), StateId::Named(named_next))?;
                         return Ok(());
@@ -894,7 +889,7 @@ impl Projector<'_> {
         match e {
             EffectAst::Call { role, payload } | EffectAst::Send { role, payload } => {
                 if *role == self.cfg.peer_role {
-                    self.cfg.wire_payload.get(payload).copied()
+                    self.cfg.wire_payload.contains(payload).then_some(*payload)
                 } else {
                     None
                 }
@@ -954,23 +949,13 @@ fn drop_unreachable(cfsm: &mut Cfsm) {
 
 fn overlapping_input(cfg: &ProjectionConfig) -> Option<InputName> {
     for input in &cfg.plumbing_inputs {
-        if cfg.local_inputs.contains(input) || cfg.wire_inputs.contains_key(input) {
+        if cfg.local_inputs.contains(input) || cfg.wire_inputs.contains(input) {
             return Some(*input);
         }
     }
     for input in &cfg.local_inputs {
-        if cfg.wire_inputs.contains_key(input) {
+        if cfg.wire_inputs.contains(input) {
             return Some(*input);
-        }
-    }
-    None
-}
-
-fn duplicate_wire_payload(cfg: &ProjectionConfig) -> Option<(PayloadName, PayloadName)> {
-    let mut seen: BTreeMap<&'static str, PayloadName> = BTreeMap::new();
-    for (name, dummy) in &cfg.wire_payload {
-        if let Some(first) = seen.insert(dummy, *name) {
-            return Some((first, *name));
         }
     }
     None
@@ -1155,7 +1140,7 @@ fn input_kind(cfg: &ProjectionConfig, input: InputName) -> InputKind {
         InputKind::Plumbing
     } else if cfg.local_inputs.contains(input) {
         InputKind::Local
-    } else if cfg.wire_inputs.contains_key(input) {
+    } else if cfg.wire_inputs.contains(input) {
         InputKind::Wire
     } else {
         InputKind::Unknown
@@ -1185,7 +1170,7 @@ fn is_waiting(graph: &TypeGraph, cfg: &ProjectionConfig, state: StateName) -> bo
         Some(Occupancy::Remote) => true,
         Some(Occupancy::Switch | Occupancy::Terminal) => false,
         None => graph.receives.get(state).is_some_and(|inputs| {
-            inputs.keys().any(|input| cfg.plumbing_inputs.contains(input) || cfg.wire_inputs.contains_key(input))
+            inputs.keys().any(|input| cfg.plumbing_inputs.contains(input) || cfg.wire_inputs.contains(input))
         }),
     }
 }
@@ -1232,7 +1217,7 @@ fn reject_peer_wire_send_seq(
     for e in effects {
         match e {
             EffectAst::Repeat(body) => reject_peer_wire_send_seq(body, state, input, cfg)?,
-            EffectAst::Send { role, payload } if *role == cfg.peer_role && cfg.wire_payload.contains_key(payload) => {
+            EffectAst::Send { role, payload } if *role == cfg.peer_role && cfg.wire_payload.contains(payload) => {
                 return Err(WantNextError::WirePayloadMustBeCall { state, input, payload });
             }
             EffectAst::Send { .. }
@@ -1546,15 +1531,8 @@ mod tests {
         ThenAst { parallel: vec![effects], next }
     }
 
-    fn payloads() -> BTreeMap<PayloadName, &'static str> {
-        BTreeMap::from([
-            ("RequestRange", "RequestRange"),
-            ("ClientDone", "ClientDone"),
-            ("StartBatch", "StartBatch"),
-            ("NoBlocks", "NoBlocks"),
-            ("Block", "Block"),
-            ("BatchDone", "BatchDone"),
-        ])
+    fn payloads() -> BTreeSet<PayloadName> {
+        BTreeSet::from(["RequestRange", "ClientDone", "StartBatch", "NoBlocks", "Block", "BatchDone"])
     }
 
     fn table_37() -> SessionSpec {
@@ -1576,12 +1554,7 @@ mod tests {
             peer_role: "ToResponder",
             mux_role: "ToMux",
             local_roles: BTreeSet::from(["ToCollector"]),
-            wire_inputs: BTreeMap::from([
-                ("StartBatch", "StartBatch"),
-                ("NoBlocks", "NoBlocks"),
-                ("Block", "Block"),
-                ("BatchDone", "BatchDone"),
-            ]),
+            wire_inputs: BTreeSet::from(["StartBatch", "NoBlocks", "Block", "BatchDone"]),
             wire_payload: payloads(),
             plumbing_inputs: BTreeSet::from(["Pull"]),
             local_inputs: BTreeSet::from(["Fetch", "Close"]),
@@ -1595,7 +1568,7 @@ mod tests {
             peer_role: "ToInitiator",
             mux_role: "ToMux",
             local_roles: BTreeSet::new(),
-            wire_inputs: BTreeMap::from([("RequestRange", "RequestRange"), ("ClientDone", "ClientDone")]),
+            wire_inputs: BTreeSet::from(["RequestRange", "ClientDone"]),
             wire_payload: payloads(),
             plumbing_inputs: BTreeSet::from(["Pull"]),
             local_inputs: BTreeSet::new(),
@@ -2013,26 +1986,10 @@ mod tests {
                 graph: idle_graph(BTreeMap::from([("Fetch", seq(vec![call("ToResponder", "RequestRange")], "Busy"))])),
                 cfg: {
                     let mut cfg = cfg_initiator();
-                    cfg.wire_inputs.insert("Fetch", "RequestRange");
+                    cfg.wire_inputs.insert("Fetch");
                     cfg
                 },
                 check: |e| matches!(e, ProjectError::OverlappingInput { input: "Fetch" }),
-            },
-            Case {
-                name: "DuplicateWirePayload",
-                graph: idle_graph(BTreeMap::from([("Fetch", seq(vec![call("ToResponder", "RequestRange")], "Busy"))])),
-                cfg: {
-                    let mut cfg = cfg_initiator();
-                    cfg.wire_payload.insert("AlsoRequestRange", "RequestRange");
-                    cfg
-                },
-                check: |e| {
-                    matches!(
-                        e,
-                        ProjectError::DuplicateWirePayload { first: "AlsoRequestRange", second: "RequestRange" }
-                            | ProjectError::DuplicateWirePayload { first: "RequestRange", second: "AlsoRequestRange" }
-                    )
-                },
             },
             Case {
                 name: "PeerSendAny",

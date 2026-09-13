@@ -54,7 +54,7 @@ pub use list::{
     CanFinish, Clean, Cons, DescribeAst, DiscardRepeat, EffectAst, FmtPar, Here, InputName, Nil, PayloadName,
     RemainderAst, RoleName, Select, StateName, Then, ThenAst,
 };
-pub use message::{MessageLabels, assert_message_alphabet_covered};
+pub use message::{MessageLabel, MessageLabels, assert_message_alphabet_covered, labels};
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleCall, IntoRoleMail, Role, RoleTag};
 pub use session::{
@@ -68,7 +68,9 @@ pub mod prelude {
         IntoRoleMail, Nil, Occupancy, OccupancyOf, OnReceive, Receive, Repeat, Role, RoleTag, Schedule, Send, SendAny,
         Session, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
-    pub use crate::{define_mailbox, define_messages, define_role, define_role_tag, make_states, on_receive, star};
+    pub use crate::{
+        define_mailbox, define_messages, define_role, define_role_tag, impl_label, make_states, on_receive, star,
+    };
 }
 
 #[cfg(test)]

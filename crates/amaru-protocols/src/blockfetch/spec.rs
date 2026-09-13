@@ -21,8 +21,8 @@ use std::collections::BTreeSet;
 
 use amaru_pure_stage::{
     session::{Agency, ProjectionConfig, SessionSpec, StateId, project},
-    session_input_names, session_labels, session_spec,
-    typestate::{RoleTag, TypeGraph},
+    session_spec,
+    typestate::{RoleTag, TypeGraph, labels},
     typestate_graph,
 };
 
@@ -55,10 +55,17 @@ pub(crate) fn blockfetch_initiator() -> ProjectionConfig {
         peer_role: ToResponder::NAME,
         mux_role: ToMux::NAME,
         local_roles: BTreeSet::from([ToCollector::NAME]),
-        wire_inputs: session_labels!(Message; StartBatch, NoBlocks, Block, BatchDone),
-        wire_payload: session_labels!(Message; RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone),
-        plumbing_inputs: session_input_names!(Pull),
-        local_inputs: session_input_names!(Fetch, Close),
+        wire_inputs: labels([StartBatch::LABEL, NoBlocks::LABEL, Block::LABEL, BatchDone::LABEL]),
+        wire_payload: labels([
+            RequestRange::LABEL,
+            ClientDone::LABEL,
+            StartBatch::LABEL,
+            NoBlocks::LABEL,
+            Block::LABEL,
+            BatchDone::LABEL,
+        ]),
+        plumbing_inputs: labels([Pull::LABEL]),
+        local_inputs: labels([Fetch::LABEL, Close::LABEL]),
         driven: true,
     }
 }
@@ -69,9 +76,16 @@ pub(crate) fn blockfetch_responder() -> ProjectionConfig {
         peer_role: ToInitiator::NAME,
         mux_role: ToMux::NAME,
         local_roles: BTreeSet::new(),
-        wire_inputs: session_labels!(Message; RequestRange, ClientDone),
-        wire_payload: session_labels!(Message; RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone),
-        plumbing_inputs: session_input_names!(Pull),
+        wire_inputs: labels([RequestRange::LABEL, ClientDone::LABEL]),
+        wire_payload: labels([
+            RequestRange::LABEL,
+            ClientDone::LABEL,
+            StartBatch::LABEL,
+            NoBlocks::LABEL,
+            Block::LABEL,
+            BatchDone::LABEL,
+        ]),
+        plumbing_inputs: labels([Pull::LABEL]),
         local_inputs: BTreeSet::new(),
         driven: false,
     }
