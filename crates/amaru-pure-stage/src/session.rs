@@ -733,6 +733,20 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
     Ok(cfsm)
 }
 
+/// Project `graph` with `cfg` and check it against `spec`.
+///
+/// Runs WantNext / timeout well-formedness, mux projection, structural
+/// refinement of `spec.project(cfg.role)`, and wire-input coverage.
+#[track_caller]
+pub fn assert_projects(graph: &TypeGraph, cfg: &ProjectionConfig, spec: &SessionSpec) -> Cfsm {
+    check_want_next(graph, cfg).unwrap_or_else(|e| panic!("{e}"));
+    check_timeouts(graph, cfg, spec).unwrap_or_else(|e| panic!("{e}"));
+    let projected = project(graph, cfg).unwrap_or_else(|e| panic!("{e}"));
+    projected.assert_refines(&spec.project(cfg.role));
+    assert_wire_inputs_cover_receives(graph, cfg, spec);
+    projected
+}
+
 /// Every receive arm is plumbing, local, or in `wire_inputs`. Every wire-map
 /// label is an edge of `spec`.
 #[track_caller]
@@ -2315,5 +2329,70 @@ mod tests {
             .insert("NoBlocks", seq(vec![repeat(vec![EffectAst::ClearTimeout, send_any("ToCollector")])], "Idle"));
         let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
         assert!(matches!(err, TimeoutError::ClearTimeoutMissing { state: "Busy", input: "NoBlocks" }), "{err:?}");
+    }
+}
+
+#[cfg(test)]
+mod unused_messages {
+    use crate::{session::SessionSpec, typestate::prelude::*};
+
+    make_states!(Live { Start; Wait, End });
+    on_receive!(Start as StartIn {});
+    on_receive!(Wait as WaitIn {});
+    on_receive!(End as EndIn {});
+
+    define_messages! {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        enum Hs {
+            Propose,
+            Accept,
+            QueryReply,
+        }
+    }
+
+    fn handshake_like() -> SessionSpec {
+        crate::session_spec! {
+            Hs unused [QueryReply];
+            [*] --> Start
+            Start --> Wait: Propose
+            Wait --> End: Accept
+            note left of Start: Initiator
+            note left of Wait: Responder
+        }
+    }
+
+    #[test]
+    fn unused_variant_is_not_an_edge() {
+        let spec = handshake_like();
+        let edges: Vec<_> = spec.edge_labels().collect();
+        assert!(edges.contains(&"Propose"));
+        assert!(edges.contains(&"Accept"));
+        assert!(!edges.contains(&"QueryReply"));
+    }
+
+    #[test]
+    #[should_panic(expected = "QueryReply is neither in the spec table nor listed unused")]
+    fn omitted_unused_variant_is_rejected() {
+        let _ = crate::session_spec! {
+            Hs;
+            [*] --> Start
+            Start --> Wait: Propose
+            Wait --> End: Accept
+            note left of Start: Initiator
+            note left of Wait: Responder
+        };
+    }
+
+    #[test]
+    #[should_panic(expected = "Accept is both in the spec table and listed unused")]
+    fn unused_variant_cannot_also_be_an_edge() {
+        let _ = crate::session_spec! {
+            Hs unused [Accept];
+            [*] --> Start
+            Start --> Wait: Propose
+            Wait --> End: Accept
+            note left of Start: Initiator
+            note left of Wait: Responder
+        };
     }
 }

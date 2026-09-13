@@ -296,6 +296,7 @@ macro_rules! impl_label {
 
         impl $name {
             /// [`MessageLabel`] without constructing a value.
+            #[allow(dead_code)]
             pub const LABEL: &'static dyn $crate::typestate::MessageLabel = {
                 struct __Label;
                 impl $crate::typestate::MessageLabel for __Label {

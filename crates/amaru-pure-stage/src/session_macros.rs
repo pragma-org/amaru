@@ -29,60 +29,67 @@
 ///     Message;
 ///     [*] --> Idle
 ///     Idle --> Busy: RequestRange
-///     Idle --> Done: ClientDone
-///     Busy --> Idle: NoBlocks
-///     Busy --> Streaming: StartBatch
-///     Streaming --> Streaming: Block
-///     Streaming --> Idle: BatchDone
 ///     note left of Idle: Initiator
 ///     note left of Busy: Responder timeout BLOCKFETCH_AGENCY_TIMEOUT
-///     note left of Streaming: Responder timeout BLOCKFETCH_AGENCY_TIMEOUT
+/// }
+///
+/// session_spec! {
+///     Message unused [QueryReply];
+///     [*] --> Propose
+///     Propose --> Confirm: Propose
+///     note left of Propose: Initiator
 /// }
 /// ```
+///
+/// Building the spec also checks that every `$enum` variant is an edge label
+/// or listed in `unused`.
 #[macro_export]
 macro_rules! session_spec {
+    ($enum:ident unused [$($unused:ident),* $(,)?]; $($body:tt)*) => {
+        $crate::__session_spec! { $enum, [$($unused),*], [], [], [], [], $($body)* }
+    };
     ($enum:ty; $($body:tt)*) => {
-        $crate::__session_spec! { $enum, [], [], [], [], $($body)* }
+        $crate::__session_spec! { $enum, [], [], [], [], [], $($body)* }
     };
 }
 
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __session_spec {
-    ($enum:ty, $start:tt, $edges:tt, $notes:tt, $timeouts:tt,) => {
-        $crate::__session_spec_emit! { $enum, $start, $edges, $notes, $timeouts }
+    ($enum:ty, $unused:tt, $start:tt, $edges:tt, $notes:tt, $timeouts:tt,) => {
+        $crate::__session_spec_emit! { $enum, $unused, $start, $edges, $notes, $timeouts }
     };
 
-    ($enum:ty, $start:tt, $edges:tt, $notes:tt, $timeouts:tt, ) => {
-        $crate::__session_spec_emit! { $enum, $start, $edges, $notes, $timeouts }
+    ($enum:ty, $unused:tt, $start:tt, $edges:tt, $notes:tt, $timeouts:tt, ) => {
+        $crate::__session_spec_emit! { $enum, $unused, $start, $edges, $notes, $timeouts }
     };
 
-    ($enum:ty, [$($start:ident)?], $edges:tt, $notes:tt, $timeouts:tt, [*] --> $to:ident $($rest:tt)*) => {
-        $crate::__session_spec! { $enum, [$to], $edges, $notes, $timeouts, $($rest)* }
+    ($enum:ty, $unused:tt, [$($start:ident)?], $edges:tt, $notes:tt, $timeouts:tt, [*] --> $to:ident $($rest:tt)*) => {
+        $crate::__session_spec! { $enum, $unused, [$to], $edges, $notes, $timeouts, $($rest)* }
     };
 
-    ($enum:ty, $start:tt, [$($edges:tt)*], $notes:tt, $timeouts:tt, $from:ident --> $to:ident : $msg:ident [sim_open] $($rest:tt)*) => {
-        $crate::__session_spec! { $enum, $start, [$($edges)* ($from, $msg, $to, true)], $notes, $timeouts, $($rest)* }
+    ($enum:ty, $unused:tt, $start:tt, [$($edges:tt)*], $notes:tt, $timeouts:tt, $from:ident --> $to:ident : $msg:ident [sim_open] $($rest:tt)*) => {
+        $crate::__session_spec! { $enum, $unused, $start, [$($edges)* ($from, $msg, $to, true)], $notes, $timeouts, $($rest)* }
     };
 
-    ($enum:ty, $start:tt, [$($edges:tt)*], $notes:tt, $timeouts:tt, $from:ident --> $to:ident : $msg:ident $($rest:tt)*) => {
-        $crate::__session_spec! { $enum, $start, [$($edges)* ($from, $msg, $to, false)], $notes, $timeouts, $($rest)* }
+    ($enum:ty, $unused:tt, $start:tt, [$($edges:tt)*], $notes:tt, $timeouts:tt, $from:ident --> $to:ident : $msg:ident $($rest:tt)*) => {
+        $crate::__session_spec! { $enum, $unused, $start, [$($edges)* ($from, $msg, $to, false)], $notes, $timeouts, $($rest)* }
     };
 
-    ($enum:ty, $start:tt, $edges:tt, [$($notes:tt)*], [$($timeouts:tt)*], note left of $s:ident : $role:ident timeout $dur:ident $($rest:tt)*) => {
-        $crate::__session_spec! { $enum, $start, $edges, [$($notes)* ($s, $role)], [$($timeouts)* ($s, $dur)], $($rest)* }
+    ($enum:ty, $unused:tt, $start:tt, $edges:tt, [$($notes:tt)*], [$($timeouts:tt)*], note left of $s:ident : $role:ident timeout $dur:ident $($rest:tt)*) => {
+        $crate::__session_spec! { $enum, $unused, $start, $edges, [$($notes)* ($s, $role)], [$($timeouts)* ($s, $dur)], $($rest)* }
     };
 
-    ($enum:ty, $start:tt, $edges:tt, [$($notes:tt)*], [$($timeouts:tt)*], note right of $s:ident : $role:ident timeout $dur:ident $($rest:tt)*) => {
-        $crate::__session_spec! { $enum, $start, $edges, [$($notes)* ($s, $role)], [$($timeouts)* ($s, $dur)], $($rest)* }
+    ($enum:ty, $unused:tt, $start:tt, $edges:tt, [$($notes:tt)*], [$($timeouts:tt)*], note right of $s:ident : $role:ident timeout $dur:ident $($rest:tt)*) => {
+        $crate::__session_spec! { $enum, $unused, $start, $edges, [$($notes)* ($s, $role)], [$($timeouts)* ($s, $dur)], $($rest)* }
     };
 
-    ($enum:ty, $start:tt, $edges:tt, [$($notes:tt)*], $timeouts:tt, note left of $s:ident : $role:ident $($rest:tt)*) => {
-        $crate::__session_spec! { $enum, $start, $edges, [$($notes)* ($s, $role)], $timeouts, $($rest)* }
+    ($enum:ty, $unused:tt, $start:tt, $edges:tt, [$($notes:tt)*], $timeouts:tt, note left of $s:ident : $role:ident $($rest:tt)*) => {
+        $crate::__session_spec! { $enum, $unused, $start, $edges, [$($notes)* ($s, $role)], $timeouts, $($rest)* }
     };
 
-    ($enum:ty, $start:tt, $edges:tt, [$($notes:tt)*], $timeouts:tt, note right of $s:ident : $role:ident $($rest:tt)*) => {
-        $crate::__session_spec! { $enum, $start, $edges, [$($notes)* ($s, $role)], $timeouts, $($rest)* }
+    ($enum:ty, $unused:tt, $start:tt, $edges:tt, [$($notes:tt)*], $timeouts:tt, note right of $s:ident : $role:ident $($rest:tt)*) => {
+        $crate::__session_spec! { $enum, $unused, $start, $edges, [$($notes)* ($s, $role)], $timeouts, $($rest)* }
     };
 }
 
@@ -91,6 +98,7 @@ macro_rules! __session_spec {
 macro_rules! __session_spec_emit {
     (
         $enum:ty,
+        [$($unused:ident),*],
         [$($start:ident)?],
         [$(($from:ident, $msg:ident, $to:ident, $sim:expr))*],
         [$(($note_s:ident, $note_role:ident))*],
@@ -105,6 +113,7 @@ macro_rules! __session_spec_emit {
                 __state::<$to>();
                 __wire::<$msg>();
             )*
+            $(__wire::<$unused>();)*
             $(__state::<$note_s>();)*
             $(__state::<$ts>();)*
         }
@@ -145,6 +154,11 @@ macro_rules! __session_spec_emit {
         $(
             spec.set_timeout(<$ts as $crate::typestate::State>::NAME, $dur);
         )*
+
+        $crate::typestate::assert_message_alphabet_covered::<$enum>(
+            spec.edge_labels(),
+            &[$(stringify!($unused)),*],
+        );
 
         spec
     }};

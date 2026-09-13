@@ -20,15 +20,15 @@
 use std::collections::BTreeSet;
 
 use amaru_pure_stage::{
-    session::{Agency, ProjectionConfig, SessionSpec, project},
+    session::{Agency, ProjectionConfig, SessionSpec, assert_projects},
     session_spec,
-    typestate::{RoleTag, TypeGraph, labels},
+    typestate::{RoleTag, labels},
 };
 
 use super::{
     BLOCKFETCH_AGENCY_TIMEOUT, BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch,
-    initiator::{Busy, Close, Done, Fetch, Idle, Streaming, ToCollector, ToResponder},
-    responder::ToInitiator,
+    initiator::{self, Busy, Done, Idle, Streaming},
+    responder,
 };
 use crate::protocol::{Pull, ToMux};
 
@@ -48,12 +48,12 @@ pub(crate) fn session_spec() -> SessionSpec {
     }
 }
 
-pub(crate) fn blockfetch_initiator() -> ProjectionConfig {
+fn blockfetch_initiator() -> ProjectionConfig {
     ProjectionConfig {
         role: Agency::Initiator,
-        peer_role: ToResponder::NAME,
+        peer_role: initiator::ToResponder::NAME,
         mux_role: ToMux::NAME,
-        local_roles: BTreeSet::from([ToCollector::NAME]),
+        local_roles: BTreeSet::from([initiator::ToCollector::NAME]),
         wire_inputs: labels([StartBatch::LABEL, NoBlocks::LABEL, Block::LABEL, BatchDone::LABEL]),
         wire_payload: labels([
             RequestRange::LABEL,
@@ -64,15 +64,15 @@ pub(crate) fn blockfetch_initiator() -> ProjectionConfig {
             BatchDone::LABEL,
         ]),
         plumbing_inputs: labels([Pull::LABEL]),
-        local_inputs: labels([Fetch::LABEL, Close::LABEL]),
+        local_inputs: labels([initiator::Fetch::LABEL, initiator::Close::LABEL]),
         driven: true,
     }
 }
 
-pub(crate) fn blockfetch_responder() -> ProjectionConfig {
+fn blockfetch_responder() -> ProjectionConfig {
     ProjectionConfig {
         role: Agency::Responder,
-        peer_role: ToInitiator::NAME,
+        peer_role: responder::ToInitiator::NAME,
         mux_role: ToMux::NAME,
         local_roles: BTreeSet::new(),
         wire_inputs: labels([RequestRange::LABEL, ClientDone::LABEL]),
@@ -91,8 +91,9 @@ pub(crate) fn blockfetch_responder() -> ProjectionConfig {
 }
 
 #[test]
-fn collapsed_responder_dual_equals_collapsed_initiator() {
-    let h_i = project(&super::initiator::Proto::type_graph(), &blockfetch_initiator()).unwrap();
-    let h_r = project(&super::responder::Proto::type_graph(), &blockfetch_responder()).unwrap();
+fn responder_dual_equals_initiator() {
+    let spec = session_spec();
+    let h_i = assert_projects(&initiator::Proto::type_graph(), &blockfetch_initiator(), &spec);
+    let h_r = assert_projects(&responder::Proto::type_graph(), &blockfetch_responder(), &spec);
     h_r.dual().assert_bisimilar(&h_i);
 }

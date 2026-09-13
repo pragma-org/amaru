@@ -58,7 +58,7 @@ pub use serde::{
 };
 pub use session::{
     Agency, Cfsm, Direction, Label, ProjectError, ProjectionConfig, SessionSpec, TimeoutError, Vertex, WantNextError,
-    assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project,
+    assert_projects, assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project,
 };
 pub use stage_ref::{StageBuildRef, StageRef};
 pub use stagegraph::{ScheduleId, StageGraph, StageGraphRunning, stage_name};

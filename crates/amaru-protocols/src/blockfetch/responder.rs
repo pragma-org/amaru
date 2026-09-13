@@ -302,16 +302,13 @@ pub mod tests {
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use amaru_pure_stage::{
         StageGraph,
-        session::{Agency, assert_wire_inputs_cover_receives, check_timeouts, check_want_next, project},
+        session::assert_projects,
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
         typestate::{FmtPar, OnReceive, Session, State},
     };
     use tokio::runtime::{Builder, Runtime};
 
-    use super::{
-        super::spec::{blockfetch_responder, session_spec},
-        *,
-    };
+    use super::{super::spec::session_spec, *};
     use crate::{
         mux::{MuxMessage, Sent},
         protocol::Inputs,
@@ -357,29 +354,8 @@ pub mod tests {
     }
 
     #[test]
-    fn responder_projects_to_table_3_7() {
-        let g = super::Proto::type_graph();
-        // No occupancy: responder `make_states!` has no switch.
-        assert!(g.occupancy.is_empty());
-        // Empty Done is extracted; occupancy-empty would also hold without it.
-        assert!(g.states.contains(Done::NAME));
-        assert!(g.receives[Done::NAME].is_empty());
-        let cfg = blockfetch_responder();
-        let spec = session_spec();
-        check_want_next(&g, &cfg).unwrap();
-        check_timeouts(&g, &cfg, &spec).unwrap();
-        let projected = project(&g, &cfg).unwrap();
-
-        let idle = projected.initial;
-        let req = projected.dest(idle, "RequestRange");
-        let start = projected.dest(req, "StartBatch");
-        assert_eq!(projected.dest(req, "NoBlocks"), idle);
-        assert_eq!(projected.dest(start, "Block"), start);
-        assert_eq!(projected.dest(start, "BatchDone"), idle);
-        assert!(projected.terminal.contains(&projected.dest(idle, "ClientDone")));
-
-        projected.assert_refines(&spec.project(Agency::Responder));
-        assert_wire_inputs_cover_receives(&g, &cfg, &spec);
+    fn responder_does_not_pipeline() {
+        assert!(super::Proto::type_graph().occupancy.is_empty());
     }
 
     #[test]
