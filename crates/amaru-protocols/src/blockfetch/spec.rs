@@ -14,107 +14,56 @@
 
 //! Network-spec BlockFetch machine (Tables 3.7 / 3.8) as a [`SessionSpec`].
 //!
-//! State keys are the initiator constructor names (`Idle`, `Busy`, `Streaming`,
-//! `Done`). Dummy [`Message`] values here are the same values used in
-//! [`ProjectionConfig`] wire maps.
+//! State keys and message labels are type names (`Idle`, `RequestRange`, …),
+//! not dummy payload values.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-use amaru_kernel::NetworkPoint;
 use amaru_pure_stage::{
-    typestate::{PayloadName, RoleTag, State, StateName, TypeGraph},
+    typestate::{RoleTag, StateName, TypeGraph},
     typestate_graph,
 };
 
 use super::{
     BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch,
-    initiator::{BLOCKFETCH_AGENCY_TIMEOUT, Busy, Done, Idle, Streaming, ToCollector, ToResponder},
+    initiator::{BLOCKFETCH_AGENCY_TIMEOUT, Busy, Close, Done, Fetch, Idle, Streaming, ToCollector, ToResponder},
     responder::ToInitiator,
 };
-use crate::protocol::{ProjectionConfig, Role, SessionSpec, StateId, ToMux, project};
+use crate::{
+    protocol::{ProjectionConfig, Pull, Role, SessionSpec, StateId, ToMux, project},
+    session_input_names, session_labels, session_spec,
+};
 
-fn dummy_request_range() -> Message {
-    RequestRange { from: NetworkPoint::Origin, through: NetworkPoint::Origin }.into()
+pub(crate) fn session_spec() -> SessionSpec<StateName, &'static str> {
+    session_spec! {
+        Message;
+        [*] --> Idle
+        Idle --> Busy: RequestRange
+        Idle --> Done: ClientDone
+        Busy --> Idle: NoBlocks
+        Busy --> Streaming: StartBatch
+        Streaming --> Streaming: Block
+        Streaming --> Idle: BatchDone
+        note left of Idle: Initiator
+        note left of Busy: Responder timeout BLOCKFETCH_AGENCY_TIMEOUT
+        note left of Streaming: Responder timeout BLOCKFETCH_AGENCY_TIMEOUT
+    }
 }
 
-fn dummy_client_done() -> Message {
-    ClientDone.into()
-}
-
-fn dummy_start_batch() -> Message {
-    StartBatch.into()
-}
-
-fn dummy_no_blocks() -> Message {
-    NoBlocks.into()
-}
-
-fn dummy_block() -> Message {
-    Block { body: Vec::new() }.into()
-}
-
-fn dummy_batch_done() -> Message {
-    BatchDone.into()
-}
-
-/// One listing feeds the exhaustive `Message` match and `dummy_messages()`.
-/// A new variant cannot compile the match without entering the alphabet.
-macro_rules! blockfetch_dummies {
-    ($($var:ident => $dummy:expr),+ $(,)?) => {
-        fn dummy_payload(msg: &Message) -> (PayloadName, Message) {
-            match msg {
-                $(Message::$var(_) => (stringify!($var), $dummy),)+
-            }
-        }
-
-        fn dummy_of_same_variant(msg: &Message) -> Message {
-            dummy_payload(msg).1
-        }
-
-        pub(crate) fn dummy_messages() -> BTreeMap<PayloadName, Message> {
-            [$((stringify!($var), $dummy),)+].into_iter().collect()
-        }
-    };
-}
-
-blockfetch_dummies! {
-    RequestRange => dummy_request_range(),
-    ClientDone => dummy_client_done(),
-    StartBatch => dummy_start_batch(),
-    NoBlocks => dummy_no_blocks(),
-    Block => dummy_block(),
-    BatchDone => dummy_batch_done(),
-}
-
-pub(crate) fn session_spec() -> SessionSpec<StateName, Message> {
-    let mut spec = SessionSpec::default();
-    spec.init(Idle::NAME, dummy_request_range(), Busy::NAME);
-    spec.init(Idle::NAME, dummy_client_done(), Done::NAME);
-    spec.resp(Busy::NAME, dummy_no_blocks(), Idle::NAME);
-    spec.resp(Busy::NAME, dummy_start_batch(), Streaming::NAME);
-    spec.resp(Streaming::NAME, dummy_block(), Streaming::NAME);
-    spec.resp(Streaming::NAME, dummy_batch_done(), Idle::NAME);
-    spec.set_timeout(Busy::NAME, BLOCKFETCH_AGENCY_TIMEOUT);
-    spec.set_timeout(Streaming::NAME, BLOCKFETCH_AGENCY_TIMEOUT);
-    spec
-}
-
-impl ProjectionConfig<Message> {
+impl ProjectionConfig<&'static str> {
     pub(crate) fn blockfetch_initiator() -> Self {
         Self {
             role: Role::Initiator,
             peer_role: ToResponder::NAME,
             mux_role: ToMux::NAME,
             local_roles: BTreeSet::from([ToCollector::NAME]),
-            wire_inputs: BTreeMap::from([
-                ("StartBatch", dummy_start_batch()),
-                ("NoBlocks", dummy_no_blocks()),
-                ("Block", dummy_block()),
-                ("BatchDone", dummy_batch_done()),
-            ]),
-            wire_payload: dummy_messages(),
-            plumbing_inputs: BTreeSet::from(["Pull"]),
-            local_inputs: BTreeSet::from(["Fetch", "Close"]),
+            wire_inputs: session_labels!(Message; StartBatch, NoBlocks, Block, BatchDone),
+            wire_payload: session_labels!(
+                Message;
+                RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone
+            ),
+            plumbing_inputs: session_input_names!(Pull),
+            local_inputs: session_input_names!(Fetch, Close),
             driven: true,
         }
     }
@@ -125,30 +74,19 @@ impl ProjectionConfig<Message> {
             peer_role: ToInitiator::NAME,
             mux_role: ToMux::NAME,
             local_roles: BTreeSet::new(),
-            wire_inputs: BTreeMap::from([("RequestRange", dummy_request_range()), ("ClientDone", dummy_client_done())]),
-            wire_payload: dummy_messages(),
-            plumbing_inputs: BTreeSet::from(["Pull"]),
+            wire_inputs: session_labels!(Message; RequestRange, ClientDone),
+            wire_payload: session_labels!(
+                Message;
+                RequestRange, ClientDone, StartBatch, NoBlocks, Block, BatchDone
+            ),
+            plumbing_inputs: session_input_names!(Pull),
             local_inputs: BTreeSet::new(),
             driven: false,
         }
     }
 }
 
-pub(crate) fn assert_message_alphabet_covered(spec: &SessionSpec<StateName, Message>, unused: &[Message]) {
-    let table: BTreeSet<Message> = spec.transitions.values().flat_map(|per| per.transitions.keys().cloned()).collect();
-    let unused: BTreeSet<Message> = unused.iter().cloned().collect();
-    for msg in table.iter().chain(&unused) {
-        assert_eq!(*msg, dummy_of_same_variant(msg), "spec/unused dummy must be the canonical payload for {msg:?}");
-    }
-    for dummy in dummy_messages().into_values() {
-        assert!(
-            table.contains(&dummy) || unused.contains(&dummy),
-            "Message {dummy:?} is neither in the spec table nor listed unused"
-        );
-    }
-}
-
-pub(crate) fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &ProjectionConfig<Message>) {
+pub(crate) fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &ProjectionConfig<&'static str>) {
     for (state, inputs) in &graph.receives {
         for input in inputs.keys() {
             if cfg.plumbing_inputs.contains(input) || cfg.local_inputs.contains(input) {
@@ -157,10 +95,11 @@ pub(crate) fn assert_wire_inputs_cover_receives(graph: &TypeGraph, cfg: &Project
             assert!(cfg.wire_inputs.contains_key(input), "wire receive arm {input} at {state} is not in wire_inputs");
         }
     }
-    for msg in cfg.wire_inputs.values().chain(cfg.wire_payload.values()) {
-        assert_eq!(*msg, dummy_of_same_variant(msg), "wire map dummy must equal session_spec() dummy for {msg:?}");
+    let table: BTreeSet<&str> =
+        session_spec().transitions.values().flat_map(|per| per.transitions.keys().copied()).collect();
+    for label in cfg.wire_inputs.values().chain(cfg.wire_payload.values()) {
+        assert!(table.contains(label), "wire map label {label} is not in session_spec()");
     }
-    assert_eq!(cfg.wire_payload, dummy_messages());
 }
 
 pub(crate) fn map_i(state: &StateId) -> StateId {

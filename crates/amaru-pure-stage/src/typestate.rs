@@ -41,6 +41,7 @@
 mod effect;
 mod list;
 mod macros;
+mod message;
 mod occupancy;
 mod role;
 mod session;
@@ -53,6 +54,7 @@ pub use list::{
     CanFinish, Clean, Cons, DescribeAst, DiscardRepeat, EffectAst, FmtPar, Here, InputName, Nil, PayloadName,
     RemainderAst, RoleName, Select, StateName, Then, ThenAst,
 };
+pub use message::{MessageLabels, assert_message_alphabet_covered};
 pub use occupancy::{Occupancy, OccupancyOf};
 pub use role::{IntoRoleCall, IntoRoleMail, Role, RoleTag};
 pub use session::{

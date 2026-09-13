@@ -308,7 +308,7 @@ pub mod tests {
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{assert_wire_inputs_cover_receives, dummy_messages, map_r, responder_type_graph, session_spec},
+        super::spec::{assert_wire_inputs_cover_receives, map_r, responder_type_graph, session_spec},
         *,
     };
     use crate::{
@@ -369,15 +369,14 @@ pub mod tests {
         check_timeouts(&g, &cfg, &spec).unwrap();
         let projected = project(&g, &cfg).unwrap();
 
-        let dummies = dummy_messages();
         let req = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange"] };
         let start = StateId::Synthetic { parent: "Idle", path: vec!["RequestRange", "StartBatch"] };
-        assert_eq!(projected.dest(&StateId::Named("Idle"), &dummies["RequestRange"]), req);
-        assert_eq!(projected.dest(&req, &dummies["StartBatch"]), start);
-        assert_eq!(projected.dest(&req, &dummies["NoBlocks"]), StateId::Named("Idle"));
-        assert_eq!(projected.dest(&start, &dummies["Block"]), start);
-        assert_eq!(projected.dest(&start, &dummies["BatchDone"]), StateId::Named("Idle"));
-        assert_eq!(projected.dest(&StateId::Named("Idle"), &dummies["ClientDone"]), StateId::Named("Done"));
+        assert_eq!(projected.dest(&StateId::Named("Idle"), &"RequestRange"), req);
+        assert_eq!(projected.dest(&req, &"StartBatch"), start);
+        assert_eq!(projected.dest(&req, &"NoBlocks"), StateId::Named("Idle"));
+        assert_eq!(projected.dest(&start, &"Block"), start);
+        assert_eq!(projected.dest(&start, &"BatchDone"), StateId::Named("Idle"));
+        assert_eq!(projected.dest(&StateId::Named("Idle"), &"ClientDone"), StateId::Named("Done"));
 
         projected.assert_refines(&spec.project(Role::Responder), map_r);
         assert_wire_inputs_cover_receives(&g, &cfg);

@@ -24,6 +24,7 @@ mod check;
 mod miniprotocol;
 mod pipeline;
 mod session;
+mod session_spec;
 
 pub use check::ProtoSpec;
 pub use miniprotocol::{

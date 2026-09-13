@@ -401,6 +401,18 @@ macro_rules! define_messages_emit {
         }
 
         $crate::define_mailbox_conversions!($name { $($var ($var)),+ });
+
+        impl $crate::typestate::MessageLabels for $name {
+            fn labels() -> &'static [&'static str] {
+                &[$(stringify!($var)),+]
+            }
+
+            fn label(&self) -> &'static str {
+                match self {
+                    $(Self::$var(_) => stringify!($var),)+
+                }
+            }
+        }
     };
 }
 

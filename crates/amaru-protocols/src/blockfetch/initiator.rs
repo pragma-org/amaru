@@ -468,15 +468,12 @@ mod tests {
     use amaru_pure_stage::{
         StageGraph,
         simulation::{Run, SimulationBuilder},
-        typestate::State,
+        typestate::{State, assert_message_alphabet_covered},
     };
     use tokio::runtime::{Builder, Runtime};
 
     use super::{
-        super::spec::{
-            assert_message_alphabet_covered, assert_wire_inputs_cover_receives, initiator_type_graph, map_i,
-            session_spec,
-        },
+        super::spec::{assert_wire_inputs_cover_receives, initiator_type_graph, map_i, session_spec},
         *,
     };
     use crate::{
@@ -498,7 +495,7 @@ mod tests {
         check_timeouts(&g, &cfg, &spec).unwrap();
         let projected = project(&g, &cfg).unwrap();
         projected.assert_refines(&spec.project(Role::Initiator), map_i);
-        assert_message_alphabet_covered(&spec, &[]);
+        assert_message_alphabet_covered::<Message>(spec.edge_labels().copied(), &[]);
         assert_wire_inputs_cover_receives(&g, &cfg);
     }
 

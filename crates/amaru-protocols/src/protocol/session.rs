@@ -322,10 +322,9 @@ where
 
 /// Same shape as `ProtoSpec` without `ProtocolState`.
 ///
-/// The start state is the `from` of the first [`init`](Self::init) /
-/// [`resp`](Self::resp) / [`sim_open`](Self::sim_open) call. Later builder
-/// calls do not change it. Calling `resp("Busy", …)` before `init("Idle", …)`
-/// makes `Busy` the start.
+/// The start state is [`start`](Self::start) if called, otherwise the `from` of
+/// the first [`init`](Self::init) / [`resp`](Self::resp) / [`sim_open`](Self::sim_open).
+/// Later builder calls do not change it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSpec<S, M> {
     pub(crate) transitions: BTreeMap<S, PerState<S, M>>,
@@ -350,6 +349,13 @@ pub(crate) struct Edge<S> {
 impl<S, M> Default for SessionSpec<S, M> {
     fn default() -> Self {
         Self { transitions: BTreeMap::new(), timeout: BTreeMap::new(), initial: None }
+    }
+}
+
+impl<S, M> SessionSpec<S, M> {
+    /// Labels on undirected edges, in table order.
+    pub fn edge_labels(&self) -> impl Iterator<Item = &M> {
+        self.transitions.values().flat_map(|per| per.transitions.keys())
     }
 }
 
@@ -387,6 +393,13 @@ where
     /// Simultaneous-open alias: Recv of `msg` for the waiting role, not mixed agency.
     pub fn sim_open(&mut self, from: S, msg: M, to: S) {
         self.insert_edge(from, msg, to, Role::Responder, true);
+    }
+
+    /// Set the start state. Used by [`session_spec!`](crate::session_spec) for `[*] --> S`.
+    /// Later [`init`](Self::init) / [`resp`](Self::resp) / [`sim_open`](Self::sim_open)
+    /// calls do not override it.
+    pub fn start(&mut self, s: S) {
+        self.initial = Some(s);
     }
 
     pub fn set_timeout(&mut self, state: S, d: Duration) {

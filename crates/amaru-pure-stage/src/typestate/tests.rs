@@ -577,6 +577,17 @@ mod messages_macro {
     fn extra_enum_derive_is_ord() {
         assert!(Mail::from(Ping { n: 1 }) < Mail::from(Ping { n: 2 }));
     }
+
+    #[test]
+    fn message_labels_are_variant_names() {
+        use crate::typestate::{MessageLabels, assert_message_alphabet_covered};
+
+        assert_eq!(Mail::labels(), &["Ping", "Pong", "Bye"]);
+        assert_eq!(Mail::from(Ping { n: 1 }).label(), "Ping");
+        assert_eq!(Mail::from(Pong(2)).label(), "Pong");
+        assert_eq!(Mail::from(Bye).label(), "Bye");
+        assert_message_alphabet_covered::<Mail>(["Ping", "Pong"], &["Bye"]);
+    }
 }
 
 #[allow(dead_code)]
