@@ -204,7 +204,7 @@ pub use cardano::{
 #[cfg(any(test, feature = "test-utils"))]
 pub use cardano::{
     header::{HeaderParams, any_headers_chain, any_headers_chain_with_root, make_header, make_header_with_op_cert_seq},
-    memoized::{any_datum, any_legacy_output, any_modern_output},
+    memoized::OutputFormat,
     native_script::Depth,
     pool_params::any_pool_params,
     proposal::any_proposal,

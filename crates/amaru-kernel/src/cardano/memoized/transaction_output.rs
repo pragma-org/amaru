@@ -14,6 +14,11 @@
 
 use std::collections::BTreeMap;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::ShelleyAddress;
 use crate::{
     Address, AssetName, Credential, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, StakeReference,
     Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
@@ -324,41 +329,35 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+#[derive(Clone, Copy, Debug, Default)]
+pub enum OutputFormat {
+    #[default]
+    Modern,
+    Legacy,
+}
 
 #[cfg(any(test, feature = "test-utils"))]
-pub mod tests {
-    use proptest::{option, prelude::*};
+impl Arbitrary for MemoizedTransactionOutput {
+    type Parameters = OutputFormat;
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(format: Self::Parameters) -> Self::Strategy {
+        let is_legacy = matches!(format, OutputFormat::Legacy);
+
+        (any::<ShelleyAddress>(), any::<u64>(), any::<MemoizedDatum>())
+            .prop_map(move |(address, coin, datum)| {
+                MemoizedTransactionOutput::new(is_legacy, Address::Shelley(address), Value::Coin(coin), datum, None)
+            })
+            .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
 
     use super::*;
-    #[cfg(test)]
-    use crate::cbor::{self, Encode};
-    use crate::{Hash, ShelleyAddress, size::DATUM};
-
-    fn any_address() -> impl Strategy<Value = Address> {
-        any::<ShelleyAddress>().prop_map(Address::Shelley)
-    }
-
-    fn any_value() -> impl Strategy<Value = Value> {
-        any::<u64>().prop_map(Value::Coin)
-    }
-
-    pub fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
-        prop_oneof![Just(MemoizedDatum::None), any::<Hash<DATUM>>().prop_map(MemoizedDatum::from)]
-    }
-
-    pub fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
-        (any_address(), any_value(), any_datum())
-            .prop_map(|(address, value, datum)| MemoizedTransactionOutput::new(false, address, value, datum, None))
-    }
-
-    pub fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
-        (any_address(), any_value(), option::of(any::<Hash<DATUM>>().prop_map(MemoizedDatum::from))).prop_map(
-            |(address, value, datum_opt)| {
-                MemoizedTransactionOutput::new(true, address, value, datum_opt.unwrap_or(MemoizedDatum::None), None)
-            },
-        )
-    }
+    use crate::cbor::Encode;
 
     #[test]
     fn test_encode_decode_output_with_datum_hash() {
@@ -435,7 +434,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn decoded_size_matches_re_encoded_len_modern(output in any_modern_output()) {
+        fn decoded_size_matches_re_encoded_len_modern(output in any::<MemoizedTransactionOutput>()) {
             let bytes = to_cbor(&output);
             let decoded: MemoizedTransactionOutput = crate::from_cbor(&bytes).unwrap();
             prop_assert_eq!(decoded.original_size(), bytes.len());
@@ -443,7 +442,9 @@ pub mod tests {
         }
 
         #[test]
-        fn decoded_size_matches_re_encoded_len_legacy(output in any_legacy_output()) {
+        fn decoded_size_matches_re_encoded_len_legacy(
+            output in any_with::<MemoizedTransactionOutput>(OutputFormat::Legacy)
+        ) {
             let bytes = to_cbor(&output);
             let decoded: MemoizedTransactionOutput = crate::from_cbor(&bytes).unwrap();
             prop_assert_eq!(decoded.original_size(), bytes.len());
