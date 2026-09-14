@@ -205,7 +205,7 @@ pub use cardano::{
 pub use cardano::{
     header::{HeaderParams, any_headers_chain, any_headers_chain_with_root, make_header, make_header_with_op_cert_seq},
     memoized::{any_datum, any_legacy_output, any_modern_output},
-    native_script::any_native_script,
+    native_script::Depth,
     plutus_data::any_plutus_data,
     pool_params::any_pool_params,
     proposal::any_proposal,
