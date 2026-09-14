@@ -144,7 +144,7 @@ impl<C, const BYTES: usize> cbor::Encode<C> for Hash<BYTES> {
 
 impl<'a, C: cbor::HasProtocolVersion, const BYTES: usize> cbor::Decode<'a, C> for Hash<BYTES> {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let bytes = cbor::decode_bytes_with(d, ctx)?;
+        let bytes = cbor::decode_bytes_v12_indefinite(d, ctx)?;
         if bytes.len() == BYTES {
             let mut hash = [0; BYTES];
             hash.copy_from_slice(&bytes);

@@ -50,7 +50,7 @@ impl HasProtocolVersion for ProtocolParameters {
 ///
 /// See <https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Decoding/Decoder.hs>
 /// (`decodeBytes = ifDecoderVersionAtLeast (natVersion @12) ...`).
-pub fn decode_bytes_with<'b, C: HasProtocolVersion>(
+pub fn decode_bytes_v12_indefinite<'b, C: HasProtocolVersion>(
     d: &mut cbor::Decoder<'b>,
     ctx: &C,
 ) -> Result<Cow<'b, [u8]>, cbor::decode::Error> {
@@ -76,25 +76,25 @@ mod tests {
     fn definite_bytes_decode_at_any_version() {
         for version in [PROTOCOL_VERSION_11, PROTOCOL_VERSION_12] {
             let mut d = cbor::Decoder::new(DEFINITE);
-            assert_eq!(decode_bytes_with(&mut d, &version).unwrap().as_ref(), [1, 2, 3, 4]);
+            assert_eq!(decode_bytes_v12_indefinite(&mut d, &version).unwrap().as_ref(), [1, 2, 3, 4]);
         }
     }
 
     #[test]
     fn indefinite_bytes_rejected_below_version_12() {
         let mut d = cbor::Decoder::new(CHUNKED);
-        assert!(decode_bytes_with(&mut d, &PROTOCOL_VERSION_11).is_err());
+        assert!(decode_bytes_v12_indefinite(&mut d, &PROTOCOL_VERSION_11).is_err());
     }
 
     #[test]
     fn indefinite_bytes_accepted_from_version_12() {
         let mut d = cbor::Decoder::new(CHUNKED);
-        assert_eq!(decode_bytes_with(&mut d, &PROTOCOL_VERSION_12).unwrap().as_ref(), [1, 2, 3, 4]);
+        assert_eq!(decode_bytes_v12_indefinite(&mut d, &PROTOCOL_VERSION_12).unwrap().as_ref(), [1, 2, 3, 4]);
     }
 
     #[test]
     fn unit_context_decodes_strictly() {
         let mut d = cbor::Decoder::new(CHUNKED);
-        assert!(decode_bytes_with(&mut d, &()).is_err());
+        assert!(decode_bytes_v12_indefinite(&mut d, &()).is_err());
     }
 }
