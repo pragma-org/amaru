@@ -398,9 +398,23 @@ mod tests {
     use super::NativeScriptTree;
     use crate::{Hash, NativeScript, size::KEY};
 
+    #[derive(Clone, Copy, Debug)]
+    pub struct Depth(pub u8);
+
+    impl Default for Depth {
+        fn default() -> Self {
+            Depth(3)
+        }
+    }
+
     /// A script nested up to `depth` levels, encoded with every array of a definite length.
-    pub fn any_native_script(depth: u8) -> impl Strategy<Value = NativeScript> {
-        any_native_script_tree(depth).prop_map(NativeScript::new)
+    impl Arbitrary for NativeScript {
+        type Parameters = Depth;
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(Depth(depth): Self::Parameters) -> Self::Strategy {
+            any_native_script_tree(depth).prop_map(NativeScript::new).boxed()
+        }
     }
 
     fn any_native_script_tree(depth: u8) -> BoxedStrategy<NativeScriptTree> {
