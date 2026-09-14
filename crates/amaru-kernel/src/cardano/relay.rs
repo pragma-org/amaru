@@ -14,6 +14,11 @@
 
 use std::{fmt, net::Ipv6Addr};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    option,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any, prop_oneof},
+};
 use serde::ser::SerializeStruct;
 
 use crate::{Bytes, MaxString128, cbor};
@@ -185,5 +190,27 @@ pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S
             s.serialize_field("type", "hostname")?;
             s.end()
         }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for Relay {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    #[expect(clippy::unwrap_used)]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let any_port = || option::of(any::<u32>());
+        let any_dns_name = || any::<String>().prop_map(|name| MaxString128::try_from(name).unwrap());
+        let any_ipv4 = option::of(any::<[u8; 4]>().prop_map(|octets| Bytes::from(Vec::from(octets))));
+        let any_ipv6 = option::of(any::<[u8; 16]>().prop_map(|octets| Bytes::from(Vec::from(octets))));
+
+        let single_host_addr =
+            (any_port(), any_ipv4, any_ipv6).prop_map(|(port, ipv4, ipv6)| Relay::SingleHostAddr(port, ipv4, ipv6));
+        let single_host_name =
+            (any_port(), any_dns_name()).prop_map(|(port, dns_name)| Relay::SingleHostName(port, dns_name));
+        let multi_host_name = any_dns_name().prop_map(Relay::MultiHostName);
+
+        prop_oneof![single_host_addr, single_host_name, multi_host_name].boxed()
     }
 }

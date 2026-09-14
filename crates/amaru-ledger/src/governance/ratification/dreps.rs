@@ -183,7 +183,7 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use amaru_kernel::{
-        DRep, DRepVotingThresholds, Epoch, ProposalEnum, SafeRatio, Vote, any_proposal_enum, any_vote_ref,
+        DRep, DRepVotingThresholds, Epoch, ProposalEnum, SafeRatio, Vote, any_vote_ref,
         utils::tests::assert_strategy_sometimes_fails,
     };
     use num::One;
@@ -198,7 +198,7 @@ mod tests {
         #[test]
         fn prop_state_of_no_confidence_only_influence_cc(
             drep_voting_thresholds in any::<DRepVotingThresholds>(),
-            proposal in any_proposal_enum(),
+            proposal in any::<ProposalEnum>(),
         ) {
             let threshold_normal = voting_threshold(
                 false,
@@ -255,7 +255,7 @@ mod tests {
     pub fn any_tally()
     -> impl Strategy<Value = (Epoch, ProposalEnum, BTreeMap<DRep, &'static Vote>, Rc<StakeDistribution>)> {
         any_stake_distribution_no_pools(MIN_ARBITRARY_EPOCH, MAX_ARBITRARY_EPOCH).prop_flat_map(|stake_distribution| {
-            (any_epoch(), any_proposal_enum(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
+            (any_epoch(), any::<ProposalEnum>(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
         })
     }
 

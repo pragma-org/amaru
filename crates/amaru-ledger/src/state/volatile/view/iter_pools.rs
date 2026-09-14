@@ -131,7 +131,6 @@ mod tests {
         sync::LazyLock,
     };
 
-    use amaru_kernel::any_pool_params;
     use proptest::{
         arbitrary::any,
         strategy::{Strategy, ValueTree},
@@ -240,7 +239,7 @@ mod tests {
     }
 
     fn mock_pool_params(ix: u8) -> PoolParams {
-        PoolParams { id: mock_pool_id(ix), ..sample(ix, any_pool_params()) }
+        PoolParams { id: mock_pool_id(ix), ..sample(ix, any::<PoolParams>()) }
     }
 
     fn stable(ix: u8) -> Pool {

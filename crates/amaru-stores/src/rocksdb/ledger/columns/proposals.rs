@@ -77,7 +77,7 @@ mod tests {
         sync::LazyLock,
     };
 
-    use amaru_kernel::{Ballot, BallotId, ProposalId, Voter, any_proposal};
+    use amaru_kernel::{Ballot, BallotId, Proposal, ProposalId, Voter};
     use amaru_ledger::store::{ReadStore, Store};
     use proptest::{
         collection::{btree_map, btree_set},
@@ -95,7 +95,7 @@ mod tests {
     });
 
     prop_compose! {
-        fn any_proposal_row()(proposal in any_proposal()) -> proposals::Row {
+        fn any_proposal_row()(proposal in any::<Proposal>()) -> proposals::Row {
             proposals::Row {
                 proposed_in: Default::default(),
                 valid_until: Default::default(),

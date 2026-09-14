@@ -396,9 +396,7 @@ impl Capacity<usize> {
 pub mod tests {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{
-        Anchor, CertificatePointer, Credential, DRep, Epoch, Lovelace, PoolId, any_pool_params, safe_ratio,
-    };
+    use amaru_kernel::{Anchor, CertificatePointer, Credential, DRep, Epoch, Lovelace, PoolId, PoolParams, safe_ratio};
     use proptest::{collection, option, prelude::*, prop_compose};
 
     use super::StakeDistribution;
@@ -515,7 +513,7 @@ pub mod tests {
             blocks_count in any::<u64>(),
             stake in 0_u64..1_000_000_000_000,
             voting_stake in 0_u64..1_000_000_000_000,
-            parameters in any_pool_params(),
+            parameters in any::<PoolParams>(),
             fallback_drep in option::of(any::<DRep>()),
         ) -> PoolState {
             let margin = safe_ratio(
