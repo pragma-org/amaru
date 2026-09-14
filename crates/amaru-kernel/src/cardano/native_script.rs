@@ -14,6 +14,12 @@
 
 use std::collections::BTreeSet;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    collection,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any, any_with, prop_oneof},
+};
+
 use crate::{Hash, ValidityInterval, cbor, size::KEY};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -141,167 +147,161 @@ impl NativeScript {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+#[derive(Clone, Copy, Debug)]
+pub struct Depth(pub u8);
 
 #[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
+impl Default for Depth {
+    fn default() -> Self {
+        Depth(3)
+    }
+}
 
-    use super::NativeScript;
-    use crate::{Hash, size::KEY};
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for NativeScript {
+    type Parameters = Depth;
+    type Strategy = BoxedStrategy<Self>;
 
-    // --------------------------------------------------------------------------------------------
-    // Generators
-    // --------------------------------------------------------------------------------------------
+    fn arbitrary_with(Depth(depth): Self::Parameters) -> Self::Strategy {
+        let sig = any::<Hash<KEY>>().prop_map(NativeScript::ScriptPubkey);
+        let before = any::<u64>().prop_map(NativeScript::InvalidBefore);
+        let after = any::<u64>().prop_map(NativeScript::InvalidHereafter);
 
-    pub fn any_native_script(depth: u8) -> BoxedStrategy<NativeScript> {
-        use NativeScript::*;
-
-        let sig = any::<Hash<KEY>>().prop_map(ScriptPubkey);
-        let before = any::<u64>().prop_map(InvalidBefore);
-        let after = any::<u64>().prop_map(InvalidHereafter);
-
-        if depth > 0 {
-            let all = prop::collection::vec(any_native_script(depth - 1), 0..depth as usize).prop_map(ScriptAll);
-
-            let some = prop::collection::vec(any_native_script(depth - 1), 0..depth as usize).prop_map(ScriptAny);
-
-            let n_of_k = (any::<i64>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
-                .prop_map(|(n, sigs)| ScriptNOfK(n, sigs));
-
-            prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
-        } else {
-            prop_oneof![sig, before, after].boxed()
+        if depth == 0 {
+            return prop_oneof![sig, before, after].boxed();
         }
+
+        let any_scripts = || collection::vec(any_with::<NativeScript>(Depth(depth - 1)), 0..depth as usize);
+        let all = any_scripts().prop_map(NativeScript::ScriptAll);
+        let some = any_scripts().prop_map(NativeScript::ScriptAny);
+        let n_of_k = (any::<i64>(), any_scripts()).prop_map(|(n, scripts)| NativeScript::ScriptNOfK(n, scripts));
+
+        prop_oneof![sig, before, after, all, some, n_of_k].boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use test_case::test_case;
+
+    use crate::{Hash, NativeScript, NativeScript::*, ValidityInterval, size::KEY};
+
+    /// The following test proves that the scriptNOfK evaluate_native_scripts native scripts lazily.
+    /// If they weren't, this test would panic.
+    ///
+    /// This test is intentionally left out of the test suite, as it's testing the behavior of the stdlib.
+    /// However, it is left here so anyone can choose to run it locally if they want proof of the above statement.
+    #[test]
+    fn iter_filter_take_evaluates_lazily() {
+        let scripts: Vec<Box<dyn Fn() -> bool>> = vec![
+            Box::new(|| true),
+            Box::new(|| true),
+            Box::new(|| true),
+            Box::new(|| panic!("must not be evaluated after quorum is reached")),
+            Box::new(|| panic!("must not be evaluated after quorum is reached")),
+        ];
+
+        let n = 3usize;
+
+        assert_eq!(scripts.iter().filter(|s| s()).take(n).count(), n);
     }
 
-    // --------------------------------------------------------------------------------------------
-    // Tests
-    // --------------------------------------------------------------------------------------------
-
-    #[cfg(test)]
-    mod internal {
-        use std::collections::BTreeSet;
-
-        use test_case::test_case;
-
-        use crate::{Hash, NativeScript, NativeScript::*, ValidityInterval, size::KEY};
-
-        /// The following test proves that the scriptNOfK evaluate_native_scripts native scripts lazily.
-        /// If they weren't, this test would panic.
-        ///
-        /// This test is intentionally left out of the test suite, as it's testing the behavior of the stdlib.
-        /// However, it is left here so anyone can choose to run it locally if they want proof of the above statement.
-        #[test]
-        fn iter_filter_take_evaluates_lazily() {
-            let scripts: Vec<Box<dyn Fn() -> bool>> = vec![
-                Box::new(|| true),
-                Box::new(|| true),
-                Box::new(|| true),
-                Box::new(|| panic!("must not be evaluated after quorum is reached")),
-                Box::new(|| panic!("must not be evaluated after quorum is reached")),
-            ];
-
-            let n = 3usize;
-
-            assert_eq!(scripts.iter().filter(|s| s()).take(n).count(), n);
-        }
-
-        #[test_case(vk(1), &[vk(1), vk(2)], always(); "script pubkey present")]
-        #[test_case(all([vk(1), vk(2)]), &[vk(1), vk(2)], always(); "script all all pass")]
-        #[test_case(all([]), &[], always(); "script all empty is true")]
-        #[test_case(any([vk(3), vk(1)]), &[vk(1)], always(); "script any one passes")]
-        #[test_case(at_least(0, [vk(9)]), &[vk(1), vk(2)], always(); "script n of k zero always passes")]
-        #[test_case(at_least(2, [vk(1), vk(2), vk(9)]), &[vk(1), vk(2)], always(); "script n of k exact quorum")]
-        #[test_case(InvalidBefore(100), &[], after(100); "invalid before with tx start at lock")]
-        #[test_case(InvalidBefore(100), &[], after(101); "invalid before with tx start above lock")]
-        #[test_case(InvalidHereafter(100), &[], before(100); "invalid hereafter with tx expire at lock")]
-        #[test_case(InvalidHereafter(100), &[], before(50); "invalid hereafter with tx expire below lock")]
-        #[test_case(
+    #[test_case(vk(1), &[vk(1), vk(2)], always(); "script pubkey present")]
+    #[test_case(all([vk(1), vk(2)]), &[vk(1), vk(2)], always(); "script all all pass")]
+    #[test_case(all([]), &[], always(); "script all empty is true")]
+    #[test_case(any([vk(3), vk(1)]), &[vk(1)], always(); "script any one passes")]
+    #[test_case(at_least(0, [vk(9)]), &[vk(1), vk(2)], always(); "script n of k zero always passes")]
+    #[test_case(at_least(2, [vk(1), vk(2), vk(9)]), &[vk(1), vk(2)], always(); "script n of k exact quorum")]
+    #[test_case(InvalidBefore(100), &[], after(100); "invalid before with tx start at lock")]
+    #[test_case(InvalidBefore(100), &[], after(101); "invalid before with tx start above lock")]
+    #[test_case(InvalidHereafter(100), &[], before(100); "invalid hereafter with tx expire at lock")]
+    #[test_case(InvalidHereafter(100), &[], before(50); "invalid hereafter with tx expire below lock")]
+    #[test_case(
         all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
         &[vk(1)],
         between(150, 199);
         "nested all any timelock all conditions pass"
     )]
-        fn ok(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
-            assert!(script.eval(&context_verification_key_hashes(context_keys), validity_interval));
-        }
+    fn ok(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
+        assert!(script.eval(&context_verification_key_hashes(context_keys), validity_interval));
+    }
 
-        #[test_case(vk(3), &[vk(1), vk(2)], always(); "script pubkey absent")]
-        #[test_case(all([vk(1), vk(3)]), &[vk(1), vk(2)], always(); "script all one fails")]
-        #[test_case(any([vk(3), vk(4)]), &[vk(1), vk(2)], always(); "script any all fail")]
-        #[test_case(any([]), &[vk(1), vk(2)], always(); "script any empty is false")]
-        #[test_case(at_least(2, [vk(1), vk(8), vk(9)]), &[vk(1), vk(2)], always(); "script n of k just below quorum")]
-        #[test_case(at_least(3, [vk(1), vk(2)]), &[vk(1), vk(2)], always(); "script n of k more than available")]
-        #[test_case(InvalidBefore(100), &[], after(99); "invalid before with tx start below lock")]
-        #[test_case(InvalidBefore(100), &[], always(); "invalid before without tx start")]
-        #[test_case(InvalidHereafter(100), &[], before(101); "invalid hereafter with tx expire above lock")]
-        #[test_case(InvalidHereafter(100), &[], always(); "invalid hereafter without tx expire")]
-        #[test_case(
+    #[test_case(vk(3), &[vk(1), vk(2)], always(); "script pubkey absent")]
+    #[test_case(all([vk(1), vk(3)]), &[vk(1), vk(2)], always(); "script all one fails")]
+    #[test_case(any([vk(3), vk(4)]), &[vk(1), vk(2)], always(); "script any all fail")]
+    #[test_case(any([]), &[vk(1), vk(2)], always(); "script any empty is false")]
+    #[test_case(at_least(2, [vk(1), vk(8), vk(9)]), &[vk(1), vk(2)], always(); "script n of k just below quorum")]
+    #[test_case(at_least(3, [vk(1), vk(2)]), &[vk(1), vk(2)], always(); "script n of k more than available")]
+    #[test_case(InvalidBefore(100), &[], after(99); "invalid before with tx start below lock")]
+    #[test_case(InvalidBefore(100), &[], always(); "invalid before without tx start")]
+    #[test_case(InvalidHereafter(100), &[], before(101); "invalid hereafter with tx expire above lock")]
+    #[test_case(InvalidHereafter(100), &[], always(); "invalid hereafter without tx expire")]
+    #[test_case(
         all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
         &[vk(1)],
         between(99, 199);
         "nested all any timelock lower bound fails"
     )]
-        #[test_case(
+    #[test_case(
         all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
         &[vk(1)],
         between(150, 201);
         "nested all any timelock upper bound fails"
     )]
-        #[test_case(
+    #[test_case(
         all([any([vk(8), vk(1)]), InvalidBefore(100), InvalidHereafter(200)]),
         &[vk(9)],
         between(150, 199);
         "nested all any timelock key check fails"
     )]
-        fn ko(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
-            assert!(!script.eval(&context_verification_key_hashes(context_keys), validity_interval));
-        }
+    fn ko(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
+        assert!(!script.eval(&context_verification_key_hashes(context_keys), validity_interval));
+    }
 
-        // ------------------------------------------------------------------------ Helpers
+    // ------------------------------------------------------------------------ Helpers
 
-        fn vk(byte: u8) -> NativeScript {
-            ScriptPubkey(Hash::from([byte; 28]))
-        }
+    fn vk(byte: u8) -> NativeScript {
+        ScriptPubkey(Hash::from([byte; 28]))
+    }
 
-        fn all<const N: usize>(scripts: [NativeScript; N]) -> NativeScript {
-            ScriptAll(scripts.into())
-        }
+    fn all<const N: usize>(scripts: [NativeScript; N]) -> NativeScript {
+        ScriptAll(scripts.into())
+    }
 
-        fn any<const N: usize>(scripts: [NativeScript; N]) -> NativeScript {
-            ScriptAny(scripts.into())
-        }
+    fn any<const N: usize>(scripts: [NativeScript; N]) -> NativeScript {
+        ScriptAny(scripts.into())
+    }
 
-        fn at_least<const N: usize>(n: i64, scripts: [NativeScript; N]) -> NativeScript {
-            ScriptNOfK(n, scripts.into())
-        }
+    fn at_least<const N: usize>(n: i64, scripts: [NativeScript; N]) -> NativeScript {
+        ScriptNOfK(n, scripts.into())
+    }
 
-        fn always() -> ValidityInterval {
-            ValidityInterval::default()
-        }
+    fn always() -> ValidityInterval {
+        ValidityInterval::default()
+    }
 
-        fn after(slot: u64) -> ValidityInterval {
-            ValidityInterval::after(slot.into())
-        }
+    fn after(slot: u64) -> ValidityInterval {
+        ValidityInterval::after(slot.into())
+    }
 
-        fn before(slot: u64) -> ValidityInterval {
-            ValidityInterval::strictly_before(slot.into())
-        }
+    fn before(slot: u64) -> ValidityInterval {
+        ValidityInterval::strictly_before(slot.into())
+    }
 
-        fn between(lower_bound: u64, upper_bound: u64) -> ValidityInterval {
-            ValidityInterval::between(lower_bound.into(), upper_bound.into())
-        }
+    fn between(lower_bound: u64, upper_bound: u64) -> ValidityInterval {
+        ValidityInterval::between(lower_bound.into(), upper_bound.into())
+    }
 
-        #[allow(clippy::wildcard_enum_match_arm)]
-        fn context_verification_key_hashes(context_keys: &[NativeScript]) -> BTreeSet<Hash<KEY>> {
-            context_keys
-                .iter()
-                .map(|script| match script {
-                    ScriptPubkey(hash) => *hash,
-                    _ => panic!("expected ScriptPubkey in validation context"),
-                })
-                .collect()
-        }
+    #[allow(clippy::wildcard_enum_match_arm)]
+    fn context_verification_key_hashes(context_keys: &[NativeScript]) -> BTreeSet<Hash<KEY>> {
+        context_keys
+            .iter()
+            .map(|script| match script {
+                ScriptPubkey(hash) => *hash,
+                _ => panic!("expected ScriptPubkey in validation context"),
+            })
+            .collect()
     }
 }
