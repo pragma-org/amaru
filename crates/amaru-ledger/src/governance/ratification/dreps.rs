@@ -183,7 +183,7 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use amaru_kernel::{
-        DRep, Epoch, ProposalEnum, SafeRatio, Vote, any_drep_voting_thresholds, any_proposal_enum, any_vote_ref,
+        DRep, DRepVotingThresholds, Epoch, ProposalEnum, SafeRatio, Vote, any_proposal_enum, any_vote_ref,
         utils::tests::assert_strategy_sometimes_fails,
     };
     use num::One;
@@ -197,7 +197,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_state_of_no_confidence_only_influence_cc(
-            drep_voting_thresholds in any_drep_voting_thresholds(),
+            drep_voting_thresholds in any::<DRepVotingThresholds>(),
             proposal in any_proposal_enum(),
         ) {
             let threshold_normal = voting_threshold(

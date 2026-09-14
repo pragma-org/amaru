@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
@@ -29,5 +32,17 @@ pub struct ExUnitPrices {
 impl fmt::Display for ExUnitPrices {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{mem={}, cpu={}}}", self.mem_price, self.step_price)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for ExUnitPrices {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<RationalNumber>(), any::<RationalNumber>())
+            .prop_map(|(mem_price, step_price)| ExUnitPrices { mem_price, step_price })
+            .boxed()
     }
 }

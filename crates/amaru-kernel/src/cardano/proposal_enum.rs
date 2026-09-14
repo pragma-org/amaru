@@ -182,13 +182,13 @@ mod tests {
     use proptest::{option, prelude::*};
 
     use crate::{
-        Constitution, ConstitutionalCommitteeUpdate, OrphanProposal, ProposalEnum, ProposalId, ProtocolVersion,
-        any_protocol_params_update,
+        Constitution, ConstitutionalCommitteeUpdate, OrphanProposal, ProposalEnum, ProposalId, ProtocolParamUpdate,
+        ProtocolVersion,
     };
 
     pub fn any_proposal_enum() -> impl Strategy<Value = ProposalEnum> {
         let any_protocol_parameters =
-            (option::of(any::<ProposalId>()), any_protocol_params_update()).prop_map(|(parent, params_update)| {
+            (option::of(any::<ProposalId>()), any::<ProtocolParamUpdate>()).prop_map(|(parent, params_update)| {
                 ProposalEnum::ProtocolParameters(Box::new(params_update), parent.map(Rc::new))
             });
 
