@@ -1,2 +1,5 @@
 # this should contain all the github handles allowed to trigger antithesis tests
 antithesis: @rkuhn @etorreborre
+
+/CODEOWNERS @pragma-org/amaru-maintainers-committee
+/.github/ @pragma-org/amaru-maintainers-committee
