@@ -45,7 +45,7 @@ fn create_praos_chain_store(
 
 fn ensure_tips_aligned(ledger_tip: Point, chain_tip: Point) -> anyhow::Result<()> {
     if ledger_tip != chain_tip {
-        return Err(anyhow!("ledger tip {ledger_tip} does not match adopted chain tip {chain_tip}"));
+        anyhow::bail!("ledger tip {ledger_tip} does not match adopted chain tip {chain_tip}");
     }
     Ok(())
 }

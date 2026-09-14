@@ -196,14 +196,14 @@ fn validate_snapshot_range(from_chunk: u64, resume_chunk: Option<u64>, through_c
     if let Some(resume_chunk) = resume_chunk
         && resume_chunk > through_chunk
     {
-        return Err(anyhow::anyhow!(
+        anyhow::bail!(
             "latest Mithril snapshot ends at immutable chunk {through_chunk}, before ledger tip chunk {resume_chunk}"
-        ));
+        )
     }
     if from_chunk > through_chunk {
-        return Err(anyhow::anyhow!(
+        anyhow::bail!(
             "latest Mithril snapshot ends at immutable chunk {through_chunk}, before requested chunk {from_chunk}"
-        ));
+        );
     }
     Ok(())
 }
