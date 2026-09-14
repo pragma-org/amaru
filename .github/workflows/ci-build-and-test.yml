@@ -21,7 +21,6 @@ env:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

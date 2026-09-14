@@ -24,7 +24,6 @@ env:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   snapshots:
