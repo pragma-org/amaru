@@ -111,13 +111,12 @@ impl Distributions {
     }
 
     fn iter(&self) -> impl Iterator<Item = &StakeDistribution> {
-        match self {
-            Distributions::None => [None, None],
-            Distributions::CurrentOnly(d) => [Some(d), None],
-            Distributions::CurrentAndPrevious { current, previous } => [Some(current), Some(previous)],
-        }
-        .into_iter()
-        .flatten()
+        let (a, b) = match self {
+            Distributions::None => (None, None),
+            Distributions::CurrentOnly(d) => (Some(d), None),
+            Distributions::CurrentAndPrevious { current, previous } => (Some(current), Some(previous)),
+        };
+        a.into_iter().chain(b)
     }
 }
 
