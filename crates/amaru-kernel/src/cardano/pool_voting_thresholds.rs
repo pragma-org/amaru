@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -79,5 +82,31 @@ impl<C> cbor::Encode<C> for PoolVotingThresholds {
         e.encode_with(self.security_voting_threshold, ctx)?;
 
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for PoolVotingThresholds {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<[RationalNumber; 5]>()
+            .prop_map(
+                |[
+                    motion_no_confidence,
+                    committee_normal,
+                    committee_no_confidence,
+                    hard_fork_initiation,
+                    security_voting_threshold,
+                ]| PoolVotingThresholds {
+                    motion_no_confidence,
+                    committee_normal,
+                    committee_no_confidence,
+                    hard_fork_initiation,
+                    security_voting_threshold,
+                },
+            )
+            .boxed()
     }
 }

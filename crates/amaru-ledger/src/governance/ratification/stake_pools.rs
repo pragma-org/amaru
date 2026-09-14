@@ -123,8 +123,8 @@ mod tests {
 
     use amaru_kernel::{
         CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, ExUnits, Hash, Network, PoolId,
-        PoolParams, ProposalEnum, ProposalId, ProtocolParamUpdate, RationalNumber, RewardAccount, SafeRatio, Vote,
-        any_pool_voting_thresholds, any_proposal_enum, any_protocol_params_update, any_vote_ref, safe_ratio,
+        PoolParams, PoolVotingThresholds, ProposalEnum, ProposalId, ProtocolParamUpdate, RationalNumber, RewardAccount,
+        SafeRatio, Vote, any_proposal_enum, any_vote_ref, safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};
@@ -151,7 +151,7 @@ mod tests {
         #[test]
         fn prop_voting_threshold_influenced_by_no_confidence(
             proposal in any_proposal_enum(),
-            thresholds in any_pool_voting_thresholds()
+            thresholds in any::<PoolVotingThresholds>()
         ) {
             let result_normal = voting_threshold(false, &thresholds, &proposal);
             let result_no_confidence = voting_threshold(true, &thresholds, &proposal);
@@ -179,7 +179,7 @@ mod tests {
             update_in_security_group in any_protocol_params_update_in_security_group(),
             update_no_security_group in any_protocol_params_update_no_security_group(),
             parent in option::of(any::<ProposalId>()),
-            thresholds in any_pool_voting_thresholds()
+            thresholds in any::<PoolVotingThresholds>()
         ) {
             let parent = parent.map(Rc::new);
 
@@ -239,7 +239,7 @@ mod tests {
         );
 
         (
-            any_protocol_params_update(),
+            any::<ProtocolParamUpdate>(),
             security_group.prop_filter("not all none", |(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9)| {
                 !(p0.is_none()
                     && p1.is_none()
@@ -285,7 +285,7 @@ mod tests {
     }
 
     fn any_protocol_params_update_no_security_group() -> impl Strategy<Value = ProtocolParamUpdate> {
-        any_protocol_params_update().prop_map(|update| ProtocolParamUpdate {
+        any::<ProtocolParamUpdate>().prop_map(|update| ProtocolParamUpdate {
             minfee_a: None,
             minfee_b: None,
             max_block_header_size: None,
