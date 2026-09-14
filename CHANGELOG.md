@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260917 _[unreleased; planned for 2026-09-17]_
 
+### Fixed
+
+- **amaru**: make Mithril synchronization resume safely from verified immutable files and reject stale snapshots before replay.
+
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
 
 ### Added
