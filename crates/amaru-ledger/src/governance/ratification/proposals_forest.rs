@@ -742,7 +742,7 @@ mod tests {
         Anchor, Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs,
         Lovelace, MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10,
         Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RationalNumber, RewardAccount, Slot, TransactionPointer, any_gov_action, any_proposal_enum,
+        ProtocolVersion, RationalNumber, RewardAccount, Slot, TransactionPointer,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -813,7 +813,7 @@ mod tests {
         fn prop_insert_increase_sizes_by_one(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
             id in any::<ProposalId>(),
-            mut action in any_gov_action(),
+            mut action in any::<GovernanceAction>(),
             pointer in any::<ProposalPointer>(),
             parent in any::<u8>()
         ) {
@@ -1009,7 +1009,7 @@ mod tests {
         fn prop_cannot_enact_unknown_proposal(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
             proposal_id in any::<ProposalId>(),
-            proposal in any_proposal_enum(),
+            proposal in any::<ProposalEnum>(),
         ) {
             let mut compass = forest.new_compass();
             prop_assert!(forest.enact(Rc::new(proposal_id), &proposal, &mut compass).is_err());
@@ -1019,7 +1019,7 @@ mod tests {
     #[test]
     fn prop_cannot_insert_root() {
         assert_strategy_sometimes_panics(
-            (any_grown_proposals_forest(), any_gov_action(), any::<ProposalPointer>()),
+            (any_grown_proposals_forest(), any::<GovernanceAction>(), any::<ProposalPointer>()),
             ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
             |((DebugAsDisplay(mut forest), root), action, proposed_in)| {
                 let _ = forest.insert(&ERA_HISTORY, Rc::new(root), proposed_in, action);

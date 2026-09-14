@@ -124,7 +124,7 @@ mod tests {
     use amaru_kernel::{
         CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, ExUnits, Hash, Network, PoolId,
         PoolParams, PoolVotingThresholds, ProposalEnum, ProposalId, ProtocolParamUpdate, RationalNumber, RewardAccount,
-        SafeRatio, Vote, any_proposal_enum, any_vote_ref, safe_ratio,
+        SafeRatio, Vote, any_vote_ref, safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};
@@ -150,7 +150,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_voting_threshold_influenced_by_no_confidence(
-            proposal in any_proposal_enum(),
+            proposal in any::<ProposalEnum>(),
             thresholds in any::<PoolVotingThresholds>()
         ) {
             let result_normal = voting_threshold(false, &thresholds, &proposal);
@@ -303,7 +303,7 @@ mod tests {
     pub fn any_tally() -> impl Strategy<Value = (ProposalEnum, BTreeMap<PoolId, &'static Vote>, Rc<StakeDistribution>)>
     {
         any_stake_distribution_no_dreps().prop_flat_map(|stake_distribution| {
-            (any_proposal_enum(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
+            (any::<ProposalEnum>(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
                 .prop_map(move |(proposal, votes, stake_distribution)| (proposal, votes, stake_distribution))
         })
     }
