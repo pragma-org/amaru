@@ -119,6 +119,8 @@ jobs:
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - name: benches volatile_db
@@ -162,6 +164,8 @@ jobs:
       BUILD_PROFILE: test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - name: Validate trace schemas
