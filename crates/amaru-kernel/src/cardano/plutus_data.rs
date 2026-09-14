@@ -14,6 +14,14 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    collection,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any, any_with, prop_oneof},
+};
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::Depth;
 use crate::{Bytes, Hash, MemoizedPlutusData, NonEmptyVec, cbor, size::DATUM};
 
 mod bigint;
@@ -205,162 +213,151 @@ impl<'a> From<&'a PlutusDataSet> for PlutusDatums<'a> {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for PlutusData {
+    type Parameters = Depth;
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(Depth(depth): Self::Parameters) -> Self::Strategy {
+        let int = any::<BigInt>().prop_map(PlutusData::BigInt);
+        let bytes = any::<BoundedBytes>().prop_map(PlutusData::BoundedBytes);
+
+        if depth == 0 {
+            return prop_oneof![int, bytes].boxed();
+        }
+
+        let any_child = || any_with::<PlutusData>(Depth(depth - 1));
+        let constr = any_with::<Constr<PlutusData>>(Depth(depth)).prop_map(PlutusData::Constr);
+        let array = collection::vec(any_child(), 0..depth as usize).prop_map(PlutusData::Array);
+        let map = collection::vec((any_child(), any_child()), 0..depth as usize).prop_map(PlutusData::Map);
+
+        prop_oneof![int, bytes, constr, array, map].boxed()
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------------------------
 
-#[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
-
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use proptest::prelude::*;
+    use test_case::test_case;
 
-    use super::*;
-    use crate::plutus_data::{any_bigint, any_constr};
+    use crate::{
+        PlutusData, cbor,
+        plutus_data::{BigInt, BoundedBytes, Constr},
+    };
 
-    pub fn any_plutus_data(depth: u8) -> BoxedStrategy<PlutusData> {
-        let int = any_bigint().prop_map(PlutusData::BigInt);
-
-        let bytes = any::<BoundedBytes>().prop_map(PlutusData::BoundedBytes);
-
-        if depth > 0 {
-            let constr = any_constr(depth).prop_map(PlutusData::Constr);
-
-            let array =
-                prop::collection::vec(any_plutus_data(depth - 1), 0..depth as usize).prop_map(PlutusData::Array);
-
-            let map =
-                prop::collection::vec((any_plutus_data(depth - 1), any_plutus_data(depth - 1)), 0..depth as usize)
-                    .prop_map(PlutusData::Map);
-
-            prop_oneof![int, bytes, constr, array, map].boxed()
-        } else {
-            prop_oneof![int, bytes].boxed()
+    proptest! {
+        #[test]
+        fn cbor_roundtrip(original_data in any::<PlutusData>()) {
+            let bytes = cbor::to_vec(&original_data).unwrap();
+            let data: PlutusData = cbor::decode(&bytes).unwrap();
+            assert_eq!(data, original_data);
         }
     }
 
-    #[cfg(test)]
-    mod internal {
-        use std::cmp::Ordering;
+    fn int(i: i64) -> PlutusData {
+        PlutusData::BigInt(BigInt::Int(i.into()))
+    }
 
-        use proptest::prelude::*;
-        use test_case::test_case;
+    fn biguint(bs: &[u8]) -> PlutusData {
+        PlutusData::BigInt(BigInt::BigUInt(BoundedBytes::from(bs.to_vec())))
+    }
 
-        use super::any_plutus_data;
-        use crate::{
-            PlutusData, cbor,
-            plutus_data::{BigInt, BoundedBytes, Constr},
-        };
+    fn bignint(bs: &[u8]) -> PlutusData {
+        PlutusData::BigInt(BigInt::BigNInt(BoundedBytes::from(bs.to_vec())))
+    }
 
-        proptest! {
-            #[test]
-            fn cbor_roundtrip(original_data in any_plutus_data(3)) {
-                let bytes = cbor::to_vec(&original_data).unwrap();
-                let data: PlutusData = cbor::decode(&bytes).unwrap();
-                assert_eq!(data, original_data);
-            }
-        }
+    fn bytes(bs: &[u8]) -> PlutusData {
+        PlutusData::BoundedBytes(BoundedBytes::from(bs.to_vec()))
+    }
 
-        fn int(i: i64) -> PlutusData {
-            PlutusData::BigInt(BigInt::Int(i.into()))
-        }
+    fn array(xs: &[PlutusData]) -> PlutusData {
+        PlutusData::Array(xs.to_vec())
+    }
 
-        fn biguint(bs: &[u8]) -> PlutusData {
-            PlutusData::BigInt(BigInt::BigUInt(BoundedBytes::from(bs.to_vec())))
-        }
+    fn map(kvs: &[(PlutusData, PlutusData)]) -> PlutusData {
+        PlutusData::Map(kvs.to_vec())
+    }
 
-        fn bignint(bs: &[u8]) -> PlutusData {
-            PlutusData::BigInt(BigInt::BigNInt(BoundedBytes::from(bs.to_vec())))
-        }
+    fn constr(tag: u64, fields: &[PlutusData]) -> PlutusData {
+        PlutusData::Constr(Constr { tag, any_constructor: None, fields: fields.to_vec() })
+    }
 
-        fn bytes(bs: &[u8]) -> PlutusData {
-            PlutusData::BoundedBytes(BoundedBytes::from(bs.to_vec()))
-        }
+    fn constr_any(any_constructor: u64, fields: &[PlutusData]) -> PlutusData {
+        PlutusData::Constr(Constr { tag: 102, any_constructor: Some(any_constructor), fields: fields.to_vec() })
+    }
 
-        fn array(xs: &[PlutusData]) -> PlutusData {
-            PlutusData::Array(xs.to_vec())
-        }
-
-        fn map(kvs: &[(PlutusData, PlutusData)]) -> PlutusData {
-            PlutusData::Map(kvs.to_vec())
-        }
-
-        fn constr(tag: u64, fields: &[PlutusData]) -> PlutusData {
-            PlutusData::Constr(Constr { tag, any_constructor: None, fields: fields.to_vec() })
-        }
-
-        fn constr_any(any_constructor: u64, fields: &[PlutusData]) -> PlutusData {
-            PlutusData::Constr(Constr { tag: 102, any_constructor: Some(any_constructor), fields: fields.to_vec() })
-        }
-
-        // Bytes <-> ...
-        #[test_case(bytes(&[]), bytes(&[]) => Ordering::Equal)]
-        #[test_case(bytes(&[1, 2, 3]), bytes(&[4, 5, 6]) => Ordering::Less)]
-        #[test_case(bytes(&[1, 2, 3]), bytes(&[1, 2, 3]) => Ordering::Equal)]
-        #[test_case(bytes(&[4, 5, 6]), bytes(&[1, 2, 3]) => Ordering::Greater)]
-        #[test_case(bytes(&[1, 2, 3]), bytes(&[2, 2, 3]) => Ordering::Less)]
-        #[test_case(bytes(&[1, 2, 3]), bytes(&[1, 2]) => Ordering::Greater)]
-        #[test_case(bytes(&[2, 2]), bytes(&[1, 2, 3]) => Ordering::Greater)]
-        #[test_case(bytes(&[]), constr(121, &[]) => Ordering::Greater)]
-        #[test_case(bytes(&[]), map(&[]) => Ordering::Greater)]
-        #[test_case(bytes(&[]), array(&[]) => Ordering::Greater)]
-        #[test_case(bytes(&[]), int(0) => Ordering::Greater)]
-        // Int <-> ...
-        #[test_case(int(42), int(14) => Ordering::Greater)]
-        #[test_case(int(14), int(14) => Ordering::Equal)]
-        #[test_case(int(14), int(42) => Ordering::Less)]
-        #[test_case(int(0), int(-1) => Ordering::Greater)]
-        #[test_case(int(-2), int(-1) => Ordering::Less)]
-        #[test_case(int(0), biguint(&[0]) => Ordering::Equal)]
-        #[test_case(int(14), biguint(&[14]) => Ordering::Equal)]
-        #[test_case(int(14), biguint(&[42]) => Ordering::Less)]
-        #[test_case(biguint(&[14]), int(42) => Ordering::Less)]
-        #[test_case(biguint(&[42]), int(14) => Ordering::Greater)]
-        #[test_case(biguint(&[14, 255]), int(42) => Ordering::Greater)]
-        #[test_case(bignint(&[0]), int(0) => Ordering::Equal)]
-        #[test_case(bignint(&[14, 255]), int(-42) => Ordering::Less)]
-        #[test_case(biguint(&[]), int(0) => Ordering::Equal)]
-        #[test_case(biguint(&[0, 0, 1]), int(1) => Ordering::Equal)]
-        #[test_case(int(0), constr(121, &[]) => Ordering::Greater)]
-        #[test_case(int(0), map(&[]) => Ordering::Greater)]
-        #[test_case(int(0), array(&[]) => Ordering::Greater)]
-        #[test_case(int(0), bytes(&[]) => Ordering::Less)]
-        // Array <-> ...
-        #[test_case(array(&[]), array(&[]) => Ordering::Equal)]
-        #[test_case(array(&[int(14), int(42)]), array(&[int(14), int(42)]) => Ordering::Equal)]
-        #[test_case(array(&[int(14), int(42)]), array(&[int(15)]) => Ordering::Less)]
-        #[test_case(array(&[int(14), int(42)]), array(&[int(1), int(2), int(3)]) => Ordering::Greater)]
-        #[test_case(array(&[]), constr(121, &[]) => Ordering::Greater)]
-        #[test_case(array(&[]), map(&[]) => Ordering::Greater)]
-        #[test_case(array(&[]), int(0) => Ordering::Less)]
-        #[test_case(array(&[]), bytes(&[]) => Ordering::Less)]
-        // Map <--> ...
-        #[test_case(map(&[]), map(&[]) => Ordering::Equal)]
-        #[test_case(map(&[(int(14), int(42))]), map(&[(int(14), int(41))]) => Ordering::Greater)]
-        #[test_case(map(&[(int(14), int(41))]), map(&[(int(14), int(42))]) => Ordering::Less)]
-        #[test_case(map(&[(int(14), int(42))]), map(&[(int(14), int(42))]) => Ordering::Equal)]
-        #[test_case(map(&[(int(14), int(42))]), map(&[(int(14), int(42)), (int(1), int(999))]) => Ordering::Less)]
-        #[test_case(map(&[(int(15), int(42))]), map(&[(int(14), int(42)), (int(1), int(999))]) => Ordering::Greater)]
-        #[test_case(map(&[]), constr(121, &[]) => Ordering::Greater)]
-        #[test_case(map(&[]), array(&[]) => Ordering::Less)]
-        #[test_case(map(&[]), int(0) => Ordering::Less)]
-        #[test_case(map(&[]), bytes(&[]) => Ordering::Less)]
-        // Constr <-->
-        #[test_case(constr(121, &[]), constr(121, &[]) => Ordering::Equal)]
-        #[test_case(constr(122, &[]), constr(121, &[]) => Ordering::Greater)]
-        #[test_case(constr(122, &[]), constr(121, &[int(999)]) => Ordering::Greater)]
-        #[test_case(constr(126, &[int(999)]), constr(1281, &[]) => Ordering::Less)]
-        #[test_case(constr_any(0, &[]), constr(121, &[]) => Ordering::Equal)]
-        #[test_case(constr_any(1, &[]), constr(121, &[]) => Ordering::Greater)]
-        #[test_case(constr_any(7, &[int(14)]), constr(1280, &[]) => Ordering::Greater)]
-        #[test_case(constr_any(7, &[int(14)]), constr(1281, &[]) => Ordering::Less)]
-        #[test_case(constr_any(121, &[]), map(&[]) => Ordering::Less)]
-        #[test_case(constr_any(121, &[]), array(&[]) => Ordering::Less)]
-        #[test_case(constr_any(121, &[]), int(0) => Ordering::Less)]
-        #[test_case(constr_any(121, &[]), bytes(&[]) => Ordering::Less)]
-        fn ordering(left: PlutusData, right: PlutusData) -> Ordering {
-            left.cmp(&right)
-        }
+    // Bytes <-> ...
+    #[test_case(bytes(&[]), bytes(&[]) => Ordering::Equal)]
+    #[test_case(bytes(&[1, 2, 3]), bytes(&[4, 5, 6]) => Ordering::Less)]
+    #[test_case(bytes(&[1, 2, 3]), bytes(&[1, 2, 3]) => Ordering::Equal)]
+    #[test_case(bytes(&[4, 5, 6]), bytes(&[1, 2, 3]) => Ordering::Greater)]
+    #[test_case(bytes(&[1, 2, 3]), bytes(&[2, 2, 3]) => Ordering::Less)]
+    #[test_case(bytes(&[1, 2, 3]), bytes(&[1, 2]) => Ordering::Greater)]
+    #[test_case(bytes(&[2, 2]), bytes(&[1, 2, 3]) => Ordering::Greater)]
+    #[test_case(bytes(&[]), constr(121, &[]) => Ordering::Greater)]
+    #[test_case(bytes(&[]), map(&[]) => Ordering::Greater)]
+    #[test_case(bytes(&[]), array(&[]) => Ordering::Greater)]
+    #[test_case(bytes(&[]), int(0) => Ordering::Greater)]
+    // Int <-> ...
+    #[test_case(int(42), int(14) => Ordering::Greater)]
+    #[test_case(int(14), int(14) => Ordering::Equal)]
+    #[test_case(int(14), int(42) => Ordering::Less)]
+    #[test_case(int(0), int(-1) => Ordering::Greater)]
+    #[test_case(int(-2), int(-1) => Ordering::Less)]
+    #[test_case(int(0), biguint(&[0]) => Ordering::Equal)]
+    #[test_case(int(14), biguint(&[14]) => Ordering::Equal)]
+    #[test_case(int(14), biguint(&[42]) => Ordering::Less)]
+    #[test_case(biguint(&[14]), int(42) => Ordering::Less)]
+    #[test_case(biguint(&[42]), int(14) => Ordering::Greater)]
+    #[test_case(biguint(&[14, 255]), int(42) => Ordering::Greater)]
+    #[test_case(bignint(&[0]), int(0) => Ordering::Equal)]
+    #[test_case(bignint(&[14, 255]), int(-42) => Ordering::Less)]
+    #[test_case(biguint(&[]), int(0) => Ordering::Equal)]
+    #[test_case(biguint(&[0, 0, 1]), int(1) => Ordering::Equal)]
+    #[test_case(int(0), constr(121, &[]) => Ordering::Greater)]
+    #[test_case(int(0), map(&[]) => Ordering::Greater)]
+    #[test_case(int(0), array(&[]) => Ordering::Greater)]
+    #[test_case(int(0), bytes(&[]) => Ordering::Less)]
+    // Array <-> ...
+    #[test_case(array(&[]), array(&[]) => Ordering::Equal)]
+    #[test_case(array(&[int(14), int(42)]), array(&[int(14), int(42)]) => Ordering::Equal)]
+    #[test_case(array(&[int(14), int(42)]), array(&[int(15)]) => Ordering::Less)]
+    #[test_case(array(&[int(14), int(42)]), array(&[int(1), int(2), int(3)]) => Ordering::Greater)]
+    #[test_case(array(&[]), constr(121, &[]) => Ordering::Greater)]
+    #[test_case(array(&[]), map(&[]) => Ordering::Greater)]
+    #[test_case(array(&[]), int(0) => Ordering::Less)]
+    #[test_case(array(&[]), bytes(&[]) => Ordering::Less)]
+    // Map <--> ...
+    #[test_case(map(&[]), map(&[]) => Ordering::Equal)]
+    #[test_case(map(&[(int(14), int(42))]), map(&[(int(14), int(41))]) => Ordering::Greater)]
+    #[test_case(map(&[(int(14), int(41))]), map(&[(int(14), int(42))]) => Ordering::Less)]
+    #[test_case(map(&[(int(14), int(42))]), map(&[(int(14), int(42))]) => Ordering::Equal)]
+    #[test_case(map(&[(int(14), int(42))]), map(&[(int(14), int(42)), (int(1), int(999))]) => Ordering::Less)]
+    #[test_case(map(&[(int(15), int(42))]), map(&[(int(14), int(42)), (int(1), int(999))]) => Ordering::Greater)]
+    #[test_case(map(&[]), constr(121, &[]) => Ordering::Greater)]
+    #[test_case(map(&[]), array(&[]) => Ordering::Less)]
+    #[test_case(map(&[]), int(0) => Ordering::Less)]
+    #[test_case(map(&[]), bytes(&[]) => Ordering::Less)]
+    // Constr <-->
+    #[test_case(constr(121, &[]), constr(121, &[]) => Ordering::Equal)]
+    #[test_case(constr(122, &[]), constr(121, &[]) => Ordering::Greater)]
+    #[test_case(constr(122, &[]), constr(121, &[int(999)]) => Ordering::Greater)]
+    #[test_case(constr(126, &[int(999)]), constr(1281, &[]) => Ordering::Less)]
+    #[test_case(constr_any(0, &[]), constr(121, &[]) => Ordering::Equal)]
+    #[test_case(constr_any(1, &[]), constr(121, &[]) => Ordering::Greater)]
+    #[test_case(constr_any(7, &[int(14)]), constr(1280, &[]) => Ordering::Greater)]
+    #[test_case(constr_any(7, &[int(14)]), constr(1281, &[]) => Ordering::Less)]
+    #[test_case(constr_any(121, &[]), map(&[]) => Ordering::Less)]
+    #[test_case(constr_any(121, &[]), array(&[]) => Ordering::Less)]
+    #[test_case(constr_any(121, &[]), int(0) => Ordering::Less)]
+    #[test_case(constr_any(121, &[]), bytes(&[]) => Ordering::Less)]
+    fn ordering(left: PlutusData, right: PlutusData) -> Ordering {
+        left.cmp(&right)
     }
 }

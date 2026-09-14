@@ -14,7 +14,15 @@
 
 use std::cmp::Ordering;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    collection,
+    prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, any_with, prop_oneof},
+};
+
 use crate::cbor;
+#[cfg(any(test, feature = "test-utils"))]
+use crate::{Depth, PlutusData};
 
 // TODO: Constr internal representation.
 //
@@ -103,38 +111,32 @@ where
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for Constr<PlutusData> {
+    type Parameters = Depth;
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(Depth(depth): Self::Parameters) -> Self::Strategy {
+        let any_tag = prop_oneof![
+            (Just(102), any::<u64>().prop_map(Some)),
+            (121_u64..=127, Just(None)),
+            (1280_u64..=1400, Just(None))
+        ];
+        let any_fields = collection::vec(any_with::<PlutusData>(Depth(depth - 1)), 0..depth as usize);
+
+        (any_tag, any_fields)
+            .prop_map(|((tag, any_constructor), fields)| Constr { tag, any_constructor, fields })
+            .boxed()
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use proptest::{prelude::*, strategy::Just};
 
-    use super::Constr;
-    use crate::{PlutusData, any_plutus_data, cbor, memoized::VariableEncodingPlutusData, utils::cbor::CborArray};
-
-    // ---------------------------------------------------------------------------------------------
-    // Constr
-    // ---------------------------------------------------------------------------------------------
-
-    pub fn any_constr(depth: u8) -> impl Strategy<Value = Constr<PlutusData>> {
-        let any_constr_tag = prop_oneof![
-            (Just(102), any::<u64>().prop_map(Some)),
-            (121_u64..=127, Just(None)),
-            (1280_u64..=1400, Just(None))
-        ];
-
-        let any_fields = prop::collection::vec(any_plutus_data(depth - 1), 0..depth as usize);
-
-        (any_constr_tag, any_fields).prop_map(|((tag, any_constructor), fields)| Constr {
-            tag,
-            any_constructor,
-            fields,
-        })
-    }
-
-    // ---------------------------------------------------------------------------------------------
-    // VariableEncodingConstr
-    // ---------------------------------------------------------------------------------------------
+    use crate::{cbor, memoized::VariableEncodingPlutusData, utils::cbor::CborArray};
 
     #[derive(Debug, Clone)]
     pub struct VariableEncodingConstr<A> {
