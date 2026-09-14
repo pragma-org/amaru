@@ -53,7 +53,7 @@ impl<C> cbor::Encode<C> for ChainCode {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ChainCode {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let bytes = cbor::decode_bytes_with(d, ctx)?;
+        let bytes = cbor::decode_bytes_v12_indefinite(d, ctx)?;
         if ctx.protocol_version() >= PROTOCOL_VERSION_12 && bytes.len() != CHAIN_CODE_SIZE {
             return Err(cbor::decode::Error::message(format!(
                 "chain code is expected to be {CHAIN_CODE_SIZE} bytes, got {}",

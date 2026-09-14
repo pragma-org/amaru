@@ -42,7 +42,7 @@ impl ByronAddress {
     /// Re-compute an address (verification key) root from a transaction witness.
     ///
     /// The chain code is hashed as-is even when it is not 32 bytes long so that such a
-    /// witness yields the same root on both implementations.
+    /// witness yields the same root with the Haskell implementation and Amaru.
     pub fn root(witness: &BootstrapWitness) -> Hash<28> {
         // Serialised `SpendingData::VerificationKey`, with the byte string length pinned to 64
         // regardless of the actual chain code length.
@@ -142,7 +142,7 @@ impl<'b, C> cbor::Decode<'b, C> for ByronAddress {
         // Conformance: the Haskell node reads the tag-24 payload with cborg's `decodeBytes`
         // (via `decodeCrcProtected`, always at the Byron protocol version), which rejects
         // indefinite-length byte strings, so we reject them too.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         let payload = d.bytes()?;
         let crc = d.u32()?;
 

@@ -185,7 +185,8 @@ impl<const N: usize> schemars::JsonSchema for FixedBytes<N> {
 
 impl<'b, C: cbor::HasProtocolVersion, const N: usize> cbor::Decode<'b, C> for FixedBytes<N> {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Self::checked(&cbor::decode_bytes_with(d, ctx)?).map_err(|e| cbor::decode::Error::message(e.to_string()))
+        Self::checked(&cbor::decode_bytes_v12_indefinite(d, ctx)?)
+            .map_err(|e| cbor::decode::Error::message(e.to_string()))
     }
 }
 

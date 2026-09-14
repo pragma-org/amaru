@@ -96,7 +96,8 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
                     if d.tag()? != IanaTag::Cbor.tag() {
                         return Err(cbor::decode::Error::message("unknown tag for datum tag"));
                     }
-                    let plutus_data: MemoizedPlutusData = cbor::decode_with(&cbor::decode_bytes_with(d, ctx)?, ctx)?;
+                    let plutus_data: MemoizedPlutusData =
+                        cbor::decode_with(&cbor::decode_bytes_v12_indefinite(d, ctx)?, ctx)?;
                     Ok(MemoizedDatum::from(plutus_data))
                 }
                 _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
@@ -107,7 +108,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let raw = cbor::decode_bytes_with(d, ctx)?;
+        let raw = cbor::decode_bytes_v12_indefinite(d, ctx)?;
         if raw.len() != 32 {
             return Err(cbor::decode::Error::message(format!("expected datum hash of length 32, got {}", raw.len())));
         }
