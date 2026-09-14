@@ -15,7 +15,7 @@
 use amaru_kernel::{
     Anchor, Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
     MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, RewardAccount, Slot,
-    TransactionInput, any_modern_output, any_pool_params,
+    TransactionInput, any_pool_params,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
 use proptest::prelude::any;
@@ -56,7 +56,7 @@ pub fn input(rng: &mut impl Rng) -> TransactionInput {
 }
 
 pub fn output(rng: &mut impl Rng) -> MemoizedTransactionOutput {
-    run_strategy_with_rng(rng, any_modern_output())
+    run_strategy_with_rng(rng, any::<MemoizedTransactionOutput>())
 }
 
 pub fn pool_id(rng: &mut impl Rng) -> PoolId {

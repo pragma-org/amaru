@@ -557,7 +557,7 @@ mod tests {
     use amaru_kernel::{
         BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, RationalNumber, SafeRatio, Slot,
-        SortedPairs, any_modern_output, any_proposal, utils::tests::run_strategy,
+        SortedPairs, any_proposal, utils::tests::run_strategy,
     };
     use num::Zero;
     use proptest::prelude::any;
@@ -1114,7 +1114,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.produce(input, Arc::new(run_strategy(any_modern_output())));
+            block.fragment.utxo.produce(input, Arc::new(run_strategy(any::<MemoizedTransactionOutput>())));
         }
 
         if let Some(layer) = consume_in {
