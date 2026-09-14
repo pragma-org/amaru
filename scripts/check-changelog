@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable
@@ -522,10 +522,40 @@ def validate_release_order(
         record_failure(failures, message, line=blocks[0].line_number, title="Release order")
 
 
+def block_entries(lines: list[str], block: ReleaseBlock) -> set[str]:
+    parsed = replace(block, sections=[])
+    parse_sections(lines, parsed)
+    return {entry.normalized for section in parsed.sections for entry in section.entries}
+
+
+def version_entries(lines: list[str] | None, blocks: list[ReleaseBlock], version: str) -> set[str]:
+    if lines is None:
+        return set()
+    return set().union(*(block_entries(lines, block) for block in blocks if block.version == version))
+
+
+def released_blocks_with_new_entries(
+    lines: list[str],
+    blocks: list[ReleaseBlock],
+    base_lines: list[str] | None,
+    base_blocks: list[ReleaseBlock],
+) -> list[ReleaseBlock]:
+    misplaced: list[ReleaseBlock] = []
+    for block in blocks:
+        if not block.released:
+            continue
+        base_entries = version_entries(base_lines, base_blocks, block.version)
+        if block_entries(lines, block) - base_entries:
+            misplaced.append(block)
+    return misplaced
+
+
 def validate_target_release(
     lines: list[str],
+    blocks: list[ReleaseBlock],
     head_block: ReleaseBlock,
-    base_block: ReleaseBlock | None,
+    base_lines: list[str] | None,
+    base_blocks: list[ReleaseBlock],
     require_new_entry: bool,
     relevant_commits: list[str],
     failures: list[Failure],
@@ -598,18 +628,20 @@ def validate_target_release(
     if len(failures) > failure_count_before:
         return
 
-    base_entries = set()
-    if base_block is not None:
-        base_text = git("show", f"{os.environ['CHANGELOG_BASE_SHA']}:CHANGELOG.md", check=False)
-        if base_text:
-            base_lines_list = base_text.splitlines()
-            parse_sections(base_lines_list, base_block)
-            for section in base_block.sections:
-                for entry in section.entries:
-                    base_entries.add(entry.normalized)
+    base_entries = version_entries(base_lines, base_blocks, head_block.version)
 
     head_entries = {entry.normalized for section in sections for entry in section.entries}
     if not any(entry not in base_entries for entry in head_entries):
+        misplaced = released_blocks_with_new_entries(lines, blocks, base_lines, base_blocks)
+        if misplaced:
+            for block in misplaced:
+                message = (
+                    f"New changelog entries were added under {block.version}, which is already released. "
+                    f"Move them under the unreleased heading {head_block.version}."
+                )
+                record_failure(failures, message, line=block.line_number, title="Entry under released version")
+            return
+
         line = head_block.line_number
         commit_lines = "\n".join(f"  - {commit}" for commit in relevant_commits) if relevant_commits else "  - (none found)"
         summary_message = "Crate changes require a new changelog entry under the next unreleased release heading."
@@ -651,8 +683,6 @@ def prepare_changelog_check(
         base_sha, head_sha = local_base_head(resolved_default_branch)
         diff_range = f"{base_sha}..{head_sha}"
         include_worktree = True
-
-    os.environ["CHANGELOG_BASE_SHA"] = base_sha
 
     relevant_commits = commits_for_range(base_sha, head_sha, include_worktree=include_worktree)
 
@@ -724,14 +754,23 @@ def validate_changelog_contents(
             )
             record_failure(failures, message, line=target_block.line_number, title="Wrong planned date")
 
-        base_block = None
+        base_lines = None
+        base_blocks: list[ReleaseBlock] = []
         base_changelog = git("show", f"{base_sha}:CHANGELOG.md", check=False)
         if base_changelog:
             base_lines = base_changelog.splitlines()
             base_blocks = parse_release_headers(base_lines)
-            base_block = find_release(base_blocks, expected_version)
 
-        validate_target_release(lines, target_block, base_block, not override_requested, relevant_commits, failures)
+        validate_target_release(
+            lines,
+            blocks,
+            target_block,
+            base_lines,
+            base_blocks,
+            not override_requested,
+            relevant_commits,
+            failures,
+        )
 
     if failures:
         report = failure_report_markdown(
