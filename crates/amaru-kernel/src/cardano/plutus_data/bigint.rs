@@ -14,6 +14,9 @@
 
 use std::cmp::Ordering;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, prop_oneof};
+
 use crate::{Int, cbor, plutus_data::BoundedBytes};
 
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -122,19 +125,16 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for BigInt {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for BigInt {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::{BigInt, BoundedBytes};
-
-    pub fn any_bigint() -> impl Strategy<Value = BigInt> {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         prop_oneof![
             any::<i64>().prop_map(|i| BigInt::Int(i.into())),
             any::<BoundedBytes>().prop_map(BigInt::BigUInt),
             any::<BoundedBytes>().prop_map(BigInt::BigNInt),
         ]
+        .boxed()
     }
 }
