@@ -40,7 +40,7 @@ jobs:
           touch ${{ runner.temp }}/db/clean
 
       - name: ⚙️ Synchronize with ${{ matrix.network }}
-        uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@bdcd9c18c0e6bad2f43f38adaa409fae077ddae4
+        uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@bdcd9c18c0e6bad2f43f38adaa409fae077ddae4 # https://github.com/CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync/commit/bdcd9c18c0e6bad2f43f38adaa409fae077ddae4
         with:
           db-dir: ${{ runner.temp }}/db
           network: ${{ matrix.network }}

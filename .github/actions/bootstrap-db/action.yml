@@ -23,7 +23,7 @@ runs:
   steps:
     - name: Restore Amaru bootstrap DBs
       id: cache-restore
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # https://github.com/actions/cache/releases/tag/v6.1.0
       with:
         path: |
           ./ledger.${{ inputs.network }}.db
@@ -50,7 +50,7 @@ runs:
 
     - name: Save bootstrap DBs to cache
       if: steps.cache-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
-      uses: actions/cache/save@v5
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # https://github.com/actions/cache/releases/tag/v6.1.0
       with:
         path: |
           ./ledger.${{ inputs.network }}.db

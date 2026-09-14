@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
           ref: ${{ needs.release-metadata.outputs.base_branch }}
 
@@ -157,7 +157,7 @@ jobs:
             --repo "${GITHUB_REPOSITORY}"
 
       - name: Create packaging update PR
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # https://github.com/peter-evans/create-pull-request/releases/tag/v8.1.1
         with:
           base: ${{ needs.release-metadata.outputs.base_branch }}
           branch: release-${{ needs.release-metadata.outputs.release_tag }}

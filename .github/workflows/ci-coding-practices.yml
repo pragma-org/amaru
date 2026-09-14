@@ -23,7 +23,7 @@ jobs:
   rust-toolchain:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
       - run: ./scripts/check-rust-toolchain-version
 
   changes:
@@ -33,8 +33,8 @@ jobs:
       crates: ${{ steps.changes.outputs.crates }}
       dependencies: ${{ steps.changes.outputs.dependencies }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # https://github.com/dorny/paths-filter/releases/tag/v4.0.3
         id: changes
         with:
           filters: |
@@ -52,7 +52,7 @@ jobs:
     if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.crates == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
           fetch-depth: 0
       - name: Validate changelog updates
@@ -70,7 +70,7 @@ jobs:
           fi
       - name: Upload changelog report artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
           name: changelog-check-report
           path: changelog-check-artifact
@@ -90,8 +90,8 @@ jobs:
   unused-dependencies:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: jaxxstorm/action-install-gh-release@v1.10.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: jaxxstorm/action-install-gh-release@c5ead9a448b4660cf1e7866ee22e4dc56538031a # https://github.com/jaxxstorm/action-install-gh-release/releases/tag/v1.10.0
         with:
           repo: bnjbvr/cargo-machete
           tag: v0.7.0
@@ -103,8 +103,8 @@ jobs:
     if: ${{ needs.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # https://github.com/taiki-e/install-action/releases/tag/v2.87.12
         with:
           tool: cargo-hakari@0.9.38
       - run: cargo hakari generate --diff
@@ -114,8 +114,8 @@ jobs:
     if: ${{ needs.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: jaxxstorm/action-install-gh-release@v1.10.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: jaxxstorm/action-install-gh-release@c5ead9a448b4660cf1e7866ee22e4dc56538031a # https://github.com/jaxxstorm/action-install-gh-release/releases/tag/v1.10.0
         with:
           repo: EmbarkStudios/cargo-deny
           tag: 0.16.4
@@ -125,8 +125,8 @@ jobs:
   license-headers:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: viperproject/check-license-header@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: viperproject/check-license-header@e06c65614fa9f32e099838df4dd25440c5344b32 # https://github.com/viperproject/check-license-header/releases/tag/v2.0.3
         with:
           path: .
           config: .github/check-license-header.config.json
@@ -135,7 +135,7 @@ jobs:
   clippy:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
       - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - run: cargo clippy-amaru
@@ -143,13 +143,13 @@ jobs:
   formatting:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
       - run: cargo fmt-amaru
 
   docs:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
           submodules: true
       - uses: ./.github/actions/stage-peer-snapshots
