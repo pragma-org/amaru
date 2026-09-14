@@ -14,6 +14,12 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    option,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any},
+};
+
 use crate::{CostModel, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
@@ -52,5 +58,20 @@ impl fmt::Display for CostModels {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for CostModels {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let any_cost_model =
+            || any::<[Option<i64>; 3]>().prop_map(|costs| costs.into_iter().flatten().collect::<CostModel>());
+
+        (option::of(any_cost_model()), option::of(any_cost_model()), option::of(any_cost_model()))
+            .prop_map(|(plutus_v1, plutus_v2, plutus_v3)| CostModels { plutus_v1, plutus_v2, plutus_v3 })
+            .boxed()
     }
 }

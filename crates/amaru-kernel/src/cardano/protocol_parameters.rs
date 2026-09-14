@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{
     CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
     ProtocolParamUpdate, ProtocolVersion, RationalNumber, cbor,
@@ -557,178 +560,135 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for ProtocolParameters {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let network =
+            (any::<u64>(), any::<u64>(), any::<u16>(), any::<ExUnits>(), any::<ExUnits>(), any::<u64>(), any::<u16>());
+        let economic = (
+            any::<Lovelace>(),
+            any::<Lovelace>(),
+            any::<Lovelace>(),
+            any::<Lovelace>(),
+            any::<RationalNumber>(),
+            any::<RationalNumber>(),
+            any::<Lovelace>(),
+            any::<Lovelace>(),
+            any::<ExUnitPrices>(),
+            any::<RationalNumber>(),
+        );
+        let technical = (any::<u64>(), any::<u16>(), any::<RationalNumber>(), any::<u16>(), any::<CostModels>());
+        let governance = (
+            any::<PoolVotingThresholds>(),
+            any::<DRepVotingThresholds>(),
+            any::<u16>(),
+            any::<u64>(),
+            any::<u64>(),
+            any::<Lovelace>(),
+            any::<Lovelace>(),
+            any::<u64>(),
+        );
+
+        (any::<ProtocolVersion>(), network, economic, technical, governance)
+            .prop_map(|(protocol_version, network, economic, technical, governance)| {
+                let (
+                    max_block_body_size,
+                    max_transaction_size,
+                    max_block_header_size,
+                    max_tx_ex_units,
+                    max_block_ex_units,
+                    max_value_size,
+                    max_collateral_inputs,
+                ) = network;
+                let (
+                    min_fee_a,
+                    min_fee_b,
+                    stake_credential_deposit,
+                    stake_pool_deposit,
+                    monetary_expansion_rate,
+                    treasury_expansion_rate,
+                    min_pool_cost,
+                    lovelace_per_utxo_byte,
+                    prices,
+                    min_fee_ref_script_lovelace_per_byte,
+                ) = economic;
+                let (
+                    stake_pool_max_retirement_epoch,
+                    optimal_stake_pools_count,
+                    pledge_influence,
+                    collateral_percentage,
+                    cost_models,
+                ) = technical;
+                let (
+                    pool_voting_thresholds,
+                    drep_voting_thresholds,
+                    min_committee_size,
+                    max_committee_term_length,
+                    gov_action_lifetime,
+                    gov_action_deposit,
+                    drep_deposit,
+                    drep_expiry,
+                ) = governance;
+
+                let default = &*PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
+                ProtocolParameters {
+                    protocol_version,
+                    max_block_body_size,
+                    max_transaction_size,
+                    max_block_header_size,
+                    max_tx_ex_units,
+                    max_block_ex_units,
+                    max_value_size,
+                    max_collateral_inputs,
+                    min_fee_a,
+                    min_fee_b,
+                    stake_credential_deposit,
+                    stake_pool_deposit,
+                    monetary_expansion_rate,
+                    treasury_expansion_rate,
+                    min_pool_cost,
+                    lovelace_per_utxo_byte,
+                    prices,
+                    min_fee_ref_script_lovelace_per_byte,
+                    max_ref_script_size_per_tx: default.max_ref_script_size_per_tx,
+                    max_ref_script_size_per_block: default.max_ref_script_size_per_block,
+                    ref_script_cost_stride: default.ref_script_cost_stride,
+                    ref_script_cost_multiplier: default.ref_script_cost_multiplier,
+                    stake_pool_max_retirement_epoch,
+                    optimal_stake_pools_count,
+                    pledge_influence,
+                    collateral_percentage,
+                    cost_models,
+                    pool_voting_thresholds,
+                    drep_voting_thresholds,
+                    min_committee_size,
+                    max_committee_term_length,
+                    gov_action_lifetime,
+                    gov_action_deposit,
+                    drep_deposit,
+                    drep_expiry,
+                }
+            })
+            .boxed()
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use proptest::{collection, option, prelude::*};
 
-    use super::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
     use crate::{
-        Constitution, CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits,
-        GovernanceAction, Hash, KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate,
-        ProtocolParameters, ProtocolVersion, RationalNumber, RewardAccount, size::SCRIPT,
+        Constitution, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, ProposalId,
+        ProtocolParamUpdate, ProtocolVersion, RationalNumber, RewardAccount, size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
-    crate::prop_cbor_roundtrip!(ProtocolParameters, any_protocol_parameter());
-
-    prop_compose! {
-        pub fn any_drep_voting_thresholds()(
-            motion_no_confidence in any::<RationalNumber>(),
-            committee_normal in any::<RationalNumber>(),
-            committee_no_confidence in any::<RationalNumber>(),
-            update_constitution in any::<RationalNumber>(),
-            hard_fork_initiation in any::<RationalNumber>(),
-            pp_network_group in any::<RationalNumber>(),
-            pp_economic_group in any::<RationalNumber>(),
-            pp_technical_group in any::<RationalNumber>(),
-            pp_governance_group in any::<RationalNumber>(),
-            treasury_withdrawal in any::<RationalNumber>(),
-        ) -> DRepVotingThresholds {
-            DRepVotingThresholds {
-                motion_no_confidence,
-                committee_normal,
-                committee_no_confidence,
-                update_constitution,
-                hard_fork_initiation,
-                pp_network_group,
-                pp_economic_group,
-                pp_technical_group,
-                pp_governance_group,
-                treasury_withdrawal,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_pool_voting_thresholds()(
-            motion_no_confidence in any::<RationalNumber>(),
-            committee_normal in any::<RationalNumber>(),
-            committee_no_confidence in any::<RationalNumber>(),
-            hard_fork_initiation in any::<RationalNumber>(),
-            security_voting_threshold in any::<RationalNumber>(),
-        ) -> PoolVotingThresholds {
-            PoolVotingThresholds {
-                motion_no_confidence,
-                committee_normal,
-                committee_no_confidence,
-                hard_fork_initiation,
-                security_voting_threshold,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_cost_model()(
-            machine_cost in option::of(any::<i64>()),
-            some_builtin in option::of(any::<i64>()),
-            some_other_builtin in option::of(any::<i64>()),
-        ) -> CostModel {
-            vec![
-                machine_cost,
-                some_builtin,
-                some_other_builtin,
-            ]
-            .into_iter()
-            .flatten()
-            .collect()
-        }
-    }
-
-    prop_compose! {
-        pub fn any_cost_models()(
-            plutus_v1 in option::of(any_cost_model()),
-            plutus_v2 in option::of(any_cost_model()),
-            plutus_v3 in option::of(any_cost_model()),
-        ) -> CostModels {
-            CostModels {
-                plutus_v1,
-                plutus_v2,
-                plutus_v3,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_ex_unit_prices()(
-            mem_price in any::<RationalNumber>(),
-            step_price in any::<RationalNumber>(),
-        ) -> ExUnitPrices {
-            ExUnitPrices {
-                mem_price,
-                step_price,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_protocol_params_update()(
-            minfee_a in option::of(any::<u64>()),
-            minfee_b in option::of(any::<u64>()),
-            max_block_body_size in option::of(any::<u64>()),
-            max_transaction_size in option::of(any::<u64>()),
-            max_block_header_size in option::of(any::<u64>()),
-            key_deposit in option::of(any::<Lovelace>()),
-            pool_deposit in option::of(any::<Lovelace>()),
-            maximum_epoch in option::of(any::<u64>()),
-            desired_number_of_stake_pools in option::of(any::<u64>()),
-            pool_pledge_influence in option::of(any::<RationalNumber>()),
-            expansion_rate in option::of(any::<RationalNumber>()),
-            treasury_growth_rate in option::of(any::<RationalNumber>()),
-            min_pool_cost in option::of(any::<Lovelace>()),
-            ada_per_utxo_byte in option::of(any::<Lovelace>()),
-            cost_models_for_script_languages in option::of(any_cost_models()),
-            execution_costs in option::of(any_ex_unit_prices()),
-            max_tx_ex_units in option::of(any::<ExUnits>()),
-            max_block_ex_units in option::of(any::<ExUnits>()),
-            max_value_size in option::of(any::<u64>()),
-            collateral_percentage in option::of(any::<u64>()),
-            max_collateral_inputs in option::of(any::<u64>()),
-            pool_voting_thresholds in option::of(any_pool_voting_thresholds()),
-            drep_voting_thresholds in option::of(any_drep_voting_thresholds()),
-            min_committee_size in option::of(any::<u64>()),
-            committee_term_limit in option::of(any::<u64>()),
-            governance_action_validity_period in option::of(any::<u64>()),
-            governance_action_deposit in option::of(any::<Lovelace>()),
-            drep_deposit in option::of(any::<Lovelace>()),
-            drep_inactivity_period in option::of(any::<u64>()),
-            minfee_refscript_cost_per_byte in option::of(any::<RationalNumber>()),
-        ) -> ProtocolParamUpdate {
-            ProtocolParamUpdate {
-                minfee_a,
-                minfee_b,
-                max_block_body_size,
-                max_transaction_size,
-                max_block_header_size,
-                key_deposit,
-                pool_deposit,
-                maximum_epoch,
-                desired_number_of_stake_pools,
-                pool_pledge_influence,
-                expansion_rate,
-                treasury_growth_rate,
-                min_pool_cost,
-                ada_per_utxo_byte,
-                cost_models_for_script_languages,
-                execution_costs,
-                max_tx_ex_units,
-                max_block_ex_units,
-                max_value_size,
-                collateral_percentage,
-                max_collateral_inputs,
-                pool_voting_thresholds,
-                drep_voting_thresholds,
-                min_committee_size,
-                committee_term_limit,
-                governance_action_validity_period,
-                governance_action_deposit,
-                drep_deposit,
-                drep_inactivity_period,
-                minfee_refscript_cost_per_byte,
-            }
-        }
-    }
+    crate::prop_cbor_roundtrip!(super::ProtocolParameters);
 
     pub fn any_gov_action() -> impl Strategy<Value = GovernanceAction> {
         prop_compose! {
@@ -742,7 +702,7 @@ mod tests {
         prop_compose! {
             fn any_action_parameter_change()(
                 parent_proposal_id in any_parent_proposal_id(),
-                pparams in any_protocol_params_update(),
+                pparams in any::<ProtocolParamUpdate>(),
                 guardrails in any_guardrails_script(),
             ) -> GovernanceAction {
                 GovernanceAction::ParameterChange(parent_proposal_id, Box::new(pparams), guardrails)
@@ -761,7 +721,7 @@ mod tests {
         prop_compose! {
             #[allow(clippy::unwrap_used)]
             fn any_treasury_withdrawals()(
-                withdrawals in collection::vec(any_withdrawal(), 0..3),
+                withdrawals in collection::vec(any::<(RewardAccount, Lovelace)>(), 0..3),
                 guardrails in any_guardrails_script(),
             ) -> GovernanceAction {
                 GovernanceAction::TreasuryWithdrawals(
@@ -829,91 +789,7 @@ mod tests {
         ]
     }
 
-    prop_compose! {
-        pub fn any_withdrawal()(
-            reward_account in any::<RewardAccount>(),
-            amount in any::<Lovelace>(),
-        ) -> (RewardAccount, Lovelace) {
-            (reward_account, amount)
-        }
-    }
-
     pub fn any_guardrails_script() -> impl Strategy<Value = Option<Hash<SCRIPT>>> {
         option::of(any::<Hash<SCRIPT>>())
-    }
-
-    prop_compose! {
-        pub fn any_protocol_parameter()(
-            protocol_version in any::<ProtocolVersion>(),
-            max_block_body_size in any::<u64>(),
-            max_transaction_size in any::<u64>(),
-            max_block_header_size in any::<u16>(),
-            max_tx_ex_units in any::<ExUnits>(),
-            max_block_ex_units in any::<ExUnits>(),
-            max_value_size in any::<u64>(),
-            max_collateral_inputs in any::<u16>(),
-            min_fee_a in any::<Lovelace>(),
-            min_fee_b in any::<Lovelace>(),
-            stake_credential_deposit in any::<Lovelace>(),
-            stake_pool_deposit in any::<Lovelace>(),
-            monetary_expansion_rate in any::<RationalNumber>(),
-            treasury_expansion_rate in any::<RationalNumber>(),
-            min_pool_cost in any::<Lovelace>(),
-            lovelace_per_utxo_byte in any::<Lovelace>(),
-            prices in any_ex_unit_prices(),
-            min_fee_ref_script_lovelace_per_byte in any::<RationalNumber>(),
-            stake_pool_max_retirement_epoch in any::<u64>(),
-            optimal_stake_pools_count in any::<u16>(),
-            pledge_influence in any::<RationalNumber>(),
-            collateral_percentage in any::<u16>(),
-            cost_models in any_cost_models(),
-            pool_voting_thresholds in any_pool_voting_thresholds(),
-            drep_voting_thresholds in any_drep_voting_thresholds(),
-            min_committee_size in any::<u16>(),
-            max_committee_term_length in any::<u64>(),
-            gov_action_lifetime in any::<u64>(),
-            gov_action_deposit in any::<Lovelace>(),
-            drep_deposit in any::<Lovelace>(),
-            drep_expiry in any::<u64>(),
-        ) -> ProtocolParameters {
-            let default = &*PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
-            ProtocolParameters {
-                protocol_version,
-                max_block_body_size,
-                max_transaction_size,
-                max_block_header_size,
-                max_tx_ex_units,
-                max_block_ex_units,
-                max_value_size,
-                max_collateral_inputs,
-                min_fee_a,
-                min_fee_b,
-                stake_credential_deposit,
-                stake_pool_deposit,
-                monetary_expansion_rate,
-                treasury_expansion_rate,
-                min_pool_cost,
-                lovelace_per_utxo_byte,
-                prices,
-                min_fee_ref_script_lovelace_per_byte,
-                max_ref_script_size_per_tx: default.max_ref_script_size_per_tx,
-                max_ref_script_size_per_block: default.max_ref_script_size_per_block,
-                ref_script_cost_stride: default.ref_script_cost_stride,
-                ref_script_cost_multiplier: default.ref_script_cost_multiplier,
-                stake_pool_max_retirement_epoch,
-                optimal_stake_pools_count,
-                pledge_influence,
-                collateral_percentage,
-                cost_models,
-                pool_voting_thresholds,
-                drep_voting_thresholds,
-                min_committee_size,
-                max_committee_term_length,
-                gov_action_lifetime,
-                gov_action_deposit,
-                drep_deposit,
-                drep_expiry,
-            }
-        }
     }
 }

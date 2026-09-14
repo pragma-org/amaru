@@ -741,9 +741,8 @@ mod tests {
     use amaru_kernel::{
         Anchor, Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs,
         Lovelace, MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10,
-        Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
-        RationalNumber, RewardAccount, Slot, TransactionPointer, any_gov_action, any_proposal_enum,
-        any_protocol_params_update,
+        Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters,
+        ProtocolVersion, RationalNumber, RewardAccount, Slot, TransactionPointer, any_gov_action, any_proposal_enum,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -1121,7 +1120,7 @@ mod tests {
         any_ids.prop_flat_map(|ids: Vec<Rc<ProposalId>>| {
             let (lo, hi) = (0, MAX_TREE_SIZE + 1);
             let any_protocol_parameters_tree =
-                any_proposals_tree(ids[lo..hi].into(), any_protocol_params_update(), |parent, update| {
+                any_proposals_tree(ids[lo..hi].into(), any::<ProtocolParamUpdate>(), |parent, update| {
                     GovernanceAction::ParameterChange(parent, Box::new(update), None)
                 });
 

@@ -209,11 +209,7 @@ pub use cardano::{
     pool_params::any_pool_params,
     proposal::any_proposal,
     proposal_enum::any_proposal_enum,
-    protocol_parameters::{
-        any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_gov_action,
-        any_guardrails_script, any_pool_voting_thresholds, any_protocol_parameter, any_protocol_params_update,
-        any_withdrawal,
-    },
+    protocol_parameters::{any_gov_action, any_guardrails_script},
     transaction_pointer::SlotUpperBound,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote_ref},
 };
