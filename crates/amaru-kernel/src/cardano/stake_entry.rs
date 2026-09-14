@@ -47,7 +47,7 @@ fn decode_modern<C: HasProtocolVersion>(
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = Some(Credential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?)),
+                0 => state.0 = Some(Credential::from_raw_address(&cbor::decode_bytes_v12_indefinite(d, ctx)?)),
                 1 => state.1 = Some(Value::decode_lovelace(d, ctx)?),
                 2 => d.skip()?,
                 3 => d.skip()?,
@@ -69,7 +69,7 @@ fn decode_legacy<C: HasProtocolVersion>(
 ) -> Result<StakeEntry, cbor::decode::Error> {
     let len = d.array()?;
 
-    let credential = Credential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?);
+    let credential = Credential::from_raw_address(&cbor::decode_bytes_v12_indefinite(d, ctx)?);
     let lovelace = Value::decode_lovelace(d, ctx)?;
 
     if let Some(len) = len {
