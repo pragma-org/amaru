@@ -105,6 +105,10 @@ cargo test -p amaru-kernel --test test_cbor_serialization -- --no-capture
 
 That test collects all fixtures and run them to check if they are accepted or rejected by the decoder as expected.
 
+Fixtures may set `"protocol_version": {"major": 12, "minor": 0}` in `meta.json` to exercise a specific protocol version.
+When omitted, the decoder uses version 11 for the existing Conway fixtures. Focused `witness_set` fixtures cover the
+version 12 duplicate checks; their `"source": "regression"` metadata preserves them during regeneration.
+
 ## A note on the CDDL <-> amaru divergence
 
 When a generated (or on-chain) fixture exposes a behavior amaru doesn't share with the canonical CDDL interpretation,

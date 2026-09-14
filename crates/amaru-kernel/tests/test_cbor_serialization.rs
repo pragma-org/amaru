@@ -19,7 +19,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraName, ProtocolVersion, Transaction, TransactionBody, cbor,
+    Block, EraName, ProtocolVersion, Transaction, TransactionBody, WitnessSet, cbor,
     cbor::{from_cbor_no_leftovers_with, to_cbor_with},
     protocol_version::PROTOCOL_VERSION_11,
 };
@@ -214,10 +214,12 @@ fn run_test(fixture: &Fixture) -> Outcome {
     let divergent = fixture.expectations.known_amaru_divergence;
     let well_formed = fixture.expectations.well_formed;
     let exact = fixture.expectations.exact_re_encoding;
+    let version = fixture.expectations.protocol_version.unwrap_or(PROTOCOL_VERSION_11);
     let result = match fixture.kind {
-        Kind::Block => check_round_trip::<(EraName, Block)>(&fixture.bytes, exact),
-        Kind::TransactionBody => check_round_trip::<TransactionBody>(&fixture.bytes, exact),
-        Kind::Transaction => check_round_trip::<Transaction>(&fixture.bytes, exact),
+        Kind::Block => check_round_trip::<(EraName, Block)>(&fixture.bytes, exact, version),
+        Kind::TransactionBody => check_round_trip::<TransactionBody>(&fixture.bytes, exact, version),
+        Kind::Transaction => check_round_trip::<Transaction>(&fixture.bytes, exact, version),
+        Kind::WitnessSet => check_round_trip::<WitnessSet>(&fixture.bytes, exact, version),
     };
     match (result, well_formed, divergent) {
         (Ok(()), true, false) => Outcome::Pass,
@@ -304,11 +306,14 @@ enum Outcome {
 /// When the fixture sets `exact_re_encoding`, the re-encoding must also reproduce the input
 /// verbatim, which is strictly stronger.
 ///
-fn check_round_trip<T>(bytes: &[u8], exact_re_encoding: bool) -> Result<(), cbor::decode::Error>
+fn check_round_trip<T>(
+    bytes: &[u8],
+    exact_re_encoding: bool,
+    mut version: ProtocolVersion,
+) -> Result<(), cbor::decode::Error>
 where
     T: for<'b> cbor::Decode<'b, ProtocolVersion> + cbor::Encode<ProtocolVersion>,
 {
-    let mut version = PROTOCOL_VERSION_11;
     let value: T = from_cbor_no_leftovers_with(bytes, &mut version)?;
     let re_encoded = to_cbor_with(&value, &mut version);
 
@@ -358,6 +363,9 @@ fn short_fixture_path(path: &Path) -> String {
 #[derive(Debug, Deserialize)]
 struct Expectations {
     well_formed: bool,
+    /// Protocol version used for decoding and re-encoding; existing Conway fixtures default to 11.
+    #[serde(default)]
+    protocol_version: Option<ProtocolVersion>,
     #[serde(default)]
     description: Option<String>,
     /// Origin of the fixture. `"cuddle"` for cuddle-generated positives,
@@ -384,6 +392,7 @@ enum Kind {
     Block,
     TransactionBody,
     Transaction,
+    WitnessSet,
 }
 
 impl Kind {
@@ -392,6 +401,7 @@ impl Kind {
             "block" => Some(Kind::Block),
             "transaction_body" => Some(Kind::TransactionBody),
             "transaction" => Some(Kind::Transaction),
+            "witness_set" => Some(Kind::WitnessSet),
             _ => None,
         }
     }

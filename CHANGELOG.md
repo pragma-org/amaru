@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-kernel**: reject duplicate transaction witness entries when decoding from protocol version 12, while preserving decoding behavior for earlier versions ([#1351](https://github.com/pragma-org/amaru/issues/1351)).
 - **amaru**: make Mithril synchronization resume safely from verified immutable files and reject stale snapshots before replay.
 
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)

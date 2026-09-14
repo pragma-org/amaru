@@ -1,0 +1,1 @@
+{"well_formed":true,"description":"duplicate verification key witnesses at protocol version 11","source":"regression","protocol_version":{"major":11,"minor":0},"exact_re_encoding":true}
