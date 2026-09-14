@@ -536,7 +536,7 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            ProposalPointer, RationalNumber, any_proposal, utils::tests::run_strategy,
+            ProposalPointer, RationalNumber, utils::tests::run_strategy,
         };
         use proptest::prelude::any;
 
@@ -646,7 +646,7 @@ mod tests {
                 run_strategy(any::<RationalNumber>()),
             );
 
-            Proposal { gov_action, ..run_strategy(any_proposal()) }
+            Proposal { gov_action, ..run_strategy(any::<Proposal>()) }
         }
 
         #[test]

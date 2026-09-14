@@ -52,7 +52,7 @@ impl<'a, C: cbor::HasProtocolVersion> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{Slot, SlotUpperBound, any_proposal};
+    use amaru_kernel::{Slot, SlotUpperBound};
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
@@ -64,7 +64,7 @@ pub mod tests {
         pub fn any_row(max_slot: u64)(
             proposed_in in any_with::<ProposalPointer>(SlotUpperBound(Slot::from(max_slot))),
             valid_until in any::<Epoch>(),
-            proposal in any_proposal(),
+            proposal in any::<Proposal>(),
         ) -> Row {
             Row {
                 proposed_in,

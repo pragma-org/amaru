@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    collection,
+    prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof},
+};
+
 use crate::{
     Constitution, Credential, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
     RationalNumber, RewardAccount, cbor, hash, utils::cbor::SerialisedAsSet,
@@ -140,5 +146,60 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GovernanceAction {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for GovernanceAction {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    #[allow(clippy::unwrap_used)]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let parameter_change =
+            (any::<Option<ProposalId>>(), any::<ProtocolParamUpdate>(), any::<Option<Hash<{ hash::size::SCRIPT }>>>())
+                .prop_map(|(parent, update, guardrails)| {
+                    GovernanceAction::ParameterChange(parent, Box::new(update), guardrails)
+                });
+
+        let hard_fork_initiation = (any::<Option<ProposalId>>(), any::<ProtocolVersion>())
+            .prop_map(|(parent, version)| GovernanceAction::HardForkInitiation(parent, version));
+
+        let treasury_withdrawals =
+            (collection::vec(any::<(RewardAccount, Lovelace)>(), 0..3), any::<Option<Hash<{ hash::size::SCRIPT }>>>())
+                .prop_map(|(withdrawals, guardrails)| {
+                    GovernanceAction::TreasuryWithdrawals(KeyValuePairs::try_from(withdrawals).unwrap(), guardrails)
+                });
+
+        let no_confidence = any::<Option<ProposalId>>().prop_map(GovernanceAction::NoConfidence);
+
+        let update_committee = (
+            any::<Option<ProposalId>>(),
+            collection::btree_set(any::<Credential>(), 0..3),
+            collection::vec(any::<(Credential, Epoch)>(), 0..3),
+            any::<RationalNumber>(),
+        )
+            .prop_map(|(parent, to_remove, to_add, quorum)| {
+                GovernanceAction::UpdateCommittee(
+                    parent,
+                    to_remove.into_iter().collect(),
+                    KeyValuePairs::try_from(to_add).unwrap(),
+                    quorum,
+                )
+            });
+
+        let new_constitution = (any::<Option<ProposalId>>(), any::<Constitution>())
+            .prop_map(|(parent, constitution)| GovernanceAction::NewConstitution(parent, constitution));
+
+        prop_oneof![
+            parameter_change,
+            hard_fork_initiation,
+            treasury_withdrawals,
+            no_confidence,
+            update_committee,
+            new_constitution,
+            Just(GovernanceAction::Information),
+        ]
+        .boxed()
     }
 }
