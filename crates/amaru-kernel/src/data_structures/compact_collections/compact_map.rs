@@ -59,6 +59,11 @@ impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
         self.len() == 0
     }
 
+    #[cfg(test)]
+    fn is_promoted(&self) -> bool {
+        matches!(self.storage, MapStorage::Tree(_))
+    }
+
     pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
         K: Borrow<Q>,
@@ -452,6 +457,34 @@ mod tests {
                 model.iter().map(|(key, value)| (*key, *value)).collect::<Vec<_>>(),
             );
             prop_assert_eq!(actual.clone().into_iter().collect::<Vec<_>>(), model.clone().into_iter().collect::<Vec<_>>());
+        }
+
+        #[test]
+        fn equality_ignores_storage(entries in collection::btree_map(0u8..12, any::<u8>(), 0..=SMALL_CAPACITY)) {
+            let small = entries.iter().map(|(key, value)| (*key, *value)).collect::<CompactMap<u8, u8, SMALL_CAPACITY>>();
+
+            let fillers = 12u8..=12 + SMALL_CAPACITY as u8;
+            let mut promoted = fillers
+                .clone()
+                .map(|key| (key, 0))
+                .chain(entries.iter().map(|(key, value)| (*key, *value)))
+                .collect::<CompactMap<u8, u8, SMALL_CAPACITY>>();
+            for filler in fillers {
+                promoted.remove(&filler);
+            }
+
+            prop_assert!(!small.is_promoted());
+            prop_assert!(promoted.is_promoted());
+            prop_assert_eq!(&small, &promoted);
+            prop_assert_eq!(&promoted, &small);
+
+            if let Some((key, value)) = entries.first_key_value() {
+                promoted.insert(*key, value.wrapping_add(1));
+                prop_assert_ne!(&small, &promoted);
+            } else {
+                promoted.insert(u8::MAX, 0);
+                prop_assert_ne!(&small, &promoted);
+            }
         }
     }
 }

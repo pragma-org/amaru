@@ -23,10 +23,7 @@ use amaru_ledger::{
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-use crate::common::{
-    fixture,
-    scale::{BenchScale, MixedWeights},
-};
+use crate::common::{fixture, mixed_weights::MixedWeights, scale::BenchScale};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scenario {
