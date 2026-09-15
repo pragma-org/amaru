@@ -57,6 +57,7 @@ proptest.workspace = true
 rand.workspace = true
 rayon.workspace = true
 test-case.workspace = true
+toml.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 cbor4ii.workspace = true
 
