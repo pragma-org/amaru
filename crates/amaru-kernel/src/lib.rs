@@ -120,6 +120,7 @@ pub use cardano::{
     header::{Header, KES_SIGNATURE, KesSignature},
     header_body::HeaderBody,
     int::Int,
+    kes_period::{KesEvolution, KesPeriod, KesPeriodError},
     language_view::LanguageView,
     lovelace::Lovelace,
     max_string::MaxString128,
