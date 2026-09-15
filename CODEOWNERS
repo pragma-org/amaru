@@ -3,3 +3,25 @@ antithesis: @rkuhn @etorreborre
 
 /CODEOWNERS @pragma-org/amaru-maintainers-committee
 /.github/ @pragma-org/amaru-maintainers-committee
+
+# Release, packaging, and distribution infrastructure
+/Makefile @pragma-org/amaru-maintainers-committee
+/.cargo/ @pragma-org/amaru-maintainers-committee
+/rust-toolchain.toml @pragma-org/amaru-maintainers-committee
+/release.toml @pragma-org/amaru-maintainers-committee
+**/Cargo.toml @pragma-org/amaru-maintainers-committee
+**/Cargo.lock @pragma-org/amaru-maintainers-committee
+/flake.nix @pragma-org/amaru-maintainers-committee
+/flake.lock @pragma-org/amaru-maintainers-committee
+/Formula/ @pragma-org/amaru-maintainers-committee
+/crates/amaru/wix/ @pragma-org/amaru-maintainers-committee
+/docker/ @pragma-org/amaru-maintainers-committee
+
+# Scripts executed by release workflows or used to build published artifacts
+/scripts/generate-homebrew-formula @pragma-org/amaru-maintainers-committee
+/scripts/generate-nix-flake @pragma-org/amaru-maintainers-committee
+/scripts/generate-winget-manifests @pragma-org/amaru-maintainers-committee
+/scripts/park-crates @pragma-org/amaru-maintainers-committee
+/scripts/render-nightly-downloads-page @pragma-org/amaru-maintainers-committee
+/scripts/update-changelog-after-release @pragma-org/amaru-maintainers-committee
+/scripts/update-readme-installation-sections @pragma-org/amaru-maintainers-committee
