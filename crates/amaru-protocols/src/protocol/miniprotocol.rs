@@ -39,6 +39,8 @@ pub enum Internal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pull;
 
+amaru_pure_stage::impl_label!(Pull);
+
 /// Payload of [`Internal::Timeout`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Timeout;
