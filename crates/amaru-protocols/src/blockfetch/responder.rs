@@ -288,8 +288,8 @@ pub mod tests {
     use std::sync::{Arc, OnceLock};
 
     use amaru_kernel::{
-        BlockHeight, EraHistory, EraName, IsHeader, NetworkPoint, NonEmptyBytes, Slot, any_fake_header,
-        any_headers_chain, any_headers_chain_with_root,
+        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, NonEmptyBytes, Slot, any_headers_chain,
+        any_headers_chain_with_root,
         cardano::network_block::{EncodedTestBlock, NetworkBlock, make_encoded_chain},
         cbor,
         utils::tests::run_strategy,
@@ -300,6 +300,7 @@ pub mod tests {
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
         typestate::{FmtPar, OnReceive, Session},
     };
+    use proptest::prelude::any;
     use tokio::runtime::{Builder, Runtime};
 
     use super::*;
@@ -430,12 +431,12 @@ pub mod tests {
 
     #[test]
     fn test_request_range_no_parent_hash_before_from() {
-        let genesis = NetworkPoint::Specific(Slot::from(10), run_strategy(any_fake_header()).hash());
+        let genesis = NetworkPoint::Specific(Slot::from(10), run_strategy(any::<Header>()).hash());
         let (store, chain) = make_store_with_chain_starting_from(5, genesis);
 
         let result = request_range(
             store,
-            NetworkPoint::Specific(Slot::from(2), run_strategy(any_fake_header()).hash()),
+            NetworkPoint::Specific(Slot::from(2), run_strategy(any::<Header>()).hash()),
             chain[3].header.point(),
         );
         assert_eq!(result, None, "should return None when we hit genesis before finding from");
@@ -451,7 +452,7 @@ pub mod tests {
         // When traversing backwards from 'through', we'll pass the slot of 'from' without finding it,
         // and then hit a block with a slot before 'from', triggering the abort condition.
         let from_slot = chain[2].header.slot();
-        let non_existent_hash = run_strategy(any_fake_header()).hash();
+        let non_existent_hash = run_strategy(any::<Header>()).hash();
         let from = NetworkPoint::Specific(from_slot, non_existent_hash);
 
         let result = request_range(store, from, chain[4].header.point());

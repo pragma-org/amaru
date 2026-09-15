@@ -210,8 +210,8 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, any_certificate_pointer, any_credential, any_lovelace,
-        any_pool_params, utils::tests::run_strategy,
+        CertificatePointer, Credential, Epoch, Lovelace, Network, PoolId, PoolParams, RewardAccount,
+        utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
 
@@ -231,7 +231,7 @@ mod tests {
                     let pending_certificate = || {
                         prop_oneof![
                             (1..3u64).prop_map(move |offset| Retirement(Epoch::from(epoch as u64) + offset)),
-                            any_pool_params()
+                            any::<PoolParams>()
                                 .prop_map(move |params| PoolCertificate::from(PoolParams { id, ..params }))
                         ]
                     };
@@ -278,9 +278,9 @@ mod tests {
     proptest! {
         #[test]
         fn prop_tick_pool(
-            registered_at in any_certificate_pointer(u64::MAX),
-            deposit in any_lovelace(),
-            (initial_params, sequence) in any_pool_params().prop_flat_map(|params| {
+            registered_at in any::<CertificatePointer>(),
+            deposit in any::<Lovelace>(),
+            (initial_params, sequence) in any::<PoolParams>().prop_flat_map(|params| {
                 any_row_seq_updates(params.id).prop_map(move |seq| (params.clone(), seq))
             }),
         ) {
@@ -347,9 +347,9 @@ mod tests {
     proptest! {
         #[test]
         fn prop_pool_stake_deposit(
-            registered_at in any_certificate_pointer(u64::MAX),
-            deposit in any_lovelace(),
-            initial_params in any_pool_params(),
+            registered_at in any::<CertificatePointer>(),
+            deposit in any::<Lovelace>(),
+            initial_params in any::<PoolParams>(),
         ) {
             let epoch = Epoch::from(1);
             let reward_account = initial_params.reward_account.credential();
@@ -368,10 +368,10 @@ mod tests {
 
     #[test]
     fn re_registration_cancels_a_later_dated_retirement() {
-        let params = run_strategy(any_pool_params());
+        let params = run_strategy(any::<PoolParams>());
         let updated_params = PoolParams { pledge: params.pledge.wrapping_add(1), ..params.clone() };
 
-        let mut pool = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), 500_000_000, params);
+        let mut pool = Pool::new(run_strategy(any::<CertificatePointer>()), 500_000_000, params);
         let pool_id = pool.id();
 
         // A retirement scheduled for a distant epoch, then a re-registration effective sooner. The
@@ -393,10 +393,10 @@ mod tests {
     #[test]
     fn accumulates_refunds_for_multiple_retiring_pools_sharing_a_reward_account() {
         let (mut pool_params_a, mut pool_params_b) = run_strategy(
-            (any_pool_params(), any_pool_params())
+            (any::<PoolParams>(), any::<PoolParams>())
                 .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id != pool_b.id),
         );
-        let reward_credential = run_strategy(any_credential());
+        let reward_credential = run_strategy(any::<Credential>());
         let reward_account = RewardAccount::new(Network::Testnet, reward_credential);
 
         let deposit_a = 1_000_000;
@@ -405,10 +405,10 @@ mod tests {
         pool_params_a.reward_account = reward_account;
         pool_params_b.reward_account = reward_account;
 
-        let mut pool_a = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), deposit_a, pool_params_a);
+        let mut pool_a = Pool::new(run_strategy(any::<CertificatePointer>()), deposit_a, pool_params_a);
         pool_a.pending_certificates.append(Epoch::from(0));
 
-        let mut pool_b = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), deposit_b, pool_params_b);
+        let mut pool_b = Pool::new(run_strategy(any::<CertificatePointer>()), deposit_b, pool_params_b);
         pool_b.pending_certificates.append(Epoch::from(0));
 
         let mut pools_updates = PoolsEpochTransitionUpdates::default();

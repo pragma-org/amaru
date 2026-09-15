@@ -14,6 +14,12 @@
 
 use std::{fmt, str::FromStr};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    prelude::{Arbitrary, BoxedStrategy, Strategy},
+    sample::select,
+};
+
 use crate::cbor;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
@@ -165,8 +171,13 @@ impl<'b, C> cbor::Decode<'b, C> for EraName {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub fn any_era_name() -> impl proptest::prelude::Strategy<Value = EraName> {
-    proptest::sample::select(&ERA_NAMES)
+impl Arbitrary for EraName {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        select(&ERA_NAMES).boxed()
+    }
 }
 
 #[cfg(test)]
@@ -180,33 +191,33 @@ mod tests {
 
     proptest! {
         #[test]
-        fn era_name_string_roundtrip(era_name in any_era_name()) {
+        fn era_name_string_roundtrip(era_name in any::<EraName>()) {
             let string = format!("{}", era_name);
             assert_eq!(EraName::from_str(&string), Ok(era_name));
         }
 
         #[test]
-        fn era_name_debug_roundtrip(era_name in any_era_name()) {
+        fn era_name_debug_roundtrip(era_name in any::<EraName>()) {
             let string = format!("{:?}", era_name);
             assert_eq!(EraName::from_str(&string), Ok(era_name));
         }
 
         #[test]
-        fn era_name_encode_decode_roundtrip(era_name in any_era_name()) {
+        fn era_name_encode_decode_roundtrip(era_name in any::<EraName>()) {
             let buffer = cbor::to_vec(era_name).unwrap();
             let decoded: EraName = cbor::decode(&buffer).unwrap();
             assert_eq!(era_name, decoded);
         }
 
         #[test]
-        fn era_name_serde_string_roundtrip(era_name in any_era_name()) {
+        fn era_name_serde_string_roundtrip(era_name in any::<EraName>()) {
             let string = serde_json::to_string(&era_name).unwrap();
             let decoded: EraName = serde_json::from_str(&string).unwrap();
             assert_eq!(era_name, decoded);
         }
 
         #[test]
-        fn era_name_serde_binary_roundtrip(era_name in any_era_name()) {
+        fn era_name_serde_binary_roundtrip(era_name in any::<EraName>()) {
             let bytes = cbor4ii::serde::to_vec(Vec::new(), &era_name).unwrap();
             let decoded: EraName = cbor4ii::serde::from_slice(&bytes).unwrap();
             assert_eq!(era_name, decoded);

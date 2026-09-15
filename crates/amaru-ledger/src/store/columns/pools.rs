@@ -79,7 +79,7 @@ impl<'a, C: cbor::HasProtocolVersion> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{any_certificate_pointer, any_lovelace, any_pool_params, prop_cbor_roundtrip};
+    use amaru_kernel::prop_cbor_roundtrip;
     use proptest::prelude::*;
 
     use super::*;
@@ -89,7 +89,7 @@ pub mod tests {
 
     // Generate arbitrary `Row`, good for serialization for not for logic.
     pub fn any_row() -> impl Strategy<Value = Row> {
-        (any_pool_params(), any_pool_certificates(), any_certificate_pointer(u64::MAX), any_lovelace()).prop_map(
+        (any::<PoolParams>(), any_pool_certificates(), any::<CertificatePointer>(), any::<Lovelace>()).prop_map(
             |(current_params, pending_certificates, registered_at, deposit)| Row {
                 current_params,
                 pending_certificates,

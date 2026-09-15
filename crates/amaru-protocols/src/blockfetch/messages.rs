@@ -132,7 +132,7 @@ impl<'b> cbor::Decode<'b, ()> for Message {
 /// Roundtrip property tests for blockfetch messages.
 #[cfg(test)]
 pub(crate) mod tests {
-    use amaru_kernel::{any_network_point, prop_cbor_roundtrip};
+    use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
@@ -162,7 +162,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        fn request_range_message()(from in any_network_point(), through in any_network_point()) -> Message {
+        fn request_range_message()(from in any::<NetworkPoint>(), through in any::<NetworkPoint>()) -> Message {
             RequestRange { from, through }.into()
         }
     }

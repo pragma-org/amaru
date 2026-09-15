@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{Anchor, GovernanceAction, Lovelace, ProposalId, RewardAccount, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -68,27 +71,18 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Proposal {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Proposal {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{prelude::*, prop_compose};
-
-    use crate::{Lovelace, Proposal, any_anchor, any_gov_action, any_reward_account};
-
-    prop_compose! {
-        pub fn any_proposal()(
-            deposit in any::<Lovelace>(),
-            reward_account in any_reward_account(),
-            gov_action in any_gov_action(),
-            anchor in any_anchor(),
-        ) -> Proposal {
-            Proposal {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<Lovelace>(), any::<RewardAccount>(), any::<GovernanceAction>(), any::<Anchor>())
+            .prop_map(|(deposit, reward_account, gov_action, anchor)| Proposal {
                 deposit,
                 reward_account,
                 gov_action,
                 anchor,
-            }
-        }
+            })
+            .boxed()
     }
 }

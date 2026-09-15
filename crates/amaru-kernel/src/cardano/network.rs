@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, prop_oneof};
+
 use crate::cbor;
 
 #[derive(
@@ -74,15 +77,11 @@ impl TryFrom<u8> for Network {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Network {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::Network;
-
-    pub fn any_network() -> impl Strategy<Value = Network> {
-        prop_oneof![Just(Network::Testnet), Just(Network::Mainnet)]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![Just(Network::Testnet), Just(Network::Mainnet)].boxed()
     }
 }

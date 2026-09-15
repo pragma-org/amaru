@@ -97,7 +97,7 @@ mod tests {
     use super::*;
     use crate::{
         PlutusData,
-        plutus_data::{BigInt, BoundedBytes, Constr, VariableEncodingConstr, any_bigint, any_bounded_bytes},
+        plutus_data::{BigInt, BoundedBytes, Constr, VariableEncodingConstr},
         utils::cbor::{CborArray, CborMap},
     };
 
@@ -179,9 +179,9 @@ mod tests {
 
     impl VariableEncodingPlutusData {
         pub fn any(depth: u8) -> impl Strategy<Value = Self> {
-            let int = any_bigint().prop_map(Self::BigInt);
+            let int = any::<BigInt>().prop_map(Self::BigInt);
 
-            let bytes = any_bounded_bytes().prop_map(Self::BoundedBytes);
+            let bytes = any::<BoundedBytes>().prop_map(Self::BoundedBytes);
 
             if depth > 0 {
                 let constr = VariableEncodingConstr::any(depth).prop_map(Self::Constr);

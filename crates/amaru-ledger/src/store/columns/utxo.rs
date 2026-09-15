@@ -25,8 +25,8 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{
-        Bytes, Hash, Int, MemoizedDatum, MemoizedPlutusData, MemoizedScript, PlutusData, PlutusScript,
-        any_shelley_address,
+        Address, Bytes, Hash, Int, MemoizedDatum, MemoizedPlutusData, MemoizedScript, PlutusData, PlutusScript,
+        ShelleyAddress,
         plutus_data::{BigInt, Constr},
     };
     use proptest::{option, prelude::*};
@@ -80,7 +80,7 @@ pub mod tests {
 
     pub fn any_memoized_transaction_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
         (
-            any_shelley_address(),
+            any::<ShelleyAddress>().prop_map(Address::Shelley),
             any_value(),
             option::of(any_memoized_inline_datum()),
             option::of(any_memoized_plutus_script()),

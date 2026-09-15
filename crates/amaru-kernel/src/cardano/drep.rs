@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
 use serde::ser::SerializeStruct;
 
 use crate::{
@@ -139,20 +141,17 @@ pub fn to_stake_credential(drep: &DRep) -> Option<Credential> {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for DRep {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use crate::{DRep, any_hash28};
-
-    pub fn any_drep() -> impl Strategy<Value = DRep> {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         prop_oneof![
-            any_hash28().prop_map(DRep::Key),
-            any_hash28().prop_map(DRep::Script),
+            any::<Hash<KEY>>().prop_map(DRep::Key),
+            any::<Hash<SCRIPT>>().prop_map(DRep::Script),
             Just(DRep::Abstain),
             Just(DRep::NoConfidence),
         ]
+        .boxed()
     }
 }
