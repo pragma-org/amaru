@@ -1,18 +1,13 @@
 name: Stage peer snapshots
 description: >
-  Authenticated fetch of Cardano peer snapshots for amaru-node build embedding.
-  Stages files under crates/amaru-node/config/peer-snapshots/, then configures
-  subsequent steps to skip network fetch and not inherit GITHUB_TOKEN / GH_TOKEN
-  (so cargo and dependency build scripts cannot see the token). Steps that need
-  a token again can set GITHUB_TOKEN / GH_TOKEN explicitly on that step.
+  Fetches Cardano peer snapshots without authentication for amaru-node build
+  embedding.
 
 runs:
   using: composite
   steps:
     - name: Stage peer snapshots
       shell: bash
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
       run: bash "${{ github.workspace }}/scripts/stage-peer-snapshots"
 
     - name: Prefer staged snapshots; hide token from later steps
