@@ -26,19 +26,19 @@ use crate::{
 #[cbor(map)]
 pub struct WitnessSet {
     #[n(0)]
-    #[cbor(decode_with = "decode_witnesses")]
+    #[cbor(decode_with = "decode_non_empty_vector")]
     pub verification_key_witness: Option<NonEmptyVec<VerificationKeyWitness>>,
 
     #[n(1)]
-    #[cbor(decode_with = "decode_witnesses")]
+    #[cbor(decode_with = "decode_non_empty_vector")]
     pub native_script: Option<NonEmptyVec<MemoizedNativeScript>>,
 
     #[n(2)]
-    #[cbor(decode_with = "decode_witnesses")]
+    #[cbor(decode_with = "decode_non_empty_vector")]
     pub bootstrap_witness: Option<NonEmptyVec<BootstrapWitness>>,
 
     #[n(3)]
-    #[cbor(decode_with = "decode_witnesses")]
+    #[cbor(decode_with = "decode_non_empty_vector")]
     pub plutus_v1_script: Option<NonEmptyVec<PlutusScript<1>>>,
 
     #[n(4)]
@@ -48,15 +48,15 @@ pub struct WitnessSet {
     pub redeemer: Option<Redeemers>,
 
     #[n(6)]
-    #[cbor(decode_with = "decode_witnesses")]
+    #[cbor(decode_with = "decode_non_empty_vector")]
     pub plutus_v2_script: Option<NonEmptyVec<PlutusScript<2>>>,
 
     #[n(7)]
-    #[cbor(decode_with = "decode_witnesses")]
+    #[cbor(decode_with = "decode_non_empty_vector")]
     pub plutus_v3_script: Option<NonEmptyVec<PlutusScript<3>>>,
 }
 
-fn decode_witnesses<'b, C, T>(
+fn decode_non_empty_vector<'b, C, T>(
     d: &mut cbor::Decoder<'b>,
     ctx: &mut C,
 ) -> Result<Option<NonEmptyVec<T>>, cbor::decode::Error>
