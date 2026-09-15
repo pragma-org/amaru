@@ -18,11 +18,6 @@ CORPUS="conway-123-100"
 COMMIT="$(tr -d '[:space:]' < "$PIN_FILE")"
 URL="https://codeload.github.com/r2rationality/cardano-cbor-dataset/tar.gz/$COMMIT"
 
-if [ -d "$DEST_DIR/$CORPUS" ]; then
-  echo "$DEST_DIR/$CORPUS already present; remove it to re-download."
-  exit 0
-fi
-
 # GNU tar needs --wildcards to glob member names. BSD tar (macOS) globs by default and rejects the flag.
 WILDCARDS=""
 if tar --version 2>/dev/null | grep -q 'GNU tar'; then

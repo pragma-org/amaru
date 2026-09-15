@@ -340,6 +340,7 @@ dependencies = [
  "sysinfo",
  "test-case",
  "thiserror 2.0.19",
+ "toml",
 ]
 
 [[package]]
@@ -535,7 +536,6 @@ version = "0.1.2"
 dependencies = [
  "amaru-observability",
  "async-trait",
- "inventory",
  "opentelemetry",
  "proc-macro2",
  "quote",
