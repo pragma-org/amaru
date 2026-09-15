@@ -16,7 +16,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{EraHistory, GlobalParameters, Slot, maths::FixedDecimal};
+use crate::{EraHistory, GlobalParameters, KesPeriod, Slot, maths::FixedDecimal};
 
 /// This data type encapsulates the parameters needed by the consensus layer to operate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -66,8 +66,8 @@ impl ConsensusParameters {
         self.randomness_stabilization_window
     }
 
-    pub fn slot_to_kes_period(&self, slot: Slot) -> u64 {
-        u64::from(slot) / self.slots_per_kes_period
+    pub fn slot_to_kes_period(&self, slot: Slot) -> KesPeriod {
+        KesPeriod::from(u64::from(slot) / self.slots_per_kes_period)
     }
 
     pub fn max_kes_evolutions(&self) -> u64 {
