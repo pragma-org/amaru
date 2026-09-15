@@ -1,0 +1,41 @@
+#!/bin/bash
+# Download the Conway CBOR conformance corpus consumed by
+# `crates/amaru-kernel/tests/test_cbor_dataset.rs`.
+#
+# The corpus comes from https://github.com/r2rationality/cardano-cbor-dataset, which also checks it
+# against the Haskell cardano-ledger decoders. It is ~29 MB of generated samples and is not committed;
+# the upstream commit it is taken from is pinned in the `.pin` file next to the destination directory.
+#
+# Requirements: curl and tar.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEST_DIR="$REPO_ROOT/crates/amaru-kernel/tests/data/cbor.dataset"
+PIN_FILE="$DEST_DIR.pin"
+CORPUS="conway-123-100"
+
+COMMIT="$(tr -d '[:space:]' < "$PIN_FILE")"
+URL="https://codeload.github.com/r2rationality/cardano-cbor-dataset/tar.gz/$COMMIT"
+
+if [ -d "$DEST_DIR/$CORPUS" ]; then
+  echo "$DEST_DIR/$CORPUS already present; remove it to re-download."
+  exit 0
+fi
+
+# GNU tar needs --wildcards to glob member names. BSD tar (macOS) globs by default and rejects the flag.
+WILDCARDS=""
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  WILDCARDS="--wildcards"
+fi
+
+mkdir -p "$DEST_DIR"
+echo "Downloading cardano-cbor-dataset@$COMMIT ..."
+
+# --strip-components=2 drops the `<repo>-<commit>/dataset/` prefix, leaving `$CORPUS` and
+# `$CORPUS-expected` directly under $DEST_DIR. Only the Conway corpus is downloaded for now.
+#
+# shellcheck disable=SC2086  # unquoted so an empty $WILDCARDS expands to no argument at all
+curl -Lsf "$URL" | tar -xz -C "$DEST_DIR" --strip-components=2 ${WILDCARDS:-} "*/dataset/$CORPUS*"
+
+echo "Extracted $(find "$DEST_DIR" -name '*.cbor' | wc -l | tr -d ' ') samples into $DEST_DIR"

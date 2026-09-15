@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -130,9 +130,6 @@ all-ci-checks: ## &test Run all CI checks
 	@cargo test --doc
 	@$(MAKE) coverage-lconv
 
-fetch-data: ## &test Fetch epoch data (dreps, pools, accounts, ...) from a Haskell node
-	@npm --prefix data run fetch -- "$(AMARU_NETWORK)"
-
 ledger-conformance-test-vectors: ## &test Download and update the set of test vectors used for ledger conformance tests
 	curl -Ls https://github.com/cardano-scaling/cardano-blueprint/raw/refs/heads/main/src/ledger/conformance-test-vectors/vectors.tar.gz | \
 	tar -xvf - -C "./crates/amaru-ledger/tests/data/rules-conformance"
@@ -142,8 +139,8 @@ ledger-conformance-known-failures: ## &test Update the set of 'known conformance
 	cargo test -p amaru-ledger --test evaluate_ledger_states -- --test-threads=1; \
 	mv "$$AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH" "./crates/amaru-ledger/tests/data/rules-conformance.failures.toml"
 
-regenerate-cbor-fixtures: ## &test Regenerate cuddle/antigen CBOR fixtures (requires GHC + cabal)
-	@./scripts/regenerate-cbor-fixtures
+fetch-cbor-dataset: ## &test Fetch the CBOR dataset from https://github.com/r2rationality/cardano-cbor-dataset
+	@./scripts/fetch-cbor-dataset
 
 check-llvm-cov: ## &test Check if cargo-llvm-cov is installed, install if not
 	@if ! cargo llvm-cov --version >/dev/null 2>&1; then \
