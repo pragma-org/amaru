@@ -24,6 +24,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - run: ./scripts/check-rust-toolchain-version
 
   changes:
@@ -34,6 +36,8 @@ jobs:
       dependencies: ${{ steps.changes.outputs.dependencies }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # https://github.com/dorny/paths-filter/releases/tag/v4.0.3
         id: changes
         with:
@@ -54,27 +58,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Validate changelog updates
         id: validate
         continue-on-error: true
         run: python3 scripts/check-changelog --report-file changelog-check-report.md
-      - name: Prepare changelog report artifact
-        if: always()
-        run: |
-          mkdir -p changelog-check-artifact
-          printf '%s\n' '${{ github.event.pull_request.number }}' > changelog-check-artifact/pr_number
-          printf '%s\n' '${{ steps.validate.outcome }}' > changelog-check-artifact/outcome
-          if [ -f changelog-check-report.md ]; then
-            cp changelog-check-report.md changelog-check-artifact/report.md
-          fi
-      - name: Upload changelog report artifact
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
-        with:
-          name: changelog-check-report
-          path: changelog-check-artifact
-          if-no-files-found: error
       - name: Fail on changelog validation errors
         if: steps.validate.outcome != 'success'
         run: |
@@ -91,6 +80,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: jaxxstorm/action-install-gh-release@c5ead9a448b4660cf1e7866ee22e4dc56538031a # https://github.com/jaxxstorm/action-install-gh-release/releases/tag/v1.10.0
         with:
           repo: bnjbvr/cargo-machete
@@ -104,6 +95,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # https://github.com/taiki-e/install-action/releases/tag/v2.87.12
         with:
           tool: cargo-hakari@0.9.38
@@ -115,6 +108,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: jaxxstorm/action-install-gh-release@c5ead9a448b4660cf1e7866ee22e4dc56538031a # https://github.com/jaxxstorm/action-install-gh-release/releases/tag/v1.10.0
         with:
           repo: EmbarkStudios/cargo-deny
@@ -126,6 +121,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: viperproject/check-license-header@e06c65614fa9f32e099838df4dd25440c5344b32 # https://github.com/viperproject/check-license-header/releases/tag/v2.0.3
         with:
           path: .
@@ -136,6 +133,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - run: cargo clippy-amaru
@@ -144,6 +143,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
       - run: cargo fmt-amaru
 
   docs:
@@ -151,6 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
+          persist-credentials: false
           submodules: true
       - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
