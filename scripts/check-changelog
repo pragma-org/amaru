@@ -46,7 +46,11 @@ SECTION_RE = re.compile(r"^### (Added|Changed|Deprecated|Removed|Fixed|Security)
 ENTRY_RE = re.compile(
     r"^- \*\*(?P<area>[^*]+)\*\*: (?P<summary>.+?)(?: \((?P<refs>\[#\d+]\[\](?:, \[#\d+]\[\])*)\))?$"
 )
-REF_DEF_RE = re.compile(r"^\[(#\d+)\]: https://github\.com/pragma-org/amaru/(?:pull|issues)/\d+$")
+REF_DEF_RE = re.compile(
+    r"^\[(#\d+)\]: https://github\.com/pragma-org/amaru/(?:pull|issues)/\d+$"
+)
+
+
 @dataclass
 class Entry:
     start_line: int
@@ -280,12 +284,18 @@ def parse_sections(lines: list[str], block: ReleaseBlock) -> None:
             idx += 1
             while idx < block.end_index:
                 next_line = lines[idx]
-                if SECTION_RE.match(next_line) or next_line.startswith("## ") or next_line.startswith("- "):
+                if (
+                    SECTION_RE.match(next_line)
+                    or next_line.startswith("## ")
+                    or next_line.startswith("- ")
+                ):
                     break
                 entry_lines.append(next_line)
                 idx += 1
 
-            current_section.entries.append(Entry(idx + 1 - len(entry_lines), entry_lines))
+            current_section.entries.append(
+                Entry(idx + 1 - len(entry_lines), entry_lines)
+            )
             continue
 
         idx += 1
@@ -313,7 +323,9 @@ def extract_override(event: dict[str, object] | None, base: str, head: str) -> b
 
 
 def default_branch_from_git() -> str:
-    origin_head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", check=False).strip()
+    origin_head = git(
+        "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD", check=False
+    ).strip()
     if origin_head.startswith("origin/"):
         return origin_head.split("/", 1)[1]
     return "main"
@@ -321,16 +333,22 @@ def default_branch_from_git() -> str:
 
 def local_base_head(default_branch: str) -> tuple[str, str]:
     head_sha = git("rev-parse", "HEAD").strip()
-    base_sha = git("merge-base", "HEAD", f"origin/{default_branch}", check=False).strip()
+    base_sha = git(
+        "merge-base", "HEAD", f"origin/{default_branch}", check=False
+    ).strip()
     if not base_sha:
         base_sha = git("rev-parse", "HEAD~1", check=False).strip() or head_sha
     return base_sha, head_sha
 
 
-def commits_for_range(base_sha: str, head_sha: str, *, include_worktree: bool) -> list[str]:
+def commits_for_range(
+    base_sha: str, head_sha: str, *, include_worktree: bool
+) -> list[str]:
     commits = [
         line.strip()
-        for line in git("log", "--format=%h %s", f"{base_sha}..{head_sha}", check=False).splitlines()
+        for line in git(
+            "log", "--format=%h %s", f"{base_sha}..{head_sha}", check=False
+        ).splitlines()
         if line.strip()
     ]
     if include_worktree:
@@ -435,7 +453,9 @@ def failure_report_markdown(
     server_url: str,
 ) -> str:
     guidance_titles = {"Missing next release header", "Missing changelog entry"}
-    show_guidance = failures and all(failure.title in guidance_titles for failure in failures)
+    show_guidance = failures and all(
+        failure.title in guidance_titles for failure in failures
+    )
     rendered_failures = "\n".join(
         render_failure_markdown(
             failure,
@@ -471,10 +491,7 @@ def failure_report_markdown(
 
 
 def unexpected_failure_report_markdown(message: str) -> str:
-    return (
-        "## Changelog check failed unexpectedly\n\n"
-        f"```\n{message}\n```\n"
-    )
+    return f"## Changelog check failed unexpectedly\n\n```\n{message}\n```\n"
 
 
 def write_report(report_file: Path | None, content: str) -> None:
@@ -488,14 +505,18 @@ def validate_references(lines: list[str], failures: list[Failure]) -> None:
     sorted_labels = sorted(labels, key=lambda label: int(label[1:]))
     if labels != sorted_labels:
         line = refs[0][1] if refs else None
-        message = "Reference links at the bottom of CHANGELOG.md must be sorted numerically."
+        message = (
+            "Reference links at the bottom of CHANGELOG.md must be sorted numerically."
+        )
         record_failure(failures, message, line=line, title="Reference order")
     if refs:
         first_ref_line = refs[0][1]
         trailing = lines[first_ref_line - 1 :]
         if any(line.strip() and not REF_DEF_RE.match(line) for line in trailing):
             message = "Reference link definitions must be grouped at the bottom of CHANGELOG.md."
-            record_failure(failures, message, line=first_ref_line, title="Reference placement")
+            record_failure(
+                failures, message, line=first_ref_line, title="Reference placement"
+            )
 
 
 def validate_release_order(
@@ -506,7 +527,12 @@ def validate_release_order(
 ) -> None:
     if not blocks:
         message = "CHANGELOG.md contains no release headers."
-        record_failure(failures, message, line=next_release_header_line(lines, blocks), title="Missing release headers")
+        record_failure(
+            failures,
+            message,
+            line=next_release_header_line(lines, blocks),
+            title="Missing release headers",
+        )
         return
 
     if blocks[0].version != expected_version:
@@ -514,24 +540,34 @@ def validate_release_order(
             f"Latest changelog entry must be {expected_version}; found {blocks[0].version}. "
             f"Add or update the top release header for the upcoming release."
         )
-        record_failure(failures, message, line=blocks[0].line_number, title="Wrong top release")
+        record_failure(
+            failures, message, line=blocks[0].line_number, title="Wrong top release"
+        )
 
     ordered = [version_date(block.version) for block in blocks]
     if ordered != sorted(ordered, reverse=True):
         message = "Release headings in CHANGELOG.md must be ordered with the latest release first."
-        record_failure(failures, message, line=blocks[0].line_number, title="Release order")
+        record_failure(
+            failures, message, line=blocks[0].line_number, title="Release order"
+        )
 
 
 def block_entries(lines: list[str], block: ReleaseBlock) -> set[str]:
     parsed = replace(block, sections=[])
     parse_sections(lines, parsed)
-    return {entry.normalized for section in parsed.sections for entry in section.entries}
+    return {
+        entry.normalized for section in parsed.sections for entry in section.entries
+    }
 
 
-def version_entries(lines: list[str] | None, blocks: list[ReleaseBlock], version: str) -> set[str]:
+def version_entries(
+    lines: list[str] | None, blocks: list[ReleaseBlock], version: str
+) -> set[str]:
     if lines is None:
         return set()
-    return set().union(*(block_entries(lines, block) for block in blocks if block.version == version))
+    return set().union(
+        *(block_entries(lines, block) for block in blocks if block.version == version)
+    )
 
 
 def released_blocks_with_new_entries(
@@ -579,16 +615,22 @@ def validate_target_release(
         index = SECTION_INDEX.get(section.name)
         if index is None:
             message = f"Invalid changelog section '{section.name}'."
-            record_failure(failures, message, line=section.line_number, title="Invalid section")
+            record_failure(
+                failures, message, line=section.line_number, title="Invalid section"
+            )
             continue
         if index <= previous_index:
             message = "Changelog sections must appear in this order: Added, Changed, Deprecated, Removed, Fixed, Security."
-            record_failure(failures, message, line=section.line_number, title="Section order")
+            record_failure(
+                failures, message, line=section.line_number, title="Section order"
+            )
         previous_index = index
 
         if not section.entries:
             message = f"Section '{section.name}' must not be present without entries."
-            record_failure(failures, message, line=section.line_number, title="Empty section")
+            record_failure(
+                failures, message, line=section.line_number, title="Empty section"
+            )
 
         for entry in section.entries:
             if not ENTRY_RE.match(entry.first_line):
@@ -597,13 +639,23 @@ def validate_target_release(
                     "like `([#123][], [#456][])`, "
                     "and continuation lines must stay indented."
                 )
-                record_failure(failures, message, line=entry.start_line, title="Invalid entry format")
+                record_failure(
+                    failures,
+                    message,
+                    line=entry.start_line,
+                    title="Invalid entry format",
+                )
                 continue
 
             for extra_line in entry.lines[1:]:
                 if extra_line and not extra_line.startswith(" "):
                     message = "Optional long descriptions must be indented."
-                    record_failure(failures, message, line=entry.start_line, title="Invalid continuation")
+                    record_failure(
+                        failures,
+                        message,
+                        line=entry.start_line,
+                        title="Invalid continuation",
+                    )
                     break
 
     refs_defined = {label for label, _line in changelog_references(lines)}
@@ -620,7 +672,12 @@ def validate_target_release(
                 label = ref[1 : ref.index("]")]
                 if label not in refs_defined:
                     message = f"Missing link definition for {ref} at the bottom of CHANGELOG.md."
-                    record_failure(failures, message, line=entry.start_line, title="Missing link definition")
+                    record_failure(
+                        failures,
+                        message,
+                        line=entry.start_line,
+                        title="Missing link definition",
+                    )
 
     if not require_new_entry:
         return
@@ -628,30 +685,44 @@ def validate_target_release(
     if len(failures) > failure_count_before:
         return
 
+    misplaced = released_blocks_with_new_entries(lines, blocks, base_lines, base_blocks)
+    for block in misplaced:
+        message = (
+            f"New changelog entries were added under {block.version}, which is already released. "
+            f"Move them under the unreleased heading {head_block.version}."
+        )
+        record_failure(
+            failures,
+            message,
+            line=block.line_number,
+            title="Entry under released version",
+        )
+    if misplaced:
+        return
+
     base_entries = version_entries(base_lines, base_blocks, head_block.version)
-
-    head_entries = {entry.normalized for section in sections for entry in section.entries}
+    head_entries = {
+        entry.normalized for section in sections for entry in section.entries
+    }
     if not any(entry not in base_entries for entry in head_entries):
-        misplaced = released_blocks_with_new_entries(lines, blocks, base_lines, base_blocks)
-        if misplaced:
-            for block in misplaced:
-                message = (
-                    f"New changelog entries were added under {block.version}, which is already released. "
-                    f"Move them under the unreleased heading {head_block.version}."
-                )
-                record_failure(failures, message, line=block.line_number, title="Entry under released version")
-            return
-
         line = head_block.line_number
-        commit_lines = "\n".join(f"  - {commit}" for commit in relevant_commits) if relevant_commits else "  - (none found)"
+        commit_lines = (
+            "\n".join(f"  - {commit}" for commit in relevant_commits)
+            if relevant_commits
+            else "  - (none found)"
+        )
         summary_message = "Crate changes require a new changelog entry under the next unreleased release heading."
         detailed_message = (
             "Crate changes require a new changelog entry under the next unreleased release heading.\n"
             "Commits requiring changelog coverage:\n"
             f"{commit_lines}"
         )
-        emit_annotation("error", detailed_message, line=line, title="Missing changelog entry")
-        failures.append(Failure(title="Missing changelog entry", message=summary_message, line=line))
+        emit_annotation(
+            "error", detailed_message, line=line, title="Missing changelog entry"
+        )
+        failures.append(
+            Failure(title="Missing changelog entry", message=summary_message, line=line)
+        )
 
 
 def prepare_changelog_check(
@@ -669,22 +740,21 @@ def prepare_changelog_check(
     )
 
     if base_sha and head_sha:
-        diff_range = f"{base_sha}..{head_sha}"
         include_worktree = True
     elif event_name == "pull_request" and event is not None:
         base_sha = event["pull_request"]["base"]["sha"]  # type: ignore[index]
         head_sha = event["pull_request"]["head"]["sha"]  # type: ignore[index]
-        diff_range = f"{base_sha}...{head_sha}"
         include_worktree = False
     elif event_name in {"push", "workflow_dispatch"}:
         print(f"Ignoring changelog check for GitHub event '{event_name}'.")
         return None
     else:
         base_sha, head_sha = local_base_head(resolved_default_branch)
-        diff_range = f"{base_sha}..{head_sha}"
         include_worktree = True
 
-    relevant_commits = commits_for_range(base_sha, head_sha, include_worktree=include_worktree)
+    relevant_commits = commits_for_range(
+        base_sha, head_sha, include_worktree=include_worktree
+    )
 
     override_requested = extract_override(event, base_sha, head_sha)
 
@@ -739,20 +809,36 @@ def validate_changelog_contents(
             f"{suggested_changelog_snippet(expected_version, expected_day)}"
         )
         line = next_release_header_line(lines, blocks)
-        emit_annotation("error", detailed_message, line=line, title="Missing next release header")
-        failures.append(Failure(title="Missing next release header", message=f"Missing unreleased changelog heading for {expected_version}.", line=line))
+        emit_annotation(
+            "error", detailed_message, line=line, title="Missing next release header"
+        )
+        failures.append(
+            Failure(
+                title="Missing next release header",
+                message=f"Missing unreleased changelog heading for {expected_version}.",
+                line=line,
+            )
+        )
     else:
         if target_block.released:
-            message = (
-                f"Expected the top changelog entry for {expected_version} to be unreleased while preparing changes."
+            message = f"Expected the top changelog entry for {expected_version} to be unreleased while preparing changes."
+            record_failure(
+                failures,
+                message,
+                line=target_block.line_number,
+                title="Expected unreleased heading",
             )
-            record_failure(failures, message, line=target_block.line_number, title="Expected unreleased heading")
         elif target_block.planned_date != expected_day.isoformat():
             message = (
                 f"Expected the top unreleased heading for {expected_version} to include planned date "
                 f"{expected_day.isoformat()}; found {target_block.planned_date or 'no ISO date'}."
             )
-            record_failure(failures, message, line=target_block.line_number, title="Wrong planned date")
+            record_failure(
+                failures,
+                message,
+                line=target_block.line_number,
+                title="Wrong planned date",
+            )
 
         base_lines = None
         base_blocks: list[ReleaseBlock] = []

@@ -74,9 +74,48 @@ jobs:
             const workflowRunStatus = process.env.WORKFLOW_RUN_STATUS;
             const workflowRunUrl = process.env.WORKFLOW_RUN_URL;
 
-            const issue_number = fs.existsSync(prNumberPath)
-              ? Number.parseInt(fs.readFileSync(prNumberPath, 'utf8').trim(), 10)
-              : fallbackPr;
+            // The artifact is produced by the PR's own (possibly fork-controlled) workflow run, so its
+            // pr_number is only trusted once it resolves to the pull request whose head this run built.
+            async function resolvePullRequestNumber() {
+              if (fallbackPr) {
+                return fallbackPr;
+              }
+
+              if (!fs.existsSync(prNumberPath)) {
+                return undefined;
+              }
+
+              const claimed = Number.parseInt(fs.readFileSync(prNumberPath, 'utf8').trim(), 10);
+              if (!Number.isInteger(claimed) || claimed <= 0) {
+                return undefined;
+              }
+
+              let pull;
+              try {
+                ({ data: pull } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: claimed,
+                }));
+              } catch (error) {
+                core.warning(`Artifact names PR #${claimed} but it could not be fetched: ${error.message}`);
+                return undefined;
+              }
+
+              const run = context.payload.workflow_run;
+              const sameHead =
+                pull.head.sha === run.head_sha &&
+                pull.head.repo?.full_name === run.head_repository?.full_name;
+
+              if (!sameHead) {
+                core.warning(`Artifact names PR #${claimed} but its head does not match this workflow run; ignoring.`);
+                return undefined;
+              }
+
+              return claimed;
+            }
+
+            const issue_number = await resolvePullRequestNumber();
 
             if (!issue_number) {
               core.info('No pull request number found for this workflow run; skipping comment sync.');
