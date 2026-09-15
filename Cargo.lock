@@ -697,6 +697,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "anyhow",
+ "divan",
  "hex",
  "parking_lot",
  "proptest",
