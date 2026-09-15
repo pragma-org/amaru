@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, str::FromStr};
 
 use amaru_kernel::{
-    Block, BlockHeight, CertificatePointer, ConstitutionalCommitteeStatus, Epoch, EraHistory, GlobalParameters, Hash,
-    NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point,
-    ProtocolParameters, Slot, TransactionInput, any_credential, any_modern_output, any_pool_params,
+    Anchor, Block, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory,
+    GlobalParameters, Hash, MaxString128, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
+    PREPROD_GLOBAL_PARAMETERS, Point, ProtocolParameters, Slot, TransactionInput, any_credential, any_modern_output,
+    any_pool_params,
     cardano::network_block::make_block,
     cbor, make_header, to_cbor,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
@@ -30,15 +31,16 @@ use amaru_ledger::{
 use amaru_stores::rocksdb::RocksDBHistoricalStores;
 use rand::{SeedableRng, rngs::SmallRng};
 
-use super::{mock_store::MockStore, scale::EpochBenchScale};
+use super::{bench_store::BenchStore, scale::EpochBenchScale};
 
 /// Seed a RocksDB with pools, UTxOs, and accounts at the given scale, create the required epoch
-/// snapshots, and build a `State` driven to the slot just before the epoch boundary.
+/// snapshots, and build a `State` driven to the slot just before the stability window.
 ///
-/// Returns the State and the boundary slot. The caller times one `roll_forward` at the boundary
-/// slot to measure the full epoch transition.
+/// Returns the State, the slot that spawns the background rewards thread, and the epoch boundary
+/// slot. The caller times two `roll_forward`s: the spawn slot starts the thread; the boundary
+/// slot joins it and completes the full transition.
 #[allow(clippy::expect_used)]
-pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksDBHistoricalStores>, u64) {
+pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<BenchStore, RocksDBHistoricalStores>, u64, u64) {
     let era_history: EraHistory = PREPROD_ERA_HISTORY.clone();
     let global_parameters: GlobalParameters = PREPROD_GLOBAL_PARAMETERS.clone();
     let protocol_parameters: ProtocolParameters = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
@@ -47,7 +49,7 @@ pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksD
     let epoch = epoch_of(&era_history, first_slot);
     let boundary_slot = find_boundary_slot(&era_history, first_slot, epoch);
 
-    let mock_store = MockStore::new();
+    let store = BenchStore::new();
 
     // Pools are pre-generated so their IDs can be reused when seeding accounts.
     let mut pool_rng = SmallRng::seed_from_u64(42);
@@ -56,23 +58,30 @@ pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksD
     let pool_ids: Vec<amaru_kernel::PoolId> = pool_params_vec.iter().map(|p| p.id).collect();
 
     // Seed protocol parameters and constitutional committee into the live DB before snapshotting.
-    mock_store
+    store
         .db
         .with_transaction(|tx| {
             tx.set_protocol_parameters(&PREPROD_DEFAULT_PROTOCOL_PARAMETERS)?;
+            tx.set_constitution(&Constitution {
+                anchor: Anchor {
+                    url: MaxString128::from_str("https://example.com").expect("valid anchor URL"),
+                    content_hash: [0; 32].into(),
+                },
+                guardrail_script: None,
+            })?;
             tx.update_constitutional_committee(
                 &ConstitutionalCommitteeStatus::NoConfidence,
                 &std::collections::BTreeMap::new(),
                 &std::collections::BTreeSet::new(),
             )
         })
-        .expect("seeding protocol params succeeds");
+        .expect("seeding initial chain state succeeds");
 
     // Seed pools and UTxOs in a single transaction.
     let mut utxo_rng = SmallRng::seed_from_u64(43);
     let seeding_point = Point::Specific(Slot::from(first_slot), Hash::new([0u8; 32]), BlockHeight::from(1));
     let pool_params_for_seed = pool_params_vec.clone();
-    mock_store
+    store
         .db
         .with_transaction(|tx| {
             tx.save(
@@ -115,7 +124,7 @@ pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksD
 
     // Seed accounts delegated to the seeded pools.
     let mut account_rng = SmallRng::seed_from_u64(44);
-    mock_store
+    store
         .db
         .save_bootstrap_accounts((0..scale.accounts).map(|i| {
             let credential = run_strategy_with_rng(&mut account_rng, any_credential());
@@ -135,13 +144,13 @@ pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksD
 
     // Create the three epoch snapshots. Each snapshot captures the full seeded DB state.
     for snap_epoch in [epoch - 3, epoch - 2, epoch - 1] {
-        mock_store.db.next_snapshot(snap_epoch).expect("snapshot creation succeeds");
+        store.db.next_snapshot(snap_epoch).expect("snapshot creation succeeds");
     }
 
-    let snapshots = RocksDBHistoricalStores::new(&mock_store.cfg, 0);
+    let snapshots = RocksDBHistoricalStores::new(&store.cfg, 0);
 
     let mut state = State::new_with(
-        mock_store,
+        store,
         snapshots,
         epoch,
         NetworkName::Preprod,
@@ -153,13 +162,12 @@ pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksD
         VecDeque::new(),
     );
 
-    // Drive the State to just before the stability window. The next roll_forward will spawn the
-    // background rewards thread; the one after that (at the boundary) will join it and run the
-    // full epoch transition.
+    // Drive the State to just before the stability window. The timed portion will call two
+    // roll_forwards starting here: the spawn slot triggers the background rewards thread and
+    // the boundary slot joins it and runs the full epoch transition.
     forward_to(&mut state, point(boundary_slot - 3));
-    state.roll_forward(&empty_block_at(boundary_slot - 2), &amaru_plutus::arena_pool::ArenaPool::new(1024, 0));
 
-    (state, boundary_slot)
+    (state, boundary_slot - 2, boundary_slot)
 }
 
 #[allow(clippy::expect_used)]
@@ -193,7 +201,7 @@ pub fn empty_block_at(slot: u64) -> Block {
     cbor::decode(to_cbor(&block).as_slice()).expect("block round-trips")
 }
 
-fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, p: Point) {
+fn forward_to(state: &mut State<BenchStore, RocksDBHistoricalStores>, p: Point) {
     let issuer = Hash::new([0u8; 28]);
     #[allow(clippy::expect_used)]
     state.push_fragment(VolatileFragment::default().anchor(p, issuer)).expect("forward");

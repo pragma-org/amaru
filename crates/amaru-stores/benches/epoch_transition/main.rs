@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use common::{
+    bench_store::roll_forward,
     fixture::{empty_block_at, seed_and_build_state},
-    mock_store::roll_forward,
     scale::EpochBenchScale,
 };
 use divan::Bencher;
@@ -36,13 +36,14 @@ fn print_configuration() {
 }
 
 /// Measures the full epoch transition: rewards computation (background thread), transition body,
-/// and stable flush + snapshot. Setup seeds a RocksDB at the configured scale, builds a State,
-/// and drives it to the block that triggers rewards computation. The timed portion is the single
-/// roll_forward at the epoch boundary that joins the thread and completes the transition.
+/// and stable flush + snapshot. Setup seeds a RocksDB at the configured scale and builds a State
+/// driven to just before the stability window. The timed portion spans two roll_forwards: the
+/// first spawns the background thread; the second joins it and completes the transition.
 #[divan::bench]
 fn bench_epoch_transition(bencher: Bencher<'_, '_>) {
     let scale = EpochBenchScale::from_env();
-    bencher.with_inputs(|| seed_and_build_state(&scale)).bench_values(|(mut state, boundary_slot)| {
+    bencher.with_inputs(|| seed_and_build_state(&scale)).bench_values(|(mut state, spawn_slot, boundary_slot)| {
+        roll_forward(&mut state, &empty_block_at(spawn_slot));
         roll_forward(&mut state, &empty_block_at(boundary_slot));
     });
 }
