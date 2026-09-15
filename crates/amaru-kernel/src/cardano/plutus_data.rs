@@ -14,7 +14,9 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
-use crate::{Bytes, Hash, MemoizedPlutusData, NonEmptyVec, cbor, size::DATUM};
+use crate::{
+    Bytes, Hash, MemoizedPlutusData, NonEmptySet, NonEmptyVec, cbor, protocol_version::PROTOCOL_VERSION_12, size::DATUM,
+};
 
 mod bigint;
 pub use bigint::*;
@@ -162,7 +164,13 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for PlutusDataSet {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for PlutusDataSet {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let (inner, bytes) = cbor::tee(d, |d| NonEmptyVec::<MemoizedPlutusData>::decode(d, ctx))?;
+        let (inner, bytes) = cbor::tee(d, |d| {
+            if ctx.protocol_version() >= PROTOCOL_VERSION_12 {
+                NonEmptySet::<MemoizedPlutusData>::decode(d, ctx).map(NonEmptyVec::from)
+            } else {
+                NonEmptyVec::<MemoizedPlutusData>::decode(d, ctx)
+            }
+        })?;
         Ok(Self { original_bytes: Bytes::from(bytes.to_vec()), inner })
     }
 }
