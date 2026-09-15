@@ -13,5 +13,6 @@
 // limitations under the License.
 
 pub mod fixture;
+pub mod mixed_weights;
 pub mod scale;
 pub mod scenario;

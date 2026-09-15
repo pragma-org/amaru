@@ -54,6 +54,11 @@ impl<T: Ord, const N: usize> CompactSet<T, N> {
         self.len() == 0
     }
 
+    #[cfg(test)]
+    fn is_promoted(&self) -> bool {
+        matches!(self.storage, SetStorage::Tree(_))
+    }
+
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
         T: Borrow<Q>,
@@ -277,6 +282,25 @@ mod tests {
 
             prop_assert_eq!((&actual).into_iter().copied().collect::<Vec<_>>(), model.iter().copied().collect::<Vec<_>>());
             prop_assert_eq!(actual.clone().into_iter().collect::<Vec<_>>(), model.clone().into_iter().collect::<Vec<_>>());
+        }
+
+        #[test]
+        fn equality_ignores_storage(values in collection::btree_set(0u8..12, 0..=SMALL_CAPACITY)) {
+            let small = values.iter().copied().collect::<CompactSet<u8, SMALL_CAPACITY>>();
+
+            let fillers = 12u8..=12 + SMALL_CAPACITY as u8;
+            let mut promoted = fillers.clone().chain(values.iter().copied()).collect::<CompactSet<u8, SMALL_CAPACITY>>();
+            for filler in fillers {
+                promoted.remove(&filler);
+            }
+
+            prop_assert!(!small.is_promoted());
+            prop_assert!(promoted.is_promoted());
+            prop_assert_eq!(&small, &promoted);
+            prop_assert_eq!(&promoted, &small);
+
+            promoted.insert(u8::MAX);
+            prop_assert_ne!(&small, &promoted);
         }
     }
 }

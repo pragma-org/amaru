@@ -75,3 +75,75 @@ impl<T> Deref for SmallSortedBuffer<T> {
         &self.entries
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use proptest::{collection, prelude::*};
+
+    use super::SmallSortedBuffer;
+
+    #[derive(Clone, Debug)]
+    enum BufferOperation {
+        Insert(u8),
+        Get(u8),
+        RemoveBy(u8),
+        RemoveAt(usize),
+        Touch(usize),
+    }
+
+    fn buffer_operation() -> impl Strategy<Value = BufferOperation> {
+        prop_oneof![
+            (0u8..12).prop_map(BufferOperation::Insert),
+            (0u8..12).prop_map(BufferOperation::Get),
+            (0u8..12).prop_map(BufferOperation::RemoveBy),
+            any::<usize>().prop_map(BufferOperation::RemoveAt),
+            any::<usize>().prop_map(BufferOperation::Touch),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn small_sorted_buffer_matches_btree_set(operations in collection::vec(buffer_operation(), 0..100)) {
+            let mut actual = SmallSortedBuffer::<u8>::new();
+            let mut model = BTreeSet::new();
+
+            for operation in operations {
+                match operation {
+                    BufferOperation::Insert(value) => {
+                        if let Err(index) = actual.binary_search(&value) {
+                            prop_assert_eq!(*actual.insert_at(index, value), value);
+                        }
+                        model.insert(value);
+                    }
+                    BufferOperation::Get(value) => {
+                        prop_assert_eq!(actual.get_by(|entry| entry.cmp(&value)), model.get(&value));
+                    }
+                    BufferOperation::RemoveBy(value) => {
+                        prop_assert_eq!(actual.remove_by(|entry| entry.cmp(&value)), model.take(&value));
+                    }
+                    BufferOperation::RemoveAt(index) if !actual.is_empty() => {
+                        let index = index % actual.len();
+                        let removed = actual.remove_at(index);
+                        prop_assert_eq!(Some(removed), model.iter().nth(index).copied());
+                        model.remove(&removed);
+                    }
+                    BufferOperation::Touch(index) if !actual.is_empty() => {
+                        let index = index % actual.len();
+                        let expected = actual[index];
+                        prop_assert_eq!(*actual.get_at_mut(index), expected);
+                    }
+                    BufferOperation::RemoveAt(_) | BufferOperation::Touch(_) => {}
+                }
+
+                prop_assert_eq!(&*actual, &model.iter().copied().collect::<Vec<_>>()[..]);
+            }
+
+            let expected = model.into_iter().collect::<Vec<_>>();
+            prop_assert_eq!(actual.clone().into_vec(), expected.clone());
+            prop_assert_eq!(actual.take(), expected);
+            prop_assert!(actual.is_empty());
+        }
+    }
+}
