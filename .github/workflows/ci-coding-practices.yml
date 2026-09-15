@@ -28,10 +28,12 @@ jobs:
 
   changes:
     runs-on: ubuntu-24.04
-    # Required to expose outputs to dependent jobs (unused-dependencies, licenses-compatibility)
+    # Expose path groups to the jobs that apply dependency and changelog policies.
     outputs:
       crates: ${{ steps.changes.outputs.crates }}
       dependencies: ${{ steps.changes.outputs.dependencies }}
+      dependency_manifests: ${{ steps.changes.outputs.dependency_manifests }}
+      lockfiles: ${{ steps.changes.outputs.lockfiles }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # https://github.com/dorny/paths-filter/releases/tag/v4.0.3
@@ -43,9 +45,47 @@ jobs:
             dependencies:
               - "Cargo.toml"
               - "Cargo.lock"
+              - ".cargo/config.toml"
+              - ".cargo/deny.toml"
               - ".config/hakari.toml"
               - "crates/**/Cargo.toml"
               - "crates/**/Cargo.lock"
+            dependency_manifests:
+              - "Cargo.toml"
+              - ".config/hakari.toml"
+              - "crates/**/Cargo.toml"
+            lockfiles:
+              - "Cargo.lock"
+              - "crates/**/Cargo.lock"
+
+  lockfile-policy:
+    name: Lockfile policy
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Reject unexplained lockfile-only changes
+        if: >-
+          needs.changes.outputs.lockfiles == 'true' &&
+          needs.changes.outputs.dependency_manifests != 'true' &&
+          !contains(github.event.pull_request.labels.*.name, 'TOPIC.Dependencies')
+        run: |
+          echo "Cargo.lock changed without a dependency manifest change."
+          echo "A maintainer must apply the TOPIC.Dependencies label for an intentional lockfile-only update."
+          exit 1
+
+  dependency-review:
+    name: Dependency review
+    needs: changes
+    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.dependencies == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # https://github.com/actions/dependency-review-action/releases/tag/v4.9.0
+        with:
+          fail-on-severity: moderate
 
   changelog:
     needs: changes
@@ -118,8 +158,8 @@ jobs:
       - uses: jaxxstorm/action-install-gh-release@c5ead9a448b4660cf1e7866ee22e4dc56538031a # https://github.com/jaxxstorm/action-install-gh-release/releases/tag/v1.10.0
         with:
           repo: EmbarkStudios/cargo-deny
-          tag: 0.16.4
-          binaries-location: cargo-deny-0.16.4-x86_64-unknown-linux-musl
+          tag: 0.20.2
+          binaries-location: cargo-deny-0.20.2-x86_64-unknown-linux-musl
       - run: cargo deny-amaru
 
   license-headers:
