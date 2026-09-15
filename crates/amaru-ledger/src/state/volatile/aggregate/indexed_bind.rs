@@ -56,8 +56,10 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
     /// Append a fragment's bindings, treating them as applied *after* everything already recorded.
     /// Each registered key gains an `Exists` verdict at the back of its deque; each unregistered
     /// key gains a `Gone` tombstone.
-    pub fn extend(&mut self, diff: &DiffBind<K, L, R, V>)
-    where
+    pub fn extend<const MAP_CAPACITY: usize, const SET_CAPACITY: usize>(
+        &mut self,
+        diff: &DiffBind<K, L, R, V, MAP_CAPACITY, SET_CAPACITY>,
+    ) where
         K: ToOwned<Owned = K>,
         L: ToOwned<Owned = L>,
         R: ToOwned<Owned = R>,
@@ -73,9 +75,9 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
     }
 
     /// Like [`Self::extend`] but allows transforming a bind when indexing.
-    pub fn extend_with<Lsrc, Rsrc, Vsrc>(
+    pub fn extend_with<Lsrc, Rsrc, Vsrc, const MAP_CAPACITY: usize, const SET_CAPACITY: usize>(
         &mut self,
-        diff: &DiffBind<K, Lsrc, Rsrc, Vsrc>,
+        diff: &DiffBind<K, Lsrc, Rsrc, Vsrc, MAP_CAPACITY, SET_CAPACITY>,
         with: impl Fn(Bind<Lsrc, Rsrc, Vsrc>) -> Bind<L, R, V>,
     ) where
         K: ToOwned<Owned = K>,
@@ -94,7 +96,10 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
 
     /// Retract the oldest fragment's contribution for every key it touched, popping the front of
     /// each deque and dropping the key once its history empties.
-    pub fn remove<Lany, Rany, Vany>(&mut self, diff: &DiffBind<K, Lany, Rany, Vany>) -> bool {
+    pub fn remove<Lany, Rany, Vany, const MAP_CAPACITY: usize, const SET_CAPACITY: usize>(
+        &mut self,
+        diff: &DiffBind<K, Lany, Rany, Vany, MAP_CAPACITY, SET_CAPACITY>,
+    ) -> bool {
         let mut all_present = true;
 
         for key in diff.registered.keys().chain(diff.unregistered.iter()) {

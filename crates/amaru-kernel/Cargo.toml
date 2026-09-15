@@ -54,6 +54,7 @@ proptest.workspace = true
 rand.workspace = true
 test-case.workspace = true
 criterion.workspace = true
+divan.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 cbor4ii.workspace = true
 
@@ -68,6 +69,10 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 name = "cbor_encoding"
 harness = false
 required-features = ["test-utils"]
+
+[[bench]]
+name = "small_collections"
+harness = false
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]

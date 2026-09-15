@@ -12,22 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use amaru_kernel::{CompactMap, CompactSet, compact_collections::Entry};
 
 use crate::state::volatile::{Bind, Existence, Resettable};
 
 /// A compact data-structure tracking changes in a DAG which supports optional linking of values with
 /// another data-structure. Items can only be linked if they have been registered first. Yet, they
 /// can be unlinked without being unregistered.
+///
+/// `REGISTERED` and `UNREGISTERED` are the promotion thresholds of the backing compact collections;
+/// the defaults promote immediately, behaving like plain B-trees.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffBind<K: Ord, L, R, V> {
+pub struct DiffBind<K: Ord, L, R, V, const REGISTERED: usize = 0, const UNREGISTERED: usize = 0> {
     /// Keys registered or updated by this diff, together with their pending bindings.
-    pub registered: BTreeMap<K, Bind<L, R, V>>,
+    pub registered: CompactMap<K, Bind<L, R, V>, REGISTERED>,
     /// Keys explicitly removed by this diff.
-    pub unregistered: BTreeSet<K>,
+    pub unregistered: CompactSet<K, UNREGISTERED>,
 }
 
-impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
+impl<K: Ord, L, R, V, const REGISTERED: usize, const UNREGISTERED: usize> Default
+    for DiffBind<K, L, R, V, REGISTERED, UNREGISTERED>
+{
     fn default() -> Self {
         Self { registered: Default::default(), unregistered: Default::default() }
     }
@@ -41,7 +46,10 @@ impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
 /// it fully supersedes any prior registration or bindings accumulated for that key.
 /// This could happen when a single block deregisters and re-registers a credential.
 impl<'a, K: Ord, L, R, V> DiffBind<&'a K, &'a L, &'a R, &'a V> {
-    pub fn extend_refs(&mut self, newer: &'a DiffBind<K, L, R, V>) -> &mut Self {
+    pub fn extend_refs<const REGISTERED: usize, const UNREGISTERED: usize>(
+        &mut self,
+        newer: &'a DiffBind<K, L, R, V, REGISTERED, UNREGISTERED>,
+    ) -> &mut Self {
         for key in &newer.unregistered {
             self.unregister(key);
         }
@@ -64,7 +72,9 @@ impl<'a, K: Ord, L, R, V> DiffBind<&'a K, &'a L, &'a R, &'a V> {
     }
 }
 
-impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
+impl<K: Ord, L, R, V, const REGISTERED: usize, const UNREGISTERED: usize>
+    DiffBind<K, L, R, V, REGISTERED, UNREGISTERED>
+{
     /// Lookup the state of a Bind, if resolvable. `Existence::Unknown` means that we cannot
     /// conclude to anything without access to historical information.
     pub fn get(&self, k: &K) -> Existence<Bind<&L, &R, &V>> {
@@ -84,7 +94,7 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
 
     /// Efficiently fold a borrowed sequence of `DiffBind` into a single aggregate.
     pub fn fold<'iter>(
-        diffs: impl Iterator<Item = &'iter DiffBind<K, L, R, V>>,
+        diffs: impl Iterator<Item = &'iter DiffBind<K, L, R, V, REGISTERED, UNREGISTERED>>,
     ) -> DiffBind<&'iter K, &'iter L, &'iter R, &'iter V>
     where
         K: 'iter,
@@ -256,7 +266,7 @@ mod tests {
 
     #[test]
     fn register_some_left_then_bind_left() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", Some("left_1"), None::<()>).unwrap();
         diff_bind.bind_left(1, Some("left_2")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
@@ -269,7 +279,7 @@ mod tests {
 
     #[test]
     fn register_some_left_then_bind_right() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", None::<()>, Some("right_1")).unwrap();
         diff_bind.bind_right(1, Some("right_2")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
@@ -282,7 +292,7 @@ mod tests {
 
     #[test]
     fn register_some_left_then_unbind_left() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", Some("left"), None::<()>).unwrap();
         diff_bind.bind_left(1, None).unwrap();
         assert!(diff_bind.unregistered.is_empty());
@@ -295,7 +305,7 @@ mod tests {
 
     #[test]
     fn register_some_right_then_unbind_right() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", None::<()>, Some("right")).unwrap();
         diff_bind.bind_right(1, None).unwrap();
         assert!(diff_bind.unregistered.is_empty());
@@ -308,7 +318,7 @@ mod tests {
 
     #[test]
     fn register_then_unregister() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", None::<()>, None::<()>).unwrap();
         diff_bind.unregister(1);
         assert!(diff_bind.unregistered.contains(&1));
@@ -317,7 +327,7 @@ mod tests {
 
     #[test]
     fn register_none_then_bind_left() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", None, None::<()>).unwrap();
         diff_bind.bind_left(1, Some("left")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
@@ -330,7 +340,7 @@ mod tests {
 
     #[test]
     fn register_none_then_bind_right() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", None::<()>, None).unwrap();
         diff_bind.bind_right(1, Some("right")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
@@ -343,7 +353,7 @@ mod tests {
 
     #[test]
     fn register_none_then_bind_left_and_right() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.register(1, "value", None, None).unwrap();
         diff_bind.bind_left(1, Some("left")).unwrap();
         diff_bind.bind_right(1, Some("right")).unwrap();
@@ -357,7 +367,7 @@ mod tests {
 
     #[test]
     fn bind_left_then_register_fails() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.bind_left(1, Some("left")).unwrap();
         assert!(matches!(
             diff_bind.register(1, "value", None, None::<()>),
@@ -367,7 +377,7 @@ mod tests {
 
     #[test]
     fn bind_right_then_register_fails() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.bind_right(1, Some("right")).unwrap();
         assert!(matches!(
             diff_bind.register(1, "value", None::<()>, None),
@@ -377,7 +387,7 @@ mod tests {
 
     #[test]
     fn bind_left_only() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.bind_left(1, Some("left")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
@@ -389,7 +399,7 @@ mod tests {
 
     #[test]
     fn bind_right_only() {
-        let mut diff_bind = DiffBind::default();
+        let mut diff_bind = DiffBind::<_, _, _, _>::default();
         diff_bind.bind_right(1, Some("right")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
@@ -406,12 +416,12 @@ mod tests {
 
         // Accumulated window state: key 1 was only re-bound (e.g. a pure vote delegation), not
         // registered within the window: { left: Unchanged, right: Set, value: None }.
-        let mut current = DiffBind::default();
+        let mut current = DiffBind::<_, _, _, _>::default();
         current.bind_right(&key, Some(&right)).unwrap();
 
         // A later fragment deregisters then re-registers key 1 within a single block, which
         // collapses to a plain registration: { left: Reset, right: Reset, value: Some }.
-        let mut next = DiffBind::default();
+        let mut next = DiffBind::<_, _, _, _>::default();
         next.register(1, 42, None::<String>, None).unwrap();
 
         current.extend_refs(&next);
@@ -429,12 +439,12 @@ mod tests {
         let value = 42;
         let right = "abstain".to_string();
 
-        let mut current = DiffBind::default();
+        let mut current = DiffBind::<_, _, _, _>::default();
         current.register(&key, &value, None::<&String>, None::<&String>).unwrap();
 
         // A later fragment only re-binds the right: the existing deposit and
         // the untouched left must be preserved.
-        let mut next = DiffBind::default();
+        let mut next = DiffBind::<_, _, _, _>::default();
         next.bind_right(1, Some(right.clone())).unwrap();
 
         current.extend_refs(&next);
