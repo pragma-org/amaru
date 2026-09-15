@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![expect(clippy::unwrap_used, reason = "non-production bench code")]
-
 use common::{
     fixture::{empty_block_at, seed_and_build_state},
     mock_store::roll_forward,
@@ -44,9 +42,7 @@ fn print_configuration() {
 #[divan::bench]
 fn bench_epoch_transition(bencher: Bencher<'_, '_>) {
     let scale = EpochBenchScale::from_env();
-    bencher
-        .with_inputs(|| seed_and_build_state(&scale))
-        .bench_values(|(mut state, boundary_slot)| {
-            roll_forward(&mut state, &empty_block_at(boundary_slot));
-        });
+    bencher.with_inputs(|| seed_and_build_state(&scale)).bench_values(|(mut state, boundary_slot)| {
+        roll_forward(&mut state, &empty_block_at(boundary_slot));
+    });
 }

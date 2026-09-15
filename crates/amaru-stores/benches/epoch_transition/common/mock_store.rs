@@ -20,16 +20,17 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch, EraHistory, MaxString128,
-    Point, Pots, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
+    Anchor, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch, EraHistory, MaxString128, Point, Pots,
+    ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     state::State,
     store::{
-        Columns, EpochTransitionProgress, ReadStore, Result, Store,
-        TransactionalContext,
-        columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, slots, utxo, votes},
+        Columns, EpochTransitionProgress, ReadStore, Result, Store, TransactionalContext,
+        columns::{
+            accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, slots, utxo, votes,
+        },
     },
 };
 use amaru_plutus::arena_pool::ArenaPool;
@@ -252,7 +253,8 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::wildcard_enum_match_arm)]
+#[expect(clippy::panic)]
 pub fn roll_forward(state: &mut State<MockStore, RocksDBHistoricalStores>, block: &amaru_kernel::Block) {
     use amaru_ledger::rules::block::BlockValidation;
     match state.roll_forward(block, &ArenaPool::new(1024, 0)) {

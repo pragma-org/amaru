@@ -18,7 +18,8 @@ use amaru_kernel::{
     Block, BlockHeight, CertificatePointer, ConstitutionalCommitteeStatus, Epoch, EraHistory, GlobalParameters, Hash,
     NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point,
     ProtocolParameters, Slot, TransactionInput, any_credential, any_modern_output, any_pool_params,
-    cardano::network_block::make_block, cbor, make_header, to_cbor,
+    cardano::network_block::make_block,
+    cbor, make_header, to_cbor,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
 use amaru_ledger::{
@@ -50,9 +51,8 @@ pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksD
 
     // Pools are pre-generated so their IDs can be reused when seeding accounts.
     let mut pool_rng = SmallRng::seed_from_u64(42);
-    let pool_params_vec: Vec<amaru_kernel::PoolParams> = (0..scale.pools)
-        .map(|_| run_strategy_with_rng(&mut pool_rng, any_pool_params()))
-        .collect();
+    let pool_params_vec: Vec<amaru_kernel::PoolParams> =
+        (0..scale.pools).map(|_| run_strategy_with_rng(&mut pool_rng, any_pool_params())).collect();
     let pool_ids: Vec<amaru_kernel::PoolId> = pool_params_vec.iter().map(|p| p.id).collect();
 
     // Seed protocol parameters and constitutional committee into the live DB before snapshotting.
@@ -84,9 +84,7 @@ pub fn seed_and_build_state(scale: &EpochBenchScale) -> (State<MockStore, RocksD
                 Columns {
                     utxo: (0..scale.utxos as u64).map(move |i| {
                         let key = TransactionInput {
-                            transaction_id: Hash::from(
-                                random_bytes_with_rng(&mut utxo_rng, 32).as_slice(),
-                            ),
+                            transaction_id: Hash::from(random_bytes_with_rng(&mut utxo_rng, 32).as_slice()),
                             index: i,
                         };
                         let value = run_strategy_with_rng(&mut utxo_rng, any_modern_output());
