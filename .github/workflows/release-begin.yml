@@ -41,7 +41,7 @@ jobs:
       msi_version: ${{ steps.meta.outputs.msi_version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
 
       - name: Determine version
         id: meta
@@ -178,7 +178,7 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --system core.longpaths true
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
           submodules: true
 
@@ -265,12 +265,12 @@ jobs:
             MSI_VERSION="${MSI_VERSION}" \
             DIST_DIR='dist'
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
           name: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}
           path: ${{ steps.pack.outputs.path }}
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         if: ${{ startsWith(matrix.environments.title, 'linux-') }}
         with:
           name: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}-packages
@@ -278,7 +278,7 @@ jobs:
             amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}.deb
             amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}.rpm
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         if: ${{ matrix.environments.title == 'windows-x86_64' }}
         with:
           name: amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}-packages
@@ -297,7 +297,7 @@ jobs:
 
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # https://github.com/actions/download-artifact/releases/tag/v8.0.1
         with:
           pattern: amaru-${{ needs.build-metadata.outputs.version }}-*
           path: ./artifacts
@@ -502,7 +502,7 @@ jobs:
           fi
 
       - name: Create or update draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # https://github.com/softprops/action-gh-release/releases/tag/v2.6.2
         with:
           draft: true
           tag_name: ${{ needs.build-metadata.outputs.release_tag }}
@@ -513,7 +513,7 @@ jobs:
           files: release-assets/*
 
       - name: Attest release artifacts
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # https://github.com/actions/attest/releases/tag/v4.2.2
         with:
           subject-checksums: release-assets/amaru-${{ needs.build-metadata.outputs.version }}-checksums.manifest
 
@@ -538,10 +538,10 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # https://github.com/actions/download-artifact/releases/tag/v8.0.1
         with:
           pattern: amaru-*
           path: ./artifacts
@@ -634,7 +634,7 @@ jobs:
             --output dist/index.html
 
       - name: Upload combined artifact for Github Pages
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # https://github.com/actions/upload-pages-artifact/releases/tag/v5.0.0
         with:
           path: dist
 
@@ -649,4 +649,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # https://github.com/actions/deploy-pages/releases/tag/v5.0.1
