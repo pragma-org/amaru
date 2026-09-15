@@ -1114,7 +1114,7 @@ mod cmp_tip_unit_tests {
                 },
                 protocol_version: ProtocolVersion::new(1, 2),
             },
-            Bytes::default(),
+            FixedBytes::zeroes(),
         )
     }
 

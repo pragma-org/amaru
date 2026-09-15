@@ -17,11 +17,15 @@ use std::{cmp::Ordering, fmt};
 use anyhow::anyhow;
 
 use crate::{
-    BlockHeight, Bytes, Hasher, HeaderBody, HeaderHash, IsHeader, PoolId, Slot,
+    BlockHeight, Hasher, HeaderBody, HeaderHash, IsHeader, PoolId, Slot,
     cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
     size::{HEADER, POOL_COLD_KEY},
 };
+
+pub const KES_SIGNATURE: usize = 448;
+
+pub type KesSignature = FixedBytes<KES_SIGNATURE>;
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Header {
@@ -32,7 +36,7 @@ pub struct Header {
     body: HeaderBody,
 
     /// Leader signature of the header body bytes.
-    signature: Bytes,
+    signature: KesSignature,
 }
 
 // TODO: awkward Display format for Header
@@ -114,7 +118,7 @@ impl IsHeader for Header {
 impl Header {
     /// Create a new Header from its constituant, recomputing the hash.
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn new(body: HeaderBody, signature: Bytes) -> Self {
+    pub fn new(body: HeaderBody, signature: KesSignature) -> Self {
         use crate::{hash::ORIGIN_HASH, to_cbor};
 
         let mut header = Self { body, signature, hash: ORIGIN_HASH };
@@ -131,7 +135,7 @@ impl Header {
     }
 
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn with_signature(mut self, signature: Bytes) -> Self {
+    pub fn with_signature(mut self, signature: KesSignature) -> Self {
         self.signature = signature;
         self
     }
@@ -145,7 +149,7 @@ impl Header {
         &mut self.body
     }
 
-    pub fn signature(&self) -> &Bytes {
+    pub fn signature(&self) -> &KesSignature {
         &self.signature
     }
 
@@ -183,7 +187,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Header {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.encode_with(&self.body, ctx)?;
-        e.encode_with(&self.signature, ctx)?;
+        e.encode_with(self.signature, ctx)?;
         Ok(())
     }
 }
@@ -265,7 +269,7 @@ mod tests {
                 },
                 protocol_version: ProtocolVersion::new(1, 2),
             },
-            Bytes::default(),
+            FixedBytes::zeroes(),
         )
     }
 

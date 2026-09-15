@@ -14,13 +14,13 @@
 
 use std::cmp::Ordering;
 
-use crate::{Int, cbor, plutus_data::BoundedBytes};
+use crate::{Bytes, Int, cbor, plutus_data::decode_bounded_bytes};
 
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BigInt {
     Int(Int),
-    BigUInt(BoundedBytes),
-    BigNInt(BoundedBytes),
+    BigUInt(Bytes),
+    BigNInt(Bytes),
 }
 
 impl PartialOrd for BigInt {
@@ -85,9 +85,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for BigInt {
             cbor::data::Type::Tag => {
                 let tag = d.tag()?;
                 if tag == cbor::IanaTag::PosBignum.tag() {
-                    Ok(Self::BigUInt(d.decode_with(ctx)?))
+                    Ok(Self::BigUInt(decode_bounded_bytes(d)?))
                 } else if tag == cbor::IanaTag::NegBignum.tag() {
-                    Ok(Self::BigNInt(d.decode_with(ctx)?))
+                    Ok(Self::BigNInt(decode_bounded_bytes(d)?))
                 } else {
                     Err(cbor::decode::Error::message("invalid cbor tag for big int"))
                 }
@@ -109,11 +109,11 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for BigInt {
             }
             BigInt::BigUInt(x) => {
                 e.tag(cbor::IanaTag::PosBignum)?;
-                e.encode_with(x, ctx)?;
+                cbor::encode_bytestring(e, x)?;
             }
             BigInt::BigNInt(x) => {
                 e.tag(cbor::IanaTag::NegBignum)?;
-                e.encode_with(x, ctx)?;
+                cbor::encode_bytestring(e, x)?;
             }
         };
 

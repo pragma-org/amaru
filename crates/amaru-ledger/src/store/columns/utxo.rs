@@ -40,7 +40,7 @@ pub mod tests {
         ) -> TransactionInput {
             TransactionInput {
                 transaction_id: Hash::from(hash),
-                index: index as u64,
+                index,
             }
         }
     }

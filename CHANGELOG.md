@@ -81,6 +81,16 @@ Other guiding principles:
 - **amaru-protocols**: the first peer-share request after an outbound handshake is no longer dropped.
 - **amaru-bootstrap**: allow cancellation of the bootstrap process.
 - **amaru-ledger**: Off-by-one error in constitutional committee member validity upper-bound check.
+### Fixed
+
+- **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
+- **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
+- **amaru-kernel**: reject transaction inputs whose index does not fit in 16 bits.
+- **amaru-kernel**: reject bootstrap witnesses whose chain code is not exactly 32 bytes from protocol version 12 onwards, and no longer panic when hashing a witness whose chain code has another length.
+- **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
+- **amaru-kernel**: reject indefinite-length CBOR arrays that hold extra elements beyond the record they encode, anywhere in a block or transaction.
+- **amaru-kernel**: reject malformed Byron addresses in transaction outputs.
+
 
 ## [v10.11.20260903](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260903)
 

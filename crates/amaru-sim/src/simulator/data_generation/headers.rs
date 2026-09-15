@@ -14,7 +14,7 @@
 
 //! Random trees of `Header`s used to generate simulation walks.
 
-use amaru_kernel::{Bytes, Header, HeaderHash, IsHeader, make_header, size::HEADER};
+use amaru_kernel::{Header, HeaderHash, IsHeader, KES_SIGNATURE, KesSignature, make_header};
 use proptest::prelude::Strategy;
 use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
 
@@ -178,14 +178,13 @@ fn generate_headers(
 /// Generate a single `Header` but using the provided random generator.
 fn generate_header(block: u64, slot: u64, parent: Option<HeaderHash>, rng: &mut StdRng) -> Header {
     // introduce some randomness in the header so that the hash is not predictable
-    Header::new(make_header(block, slot, parent).body().clone(), Bytes::from(random_bytes_with_rng(HEADER, rng)))
+    Header::new(make_header(block, slot, parent).body().clone(), random_signature(rng))
 }
 
-/// Very simple function to generate random sequence of bytes of given length.
-fn random_bytes_with_rng(arg: usize, rng: &mut StdRng) -> Vec<u8> {
-    let mut buffer = vec![0; arg];
+fn random_signature(rng: &mut StdRng) -> KesSignature {
+    let mut buffer = [0u8; KES_SIGNATURE];
     rng.fill_bytes(&mut buffer);
-    buffer
+    KesSignature::from(buffer)
 }
 
 #[cfg(test)]

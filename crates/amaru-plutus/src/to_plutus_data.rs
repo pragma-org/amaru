@@ -321,6 +321,15 @@ where
     }
 }
 
+impl<const V: u8> ToPlutusData<V> for u16
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self as i64))))
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for u32
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
