@@ -2,125 +2,68 @@ name: CI Changelog
 
 permissions:
   actions: read
-  contents: read
   issues: write
-  pull-requests: write
+  pull-requests: read
 
 on:
   workflow_run:
     workflows: ["CI Coding Practices"]
-    types:
-      - requested
-      - in_progress
-      - completed
+    types: [completed]
 
 jobs:
   comment:
-    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.repository.full_name == github.repository
     runs-on: ubuntu-24.04
     steps:
-      # SECURITY WARNING:
-      # This workflow runs with a write-capable token in the base repository context.
-      # It must never check out or execute PR-controlled code, and it must never call
-      # repository scripts, sidecar scripts, or downloaded executables. Keep all logic
-      # inline in this workflow and restrict it to reading the previously uploaded
-      # artifact plus posting/updating/removing the sticky PR comment.
-      - name: Discover changelog artifact
-        if: ${{ github.event.workflow_run.status == 'completed' }}
-        id: artifact
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # https://github.com/actions/github-script/releases/tag/v9.0.0
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.payload.workflow_run.id,
-              per_page: 100,
-            });
-
-            const artifact = artifacts.find((candidate) => candidate.name === 'changelog-check-report');
-
-            core.setOutput('found', artifact ? 'true' : 'false');
-      - name: Download changelog artifact
-        if: ${{ github.event.workflow_run.status == 'completed' && steps.artifact.outputs.found == 'true' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # https://github.com/actions/download-artifact/releases/tag/v8.0.1
-        with:
-          name: changelog-check-report
-          path: changelog-check-artifact
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      # This workflow has permission to write issue comments. Keep its inputs limited
+      # to GitHub's workflow-run metadata; never check out or execute PR-controlled code.
       - name: Synchronize PR changelog comment
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # https://github.com/actions/github-script/releases/tag/v9.0.0
-        env:
-          WORKFLOW_RUN_STATUS: ${{ github.event.workflow_run.status }}
-          WORKFLOW_RUN_URL: ${{ github.event.workflow_run.html_url }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const fs = require('fs');
-            const path = require('path');
-
-            // SECURITY WARNING:
-            // Do not extend this step to execute files from the artifact or from the PR.
-            // Treat the artifact as untrusted data only; read text from it and call the
-            // GitHub API, but never shell out or load dynamic code.
             const marker = '<!-- amaru:changelog-check -->';
-            const artifactDir = 'changelog-check-artifact';
-            const prNumberPath = path.join(artifactDir, 'pr_number');
-            const outcomePath = path.join(artifactDir, 'outcome');
-            const reportPath = path.join(artifactDir, 'report.md');
-            const fallbackPr = context.payload.workflow_run.pull_requests[0]?.number;
-            const workflowRunStatus = process.env.WORKFLOW_RUN_STATUS;
-            const workflowRunUrl = process.env.WORKFLOW_RUN_URL;
+            const run = context.payload.workflow_run;
+            const headOwner = run.head_repository?.owner?.login;
 
-            // The artifact is produced by the PR's own (possibly fork-controlled) workflow run, so its
-            // pr_number is only trusted once it resolves to the pull request whose head this run built.
-            async function resolvePullRequestNumber() {
-              if (fallbackPr) {
-                return fallbackPr;
-              }
-
-              if (!fs.existsSync(prNumberPath)) {
-                return undefined;
-              }
-
-              const claimed = Number.parseInt(fs.readFileSync(prNumberPath, 'utf8').trim(), 10);
-              if (!Number.isInteger(claimed) || claimed <= 0) {
-                return undefined;
-              }
-
-              let pull;
-              try {
-                ({ data: pull } = await github.rest.pulls.get({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: claimed,
-                }));
-              } catch (error) {
-                core.warning(`Artifact names PR #${claimed} but it could not be fetched: ${error.message}`);
-                return undefined;
-              }
-
-              const run = context.payload.workflow_run;
-              const sameHead =
-                pull.head.sha === run.head_sha &&
-                pull.head.repo?.full_name === run.head_repository?.full_name;
-
-              if (!sameHead) {
-                core.warning(`Artifact names PR #${claimed} but its head does not match this workflow run; ignoring.`);
-                return undefined;
-              }
-
-              return claimed;
-            }
-
-            const issue_number = await resolvePullRequestNumber();
-
-            if (!issue_number) {
-              core.info('No pull request number found for this workflow run; skipping comment sync.');
+            if (!headOwner || !run.head_branch) {
+              core.warning(`Workflow run ${run.id} has no source repository or branch.`);
               return;
             }
+
+            const pullRequests = await github.paginate(
+              github.rest.pulls.list,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                head: `${headOwner}:${run.head_branch}`,
+                per_page: 100,
+              },
+            );
+            const matchingPullRequests = pullRequests.filter((pullRequest) =>
+              pullRequest.base?.repo?.id === context.payload.repository.id &&
+              pullRequest.head?.repo?.id === run.head_repository.id &&
+              pullRequest.head?.sha === run.head_sha &&
+              pullRequest.head?.ref === run.head_branch
+            );
+
+            if (matchingPullRequests.length !== 1) {
+              core.warning(`Expected one open PR for workflow run ${run.id}; found ${matchingPullRequests.length}.`);
+              return;
+            }
+
+            const issue_number = matchingPullRequests[0].number;
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: run.id,
+              filter: 'latest',
+              per_page: 100,
+            });
+            const changelogJob = jobs.find((job) => job.name === 'changelog');
 
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
@@ -128,12 +71,17 @@ jobs:
               issue_number,
               per_page: 100,
             });
-
-            const matchingComments = comments.filter((comment) => comment.body && comment.body.includes(marker));
+            const matchingComments = comments.filter((comment) =>
+              comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker)
+            );
             const newestMatchingComment = matchingComments.at(-1);
 
-            async function deleteMatchingComments() {
+            async function deleteMatchingComments(exceptCommentId) {
               for (const comment of matchingComments) {
+                if (comment.id === exceptCommentId) {
+                  continue;
+                }
+
                 await github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -142,63 +90,26 @@ jobs:
               }
             }
 
-            async function upsertStickyComment(body) {
-              if (newestMatchingComment) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: newestMatchingComment.id,
-                  body,
-                });
-
-                for (const comment of matchingComments) {
-                  if (comment.id === newestMatchingComment.id) {
-                    continue;
-                  }
-
-                  await github.rest.issues.deleteComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    comment_id: comment.id,
-                  });
-                }
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number,
-                  body,
-                });
-              }
-            }
-
-            if (workflowRunStatus !== 'completed') {
-              const runLink = workflowRunUrl ? `\n\n[Open workflow run](${workflowRunUrl})` : '';
-              const body = `${marker}\n## Analyzing changelog...\n\nA new changelog check is in progress. This comment will be updated when the workflow completes.${runLink}`;
-              await upsertStickyComment(body);
+            if (changelogJob?.conclusion !== 'failure') {
+              await deleteMatchingComments();
               return;
             }
 
-            if (!fs.existsSync(outcomePath)) {
-              if (matchingComments.length > 0) {
-                await deleteMatchingComments();
-              }
-              core.info('No changelog artifact found for this run; removed any stale sticky comment.');
-              return;
+            const body = `${marker}\n## Changelog check failed\n\nSee the [workflow run](${run.html_url}) for details.`;
+
+            if (newestMatchingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: newestMatchingComment.id,
+                body,
+              });
+              await deleteMatchingComments(newestMatchingComment.id);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
             }
-
-            const outcome = fs.readFileSync(outcomePath, 'utf8').trim();
-            if (outcome === 'success') {
-              if (matchingComments.length > 0) {
-                await deleteMatchingComments();
-              }
-              return;
-            }
-
-            const report = fs.existsSync(reportPath)
-              ? fs.readFileSync(reportPath, 'utf8').trim()
-              : '## Changelog check failed\n\nSee the workflow run for details.';
-
-            const body = `${marker}\n${report}`;
-
-            await upsertStickyComment(body);
