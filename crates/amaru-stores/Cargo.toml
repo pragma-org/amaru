@@ -20,6 +20,12 @@ name = "state"
 path = "tests/lib.rs"
 required-features = ["rocksdb"]
 
+[[bench]]
+name = "epoch_transition"
+path = "benches/epoch_transition/main.rs"
+harness = false
+required-features = ["rocksdb"]
+
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
@@ -45,6 +51,7 @@ rocksdb = { workspace = true, optional = true, features = ["jemalloc"] }
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+divan.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
