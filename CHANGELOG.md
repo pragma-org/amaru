@@ -40,6 +40,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru**: make Mithril synchronization resume safely from verified immutable files and reject stale snapshots before replay.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
 
