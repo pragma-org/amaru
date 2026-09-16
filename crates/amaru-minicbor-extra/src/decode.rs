@@ -78,6 +78,7 @@ pub fn decode_string<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, str>, deco
         return Ok(Cow::Owned(string));
     }
 
+    #[expect(clippy::disallowed_methods)]
     Ok(Cow::Borrowed(d.str()?))
 }
 
@@ -150,6 +151,23 @@ pub fn heterogeneous_array<'d, A>(
                 Ok(())
             }),
         ),
+    }
+}
+
+/// Decode a fixed-arity record: a definite-length array of exactly `len` elements.
+///
+/// Unlike [`heterogeneous_array`], an indefinite-length encoding is rejected outright.
+pub fn record<'d, A>(
+    d: &mut cbor::Decoder<'d>,
+    len: u64,
+    elems: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, decode::Error>,
+) -> Result<A, decode::Error> {
+    match d.array()? {
+        None => Err(decode::Error::message("indefinite-length array where a fixed-size record was expected")),
+        Some(actual) if actual != len => {
+            Err(decode::Error::message(format!("expected a record of {len} elements, got {actual}")))
+        }
+        Some(_) => elems(d),
     }
 }
 

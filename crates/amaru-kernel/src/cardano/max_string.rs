@@ -14,9 +14,7 @@
 
 use std::{fmt::Display, ops::Deref, str::FromStr};
 
-use crate::cbor;
-use crate::cbor::HasProtocolVersion;
-use crate::utils::cbor::decode_string_v12_indefinite;
+use crate::{cbor, cbor::HasProtocolVersion, utils::cbor::decode_string_v12_indefinite};
 
 pub type MaxString128 = MaxString<128>;
 
