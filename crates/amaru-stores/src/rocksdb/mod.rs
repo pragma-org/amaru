@@ -975,7 +975,7 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
 
         trace_record!(stores::ledger::snapshots::VALIDATE, snapshot_count, continuous_ranges);
 
-        if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
+        if snapshots_ranges.is_empty() || (snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2) {
             return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
         }
         Ok(())
@@ -1188,6 +1188,15 @@ mod tests {
 
         assert!(result.is_err());
         assert!(!live_dir.exists());
+    }
+
+    #[test]
+    fn read_only_open_without_snapshots_returns_no_stable_snapshot() {
+        let dir = TempDir::new().unwrap();
+
+        let result = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into()));
+
+        assert!(matches!(result, Err(StoreError::Open(OpenErrorKind::NoStableSnapshot))));
     }
 
     #[test]
