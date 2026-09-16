@@ -5,7 +5,7 @@ fmt-amaru = "fmt --all -- --check"
 clippy-amaru = "clippy --workspace --all-targets -- -D warnings"
 check-amaru = "check --workspace --all-targets"
 build-amaru = "build --workspace --all-targets"
-deny-amaru = "deny check licenses --config .cargo/deny.toml"
+deny-amaru = "deny --locked --config .cargo/deny.toml check licenses sources"
 
 [env]
 CLIPPY_CONF_DIR = ".cargo"
