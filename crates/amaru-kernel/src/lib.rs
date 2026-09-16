@@ -190,6 +190,7 @@ pub use cardano::{
     transaction_ref::TransactionRef,
     treasury_delta::TreasuryDelta,
     tx_info::{TxInfo, TxInfoTranslationError},
+    unit_rational_number::UnitRationalNumber,
     utxos::Utxos,
     validity_interval::ValidityInterval,
     value::{self, CurrencySymbol, Mint, PlutusMint, Value},
@@ -253,5 +254,6 @@ pub use cardano::{
     reward_account::any_reward_account,
     transaction_input::any_transaction_input,
     transaction_pointer::any_transaction_pointer,
+    unit_rational_number::any_unit_rational_number,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
 };

@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
-    ProtocolParamUpdate, ProtocolVersion, RationalNumber, cbor,
-};
+use crate::{CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion, RationalNumber, UnitRationalNumber, cbor};
 
 mod default;
 pub use default::*;
@@ -42,8 +39,8 @@ pub struct ProtocolParameters {
     pub min_fee_b: u64,
     pub stake_credential_deposit: Lovelace,
     pub stake_pool_deposit: Lovelace,
-    pub monetary_expansion_rate: RationalNumber,
-    pub treasury_expansion_rate: RationalNumber,
+    pub monetary_expansion_rate: UnitRationalNumber,
+    pub treasury_expansion_rate: UnitRationalNumber,
     pub min_pool_cost: u64,
     pub lovelace_per_utxo_byte: Lovelace,
     pub prices: ExUnitPrices,
@@ -137,12 +134,12 @@ impl ProtocolParameters {
 mod fixture {
     use std::fmt;
 
-    use serde::de::{Error, IgnoredAny, MapAccess, Visitor};
-
     use super::{
         CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParameters,
         ProtocolVersion, RationalNumber,
     };
+    use crate::UnitRationalNumber;
+    use serde::de::{Error, IgnoredAny, MapAccess, Visitor};
 
     // NOTE: Hand-written deserializer for the protocol parameters fixture
     //
@@ -186,8 +183,8 @@ mod fixture {
                     let mut pledge_influence: Option<RationalNumber> = None;
                     let mut min_pool_cost: Option<u64> = None;
                     let mut optimal_stake_pools_count: Option<u16> = None;
-                    let mut monetary_expansion_rate: Option<RationalNumber> = None;
-                    let mut treasury_expansion_rate: Option<RationalNumber> = None;
+                    let mut monetary_expansion_rate: Option<UnitRationalNumber> = None;
+                    let mut treasury_expansion_rate: Option<UnitRationalNumber> = None;
                     let mut collateral_percentage: Option<u16> = None;
                     let mut max_collateral_inputs: Option<u16> = None;
                     let mut cost_models: Option<CostModels> = None;
@@ -342,16 +339,6 @@ mod fixture {
     }
 }
 
-fn decode_rationale(d: &mut cbor::Decoder<'_>) -> Result<RationalNumber, cbor::decode::Error> {
-    cbor::allow_tag(d, cbor::Tag::new(30))?;
-    cbor::heterogeneous_array(d, |d, assert_len| {
-        assert_len(2)?;
-        let numerator = d.u64()?;
-        let denominator = d.u64()?;
-        Ok(RationalNumber { numerator, denominator })
-    })
-}
-
 impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
@@ -364,9 +351,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
         let stake_pool_deposit = d.u64()?;
         let stake_pool_max_retirement_epoch = d.u64()?;
         let optimal_stake_pools_count = d.u16()?;
-        let pledge_influence = decode_rationale(d)?;
-        let monetary_expansion_rate = decode_rationale(d)?;
-        let treasury_expansion_rate = decode_rationale(d)?;
+        let pledge_influence = d.decode_with(ctx)?;
+        let monetary_expansion_rate = d.decode_with(ctx)?;
+        let treasury_expansion_rate = d.decode_with(ctx)?;
         let protocol_version = d.decode_with(ctx)?;
         let min_pool_cost = d.u64()?;
         let lovelace_per_utxo_byte = d.u64()?;
@@ -404,7 +391,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
         let gov_action_deposit = d.u64()?;
         let drep_deposit = d.u64()?;
         let drep_expiry = d.decode_with(ctx)?;
-        let min_fee_ref_script_lovelace_per_byte = decode_rationale(d)?;
+        let min_fee_ref_script_lovelace_per_byte = d.decode_with(ctx)?;
 
         Ok(ProtocolParameters {
             protocol_version,
@@ -454,18 +441,6 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
     }
 }
 
-fn encode_rationale<W: cbor::encode::Write>(
-    e: &mut cbor::Encoder<W>,
-    rat: &RationalNumber,
-) -> Result<(), cbor::encode::Error<W::Error>> {
-    e.tag(cbor::Tag::new(30))?;
-    e.array(2)?;
-
-    e.u64(rat.numerator)?;
-    e.u64(rat.denominator)?;
-    Ok(())
-}
-
 impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -482,9 +457,9 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.u64(self.stake_pool_deposit)?;
         e.u64(self.stake_pool_max_retirement_epoch)?;
         e.u16(self.optimal_stake_pools_count)?;
-        encode_rationale(e, &self.pledge_influence)?;
-        encode_rationale(e, &self.monetary_expansion_rate)?;
-        encode_rationale(e, &self.treasury_expansion_rate)?;
+        e.encode_with(&self.pledge_influence, ctx)?;
+        e.encode_with(&self.monetary_expansion_rate, ctx)?;
+        e.encode_with(&self.treasury_expansion_rate, ctx)?;
         e.encode_with(self.protocol_version, ctx)?;
         e.u64(self.min_pool_cost)?;
         e.u64(self.lovelace_per_utxo_byte)?;
@@ -530,7 +505,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.u64(self.gov_action_deposit)?;
         e.u64(self.drep_deposit)?;
         e.encode_with(self.drep_expiry, ctx)?;
-        encode_rationale(e, &self.min_fee_ref_script_lovelace_per_byte)?;
+        e.encode_with(&self.min_fee_ref_script_lovelace_per_byte, ctx)?;
 
         Ok(())
     }
@@ -548,7 +523,7 @@ mod tests {
         CostModel, CostModels, Credential, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
         KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
         ProtocolVersion, RewardAccount, any_constitution, any_credential, any_epoch, any_hash28, any_proposal_id,
-        any_rational_number, any_reward_account, size::SCRIPT,
+        any_rational_number, any_reward_account, any_unit_rational_number, size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -688,8 +663,8 @@ mod tests {
             maximum_epoch in option::of(any::<u64>()),
             desired_number_of_stake_pools in option::of(any::<u16>()),
             pool_pledge_influence in option::of(any_rational_number()),
-            expansion_rate in option::of(any_rational_number()),
-            treasury_growth_rate in option::of(any_rational_number()),
+            expansion_rate in option::of(any_unit_rational_number()),
+            treasury_growth_rate in option::of(any_unit_rational_number()),
             min_pool_cost in option::of(any::<Lovelace>()),
             ada_per_utxo_byte in option::of(any::<Lovelace>()),
             cost_models_for_script_languages in option::of(any_cost_models()),
@@ -870,8 +845,8 @@ mod tests {
             min_fee_b in any::<Lovelace>(),
             stake_credential_deposit in any::<Lovelace>(),
             stake_pool_deposit in any::<Lovelace>(),
-            monetary_expansion_rate in any_rational_number(),
-            treasury_expansion_rate in any_rational_number(),
+            monetary_expansion_rate in any_unit_rational_number(),
+            treasury_expansion_rate in any_unit_rational_number(),
             min_pool_cost in any::<Lovelace>(),
             lovelace_per_utxo_byte in any::<Lovelace>(),
             prices in any_ex_units_prices(),

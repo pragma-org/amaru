@@ -37,13 +37,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for RationalNumber {
             assert_len(2)?;
             let numerator = d.decode_with(ctx)?;
             let denominator = d.decode_with(ctx)?;
-
-            // Make sure that the denominator is not zero. That would be an invalid rational number.
-            if denominator == 0 {
-                Err(minicbor::decode::Error::message("denominator cannot be zero"))
-            } else {
-                Ok(RationalNumber { numerator, denominator })
-            }
+            RationalNumber::new(numerator, denominator).map_err(|e| minicbor::decode::Error::message(&e))
         })
     }
 }
@@ -61,6 +55,16 @@ impl<C> cbor::encode::Encode<C> for RationalNumber {
         Ok(())
     }
 }
+
+impl RationalNumber {
+    pub fn new(numerator: u64, denominator: u64) -> Result<Self, String> {
+        if denominator == 0 {
+            return Err("denominator cannot be zero".to_string());
+        }
+        Ok(RationalNumber { numerator, denominator })
+    }
+}
+
 
 // ------------------------------------------------------------------- SafeRatio
 
