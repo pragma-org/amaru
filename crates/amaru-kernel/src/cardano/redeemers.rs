@@ -16,7 +16,7 @@ use std::{borrow::Cow, collections::BTreeMap, ops::Deref};
 
 use crate::{
     BorrowedScript, Bytes, ExUnits, PlutusData, Redeemer, RedeemerKey, RedeemerValue, ScriptPurpose, cbor,
-    utils::serde::SerdeUsingCbor,
+    protocol_version::PROTOCOL_VERSION_12, utils::serde::SerdeUsingCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -53,9 +53,27 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Redeemers {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let (inner, bytes) = cbor::tee(d, |d| match d.datatype()? {
             minicbor::data::Type::Array | minicbor::data::Type::ArrayIndef => {
-                Ok(RedeemersInner::Array(d.decode_with(ctx)?))
+                // The list encoding was dropped from protocol version 12 onwards; only the map
+                // encoding survives, and the ledger refuses the list form outright rather than
+                // translating it.
+                if ctx.protocol_version() >= PROTOCOL_VERSION_12 {
+                    return Err(minicbor::decode::Error::message(
+                        "list encoding of redeemers is not supported from protocol version 12",
+                    ));
+                }
+                let redeemers: Vec<Redeemer> = d.decode_with(ctx)?;
+                if redeemers.is_empty() {
+                    return Err(minicbor::decode::Error::message("expected redeemers array to be non-empty"));
+                }
+                Ok(RedeemersInner::Array(redeemers))
             }
-            minicbor::data::Type::Map | minicbor::data::Type::MapIndef => Ok(RedeemersInner::Map(d.decode_with(ctx)?)),
+            minicbor::data::Type::Map | minicbor::data::Type::MapIndef => {
+                let redeemers: BTreeMap<RedeemerKey, RedeemerValue> = d.decode_with(ctx)?;
+                if redeemers.is_empty() {
+                    return Err(minicbor::decode::Error::message("expected redeemers map to be non-empty"));
+                }
+                Ok(RedeemersInner::Map(redeemers))
+            }
             _ => Err(minicbor::decode::Error::message("invalid type for redeemers struct")),
         })?;
 
@@ -158,8 +176,41 @@ impl PlutusRedeemers<'_> {
 
 #[cfg(test)]
 mod tests {
+    use amaru_minicbor_extra::from_cbor_no_leftovers_with;
+    use test_case::test_case;
+
     use super::*;
-    use crate::{Bytes, PlutusData, Redeemer, RedeemerTag};
+    use crate::{Bytes, PlutusData, Redeemer, RedeemerTag, PROTOCOL_VERSION_10};
+
+    /// Empty redeemers must be rejected in both forms, from protocol version 9 onwards:
+    /// both in the map branch and in the list branch.
+    #[test_case(&[0xa0]              ; "empty definite map")]
+    #[test_case(&[0xbf, 0xff]        ; "empty indefinite map")]
+    #[test_case(&[0x80]              ; "empty definite list")]
+    #[test_case(&[0x9f, 0xff]        ; "empty indefinite list")]
+    fn rejects_empty_redeemers(bytes: &[u8]) {
+        let mut version = PROTOCOL_VERSION_10;
+        assert!(from_cbor_no_leftovers_with::<_, Redeemers>(bytes, &mut version).is_err());
+    }
+
+    /// One redeemer `[tag, index, data, ex_units]`, in the list form.
+    const LIST_WITH_ONE_REDEEMER: &[u8] = &[0x81, 0x84, 0x00, 0x00, 0x00, 0x82, 0x00, 0x00];
+
+    /// The same redeemer, in the map form `{[tag, index] => [data, ex_units]}`.
+    const MAP_WITH_ONE_REDEEMER: &[u8] = &[0xa1, 0x82, 0x00, 0x00, 0x82, 0x00, 0x82, 0x00, 0x00];
+
+    /// The ledger drops the list encoding of redeemers at protocol version 12 and refuses it
+    /// outright rather than translating it to the map form.
+    #[test_case(PROTOCOL_VERSION_10, LIST_WITH_ONE_REDEEMER => matches Ok(_)  ; "list form before v12")]
+    #[test_case(PROTOCOL_VERSION_12, LIST_WITH_ONE_REDEEMER => matches Err(_) ; "list form from v12")]
+    #[test_case(PROTOCOL_VERSION_10, MAP_WITH_ONE_REDEEMER  => matches Ok(_)  ; "map form before v12")]
+    #[test_case(PROTOCOL_VERSION_12, MAP_WITH_ONE_REDEEMER  => matches Ok(_)  ; "map form from v12")]
+    fn rejects_the_list_encoding_from_version_12(
+        mut version: crate::ProtocolVersion,
+        bytes: &[u8],
+    ) -> Result<Redeemers, cbor::decode::Error> {
+        from_cbor_no_leftovers_with(bytes, &mut version)
+    }
 
     #[test]
     fn iter_from_into_btreemap_keeps_last_for_duplicate_redeemers() {

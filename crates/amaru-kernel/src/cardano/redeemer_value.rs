@@ -14,11 +14,22 @@
 
 use crate::{ExUnits, PlutusData, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct RedeemerValue {
     #[n(0)]
     pub data: PlutusData,
     #[n(1)]
     pub ex_units: ExUnits,
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for RedeemerValue {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
+            Ok(Self {
+                data: d.decode_with(ctx)?,
+                ex_units: d.decode_with(ctx)?,
+            })
+        })
+    }
 }
