@@ -35,7 +35,15 @@ impl<'b, C> cbor::decode::Decode<'b, C> for RationalNumber {
         cbor::expect_tag(d, cbor::Tag::new(30))?;
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(RationalNumber { numerator: d.decode_with(ctx)?, denominator: d.decode_with(ctx)? })
+            let numerator = d.decode_with(ctx)?;
+            let denominator = d.decode_with(ctx)?;
+
+            // Make sure that the denominator is not zero. That would be an invalid rational number.
+            if denominator == 0 {
+                Err(minicbor::decode::Error::message("denominator cannot be zero"))
+            } else {
+                Ok(RationalNumber { numerator, denominator })
+            }
         })
     }
 }
