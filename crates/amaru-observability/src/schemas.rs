@@ -1073,12 +1073,12 @@ define_schemas! {
                 /// Dump the current protocol parameters
                 public DUMP {
                     optional protocol_version: %amaru_kernel::ProtocolVersion
-                    optional max_block_body_size: u64
-                    optional max_transaction_size: u64
+                    optional max_block_body_size: u32
+                    optional max_transaction_size: u32
                     optional max_block_header_size: u16
                     optional max_tx_ex_units: %amaru_kernel::ExUnits
                     optional max_block_ex_units: %amaru_kernel::ExUnits
-                    optional max_value_size: u64
+                    optional max_value_size: u32
                     optional max_collateral_inputs: u16
                     optional min_fee_a: amaru_kernel::Lovelace
                     optional min_fee_b: u64
@@ -1094,7 +1094,7 @@ define_schemas! {
                     optional max_ref_script_size_per_block: u32
                     optional ref_script_cost_stride: u32
                     optional ref_script_cost_multiplier: %amaru_kernel::RationalNumber
-                    optional stake_pool_max_retirement_epoch: u64
+                    optional stake_pool_max_retirement_epoch: u32
                     optional optimal_stake_pools_count: u16
                     optional pledge_influence: %amaru_kernel::RationalNumber
                     optional cost_models: %amaru_kernel::CostModels
@@ -1102,11 +1102,11 @@ define_schemas! {
                     optional pool_voting_thresholds: %amaru_kernel::PoolVotingThresholds
                     optional drep_voting_thresholds: %amaru_kernel::DRepVotingThresholds
                     optional min_committee_size: u16
-                    optional max_committee_term_length: u64
-                    optional gov_action_lifetime: u64
+                    optional max_committee_term_length: u32
+                    optional gov_action_lifetime: u32
                     optional gov_action_deposit: amaru_kernel::Lovelace
                     optional drep_deposit: amaru_kernel::Lovelace
-                    optional drep_expiry: u64
+                    optional drep_expiry: u32
                 }
             }
             ratification {

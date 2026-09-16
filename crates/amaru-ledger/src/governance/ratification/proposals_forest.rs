@@ -409,7 +409,7 @@ impl ProposalsForest {
         //
         // This is NOT confusing at all. <insert sobbing emoji>.
         if let ProposalEnum::ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
-            let max_term_length = protocol_parameters.max_committee_term_length;
+            let max_term_length = u64::from(protocol_parameters.max_committee_term_length);
             let is_now_invalid = |valid_until| valid_until > &(self.current_epoch + 1 + max_term_length);
             if added.values().any(is_now_invalid) {
                 let invalid_members =
@@ -761,7 +761,7 @@ mod tests {
     const MAX_TREE_SIZE: usize = 8;
 
     static PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = LazyLock::new(|| ProtocolParameters {
-        max_committee_term_length: (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH) / 2,
+        max_committee_term_length: ((MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH) / 2) as u32,
         ..(*PREPROD_DEFAULT_PROTOCOL_PARAMETERS).clone()
     });
 
@@ -1052,7 +1052,7 @@ mod tests {
                             prop_assert!(
                                 added
                                     .values()
-                                    .all(|valid_until| *valid_until <= forest.current_epoch + 1 + PROTOCOL_PARAMETERS.max_committee_term_length)
+                                    .all(|valid_until| *valid_until <= forest.current_epoch + 1 + u64::from(PROTOCOL_PARAMETERS.max_committee_term_length))
                             );
                         }
                     },
@@ -1386,7 +1386,7 @@ mod tests {
                     1..3
                 ).prop_map(|kvs|
                     GovernanceAction::TreasuryWithdrawals(
-                        KeyValuePairs::from(kvs),
+                        kvs,
                         None
                     )
                 ),

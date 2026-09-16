@@ -229,12 +229,12 @@ mod tests {
         let security_group = (
             option::of(any::<u64>()),
             option::of(any::<u64>()),
-            option::of(any::<u64>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
+            option::of(any::<u32>()),
             option::of(any::<u16>()),
             option::of(any::<u64>()),
             option::of(any_ex_units()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
             option::of(any::<u64>()),
             option::of(any_rational_number()),
         );

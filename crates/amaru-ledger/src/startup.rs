@@ -269,7 +269,7 @@ fn proposal_detail(proposal: &GovernanceAction) -> Option<String> {
     match proposal {
         GovernanceAction::HardForkInitiation(_, version) => Some(version.to_string()),
         GovernanceAction::TreasuryWithdrawals(withdrawals, _) => {
-            Some(format!("{} lovelace", withdrawals.iter().map(|(_, amount)| *amount).sum::<u64>()))
+            Some(format!("{} lovelace", withdrawals.values().copied().sum::<u64>()))
         }
         GovernanceAction::UpdateCommittee(_, removed, added, threshold) => {
             Some(format!("removed={}, added={}, threshold={threshold}", removed.len(), added.len()))

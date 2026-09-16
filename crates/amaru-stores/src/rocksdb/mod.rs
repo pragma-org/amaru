@@ -843,7 +843,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     slots::put(&self.db, &tip, scolumns::slots::Row::new(*issuer))?;
                 }
 
-                let drep_validity = current_epoch + protocol_parameters.drep_expiry
+                let drep_validity = current_epoch + u64::from(protocol_parameters.drep_expiry)
                     - governance_activity.map_or(0, |ga| ga.consecutive_dormant_epochs) as u64;
 
                 utxo::add(&self.db, add.utxo)?;
