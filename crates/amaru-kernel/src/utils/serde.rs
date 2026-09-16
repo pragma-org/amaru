@@ -223,7 +223,7 @@ impl RefResolver for FilesystemRefResolver {
 /// integer-array encodings still load.
 ///
 /// Use with `#[serde(with = "amaru_kernel::utils::serde::bytes")]` on a `Vec<u8>` field, or call
-/// [`serialize`] / [`deserialize`] from a type's `Serialize` / `Deserialize` impls.
+/// [`bytes::serialize`] / [`bytes::deserialize`] from a type's `Serialize` / `Deserialize` impls.
 pub mod bytes {
     use std::{fmt, sync::Arc};
 
