@@ -176,7 +176,7 @@ tracing-core = { version = "0.1", features = ["valuable"] }
 url = { version = "2" }
 uuid = { version = "1", features = ["v4"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
-zeroize = { version = "1", features = ["zeroize_derive"] }
+zeroize = { version = "1", features = ["serde", "zeroize_derive"] }
 
 [build-dependencies]
 bytes = { version = "1", features = ["serde"] }
@@ -220,7 +220,7 @@ tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 url = { version = "2" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
-zeroize = { version = "1", features = ["zeroize_derive"] }
+zeroize = { version = "1", features = ["serde", "zeroize_derive"] }
 
 [target.x86_64-unknown-linux-musl.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
