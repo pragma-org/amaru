@@ -192,6 +192,7 @@ pub use cardano::{
     transaction_ref::TransactionRef,
     treasury_delta::TreasuryDelta,
     tx_info::{TxInfo, TxInfoTranslationError},
+    unit_rational_number::UnitRationalNumber,
     utxos::Utxos,
     validity_interval::ValidityInterval,
     value::{self, CurrencySymbol, Mint, PlutusMint, Value},

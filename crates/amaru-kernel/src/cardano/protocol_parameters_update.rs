@@ -49,9 +49,9 @@ pub struct ProtocolParamUpdate {
     #[n(9)]
     pub pool_pledge_influence: Option<RationalNumber>,
     #[n(10)]
-    pub expansion_rate: Option<RationalNumber>,
+    pub expansion_rate: Option<UnitRationalNumber>,
     #[n(11)]
-    pub treasury_growth_rate: Option<RationalNumber>,
+    pub treasury_growth_rate: Option<UnitRationalNumber>,
     #[n(16)]
     pub min_pool_cost: Option<Lovelace>,
     #[n(17)]
