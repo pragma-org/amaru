@@ -19,7 +19,7 @@ use crate::{Hash, cbor, size::TRANSACTION_BODY};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProposalId {
     pub transaction_id: Hash<{ TRANSACTION_BODY }>,
-    pub proposal_index: u32,
+    pub proposal_index: u16,
 }
 
 impl fmt::Display for ProposalId {
@@ -71,7 +71,7 @@ mod tests {
     prop_compose! {
         pub fn any_proposal_id()(
             transaction_id in any::<[u8; 32]>(),
-            proposal_index in any::<u32>(),
+            proposal_index in any::<u16>(),
         ) -> ProposalId {
             ProposalId {
                 transaction_id: Hash::new(transaction_id),

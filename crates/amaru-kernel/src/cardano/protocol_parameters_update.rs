@@ -25,9 +25,9 @@ pub struct ProtocolParamUpdate {
     #[n(1)]
     pub minfee_b: Option<u64>,
     #[n(2)]
-    pub max_block_body_size: Option<u64>,
+    pub max_block_body_size: Option<u32>,
     #[n(3)]
-    pub max_transaction_size: Option<u64>,
+    pub max_transaction_size: Option<u32>,
     #[n(4)]
     pub max_block_header_size: Option<u16>,
     #[n(5)]
@@ -35,7 +35,7 @@ pub struct ProtocolParamUpdate {
     #[n(6)]
     pub pool_deposit: Option<Lovelace>,
     #[n(7)]
-    pub maximum_epoch: Option<u64>,
+    pub maximum_epoch: Option<u32>,
     #[n(8)]
     pub desired_number_of_stake_pools: Option<u16>,
     #[n(9)]
@@ -57,7 +57,7 @@ pub struct ProtocolParamUpdate {
     #[n(21)]
     pub max_block_ex_units: Option<ExUnits>,
     #[n(22)]
-    pub max_value_size: Option<u64>,
+    pub max_value_size: Option<u32>,
     #[n(23)]
     pub collateral_percentage: Option<u16>,
     #[n(24)]
@@ -69,15 +69,15 @@ pub struct ProtocolParamUpdate {
     #[n(27)]
     pub min_committee_size: Option<u16>,
     #[n(28)]
-    pub committee_term_limit: Option<u64>,
+    pub committee_term_limit: Option<u32>,
     #[n(29)]
-    pub governance_action_validity_period: Option<u64>,
+    pub governance_action_validity_period: Option<u32>,
     #[n(30)]
     pub governance_action_deposit: Option<Lovelace>,
     #[n(31)]
     pub drep_deposit: Option<Lovelace>,
     #[n(32)]
-    pub drep_inactivity_period: Option<u64>,
+    pub drep_inactivity_period: Option<u32>,
     #[n(33)]
     pub minfee_refscript_cost_per_byte: Option<RationalNumber>,
 }
