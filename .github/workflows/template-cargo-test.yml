@@ -75,12 +75,15 @@ jobs:
 
       - name: Build and Test
         shell: bash
+        env:
+          SETUP_COMMAND: ${{ inputs.setup }}
         run: |
           set -e
 
-          if [[ -n "${{ inputs.setup }}" ]]; then
-            echo "Running setup command: ${{ inputs.setup }}"
-            ${{ inputs.setup }}
+          if [[ -n "$SETUP_COMMAND" ]]; then
+            printf 'Running setup command:\n%s\n' "$SETUP_COMMAND"
+            # shellcheck disable=SC2294
+            eval "$SETUP_COMMAND"
           fi
 
           COMMAND="${{ inputs.command }}"
