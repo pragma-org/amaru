@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
+    Hash, Lovelace, PoolId, PoolMetadata, Relay, RewardAccount, UnitRationalNumber, cbor,
     size::{KEY, VRF_KEY},
     utils::cbor::SerialisedAsSet,
 };
@@ -24,7 +24,7 @@ pub struct PoolParams {
     pub vrf: Hash<VRF_KEY>,
     pub pledge: Lovelace,
     pub cost: Lovelace,
-    pub margin: RationalNumber,
+    pub margin: UnitRationalNumber,
     pub reward_account: RewardAccount,
     // NOTE: Small set too small for BTreeSet
     //
@@ -89,10 +89,11 @@ mod tests {
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
-    use crate::cardano::fixed_bytes::FixedBytes;
-    use crate::relay::{IPv4, IPv6};
     use crate::{
-        MaxString128, RationalNumber, Relay, any_hash28, any_hash32, any_reward_account, prop_cbor_roundtrip,
+        MaxString128, Relay, UnitRationalNumber, any_hash28, any_hash32, any_reward_account,
+        cardano::fixed_bytes::FixedBytes,
+        prop_cbor_roundtrip,
+        relay::{IPv4, IPv6},
     };
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
@@ -158,7 +159,7 @@ mod tests {
                 vrf,
                 pledge,
                 cost,
-                margin: RationalNumber { numerator: margin, denominator: 100 },
+                margin: UnitRationalNumber::new(margin, 100).expect("margin is always less than 100"),
                 reward_account,
                 owners,
                 relays,
