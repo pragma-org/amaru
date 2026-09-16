@@ -16,13 +16,22 @@ use std::{fmt, ops::Add};
 
 use crate::cbor;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct ExUnits {
     #[n(0)]
     pub mem: u64,
     #[n(1)]
     pub steps: u64,
+}
+
+/// Decoded as a fixed-size record, so indefinite-length encodings are rejected are rejected before protocol version V12.
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ExUnits {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
+            Ok(ExUnits { mem: d.decode_with(ctx)?, steps: d.decode_with(ctx)? })
+        })
+    }
 }
 
 impl Add for &ExUnits {

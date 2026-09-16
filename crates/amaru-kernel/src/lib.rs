@@ -66,7 +66,7 @@ pub mod cbor {
         decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
     };
 
-    pub use super::utils::cbor::{HasProtocolVersion, Skip, decode_bytes_v12_indefinite};
+    pub use super::utils::cbor::{HasProtocolVersion, Skip, decode_bytes_v12_indefinite, record_v12_indefinite};
 }
 pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 

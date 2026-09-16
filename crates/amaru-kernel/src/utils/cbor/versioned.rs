@@ -83,6 +83,22 @@ pub fn decode_string_v12_indefinite<'b, C: HasProtocolVersion>(
     }
 }
 
+pub fn record_v12_indefinite<'b, C: HasProtocolVersion, A>(
+    d: &mut cbor::Decoder<'b>,
+    ctx: &mut C,
+    len: u64,
+    elems: impl FnOnce(&mut cbor::Decoder<'b>, &mut C) -> Result<A, cbor::decode::Error>,
+) -> Result<A, cbor::decode::Error> {
+    if ctx.protocol_version() >= PROTOCOL_VERSION_12 {
+        amaru_minicbor_extra::heterogeneous_array(d, |d, assert_len| {
+            assert_len(len)?;
+            elems(d, ctx)
+        })
+    } else {
+        amaru_minicbor_extra::record(d, len, |d| elems(d, ctx))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
