@@ -1,1 +1,1 @@
-{"well_formed":true,"description":"duplicate Plutus V2 scripts at protocol version 11","source":"regression","protocol_version":{"major":11,"minor":0},"exact_re_encoding":true}
+{"well_formed":false,"description":"Two equal Plutus V2 scripts. The decoder rejects duplicate Plutus scripts at every protocol version.","source":"handrolled","exact_re_encoding":false}

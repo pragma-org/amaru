@@ -38,19 +38,68 @@ impl<T: Eq + Ord> From<NonEmptySet<T>> for BTreeSet<T> {
     }
 }
 
+/// What to do with two entries that `same` says are the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Duplicates {
+    /// Fail with `IntoNonEmptySetError::HasDuplicate`.
+    Reject,
+    /// Keep the last of the same entries, as `Data.Set.insert` and `Data.Map.fromList` do in the
+    /// Haskell ledger.
+    KeepLast,
+}
+
+impl<T: Eq> NonEmptySet<T> {
+    /// Build a set from a vector, with a caller-chosen sameness test and duplicate policy.
+    ///
+    /// The sameness test is not always `T::eq`: the Haskell ledger keys some witness collections
+    /// on a hash whose preimage is only a part of the entry.
+    pub fn from_vec_by(
+        vec: Vec<T>,
+        same: impl Fn(&T, &T) -> bool,
+        duplicates: Duplicates,
+    ) -> Result<Self, IntoNonEmptySetError> {
+        let vec = match duplicates {
+            Duplicates::Reject if has_duplicate_by(vec.as_slice(), &same) => Err(IntoNonEmptySetError::HasDuplicate),
+            Duplicates::Reject => Ok(vec),
+            Duplicates::KeepLast => Ok(keep_last_by(vec, &same)),
+        }?;
+
+        if vec.is_empty() { Err(IntoNonEmptySetError::Empty) } else { Ok(Self(vec)) }
+    }
+
+    /// Decode a set, with a caller-chosen sameness test and duplicate policy. The set tag 258 is
+    /// optional; definite and indefinite arrays both decode.
+    pub fn decode_by<'b, C>(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut C,
+        same: impl Fn(&T, &T) -> bool,
+        duplicates: Duplicates,
+    ) -> Result<Self, cbor::decode::Error>
+    where
+        T: cbor::Decode<'b, C>,
+    {
+        // optional set tag (this will be required in era following Conway)
+        if d.datatype()? == cbor::Type::Tag {
+            let expected_tag = cbor::TAG_SET_258;
+            let found_tag = d.tag()?;
+            if found_tag != expected_tag {
+                return Err(cbor::decode::Error::tag_mismatch(expected_tag));
+            }
+        }
+
+        let position = d.position();
+
+        let vec: Vec<T> = d.decode_with(ctx)?;
+
+        Self::from_vec_by(vec, same, duplicates).map_err(|e| cbor::decode::Error::message(e).at(position))
+    }
+}
+
 impl<T: Eq> TryFrom<Vec<T>> for NonEmptySet<T> {
     type Error = IntoNonEmptySetError;
 
     fn try_from(vec: Vec<T>) -> Result<Self, Self::Error> {
-        if vec.is_empty() {
-            return Err(Self::Error::Empty);
-        }
-
-        if has_duplicate(vec.as_slice()) {
-            return Err(Self::Error::HasDuplicate);
-        }
-
-        Ok(Self(vec))
+        Self::from_vec_by(vec, T::eq, Duplicates::Reject)
     }
 }
 
@@ -88,20 +137,7 @@ where
     T: Eq + cbor::Decode<'b, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        // optional set tag (this will be required in era following Conway)
-        if d.datatype()? == cbor::Type::Tag {
-            let expected_tag = cbor::TAG_SET_258;
-            let found_tag = d.tag()?;
-            if found_tag != expected_tag {
-                return Err(cbor::decode::Error::tag_mismatch(expected_tag));
-            }
-        }
-
-        let position = d.position();
-
-        let vec: Vec<T> = d.decode_with(ctx)?;
-
-        Self::try_from(vec).map_err(|e| cbor::decode::Error::message(e).at(position))
+        Self::decode_by(d, ctx, T::eq, Duplicates::Reject)
     }
 }
 
@@ -122,28 +158,23 @@ pub enum IntoNonEmptySetError {
 // Internals
 // ----------------------------------------------------------------------------
 
-/// Check whether a slice contains duplicate relying only on the `Eq` instance and minimizing
-/// allocation. The check is still in O(n*log(n)).
+/// Check whether a slice contains duplicates under a caller-chosen sameness test, minimizing
+/// allocation. The check compares every pair once, so it is quadratic in the slice length.
 ///
 /// We do not use HashSet or BTreeSet for mainly two reasons:
 ///
 /// 1. They introduce additional requirements on `T` (Hash in one case, and Ord on the other).
 /// 2. We want to preserve the underlying order when possible;
-///
-/// Pre-condition: the slice is NOT empty.
-pub(crate) fn has_duplicate<T: Eq>(xs: &[T]) -> bool {
-    let last = xs.len() - 1;
+pub(crate) fn has_duplicate_by<T>(xs: &[T], same: impl Fn(&T, &T) -> bool) -> bool {
+    xs.iter().enumerate().any(|(i, x)| xs.iter().skip(i + 1).any(|y| same(x, y)))
+}
 
-    for i in 0..last {
-        let x1 = &xs[i];
-        for x2 in xs.iter().take(last + 1).skip(i + 1) {
-            if x1 == x2 {
-                return true;
-            }
-        }
-    }
+/// Drop every entry that a later entry is the same as, so the LAST of two same entries survives.
+/// This is what `Data.Set.insert` and `Data.Map.fromList` do in the Haskell ledger.
+fn keep_last_by<T>(xs: Vec<T>, same: impl Fn(&T, &T) -> bool) -> Vec<T> {
+    let kept: Vec<bool> = xs.iter().enumerate().map(|(i, x)| !xs.iter().skip(i + 1).any(|y| same(x, y))).collect();
 
-    false
+    xs.into_iter().zip(kept).filter_map(|(x, keep)| keep.then_some(x)).collect()
 }
 
 #[cfg(test)]
@@ -153,18 +184,34 @@ mod tests {
     use proptest::{collection, prelude::*};
     use test_case::test_case;
 
-    use super::{NonEmptySet, has_duplicate};
-    use crate::{from_cbor_no_leftovers, to_cbor};
+    use super::{Duplicates, IntoNonEmptySetError, NonEmptySet, has_duplicate_by};
+    use crate::{cbor, from_cbor_no_leftovers, to_cbor};
 
     #[test]
     fn has_duplicate_empty() {
-        assert!(matches!(
-            std::panic::catch_unwind(|| {
-                let slice: &[u8] = &[];
-                has_duplicate(slice)
-            }),
-            Err(..)
-        ))
+        let slice: &[u8] = &[];
+        assert!(!has_duplicate_by(slice, PartialEq::eq))
+    }
+
+    #[test_case(vec![1, 2, 1], Duplicates::KeepLast => Ok(vec![2, 1]); "keep last, one duplicate")]
+    #[test_case(vec![3, 1, 4, 1, 5], Duplicates::KeepLast => Ok(vec![3, 4, 1, 5]); "keep last, interleaved")]
+    #[test_case(vec![1, 1, 1], Duplicates::KeepLast => Ok(vec![1]); "keep last, all the same")]
+    #[test_case(vec![], Duplicates::KeepLast => Err("empty".to_string()); "keep last, empty")]
+    #[test_case(vec![1, 2, 1], Duplicates::Reject => Err("duplicate".to_string()); "reject, one duplicate")]
+    #[test_case(vec![1, 2, 3], Duplicates::Reject => Ok(vec![1, 2, 3]); "reject, no duplicate")]
+    fn from_vec_by(vec: Vec<u8>, duplicates: Duplicates) -> Result<Vec<u8>, String> {
+        NonEmptySet::from_vec_by(vec, u8::eq, duplicates).map(Vec::from).map_err(|e| match e {
+            IntoNonEmptySetError::Empty => "empty".to_string(),
+            IntoNonEmptySetError::HasDuplicate => "duplicate".to_string(),
+        })
+    }
+
+    #[test_case("D9010283010201", Duplicates::KeepLast => Ok(vec![2, 1]); "tagged array, keep last")]
+    #[test_case("D9010283010201", Duplicates::Reject => Err(()); "tagged array, reject")]
+    fn decode_by(s: &str, duplicates: Duplicates) -> Result<Vec<u8>, ()> {
+        let bytes = hex::decode(s).unwrap();
+        let mut d = cbor::Decoder::new(bytes.as_slice());
+        NonEmptySet::<u8>::decode_by(&mut d, &mut (), u8::eq, duplicates).map(Vec::from).map_err(|_| ())
     }
 
     #[test_case(&[1], false)]
@@ -174,7 +221,7 @@ mod tests {
     #[test_case(&[1, 2, 3, 4, 4], true)]
     #[test_case(&[3, 1, 4, 2, 3], true)]
     fn has_duplicate_non_empty(slice: &[u8], result: bool) {
-        assert!(has_duplicate(slice) == result, "{slice:?}");
+        assert!(has_duplicate_by(slice, PartialEq::eq) == result, "{slice:?}");
     }
 
     proptest! {

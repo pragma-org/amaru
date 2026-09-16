@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use crate::{
-    Bytes, Hash, MemoizedPlutusData, NonEmptySet, NonEmptyVec, cbor, protocol_version::PROTOCOL_VERSION_12, size::DATUM,
+    Bytes, Hash, MemoizedPlutusData, NonEmptySet, cardano::witness_set::duplicate_witness_policy, cbor, size::DATUM,
 };
 
 mod bigint;
@@ -149,7 +149,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PlutusData
 pub struct PlutusDataSet {
     #[serde(skip, default = "crate::Bytes::default")]
     original_bytes: Bytes,
-    inner: NonEmptyVec<MemoizedPlutusData>,
+    inner: NonEmptySet<MemoizedPlutusData>,
 }
 
 impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for PlutusDataSet {
@@ -164,13 +164,8 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for PlutusDataSet {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for PlutusDataSet {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let (inner, bytes) = cbor::tee(d, |d| {
-            if ctx.protocol_version() >= PROTOCOL_VERSION_12 {
-                NonEmptySet::<MemoizedPlutusData>::decode(d, ctx).map(NonEmptyVec::from)
-            } else {
-                NonEmptyVec::<MemoizedPlutusData>::decode(d, ctx)
-            }
-        })?;
+        let (inner, bytes) =
+            cbor::tee(d, |d| NonEmptySet::decode_by(d, ctx, MemoizedPlutusData::eq, duplicate_witness_policy(ctx)))?;
         Ok(Self { original_bytes: Bytes::from(bytes.to_vec()), inner })
     }
 }
@@ -182,7 +177,7 @@ impl PlutusDataSet {
 }
 
 impl Deref for PlutusDataSet {
-    type Target = NonEmptyVec<MemoizedPlutusData>;
+    type Target = NonEmptySet<MemoizedPlutusData>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -201,8 +196,8 @@ impl Deref for PlutusDataSet {
 #[derive(Debug, Default)]
 pub struct PlutusDatums<'a>(pub BTreeMap<Hash<DATUM>, &'a PlutusData>);
 
-impl<'a> From<&'a NonEmptyVec<MemoizedPlutusData>> for PlutusDatums<'a> {
-    fn from(plutus_data: &'a NonEmptyVec<MemoizedPlutusData>) -> Self {
+impl<'a> From<&'a NonEmptySet<MemoizedPlutusData>> for PlutusDatums<'a> {
+    fn from(plutus_data: &'a NonEmptySet<MemoizedPlutusData>) -> Self {
         Self(plutus_data.iter().map(|data| (data.hash(), data.as_ref())).collect())
     }
 }

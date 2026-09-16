@@ -1,1 +1,1 @@
-{"well_formed":true,"description":"duplicate verification key witnesses at protocol version 11","source":"regression","protocol_version":{"major":11,"minor":0},"exact_re_encoding":true}
+{"well_formed":true,"description":"Two equal verification key witnesses. At protocol version 11 the decoder keeps the last one, so the re-encoding is shorter than the input.","source":"handrolled","exact_re_encoding":false}

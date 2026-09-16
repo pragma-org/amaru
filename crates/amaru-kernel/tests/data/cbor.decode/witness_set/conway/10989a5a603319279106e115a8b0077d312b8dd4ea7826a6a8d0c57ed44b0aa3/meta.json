@@ -1,1 +1,1 @@
-{"well_formed":true,"description":"duplicate bootstrap witnesses at protocol version 11","source":"regression","protocol_version":{"major":11,"minor":0},"exact_re_encoding":true}
+{"well_formed":true,"description":"Two bootstrap witnesses with the same key hash. At protocol version 11 the decoder keeps the last one, so the re-encoding is shorter than the input.","source":"handrolled","exact_re_encoding":false}

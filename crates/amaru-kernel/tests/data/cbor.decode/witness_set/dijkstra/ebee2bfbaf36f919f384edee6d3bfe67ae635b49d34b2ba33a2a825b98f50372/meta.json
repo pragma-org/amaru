@@ -1,1 +1,0 @@
-{"well_formed":false,"description":"duplicate Plutus V1 scripts at protocol version 12","source":"regression","protocol_version":{"major":12,"minor":0},"exact_re_encoding":true}

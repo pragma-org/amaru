@@ -45,7 +45,7 @@ pub use data_structures::{
     legacy::Legacy,
     non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
     non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
-    non_empty_set::{IntoNonEmptySetError, NonEmptySet},
+    non_empty_set::{Duplicates, IntoNonEmptySetError, NonEmptySet},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
     set::{IntoSetError, Set},

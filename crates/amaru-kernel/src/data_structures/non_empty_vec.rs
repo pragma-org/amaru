@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, fmt::Debug, ops::Deref};
 
-use crate::{NonEmptySet, cbor};
+use crate::cbor;
 
 /// A read-only non-empty vector: an ordered set of values with at least one element.
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -52,12 +52,6 @@ impl<T: Eq> NonEmptyVec<T> {
 impl<T: Eq> From<NonEmptyVec<T>> for Vec<T> {
     fn from(elems: NonEmptyVec<T>) -> Self {
         elems.0
-    }
-}
-
-impl<T: Eq> From<NonEmptySet<T>> for NonEmptyVec<T> {
-    fn from(set: NonEmptySet<T>) -> Self {
-        Self(Vec::from(set))
     }
 }
 

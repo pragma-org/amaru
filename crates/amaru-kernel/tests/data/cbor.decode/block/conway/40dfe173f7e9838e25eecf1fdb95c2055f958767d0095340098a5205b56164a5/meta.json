@@ -1,1 +1,1 @@
-{"well_formed":true,"era":"conway","kind":"block","description":"cuddle-positive #0040","source":"cuddle","seed":82,"exact_re_encoding":false}
+{"well_formed":false,"era":"conway","kind":"block","description":"cuddle-positive #0040 (not well formed: field 3 of a witness set holds two equal empty Plutus V1 scripts, and the ledger rejects duplicate Plutus scripts from protocol version 9)","source":"cuddle","seed":82,"exact_re_encoding":false}

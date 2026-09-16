@@ -33,6 +33,19 @@ pub struct BootstrapWitness {
     pub attributes: BoundedBytes,
 }
 
+impl BootstrapWitness {
+    /// Two bootstrap witnesses count as the same witness when they share their key hash.
+    ///
+    /// The Haskell ledger orders bootstrap witnesses by `bootstrapWitKeyHash`. The preimage of that
+    /// hash is the public key, the chain code and the attributes; the signature takes no part in it.
+    /// See [Bootstrap.hs](https://github.com/IntersectMBO/cardano-ledger/blob/fe0af09c8667bf8ffdd17dd1a387515b9b0533bf/libs/cardano-ledger-core/src/Cardano/Ledger/Keys/Bootstrap.hs#L95-L110).
+    pub fn has_same_key_hash(&self, other: &Self) -> bool {
+        self.public_key == other.public_key
+            && self.chain_code == other.chain_code
+            && self.attributes == other.attributes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use test_case::test_case;

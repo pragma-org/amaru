@@ -1,1 +1,1 @@
-{"well_formed":true,"description":"all witness collections non-empty and unique at protocol version 11","source":"regression","protocol_version":{"major":11,"minor":0},"exact_re_encoding":true}
+{"well_formed":true,"description":"Every witness collection holds one entry, so no collection is empty and none has a duplicate. The decoder accepts the input and reproduces it byte for byte.","source":"handrolled","exact_re_encoding":true}

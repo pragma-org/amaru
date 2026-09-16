@@ -105,8 +105,6 @@ jobs:
 
   snapshots:
     name: Compare ledger epoch snapshots
-    # Fork pull requests cannot access the secrets required to download snapshots.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     uses: ./.github/workflows/template-ledger-epoch-snapshots.yml
     secrets:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
