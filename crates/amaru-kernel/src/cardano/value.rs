@@ -76,8 +76,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Value {
             cbor::data::Type::U8 | cbor::data::Type::U16 | cbor::data::Type::U32 | cbor::data::Type::U64 => {
                 Ok(Value::Coin(d.decode_with(ctx)?))
             }
-            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => cbor::heterogeneous_array(d, |d, assert_len| {
-                assert_len(2)?;
+            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
                 let coin = d.decode_with(ctx)?;
                 let multiasset = d.decode_with(ctx)?;
                 Ok(Value::Multiasset(coin, multiasset))
