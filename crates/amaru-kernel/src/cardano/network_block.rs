@@ -34,6 +34,7 @@ use crate::{Block, EraHistory, EraHistoryError, EraName, Header, RawBlock, cbor,
 #[allow(clippy::len_without_is_empty)]
 pub struct NetworkBlock {
     era_tag: EraName,
+    #[serde(with = "crate::utils::serde::bytes")]
     encoded_block: Vec<u8>,
 }
 
@@ -160,5 +161,17 @@ mod network_block_tests {
         let bytes = hex::decode(as_hex).expect("valid hex");
         let network_block: NetworkBlock = minicbor::decode(&bytes).expect("a valid network block");
         assert_eq!(network_block.era_tag, EraName::Conway);
+    }
+
+    #[test]
+    fn encoded_block_json_is_hex_string_and_cbor_is_byte_string() {
+        let json = serde_json::to_value(&*NETWORK_BLOCK).expect("json");
+        assert!(json["encoded_block"].as_str().is_some(), "{json}");
+        assert!(json["encoded_block"].as_array().is_none());
+
+        let mut buf = Vec::new();
+        cbor4ii::serde::to_writer(&mut buf, &*NETWORK_BLOCK).expect("cbor");
+        let decoded: NetworkBlock = cbor4ii::serde::from_slice(&buf).expect("decode");
+        assert_eq!(decoded, *NETWORK_BLOCK);
     }
 }

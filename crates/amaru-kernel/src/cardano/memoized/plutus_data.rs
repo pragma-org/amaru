@@ -12,17 +12,43 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, Hasher, PlutusData, cbor, utils::string::blanket_try_from_hex_bytes};
+use crate::{Hash, Hasher, PlutusData, cbor, from_cbor, utils::string::blanket_try_from_hex_bytes};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(try_from = "&str")]
-#[serde(into = "String")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoizedPlutusData {
     original_bytes: Vec<u8>,
     // NOTE: This field isn't meant to be public, nor should we create any direct mutable
     // references to it. Reason being that this object is mostly meant to be read-only, and any
     // change to the 'data' should be reflected onto the 'original_bytes'.
     data: PlutusData,
+}
+
+impl serde::Serialize for MemoizedPlutusData {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        crate::utils::serde::bytes::serialize(&self.original_bytes, serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for MemoizedPlutusData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let original_bytes = crate::utils::serde::bytes::deserialize(deserializer)?;
+        let data = from_cbor(&original_bytes).ok_or_else(|| serde::de::Error::custom("failed to decode PlutusData"))?;
+        Ok(Self { original_bytes, data })
+    }
+}
+
+impl schemars::JsonSchema for MemoizedPlutusData {
+    fn schema_name() -> String {
+        "MemoizedPlutusData".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        crate::utils::serde::bytes::json_schema("hex-encoded Plutus data")
+    }
+
+    fn is_referenceable() -> bool {
+        false
+    }
 }
 
 impl MemoizedPlutusData {
@@ -239,6 +265,14 @@ mod tests {
         #[test]
         fn invalid_string() {
             assert!(MemoizedPlutusData::try_from("foo".to_string()).is_err());
+        }
+
+        #[test]
+        fn json_is_hex_string_and_cbor_is_byte_string() {
+            let data = PlutusData::BoundedBytes(crate::BoundedBytes::from(vec![1, 2, 3]));
+            let value = MemoizedPlutusData::new(data).expect("encode");
+            let payload = value.original_bytes().to_vec();
+            crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr(&value, &payload);
         }
     }
 }

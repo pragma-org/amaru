@@ -33,7 +33,7 @@ pub enum Metadatum {
     // decoding in the [-2^64; 2^64 - 1] range. Encoding is fine with arbitrary large integers;
     // thus violating roundtripping invariants.
     Int(Int),
-    Bytes(Vec<u8>),
+    Bytes(#[serde(with = "crate::utils::serde::bytes")] Vec<u8>),
     Text(String),
     Array(Vec<Metadatum>),
     // NOTE: Association list, not a dictionary
@@ -262,5 +262,30 @@ mod tests {
         let original_bytes = hex::decode(fixture).unwrap();
         let metadatum: Metadatum = from_cbor_no_leftovers(original_bytes.as_slice()).unwrap();
         assert_eq!(hex::encode_upper(to_cbor(&metadatum)), fixture);
+    }
+
+    #[test]
+    fn bytes_variant_json_is_hex_string_and_cbor_is_byte_string() {
+        let value = Metadatum::Bytes(vec![0xab, 0xcd]);
+        let json = serde_json::to_value(&value).expect("json");
+        assert_eq!(json, serde_json::json!({"Bytes": "abcd"}));
+        assert_eq!(serde_json::from_value::<Metadatum>(json).expect("parse hex json"), value);
+        assert_eq!(
+            serde_json::from_value::<Metadatum>(serde_json::json!({"Bytes": [171, 205]}))
+                .expect("parse integer-array json"),
+            value
+        );
+
+        let mut buf = Vec::new();
+        cbor4ii::serde::to_writer(&mut buf, &value).expect("cbor");
+        let decoded: Metadatum = cbor4ii::serde::from_slice(&buf).expect("decode");
+        assert_eq!(decoded, value);
+        let cbor_value: cbor4ii::core::Value = cbor4ii::serde::from_slice(&buf).expect("value");
+        let cbor4ii::core::Value::Map(entries) = cbor_value else {
+            panic!("expected map encoding of enum, got {cbor_value:?}");
+        };
+        let Some((_, cbor4ii::core::Value::Bytes(_))) = entries.into_iter().next() else {
+            panic!("Bytes variant payload should be a CBOR byte string");
+        };
     }
 }

@@ -29,8 +29,34 @@ use crate::{
 };
 
 /// Cheaply cloneable block bytes
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RawBlock(Arc<[u8]>);
+
+impl serde::Serialize for RawBlock {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        crate::utils::serde::bytes::serialize(&self.0, serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RawBlock {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        crate::utils::serde::bytes::deserialize_arc(deserializer).map(Self)
+    }
+}
+
+impl schemars::JsonSchema for RawBlock {
+    fn schema_name() -> String {
+        "RawBlock".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        crate::utils::serde::bytes::json_schema("hex-encoded block bytes")
+    }
+
+    fn is_referenceable() -> bool {
+        false
+    }
+}
 
 impl fmt::Debug for RawBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -237,5 +263,11 @@ mod tests {
         let tx: Transaction = minicbor::decode(&tx_bytes).expect("decode extracted transaction");
         assert!(!tx_bytes.is_empty());
         assert_eq!(tx.body.id().to_string(), "43f396b0d5c55e34b507cfe9964672586370cc09912a4790488fba4079f96429");
+    }
+
+    #[test]
+    fn json_is_hex_string_and_cbor_is_byte_string() {
+        let payload = [0x82u8, 0x07, 0x85];
+        crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr(&super::RawBlock::from(payload.as_slice()), &payload);
     }
 }

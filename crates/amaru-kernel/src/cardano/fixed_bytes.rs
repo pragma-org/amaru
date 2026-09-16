@@ -203,3 +203,16 @@ pub enum FixedBytesError {
     #[error(transparent)]
     InvalidHex(#[from] hex::FromHexError),
 }
+
+#[cfg(test)]
+mod serde_format {
+    use super::*;
+    use crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr;
+
+    #[test]
+    fn json_is_hex_string_and_cbor_is_byte_string() {
+        let payload = [0xabu8; 4];
+        let value = FixedBytes::<4>::from(payload);
+        assert_json_hex_and_cbor_bstr(&value, &payload);
+    }
+}

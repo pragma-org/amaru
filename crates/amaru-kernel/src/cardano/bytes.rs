@@ -16,10 +16,34 @@ use std::{fmt, ops::Deref, str::FromStr};
 
 use crate::cbor;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
-#[serde(into = "String")]
-#[serde(try_from = "String")]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
 pub struct Bytes(cbor::bytes::ByteVec);
+
+impl serde::Serialize for Bytes {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        crate::utils::serde::bytes::serialize(self.as_slice(), serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Bytes {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        crate::utils::serde::bytes::deserialize(deserializer).map(Self::from)
+    }
+}
+
+impl schemars::JsonSchema for Bytes {
+    fn schema_name() -> String {
+        "Bytes".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
+        crate::utils::serde::bytes::json_schema("hex-encoded bytes")
+    }
+
+    fn is_referenceable() -> bool {
+        false
+    }
+}
 
 impl fmt::Debug for Bytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -106,5 +130,17 @@ impl fmt::Display for Bytes {
         let bytes: Vec<u8> = self.clone().into();
 
         f.write_str(&hex::encode(bytes))
+    }
+}
+
+#[cfg(test)]
+mod serde_format {
+    use super::*;
+    use crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr;
+
+    #[test]
+    fn json_is_hex_string_and_cbor_is_byte_string() {
+        let payload = [0xabu8, 0xcd, 0xef];
+        assert_json_hex_and_cbor_bstr(&Bytes::from(payload.to_vec()), &payload);
     }
 }

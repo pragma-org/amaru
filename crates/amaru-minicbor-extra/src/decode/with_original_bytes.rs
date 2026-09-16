@@ -20,7 +20,63 @@ use crate::{cbor, tee, to_cbor};
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Deserialize, serde::Serialize)]
 pub struct WithOriginalBytes<A> {
     value: A,
+    #[serde(with = "serde_bytes")]
     bytes: Vec<u8>,
+}
+
+/// JSON/human-readable as lowercase hex, binary (cbor4ii) as a CBOR byte string.
+mod serde_bytes {
+    use std::fmt;
+
+    use serde::{
+        Deserializer, Serializer,
+        de::{self, Visitor},
+    };
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&hex::encode(bytes))
+        } else {
+            serializer.serialize_bytes(bytes)
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        deserializer.deserialize_any(BytesVisitor)
+    }
+
+    struct BytesVisitor;
+
+    impl<'de> Visitor<'de> for BytesVisitor {
+        type Value = Vec<u8>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a hex string, a byte string, or a sequence of bytes")
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            hex::decode(v).map_err(E::custom)
+        }
+
+        fn visit_bytes<E: de::Error>(self, v: &[u8]) -> Result<Self::Value, E> {
+            Ok(v.to_vec())
+        }
+
+        fn visit_byte_buf<E: de::Error>(self, v: Vec<u8>) -> Result<Self::Value, E> {
+            Ok(v)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut bytes = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+            while let Some(b) = seq.next_element::<u8>()? {
+                bytes.push(b);
+            }
+            Ok(bytes)
+        }
+    }
 }
 
 impl<A: Default + cbor::encode::Encode<()>> Default for WithOriginalBytes<A> {
@@ -99,6 +155,20 @@ mod tests {
         let value: WithOriginalBytes<u64> = from_cbor_no_leftovers(&original).expect("decode original CBOR");
         assert_eq!(*value, 1);
         assert_eq!(to_cbor(&value), original);
+    }
+
+    #[test]
+    fn original_bytes_json_is_hex_string_and_cbor_is_byte_string() {
+        let value = WithOriginalBytes::new(1u64);
+        let json = serde_json::to_value(&value).expect("json");
+        assert!(json["bytes"].as_str().is_some(), "{json}");
+        assert!(json["bytes"].as_array().is_none());
+        assert_eq!(&serde_json::from_value::<WithOriginalBytes<u64>>(json).expect("parse json"), &value);
+
+        let mut buf = Vec::new();
+        cbor4ii::serde::to_writer(&mut buf, &value).expect("cbor");
+        let decoded: WithOriginalBytes<u64> = cbor4ii::serde::from_slice(&buf).expect("decode");
+        assert_eq!(decoded, value);
     }
 
     proptest! {

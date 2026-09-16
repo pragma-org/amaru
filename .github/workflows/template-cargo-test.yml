@@ -73,7 +73,7 @@ jobs:
         with:
           mode: ${{ inputs.cache-mode }}
 
-      - name: Run build
+      - name: Build and Test
         shell: bash
         run: |
           set -e

@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260917 _[unreleased; planned for 2026-09-17]_
 
+### Changed
+
+- **amaru-kernel**: opaque byte values (raw blocks, mux frames, original CBOR, and similar) are lowercase hex in JSON and CBOR byte strings in binary traces, not arrays of integers, when serialized using `serde`.
+
 ### Fixed
 
 - **amaru**: make Mithril synchronization resume safely from verified immutable files and reject stale snapshots before replay.

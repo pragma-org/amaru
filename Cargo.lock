@@ -408,12 +408,14 @@ version = "0.1.2"
 dependencies = [
  "amaru-deps",
  "anyhow",
+ "cbor4ii",
  "hex",
  "minicbor",
  "num",
  "num-bigint",
  "proptest",
  "serde",
+ "serde_json",
  "tracing",
 ]
 
