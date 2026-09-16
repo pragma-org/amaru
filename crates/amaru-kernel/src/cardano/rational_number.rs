@@ -18,7 +18,7 @@ use num::{BigUint, rational::Ratio};
 
 use crate::{Lovelace, cbor};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 pub struct RationalNumber {
     pub numerator: u64,
     pub denominator: u64,
@@ -37,13 +37,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for RationalNumber {
             assert_len(2)?;
             let numerator = d.decode_with(ctx)?;
             let denominator = d.decode_with(ctx)?;
-
-            // Make sure that the denominator is not zero. That would be an invalid rational number.
-            if denominator == 0 {
-                Err(minicbor::decode::Error::message("denominator cannot be zero"))
-            } else {
-                Ok(RationalNumber { numerator, denominator })
-            }
+            RationalNumber::new(numerator, denominator).map_err(|e| minicbor::decode::Error::message(&e))
         })
     }
 }
@@ -62,6 +56,29 @@ impl<C> cbor::encode::Encode<C> for RationalNumber {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for RationalNumber {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct Repr {
+            numerator: u64,
+            denominator: u64,
+        }
+
+        let Repr { numerator, denominator } = Repr::deserialize(d)?;
+        RationalNumber::new(numerator, denominator).map_err(serde::de::Error::custom)
+    }
+}
+
+impl RationalNumber {
+    pub fn new(numerator: u64, denominator: u64) -> Result<Self, String> {
+        if denominator == 0 {
+            return Err("denominator cannot be zero".to_string());
+        }
+        Ok(RationalNumber { numerator, denominator })
+    }
+}
+
+
 // ------------------------------------------------------------------- SafeRatio
 
 pub type SafeRatio = Ratio<BigUint>;
@@ -77,6 +94,12 @@ pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
 pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
     Lovelace::try_from(n.floor().to_integer())
         .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
+}
+
+impl From<RationalNumber> for SafeRatio {
+    fn from(r: RationalNumber) -> Self {
+        into_safe_ratio(&r)
+    }
 }
 
 #[cfg(any(test, feature = "test-utils"))]

@@ -1,1 +1,1 @@
-{"well_formed":true,"era":"conway","kind":"block","description":"antigen-negative #0027","source":"antigen","seed":69,"exact_re_encoding":false}
+{"well_formed":true,"era":"conway","kind":"block","description":"antigen-negative #0027","source":"antigen","seed":69,"known_amaru_divergence":true,"known_amaru_divergence_reason":"the ledger bounds this field to the interval [0, 1] (UnitInterval), which the CDDL does not express, so the generator produced an out-of-range ratio","exact_re_encoding":false}
