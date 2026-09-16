@@ -17,7 +17,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
-use amaru_kernel::{Bytes, DnsName, Peer, PeerCandidate, Relay};
+use amaru_kernel::{DnsName, Peer, PeerCandidate, Relay, cardano::fixed_bytes::FixedBytes};
 use amaru_observability::{info_span, warn};
 
 use crate::store::{ReadStore, StoreError};
@@ -40,8 +40,8 @@ fn push_relay_candidates(relay: &Relay, set: &mut BTreeSet<PeerCandidate>) {
             let Some(port) = nullable_to_port(port) else {
                 return;
             };
-            push_socket(ipv4.as_ref().and_then(nullable_ipv4_to_ip), port, set);
-            push_socket(ipv6.as_ref().and_then(nullable_ipv6_to_ip), port, set);
+            push_socket(ipv4.as_ref().map(nullable_ipv4_to_ip), port, set);
+            push_socket(ipv6.as_ref().map(nullable_ipv6_to_ip), port, set);
         }
         Relay::SingleHostName(port, dns) => match nullable_to_port(port) {
             Some(port) => {
@@ -91,23 +91,23 @@ fn nullable_to_port(port: &Option<u32>) -> Option<u16> {
 // The ledger then uses putWord32le for serializing those words, swapping their byte order in the byte string.
 // https://github.com/kazu-yamamoto/iproute/blob/main/Data/IP/Addr.hs#L400
 // https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Encoding/Encoder.hs#L563
-fn nullable_ipv4_to_ip(null: &Bytes) -> Option<IpAddr> {
-    let mut bytes = <[u8; 4]>::try_from(null.as_slice()).ok()?;
+fn nullable_ipv4_to_ip(null: &FixedBytes<4>) -> IpAddr {
+    let mut bytes = *null.as_array();
     bytes.reverse();
-    Some(IpAddr::V4(Ipv4Addr::from_octets(bytes)))
+    IpAddr::V4(Ipv4Addr::from_octets(bytes))
 }
 
 // NOTE: The Haskell node usees the `iproute` package for writing IP addresses from the ledger, first stores the bytes in word32 in network byte order.
 // The ledger then uses putWord32le for serializing those words, swapping their byte order in the byte string.
 // https://github.com/kazu-yamamoto/iproute/blob/main/Data/IP/Addr.hs#L431
 // https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Encoding/Encoder.hs#L569
-fn nullable_ipv6_to_ip(null: &Bytes) -> Option<IpAddr> {
-    let mut bytes = <[u8; 16]>::try_from(null.as_slice()).ok()?;
+fn nullable_ipv6_to_ip(null: &FixedBytes<16>) -> IpAddr {
+    let mut bytes = *null.as_array();
     bytes[0..4].reverse();
     bytes[4..8].reverse();
     bytes[8..12].reverse();
     bytes[12..16].reverse();
-    Some(IpAddr::V6(Ipv6Addr::from_octets(bytes)))
+    IpAddr::V6(Ipv6Addr::from_octets(bytes))
 }
 
 fn is_excluded_relay_ip(ip: IpAddr) -> bool {
@@ -134,10 +134,10 @@ fn is_unique_local_v6(v6: &Ipv6Addr) -> bool {
 mod tests {
     use super::*;
 
-    fn ipv4_bytes(addr: Ipv4Addr) -> Bytes {
+    fn ipv4_bytes(addr: Ipv4Addr) -> FixedBytes<4> {
         let mut bytes = addr.octets();
         bytes.reverse();
-        Bytes::from(bytes.to_vec())
+        FixedBytes::from(bytes)
     }
 
     #[test]
