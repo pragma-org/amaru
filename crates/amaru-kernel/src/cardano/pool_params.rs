@@ -89,8 +89,10 @@ mod tests {
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
+    use crate::cardano::fixed_bytes::FixedBytes;
+    use crate::relay::{IPv4, IPv6};
     use crate::{
-        Bytes, MaxString128, RationalNumber, Relay, any_hash28, any_hash32, any_reward_account, prop_cbor_roundtrip,
+        MaxString128, RationalNumber, Relay, any_hash28, any_hash32, any_reward_account, prop_cbor_roundtrip,
     };
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
@@ -99,12 +101,12 @@ mod tests {
         option::of(any::<u32>())
     }
 
-    fn any_optional_ipv4() -> impl Strategy<Value = Option<Bytes>> {
-        option::of(any::<[u8; 4]>().prop_map(|a| Vec::from(a).into()))
+    fn any_optional_ipv4() -> impl Strategy<Value = Option<IPv4>> {
+        option::of(any::<[u8; 4]>().prop_map(|a| FixedBytes::from(a)))
     }
 
-    fn any_optional_ipv6() -> impl Strategy<Value = Option<Bytes>> {
-        option::of(any::<[u8; 16]>().prop_map(|a| Vec::from(a).into()))
+    fn any_optional_ipv6() -> impl Strategy<Value = Option<IPv6>> {
+        option::of(any::<[u8; 16]>().prop_map(|a| FixedBytes::from(a)))
     }
 
     prop_compose! {
