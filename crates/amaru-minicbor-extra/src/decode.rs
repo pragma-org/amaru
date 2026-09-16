@@ -154,6 +154,23 @@ pub fn heterogeneous_array<'d, A>(
     }
 }
 
+/// Decode a fixed-arity record: a definite-length array of exactly `len` elements.
+///
+/// Unlike [`heterogeneous_array`], an indefinite-length encoding is rejected outright.
+pub fn record<'d, A>(
+    d: &mut cbor::Decoder<'d>,
+    len: u64,
+    elems: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, decode::Error>,
+) -> Result<A, decode::Error> {
+    match d.array()? {
+        None => Err(decode::Error::message("indefinite-length array where a fixed-size record was expected")),
+        Some(actual) if actual != len => {
+            Err(decode::Error::message(format!("expected a record of {len} elements, got {actual}")))
+        }
+        Some(_) => elems(d),
+    }
+}
+
 /// Collect the raw CBOR bytes of each item in an array, without fully decoding them.
 pub fn collect_array_item_bytes(decoder: &mut cbor::Decoder<'_>) -> Result<Vec<Vec<u8>>, cbor::decode::Error> {
     let len = decoder.array()?;

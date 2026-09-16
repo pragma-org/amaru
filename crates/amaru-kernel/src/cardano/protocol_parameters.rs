@@ -555,9 +555,11 @@ mod tests {
     crate::prop_cbor_roundtrip!(ProtocolParameters, any_protocol_parameter());
 
     prop_compose! {
+        /// Execution units are capped at `i64::MAX` by the decoder, so anything above that would
+        /// not survive a round-trip.
         pub fn any_ex_units()(
-            mem in any::<u64>(),
-            steps in any::<u64>(),
+            mem in 0..=i64::MAX as u64,
+            steps in 0..=i64::MAX as u64,
         ) -> ExUnits {
             ExUnits {
                 mem,

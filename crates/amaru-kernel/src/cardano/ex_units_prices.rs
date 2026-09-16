@@ -16,7 +16,7 @@ use std::fmt;
 
 use crate::{RationalNumber, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct ExUnitPrices {
     #[n(0)]
@@ -24,6 +24,15 @@ pub struct ExUnitPrices {
 
     #[n(1)]
     pub step_price: RationalNumber,
+}
+
+/// Decoded as a fixed-size record, so indefinite-length encodings are rejected before protocol version V12.
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ExUnitPrices {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
+            Ok(ExUnitPrices { mem_price: d.decode_with(ctx)?, step_price: d.decode_with(ctx)? })
+        })
+    }
 }
 
 impl fmt::Display for ExUnitPrices {
