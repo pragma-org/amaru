@@ -19,7 +19,6 @@ use amaru_kernel::{
     GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolParams, PoolVotingThresholds, Proposal, ProposalId,
     ProtocolParamUpdate, RationalNumber, RewardAccount, TransactionInput, Vote, Voter,
 };
-use num::Integer;
 
 use crate::{
     PlutusDataError, ToPlutusData, constr, constr_v3,
@@ -280,11 +279,11 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.max_block_body_size {
-            push(2, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(2, <u32 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.max_transaction_size {
-            push(3, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(3, <u32 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.max_block_header_size {
@@ -300,7 +299,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.maximum_epoch {
-            push(7, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(7, <u32 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.desired_number_of_stake_pools {
@@ -345,7 +344,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.max_value_size {
-            push(22, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(22, <u32 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.collateral_percentage {
@@ -369,11 +368,11 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.committee_term_limit {
-            push(28, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(28, <u32 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.governance_action_validity_period {
-            push(29, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(29, <u32 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(p) = self.governance_action_deposit {
@@ -385,7 +384,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(p) = self.drep_inactivity_period {
-            push(32, <u64 as ToPlutusData<3>>::to_plutus_data(&p))?;
+            push(32, <u32 as ToPlutusData<3>>::to_plutus_data(&p))?;
         }
 
         if let Some(ref p) = self.minfee_refscript_cost_per_byte {

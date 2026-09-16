@@ -105,7 +105,7 @@ mod tests {
         // 303): 358 assets across 6 policies, one of them holding 324 assets. The network
         // accepted it at exactly maxValueSize=5000 while our the amaru encoding originally returned 5001.
         let value: Value = amaru_kernel::include_cbor!("phase-one/preprod/b2c00c16/output-1-value.cbor");
-        let ledger_size = count_bytes(&value) as u64;
+        let ledger_size = count_bytes(&value) as u32;
         assert_eq!(ledger_size, 5000, "the ledger-side size must be 5000 bytes");
 
         let output = output_with(value);
@@ -137,7 +137,7 @@ mod tests {
         MemoizedTransactionOutput::new(false, address, value, MemoizedDatum::None, None)
     }
 
-    fn protocol_parameters_with_max_size(max_value_size: u64) -> ProtocolParameters {
+    fn protocol_parameters_with_max_size(max_value_size: u32) -> ProtocolParameters {
         ProtocolParameters { max_value_size, lovelace_per_utxo_byte: 0, ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone() }
     }
 }

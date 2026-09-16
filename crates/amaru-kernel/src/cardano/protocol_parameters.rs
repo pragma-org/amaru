@@ -32,12 +32,12 @@ pub struct ProtocolParameters {
     pub protocol_version: ProtocolVersion,
 
     // Network group
-    pub max_block_body_size: u64,
-    pub max_transaction_size: u64,
+    pub max_block_body_size: u32,
+    pub max_transaction_size: u32,
     pub max_block_header_size: u16,
     pub max_tx_ex_units: ExUnits,
     pub max_block_ex_units: ExUnits,
-    pub max_value_size: u64,
+    pub max_value_size: u32,
     pub max_collateral_inputs: u16,
 
     // Economic group
@@ -57,7 +57,7 @@ pub struct ProtocolParameters {
     pub ref_script_cost_multiplier: RationalNumber,
 
     // Technical group
-    pub stake_pool_max_retirement_epoch: u64,
+    pub stake_pool_max_retirement_epoch: u32,
     pub optimal_stake_pools_count: u16,
     pub pledge_influence: RationalNumber,
     pub collateral_percentage: u16,
@@ -67,11 +67,11 @@ pub struct ProtocolParameters {
     pub pool_voting_thresholds: PoolVotingThresholds,
     pub drep_voting_thresholds: DRepVotingThresholds,
     pub min_committee_size: u16,
-    pub max_committee_term_length: u64,
-    pub gov_action_lifetime: u64,
+    pub max_committee_term_length: u32,
+    pub gov_action_lifetime: u32,
     pub gov_action_deposit: Lovelace,
     pub drep_deposit: Lovelace,
-    pub drep_expiry: u64,
+    pub drep_expiry: u32,
 }
 
 impl ProtocolParameters {
@@ -178,14 +178,14 @@ mod fixture {
                     let mut min_fee_b: Option<u64> = None;
                     let mut min_fee_reference_scripts: Option<MinFeeReferenceScripts> = None;
                     let mut lovelace_per_utxo_byte: Option<Lovelace> = None;
-                    let mut max_block_body_size: Option<u64> = None;
+                    let mut max_block_body_size: Option<u32> = None;
                     let mut max_block_header_size: Option<u16> = None;
-                    let mut max_transaction_size: Option<u64> = None;
-                    let mut max_value_size: Option<u64> = None;
+                    let mut max_transaction_size: Option<u32> = None;
+                    let mut max_value_size: Option<u32> = None;
                     let mut max_ref_script_size_per_tx: Option<u32> = None;
                     let mut stake_credential_deposit: Option<Lovelace> = None;
                     let mut stake_pool_deposit: Option<Lovelace> = None;
-                    let mut stake_pool_max_retirement_epoch: Option<u64> = None;
+                    let mut stake_pool_max_retirement_epoch: Option<u32> = None;
                     let mut pledge_influence: Option<RationalNumber> = None;
                     let mut min_pool_cost: Option<u64> = None;
                     let mut optimal_stake_pools_count: Option<u16> = None;
@@ -199,12 +199,12 @@ mod fixture {
                     let mut max_block_ex_units: Option<ExUnits> = None;
                     let mut pool_voting_thresholds: Option<PoolVotingThresholds> = None;
                     let mut min_committee_size: Option<u16> = None;
-                    let mut max_committee_term_length: Option<u64> = None;
-                    let mut gov_action_lifetime: Option<u64> = None;
+                    let mut max_committee_term_length: Option<u32> = None;
+                    let mut gov_action_lifetime: Option<u32> = None;
                     let mut gov_action_deposit: Option<Lovelace> = None;
                     let mut drep_voting_thresholds: Option<DRepVotingThresholds> = None;
                     let mut drep_deposit: Option<Lovelace> = None;
-                    let mut drep_expiry: Option<u64> = None;
+                    let mut drep_expiry: Option<u32> = None;
 
                     macro_rules! set {
                         ($slot:ident, $key:literal) => {{
@@ -350,12 +350,12 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
         d.array()?;
         let min_fee_a = d.u64()?;
         let min_fee_b = d.u64()?;
-        let max_block_body_size = d.u64()?;
-        let max_transaction_size = d.u64()?;
+        let max_block_body_size = d.u32()?;
+        let max_transaction_size = d.u32()?;
         let max_block_header_size = d.u16()?;
         let stake_credential_deposit = d.u64()?;
         let stake_pool_deposit = d.u64()?;
-        let stake_pool_max_retirement_epoch = d.u64()?;
+        let stake_pool_max_retirement_epoch = d.u32()?;
         let optimal_stake_pools_count = d.u16()?;
         let pledge_influence = d.decode_with(ctx)?;
         let monetary_expansion_rate = d.decode_with(ctx)?;
@@ -386,14 +386,14 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
         let prices = d.decode_with(ctx)?;
         let max_tx_ex_units = d.decode_with(ctx)?;
         let max_block_ex_units = d.decode_with(ctx)?;
-        let max_value_size = d.u64()?;
+        let max_value_size = d.u32()?;
         let collateral_percentage = d.u16()?;
         let max_collateral_inputs = d.u16()?;
         let pool_voting_thresholds = d.decode_with(ctx)?;
         let drep_voting_thresholds = d.decode_with(ctx)?;
         let min_committee_size = d.u16()?;
-        let max_committee_term_length = d.u64()?;
-        let gov_action_lifetime = d.u64()?;
+        let max_committee_term_length = d.u32()?;
+        let gov_action_lifetime = d.u32()?;
         let gov_action_deposit = d.u64()?;
         let drep_deposit = d.u64()?;
         let drep_expiry = d.decode_with(ctx)?;
@@ -456,12 +456,12 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.array(31)?;
         e.u64(self.min_fee_a)?;
         e.u64(self.min_fee_b)?;
-        e.u64(self.max_block_body_size)?;
-        e.u64(self.max_transaction_size)?;
+        e.u32(self.max_block_body_size)?;
+        e.u32(self.max_transaction_size)?;
         e.u16(self.max_block_header_size)?;
         e.u64(self.stake_credential_deposit)?;
         e.u64(self.stake_pool_deposit)?;
-        e.u64(self.stake_pool_max_retirement_epoch)?;
+        e.u32(self.stake_pool_max_retirement_epoch)?;
         e.u16(self.optimal_stake_pools_count)?;
         e.encode_with(&self.pledge_influence, ctx)?;
         e.encode_with(&self.monetary_expansion_rate, ctx)?;
@@ -498,7 +498,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.encode_with(self.max_tx_ex_units, ctx)?;
         e.encode_with(self.max_block_ex_units, ctx)?;
 
-        e.u64(self.max_value_size)?;
+        e.u32(self.max_value_size)?;
         e.u16(self.collateral_percentage)?;
         e.u16(self.max_collateral_inputs)?;
 
@@ -506,8 +506,8 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.encode_with(&self.drep_voting_thresholds, ctx)?;
 
         e.u16(self.min_committee_size)?;
-        e.u64(self.max_committee_term_length)?;
-        e.u64(self.gov_action_lifetime)?;
+        e.u32(self.max_committee_term_length)?;
+        e.u32(self.gov_action_lifetime)?;
         e.u64(self.gov_action_deposit)?;
         e.u64(self.drep_deposit)?;
         e.encode_with(self.drep_expiry, ctx)?;
