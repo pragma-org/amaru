@@ -93,13 +93,18 @@ mod tests {
     use proptest::{prelude::*, prop_oneof};
 
     use crate::{
-        Address, StakeEntry, StakeReference, any_legacy_output, any_modern_output, from_cbor, to_cbor,
+        Address, MemoizedTransactionOutput, OutputFormat, StakeEntry, StakeReference, from_cbor, to_cbor,
         traits::has_lovelace::HasLovelace,
     };
 
     proptest! {
     #[test]
-        fn decode_memoized_output(output in prop_oneof![any_modern_output(), any_legacy_output()]) {
+        fn decode_memoized_output(
+            output in prop_oneof![
+                any::<MemoizedTransactionOutput>(),
+                any_with::<MemoizedTransactionOutput>(OutputFormat::Legacy),
+            ]
+        ) {
             let StakeEntry { credential, lovelace } = from_cbor(&to_cbor(&output)).unwrap();
 
             assert_eq!(lovelace, output.lovelace());

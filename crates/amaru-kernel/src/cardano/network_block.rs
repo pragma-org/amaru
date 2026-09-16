@@ -18,6 +18,8 @@ use std::{
 };
 
 use amaru_minicbor_extra::to_cbor;
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{Block, EraHistory, EraHistoryError, EraName, Header, RawBlock, cbor, traits::is_header::IsHeader};
 
@@ -139,6 +141,21 @@ impl TryFrom<RawBlock> for NetworkBlock {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for NetworkBlock {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<Header>()
+            .prop_map(|header| {
+                let block = make_block_with_header(&header);
+                NetworkBlock { era_tag: EraName::Conway, encoded_block: to_cbor(&block) }
+            })
+            .boxed()
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
 mod tests;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -147,12 +164,9 @@ pub use tests::*;
 #[cfg(test)]
 mod network_block_tests {
     use super::*;
+    use crate::prop_cbor_roundtrip;
 
-    mod network_block_cbor_roundtrip {
-        use super::*;
-        use crate::prop_cbor_roundtrip;
-        prop_cbor_roundtrip!(NetworkBlock, any_network_block());
-    }
+    prop_cbor_roundtrip!(NetworkBlock);
 
     #[test]
     fn decode_network_block() {

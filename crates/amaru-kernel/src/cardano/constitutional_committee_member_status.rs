@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
+
 use crate::{Credential, cbor, utils::cbor::SerialisedAsArray};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -127,20 +130,31 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Constituti
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for ConstitutionalCommitteeMemberStatus {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            any::<Credential>().prop_map(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential),
+            Just(ConstitutionalCommitteeMemberStatus::Resigned),
+        ]
+        .boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{ConstitutionalCommitteeMemberStatus, any_credential, prop_cbor_roundtrip};
+    use crate::{ConstitutionalCommitteeMemberStatus, Credential, prop_cbor_roundtrip};
 
-    prop_cbor_roundtrip!(ConstitutionalCommitteeMemberStatus, any_constitutional_committee_member_status());
+    prop_cbor_roundtrip!(ConstitutionalCommitteeMemberStatus);
 
     proptest! {
         // ensure compatibility with legacy format.
         #[test]
-        fn decode_from_stake_credential(stake_credential in any_credential()) {
+        fn decode_from_stake_credential(stake_credential in any::<Credential>()) {
             use crate::{from_cbor,  to_cbor};
 
             let bytes = to_cbor(&stake_credential);
@@ -150,7 +164,7 @@ mod tests {
         }
 
         #[test]
-        fn decode_with_anchor(anchor in crate::any_anchor()) {
+        fn decode_with_anchor(anchor in any::<crate::Anchor>()) {
             use crate::{from_cbor, to_cbor, utils::cbor::SerialisedAsArray};
 
             let bytes = to_cbor(&(1, SerialisedAsArray(Some(anchor))));
@@ -158,12 +172,5 @@ mod tests {
 
             assert_eq!(status, ConstitutionalCommitteeMemberStatus::Resigned)
         }
-    }
-
-    pub fn any_constitutional_committee_member_status() -> impl Strategy<Value = ConstitutionalCommitteeMemberStatus> {
-        prop_oneof![
-            any_credential().prop_map(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential),
-            Just(ConstitutionalCommitteeMemberStatus::Resigned),
-        ]
     }
 }

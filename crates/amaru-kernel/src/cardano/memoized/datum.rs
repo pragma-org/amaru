@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
 use serde::ser::SerializeStruct;
 
 use crate::{
@@ -137,5 +139,15 @@ impl<C> cbor::Encode<C> for MemoizedDatum {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for MemoizedDatum {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![Just(MemoizedDatum::None), any::<Hash<DATUM>>().prop_map(MemoizedDatum::from)].boxed()
     }
 }

@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{Hash, cbor, hash};
 
 #[derive(
@@ -46,21 +49,13 @@ impl fmt::Display for TransactionInput {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for TransactionInput {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::TransactionInput;
-    use crate::any_hash32;
-
-    prop_compose! {
-        pub fn any_transaction_input()(
-            id in any_hash32(),
-            ix in any::<u64>(),
-        ) -> TransactionInput {
-            TransactionInput { transaction_id: id, index: ix }
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<Hash<{ hash::size::TRANSACTION_BODY }>>(), any::<u64>())
+            .prop_map(|(transaction_id, index)| TransactionInput { transaction_id, index })
+            .boxed()
     }
 }

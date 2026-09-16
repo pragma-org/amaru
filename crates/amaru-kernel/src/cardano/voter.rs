@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, prop_oneof};
+
 use crate::{
     Hash, cbor,
     size::{KEY, POOL_COLD_KEY, SCRIPT},
@@ -93,5 +96,22 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Voter {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for Voter {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            any::<Hash<KEY>>().prop_map(Voter::ConstitutionalCommitteeKey),
+            any::<Hash<SCRIPT>>().prop_map(Voter::ConstitutionalCommitteeScript),
+            any::<Hash<KEY>>().prop_map(Voter::DRepKey),
+            any::<Hash<SCRIPT>>().prop_map(Voter::DRepScript),
+            any::<Hash<POOL_COLD_KEY>>().prop_map(Voter::StakePoolKey),
+        ]
+        .boxed()
     }
 }

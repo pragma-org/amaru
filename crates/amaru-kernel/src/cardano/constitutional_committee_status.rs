@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
+
 use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,18 +75,23 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeStatus {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for ConstitutionalCommitteeStatus {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::ConstitutionalCommitteeStatus::{self, *};
-    use crate::{any_rational_number, prop_cbor_roundtrip};
-
-    prop_cbor_roundtrip!(ConstitutionalCommitteeStatus, any_constitutional_committee_status());
-
-    pub fn any_constitutional_committee_status() -> impl Strategy<Value = ConstitutionalCommitteeStatus> {
-        prop_oneof![Just(NoConfidence), any_rational_number().prop_map(|threshold| Trusted { threshold }),]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            Just(ConstitutionalCommitteeStatus::NoConfidence),
+            any::<RationalNumber>().prop_map(|threshold| ConstitutionalCommitteeStatus::Trusted { threshold }),
+        ]
+        .boxed()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConstitutionalCommitteeStatus;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(ConstitutionalCommitteeStatus);
 }

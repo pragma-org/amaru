@@ -13,34 +13,34 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, TransactionInput,
-    any_anchor, any_ballot, any_ballot_id, any_credential, any_drep, any_drep_registration, any_modern_output,
-    any_pool_params, any_proposal_id, any_proposals_roots, any_reward_account,
+    Anchor, Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
+    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, RewardAccount, Slot,
+    TransactionInput,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
+use proptest::prelude::any;
 use rand::Rng;
 
 // -------------------------------------------------------------------------------------- Generators
 
 pub fn ballot(rng: &mut impl Rng) -> Ballot {
-    run_strategy_with_rng(rng, any_ballot())
+    run_strategy_with_rng(rng, any::<Ballot>())
 }
 
 pub fn ballot_id(rng: &mut impl Rng) -> BallotId {
-    run_strategy_with_rng(rng, any_ballot_id())
+    run_strategy_with_rng(rng, any::<BallotId>())
 }
 
 pub fn comparable_proposal_id(rng: &mut impl Rng) -> ProposalId {
-    run_strategy_with_rng(rng, any_proposal_id())
+    run_strategy_with_rng(rng, any::<ProposalId>())
 }
 
 pub fn drep(rng: &mut impl Rng) -> DRep {
-    run_strategy_with_rng(rng, any_drep())
+    run_strategy_with_rng(rng, any::<DRep>())
 }
 
 pub fn drep_registration(rng: &mut impl Rng) -> DRepRegistration {
-    run_strategy_with_rng(rng, any_drep_registration())
+    run_strategy_with_rng(rng, any::<DRepRegistration>())
 }
 
 pub fn hash28(rng: &mut impl Rng) -> Hash<28> {
@@ -56,7 +56,7 @@ pub fn input(rng: &mut impl Rng) -> TransactionInput {
 }
 
 pub fn output(rng: &mut impl Rng) -> MemoizedTransactionOutput {
-    run_strategy_with_rng(rng, any_modern_output())
+    run_strategy_with_rng(rng, any::<MemoizedTransactionOutput>())
 }
 
 pub fn pool_id(rng: &mut impl Rng) -> PoolId {
@@ -64,7 +64,7 @@ pub fn pool_id(rng: &mut impl Rng) -> PoolId {
 }
 
 pub fn pool_params(rng: &mut impl Rng) -> PoolParams {
-    run_strategy_with_rng(rng, any_pool_params())
+    run_strategy_with_rng(rng, any::<PoolParams>())
 }
 
 pub fn point(rng: &mut impl Rng, ix: u64) -> Point {
@@ -76,18 +76,18 @@ pub fn point(rng: &mut impl Rng, ix: u64) -> Point {
 pub fn proposal(rng: &mut impl Rng) -> Proposal {
     Proposal {
         deposit: rng.random(),
-        reward_account: run_strategy_with_rng(rng, any_reward_account()),
+        reward_account: run_strategy_with_rng(rng, any::<RewardAccount>()),
         gov_action: GovernanceAction::Information,
-        anchor: run_strategy_with_rng(rng, any_anchor()),
+        anchor: run_strategy_with_rng(rng, any::<Anchor>()),
     }
 }
 
 pub fn proposals_roots(rng: &mut impl Rng) -> ProposalsRoots {
-    run_strategy_with_rng(rng, any_proposals_roots())
+    run_strategy_with_rng(rng, any::<ProposalsRoots>())
 }
 
 pub fn stake_credential(rng: &mut impl Rng) -> Credential {
-    run_strategy_with_rng(rng, any_credential())
+    run_strategy_with_rng(rng, any::<Credential>())
 }
 
 pub fn tip(rng: &mut impl Rng, ix: u64) -> Point {

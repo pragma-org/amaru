@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, prop_oneof};
+
 use crate::cbor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -48,6 +51,16 @@ impl<C> cbor::Encode<C> for Vote {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for Vote {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![Just(Vote::Yes), Just(Vote::No), Just(Vote::Abstain)].boxed()
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -59,10 +72,6 @@ mod tests {
     pub static VOTE_YES: Vote = Vote::Yes;
     pub static VOTE_NO: Vote = Vote::No;
     pub static VOTE_ABSTAIN: Vote = Vote::Abstain;
-
-    pub fn any_vote() -> impl Strategy<Value = Vote> {
-        prop_oneof![Just(Vote::Yes), Just(Vote::No), Just(Vote::Abstain)]
-    }
 
     pub fn any_vote_ref() -> impl Strategy<Value = &'static Vote> {
         prop_oneof![Just(&VOTE_YES), Just(&VOTE_NO), Just(&VOTE_ABSTAIN)]

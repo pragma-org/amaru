@@ -55,14 +55,14 @@ impl<'a, C: cbor::HasProtocolVersion> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{any_constitutional_committee_member_status, prop_cbor_roundtrip};
+    use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
 
     prop_compose! {
         pub fn any_row()(
-            status in option::of(any_constitutional_committee_member_status()),
+            status in option::of(any::<ConstitutionalCommitteeMemberStatus>()),
             valid_until in option::of(any::<u64>()),
         ) -> Row {
             Row {

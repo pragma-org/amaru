@@ -212,13 +212,12 @@ impl<'b, T: AsRef<VersionNumber>> cbor::Decode<'b, T> for VersionData {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use amaru_kernel::any_network_magic;
     use proptest::{prelude::any, prop_compose, strategy::Strategy};
 
     use super::*;
 
     prop_compose! {
-        pub fn any_version_data()(network_magic in any_network_magic(),
+        pub fn any_version_data()(network_magic in any::<NetworkMagic>(),
             initiator_only_diffusion_mode in any::<bool>(),
             peer_sharing in any::<bool>().prop_map(PeerSharing::from),
             query in any::<bool>()) -> VersionData {

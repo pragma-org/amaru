@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, any_with};
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::SlotUpperBound;
 use crate::{Slot, TransactionPointer, cbor};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
@@ -49,26 +54,21 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProposalPointer {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for ProposalPointer {
+    type Parameters = SlotUpperBound;
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{prelude::*, prop_compose};
-
-    use super::*;
-    use crate::{any_transaction_pointer, prop_cbor_roundtrip};
-
-    prop_cbor_roundtrip!(ProposalPointer, any_proposal_pointer(u64::MAX));
-
-    prop_compose! {
-        pub fn any_proposal_pointer(max_slot: u64)(
-            transaction in any_transaction_pointer(max_slot),
-            proposal_index in any::<usize>(),
-        ) -> ProposalPointer {
-            ProposalPointer {
-                transaction,
-                proposal_index,
-            }
-        }
+    fn arbitrary_with(bound: Self::Parameters) -> Self::Strategy {
+        (any_with::<TransactionPointer>(bound), any::<usize>())
+            .prop_map(|(transaction, proposal_index)| ProposalPointer { transaction, proposal_index })
+            .boxed()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProposalPointer;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(ProposalPointer);
 }

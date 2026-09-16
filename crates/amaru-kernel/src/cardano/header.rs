@@ -15,6 +15,11 @@
 use std::{cmp::Ordering, fmt};
 
 use anyhow::anyhow;
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    option,
+    prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any},
+};
 
 use crate::{
     BlockHeight, Bytes, Hasher, HeaderBody, HeaderHash, IsHeader, PoolId, Slot,
@@ -206,6 +211,31 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Header {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[derive(Clone, Debug, Default)]
+pub enum HeaderParams {
+    #[default]
+    Any,
+    WithParent(HeaderHash),
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for Header {
+    type Parameters = HeaderParams;
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
+        let any_prev_hash = match params {
+            HeaderParams::Any => option::weighted(0.01, any::<HeaderHash>()).boxed(),
+            HeaderParams::WithParent(parent) => Just(Some(parent)).boxed(),
+        };
+
+        (0u64..=1_000_000, 0u64..=1_000_000, any_prev_hash)
+            .prop_map(|(block_number, slot, prev_hash)| make_header(block_number, slot, prev_hash))
+            .boxed()
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -221,7 +251,7 @@ mod tests {
             fixed_bytes::FixedBytes,
             network_block::{EncodedTestBlock, make_block},
         },
-        size::{BLOCK_BODY, HEADER},
+        size::BLOCK_BODY,
     };
 
     /// Body hash and size of a test block, so seed headers are close to the blocks
@@ -271,12 +301,12 @@ mod tests {
 
     /// Create a list of arbitrary headers starting from a root, and where chain\[i\] is the parent of chain\[i+1\]
     pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<Header>> {
-        prop::collection::vec(any_header(), n).prop_map(make_headers())
+        prop::collection::vec(any::<Header>(), n).prop_map(make_headers())
     }
 
     /// Create a list of arbitrary headers starting from a root with the specified hash, and where chain\[i\] is the parent of chain\[i+1\]
     pub fn any_headers_chain_with_root(n: usize, point: Point) -> impl Strategy<Value = Vec<Header>> {
-        prop::collection::vec(any_header(), n).prop_map(make_headers_with_root_point(Some(point)))
+        prop::collection::vec(any::<Header>(), n).prop_map(make_headers_with_root_point(Some(point)))
     }
 
     /// Given a list of headers, set their block_number, slot and parent fields to form a valid chain
@@ -303,33 +333,5 @@ mod tests {
                 })
                 .collect()
         }
-    }
-
-    /// Create an arbitrary Header, with an arbitrary parent, possibly set to None
-    pub fn any_header() -> impl Strategy<Value = Header> {
-        (0u64..=1_000_000, 0u64..=1_000_000, prop::option::weighted(0.01, any_header_hash()))
-            .prop_map(|(block_number, slot, prev_hash)| make_header(block_number, slot, prev_hash))
-    }
-
-    /// Create an arbitrary Header, with an arbitrary parent
-    pub fn any_header_with_parent(parent: HeaderHash) -> impl Strategy<Value = Header> {
-        (0u64..=1_000_000, 0u64..=1_000_000)
-            .prop_map(move |(block_number, slot)| make_header(block_number, slot, Some(parent)))
-    }
-
-    /// Create an arbitrary Header, with an arbitrary parent that is guaranteed to be Some
-    pub fn any_header_with_some_parent() -> impl Strategy<Value = Header> {
-        any_header().prop_flat_map(|h| any_header_with_parent(h.hash()))
-    }
-
-    /// Create an arbitrary header hash with the right number of bytes
-    pub fn any_header_hash() -> impl Strategy<Value = HeaderHash> {
-        any::<[u8; HEADER]>().prop_map(Hash::from)
-    }
-
-    /// Create an arbitrary FakeHeader
-    pub fn any_fake_header() -> impl Strategy<Value = Header> {
-        (0u64..=1_000_000, 0u64..=1_000_000, prop::option::weighted(0.01, any_header_hash()))
-            .prop_map(|(block_number, slot, parent)| make_header(block_number, slot, parent))
     }
 }

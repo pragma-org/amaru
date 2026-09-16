@@ -556,11 +556,11 @@ mod tests {
 
     use amaru_kernel::{
         BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, SafeRatio, Slot, SortedPairs,
-        any_modern_output, any_proposal, any_proposal_id, any_rational_number, any_transaction_input,
-        utils::tests::run_strategy,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, RationalNumber, SafeRatio, Slot,
+        SortedPairs, utils::tests::run_strategy,
     };
     use num::Zero;
+    use proptest::prelude::any;
     use test_case::test_case;
 
     use super::*;
@@ -997,7 +997,7 @@ mod tests {
 
     #[test]
     fn test_consumed_input_is_tracked() {
-        let input = run_strategy(any_transaction_input());
+        let input = run_strategy(any::<TransactionInput>());
         let mut anchored = AnchoredVolatileFragment::fixture(10, 1);
         anchored.fragment.utxo.consume(input);
 
@@ -1009,7 +1009,7 @@ mod tests {
 
     #[test]
     fn test_rollback_removes_consumed_input_from_cache() {
-        let input = run_strategy(any_transaction_input());
+        let input = run_strategy(any::<TransactionInput>());
         let mut db = VolatileDB::default();
         let first = AnchoredVolatileFragment::fixture(10, 1);
         let first_point = first.point();
@@ -1105,7 +1105,7 @@ mod tests {
         resolvable: bool,
         consumed: bool,
     ) {
-        let input = run_strategy(any_transaction_input());
+        let input = run_strategy(any::<TransactionInput>());
         let mut draining_block = AnchoredVolatileFragment::fixture(10, 1);
         let mut current_block = AnchoredVolatileFragment::fixture(20, 2);
 
@@ -1114,7 +1114,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.produce(input, Arc::new(run_strategy(any_modern_output())));
+            block.fragment.utxo.produce(input, Arc::new(run_strategy(any::<MemoizedTransactionOutput>())));
         }
 
         if let Some(layer) = consume_in {
@@ -1399,7 +1399,7 @@ mod tests {
     fn resolve_cc_members_yield_committee_candidates() {
         let mut db = VolatileDB::default();
 
-        let proposal_id = run_strategy(any_proposal_id());
+        let proposal_id = run_strategy(any::<ProposalId>());
 
         db.push_back(update_committee_block(10, proposal_id, cred(1)));
         assert_eq!(
@@ -1421,7 +1421,7 @@ mod tests {
     fn resolve_committee_candidates_discounts_proposals_pruned_at_the_pending_boundary() {
         let mut db = VolatileDB::default();
 
-        let proposal_id = run_strategy(any_proposal_id());
+        let proposal_id = run_strategy(any::<ProposalId>());
 
         db.push_back(update_committee_block(10, proposal_id, cred(1)));
 
@@ -1531,9 +1531,9 @@ mod tests {
                 None,
                 Vec::new(),
                 vec![(candidate, Epoch::from(99))].try_into().unwrap(),
-                run_strategy(any_rational_number()),
+                run_strategy(any::<RationalNumber>()),
             ),
-            ..run_strategy(any_proposal())
+            ..run_strategy(any::<Proposal>())
         };
         block.fragment.proposals.insert(
             id,

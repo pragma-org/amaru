@@ -17,6 +17,9 @@ use std::{
     ops::{Add, Sub},
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
+
 use crate::cbor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
@@ -95,20 +98,19 @@ impl<'b, C> cbor::Decode<'b, C> for BlockHeight {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for BlockHeight {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (1..1000u64).prop_map(BlockHeight::from).boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::prop_compose;
-
-    use super::*;
+    use super::BlockHeight;
     use crate::prop_cbor_roundtrip;
 
-    prop_cbor_roundtrip!(BlockHeight, any_block_height());
-
-    prop_compose! {
-        pub fn any_block_height()(h in 1..1000u64) -> BlockHeight {
-            BlockHeight::from(h)
-        }
-    }
+    prop_cbor_roundtrip!(BlockHeight);
 }

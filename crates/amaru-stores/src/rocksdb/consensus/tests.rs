@@ -21,8 +21,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Hash, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Nonce, ORIGIN_HASH, Point,
-    PoolId, RawBlock, Slot, any_hash28, any_header, any_header_hash, any_header_with_parent, any_headers_chain,
+    BlockHeight, EraHistory, Hash, Header, HeaderHash, HeaderParams, IsHeader, NetworkPoint, NonEmptyVec, Nonce,
+    ORIGIN_HASH, Point, PoolId, RawBlock, Slot, any_headers_chain,
     cardano::network_block::{EncodedTestBlock, make_encoded_chain},
     make_header, make_header_with_op_cert_seq,
     size::HEADER,
@@ -35,6 +35,7 @@ use amaru_ouroboros_traits::{
     OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore,
     in_memory_chain_store::InMemoryChainStore,
 };
+use proptest::prelude::{any, any_with};
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
 
 use super::*;
@@ -180,7 +181,7 @@ fn best_chain_hash_when_store_is_empty() {
 #[test]
 fn store_best_chain_tip() {
     with_db(|db| {
-        let tip = run_strategy(any_header()).point();
+        let tip = run_strategy(any::<Header>()).point();
         db.set_best_chain_tip(&tip).unwrap();
         assert_eq!(db.get_best_chain_tip(), tip);
     })
@@ -196,7 +197,7 @@ fn anchor_hash_when_store_is_empty() {
 #[test]
 fn store_anchor_point() {
     with_db(|db| {
-        let anchor = run_strategy(any_header()).point();
+        let anchor = run_strategy(any::<Header>()).point();
         db.set_anchor_point(&anchor).unwrap();
         assert_eq!(db.get_anchor_point(), anchor);
     })
@@ -212,7 +213,7 @@ fn anchor_tip_when_store_is_empty() {
 #[test]
 fn anchor_tip_returns_stored_point_without_loading_header() {
     with_db(|db| {
-        let anchor = run_strategy(any_header()).point();
+        let anchor = run_strategy(any::<Header>()).point();
         db.set_anchor_point(&anchor).unwrap();
         assert_eq!(db.get_anchor_point(), anchor);
     })
@@ -235,7 +236,7 @@ fn store_parent_children_relationship_for_header() {
         //      \
         //       -> h3
         let mut chain = run_strategy(any_headers_chain(3));
-        let h3 = run_strategy(any_header_with_parent(chain[1].hash()));
+        let h3 = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[1].hash())));
         chain.push(h3.clone());
 
         for header in &chain {
@@ -290,9 +291,9 @@ fn load_parents_children() {
         //      \
         //       -> h3 -> h4
         let mut chain = run_strategy(any_headers_chain(3));
-        let h3 = run_strategy(any_header_with_parent(chain[1].hash()));
+        let h3 = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[1].hash())));
         chain.push(h3.clone());
-        let h4 = run_strategy(any_header_with_parent(h3.hash()));
+        let h4 = run_strategy(any_with::<Header>(HeaderParams::WithParent(h3.hash())));
         chain.push(h4);
 
         let mut expected = BTreeMap::new();
@@ -382,7 +383,7 @@ fn test_retrieve_best_chain() {
 fn is_on_best_chain_root_header() {
     with_db(|store| {
         let chain = populate_db(store.clone());
-        let root = run_strategy(any_header_with_parent(chain[0].hash()));
+        let root = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[0].hash())));
 
         store.roll_forward_chain(&root.point()).expect("should roll forward successfully");
 
@@ -395,7 +396,7 @@ fn is_on_best_chain_root_header() {
 fn update_best_chain_to_block_slot_given_new_block_is_valid() {
     with_db(|store| {
         let chain = populate_db(store.clone());
-        let new_tip = run_strategy(any_header_with_parent(chain[9].hash()));
+        let new_tip = run_strategy(any_with::<Header>(HeaderParams::WithParent(chain[9].hash())));
 
         store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
 
@@ -506,7 +507,7 @@ fn ancestors_between_reports_a_missing_header() {
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
 
-        let absent = run_strategy(any_header_hash());
+        let absent = run_strategy(any::<HeaderHash>());
         assert_eq!(store.ancestors_between(&headers.h0.point(), absent), None);
     });
 }
@@ -557,7 +558,7 @@ fn find_ancestor_on_best_chain_returns_none_when_start_header_is_not_in_store() 
         append_best_chain(store.clone(), headers.main());
         store.set_anchor_point(&headers.h0.point()).unwrap();
 
-        let absent = run_strategy(any_header_hash());
+        let absent = run_strategy(any::<HeaderHash>());
         assert_eq!(
             store.find_ancestor_on_best_chain(absent).unwrap(),
             FindAncestorOnBestChainResult::StartHeaderNotFound
@@ -655,7 +656,7 @@ fn next_best_chain_returns_slot_zero_point_given_origin() {
 fn next_best_chain_returns_none_given_point_is_not_on_chain() {
     with_db(|store| {
         let _chain = populate_db(store.clone());
-        let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()), BlockHeight::from(100));
+        let invalid_point = Point::Specific(100.into(), run_strategy(any::<HeaderHash>()), BlockHeight::from(100));
 
         assert!(store.next_best_chain(&invalid_point).is_none());
     });
@@ -936,7 +937,7 @@ fn find_missing_blocks_returns_path_from_nearest_available_block_to_tip() {
 #[test]
 fn find_missing_blocks_returns_none_when_tip_is_not_found() {
     with_db(|store| {
-        let missing_tip = run_strategy(any_header_hash());
+        let missing_tip = run_strategy(any::<HeaderHash>());
         let result = store.find_missing_blocks(missing_tip, 10).unwrap();
         assert_eq!(result, MissingBlocksResult::StartHeaderNotFound);
     });
@@ -1028,7 +1029,7 @@ fn read_snapshot_exposes_direct_read_operations() {
                 assert_eq!(snapshot.get_nonces(&headers.h2.hash()), Some(nonces.clone()));
                 assert_eq!(snapshot.load_block(&headers.h3.hash()).unwrap(), Some(block.clone()));
                 assert!(snapshot.has_header(&headers.h3a.hash()));
-                assert!(!snapshot.has_header(&run_strategy(any_header_hash())));
+                assert!(!snapshot.has_header(&run_strategy(any::<HeaderHash>())));
             }
         },
     );
@@ -1050,7 +1051,7 @@ fn read_snapshot_supports_best_chain_traversal() {
             let chain = chain.clone();
             move |store, snapshot| {
                 let invalid_point =
-                    Point::Specific(100.into(), run_strategy(any_header_hash()), BlockHeight::from(100));
+                    Point::Specific(100.into(), run_strategy(any::<HeaderHash>()), BlockHeight::from(100));
 
                 assert_eq!(store.retrieve_best_chain(), chain.iter().map(Header::hash).collect::<Vec<_>>());
                 assert!(snapshot.is_on_best_chain((chain[0].point()).into()));
@@ -1210,7 +1211,7 @@ fn read_snapshot_supports_missing_block_queries() {
         {
             let chain = chain.clone();
             move |store, _snapshot| {
-                let missing_tip = run_strategy(any_header_hash());
+                let missing_tip = run_strategy(any::<HeaderHash>());
 
                 assert_eq!(
                     store.find_missing_blocks(chain[9].header.hash(), 10).unwrap(),
@@ -1294,7 +1295,7 @@ fn opcert_sequence_number_is_none_for_an_unknown_pool() {
         db.set_anchor_point(&header1.point()).unwrap();
         db.store_header(&header2).unwrap();
 
-        let unknown_pool_id = run_strategy(any_hash28());
+        let unknown_pool_id = run_strategy(any::<PoolId>());
         assert_eq!(db.get_latest_opcert_sequence_number(&unknown_pool_id, &header2).unwrap(), None);
     })
 }
@@ -1362,7 +1363,7 @@ fn pools_can_be_initialized_with_opcert_sequence_numbers() {
         db.set_anchor_point(&tip.point()).unwrap();
         db.roll_forward_chain(&tip.point()).unwrap();
 
-        let pool_id: PoolId = run_strategy(any_hash28());
+        let pool_id = run_strategy(any::<PoolId>());
         db.put_opcert_seed(&OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)])), &tip.point()).unwrap();
 
         let next = make_header(2, 110, Some(tip.hash()));
@@ -1721,7 +1722,7 @@ fn migrate_to_v6_is_idempotent_for_point_encodings() {
 fn migrate_to_v6_fails_when_header_is_missing() {
     let tempdir = tempfile::tempdir().unwrap();
     let store = initialise_test_rw_store(tempdir.path());
-    let hash = run_strategy(any_header_hash());
+    let hash = run_strategy(any::<HeaderHash>());
     store.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).unwrap();
     set_version(&store, 5).unwrap();
 
@@ -1775,7 +1776,7 @@ fn iterator_over_chain() {
     // populate DB
     for slot in 1..10 {
         let prefix = [&CHAIN_PREFIX[..], &(slot as u64).to_be_bytes()[..]].concat();
-        let header_hash = run_strategy(any_header_hash());
+        let header_hash = run_strategy(any::<HeaderHash>());
         db.put(&prefix, header_hash).expect("should put data successfully");
     }
     // iterate over chain from 4 to 8

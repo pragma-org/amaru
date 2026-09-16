@@ -223,13 +223,13 @@ pub use tests::*;
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use PoolCertificate::*;
-    use amaru_kernel::{any_pool_params, prop_cbor_roundtrip};
+    use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{collection, prelude::*};
 
     use super::*;
 
     pub fn any_pool_certificate(epoch: Epoch) -> impl Strategy<Value = PoolCertificate> {
-        prop_oneof![Just(Retirement(epoch)), any_pool_params().prop_map(PoolCertificate::from)]
+        prop_oneof![Just(Retirement(epoch)), any::<PoolParams>().prop_map(PoolCertificate::from)]
     }
 
     pub fn any_pool_certificates() -> impl Strategy<Value = PoolCertificates> {
