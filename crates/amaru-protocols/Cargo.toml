@@ -17,7 +17,6 @@ categories.workspace = true
 [dependencies]
 anyhow.workspace = true
 bytes = { workspace = true, features = ["serde"] }
-cbor-data.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 minicbor.workspace = true

@@ -625,7 +625,6 @@ dependencies = [
  "amaru-pure-stage",
  "anyhow",
  "bytes",
- "cbor-data",
  "futures-util",
  "hex",
  "minicbor",
