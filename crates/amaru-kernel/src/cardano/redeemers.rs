@@ -110,7 +110,7 @@ impl Redeemers {
                     .map(|redeemer| {
                         (
                             Cow::Owned(RedeemerKey { tag: redeemer.tag, index: redeemer.index }),
-                            (&redeemer.ex_units, &redeemer.data),
+                            (&redeemer.ex_units, redeemer.data.data()),
                         )
                     })
                     .collect::<BTreeMap<_, _>>()
@@ -118,9 +118,9 @@ impl Redeemers {
                     .map(|(k, (ex, data))| (k, ex, data)),
             ),
 
-            RedeemersInner::Map(map) => {
-                Box::new(map.iter().map(|(key, redeemer)| (Cow::Borrowed(key), &redeemer.ex_units, &redeemer.data)))
-            }
+            RedeemersInner::Map(map) => Box::new(
+                map.iter().map(|(key, redeemer)| (Cow::Borrowed(key), &redeemer.ex_units, redeemer.data.data())),
+            ),
         }
     }
 }
@@ -167,9 +167,11 @@ impl PlutusRedeemers<'_> {
     ) -> Box<dyn Iterator<Item = (RedeemerKey, &'a PlutusData, ExUnits)> + 'a> {
         match &redeemers.inner {
             RedeemersInner::Array(array) => {
-                Box::new(array.iter().map(|r| (RedeemerKey { tag: r.tag, index: r.index }, &r.data, r.ex_units)))
+                Box::new(array.iter().map(|r| (RedeemerKey { tag: r.tag, index: r.index }, r.data.data(), r.ex_units)))
             }
-            RedeemersInner::Map(map) => Box::new(map.iter().map(|(key, value)| (*key, &value.data, value.ex_units))),
+            RedeemersInner::Map(map) => {
+                Box::new(map.iter().map(|(key, value)| (*key, value.data.data(), value.ex_units)))
+            }
         }
     }
 }
@@ -180,7 +182,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::{Bytes, PlutusData, Redeemer, RedeemerTag, PROTOCOL_VERSION_10};
+    use crate::{Bytes, MemoizedPlutusData, PROTOCOL_VERSION_10, Redeemer, RedeemerTag};
 
     /// Empty redeemers must be rejected in both forms, from protocol version 9 onwards:
     /// both in the map branch and in the list branch.
@@ -221,7 +223,7 @@ mod tests {
         let make_redeemer = |mem: u64, steps: u64, payload: u8| Redeemer {
             tag: RedeemerTag::Spend,
             index: 0,
-            data: PlutusData::bytes(vec![payload]),
+            data: MemoizedPlutusData::new(PlutusData::bytes(vec![payload].into())),
             ex_units: ExUnits { mem, steps },
         };
 
@@ -240,6 +242,6 @@ mod tests {
         assert_eq!(key.tag, RedeemerTag::Spend);
         assert_eq!(key.index, 0);
         assert_eq!(*ex_units, r2.ex_units, "last redeemer's ex_units must win");
-        assert_eq!(**data, r2.data, "last redeemer's data must win");
+        assert_eq!(*data, r2.data.data(), "last redeemer's data must win");
     }
 }

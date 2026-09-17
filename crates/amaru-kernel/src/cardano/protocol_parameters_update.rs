@@ -14,7 +14,10 @@
 
 use std::fmt::{self, Write};
 
-use crate::{CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, UnitRationalNumber, cbor};
+use crate::{
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber,
+    UnitRationalNumber, cbor,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
