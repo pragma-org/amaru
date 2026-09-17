@@ -19,13 +19,13 @@ use amaru_kernel::{
 };
 use amaru_ouroboros_traits::{Mempool, TxOrigin};
 
-pub fn create_transactions(number: u64) -> Vec<WithOriginalBytes<Transaction>> {
+pub fn create_transactions(number: u16) -> Vec<WithOriginalBytes<Transaction>> {
     (0..number).map(create_transaction).collect()
 }
 
 pub fn create_transactions_in_mempool(
     mempool: &dyn Mempool<WithOriginalBytes<Transaction>>,
-    number: u64,
+    number: u16,
 ) -> Vec<WithOriginalBytes<Transaction>> {
     let mut txs = vec![];
     for i in 0..number {
@@ -37,7 +37,7 @@ pub fn create_transactions_in_mempool(
 }
 
 /// Create a transaction with a unique input based on the given id.
-pub fn create_transaction(id: u64) -> WithOriginalBytes<Transaction> {
+pub fn create_transaction(id: u16) -> WithOriginalBytes<Transaction> {
     let tx_input = TransactionInput { transaction_id: Hash::new([1; TRANSACTION_BODY]), index: id };
 
     let body = TransactionBody::new([tx_input], [], 0);

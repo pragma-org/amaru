@@ -83,19 +83,11 @@ impl ProtocolParameters {
         set(&mut self.min_fee_b, u.minfee_b);
         set(&mut self.max_block_body_size, u.max_block_body_size);
         set(&mut self.max_transaction_size, u.max_transaction_size);
-        set(
-            &mut self.max_block_header_size,
-            // FIXME(cbor): update in Pallas; should be a u16
-            u.max_block_header_size.map(|x| x as u16),
-        );
+        set(&mut self.max_block_header_size, u.max_block_header_size);
         set(&mut self.stake_credential_deposit, u.key_deposit);
         set(&mut self.stake_pool_deposit, u.pool_deposit);
         set(&mut self.stake_pool_max_retirement_epoch, u.maximum_epoch);
-        set(
-            &mut self.optimal_stake_pools_count,
-            // FIXME(cbor): update in Pallas; should be a u16
-            u.desired_number_of_stake_pools.map(|x| x as u16),
-        );
+        set(&mut self.optimal_stake_pools_count, u.desired_number_of_stake_pools);
         set(&mut self.pledge_influence, u.pool_pledge_influence);
         set(&mut self.treasury_expansion_rate, u.expansion_rate);
         set(&mut self.monetary_expansion_rate, u.treasury_growth_rate);
@@ -127,23 +119,11 @@ impl ProtocolParameters {
         set(&mut self.max_tx_ex_units, u.max_tx_ex_units);
         set(&mut self.max_block_ex_units, u.max_block_ex_units);
         set(&mut self.max_value_size, u.max_value_size);
-        set(
-            &mut self.collateral_percentage,
-            // FIXME(cbor): update in Pallas; should be a u16
-            u.collateral_percentage.map(|x| x as u16),
-        );
-        set(
-            &mut self.max_collateral_inputs,
-            // FIXME(cbor): update in Pallas; should be a u16
-            u.max_collateral_inputs.map(|x| x as u16),
-        );
+        set(&mut self.collateral_percentage, u.collateral_percentage);
+        set(&mut self.max_collateral_inputs, u.max_collateral_inputs);
         set(&mut self.pool_voting_thresholds, u.pool_voting_thresholds);
         set(&mut self.drep_voting_thresholds, u.drep_voting_thresholds);
-        set(
-            &mut self.min_committee_size,
-            // FIXME(cbor): update in Pallas; should be a u16
-            u.min_committee_size.map(|x| x as u16),
-        );
+        set(&mut self.min_committee_size, u.min_committee_size);
         set(&mut self.max_committee_term_length, u.committee_term_limit);
         set(&mut self.gov_action_lifetime, u.governance_action_validity_period);
         set(&mut self.gov_action_deposit, u.governance_action_deposit);
@@ -702,11 +682,11 @@ mod tests {
             minfee_b in option::of(any::<u64>()),
             max_block_body_size in option::of(any::<u64>()),
             max_transaction_size in option::of(any::<u64>()),
-            max_block_header_size in option::of(any::<u64>()),
+            max_block_header_size in option::of(any::<u16>()),
             key_deposit in option::of(any::<Lovelace>()),
             pool_deposit in option::of(any::<Lovelace>()),
             maximum_epoch in option::of(any::<u64>()),
-            desired_number_of_stake_pools in option::of(any::<u64>()),
+            desired_number_of_stake_pools in option::of(any::<u16>()),
             pool_pledge_influence in option::of(any_rational_number()),
             expansion_rate in option::of(any_rational_number()),
             treasury_growth_rate in option::of(any_rational_number()),
@@ -717,11 +697,11 @@ mod tests {
             max_tx_ex_units in option::of(any_ex_units()),
             max_block_ex_units in option::of(any_ex_units()),
             max_value_size in option::of(any::<u64>()),
-            collateral_percentage in option::of(any::<u64>()),
-            max_collateral_inputs in option::of(any::<u64>()),
+            collateral_percentage in option::of(any::<u16>()),
+            max_collateral_inputs in option::of(any::<u16>()),
             pool_voting_thresholds in option::of(any_pool_voting_thresholds()),
             drep_voting_thresholds in option::of(any_drep_voting_thresholds()),
-            min_committee_size in option::of(any::<u64>()),
+            min_committee_size in option::of(any::<u16>()),
             committee_term_limit in option::of(any::<u64>()),
             governance_action_validity_period in option::of(any::<u64>()),
             governance_action_deposit in option::of(any::<Lovelace>()),

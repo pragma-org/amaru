@@ -31,6 +31,10 @@ impl<const N: usize> FixedBytes<N> {
         &self.0
     }
 
+    pub fn as_array(&self) -> &[u8; N] {
+        &self.0
+    }
+
     fn checked(bytes: &[u8]) -> Result<Self, FixedBytesError> {
         let got = bytes.len();
         if got != N {
@@ -181,7 +185,8 @@ impl<const N: usize> schemars::JsonSchema for FixedBytes<N> {
 
 impl<'b, C: cbor::HasProtocolVersion, const N: usize> cbor::Decode<'b, C> for FixedBytes<N> {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Self::checked(&cbor::decode_bytes_with(d, ctx)?).map_err(|e| cbor::decode::Error::message(e.to_string()))
+        Self::checked(&cbor::decode_bytes_v12_indefinite(d, ctx)?)
+            .map_err(|e| cbor::decode::Error::message(e.to_string()))
     }
 }
 

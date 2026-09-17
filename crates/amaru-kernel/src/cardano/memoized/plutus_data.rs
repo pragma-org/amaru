@@ -122,8 +122,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        PlutusData,
-        plutus_data::{BigInt, BoundedBytes, Constr, VariableEncodingConstr, any_bigint, any_bounded_bytes},
+        Bytes, PlutusData,
+        plutus_data::{BigInt, Constr, VariableEncodingConstr, any_bigint, any_bounded_bytes},
         utils::cbor::{CborArray, CborMap},
     };
 
@@ -138,7 +138,7 @@ mod tests {
         Constr(VariableEncodingConstr<VariableEncodingPlutusData>),
         Map(CborMap<VariableEncodingPlutusData, VariableEncodingPlutusData>),
         BigInt(BigInt),
-        BoundedBytes(BoundedBytes),
+        BoundedBytes(Bytes),
         Array(CborArray<VariableEncodingPlutusData>),
     }
 
@@ -192,7 +192,7 @@ mod tests {
                     e.encode_with(a, ctx)?;
                 }
                 Self::BoundedBytes(a) => {
-                    e.encode_with(a, ctx)?;
+                    cbor::encode_bytestring(e, a)?;
                 }
                 Self::Array(a) => {
                     e.encode_with(a, ctx)?;
@@ -269,7 +269,7 @@ mod tests {
 
         #[test]
         fn json_is_hex_string_and_cbor_is_byte_string() {
-            let data = PlutusData::BoundedBytes(crate::BoundedBytes::from(vec![1, 2, 3]));
+            let data = PlutusData::BoundedBytes(vec![1, 2, 3].into());
             let value = MemoizedPlutusData::new(data).expect("encode");
             let payload = value.original_bytes().to_vec();
             crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr(&value, &payload);

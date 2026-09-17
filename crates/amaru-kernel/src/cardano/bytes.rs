@@ -63,7 +63,7 @@ impl<C> cbor::Encode<C> for Bytes {
 
 impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for Bytes {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Ok(Bytes(cbor::bytes::ByteVec::from(cbor::decode_bytes_with(d, ctx)?.into_owned())))
+        Ok(Bytes(cbor::bytes::ByteVec::from(cbor::decode_bytes_v12_indefinite(d, ctx)?.into_owned())))
     }
 }
 
