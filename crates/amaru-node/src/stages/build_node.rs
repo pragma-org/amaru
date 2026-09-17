@@ -51,7 +51,7 @@ use parking_lot::Mutex;
 use tokio::runtime::Handle;
 
 use crate::{
-    ClearValidity, realign_chain_store_to,
+    ClearValidity, ensure_store_consistency, realign_chain_store_to,
     stages::{
         build_stage_graph::{NodeStages, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
@@ -65,6 +65,8 @@ use crate::{
 /// [`Meter`] when unset.
 ///
 /// For the common embedding path prefer [`crate::NodeBuilder`].
+/// Incompatible ledger and chain tips return an error downcastable to
+/// [`crate::StoreRecoveryRequired`].
 pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<NodeRunning> {
     init_resolver()?;
     let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
@@ -139,9 +141,7 @@ pub fn build_node(
     let ledger_tip = state.tip().into_owned();
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
-    let pool_summaries = state.pool_summaries();
-    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
-    let max_epoch = pool_summaries.max_epoch();
+    ensure_store_consistency(chain_store.as_ref(), ledger_tip)?;
 
     // Production restarts drop the volatile ledger, so the chain store can be ahead of the
     // persisted ledger tip. Rewind the best-chain pointer to that tip.
@@ -149,6 +149,10 @@ pub fn build_node(
         initialize_chain_store(chain_store.clone(), ledger_tip)?;
     }
     let ledger_tip = chain_store.load_point(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
+
+    let pool_summaries = state.pool_summaries();
+    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
+    let max_epoch = pool_summaries.max_epoch();
 
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.

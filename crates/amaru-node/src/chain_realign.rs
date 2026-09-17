@@ -16,6 +16,27 @@ use amaru_kernel::{ORIGIN_HASH, Point};
 use amaru_observability::{debug, info, info_record};
 use amaru_ouroboros::ChainStore;
 use anyhow::bail;
+use thiserror::Error;
+
+/// The ledger and adopted chain describe incompatible tips and require explicit recovery.
+#[derive(Debug, Error)]
+#[error(
+    "ledger tip {ledger_tip} is not on the adopted chain ending at {chain_tip}; run `amaru mithril sync` to recover the stores, or rebootstrap the node if recovery is not possible"
+)]
+pub struct StoreRecoveryRequired {
+    pub ledger_tip: Point,
+    pub chain_tip: Point,
+}
+
+/// Reject store combinations that normal startup cannot safely reconcile.
+pub fn ensure_store_consistency(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<(), StoreRecoveryRequired> {
+    let chain_tip = chain_store.get_best_chain_tip();
+    if chain_tip == Point::Origin || chain_store.is_on_best_chain(ledger_tip.into()) {
+        Ok(())
+    } else {
+        Err(StoreRecoveryRequired { ledger_tip, chain_tip })
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClearValidity {
@@ -119,6 +140,8 @@ mod tests {
             chain_store.roll_forward_chain(&header.point()).unwrap();
         }
         chain_store.set_anchor_point(&h0.point()).unwrap();
+
+        ensure_store_consistency(chain_store.as_ref(), h1.point()).unwrap();
 
         realign_chain_store_to(chain_store.as_ref(), h1.point(), ClearValidity::ValidOnly).unwrap();
 
@@ -246,6 +269,10 @@ mod tests {
             chain_store.roll_forward_chain(&header.point()).unwrap();
         }
         chain_store.set_anchor_point(&h0.point()).unwrap();
+
+        let error = ensure_store_consistency(chain_store.as_ref(), h1a.point()).unwrap_err();
+        assert_eq!(error.ledger_tip, h1a.point());
+        assert_eq!(error.chain_tip, h1.point());
 
         let error =
             realign_chain_store_to(chain_store.as_ref(), h1a.point(), ClearValidity::All).unwrap_err().to_string();

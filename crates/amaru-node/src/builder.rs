@@ -256,6 +256,9 @@ impl NodeBuilder {
     /// The runtime is **not** taken from ambient context: pass an explicit
     /// [`Handle`] (for example `runtime.handle()` or `Handle::current()` when
     /// you are already inside that runtime).
+    ///
+    /// Incompatible ledger and chain tips return an error downcastable to
+    /// [`crate::StoreRecoveryRequired`].
     pub fn build_and_run(self, runtime: &Handle) -> anyhow::Result<NodeRunning> {
         let config = self.build()?;
         build_and_run_node(config, runtime)

@@ -1349,9 +1349,12 @@ fn test_honest_payload_cap_is_five_preprod_slots() {
 fn test_long_tail_payload_delay_is_not_uniform_over_five_slots() {
     const N: u64 = 4096;
     let samples: Vec<u64> = (0..N).map(|index| long_tail_payload_delay_nanos(SEED, index)).collect();
-    let short = samples.iter().filter(|d| (WIRE_DELAY_MIN_NANOS..=WIRE_DELAY_MAX_NANOS).contains(d)).count();
-    let long =
-        samples.iter().filter(|d| (LONG_TAIL_PAYLOAD_MIN_NANOS..=HONEST_PAYLOAD_DELAY_MAX_NANOS).contains(d)).count();
+    let short = samples.iter().copied().filter(|d| (WIRE_DELAY_MIN_NANOS..=WIRE_DELAY_MAX_NANOS).contains(d)).count();
+    let long = samples
+        .iter()
+        .copied()
+        .filter(|d| (LONG_TAIL_PAYLOAD_MIN_NANOS..=HONEST_PAYLOAD_DELAY_MAX_NANOS).contains(d))
+        .count();
     assert!(
         short * 10 > samples.len(),
         "almost all samples must stay in the 1–5ms hop, not a uniform [1ms, 5s] draw; short={short}/{}",
