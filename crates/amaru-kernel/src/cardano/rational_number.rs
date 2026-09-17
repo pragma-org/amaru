@@ -78,7 +78,6 @@ impl RationalNumber {
     }
 }
 
-
 // ------------------------------------------------------------------- SafeRatio
 
 pub type SafeRatio = Ratio<BigUint>;

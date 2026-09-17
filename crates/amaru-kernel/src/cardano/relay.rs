@@ -16,8 +16,7 @@ use std::{fmt, net::Ipv6Addr};
 
 use serde::ser::SerializeStruct;
 
-use crate::cardano::fixed_bytes::FixedBytes;
-use crate::{MaxString128, cbor};
+use crate::{MaxString128, cardano::fixed_bytes::FixedBytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Relay {

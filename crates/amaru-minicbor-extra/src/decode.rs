@@ -79,6 +79,7 @@ pub fn decode_string<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, str>, deco
         return Ok(Cow::Owned(string));
     }
 
+    #[expect(clippy::disallowed_methods)]
     Ok(Cow::Borrowed(d.str()?))
 }
 
