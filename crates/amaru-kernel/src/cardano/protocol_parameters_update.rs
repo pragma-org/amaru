@@ -20,9 +20,7 @@ use proptest::{
     prelude::{Arbitrary, BoxedStrategy, Strategy, any},
 };
 
-use crate::{
-    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, cbor,
-};
+use crate::{cbor, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, UnitRationalNumber};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
@@ -262,8 +260,8 @@ impl Arbitrary for ProtocolParamUpdate {
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         let network = (
-            option::of(any::<u64>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
+            option::of(any::<u32>()),
             option::of(any::<u16>()),
             option::of(any::<u64>()),
             option::of(any::<ExUnits>()),
@@ -275,7 +273,7 @@ impl Arbitrary for ProtocolParamUpdate {
             option::of(any::<u64>()),
             option::of(any::<Lovelace>()),
             option::of(any::<Lovelace>()),
-            option::of(any::<RationalNumber>()),
+            option::of(any::<UnitRationalNumber>()),
             option::of(any::<RationalNumber>()),
             option::of(any::<Lovelace>()),
             option::of(any::<Lovelace>()),
@@ -283,7 +281,7 @@ impl Arbitrary for ProtocolParamUpdate {
             option::of(any::<RationalNumber>()),
         );
         let technical = (
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
             option::of(any::<u16>()),
             option::of(any::<RationalNumber>()),
             option::of(any::<u16>()),
