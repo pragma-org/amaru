@@ -16,9 +16,15 @@ use amaru_minicbor_extra::{decode_bytes, decode_string};
 
 use crate::{Int, cbor};
 
-/// A piece of (structured) metadata found in transaction.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
-pub enum Metadatum {
+/// A piece of (structured) metadata found in transaction
+#[derive(Debug, PartialEq, Eq, Clone, serde::Deserialize)]
+#[serde(try_from = "Vec<Node>")]
+pub struct Metadatum {
+    nodes: Vec<Node>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
+enum Node {
     // NOTE: CBOR (signed) integers
     //
     // We use CBOR's Int here and not a Rust's i64 because CBOR's signed integers are encoded next
@@ -35,27 +41,146 @@ pub enum Metadatum {
     Int(Int),
     Bytes(#[serde(with = "crate::utils::serde::bytes")] Vec<u8>),
     Text(String),
-    Array(Vec<Metadatum>),
+    Array { children: usize },
     // NOTE: Association list, not a dictionary
     //
     // The ledger preserves both the order of the entries and any duplicate keys; on-chain metadata
     // does contain duplicate keys, and the auxiliary data digest is computed over those exact
     // bytes. Collapsing them into a map would silently drop entries.
-    Map(Vec<(Metadatum, Metadatum)>),
+    Map { entries: usize },
 }
 
-/// FIXME(cbor): Multi-era
-///
-/// Ensure that this decoder is multi-era capable
-impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        use cbor::data::Type::*;
+impl Metadatum {
+    pub fn int(value: Int) -> Self {
+        Self { nodes: vec![Node::Int(value)] }
+    }
+
+    pub fn bytes(value: Vec<u8>) -> Self {
+        Self { nodes: vec![Node::Bytes(value)] }
+    }
+
+    pub fn text(value: String) -> Self {
+        Self { nodes: vec![Node::Text(value)] }
+    }
+
+    pub fn array(items: Vec<Self>) -> Self {
+        let mut nodes = vec![Node::Array { children: items.len() }];
+        nodes.extend(items.into_iter().flat_map(|item| item.nodes));
+
+        Self { nodes }
+    }
+
+    pub fn map(entries: Vec<(Self, Self)>) -> Self {
+        let mut nodes = vec![Node::Map { entries: entries.len() }];
+        nodes.extend(entries.into_iter().flat_map(|(key, value)| key.nodes.into_iter().chain(value.nodes)));
+
+        Self { nodes }
+    }
+}
+
+impl serde::Serialize for Metadatum {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.nodes, serializer)
+    }
+}
+
+impl TryFrom<Vec<Node>> for Metadatum {
+    type Error = String;
+
+    fn try_from(nodes: Vec<Node>) -> Result<Self, Self::Error> {
+        let mut owed: usize = 1;
+
+        for (position, node) in nodes.iter().enumerate() {
+            if owed == 0 {
+                return Err(format!("node {position} follows a complete metadatum"));
+            }
+
+            let children = node.children();
+            let remaining = nodes.len() - position - 1;
+
+            if children > remaining {
+                return Err(format!("node {position} claims {children} children with {remaining} left"));
+            }
+
+            owed = owed - 1 + children;
+        }
+
+        if owed > 0 {
+            return Err(format!("metadatum ends owing {owed} more node(s)"));
+        }
+
+        Ok(Self { nodes })
+    }
+}
+
+impl Node {
+    fn children(&self) -> usize {
+        match *self {
+            Self::Array { children } => children,
+            Self::Map { entries } => entries.saturating_mul(2),
+            Self::Int(..) | Self::Bytes(..) | Self::Text(..) => 0,
+        }
+    }
+
+    fn set_count(&mut self, count: usize) {
+        match self {
+            Self::Array { children } => *children = count,
+            Self::Map { entries } => *entries = count,
+            Self::Int(..) | Self::Bytes(..) | Self::Text(..) => {
+                unreachable!("only a container opens a frame")
+            }
+        }
+    }
+}
+
+/// A container whose children are still being decoded.
+struct Frame {
+    index: usize,
+    /// Nodes the container still owes, or `None` when it is indefinite and so ends on a break.
+    remaining: Option<u64>,
+    counted: usize,
+    stride: usize,
+}
+
+impl Frame {
+    fn next_child(&mut self, d: &mut cbor::Decoder<'_>) -> Result<bool, cbor::decode::Error> {
+        match self.remaining {
+            Some(0) => return Ok(false),
+            Some(remaining) => self.remaining = Some(remaining - 1),
+            None if self.counted.is_multiple_of(self.stride) && cbor::decode_break(d, None)? => return Ok(false),
+            None => {}
+        }
+
+        self.counted += 1;
+
+        Ok(true)
+    }
+
+    fn count(&self) -> usize {
+        self.counted / self.stride
+    }
+}
+
+fn open(stack: &mut Vec<Frame>, len: Option<u64>, index: usize, stride: usize) -> usize {
+    stack.push(Frame { index, remaining: len.map(|len| len.saturating_mul(stride as u64)), counted: 0, stride });
+
+    len.unwrap_or(0) as usize
+}
+
+fn decode_nodes(d: &mut cbor::Decoder<'_>) -> Result<Vec<Node>, cbor::decode::Error> {
+    use cbor::data::Type::*;
+
+    let mut nodes = Vec::new();
+    let mut stack: Vec<Frame> = Vec::new();
+
+    loop {
+        let index = nodes.len();
 
         #[allow(clippy::wildcard_enum_match_arm)]
         match d.datatype()? {
             U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | Int => {
                 let i = d.decode()?;
-                Ok(Metadatum::Int(i))
+                nodes.push(Node::Int(i));
             }
             // Conformance: the Haskell node accepts indefinite-length bytes and text inside metadata
             // at every protocol version (`decodeMetadatum` has explicit TypeBytesIndef/TypeStringIndef branches),
@@ -65,32 +190,51 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
                 if bytes.len() > 64 {
                     return Err(cbor::decode::Error::message(format!("bytes exceeds 64 bytes: got {}", bytes.len())));
                 }
-                Ok(Metadatum::Bytes(bytes))
+                nodes.push(Node::Bytes(bytes));
             }
             String | StringIndef => {
                 let text: std::string::String = decode_string(d)?.into_owned();
                 if text.len() > 64 {
                     return Err(cbor::decode::Error::message(format!("text exceeds 64 bytes: got {}", text.len())));
                 }
-                Ok(Metadatum::Text(text))
+                nodes.push(Node::Text(text));
             }
-            Array | ArrayIndef => Ok(Metadatum::Array(d.decode_with(ctx)?)),
+            Array | ArrayIndef => {
+                let children = open(&mut stack, d.array()?, index, 1);
+                nodes.push(Node::Array { children });
+            }
             Map | MapIndef => {
-                let pairs = cbor::heterogeneous_map(
-                    d,
-                    Vec::new(),
-                    |d| d.decode::<Metadatum>(),
-                    |d, pairs, key| {
-                        pairs.push((key, d.decode_with(ctx)?));
-                        Ok(())
-                    },
-                )?;
-                Ok(Metadatum::Map(pairs))
+                let entries = open(&mut stack, d.map()?, index, 2);
+                nodes.push(Node::Map { entries });
             }
             any => {
-                Err(cbor::decode::Error::message(format!("unexpected CBOR datatype {any:?} when decoding metadatum")))
+                return Err(cbor::decode::Error::message(format!(
+                    "unexpected CBOR datatype {any:?} when decoding metadatum"
+                )));
             }
         }
+
+        while let Some(frame) = stack.last_mut() {
+            if frame.next_child(d)? {
+                break;
+            }
+
+            let frame = stack.pop().unwrap_or_else(|| unreachable!("frame observed on the line above"));
+            nodes[frame.index].set_count(frame.count());
+        }
+
+        if stack.is_empty() {
+            return Ok(nodes);
+        }
+    }
+}
+
+/// FIXME(cbor): Multi-era
+///
+/// Ensure that this decoder is multi-era capable
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(Self { nodes: decode_nodes(d)? })
     }
 }
 
@@ -100,27 +244,25 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Metadatum {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self {
-            Metadatum::Int(a) => {
-                e.encode_with(a, ctx)?;
-            }
-            Metadatum::Bytes(a) => {
-                e.encode_with(<&cbor::bytes::ByteSlice>::from(a.as_slice()), ctx)?;
-            }
-            Metadatum::Text(a) => {
-                e.encode_with(a, ctx)?;
-            }
-            Metadatum::Array(a) => {
-                e.encode_with(a, ctx)?;
-            }
-            Metadatum::Map(pairs) => {
-                e.map(pairs.len() as u64)?;
-                for (k, v) in pairs {
-                    e.encode_with(k, ctx)?;
-                    e.encode_with(v, ctx)?;
+        for node in &self.nodes {
+            match node {
+                Node::Int(a) => {
+                    e.encode_with(a, ctx)?;
+                }
+                Node::Bytes(a) => {
+                    e.encode_with(<&cbor::bytes::ByteSlice>::from(a.as_slice()), ctx)?;
+                }
+                Node::Text(a) => {
+                    e.encode_with(a, ctx)?;
+                }
+                Node::Array { children } => {
+                    e.array(*children as u64)?;
+                }
+                Node::Map { entries } => {
+                    e.map(*entries as u64)?;
                 }
             }
-        };
+        }
 
         Ok(())
     }
@@ -134,23 +276,23 @@ mod tests {
     use crate::{Int, from_cbor_no_leftovers, to_cbor};
 
     fn int(n: i128) -> Metadatum {
-        Metadatum::Int(Int::try_from(n).unwrap())
+        Metadatum::int(Int::try_from(n).unwrap())
     }
 
     fn bytes(b: &[u8]) -> Metadatum {
-        Metadatum::Bytes(b.to_vec())
+        Metadatum::bytes(b.to_vec())
     }
 
     fn text(s: &str) -> Metadatum {
-        Metadatum::Text(s.to_string())
+        Metadatum::text(s.to_string())
     }
 
     fn list(xs: &[Metadatum]) -> Metadatum {
-        Metadatum::Array(xs.to_vec())
+        Metadatum::array(xs.to_vec())
     }
 
     fn map(kvs: &[(Metadatum, Metadatum)]) -> Metadatum {
-        Metadatum::Map(kvs.to_vec())
+        Metadatum::map(kvs.to_vec())
     }
 
     #[test_case("00", int(0))]
@@ -267,13 +409,13 @@ mod tests {
     }
 
     #[test]
-    fn bytes_variant_json_is_hex_string_and_cbor_is_byte_string() {
-        let value = Metadatum::Bytes(vec![0xab, 0xcd]);
+    fn bytes_node_json_is_hex_string_and_cbor_is_byte_string() {
+        let value = Metadatum::bytes(vec![0xab, 0xcd]);
         let json = serde_json::to_value(&value).expect("json");
-        assert_eq!(json, serde_json::json!({"Bytes": "abcd"}));
+        assert_eq!(json, serde_json::json!([{"Bytes": "abcd"}]));
         assert_eq!(serde_json::from_value::<Metadatum>(json).expect("parse hex json"), value);
         assert_eq!(
-            serde_json::from_value::<Metadatum>(serde_json::json!({"Bytes": [171, 205]}))
+            serde_json::from_value::<Metadatum>(serde_json::json!([{"Bytes": [171, 205]}]))
                 .expect("parse integer-array json"),
             value
         );
@@ -283,11 +425,99 @@ mod tests {
         let decoded: Metadatum = cbor4ii::serde::from_slice(&buf).expect("decode");
         assert_eq!(decoded, value);
         let cbor_value: cbor4ii::core::Value = cbor4ii::serde::from_slice(&buf).expect("value");
-        let cbor4ii::core::Value::Map(entries) = cbor_value else {
-            panic!("expected map encoding of enum, got {cbor_value:?}");
+        let cbor4ii::core::Value::Array(nodes) = cbor_value else {
+            panic!("expected array encoding of the node list, got {cbor_value:?}");
+        };
+        let Some(cbor4ii::core::Value::Map(entries)) = nodes.into_iter().next() else {
+            panic!("expected map encoding of enum");
         };
         let Some((_, cbor4ii::core::Value::Bytes(_))) = entries.into_iter().next() else {
-            panic!("Bytes variant payload should be a CBOR byte string");
+            panic!("Bytes node payload should be a CBOR byte string");
         };
+    }
+
+    #[test_case(r#"[]"#; "no root")]
+    #[test_case(r#"[{"Int":1},{"Int":2}]"#; "trailing node")]
+    #[test_case(r#"[{"Array":{"children":5}}]"#; "array missing its children")]
+    #[test_case(r#"[{"Map":{"entries":1}},{"Int":1}]"#; "map missing its value")]
+    fn deserialize_rejects_an_ill_formed_node_list(json: &str) {
+        if let Ok(metadatum) = serde_json::from_str::<Metadatum>(json) {
+            panic!("{metadatum:#?}");
+        }
+    }
+
+    /// Each case runs on a thread with an explicitly sized stack. `.cargo/config.toml` raises
+    /// `RUST_MIN_STACK` for cargo-launched processes and a deployed node does not inherit it.
+    /// A regression here crashes the test binary rather than reporting a failure.
+    mod depth {
+        use std::{error::Error, thread};
+
+        use test_case::test_case;
+
+        use crate::{Metadatum, from_cbor_no_leftovers, to_cbor};
+
+        type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
+
+        const DEFAULT_STACK: usize = 2 * 1024 * 1024;
+
+        const MAX_TX_SIZE: usize = 16384;
+
+        #[test_case(&[0x81], &[]; "definite arrays")]
+        #[test_case(&[0x9f], &[0xff]; "indefinite arrays")]
+        #[test_case(&[0xa1, 0x00], &[]; "definite maps")]
+        #[test_case(&[0xbf, 0x00], &[0xff]; "indefinite maps")]
+        fn handles_the_deepest_metadatum_a_transaction_can_hold(
+            open: &'static [u8],
+            close: &'static [u8],
+        ) -> TestResult {
+            on_a_default_stack(move || {
+                let bytes = nested(MAX_TX_SIZE / (open.len() + close.len()), open, close);
+                let metadatum: Metadatum = from_cbor_no_leftovers(&bytes)?;
+
+                let clone = metadatum.clone();
+                assert_eq!(clone, metadatum);
+                drop(clone);
+
+                assert_eq!(from_cbor_no_leftovers::<Metadatum>(&to_cbor(&metadatum))?, metadatum);
+
+                Ok(())
+            })
+        }
+
+        #[test]
+        fn serde_round_trips_the_deepest_metadatum_a_transaction_can_hold() -> TestResult {
+            on_a_default_stack(|| {
+                let bytes = nested(MAX_TX_SIZE, &[0x81], &[]);
+                let metadatum: Metadatum = from_cbor_no_leftovers(&bytes)?;
+
+                let json = serde_json::to_string(&metadatum)?;
+                assert_eq!(serde_json::from_str::<Metadatum>(&json)?, metadatum);
+
+                Ok(())
+            })
+        }
+
+        fn nested(depth: usize, open: &[u8], close: &[u8]) -> Vec<u8> {
+            const LEAF: [u8; 1] = [0x00];
+
+            let mut bytes = Vec::with_capacity((open.len() + close.len()) * depth + LEAF.len());
+
+            for _ in 0..depth {
+                bytes.extend_from_slice(open);
+            }
+            bytes.extend_from_slice(&LEAF);
+            for _ in 0..depth {
+                bytes.extend_from_slice(close);
+            }
+
+            bytes
+        }
+
+        fn on_a_default_stack(test: impl FnOnce() -> TestResult + Send + 'static) -> TestResult {
+            match thread::Builder::new().stack_size(DEFAULT_STACK).spawn(test)?.join() {
+                Ok(result) => result,
+                Err(_) => Err("the test thread panicked, see the failure reported above".into()),
+            }
+        }
     }
 }
