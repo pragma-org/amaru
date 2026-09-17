@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion, RationalNumber, UnitRationalNumber, cbor};
+use crate::{
+    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
+    ProtocolParamUpdate, ProtocolVersion, RationalNumber, UnitRationalNumber, cbor,
+};
 
 mod default;
 pub use default::*;
@@ -134,12 +137,13 @@ impl ProtocolParameters {
 mod fixture {
     use std::fmt;
 
+    use serde::de::{Error, IgnoredAny, MapAccess, Visitor};
+
     use super::{
         CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParameters,
         ProtocolVersion, RationalNumber,
     };
     use crate::UnitRationalNumber;
-    use serde::de::{Error, IgnoredAny, MapAccess, Visitor};
 
     // NOTE: Hand-written deserializer for the protocol parameters fixture
     //
@@ -409,7 +413,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
             treasury_expansion_rate,
             min_pool_cost,
             lovelace_per_utxo_byte,
-            cost_models: CostModels { plutus_v1, plutus_v2, plutus_v3 },
+            cost_models: CostModels { plutus_v1, plutus_v2, plutus_v3, unknown: Default::default() },
             prices,
             max_tx_ex_units,
             max_block_ex_units,
@@ -637,6 +641,7 @@ mod tests {
                 plutus_v1,
                 plutus_v2,
                 plutus_v3,
+                unknown: Default::default(),
             }
         }
     }
