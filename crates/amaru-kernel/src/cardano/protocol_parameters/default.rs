@@ -16,7 +16,7 @@ use std::sync::LazyLock;
 
 use crate::{
     CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PROTOCOL_VERSION_10, PoolVotingThresholds,
-    ProtocolParameters, RationalNumber, UnitRationalNumber
+    ProtocolParameters, RationalNumber, UnitRationalNumber,
 };
 
 /// Latest cost models for Plutus V1
@@ -114,6 +114,7 @@ pub static MAINNET_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
         plutus_v1: Some(Vec::from(DEFAULT_V1_COST_MODEL)),
         plutus_v2: Some(Vec::from(DEFAULT_V2_COST_MODEL)),
         plutus_v3: Some(Vec::from(DEFAULT_V3_COST_MODEL)),
+        unknown: Default::default(),
     },
     pool_voting_thresholds: PoolVotingThresholds {
         motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
@@ -189,6 +190,7 @@ pub static PREPROD_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
             plutus_v1: Some(Vec::from(DEFAULT_V1_COST_MODEL)),
             plutus_v2: Some(Vec::from(DEFAULT_V2_COST_MODEL)),
             plutus_v3: Some(Vec::from(DEFAULT_V3_COST_MODEL)),
+            unknown: Default::default(),
         },
         pool_voting_thresholds: PoolVotingThresholds {
             motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
@@ -265,6 +267,7 @@ pub static PREVIEW_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
             plutus_v1: Some(Vec::from(DEFAULT_V1_COST_MODEL)),
             plutus_v2: Some(Vec::from(DEFAULT_V2_COST_MODEL)),
             plutus_v3: Some(Vec::from(DEFAULT_V3_COST_MODEL)),
+            unknown: Default::default(),
         },
         pool_voting_thresholds: PoolVotingThresholds {
             motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
