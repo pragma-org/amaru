@@ -16,7 +16,13 @@ use crate::{Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_H
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuxiliaryData {
-    original_size: u64,
+    /// The bytes exactly as received.
+    ///
+    /// Auxiliary data is hashed into the transaction body, and the Shelley, Allegra and Conway forms
+    /// are all still valid on chain, so re-encoding it into a single canonical form would change the
+    /// bytes, and with them the hash. The Haskell ledger keeps them for the same reason, as
+    /// `MemoBytes (AlonzoTxAuxDataRaw era)`.
+    original_bytes: Vec<u8>,
 
     hash: Hash<{ AuxiliaryData::HASH_SIZE }>,
 
@@ -43,7 +49,7 @@ impl AuxiliaryData {
     #[allow(clippy::len_without_is_empty)]
     /// Original size of the serialised bytes
     pub fn len(&self) -> u64 {
-        self.original_size
+        self.original_bytes.len() as u64
     }
 
     /// Obtain the transaction metadata key-value pairs.
@@ -71,7 +77,7 @@ impl Default for AuxiliaryData {
     fn default() -> Self {
         Self {
             hash: NULL_HASH32,
-            original_size: 0,
+            original_bytes: Vec::default(),
             metadata: KeyValuePairs::default(),
             native_scripts: Vec::default(),
             plutus_v1_scripts: Vec::default(),
@@ -116,7 +122,6 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for AuxiliaryData {
         use cbor::data::Type::*;
 
         let original_bytes = d.input();
-
         let start_position = d.position();
 
         #[allow(clippy::wildcard_enum_match_arm)]
@@ -128,12 +133,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for AuxiliaryData {
         }?;
 
         let end_position = d.position();
+        let bytes = &original_bytes[start_position..end_position];
 
-        Ok(Self {
-            hash: Hasher::<256>::hash(&original_bytes[start_position..end_position]),
-            original_size: (end_position - start_position) as u64,
-            ..aux_data
-        })
+        Ok(Self { hash: Hasher::<256>::hash(bytes), original_bytes: bytes.to_vec(), ..aux_data })
     }
 }
 
@@ -143,41 +145,9 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AuxiliaryData {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
+        _ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.tag(cbor::TAG_MAP_259)?;
-
-        let present = [
-            !self.metadata.is_empty(),
-            !self.native_scripts.is_empty(),
-            !self.plutus_v1_scripts.is_empty(),
-            !self.plutus_v2_scripts.is_empty(),
-            !self.plutus_v3_scripts.is_empty(),
-        ];
-
-        e.map(present.iter().filter(|is_present| **is_present).count() as u64)?;
-
-        if present[0] {
-            e.u8(0)?;
-            e.encode_with(&self.metadata, ctx)?;
-        }
-        if present[1] {
-            e.u8(1)?;
-            e.encode_with(&self.native_scripts, ctx)?;
-        }
-        if present[2] {
-            e.u8(2)?;
-            e.encode_with(&self.plutus_v1_scripts, ctx)?;
-        }
-        if present[3] {
-            e.u8(3)?;
-            e.encode_with(&self.plutus_v2_scripts, ctx)?;
-        }
-        if present[4] {
-            e.u8(4)?;
-            e.encode_with(&self.plutus_v3_scripts, ctx)?;
-        }
-
+        e.writer_mut().write_all(self.original_bytes.as_slice()).map_err(cbor::encode::Error::write)?;
         Ok(())
     }
 }
