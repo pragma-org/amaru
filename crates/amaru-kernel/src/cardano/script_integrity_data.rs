@@ -131,7 +131,12 @@ mod tests {
     use crate::PlutusVersion::*;
 
     fn fixture_cost_models() -> CostModels {
-        CostModels { plutus_v1: Some(vec![1]), plutus_v2: Some(vec![2]), plutus_v3: Some(vec![3]) }
+        CostModels {
+            plutus_v1: Some(vec![1]),
+            plutus_v2: Some(vec![2]),
+            plutus_v3: Some(vec![3]),
+            unknown: Default::default(),
+        }
     }
 
     fn no_v1_cost_models() -> CostModels {

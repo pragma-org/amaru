@@ -397,15 +397,16 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
 
 impl ToPlutusData<3> for CostModels {
     /// The ledger flattens the cost models into a map from language identifier to a cost model:
-    /// 0 (V1), 1 (V2), 2 (V3), in ascending order.
+    /// 0 (V1), 1 (V2), 2 (V3), then any unknown languages (3..255), in ascending order.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let CostModels { plutus_v1, plutus_v2, plutus_v3 } = self;
+        let CostModels { plutus_v1, plutus_v2, plutus_v3, unknown } = self;
         let mut models = BTreeMap::new();
         for (language, model) in [(0u64, plutus_v1), (1, plutus_v2), (2, plutus_v3)] {
             if let Some(costs) = model {
                 models.insert(language, costs.clone());
             }
         }
+        models.extend(unknown.iter().map(|(language, costs)| (*language as u64, costs.clone())));
         <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&models)
     }
 }
