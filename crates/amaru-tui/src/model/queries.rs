@@ -34,6 +34,49 @@ impl Model {
         self.log_cursor.as_ref().is_some_and(|cursor| std::ptr::eq(cursor.as_ref(), record))
     }
 
+    pub fn log_record_is_selected(&self, record: &TelemetryRecord) -> bool {
+        self.log_selection.is_some_and(|selection| selection.contains(record.at))
+    }
+
+    pub fn selected_log_count(&self) -> Option<usize> {
+        self.log_selection?;
+        Some(self.exported_log_line_count())
+    }
+
+    pub fn log_export_status(&self) -> Option<&str> {
+        self.log_export_status.as_deref()
+    }
+
+    pub fn set_log_export_status(&mut self, status: String) {
+        self.log_export_status = Some(status);
+    }
+
+    /// Currently visible log records in the selected time range, or every visible
+    /// record when nothing is selected.
+    pub fn exported_log_line_count(&self) -> usize {
+        self.exported_log_records().count()
+    }
+
+    pub fn exported_log_text(&self) -> String {
+        let mut text = String::new();
+        for record in self.exported_log_records() {
+            text.push_str(&record.plain_text());
+            text.push('\n');
+        }
+        text
+    }
+
+    fn exported_log_records(&self) -> impl Iterator<Item = &TelemetryRecord> {
+        let selection = self.log_selection;
+        self.logs.view().iter().filter_map(move |item| {
+            let record = item.record()?;
+            if selection.is_some_and(|selection| !selection.contains(record.at)) {
+                return None;
+            }
+            Some(record.as_ref())
+        })
+    }
+
     pub fn prompt_is_open(&self) -> bool {
         self.prompt.is_some()
     }

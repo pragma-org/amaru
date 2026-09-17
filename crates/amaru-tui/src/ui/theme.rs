@@ -108,6 +108,14 @@ pub(super) fn style_for_target(_target: &str) -> Style {
     Style::default().fg(muted_color())
 }
 
+pub(super) fn style_for_log_selection(mode: InteractionMode) -> Style {
+    let background = match mode {
+        InteractionMode::Copy => Color::Rgb(36, 58, 96),
+        InteractionMode::Normal | InteractionMode::Shutdown => Color::Rgb(32, 52, 44),
+    };
+    Style::default().bg(background)
+}
+
 pub(super) fn style_for_log_match(current: bool, mode: InteractionMode) -> Style {
     let background = match (current, mode) {
         (true, InteractionMode::Copy) => Color::Rgb(46, 78, 128),

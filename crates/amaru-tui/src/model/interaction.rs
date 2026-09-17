@@ -19,6 +19,7 @@ use ratatui::layout::Rect;
 use regex::Regex;
 
 use super::{
+    log_selection::LogSelection,
     log_time::TimeJump,
     prompt::{PromptAction, PromptKind, PromptState},
     scrollbar::ScrollbarGeometry,
@@ -66,6 +67,7 @@ impl Model {
     pub fn enter_copy_mode(&mut self) {
         self.interaction_mode = InteractionMode::Copy;
         self.command_menu = CommandMenu::Default;
+        self.log_export_status = None;
     }
 
     pub fn enter_shutdown_mode(&mut self) {
@@ -76,6 +78,8 @@ impl Model {
     pub fn exit_copy_mode(&mut self) {
         self.interaction_mode = InteractionMode::Normal;
         self.command_menu = CommandMenu::Default;
+        self.log_selection = None;
+        self.log_export_status = None;
     }
 
     pub fn is_copy_mode(&self) -> bool {
@@ -174,6 +178,7 @@ impl Model {
 
     pub fn handle_click(&mut self, views: &Views, point: Rect) {
         self.log_scrollbar_drag = false;
+        self.log_select_drag = false;
 
         if let Some(page) = views.page_at(point) {
             self.set_page(page);
@@ -222,6 +227,11 @@ impl Model {
 
         if let Some(filter) = views.target_filter_at(point) {
             self.set_target_filter(filter);
+            return;
+        }
+
+        if self.is_copy_mode() {
+            self.select_log_at_point(views, point);
         }
     }
 
@@ -308,6 +318,11 @@ impl Model {
         match key.code {
             KeyCode::Esc => {
                 if self.is_copy_mode() {
+                    if self.log_selection.is_some() || self.log_export_status.is_some() {
+                        self.log_selection = None;
+                        self.log_export_status = None;
+                        return TerminalEventOutcome::Continue;
+                    }
                     self.exit_copy_mode();
                     return TerminalEventOutcome::ExitCopyMode;
                 }
@@ -318,6 +333,7 @@ impl Model {
                 self.enter_copy_mode();
                 TerminalEventOutcome::EnterCopyMode
             }
+            KeyCode::Char('e') if self.is_copy_mode() && key.modifiers.is_empty() => TerminalEventOutcome::ExportLogs,
             KeyCode::Char('f') if key.modifiers.is_empty() => {
                 self.command_menu = CommandMenu::Logs;
                 TerminalEventOutcome::Continue
@@ -526,7 +542,13 @@ impl Model {
             MouseEventKind::Drag(MouseButton::Left) if self.log_scrollbar_drag => {
                 self.jump_logs_to_track_y(views, mouse.row);
             }
-            MouseEventKind::Up(_) => self.log_scrollbar_drag = false,
+            MouseEventKind::Drag(MouseButton::Left) if self.log_select_drag => {
+                self.drag_log_selection(views, point);
+            }
+            MouseEventKind::Up(_) => {
+                self.log_scrollbar_drag = false;
+                self.log_select_drag = false;
+            }
             MouseEventKind::ScrollDown if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.handle_horizontal_scroll(views, point, 1);
             }
@@ -689,6 +711,7 @@ impl Model {
         if focus != ScrollFocus::Logs {
             self.log_scrollbar_focused = false;
             self.log_scrollbar_drag = false;
+            self.log_select_drag = false;
         }
         self.scroll_focus = focus;
     }
@@ -696,6 +719,34 @@ impl Model {
     fn toggle_log_wrap(&mut self) {
         self.log_wrap = !self.log_wrap;
         self.set_scroll_focus(ScrollFocus::Logs);
+    }
+
+    fn select_log_at_point(&mut self, views: &Views, point: Rect) {
+        let Some(at) = self.log_instant_at(views, point) else {
+            return;
+        };
+        self.log_export_status = None;
+        self.log_selection = Some(match self.log_selection {
+            Some(selection) => selection.click(at),
+            None => LogSelection::point(at),
+        });
+        self.log_select_drag = true;
+        self.set_scroll_focus(ScrollFocus::Logs);
+    }
+
+    fn drag_log_selection(&mut self, views: &Views, point: Rect) {
+        let Some(at) = self.log_instant_at(views, point) else {
+            return;
+        };
+        if let Some(selection) = self.log_selection {
+            self.log_selection = Some(selection.extend(at));
+        }
+    }
+
+    fn log_instant_at(&mut self, views: &Views, point: Rect) -> Option<std::time::Instant> {
+        let index = views.log_view_index_at(point)?;
+        self.sync_logs();
+        self.logs.view().get(index).and_then(|item| item.record()).map(|record| record.at)
     }
 
     const LOG_HSCROLL_STEP: usize = 8;

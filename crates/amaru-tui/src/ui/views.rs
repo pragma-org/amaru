@@ -16,6 +16,12 @@ use ratatui::layout::Rect;
 
 use crate::model::{LevelFilter, Page, ScrollFocus, TargetFilter};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogLineHit {
+    pub y: u16,
+    pub view_index: usize,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Views {
     pub page_tabs: Vec<(Page, Rect)>,
@@ -28,6 +34,7 @@ pub struct Views {
     pub logs_area: Rect,
     pub logs_body: Rect,
     pub logs_scrollbar: Rect,
+    pub log_hits: Vec<LogLineHit>,
     pub peers_area: Rect,
     pub peers_body: Rect,
     pub proposals_area: Rect,
@@ -47,6 +54,7 @@ impl Views {
         self.logs_area = Rect::default();
         self.logs_body = Rect::default();
         self.logs_scrollbar = Rect::default();
+        self.log_hits.clear();
         self.peers_area = Rect::default();
         self.peers_body = Rect::default();
         self.proposals_area = Rect::default();
@@ -102,6 +110,13 @@ impl Views {
 
     pub fn log_scrollbar_at(&self, point: Rect) -> bool {
         contains(self.logs_scrollbar, point)
+    }
+
+    pub fn log_view_index_at(&self, point: Rect) -> Option<usize> {
+        if !contains(self.logs_body, point) {
+            return None;
+        }
+        self.log_hits.iter().find(|hit| hit.y == point.y).map(|hit| hit.view_index)
     }
 }
 

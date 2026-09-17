@@ -347,7 +347,7 @@ fn key_name(code: &KeyCode) -> &str {
     }
 }
 
-fn known_bindings() -> [KeyBinding; 24] {
+fn known_bindings() -> [KeyBinding; 25] {
     [
         KeyBinding::esc(),
         KeyBinding::enter(),
@@ -366,6 +366,7 @@ fn known_bindings() -> [KeyBinding; 24] {
         KeyBinding::home(),
         KeyBinding::end(),
         KeyBinding::new(KeyCode::Char(';'), KeyModifiers::NONE),
+        KeyBinding::new(KeyCode::Char('e'), KeyModifiers::NONE),
         KeyBinding::new(KeyCode::Char('f'), KeyModifiers::NONE),
         KeyBinding::new(KeyCode::Char('q'), KeyModifiers::NONE),
         KeyBinding::new(KeyCode::Char('h'), KeyModifiers::NONE),

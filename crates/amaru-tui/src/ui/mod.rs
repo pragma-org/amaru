@@ -37,6 +37,7 @@ mod screens;
 mod theme;
 mod views;
 
+pub(crate) use self::views::LogLineHit;
 pub use self::views::Views;
 
 pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Instant) {
@@ -266,10 +267,20 @@ fn shell_hint(model: &Model) -> Line<'static> {
             );
         }
         (true, CommandMenu::Default) => {
-            append_control(&mut spans, &model.key_label("esc"), "NORMAL MODE", model);
+            if model.selected_log_count().is_some() || model.log_export_status().is_some() {
+                append_control(&mut spans, &model.key_label("esc"), "CLEAR", model);
+            } else {
+                append_control(&mut spans, &model.key_label("esc"), "NORMAL MODE", model);
+            }
             append_control(&mut spans, model.scroll_navigation_key_label(), "SCROLL", model);
+            append_control(&mut spans, "click", "SELECT", model);
+            append_control(&mut spans, &model.key_label("e"), "EXPORT", model);
             append_control(&mut spans, &model.key_label("f"), "LOGS & FILTERS", model);
             append_control(&mut spans, &model.key_label("q"), "QUIT", model);
+            if let Some(status) = model.log_export_status() {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(status.to_string(), theme::muted()));
+            }
         }
         (false, CommandMenu::Default) => {
             append_control(&mut spans, &model.key_label("esc"), "COPY MODE", model);

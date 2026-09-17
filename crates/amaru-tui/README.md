@@ -58,7 +58,12 @@ cycles focus and `Tab` changes page. Press `f` before selecting log filtering,
 highlighting, time jumps, or wrapping; press `q` again or `y` before shutdown.
 `Esc` always leaves the current command level, switching between normal and
 copy mode only at the top level. Copy mode removes shell and panel borders,
-scrollbars, and separators so selected multiline text can be pasted cleanly.
+scrollbars, and separators. On log pages the mouse stays captured: click a line
+then click another to mark a time range (a later click moves the nearer end;
+drag also works), then `e` writes the currently visible lines in that range
+(or every visible line if nothing is selected) to a plain-text file in the
+working directory. On the Config page, mouse capture is still released so the
+terminal can select text.
 
 `AMARU_TUI_ALIASES` replaces keyboard controls with comma-separated
 `key=alias` entries, for example `esc=~,ctrl+up=j,ctrl+down=k`. The `ctrl+` and

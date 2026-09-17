@@ -17,5 +17,6 @@ pub enum TerminalEventOutcome {
     Continue,
     EnterCopyMode,
     ExitCopyMode,
+    ExportLogs,
     Shutdown,
 }

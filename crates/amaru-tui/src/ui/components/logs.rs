@@ -29,14 +29,14 @@ use super::super::{
     },
     format::format_log_wall_time,
     theme::{
-        emphasis_primary, muted, style_for_level, style_for_level_filter, style_for_log_match, style_for_target,
-        style_for_tier_boundary,
+        emphasis_primary, muted, style_for_level, style_for_level_filter, style_for_log_match, style_for_log_selection,
+        style_for_target, style_for_tier_boundary,
     },
 };
 use crate::{
     events::TelemetryRecord,
     model::{LevelFilter, LogViewItem, Model, RetentionTier, ScrollFocus, TargetFilter},
-    ui::Views,
+    ui::{LogLineHit, Views},
 };
 
 pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
@@ -100,7 +100,10 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     let window = log_window(items.len(), body.height, model.log_scroll);
     let lines =
         items[window.start..window.end].iter().map(|item| log_view_line(item, model, body.width)).collect::<Vec<_>>();
-    let (paragraph, _, _) = log_paragraph(lines, body, window.scroll_from_bottom, model.log_wrap, model.log_hscroll);
+    let row_counts = line_row_counts(&lines, body.width, model.log_wrap);
+    let (paragraph, _, position) =
+        log_paragraph(lines, body, window.scroll_from_bottom, model.log_wrap, model.log_hscroll);
+    populate_log_hits(views, window.start, &row_counts, body, position);
     frame.render_widget(paragraph, body);
 
     let total = items.len();
@@ -269,6 +272,9 @@ fn log_title_spans(model: &Model) -> Vec<Span<'static>> {
     if !model.log_wrap && model.log_hscroll > 0 {
         spans.push(Span::styled(format!("  col {}", model.log_hscroll + 1), muted()));
     }
+    if let Some(count) = model.selected_log_count() {
+        spans.push(Span::styled(format!("  sel {count}"), emphasis_primary(model.interaction_mode)));
+    }
     if !model.text_filter_pattern.is_empty() {
         spans.push(Span::styled(format!("  &{}", truncate_pattern(&model.text_filter_pattern)), muted()));
     }
@@ -303,7 +309,7 @@ fn log_view_line(item: &LogViewItem, model: &Model, width: u16) -> Line<'static>
 }
 
 fn tier_boundary_line(tier: RetentionTier, width: u16, mode: crate::model::InteractionMode) -> Line<'static> {
-    let label = format!(" end of {} retention ", tier.label());
+    let label = format!(" ↑ {} retention ↑ ", tier.label());
     let width = width as usize;
     let line = if width <= label.len() {
         label
@@ -335,10 +341,49 @@ fn log_record_line(record: &TelemetryRecord, model: &Model) -> Line<'static> {
     }
 
     let mut line = Line::from(spans);
+    if model.log_record_is_selected(record) {
+        line = line.patch_style(style_for_log_selection(model.interaction_mode));
+    }
     if model.log_record_is_highlighted(record) {
         line = line.patch_style(style_for_log_match(model.log_record_is_cursor(record), model.interaction_mode));
     }
     line
+}
+
+fn line_row_counts(lines: &[Line<'_>], width: u16, wrap: bool) -> Vec<usize> {
+    lines.iter().map(|line| line_row_count(line, width, wrap)).collect()
+}
+
+fn line_row_count(line: &Line<'_>, width: u16, wrap: bool) -> usize {
+    if !wrap || width == 0 {
+        return 1;
+    }
+    Paragraph::new(line.clone()).wrap(Wrap { trim: false }).line_count(width).max(1)
+}
+
+fn populate_log_hits(views: &mut Views, start: usize, row_counts: &[usize], body: Rect, skip_rows: usize) {
+    views.log_hits.clear();
+    if body.height == 0 || body.width == 0 {
+        return;
+    }
+
+    let mut skip = skip_rows;
+    let mut y = body.y;
+    let bottom = body.y.saturating_add(body.height);
+    for (offset, &rows) in row_counts.iter().enumerate() {
+        let view_index = start + offset;
+        for _ in 0..rows.max(1) {
+            if skip > 0 {
+                skip -= 1;
+                continue;
+            }
+            if y >= bottom {
+                return;
+            }
+            views.log_hits.push(LogLineHit { y, view_index });
+            y = y.saturating_add(1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -421,6 +466,38 @@ mod tests {
         assert_eq!(paragraph_vertical_scroll(10, 20), 10);
         assert_eq!(paragraph_vertical_scroll(usize::MAX, 20), u16::MAX - 20);
         assert_eq!(paragraph_vertical_scroll(u16::MAX as usize, 20), u16::MAX - 20);
+    }
+
+    #[test]
+    fn line_row_count_is_one_when_unwrap_or_empty_width() {
+        let line = Line::from("abcdefghijklmnop");
+        assert_eq!(line_row_count(&line, 8, false), 1);
+        assert_eq!(line_row_count(&line, 0, true), 1);
+        assert!(line_row_count(&line, 8, true) > 1);
+    }
+
+    #[test]
+    fn populate_log_hits_maps_wrapped_rows_to_the_same_view_index() {
+        let mut views = Views::default();
+        let body = Rect::new(0, 5, 10, 4);
+        populate_log_hits(&mut views, 10, &[1, 2, 1], body, 0);
+        assert_eq!(
+            views.log_hits,
+            vec![
+                LogLineHit { y: 5, view_index: 10 },
+                LogLineHit { y: 6, view_index: 11 },
+                LogLineHit { y: 7, view_index: 11 },
+                LogLineHit { y: 8, view_index: 12 },
+            ]
+        );
+    }
+
+    #[test]
+    fn populate_log_hits_skips_rows_scrolled_off_the_top() {
+        let mut views = Views::default();
+        let body = Rect::new(0, 0, 10, 2);
+        populate_log_hits(&mut views, 0, &[2, 1], body, 1);
+        assert_eq!(views.log_hits, vec![LogLineHit { y: 0, view_index: 0 }, LogLineHit { y: 1, view_index: 1 }]);
     }
 
     #[test]

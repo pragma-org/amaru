@@ -197,9 +197,14 @@ While copy mode is active:
 - the accent switches to a dedicated visual treatment
 - the header indicates the mode clearly
 - command hints reflect the reduced interaction surface
-- mouse capture is released so the terminal can select text
-- shell and widget borders, scrollbars, and separators are omitted so selected
-  multiline content can be pasted without terminal presentation characters
+- on pages that show logs, mouse capture stays enabled so unmodified left
+  clicks can mark a time range of log records (first click, second click, later
+  clicks move the nearer end; drag also works); `e` writes the currently
+  visible lines in that range (or every visible line if nothing is selected) to
+  a plain-text file in the working directory
+- on the Config page, mouse capture is released so the terminal can select text
+- shell and widget borders, scrollbars, and separators are omitted so the log
+  pane is easier to read and so Config text can be copied cleanly
 - directional keys keep scrolling available, while `f` opens the log command
   menu for filtering, highlighting, time jumps, and wrapping
 
