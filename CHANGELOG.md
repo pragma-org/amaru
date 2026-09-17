@@ -52,6 +52,7 @@ Other guiding principles:
 - **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
 - **amaru-kernel**: reject indefinite-length CBOR arrays that hold extra elements beyond the record they encode, anywhere in a block or transaction.
 - **amaru-kernel**: reject malformed Byron addresses in transaction outputs.
+- **amaru-kernel**: deeply nested native scripts no longer crash the node while their block is decoded.
 
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
 

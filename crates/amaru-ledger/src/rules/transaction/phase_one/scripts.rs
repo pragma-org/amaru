@@ -30,10 +30,6 @@ use crate::context::{UtxoSlice, WitnessSlice};
 
 #[derive(Clone, Copy)]
 pub(super) enum ProvidedScript<'a> {
-    // TODO: Use of 'NativeScript'
-    //
-    // This should very likely be 'MemoizedNativeScript'; we could likely get rid of the
-    // 'NativeScript' entirely now already?
     Native(&'a NativeScript),
     PlutusV1,
     PlutusV2,
@@ -72,7 +68,7 @@ impl<'a> From<PlutusVersion> for ProvidedScript<'a> {
 impl<'a> From<&'a MemoizedScript> for ProvidedScript<'a> {
     fn from(script: &'a MemoizedScript) -> Self {
         match script {
-            MemoizedScript::NativeScript(ns) => Self::Native(ns.as_ref()),
+            MemoizedScript::NativeScript(ns) => Self::Native(ns),
             MemoizedScript::PlutusV1Script(_) => Self::PlutusV1,
             MemoizedScript::PlutusV2Script(_) => Self::PlutusV2,
             MemoizedScript::PlutusV3Script(_) => Self::PlutusV3,
@@ -472,7 +468,7 @@ fn collect_witness_scripts(witness_set: &WitnessSet) -> BTreeMap<Hash<SCRIPT>, P
 
     if let Some(scripts) = witness_set.native_script.as_deref() {
         for script in scripts {
-            provided.insert(script.script_hash(), ProvidedScript::Native(script.as_ref()));
+            provided.insert(script.script_hash(), ProvidedScript::Native(script));
         }
     }
 
