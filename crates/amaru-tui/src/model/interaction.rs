@@ -412,7 +412,7 @@ impl Model {
         }
 
         match command {
-            'y' => TerminalEventOutcome::Shutdown,
+            'q' | 'y' => TerminalEventOutcome::Shutdown,
             'n' => {
                 self.command_menu = CommandMenu::Default;
                 TerminalEventOutcome::Continue

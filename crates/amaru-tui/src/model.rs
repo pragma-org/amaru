@@ -1202,6 +1202,14 @@ mod tests {
 
         model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         assert_eq!(model.command_menu, CommandMenu::Quit);
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Shutdown
+        );
+        model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Default);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         model.handle_key_event(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
         assert_eq!(model.command_menu, CommandMenu::Default);
 

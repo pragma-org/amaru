@@ -207,9 +207,10 @@ The normal command footer is deliberately shallow. `Tab` changes page, `;`
 cycles panel focus, and directional keys scroll or pan the focused content.
 Holding `Ctrl` moves by one scrollbar step; `PgUp`, `PgDn`, `Home`, and `End`
 remain available without permanently consuming footer space. Log operations are
-grouped behind `f`, and shutdown requires `q` followed by `y`. `Esc` moves back
-one command level before it exits copy mode. This keeps the always-visible
-controls compact while retaining discoverable labels for less frequent actions.
+grouped behind `f`, and shutdown requires `q` followed by either `q` or `y`.
+`Esc` moves back one command level before it exits copy mode. This keeps the
+always-visible controls compact while retaining discoverable labels for less
+frequent actions.
 
 Operators may replace controls through `AMARU_TUI_ALIASES`, a comma-separated
 list of `key=alias` entries. `c-` and `s-` use Vim-style Ctrl and Shift

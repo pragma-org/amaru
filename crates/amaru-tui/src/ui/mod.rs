@@ -257,7 +257,7 @@ fn shell_hint(model: &Model) -> Line<'static> {
             append_control(&mut spans, &model.key_label("esc"), "CANCEL", model);
         }
         (_, CommandMenu::Quit) => {
-            append_control(&mut spans, &model.key_label("y"), "CONFIRM", model);
+            append_control(&mut spans, &format!("{}|{}", model.key_label("q"), model.key_label("y")), "CONFIRM", model);
             append_control(
                 &mut spans,
                 &format!("{}|{}", model.key_label("esc"), model.key_label("n")),

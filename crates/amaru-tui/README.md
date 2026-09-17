@@ -55,7 +55,7 @@ Keyboard controls deliberately use a small command hierarchy. Directional keys
 scroll the focused panel, with `Ctrl` taking a scrollbar-sized step; `PgUp`,
 `PgDn`, `Home`, and `End` remain available without cluttering the footer. `;`
 cycles focus and `Tab` changes page. Press `f` before selecting log filtering,
-highlighting, time jumps, or wrapping; press `q` then `y` before shutdown.
+highlighting, time jumps, or wrapping; press `q` again or `y` before shutdown.
 `Esc` always leaves the current command level, switching between normal and
 copy mode only at the top level. Copy mode removes shell and panel borders,
 scrollbars, and separators so selected multiline text can be pasted cleanly.
