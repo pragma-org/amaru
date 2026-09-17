@@ -43,6 +43,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-protocols**: a deeply nested CBOR mini-protocol message no longer crashes the node with a stack overflow while mux is splitting frames.
 - **amaru**: make Mithril synchronization resume safely from verified immutable files and reject stale snapshots before replay.
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 - **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
