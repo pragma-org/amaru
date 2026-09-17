@@ -242,50 +242,43 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `cancel` | `TRACE` | public | Cancel a long-running bootstrap phase | phase, current, elapsed_seconds | total |
-| `complete` | `TRACE` | public | Complete a long-running bootstrap phase | phase, current, elapsed_seconds | total |
-| `start` | `TRACE` | public | Start a long-running bootstrap phase | phase | total |
-| `update` | `TRACE` | public | Report non-terminal progress for a long-running bootstrap phase | phase, current, elapsed_seconds | total |
-
-<details><summary>span: `cancel`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `phase` | `string` | ✓ |
-| `current` | `integer` | ✓ |
-| `elapsed_seconds` | `number` | ✓ |
-| `total` | `integer` |  |
-
-</details>
+| `complete` | `TRACE` | public | Report successful bootstrap completion | epoch, point |  |
+| `download` | `TRACE` | public | Report absolute aggregate snapshot download progress | downloaded_bytes, completed_snapshots |  |
+| `snapshots_selected` | `TRACE` | public | Report the selected snapshot window and its aggregate compressed size | snapshot_count | total_bytes |
+| `stage` | `TRACE` | public | Enter a canonical bootstrap stage | stage |  |
 
 <details><summary>span: `complete`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `phase` | `string` | ✓ |
-| `current` | `integer` | ✓ |
-| `elapsed_seconds` | `number` | ✓ |
-| `total` | `integer` |  |
+| `epoch` | `integer` | ✓ |
+| `point` | `string` | ✓ |
 
 </details>
 
-<details><summary>span: `start`</summary>
+<details><summary>span: `download`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `phase` | `string` | ✓ |
-| `total` | `integer` |  |
+| `downloaded_bytes` | `integer` | ✓ |
+| `completed_snapshots` | `integer` | ✓ |
 
 </details>
 
-<details><summary>span: `update`</summary>
+<details><summary>span: `snapshots_selected`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `phase` | `string` | ✓ |
-| `current` | `integer` | ✓ |
-| `elapsed_seconds` | `number` | ✓ |
-| `total` | `integer` |  |
+| `snapshot_count` | `integer` | ✓ |
+| `total_bytes` | `integer` |  |
+
+</details>
+
+<details><summary>span: `stage`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `stage` | `string` | ✓ |
 
 </details>
 
@@ -2290,6 +2283,62 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `id` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 | `validation_error` | `string` |  |
+
+</details>
+
+## target: `amaru::mithril::progress`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `complete` | `TRACE` | public | Mithril synchronization completed successfully | point, processed_blocks |  |
+| `download` | `TRACE` | public | Absolute Mithril database download progress | downloaded_bytes, completed_files, total_files | total_bytes |
+| `ingest` | `TRACE` | public | Absolute block ingestion progress | blocks, point |  |
+| `snapshot` | `TRACE` | public | Selected the applicable Mithril snapshot | hash, through_chunk |  |
+| `stage` | `TRACE` | public | Mithril synchronization entered a new stage | stage |  |
+
+<details><summary>span: `complete`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `array` | ✓ |
+| `processed_blocks` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `download`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `downloaded_bytes` | `integer` | ✓ |
+| `completed_files` | `integer` | ✓ |
+| `total_files` | `integer` | ✓ |
+| `total_bytes` | `integer` |  |
+
+</details>
+
+<details><summary>span: `ingest`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `blocks` | `integer` | ✓ |
+| `point` | `array` | ✓ |
+
+</details>
+
+<details><summary>span: `snapshot`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `through_chunk` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `stage`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `stage` | `string` | ✓ |
 
 </details>
 

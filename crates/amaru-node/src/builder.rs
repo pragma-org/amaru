@@ -258,6 +258,8 @@ impl NodeBuilder {
     /// The runtime is **not** taken from ambient context: pass an explicit
     /// [`Handle`] (for example `runtime.handle()` or `Handle::current()` when
     /// you are already inside that runtime).
+    ///
+    /// Incompatible ledger and chain tips return [`NodeStartError::StorePairMismatch`].
     pub fn build_and_run(self, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
         let config = self.build()?;
         build_and_run_node(config, runtime)

@@ -64,6 +64,11 @@ Other guiding principles:
 - **amaru-tui**: keyboard controls can be remapped with comma-separated `key=alias` entries in `AMARU_TUI_ALIASES`; `ctrl+` and `shift+` denote Ctrl and Shift. Startup reports conflicting bindings instead of accepting ambiguous controls.
 - **amaru-tui**: copy mode can write logs to a file in the working directory. Click one log line and click another to mark a time range (a later click moves the nearer end; drag also works). The range stays put if you then change the level or regex filter. `e` writes the currently visible lines in that range, or every visible line if nothing is selected, as plain text including the level column.
 
+### Added
+
+- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
+- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
+
 ### Changed
 
 - **amaru-kernel**: opaque byte values (raw blocks, mux frames, original CBOR, and similar) are lowercase hex in JSON and CBOR byte strings in binary traces, not arrays of integers, when serialized using `serde`.
@@ -77,6 +82,12 @@ Other guiding principles:
 - **amaru**: on restart, blocks that an earlier run marked invalid are re-validated. A false reject no longer leaves the node idle on a shorter stored chain while replay of the honest chain is ignored as duplicate headers.
 - **amaru-kernel**: deeply nested native scripts no longer crash the node while their block is decoded.
 - **amaru-kernel**: recursive data types (`NativeScript`, `PlutusData`, `Metadatum`) are now stack-safe and do not cause stack overflow when decoding deeply nested structures.
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
+- **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
+- **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
+- **amaru-kernel**: reject transaction inputs whose index does not fit in 16 bits.
+- **amaru-kernel**: reject bootstrap witnesses whose chain code is not exactly 32 bytes from protocol version 12 onwards, and no longer panic when hashing a witness whose chain code has another length.
 - **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
 - **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
 - **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.

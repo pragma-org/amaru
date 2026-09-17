@@ -54,7 +54,7 @@ use thiserror::Error;
 use tokio::runtime::Handle;
 
 use crate::{
-    ClearValidity, realign_chain_store_to,
+    ClearValidity, ensure_store_consistency, realign_chain_store_to,
     stages::{
         build_stage_graph::{NodeStages, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
@@ -159,6 +159,8 @@ pub enum ShutdownError {
 /// Success starts the tasks but does not establish network readiness. Listener binding
 /// failures terminate the graph; await [`NodeRunning::termination`] and inspect
 /// [`NodeRunning::shutdown`] for unexpected stage exits.
+///
+/// Incompatible ledger and chain tips return [`NodeStartError::StorePairMismatch`].
 pub fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
     init_resolver().map_err(NodeStartError::other)?;
     let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
@@ -277,8 +279,10 @@ pub fn build_node(
     let ledger_tip = state.tip().into_owned();
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
-    let pool_summaries = state.pool_summaries();
-    let max_epoch = pool_summaries.max_epoch();
+    ensure_store_consistency(chain_store.as_ref(), ledger_tip).map_err(|error| NodeStartError::StorePairMismatch {
+        ledger_tip: error.ledger_tip,
+        best_chain: error.chain_tip.hash(),
+    })?;
 
     // Production restarts drop the volatile ledger, so the chain store can be ahead of the
     // persisted ledger tip. Rewind the best-chain pointer to that tip.
@@ -286,6 +290,9 @@ pub fn build_node(
         initialize_chain_store(chain_store.clone(), ledger_tip)?;
     }
     let ledger_tip = chain_store.load_point(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
+
+    let pool_summaries = state.pool_summaries();
+    let max_epoch = pool_summaries.max_epoch();
 
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.
