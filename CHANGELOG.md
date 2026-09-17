@@ -54,6 +54,9 @@ Other guiding principles:
 - **amaru-kernel**: reject malformed Byron addresses in transaction outputs.
 
 ## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
+- **amaru**: on restart, blocks that an earlier run marked invalid are re-validated. A false reject no longer leaves the node idle on a shorter stored chain while replay of the honest chain is ignored as duplicate headers.
+
+## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
 ### Added
 

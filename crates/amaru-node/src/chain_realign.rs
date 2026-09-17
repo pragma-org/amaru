@@ -19,11 +19,12 @@ use anyhow::bail;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClearValidity {
-    /// Startup path: only clear `valid=true` after the tip (volatile ledger is rebuilt).
-    /// Invalid flags are kept so previously rejected blocks stay skipped.
+    /// Only clear `valid=true` after the tip. Invalid flags are kept, so a previously rejected
+    /// block and all of its descendants stay invisible to best-candidate search.
     ValidOnly,
-    /// Offline recovery: clear both valid and invalid flags on all descendants so blocks can be
-    /// re-validated after a false invalid or a deeper rewind.
+    /// Clear both valid and invalid flags on all descendants. Used on production restart (the
+    /// volatile ledger is rebuilt) and by offline rollback, so a false invalid from an earlier
+    /// run is re-validated instead of silently parking the node on a shorter stored chain.
     All,
 }
 
@@ -91,6 +92,7 @@ fn clear_validation_after_tip(chain_store: &dyn ChainStore, tip: Point, clear: C
 mod tests {
     use std::sync::Arc;
 
+    use amaru_consensus::effects::find_best_candidate;
     use amaru_kernel::{Header, IsHeader, make_header};
     use amaru_ouroboros::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 
@@ -133,6 +135,45 @@ mod tests {
         assert_eq!(validity(chain_store.as_ref(), &h2a), Some(false), "an invalid block was never applied");
     }
 
+    /// A false invalid on the stored best chain (an Amaru bug in an earlier run) must not hide
+    /// that chain from recovery. Production startup uses [`ClearValidity::All`] for this reason.
+    #[test]
+    fn clearing_invalid_flags_lets_find_best_candidate_revisit_a_rejected_chain() {
+        // h0 -- h1 -- h2(invalid) -- h3
+        let h0 = header(1, 1, None);
+        let h1 = header(2, 2, Some(&h0));
+        let h2 = header(3, 3, Some(&h1));
+        let h3 = header(4, 4, Some(&h2));
+
+        let chain_store = Arc::new(InMemoryChainStore::new());
+        for header in [&h0, &h1, &h2, &h3] {
+            chain_store.store_header(header).unwrap();
+            chain_store.set_block_valid(&header.hash(), true).unwrap();
+        }
+        chain_store.set_block_valid(&h2.hash(), false).unwrap();
+        for header in [&h0, &h1, &h2, &h3] {
+            chain_store.roll_forward_chain(&header.point()).unwrap();
+        }
+        chain_store.set_anchor_point(&h0.point()).unwrap();
+
+        realign_chain_store_to(chain_store.as_ref(), h1.point(), ClearValidity::ValidOnly).unwrap();
+        assert_eq!(validity(chain_store.as_ref(), &h2), Some(false));
+        assert_eq!(
+            find_best_candidate(chain_store.as_ref()).unwrap(),
+            h1.hash(),
+            "keeping the invalid flag hides h2 and h3 from candidate search"
+        );
+
+        realign_chain_store_to(chain_store.as_ref(), h1.point(), ClearValidity::All).unwrap();
+        assert_eq!(validity(chain_store.as_ref(), &h2), None, "the false invalid must be cleared");
+        assert_eq!(validity(chain_store.as_ref(), &h3), None);
+        assert_eq!(
+            find_best_candidate(chain_store.as_ref()).unwrap(),
+            h3.hash(),
+            "the previously rejected chain must be the recovery candidate"
+        );
+    }
+
     #[test]
     fn realign_all_clears_invalid_flags_on_descendants() {
         let h0 = header(1, 1, None);
@@ -165,6 +206,11 @@ mod tests {
             validity(chain_store.as_ref(), &h2a),
             None,
             "invalid flags after the tip must be cleared for recovery"
+        );
+        assert_eq!(
+            find_best_candidate(chain_store.as_ref()).unwrap(),
+            h3.hash(),
+            "the longer previously-valid chain remains the candidate"
         );
     }
 

@@ -45,6 +45,8 @@ pub fn find_best_candidate(store: &dyn ReadChainStore) -> Result<HeaderHash, Con
         let (header, validity) = snapshot.load_header_with_validity(&hash).ok_or(ConsensusError::UnknownPoint(hash))?;
 
         visited += 1;
+        // NOTE: invalid flags left over from a previous process are cleared when the chain store is
+        // realigned to the ledger tip at startup, before this walk runs.
         if validity == Some(false) {
             debug!(consensus::best_tip_candidate::SKIP_INVALID, header_hash = hash);
             continue;

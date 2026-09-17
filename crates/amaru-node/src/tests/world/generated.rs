@@ -339,6 +339,43 @@ fn test_world_owns_production_nodes_boot_connect_exchange() {
     world.stop();
 }
 
+/// A chain store that already holds headers and bodies, with a stale `valid=false` on a block
+/// after the ledger tip (a false reject from an earlier run). Startup must clear that flag and
+/// re-apply the stored chain; otherwise candidate search skips the invalid block and its
+/// descendants and the node sits idle.
+#[test]
+fn test_world_revalidates_stored_invalid_block_on_startup() {
+    let run = SyncRun::new("revalidate_stored_invalid");
+    let listen = loopback(9740);
+    let headers = generated_headers(6, run.seed);
+    let head = headers.last().expect("chain HEAD").clone();
+    let rejected = headers[1].clone();
+
+    let config = generated_node(run.seed, 0, listen).with_no_upstream_peers().with_validated_blocks(headers.clone());
+    config.chain_store.set_block_valid(&rejected.hash(), false).unwrap();
+    assert_eq!(
+        config.chain_store.load_header_with_validity(&rejected.hash()).and_then(|(_, v)| v),
+        Some(false),
+        "precondition: the stored invalid flag is set before build_node"
+    );
+
+    let mut world = WorldLoop::new(run.provider.clone(), vec![run.spawn_catch_up(0, config)]);
+    world.run_until_horizon(BLOCKFETCH_HORIZON_NANOS);
+
+    assert_adopted_head(&world, 0, &head, run.seed, "node");
+    let rejected_validity = {
+        let store = world.graphs()[0].resources().get::<ResourceHeaderStore>().expect("node chain store");
+        store.load_header_with_validity(&rejected.hash()).and_then(|(_, v)| v)
+    };
+    assert_eq!(
+        rejected_validity,
+        Some(true),
+        "the previously rejected block must be re-validated; seed={:#x}",
+        run.seed
+    );
+    world.stop();
+}
+
 /// Injector plus one production node on a generated fragment. Proves BlockFetch
 /// lock-step (`N = 1`) delivers bodies; the pipelined sibling is
 /// [`test_world_blockfetch_pipelined`].
