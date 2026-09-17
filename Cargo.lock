@@ -631,6 +631,7 @@ dependencies = [
  "proptest",
  "serde",
  "socket2 0.6.5",
+ "test-case",
  "tokio",
  "tracing-subscriber",
 ]

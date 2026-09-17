@@ -129,7 +129,15 @@ fn take_one_cbor_item(data: &mut BytesMut) -> Result<Option<NonEmptyBytes>, cbor
 
 #[cfg(test)]
 mod one_cbor_item_tests {
+    use std::thread;
+
+    use test_case::test_case;
+
     use super::*;
+
+    /// The stack a spawned thread gets by default, and therefore what a connection's worker frames
+    /// inbound bytes on. `.cargo/config.toml` raises `RUST_MIN_STACK` for cargo-launched processes
+    const DEFAULT_STACK: usize = 2 * 1024 * 1024;
 
     fn consume(bytes: &[u8]) -> Result<(Option<NonEmptyBytes>, BytesMut), cbor::decode::Error> {
         let mut data = BytesMut::from(bytes);
@@ -196,25 +204,31 @@ mod one_cbor_item_tests {
         assert!(consume(&[0x1c]).is_err());
     }
 
-    #[test]
-    fn deeply_nested_array_does_not_overflow_the_stack() {
+    /// A regression aborts the test binary rather than reporting a failure.
+    #[test_case(&[0x81], &[]; "definite arrays")]
+    #[test_case(&[0x9f], &[0xff]; "indefinite arrays")]
+    #[test_case(&[0xa1, 0x00], &[]; "definite maps")]
+    #[test_case(&[0xbf, 0x00], &[0xff]; "indefinite maps")]
+    fn deep_nesting_does_not_overflow_the_stack(open: &'static [u8], close: &'static [u8]) {
         const DEPTH: usize = 100_000;
-        let mut bytes = vec![0x81; DEPTH + 1];
-        bytes[DEPTH] = 0x00;
-        let (item, rest) = consume(&bytes).unwrap();
-        assert_eq!(item.unwrap().as_ref(), bytes.as_slice());
-        assert!(rest.is_empty());
-    }
+        const LEAF: u8 = 0x00;
 
-    #[test]
-    fn deeply_nested_indefinite_array_does_not_overflow_the_stack() {
-        const DEPTH: usize = 100_000;
-        let mut bytes = vec![0x9f; DEPTH + 1];
-        bytes[DEPTH] = 0x00;
-        bytes.resize(bytes.len() + DEPTH, 0xff);
-        let (item, rest) = consume(&bytes).unwrap();
-        assert_eq!(item.unwrap().as_ref(), bytes.as_slice());
-        assert!(rest.is_empty());
+        let test = move || {
+            let mut bytes = Vec::with_capacity((open.len() + close.len()) * DEPTH + 1);
+            for _ in 0..DEPTH {
+                bytes.extend_from_slice(open);
+            }
+            bytes.push(LEAF);
+            for _ in 0..DEPTH {
+                bytes.extend_from_slice(close);
+            }
+
+            let (item, rest) = consume(&bytes).unwrap();
+            assert_eq!(item.unwrap().as_ref(), bytes.as_slice());
+            assert!(rest.is_empty());
+        };
+
+        thread::Builder::new().stack_size(DEFAULT_STACK).spawn(test).unwrap().join().unwrap();
     }
 }
 
