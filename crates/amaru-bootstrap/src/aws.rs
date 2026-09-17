@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{NetworkName, NetworkPoint};
-use amaru_progress_bar::{ProgressBar, ProgressBarFactory, TerminalProgressBar};
+use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use anyhow::{Context, anyhow};
 use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
 use aws_sdk_s3::{
@@ -30,8 +30,6 @@ use aws_sdk_s3::{
     primitives::{ByteStream, SdkBody},
 };
 use http_body_util::BodyExt as _;
-
-use crate::progress::BootstrapProgressFactory;
 
 /// Default S3 bucket name for Amaru bootstrap snapshots.
 pub const DEFAULT_BUCKET: &str = "cardano-ledger-snapshots";
@@ -297,43 +295,40 @@ impl AnonymousS3Client {
             .collect())
     }
 
+    /// Return the object size advertised by the public endpoint, when available.
+    pub(crate) async fn object_size(&self, key: &str) -> anyhow::Result<Option<u64>> {
+        let url = format!("{}/{key}", self.base_url);
+        let response = self.http.head(&url).send().await?.error_for_status()?;
+        Ok(response.content_length())
+    }
+
     /// Download an object by key using an unsigned GET against the public CDN.
     pub async fn download_object(&self, key: &str, dest: &Path) -> anyhow::Result<()> {
+        self.download_object_with_progress(key, dest, |_| {}).await
+    }
+
+    /// Download an object while reporting the size of each written chunk.
+    pub(crate) async fn download_object_with_progress(
+        &self,
+        key: &str,
+        dest: &Path,
+        mut on_bytes: impl FnMut(u64),
+    ) -> anyhow::Result<()> {
         use futures_util::TryStreamExt as _;
         use tokio::{fs::File, io::AsyncWriteExt as _};
 
         let url = format!("{}/{key}", self.base_url);
         let response = self.http.get(&url).send().await?.error_for_status().context("download failed")?;
-        let progress = bootstrap_transfer_progress_bar(response.content_length().unwrap_or(0));
         let mut stream = response.bytes_stream();
 
-        let result: anyhow::Result<()> = async {
-            let mut file = File::create(dest).await?;
-            while let Some(chunk) = stream.try_next().await? {
-                file.write_all(&chunk).await?;
-                progress.tick(chunk.len());
-            }
-            file.sync_all().await?;
-            Ok(())
+        let mut file = File::create(dest).await?;
+        while let Some(chunk) = stream.try_next().await? {
+            file.write_all(&chunk).await?;
+            on_bytes(chunk.len() as u64);
         }
-        .await;
-        if result.is_ok() {
-            progress.finish();
-        } else {
-            progress.clear();
-        }
-        result
+        file.sync_all().await?;
+        Ok(())
     }
-}
-
-fn bootstrap_transfer_progress_bar(size: u64) -> Box<dyn ProgressBar> {
-    let progress = BootstrapProgressFactory.create_for(
-        "download_snapshot",
-        usize::try_from(size).unwrap_or(usize::MAX),
-        "{spinner:.green} Downloading {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
-    );
-    progress.refresh();
-    progress
 }
 
 fn transfer_progress_bar(action: &str, size: u64) -> TerminalProgressBar {

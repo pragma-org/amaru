@@ -135,10 +135,12 @@ pub use aws::{
     S3Client, S3Config, S3Snapshot,
 };
 pub use bootstrap::{
-    BOOTSTRAP_HEADERS_PER_POINT, BootstrapCancellation, BootstrapError, ChainState, ImportError, InitialNonces,
-    bootstrap, fetch_headers_from_points, import_headers, import_packaged_blocks, import_snapshots,
-    import_snapshots_from_directory, store_chain_state, validate_publishable_snapshot_archive,
+    BOOTSTRAP_HEADERS_PER_POINT, BootstrapCancellation, BootstrapError, BootstrapReport, ChainState, ImportError,
+    InitialNonces, bootstrap, bootstrap_with_observer, fetch_headers_from_points, import_headers,
+    import_packaged_blocks, import_snapshots, import_snapshots_from_directory, store_chain_state,
+    validate_publishable_snapshot_archive,
 };
+pub use progress::{BootstrapObserver, BootstrapProgress, BootstrapStage};
 
 /// Default on-disk directory for downloaded bootstrap archives.
 pub const SNAPSHOTS_PATH: &str = "snapshots";

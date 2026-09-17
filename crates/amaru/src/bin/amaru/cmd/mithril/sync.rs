@@ -12,18 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fs::{self, File, TryLockError},
-    path::{Path, PathBuf},
-};
+use std::{path::PathBuf, sync::Arc};
 
 use amaru::{
     default_chain_dir, default_ledger_dir,
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
-
-use super::{download, ingest};
+use amaru_node::{DefaultMithrilObserver, MithrilCancellation, MithrilSyncError, MithrilSynchronizer};
 
 #[derive(Debug, clap::Parser)]
 pub(crate) struct Args {
@@ -70,27 +66,17 @@ pub(crate) struct Args {
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
-    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+    Runnable::soft(RuntimeKind::Io, move |shutdown, _meter| run(args, shutdown.token()))
 }
 
-fn acquire_sync_lock(snapshots_dir: &Path, network: NetworkName) -> anyhow::Result<File> {
-    let target_dir = snapshots_dir.join(network.to_string());
-    fs::create_dir_all(&target_dir)?;
-    let lock_path = target_dir.join(".sync.lock");
-    let lock = File::create(&lock_path)?;
-    match lock.try_lock() {
-        Ok(()) => Ok(lock),
-        Err(TryLockError::WouldBlock) => Err(anyhow::anyhow!("another Mithril sync is using {}", target_dir.display())),
-        Err(error) => Err(error.into()),
-    }
-}
-
-async fn run(args: Args) -> anyhow::Result<()> {
+async fn run(args: Args, cancellation: MithrilCancellation) -> anyhow::Result<()> {
     let Args { network, ledger_dir, chain_dir, snapshots_dir, ingest_until_slot, ingest_maximum_blocks } = args;
     let ledger_dir = ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
     let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
-    let _sync_lock = acquire_sync_lock(&snapshots_dir, network)?;
-
-    let immutable_dir = download::run(network, &ledger_dir, &snapshots_dir).await?;
-    ingest::run(network, ledger_dir, chain_dir, immutable_dir, ingest_until_slot, ingest_maximum_blocks).await
+    let synchronizer = MithrilSynchronizer::new(network, ledger_dir, chain_dir, snapshots_dir)
+        .ingest_limits(ingest_until_slot, ingest_maximum_blocks);
+    match synchronizer.synchronize(cancellation, Arc::new(DefaultMithrilObserver::new())).await {
+        Ok(_) | Err(MithrilSyncError::Cancelled) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }

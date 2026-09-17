@@ -430,7 +430,7 @@ fn decode_immutable_block(raw_block: Vec<u8>) -> Option<ImmutableBlock> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::{fs, path::Path};
 
     use amaru_kernel::{Hasher, NetworkName, Point, cbor};
@@ -471,7 +471,7 @@ mod tests {
         fs::write(immutable_file_path(immutable_dir, chunk_number, "secondary"), secondary).unwrap();
     }
 
-    fn immutable_store() -> (TempDir, Vec<(Point, Vec<u8>)>) {
+    pub(crate) fn immutable_store() -> (TempDir, Vec<(Point, Vec<u8>)>) {
         let dir = TempDir::new().unwrap();
         let blocks = [1, 2, 43_201, 43_202, 64_801].into_iter().map(block).collect::<Vec<_>>();
         write_chunk(dir.path(), 0, &[blocks[0].1.clone(), blocks[1].1.clone()]);

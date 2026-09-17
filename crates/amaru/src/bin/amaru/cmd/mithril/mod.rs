@@ -15,8 +15,6 @@
 use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
-mod download;
-mod ingest;
 pub(crate) mod sync;
 
 #[derive(Debug, Subcommand)]

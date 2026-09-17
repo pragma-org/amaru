@@ -26,12 +26,15 @@ pub use archive::{
     ArchiveMetadata, BLOCKS_PER_ARCHIVE, archive_name_for_blocks, latest_archive, list_existing_archives,
     package_blocks, parse_archive_metadata, resume_point_for_archives, sorted_archives,
 };
-pub use download::{download_from_mithril, download_from_mithril_for_resume_point};
+pub use download::{
+    MithrilDownloadError, MithrilDownloadObserver, MithrilDownloadProgress, MithrilDownloadReport,
+    download_from_mithril, download_from_mithril_for_resume_point,
+    download_from_mithril_for_resume_point_with_observer,
+};
 pub use immutable::{
     ImmutableBlock, ImmutableBlocksIter, chunk_for_slot, first_missing_immutable_chunk, from_chunk_for_resume_point,
     get_latest_chunk, iter_immutable_blocks, read_blocks_after_point, read_stable_blocks_after_point,
 };
-
 #[derive(Debug)]
 pub struct ParsedHeader {
     pub slot: u64,
