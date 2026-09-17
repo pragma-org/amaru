@@ -79,7 +79,7 @@ impl KeyAliases {
     }
 
     pub(crate) fn page_navigation_label(&self) -> &'static str {
-        if self.any_aliased([KeyBinding::tab(), KeyBinding::back_tab()]) { "aliased" } else { "[s-]tab" }
+        if self.any_aliased([KeyBinding::tab(), KeyBinding::back_tab()]) { "aliased" } else { "[shift+]tab" }
     }
 
     pub(crate) fn scroll_navigation_label(&self) -> &'static str {
@@ -99,7 +99,7 @@ impl KeyAliases {
         ]) {
             "aliased"
         } else {
-            "[c-]←→↑↓"
+            "[ctrl+]←→↑↓"
         }
     }
 
@@ -273,15 +273,15 @@ impl KeyBinding {
 impl std::fmt::Display for KeyBinding {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.modifiers.contains(KeyModifiers::CONTROL) {
-            write!(formatter, "c-")?;
+            write!(formatter, "ctrl+")?;
         }
 
         if self.code == KeyCode::BackTab {
-            return write!(formatter, "s-tab");
+            return write!(formatter, "shift+tab");
         }
 
         if self.modifiers.contains(KeyModifiers::SHIFT) {
-            write!(formatter, "s-")?;
+            write!(formatter, "shift+")?;
         }
 
         if let KeyCode::Char(character) = self.code {
@@ -300,11 +300,11 @@ fn parse_modifiers(value: &str) -> Result<(KeyModifiers, &str), String> {
     let mut modifiers = KeyModifiers::NONE;
     let mut remaining = value;
 
-    while let Some((prefix, suffix)) = remaining.split_once('-') {
+    while let Some((prefix, suffix)) = remaining.split_once('+') {
         match prefix.to_ascii_lowercase().as_str() {
-            "c" if !modifiers.contains(KeyModifiers::CONTROL) => modifiers.insert(KeyModifiers::CONTROL),
-            "s" if !modifiers.contains(KeyModifiers::SHIFT) => modifiers.insert(KeyModifiers::SHIFT),
-            "c" | "s" => return Err(format!("repeated modifier in `{value}`")),
+            "ctrl" if !modifiers.contains(KeyModifiers::CONTROL) => modifiers.insert(KeyModifiers::CONTROL),
+            "shift" if !modifiers.contains(KeyModifiers::SHIFT) => modifiers.insert(KeyModifiers::SHIFT),
+            "ctrl" | "shift" => return Err(format!("repeated modifier in `{value}`")),
             _ => break,
         }
         remaining = suffix;
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn aliases_replace_controls_and_render_their_binding() {
-        let aliases = KeyAliases::parse("esc=~,c-up=j,c-down=k").unwrap();
+        let aliases = KeyAliases::parse("esc=~,ctrl+up=j,ctrl+down=k").unwrap();
 
         let escape = aliases.translate(KeyEvent::new(KeyCode::Char('~'), KeyModifiers::SHIFT)).unwrap();
         assert_eq!(escape.code, KeyCode::Esc);
@@ -393,24 +393,24 @@ mod tests {
 
         assert_eq!(aliases.label("esc").as_deref(), Some("~"));
         assert_eq!(aliases.scroll_navigation_label(), "aliased");
-        assert_eq!(aliases.page_navigation_label(), "[s-]tab");
+        assert_eq!(aliases.page_navigation_label(), "[shift+]tab");
     }
 
     #[test]
     fn shift_aliases_normalize_uppercase_events() {
-        let aliases = KeyAliases::parse("esc=s-x").unwrap();
+        let aliases = KeyAliases::parse("esc=shift+x").unwrap();
 
         let escape = aliases.translate(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT)).unwrap();
         assert_eq!(escape.code, KeyCode::Esc);
         assert_eq!(escape.modifiers, KeyModifiers::NONE);
-        assert_eq!(aliases.label("esc").as_deref(), Some("s-x"));
+        assert_eq!(aliases.label("esc").as_deref(), Some("shift+x"));
     }
 
     #[test]
     fn aliases_reject_conflicting_controls() {
-        let error = KeyAliases::parse("c-up=j,c-down=j").unwrap_err();
+        let error = KeyAliases::parse("ctrl+up=j,ctrl+down=j").unwrap_err();
 
-        assert_eq!(error, "`c-down` and `c-up` both resolve to `j`");
+        assert_eq!(error, "`ctrl+down` and `ctrl+up` both resolve to `j`");
     }
 
     #[test]

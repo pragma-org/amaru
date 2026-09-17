@@ -61,8 +61,8 @@ copy mode only at the top level. Copy mode removes shell and panel borders,
 scrollbars, and separators so selected multiline text can be pasted cleanly.
 
 `AMARU_TUI_ALIASES` replaces keyboard controls with comma-separated
-`key=alias` entries, for example `esc=~,c-up=j,c-down=k`. The `c-` and `s-`
-prefixes mean Ctrl and Shift. Aliases must leave every control with a unique
+`key=alias` entries, for example `esc=~,ctrl+up=j,ctrl+down=k`. The `ctrl+` and
+`shift+` prefixes mean Ctrl and Shift. Aliases must leave every control with a unique
 physical key; the TUI aborts startup with the conflicting controls otherwise.
 The footer renders simple aliases directly and uses `aliased` for grouped page
 or scrolling controls when any key in the group changes.

@@ -213,8 +213,8 @@ always-visible controls compact while retaining discoverable labels for less
 frequent actions.
 
 Operators may replace controls through `AMARU_TUI_ALIASES`, a comma-separated
-list of `key=alias` entries. `c-` and `s-` use Vim-style Ctrl and Shift
-prefixes. Resolution must produce a unique physical key for every built-in
+list of `key=alias` entries. `ctrl+` and `shift+` denote Ctrl and Shift.
+Resolution must produce a unique physical key for every built-in
 control: ambiguity aborts startup and names the conflicting controls. The
 footer renders individual aliases and conservatively labels page or scrolling
 groups as `aliased` whenever any binding in the group changes.
