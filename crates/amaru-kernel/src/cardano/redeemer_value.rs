@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ExUnits, PlutusData, cbor};
+use crate::{ExUnits, MemoizedPlutusData, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct RedeemerValue {
     #[n(0)]
-    pub data: PlutusData,
+    pub data: MemoizedPlutusData,
     #[n(1)]
     pub ex_units: ExUnits,
 }
