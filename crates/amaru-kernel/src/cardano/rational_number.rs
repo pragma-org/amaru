@@ -18,10 +18,10 @@ use num::{BigUint, rational::Ratio};
 
 use crate::{Lovelace, cbor};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RationalNumber {
-    pub numerator: u64,
-    pub denominator: u64,
+    pub(crate) numerator: u64,
+    pub(crate) denominator: u64,
 }
 
 impl fmt::Display for RationalNumber {
@@ -57,14 +57,26 @@ impl<C> cbor::encode::Encode<C> for RationalNumber {
 }
 
 impl RationalNumber {
+
+    /// Build a rational in lowest terms.
+    /// This makes sure that PartialEq / Eq are correct and makes the comparison
+    /// with encoded values easier in the conformance test suite.
     pub fn new(numerator: u64, denominator: u64) -> Result<Self, String> {
         if denominator == 0 {
-            return Err("denominator cannot be zero".to_string());
+            return Err("rational denominator cannot be zero".to_string());
         }
-        Ok(RationalNumber { numerator, denominator })
+        let divisor = gcd(numerator, denominator);
+        Ok(Self { numerator: numerator / divisor, denominator: denominator / divisor })
     }
 }
 
+/// Binary GCD, iterative so a pathological pair cannot blow the stack.
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
 
 // ------------------------------------------------------------------- SafeRatio
 

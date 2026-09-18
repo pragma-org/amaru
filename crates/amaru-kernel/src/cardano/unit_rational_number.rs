@@ -16,7 +16,9 @@ use std::fmt;
 
 use crate::{RationalNumber, cbor};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, cbor::Encode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
+#[cbor(transparent)]
+#[repr(transparent)]
 pub struct UnitRationalNumber(#[n(0)] RationalNumber);
 
 impl fmt::Display for UnitRationalNumber {
@@ -35,7 +37,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for UnitRationalNumber {
 impl UnitRationalNumber {
     pub fn new(numerator: u64, denominator: u64) -> Result<Self, String> {
         let rational = RationalNumber::new(numerator, denominator)?;
-        if rational.numerator > rational.denominator {
+        if numerator > denominator {
             return Err("the rational value must belong to the interval [0, 1]".to_string());
         }
         Ok(UnitRationalNumber(rational))
@@ -52,11 +54,7 @@ impl TryFrom<RationalNumber> for UnitRationalNumber {
     type Error = String;
 
     fn try_from(rational: RationalNumber) -> Result<Self, Self::Error> {
-        if rational.numerator > rational.denominator {
-            Err("the rational value must belong to the interval [0, 1]".to_string())
-        } else {
-            Ok(UnitRationalNumber(rational))
-        }
+        Self::new(rational.numerator, rational.denominator)
     }
 }
 
