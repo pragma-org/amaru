@@ -20,8 +20,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConsensusParameters, Hash, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Nonce, OperationalCert, Slot, VrfCert,
-    ed25519,
+    ConsensusParameters, Hash, Hasher, Header, HeaderBody, HeaderHash, IsHeader, KesEvolution, KesPeriod,
+    KesPeriodError, Nonce, OperationalCert, Slot, VrfCert, ed25519,
     maths::{ExpOrdering, FixedDecimal},
     to_cbor,
 };
@@ -296,41 +296,29 @@ impl AssertLeaderStakeError {
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssertKesSignatureError {
-    #[error(
-        "Operational Certificate KES period ({opcert_kes_period}) is greater than the block slot KES period ({slot_kes_period})."
-    )]
-    OpCertKesPeriodTooLarge { opcert_kes_period: u64, slot_kes_period: u64 },
-
-    #[error("Operational Certificate KES period ({opcert_kes_period}) is too old.")]
-    OpCertKesPeriodTooOld { opcert_kes_period: u64, slot_kes_period: u64, max_kes_evolutions: u64 },
+    #[error("Invalid Operational Certificate KES period: {0}")]
+    InvalidKesPeriod(KesPeriodError),
 
     #[error("Invalid KES signature from leader: {reason}")]
-    InvalidKesSignature { period: u32, reason: String },
+    InvalidKesSignature { period: KesEvolution, reason: String },
 }
 
 impl AssertKesSignatureError {
     /// Asserts the KES signature is valid. Also controls the validity of the KES period.
     pub fn new(
-        slot_kes_period: u64,
-        opcert_kes_period: u64,
+        slot_kes_period: KesPeriod,
+        opcert_kes_period: KesPeriod,
         header_body: &HeaderBody,
         public_key: &kes::PublicKey,
         signature: &kes::Signature,
         max_kes_evolutions: u64,
     ) -> Result<(), Self> {
-        if opcert_kes_period > slot_kes_period {
-            return Err(Self::OpCertKesPeriodTooLarge { opcert_kes_period, slot_kes_period });
-        }
-
-        if slot_kes_period >= opcert_kes_period + max_kes_evolutions {
-            return Err(Self::OpCertKesPeriodTooOld { opcert_kes_period, slot_kes_period, max_kes_evolutions });
-        }
-
-        let kes_period = (slot_kes_period - opcert_kes_period) as u32;
+        let evolution =
+            slot_kes_period.evolutions_since(opcert_kes_period, max_kes_evolutions).map_err(Self::InvalidKesPeriod)?;
 
         signature
-            .verify(kes_period, public_key, &to_cbor(header_body))
-            .map_err(|error| Self::InvalidKesSignature { period: kes_period, reason: error.to_string() })
+            .verify(evolution, public_key, &to_cbor(header_body))
+            .map_err(|error| Self::InvalidKesSignature { period: evolution, reason: error.to_string() })
     }
 }
 
@@ -392,7 +380,7 @@ impl AssertOperationalCertificateError {
         let mut message = Vec::new();
         message.extend_from_slice(&certificate.operational_cert_hot_verification_key[..]);
         message.extend_from_slice(&certificate.operational_cert_sequence_number.to_be_bytes());
-        message.extend_from_slice(&certificate.operational_cert_kes_period.to_be_bytes());
+        message.extend_from_slice(&u64::from(certificate.operational_cert_kes_period).to_be_bytes());
 
         issuer.verify_strict(&message, &signature).map_err(|_| Self::InvalidSignature { issuer: issuer.to_owned() })
     }
@@ -457,13 +445,19 @@ mod tests {
     #[test]
     fn test_assert_kes_signature_error_serialization_roundtrip() {
         let errors = vec![
-            AssertKesSignatureError::OpCertKesPeriodTooLarge { opcert_kes_period: 100, slot_kes_period: 50 },
-            AssertKesSignatureError::OpCertKesPeriodTooOld {
-                opcert_kes_period: 50,
-                slot_kes_period: 200,
-                max_kes_evolutions: 100,
+            AssertKesSignatureError::InvalidKesPeriod(KesPeriodError::StartsInTheFuture {
+                start: KesPeriod::from(100),
+                current: KesPeriod::from(50),
+            }),
+            AssertKesSignatureError::InvalidKesPeriod(KesPeriodError::Expired {
+                start: KesPeriod::from(50),
+                current: KesPeriod::from(200),
+                max_evolutions: 100,
+            }),
+            AssertKesSignatureError::InvalidKesSignature {
+                period: KesEvolution::from(42),
+                reason: "Invalid signature".to_string(),
             },
-            AssertKesSignatureError::InvalidKesSignature { period: 42, reason: "Invalid signature".to_string() },
         ];
 
         for error in errors {
@@ -502,17 +496,18 @@ mod tests {
     #[test]
     fn test_serialization_edge_cases() {
         // Test with empty strings and zero values
-        let error = AssertKesSignatureError::InvalidKesSignature { period: 0, reason: "".to_string() };
+        let error =
+            AssertKesSignatureError::InvalidKesSignature { period: KesEvolution::from(0), reason: "".to_string() };
 
         let json_serialized = serde_json::to_string(&error).unwrap();
         let json_deserialized: AssertKesSignatureError = serde_json::from_str(&json_serialized).unwrap();
         assert_eq!(error, json_deserialized);
 
         // Test with maximum values
-        let error = AssertKesSignatureError::OpCertKesPeriodTooLarge {
-            opcert_kes_period: u64::MAX,
-            slot_kes_period: u64::MAX - 1,
-        };
+        let error = AssertKesSignatureError::InvalidKesPeriod(KesPeriodError::StartsInTheFuture {
+            start: KesPeriod::from(u64::MAX),
+            current: KesPeriod::from(u64::MAX - 1),
+        });
 
         let json_serialized = serde_json::to_string(&error).unwrap();
         let json_deserialized: AssertKesSignatureError = serde_json::from_str(&json_serialized).unwrap();
