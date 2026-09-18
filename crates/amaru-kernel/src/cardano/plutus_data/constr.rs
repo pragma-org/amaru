@@ -52,6 +52,14 @@ impl<A> Constr<A> {
             tag => panic!("malformed Constr: invalid tag {tag:?}"),
         }
     }
+
+    pub fn map<B>(self, f: impl Fn(A) -> B) -> Constr<B> {
+        Constr {
+            tag: self.tag,
+            any_constructor: self.any_constructor,
+            fields: self.fields.into_iter().map(f).collect(),
+        }
+    }
 }
 
 impl<'b, C, A> cbor::Decode<'b, C> for Constr<A>
@@ -110,7 +118,10 @@ mod tests {
     use proptest::{prelude::*, strategy::Just};
 
     use super::Constr;
-    use crate::{PlutusData, any_plutus_data, cbor, memoized::VariableEncodingPlutusData, utils::cbor::CborArray};
+    use crate::{
+        PlutusData, any_plutus_data, cbor, plutus_data::variable_encoding_plutus_data::VariableEncodingPlutusData,
+        utils::cbor::CborArray,
+    };
 
     // ---------------------------------------------------------------------------------------------
     // Constr

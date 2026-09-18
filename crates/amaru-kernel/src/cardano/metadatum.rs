@@ -12,13 +12,97 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Deref;
+
 use amaru_minicbor_extra::{decode_bytes, decode_string};
+use stacksafe::{StackSafe, stacksafe};
 
 use crate::{Int, cbor};
 
+// ---------------------------------------------------------------------------------------------
+// Metadatum
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Metadatum(StackSafe<MetadatumTree>);
+
+impl Metadatum {
+    fn new(tree: MetadatumTree) -> Self {
+        Self(StackSafe::new(tree))
+    }
+
+    pub fn int(i: Int) -> Metadatum {
+        Self::new(MetadatumTree::Int(i))
+    }
+
+    #[stacksafe]
+    pub fn as_int(&self) -> Option<&Int> {
+        if let MetadatumTree::Int(i) = self.0.deref() { Some(i) } else { None }
+    }
+
+    pub fn bytes(i: Vec<u8>) -> Metadatum {
+        Self::new(MetadatumTree::Bytes(i))
+    }
+
+    #[stacksafe]
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        if let MetadatumTree::Bytes(bs) = self.0.deref() { Some(bs) } else { None }
+    }
+
+    pub fn text(s: String) -> Metadatum {
+        Self::new(MetadatumTree::Text(s))
+    }
+
+    #[stacksafe]
+    pub fn as_text(&self) -> Option<&str> {
+        if let MetadatumTree::Text(s) = self.0.deref() { Some(s) } else { None }
+    }
+
+    pub fn array(elems: Vec<Metadatum>) -> Metadatum {
+        Self::new(MetadatumTree::Array(elems))
+    }
+
+    #[stacksafe]
+    pub fn as_array(&self) -> Option<&[Self]> {
+        if let MetadatumTree::Array(elems) = self.0.deref() { Some(elems) } else { None }
+    }
+
+    pub fn map(elems: Vec<(Metadatum, Metadatum)>) -> Metadatum {
+        Self::new(MetadatumTree::Map(elems))
+    }
+
+    #[stacksafe]
+    pub fn as_map(&self) -> Option<&[(Self, Self)]> {
+        if let MetadatumTree::Map(elems) = self.0.deref() { Some(elems) } else { None }
+    }
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
+    #[stacksafe]
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.decode_with(ctx).map(Self::new)
+    }
+}
+
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Metadatum {
+    #[stacksafe]
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.encode_with(self.0.deref(), ctx)?;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// MetdatumTree
+// ---------------------------------------------------------------------------------------------
+
 /// A piece of (structured) metadata found in transaction.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
-pub enum Metadatum {
+enum MetadatumTree {
     // NOTE: CBOR (signed) integers
     //
     // We use CBOR's Int here and not a Rust's i64 because CBOR's signed integers are encoded next
@@ -44,10 +128,8 @@ pub enum Metadatum {
     Map(Vec<(Metadatum, Metadatum)>),
 }
 
-/// FIXME(cbor): Multi-era
-///
-/// Ensure that this decoder is multi-era capable
-impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MetadatumTree {
+    #[stacksafe]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         use cbor::data::Type::*;
 
@@ -55,7 +137,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
         match d.datatype()? {
             U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64 | Int => {
                 let i = d.decode()?;
-                Ok(Metadatum::Int(i))
+                Ok(Self::Int(i))
             }
             // Conformance: the Haskell node accepts indefinite-length bytes and text inside metadata
             // at every protocol version (`decodeMetadatum` has explicit TypeBytesIndef/TypeStringIndef branches),
@@ -65,16 +147,16 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
                 if bytes.len() > 64 {
                     return Err(cbor::decode::Error::message(format!("bytes exceeds 64 bytes: got {}", bytes.len())));
                 }
-                Ok(Metadatum::Bytes(bytes))
+                Ok(Self::Bytes(bytes))
             }
             String | StringIndef => {
                 let text: std::string::String = decode_string(d)?.into_owned();
                 if text.len() > 64 {
                     return Err(cbor::decode::Error::message(format!("text exceeds 64 bytes: got {}", text.len())));
                 }
-                Ok(Metadatum::Text(text))
+                Ok(Self::Text(text))
             }
-            Array | ArrayIndef => Ok(Metadatum::Array(d.decode_with(ctx)?)),
+            Array | ArrayIndef => Ok(Self::Array(d.decode_with(ctx)?)),
             Map | MapIndef => {
                 let pairs = cbor::heterogeneous_map(
                     d,
@@ -85,7 +167,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
                         Ok(())
                     },
                 )?;
-                Ok(Metadatum::Map(pairs))
+                Ok(Self::Map(pairs))
             }
             any => {
                 Err(cbor::decode::Error::message(format!("unexpected CBOR datatype {any:?} when decoding metadatum")))
@@ -94,26 +176,26 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
     }
 }
 
-impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Metadatum {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for MetadatumTree {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
-            Metadatum::Int(a) => {
+            Self::Int(a) => {
                 e.encode_with(a, ctx)?;
             }
-            Metadatum::Bytes(a) => {
+            Self::Bytes(a) => {
                 e.encode_with(<&cbor::bytes::ByteSlice>::from(a.as_slice()), ctx)?;
             }
-            Metadatum::Text(a) => {
+            Self::Text(a) => {
                 e.encode_with(a, ctx)?;
             }
-            Metadatum::Array(a) => {
+            Self::Array(a) => {
                 e.encode_with(a, ctx)?;
             }
-            Metadatum::Map(pairs) => {
+            Self::Map(pairs) => {
                 e.map(pairs.len() as u64)?;
                 for (k, v) in pairs {
                     e.encode_with(k, ctx)?;
@@ -134,23 +216,23 @@ mod tests {
     use crate::{Int, from_cbor_no_leftovers, to_cbor};
 
     fn int(n: i128) -> Metadatum {
-        Metadatum::Int(Int::try_from(n).unwrap())
+        Metadatum::int(Int::try_from(n).unwrap())
     }
 
     fn bytes(b: &[u8]) -> Metadatum {
-        Metadatum::Bytes(b.to_vec())
+        Metadatum::bytes(b.to_vec())
     }
 
     fn text(s: &str) -> Metadatum {
-        Metadatum::Text(s.to_string())
+        Metadatum::text(s.to_string())
     }
 
     fn list(xs: &[Metadatum]) -> Metadatum {
-        Metadatum::Array(xs.to_vec())
+        Metadatum::array(xs.to_vec())
     }
 
     fn map(kvs: &[(Metadatum, Metadatum)]) -> Metadatum {
-        Metadatum::Map(kvs.to_vec())
+        Metadatum::map(kvs.to_vec())
     }
 
     #[test_case("00", int(0))]
@@ -268,7 +350,7 @@ mod tests {
 
     #[test]
     fn bytes_variant_json_is_hex_string_and_cbor_is_byte_string() {
-        let value = Metadatum::Bytes(vec![0xab, 0xcd]);
+        let value = Metadatum::bytes(vec![0xab, 0xcd]);
         let json = serde_json::to_value(&value).expect("json");
         assert_eq!(json, serde_json::json!({"Bytes": "abcd"}));
         assert_eq!(serde_json::from_value::<Metadatum>(json).expect("parse hex json"), value);
@@ -289,5 +371,58 @@ mod tests {
         let Some((_, cbor4ii::core::Value::Bytes(_))) = entries.into_iter().next() else {
             panic!("Bytes variant payload should be a CBOR byte string");
         };
+    }
+
+    #[cfg(test)]
+    mod stack_overflow {
+        use crate::{Metadatum, from_cbor, to_cbor, utils::stack};
+
+        const TRANSACTION_MAX_SIZE: usize = 16384;
+
+        #[test]
+        fn deeply_nested_array() {
+            let max_depth = TRANSACTION_MAX_SIZE / 2;
+            let (lhs, rhs) = rayon::join(
+                || nest_with(max_depth, leaf(0), |data| Metadatum::array(vec![data])),
+                || nest_with(max_depth, leaf(1), |data| Metadatum::array(vec![data])),
+            );
+
+            stack::with_stack_size(stack::STACK_SIZE_512KIB, move || {
+                assert!(lhs != rhs);
+                assert!(lhs == lhs.clone());
+                let bytes = to_cbor(&lhs);
+                assert!(from_cbor(&bytes) == Some(lhs));
+            })
+            .expect("couldn't run or spawn thread")
+        }
+
+        #[test]
+        fn deeply_nested_map() {
+            let max_depth = TRANSACTION_MAX_SIZE / 3;
+            let (lhs, rhs) = rayon::join(
+                || nest_with(max_depth, leaf(0), |data| Metadatum::map(vec![(Metadatum::bytes(vec![]), data)])),
+                || nest_with(max_depth, leaf(1), |data| Metadatum::map(vec![(Metadatum::bytes(vec![]), data)])),
+            );
+
+            stack::with_stack_size(stack::STACK_SIZE_512KIB, move || {
+                assert!(lhs != rhs);
+                assert!(lhs == lhs.clone());
+                let bytes = to_cbor(&lhs);
+                assert!(from_cbor(&bytes) == Some(lhs));
+            })
+            .expect("couldn't run or spawn thread")
+        }
+
+        fn leaf(byte: u8) -> Metadatum {
+            Metadatum::bytes([byte; 1].to_vec())
+        }
+
+        pub fn nest_with(mut depth: usize, mut leaf: Metadatum, nest: impl Fn(Metadatum) -> Metadatum) -> Metadatum {
+            while depth > 0 {
+                leaf = nest(leaf);
+                depth -= 1;
+            }
+            leaf
+        }
     }
 }

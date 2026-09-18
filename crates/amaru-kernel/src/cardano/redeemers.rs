@@ -159,7 +159,7 @@ impl PlutusRedeemers<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Bytes, Redeemer, RedeemerTag};
+    use crate::{Bytes, PlutusData, Redeemer, RedeemerTag};
 
     #[test]
     fn iter_from_into_btreemap_keeps_last_for_duplicate_redeemers() {
@@ -170,7 +170,7 @@ mod tests {
         let make_redeemer = |mem: u64, steps: u64, payload: u8| Redeemer {
             tag: RedeemerTag::Spend,
             index: 0,
-            data: PlutusData::BoundedBytes(vec![payload].into()),
+            data: PlutusData::bytes(vec![payload]),
             ex_units: ExUnits { mem, steps },
         };
 

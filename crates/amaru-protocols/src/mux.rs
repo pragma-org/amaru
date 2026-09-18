@@ -21,13 +21,12 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use amaru_kernel::{NonEmptyBytes, Peer};
+use amaru_kernel::{NonEmptyBytes, Peer, cbor};
 use amaru_observability::{Instrument, debug, debug_span, error, info, trace, warn};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, SendData, StageRef, TryInStage, Void};
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
-use cbor_data::{Cbor, ErrorKind, ParseError};
 
 use crate::{
     network_effects::{Network, NetworkOps},
@@ -92,26 +91,144 @@ impl Timestamp {
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Frame {
-    /// Each message is a single CBOR item
+    /// Each message is a single CBOR item.
+    ///
+    /// Framing only measures that item's byte length. Nested structure is skipped iteratively, so a
+    /// deeply nested payload cannot overflow the stack at the mux layer.
     OneCborItem,
     /// No message parsing, just buffer the data
     Buffer,
 }
 
 impl Frame {
-    pub fn try_consume(&self, data: &mut BytesMut) -> Result<Option<NonEmptyBytes>, ParseError> {
+    /// Pull one complete message off `data` according to this framing policy.
+    ///
+    /// `OneCborItem` uses minicbor's iterative skip. An incomplete item returns `Ok(None)` and
+    /// leaves `data` unchanged.
+    pub fn try_consume(&self, data: &mut BytesMut) -> Result<Option<NonEmptyBytes>, cbor::decode::Error> {
         match self {
-            Frame::OneCborItem => match Cbor::checked_prefix(data) {
-                Ok((item, _rest)) => {
-                    let item = data.copy_to_bytes(item.as_slice().len());
-                    #[expect(clippy::expect_used)]
-                    Ok(Some(item.try_into().expect("guaranteed by CBOR standard")))
-                }
-                Err(e) if matches!(e.kind(), ErrorKind::UnexpectedEof(_)) => Ok(None),
-                Err(e) => Err(e),
-            },
+            Frame::OneCborItem => take_one_cbor_item(data),
             Frame::Buffer => Ok(None),
         }
+    }
+}
+
+fn take_one_cbor_item(data: &mut BytesMut) -> Result<Option<NonEmptyBytes>, cbor::decode::Error> {
+    let len = {
+        let mut decoder = cbor::Decoder::new(data);
+        match decoder.skip() {
+            Ok(()) => decoder.position(),
+            Err(e) if e.is_end_of_input() => return Ok(None),
+            Err(e) => return Err(e),
+        }
+    };
+    let item = data.copy_to_bytes(len);
+    #[expect(clippy::expect_used)]
+    Ok(Some(item.try_into().expect("guaranteed by CBOR standard")))
+}
+
+#[cfg(test)]
+mod one_cbor_item_tests {
+    use std::thread;
+
+    use test_case::test_case;
+
+    use super::*;
+
+    /// The stack a spawned thread gets by default, and therefore what a connection's worker frames
+    /// inbound bytes on. `.cargo/config.toml` raises `RUST_MIN_STACK` for cargo-launched processes
+    const DEFAULT_STACK: usize = 2 * 1024 * 1024;
+
+    fn consume(bytes: &[u8]) -> Result<(Option<NonEmptyBytes>, BytesMut), cbor::decode::Error> {
+        let mut data = BytesMut::from(bytes);
+        let item = Frame::OneCborItem.try_consume(&mut data)?;
+        Ok((item, data))
+    }
+
+    #[test]
+    fn empty_is_incomplete() {
+        let (item, rest) = consume(&[]).unwrap();
+        assert_eq!(item, None);
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn incomplete_array_waits() {
+        let (item, rest) = consume(&[0x81]).unwrap();
+        assert_eq!(item, None);
+        assert_eq!(&rest[..], &[0x81]);
+    }
+
+    #[test]
+    fn incomplete_bytes_wait() {
+        let (item, rest) = consume(&[0x45, 0x01, 0x02]).unwrap();
+        assert_eq!(item, None);
+        assert_eq!(&rest[..], &[0x45, 0x01, 0x02]);
+    }
+
+    #[test]
+    fn complete_int_leaves_the_next_item() {
+        let (item, rest) = consume(&[0x01, 0x02]).unwrap();
+        assert_eq!(item, Some(NonEmptyBytes::from_slice(&[0x01]).unwrap()));
+        assert_eq!(&rest[..], &[0x02]);
+    }
+
+    #[test]
+    fn nested_array_is_one_item() {
+        let bytes = [0x81, 0x81, 0x00, 0x02];
+        let (item, rest) = consume(&bytes).unwrap();
+        assert_eq!(item.unwrap().as_ref(), &[0x81, 0x81, 0x00]);
+        assert_eq!(&rest[..], &[0x02]);
+    }
+
+    #[test]
+    fn indefinite_array_is_one_item() {
+        let bytes = [0x9f, 0x01, 0xff, 0x02];
+        let (item, rest) = consume(&bytes).unwrap();
+        assert_eq!(item.unwrap().as_ref(), &[0x9f, 0x01, 0xff]);
+        assert_eq!(&rest[..], &[0x02]);
+    }
+
+    #[test]
+    fn tagged_byte_string_is_not_parsed_as_nested_cbor() {
+        // Tag 24 wrapping a 1-byte string of `0xff`. The inner bytes are not a CBOR item; framing
+        // still takes the complete outer item.
+        let bytes = [0xd8, 24, 0x41, 0xff];
+        let (item, rest) = consume(&bytes).unwrap();
+        assert_eq!(item.unwrap().as_ref(), &bytes);
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn invalid_additional_info_is_an_error() {
+        assert!(consume(&[0x1c]).is_err());
+    }
+
+    /// A regression aborts the test binary rather than reporting a failure.
+    #[test_case(&[0x81], &[]; "definite arrays")]
+    #[test_case(&[0x9f], &[0xff]; "indefinite arrays")]
+    #[test_case(&[0xa1, 0x00], &[]; "definite maps")]
+    #[test_case(&[0xbf, 0x00], &[0xff]; "indefinite maps")]
+    fn deep_nesting_does_not_overflow_the_stack(open: &'static [u8], close: &'static [u8]) {
+        const DEPTH: usize = 100_000;
+        const LEAF: u8 = 0x00;
+
+        let test = move || {
+            let mut bytes = Vec::with_capacity((open.len() + close.len()) * DEPTH + 1);
+            for _ in 0..DEPTH {
+                bytes.extend_from_slice(open);
+            }
+            bytes.push(LEAF);
+            for _ in 0..DEPTH {
+                bytes.extend_from_slice(close);
+            }
+
+            let (item, rest) = consume(&bytes).unwrap();
+            assert_eq!(item.unwrap().as_ref(), bytes.as_slice());
+            assert!(rest.is_empty());
+        };
+
+        thread::Builder::new().stack_size(DEFAULT_STACK).spawn(test).unwrap().join().unwrap();
     }
 }
 

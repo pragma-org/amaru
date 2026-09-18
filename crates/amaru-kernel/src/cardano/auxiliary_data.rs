@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_HASH32, PlutusScript, cbor};
+use crate::{Hash, Hasher, KeyValuePairs, Metadatum, NULL_HASH32, NativeScript, PlutusScript, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuxiliaryData {
@@ -22,7 +22,7 @@ pub struct AuxiliaryData {
 
     metadata: KeyValuePairs<u64, Metadatum>,
 
-    native_scripts: Vec<MemoizedNativeScript>,
+    native_scripts: Vec<NativeScript>,
 
     plutus_v1_scripts: Vec<PlutusScript<1>>,
 
