@@ -14,6 +14,8 @@
 
 use std::{error::Error, thread};
 
+pub const STACK_SIZE_512KIB: usize = 512 * 1024;
+
 pub const STACK_SIZE_2MIB: usize = 2 * 1024 * 1024;
 
 /// Run a given action within in a thread with a given stack size, overriding any

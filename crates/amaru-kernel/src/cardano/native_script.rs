@@ -654,7 +654,7 @@ mod tests {
 
                 assert_eq!(script.script_hash().to_string(), PREPROD_SCRIPT_HASH);
                 assert_eq!(script.original_bytes(), bytes);
-                assert_eq!(script, script);
+                assert!(script == script);
 
                 assert!(script.eval(&signers(&[PREPROD_SIGNER]), ValidityInterval::default()));
                 assert!(!script.eval(&signers(&[]), ValidityInterval::default()));
@@ -671,7 +671,7 @@ mod tests {
                 let script: NativeScript = from_cbor(&bytes).ok_or("the script decodes")?;
 
                 assert_eq!(to_cbor(&script), bytes);
-                assert_eq!(script, script);
+                assert!(script == script);
                 assert!(script.eval(&signers(&[PREPROD_SIGNER]), ValidityInterval::default()));
 
                 let clone = script.clone();

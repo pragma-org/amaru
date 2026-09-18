@@ -14,6 +14,8 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
+use stacksafe::{StackSafe, stacksafe};
+
 use crate::{Bytes, Hash, MemoizedPlutusData, NonEmptyVec, cbor, size::DATUM};
 
 mod bigint;
@@ -24,6 +26,114 @@ pub use constr::*;
 
 // ---------------------------------------------------------------------------------------------
 // PlutusData
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub enum PlutusData {
+    Constr(Constr<PlutusData>),
+    Map(StackSafe<Vec<(PlutusData, PlutusData)>>),
+    Array(StackSafe<Vec<PlutusData>>),
+    BigInt(BigInt),
+    BoundedBytes(Bytes),
+}
+
+// NOTE: Dubious choices of encoding in this encoder?
+//
+// This PlutusData encoder follows the same rules and quirks as the Haskell node, which can be
+// summarized as:
+//
+// 1. Non-empty arrays encoded using indefinite length. When empty, they're encoded using definite length.
+// 2. Maps are always encoded with definite length, even when empty.
+// 3. Constr fields follow the same rules as arrays.
+// 4. Bytes are encoded as definite length if less than 64 bytes, and with indefinite in chunks of
+//    up-to 64 bytes when larger.
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PlutusData {
+    #[stacksafe]
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match self {
+            Self::Constr(constr) => {
+                e.encode_with(constr, ctx)?;
+            }
+            Self::Map(kvs) => {
+                e.map(kvs.len() as u64)?;
+                for (k, v) in kvs.iter() {
+                    e.encode_with(k, ctx)?;
+                    e.encode_with(v, ctx)?;
+                }
+            }
+            Self::Array(array) => {
+                if array.is_empty() {
+                    e.array(0)?;
+                } else {
+                    e.begin_array()?;
+                    for elem in array.iter() {
+                        e.encode_with(elem, ctx)?;
+                    }
+                    e.end()?;
+                }
+            }
+            Self::BigInt(i) => {
+                e.encode_with(i, ctx)?;
+            }
+            Self::BoundedBytes(bytes) => {
+                cbor::encode_bytestring(e, bytes)?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PlutusData {
+    #[expect(clippy::wildcard_enum_match_arm)]
+    #[stacksafe]
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        match d.datatype()? {
+            cbor::data::Type::Tag => {
+                let mut probe = d.probe();
+                let tag = probe.tag()?;
+
+                if tag == cbor::IanaTag::PosBignum.tag() || tag == cbor::IanaTag::NegBignum.tag() {
+                    Ok(Self::BigInt(d.decode_with(ctx)?))
+                } else {
+                    match tag.as_u64() {
+                        (121..=127) | (1280..=1400) | 102 => Ok(Self::Constr(d.decode_with(ctx)?)),
+                        _ => Err(cbor::decode::Error::message("unknown tag for plutus data tag")),
+                    }
+                }
+            }
+
+            cbor::data::Type::Map | cbor::data::Type::MapIndef => {
+                Ok(Self::Map(StackSafe::new(d.map_iter_with(ctx)?.collect::<Result<_, _>>()?)))
+            }
+
+            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
+                Ok(Self::Array(StackSafe::new(d.decode_with(ctx)?)))
+            }
+
+            cbor::data::Type::U8
+            | cbor::data::Type::U16
+            | cbor::data::Type::U32
+            | cbor::data::Type::U64
+            | cbor::data::Type::I8
+            | cbor::data::Type::I16
+            | cbor::data::Type::I32
+            | cbor::data::Type::I64
+            | cbor::data::Type::Int => Ok(Self::BigInt(d.decode_with(ctx)?)),
+
+            cbor::data::Type::Bytes | cbor::data::Type::BytesIndef => Ok(Self::BoundedBytes(decode_bounded_bytes(d)?)),
+
+            any => Err(cbor::decode::Error::message(format!("bad cbor data type ({any:?}) for plutus data"))),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// BoundedBytes
 // ---------------------------------------------------------------------------------------------
 
 /// Largest byte string accepted inside Plutus data, whether as a definite-length
@@ -45,106 +155,6 @@ pub fn decode_bounded_bytes(d: &mut cbor::Decoder<'_>) -> Result<Bytes, cbor::de
         bytes.extend_from_slice(chunk);
     }
     Ok(Bytes::from(bytes))
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub enum PlutusData {
-    Constr(Constr<PlutusData>),
-    Map(Vec<(PlutusData, PlutusData)>),
-    Array(Vec<PlutusData>),
-    BigInt(BigInt),
-    BoundedBytes(Bytes),
-}
-
-// NOTE: Dubious choices of encoding in this encoder?
-//
-// This PlutusData encoder follows the same rules and quirks as the Haskell node, which can be
-// summarized as:
-//
-// 1. Non-empty arrays encoded using indefinite length. When empty, they're encoded using definite length.
-// 2. Maps are always encoded with definite length, even when empty.
-// 3. Constr fields follow the same rules as arrays.
-// 4. Bytes are encoded as definite length if less than 64 bytes, and with indefinite in chunks of
-//    up-to 64 bytes when larger.
-impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PlutusData {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self {
-            Self::Constr(constr) => {
-                e.encode_with(constr, ctx)?;
-            }
-            Self::Map(kvs) => {
-                e.map(kvs.len() as u64)?;
-                for (k, v) in kvs {
-                    e.encode_with(k, ctx)?;
-                    e.encode_with(v, ctx)?;
-                }
-            }
-            Self::Array(array) => {
-                if array.is_empty() {
-                    e.array(0)?;
-                } else {
-                    e.begin_array()?;
-                    for elem in array {
-                        e.encode_with(elem, ctx)?;
-                    }
-                    e.end()?;
-                }
-            }
-            Self::BigInt(i) => {
-                e.encode_with(i, ctx)?;
-            }
-            Self::BoundedBytes(bytes) => {
-                cbor::encode_bytestring(e, bytes)?;
-            }
-        };
-
-        Ok(())
-    }
-}
-
-impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PlutusData {
-    #[expect(clippy::wildcard_enum_match_arm)]
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        match d.datatype()? {
-            cbor::data::Type::Tag => {
-                let mut probe = d.probe();
-                let tag = probe.tag()?;
-
-                if tag == cbor::IanaTag::PosBignum.tag() || tag == cbor::IanaTag::NegBignum.tag() {
-                    Ok(Self::BigInt(d.decode_with(ctx)?))
-                } else {
-                    match tag.as_u64() {
-                        (121..=127) | (1280..=1400) | 102 => Ok(Self::Constr(d.decode_with(ctx)?)),
-                        _ => Err(cbor::decode::Error::message("unknown tag for plutus data tag")),
-                    }
-                }
-            }
-
-            cbor::data::Type::Map | cbor::data::Type::MapIndef => {
-                Ok(Self::Map(d.map_iter_with(ctx)?.collect::<Result<_, _>>()?))
-            }
-
-            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => Ok(Self::Array(d.decode_with(ctx)?)),
-
-            cbor::data::Type::U8
-            | cbor::data::Type::U16
-            | cbor::data::Type::U32
-            | cbor::data::Type::U64
-            | cbor::data::Type::I8
-            | cbor::data::Type::I16
-            | cbor::data::Type::I32
-            | cbor::data::Type::I64
-            | cbor::data::Type::Int => Ok(Self::BigInt(d.decode_with(ctx)?)),
-
-            cbor::data::Type::Bytes | cbor::data::Type::BytesIndef => Ok(Self::BoundedBytes(decode_bounded_bytes(d)?)),
-
-            any => Err(cbor::decode::Error::message(format!("bad cbor data type ({any:?}) for plutus data"))),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -224,6 +234,7 @@ pub use tests::*;
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use proptest::prelude::*;
+    use stacksafe::StackSafe;
 
     use super::*;
     use crate::plutus_data::{any_bigint, any_constr};
@@ -240,16 +251,107 @@ mod tests {
         if depth > 0 {
             let constr = any_constr(depth).prop_map(PlutusData::Constr);
 
-            let array =
-                prop::collection::vec(any_plutus_data(depth - 1), 0..depth as usize).prop_map(PlutusData::Array);
+            let array = prop::collection::vec(any_plutus_data(depth - 1), 0..depth as usize)
+                .prop_map(StackSafe::new)
+                .prop_map(PlutusData::Array);
 
             let map =
                 prop::collection::vec((any_plutus_data(depth - 1), any_plutus_data(depth - 1)), 0..depth as usize)
+                    .prop_map(StackSafe::new)
                     .prop_map(PlutusData::Map);
 
             prop_oneof![int, bytes, constr, array, map].boxed()
         } else {
             prop_oneof![int, bytes].boxed()
+        }
+    }
+
+    pub fn int(i: i64) -> PlutusData {
+        PlutusData::BigInt(BigInt::Int(i.into()))
+    }
+
+    pub fn biguint(bs: &[u8]) -> PlutusData {
+        PlutusData::BigInt(BigInt::BigUInt(Bytes::from(bs.to_vec())))
+    }
+
+    pub fn bignint(bs: &[u8]) -> PlutusData {
+        PlutusData::BigInt(BigInt::BigNInt(Bytes::from(bs.to_vec())))
+    }
+
+    pub fn bytes(bs: &[u8]) -> PlutusData {
+        PlutusData::BoundedBytes(Bytes::from(bs.to_vec()))
+    }
+
+    pub fn array(xs: &[PlutusData]) -> PlutusData {
+        PlutusData::Array(StackSafe::new(xs.to_vec()))
+    }
+
+    pub fn map(kvs: &[(PlutusData, PlutusData)]) -> PlutusData {
+        PlutusData::Map(StackSafe::new(kvs.to_vec()))
+    }
+
+    pub fn constr(tag: u64, fields: &[PlutusData]) -> PlutusData {
+        PlutusData::Constr(Constr { tag, any_constructor: None, fields: fields.to_vec() })
+    }
+
+    pub fn constr_any(any_constructor: u64, fields: &[PlutusData]) -> PlutusData {
+        PlutusData::Constr(Constr { tag: 102, any_constructor: Some(any_constructor), fields: fields.to_vec() })
+    }
+
+    #[cfg(test)]
+    mod stack_overflow {
+        use crate::{PlutusData, from_cbor, to_cbor, utils::stack};
+
+        const TRANSACTION_MAX_SIZE: usize = 16384;
+
+        #[test]
+        fn deeply_nested_array() {
+            let max_depth = TRANSACTION_MAX_SIZE / 2;
+            let (lhs, rhs) = rayon::join(
+                || nest_with(max_depth, leaf(0), |data| super::array(&[data])),
+                || nest_with(max_depth, leaf(1), |data| super::array(&[data])),
+            );
+
+            stack::with_stack_size(stack::STACK_SIZE_512KIB, move || {
+                assert!(lhs != rhs);
+                assert!(lhs == lhs.clone());
+                let bytes = to_cbor(&lhs);
+                assert!(from_cbor(&bytes) == Some(lhs));
+            })
+            .expect("couldn't run or spawn thread")
+        }
+
+        #[test]
+        fn deeply_nested_map() {
+            let max_depth = TRANSACTION_MAX_SIZE / 3;
+            let (lhs, rhs) = rayon::join(
+                || nest_with(max_depth, leaf(0), |data| super::map(&[(super::bytes(&[]), data)])),
+                || nest_with(max_depth, leaf(1), |data| super::map(&[(super::bytes(&[]), data)])),
+            );
+
+            stack::with_stack_size(stack::STACK_SIZE_512KIB, move || {
+                assert!(lhs != rhs);
+                assert!(lhs == lhs.clone());
+                let bytes = to_cbor(&lhs);
+                assert!(from_cbor(&bytes) == Some(lhs));
+            })
+            .expect("couldn't run or spawn thread")
+        }
+
+        fn leaf(byte: u8) -> PlutusData {
+            super::bytes(&[byte; 1])
+        }
+
+        pub fn nest_with(
+            mut depth: usize,
+            mut leaf: PlutusData,
+            nest: impl Fn(PlutusData) -> PlutusData,
+        ) -> PlutusData {
+            while depth > 0 {
+                leaf = nest(leaf);
+                depth -= 1;
+            }
+            leaf
         }
     }
 
@@ -260,11 +362,8 @@ mod tests {
         use proptest::prelude::*;
         use test_case::test_case;
 
-        use super::any_plutus_data;
-        use crate::{
-            Bytes, PlutusData, cbor,
-            plutus_data::{BigInt, Constr},
-        };
+        use super::{any_plutus_data, array, bignint, biguint, bytes, constr, constr_any, int, map};
+        use crate::{PlutusData, cbor, plutus_data::BigInt};
 
         proptest! {
             #[test]
@@ -293,38 +392,6 @@ mod tests {
         #[test_case([vec![0xc3], chunked(&[1, 65])].concat() => matches Err(_))]
         fn decode_bounded_bytes_limit(bytes: Vec<u8>) -> Result<PlutusData, cbor::decode::Error> {
             cbor::from_cbor_no_leftovers(&bytes)
-        }
-
-        fn int(i: i64) -> PlutusData {
-            PlutusData::BigInt(BigInt::Int(i.into()))
-        }
-
-        fn biguint(bs: &[u8]) -> PlutusData {
-            PlutusData::BigInt(BigInt::BigUInt(Bytes::from(bs.to_vec())))
-        }
-
-        fn bignint(bs: &[u8]) -> PlutusData {
-            PlutusData::BigInt(BigInt::BigNInt(Bytes::from(bs.to_vec())))
-        }
-
-        fn bytes(bs: &[u8]) -> PlutusData {
-            PlutusData::BoundedBytes(Bytes::from(bs.to_vec()))
-        }
-
-        fn array(xs: &[PlutusData]) -> PlutusData {
-            PlutusData::Array(xs.to_vec())
-        }
-
-        fn map(kvs: &[(PlutusData, PlutusData)]) -> PlutusData {
-            PlutusData::Map(kvs.to_vec())
-        }
-
-        fn constr(tag: u64, fields: &[PlutusData]) -> PlutusData {
-            PlutusData::Constr(Constr { tag, any_constructor: None, fields: fields.to_vec() })
-        }
-
-        fn constr_any(any_constructor: u64, fields: &[PlutusData]) -> PlutusData {
-            PlutusData::Constr(Constr { tag: 102, any_constructor: Some(any_constructor), fields: fields.to_vec() })
         }
 
         // Bytes <-> ...

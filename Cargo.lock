@@ -330,6 +330,7 @@ dependencies = [
  "num",
  "proptest",
  "rand 0.9.5",
+ "rayon",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -6050,6 +6051,7 @@ version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95f9c34983ac74195c710c473db6fdf1085f64a47dbaa0090d1bea03be70da66"
 dependencies = [
+ "serde",
  "stacker",
  "stacksafe-macro",
 ]

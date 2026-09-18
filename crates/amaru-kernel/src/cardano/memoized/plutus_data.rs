@@ -119,6 +119,7 @@ pub use tests::*;
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use proptest::prelude::*;
+    use stacksafe::StackSafe;
 
     use super::*;
     use crate::{
@@ -149,17 +150,17 @@ mod tests {
             Ok(match data {
                 VariableEncodingPlutusData::BigInt(i) => Self::BigInt(i),
                 VariableEncodingPlutusData::BoundedBytes(i) => Self::BoundedBytes(i),
-                VariableEncodingPlutusData::Array(xs) => Self::Array(match xs {
+                VariableEncodingPlutusData::Array(xs) => Self::Array(StackSafe::new(match xs {
                     CborArray::Def(xs) | CborArray::Indef(xs) => {
                         xs.into_iter().map(|x| x.try_into()).collect::<Result<_, _>>()?
                     }
-                }),
-                VariableEncodingPlutusData::Map(xs) => Self::Map(match xs {
+                })),
+                VariableEncodingPlutusData::Map(xs) => Self::Map(StackSafe::new(match xs {
                     CborMap::Def(xs) | CborMap::Indef(xs) => xs
                         .into_iter()
                         .map(|(k, v)| k.try_into().and_then(|k| v.try_into().map(|v| (k, v))))
                         .collect::<Result<Vec<_>, _>>()?,
-                }),
+                })),
                 VariableEncodingPlutusData::Constr(VariableEncodingConstr { tag, any_constructor, fields }) => {
                     Self::Constr(Constr {
                         tag,
