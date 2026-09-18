@@ -129,6 +129,30 @@ jobs:
         env:
           AMARU_BENCH_BLOCK_SIZE: 4096
 
+  cbor-conformance:
+    name: Test CBOR decoding conformance
+    needs: [build-linux-x86_64]
+    runs-on: ubuntu-24.04
+    env:
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+      - uses: ./.github/actions/cache
+      - uses: ./.github/actions/fetch-cbor-dataset
+
+      - name: Run the decoding conformance suite
+        env:
+          AMARU_TEST_REPORT_DIRECTORY: tests/results
+        run: cargo test --locked -p amaru-kernel --test test_cbor_dataset -- --nocapture
+
+      - name: Upload the conformance report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: cbor-conformance-report
+          path: crates/amaru-kernel/tests/results/*.json
+          if-no-files-found: error
+
   trace-schemas:
     name: Test trace schemas & documentation
     needs: [build-linux-x86_64]

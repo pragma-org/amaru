@@ -285,10 +285,41 @@ jobs:
           path: |
             amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}.msi
 
+  cbor-conformance:
+    name: CBOR decoding conformance report
+    timeout-minutes: 60
+    needs: build-metadata
+    runs-on: ubuntu-24.04
+    env:
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          submodules: true
+
+      - uses: ./.github/actions/cache
+        with:
+          mode: READ
+
+      - uses: ./.github/actions/fetch-cbor-dataset
+
+      - name: Run the decoding conformance suite
+        env:
+          AMARU_TEST_REPORT_DIRECTORY: tests/results
+        run: cargo test --locked -p amaru-kernel --test test_cbor_dataset -- --nocapture
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: amaru-${{ needs.build-metadata.outputs.version }}-cbor-conformance
+          path: crates/amaru-kernel/tests/results/*.json
+          if-no-files-found: error
+
   draft-release:
     name: Create draft release
     if: ${{ needs.build-metadata.outputs.is_release == 'true' }}
-    needs: [build-metadata, rust-build]
+    needs: [build-metadata, rust-build, cbor-conformance]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -314,7 +345,16 @@ jobs:
 
           mkdir -p release-assets
 
+          conformance_report="amaru-${VERSION}-cbor-conformance"
+
           for artifact_dir in ./artifacts/*; do
+            if [[ "$(basename "$artifact_dir")" == "$conformance_report" ]]; then
+              # The suite names the report after the corpus and the protocol version; there is exactly one.
+              find "$artifact_dir" -maxdepth 1 -type f -name '*.json' \
+                -exec cp {} "release-assets/${conformance_report}.json" \;
+              continue
+            fi
+
             if find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | grep -q .; then
               find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) -exec cp {} release-assets/ \;
               continue
@@ -389,6 +429,7 @@ jobs:
             "$macos_tar_aarch64"
             "$windows_zip_x86_64"
             "$windows_msi_x86_64"
+            "${conformance_report}.json"
           )
 
           checksum_manifest="amaru-${VERSION}-checksums.manifest"
@@ -468,6 +509,9 @@ jobs:
             printf '| Image | Registry |\n'
             printf '| --- | --- |\n'
             printf '| `%s:%s` | [%s](%s) |\n' "$DOCKER_IMAGE" "$RELEASE_TAG" "$docker_registry_url" "$docker_registry_url"
+            printf '\n## CBOR decoding conformance\n\n'
+            printf 'Per-rule results of decoding the [cardano-cbor-dataset](https://github.com/r2rationality/cardano-cbor-dataset) corpus with this build: [%s](%s)\n' \
+              "${conformance_report}.json" "$(asset_url_for "${conformance_report}.json")"
             printf '\n## Checksum manifest\n\n'
             printf '[%s](%s)\n' "$checksum_manifest" "$(asset_url_for "$checksum_manifest")"
           } > release-body.md
