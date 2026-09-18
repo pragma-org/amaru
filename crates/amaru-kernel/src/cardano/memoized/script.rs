@@ -14,13 +14,13 @@
 
 use serde::ser::SerializeStruct;
 
-use crate::{Bytes, HasScriptHash, Hash, Hasher, MemoizedNativeScript, PlutusScript, cbor, size::SCRIPT};
+use crate::{Bytes, HasScriptHash, Hash, Hasher, NativeScript, PlutusScript, cbor, size::SCRIPT};
 
 // ------------------------------------------------------------------------ MemoizedScript
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoizedScript {
-    NativeScript(MemoizedNativeScript),
+    NativeScript(NativeScript),
     PlutusV1Script(PlutusScript<1>),
     PlutusV2Script(PlutusScript<2>),
     PlutusV3Script(PlutusScript<3>),
@@ -120,7 +120,7 @@ impl<C: crate::cbor::HasProtocolVersion> minicbor::Encode<C> for MemoizedScript 
 /// The available builtins, the cost model, and the  script-context encoding all differ by Plutus version.
 #[derive(Debug, Clone)]
 pub enum BorrowedScript<'a> {
-    Native(&'a MemoizedNativeScript),
+    Native(&'a NativeScript),
     PlutusV1(&'a PlutusScript<1>),
     PlutusV2(&'a PlutusScript<2>),
     PlutusV3(&'a PlutusScript<3>),

@@ -15,9 +15,6 @@
 mod datum;
 pub use datum::*;
 
-mod native_script;
-pub use native_script::*;
-
 mod plutus_data;
 pub use plutus_data::*;
 
