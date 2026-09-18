@@ -759,7 +759,7 @@ mod tests {
                 guardrails in any_guardrails_script(),
             ) -> GovernanceAction {
                 GovernanceAction::TreasuryWithdrawals(
-                    KeyValuePairs::try_from(withdrawals).unwrap(),
+                    withdrawals.into_iter().collect(),
                     guardrails
                 )
             }

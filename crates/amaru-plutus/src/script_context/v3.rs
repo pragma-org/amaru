@@ -228,11 +228,6 @@ impl ToPlutusData<3> for GovernanceAction {
                 constr_v3!(1, [previous_action, version])
             }
             GovernanceAction::TreasuryWithdrawals(withdrawals, guardrail) => {
-                let withdrawals = withdrawals
-                    .iter()
-                    .map(|(reward_account, amount)| (*reward_account, *amount))
-                    .collect::<BTreeMap<_, _>>();
-
                 constr_v3!(2, [withdrawals, guardrail])
             }
             GovernanceAction::NoConfidence(previous_action) => {
@@ -518,7 +513,7 @@ mod tests {
     use test_case::test_case;
 
     use super::{
-        super::test_vectors::{self, TestVector},
+        super::test_vectors::TestVector,
         *,
     };
 
