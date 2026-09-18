@@ -629,13 +629,11 @@ mod tests {
     /// A regression here crashes the test binary rather than reporting a failure.
     #[cfg(test)]
     mod depth {
-        use std::{collections::BTreeSet, error::Error, thread};
+        use std::{collections::BTreeSet, error::Error};
 
-        use crate::{HasScriptHash, Hash, NativeScript, ValidityInterval, from_cbor, size::KEY, to_cbor};
+        use crate::{HasScriptHash, Hash, NativeScript, ValidityInterval, from_cbor, size::KEY, to_cbor, utils::stack};
 
         type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
-
-        const DEFAULT_STACK: usize = 2 * 1024 * 1024;
 
         const PREPROD_DEPTH: usize = 5383;
         const PREPROD_SCRIPT_HASH: &str = "ff3efca65569f6b0b868a3d34abdb1ad8eccf745e0da71fa94fb4f18";
@@ -650,7 +648,7 @@ mod tests {
 
         #[test]
         fn decodes_the_preprod_transaction_that_broke_indexers() -> TestResult {
-            on_a_default_stack(|| {
+            stack::with_stack_size(stack::STACK_SIZE_2MIB, || {
                 let bytes = nested_script(PREPROD_DEPTH, &PREPROD_SIGNER);
                 let script: NativeScript = from_cbor(&bytes).ok_or("the script decodes")?;
 
@@ -663,11 +661,12 @@ mod tests {
 
                 Ok(())
             })
+            .expect("couldn't run or spawn thread")
         }
 
         #[test]
         fn handles_the_deepest_script_a_transaction_can_hold() -> TestResult {
-            on_a_default_stack(|| {
+            stack::with_stack_size(stack::STACK_SIZE_2MIB, || {
                 let bytes = nested_script(MAX_DEPTH, &PREPROD_SIGNER);
                 let script: NativeScript = from_cbor(&bytes).ok_or("the script decodes")?;
 
@@ -681,6 +680,7 @@ mod tests {
 
                 Ok(())
             })
+            .expect("couldn't run or spawn thread")
         }
 
         fn nested_script(depth: usize, signer: &[u8; KEY]) -> Vec<u8> {
@@ -700,13 +700,6 @@ mod tests {
 
         fn signers(keys: &[[u8; KEY]]) -> BTreeSet<Hash<KEY>> {
             keys.iter().map(|key| Hash::from(*key)).collect()
-        }
-
-        fn on_a_default_stack(test: impl FnOnce() -> TestResult + Send + 'static) -> TestResult {
-            match thread::Builder::new().stack_size(DEFAULT_STACK).spawn(test)?.join() {
-                Ok(result) => result,
-                Err(_) => Err("the test thread panicked, see the failure reported above".into()),
-            }
         }
     }
 }

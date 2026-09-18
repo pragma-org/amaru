@@ -21,6 +21,7 @@ pub mod memory;
 pub mod path;
 pub mod process;
 pub mod serde;
+pub mod stack;
 pub mod string;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;
