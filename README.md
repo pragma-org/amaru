@@ -40,7 +40,7 @@ Windows). The archives come with shell completions scripts.
 See either:
 
 - [latest releases](https://github.com/pragma-org/amaru/releases);
-- [nightly builds](https://pragma-org.github.io/amaru/).
+- [nightly builds](https://nightly.amaru.global/).
 
 Alternatively, Amaru also comes pre-packaged for a few platforms.
 
