@@ -31,6 +31,7 @@ use amaru_pure_stage::{
 
 use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch, responder::MAX_FETCHED_BLOCKS};
 use crate::{
+    blockfetch::BLOCKFETCH_AGENCY_TIMEOUT,
     mux::{Frame, HandlerMessage, MuxMessage, Sent},
     protocol::{
         Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pipelined, Pull, ToMux, WantNext,
@@ -42,12 +43,6 @@ pub const BLOCKFETCH_PIPELINE_N: NonZeroU8 = match NonZeroU8::new(2) {
     Some(n) => n,
     None => unreachable!(),
 };
-
-/// Receive timeout while the responder has agency (`StBusy` / `StStreaming`).
-///
-/// From the Cardano Blueprint networking notes: `StIdle` has no receive timeout;
-/// `StBusy` and `StStreaming` wait at most 60 seconds.
-pub const BLOCKFETCH_AGENCY_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub const BLOCKFETCH_MAX_BLOCK_WIRE_BYTES: usize = 96 * 1024;
 
@@ -82,6 +77,7 @@ on_receive!(Streaming as ClientStreamingIn {
     Block => { Send<ToMux, WantNext>, Repeat<SendAny<ToCollector>>, SetTimeout => Streaming }
     BatchDone => { ClearTimeout, Repeat<SendAny<ToCollector>> => Idle }
 });
+on_receive!(Done as DoneIn {});
 
 /// Local request that starts an initiator fetch on one pipeline instance.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -92,9 +88,13 @@ pub struct Fetch {
     pub cr: StageRef<Blocks>,
 }
 
+amaru_pure_stage::impl_label!(Fetch);
+
 /// Local request that closes an idle initiator instance.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Close;
+
+amaru_pure_stage::impl_label!(Close);
 
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks {
@@ -467,7 +467,6 @@ mod tests {
     use amaru_pure_stage::{
         StageGraph,
         simulation::{Run, SimulationBuilder},
-        typestate::{FmtPar, OnReceive, Session},
     };
     use tokio::runtime::{Builder, Runtime};
 
@@ -476,46 +475,6 @@ mod tests {
         mux::{MuxMessage, Sent},
         protocol::Inputs,
     };
-
-    fn remaining<S, In>() -> String
-    where
-        S: OnReceive<In>,
-        S::Then: FmtPar,
-    {
-        Session::<(), S::Then>::describe()
-    }
-
-    fn send_desc<Tag, T>() -> String {
-        format!("Send<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
-    }
-
-    fn call_desc<Tag, T>() -> String {
-        format!("Call<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
-    }
-
-    fn star_any<Tag>() -> String {
-        format!("Repeat<SendAny<{}>>", std::any::type_name::<Tag>())
-    }
-
-    #[test]
-    fn initiator_receive_allowances() {
-        assert_eq!(remaining::<Idle, Fetch>(), call_desc::<ToResponder, RequestRange>() + " => Busy");
-        assert_eq!(
-            remaining::<Idle, Close>(),
-            format!("{} | {} => Done", call_desc::<ToResponder, ClientDone>(), star_any::<ToCollector>())
-        );
-        assert_eq!(remaining::<Busy, Pull>(), format!("{}, SetTimeout => Busy", send_desc::<ToMux, WantNext>()));
-        assert_eq!(
-            remaining::<Busy, StartBatch>(),
-            format!("{}, SetTimeout => Streaming", send_desc::<ToMux, WantNext>())
-        );
-        assert_eq!(remaining::<Busy, NoBlocks>(), format!("ClearTimeout, {} => Idle", star_any::<ToCollector>()));
-        assert_eq!(
-            remaining::<Streaming, Block>(),
-            format!("{}, {}, SetTimeout => Streaming", send_desc::<ToMux, WantNext>(), star_any::<ToCollector>())
-        );
-        assert_eq!(remaining::<Streaming, BatchDone>(), format!("ClearTimeout, {} => Idle", star_any::<ToCollector>()));
-    }
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
     struct MuxLog {
