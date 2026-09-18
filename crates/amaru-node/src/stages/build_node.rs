@@ -321,7 +321,10 @@ pub fn make_state(
 }
 
 fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {
-    // Consider that previously validated blocks haven't been validated now, since the volatile
-    // ledger is going to be reconstructed on a restart. Invalid flags are kept.
-    realign_chain_store_to(chain_store.as_ref(), ledger_tip, ClearValidity::ValidOnly)
+    // Previously validated blocks have not been applied to this process's volatile ledger, so
+    // their valid flags are stale. Invalid flags are cleared too: a false reject from an earlier
+    // run must not hide that chain from `find_best_candidate` (which skips `valid=false` and does
+    // not walk its children). Re-validation either repeats the error or, if the bug is gone, adopts
+    // the chain. Runtime `FindBestCandidate` still skips blocks marked invalid in *this* run.
+    realign_chain_store_to(chain_store.as_ref(), ledger_tip, ClearValidity::All)
 }
