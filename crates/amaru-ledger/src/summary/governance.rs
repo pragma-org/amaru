@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Deref,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Anchor, CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, Epoch, EraHistory, EraHistoryError,
@@ -129,7 +126,7 @@ impl GovernanceSummary {
                     use amaru_kernel::GovernanceAction::*;
                     match row.proposal.gov_action {
                         TreasuryWithdrawals(withdrawals, _) => {
-                            for (account, withdrawal) in withdrawals.deref() {
+                            for (account, withdrawal) in &withdrawals {
                                 dreps_deposits
                                     .entry(account.credential())
                                     .and_modify(|total| *total += withdrawal)

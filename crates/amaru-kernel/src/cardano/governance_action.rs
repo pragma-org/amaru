@@ -18,6 +18,8 @@ use proptest::{
     prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof},
 };
 
+use std::collections::BTreeMap;
+
 use crate::{
     Constitution, Credential, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
     RationalNumber, RewardAccount, cbor, hash, utils::cbor::SerialisedAsSet,
@@ -27,7 +29,7 @@ use crate::{
 pub enum GovernanceAction {
     ParameterChange(Option<ProposalId>, Box<ProtocolParamUpdate>, Option<Hash<{ hash::size::SCRIPT }>>),
     HardForkInitiation(Option<ProposalId>, ProtocolVersion),
-    TreasuryWithdrawals(KeyValuePairs<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
+    TreasuryWithdrawals(BTreeMap<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
     NoConfidence(Option<ProposalId>),
     // TODO: align types with ConstitutionalCommitteeUpdate
     UpdateCommittee(Option<ProposalId>, Vec<Credential>, KeyValuePairs<Credential, Epoch>, RationalNumber),
@@ -58,9 +60,10 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Governance
 
                 2 => {
                     assert_len(3)?;
-                    let a = d.decode_with(ctx)?;
+                    // Decode first as a key/value pairs that can be empty but checks for duplicates
+                    let a: KeyValuePairs<RewardAccount, Lovelace> = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
-                    Ok(Self::TreasuryWithdrawals(a, b))
+                    Ok(Self::TreasuryWithdrawals(a.into(), b))
                 }
 
                 3 => {
