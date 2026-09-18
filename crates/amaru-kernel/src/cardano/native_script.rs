@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, ops::Deref};
+
+use stacksafe::{StackSafe, stacksafe};
 
 use crate::{Hash, ValidityInterval, cbor, size::KEY, utils::string::blanket_try_from_hex_bytes};
 
@@ -98,9 +100,9 @@ impl<C> cbor::Encode<C> for NativeScript {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeScriptTree {
     VerificationKey(Hash<{ KEY }>),
-    All(Vec<NativeScriptTree>),
-    Any(Vec<NativeScriptTree>),
-    AtLeast(i64, Vec<NativeScriptTree>),
+    All(StackSafe<Vec<NativeScriptTree>>),
+    Any(StackSafe<Vec<NativeScriptTree>>),
+    AtLeast(i64, StackSafe<Vec<NativeScriptTree>>),
     InvalidBefore(u64),
     InvalidAfter(u64),
 }
@@ -113,17 +115,17 @@ impl NativeScriptTree {
 
     #[cfg(test)]
     pub fn all(scripts: Vec<Self>) -> Self {
-        Self::All(scripts)
+        Self::All(scripts.into())
     }
 
     #[cfg(test)]
     pub fn any(scripts: Vec<Self>) -> Self {
-        Self::Any(scripts)
+        Self::Any(scripts.into())
     }
 
     #[cfg(test)]
     pub fn at_least(n: i64, scripts: Vec<Self>) -> Self {
-        Self::AtLeast(n, scripts)
+        Self::AtLeast(n, scripts.into())
     }
 
     #[cfg(test)]
@@ -137,6 +139,7 @@ impl NativeScriptTree {
     }
 
     /// Evaluate a native script against a set of required signer key hashes and a transaction validity interval.
+    #[stacksafe]
     pub fn eval(&self, verification_key_hashes: &BTreeSet<Hash<KEY>>, validity_interval: ValidityInterval) -> bool {
         match self {
             Self::VerificationKey(key) => verification_key_hashes.contains(key),
@@ -166,6 +169,7 @@ impl NativeScriptTree {
 }
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for NativeScriptTree {
+    #[stacksafe]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| match d.u32()? {
             0 => {
@@ -174,15 +178,15 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for NativeScri
             }
             1 => {
                 assert_len(2)?;
-                Ok(Self::All(d.decode_with(ctx)?))
+                Ok(Self::All(StackSafe::new(d.decode_with(ctx)?)))
             }
             2 => {
                 assert_len(2)?;
-                Ok(Self::Any(d.decode_with(ctx)?))
+                Ok(Self::Any(StackSafe::new(d.decode_with(ctx)?)))
             }
             3 => {
                 assert_len(3)?;
-                Ok(Self::AtLeast(d.decode_with(ctx)?, d.decode_with(ctx)?))
+                Ok(Self::AtLeast(d.decode_with(ctx)?, StackSafe::new(d.decode_with(ctx)?)))
             }
             4 => {
                 assert_len(2)?;
@@ -198,6 +202,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for NativeScri
 }
 
 impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for NativeScriptTree {
+    #[stacksafe]
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -212,18 +217,18 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for NativeScriptTree {
             Self::All(v) => {
                 e.array(2)?;
                 e.encode_with(1, ctx)?;
-                e.encode_with(v, ctx)?;
+                e.encode_with(v.deref(), ctx)?;
             }
             Self::Any(v) => {
                 e.array(2)?;
                 e.encode_with(2, ctx)?;
-                e.encode_with(v, ctx)?;
+                e.encode_with(v.deref(), ctx)?;
             }
-            Self::AtLeast(a, b) => {
+            Self::AtLeast(n, v) => {
                 e.array(3)?;
                 e.encode_with(3, ctx)?;
-                e.encode_with(a, ctx)?;
-                e.encode_with(b, ctx)?;
+                e.encode_with(n, ctx)?;
+                e.encode_with(v.deref(), ctx)?;
             }
             Self::InvalidBefore(v) => {
                 e.array(2)?;
@@ -388,6 +393,7 @@ mod variable_encoding_native_script {
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use proptest::prelude::*;
+    use stacksafe::StackSafe;
 
     use super::NativeScriptTree;
     use crate::{NativeScript, any_hash28};
@@ -405,12 +411,16 @@ mod tests {
         let after = any::<u64>().prop_map(InvalidAfter);
 
         if depth > 0 {
-            let all = prop::collection::vec(any_native_script_tree(depth - 1), 0..depth as usize).prop_map(All);
-            let some = prop::collection::vec(any_native_script_tree(depth - 1), 0..depth as usize).prop_map(Any);
+            let all = prop::collection::vec(any_native_script_tree(depth - 1), 0..depth as usize)
+                .prop_map(StackSafe::new)
+                .prop_map(All);
+            let some = prop::collection::vec(any_native_script_tree(depth - 1), 0..depth as usize)
+                .prop_map(StackSafe::new)
+                .prop_map(Any);
             let n_of_k = (any::<i64>(), prop::collection::vec(any_native_script_tree(depth - 1), 0..depth as usize))
-                .prop_map(|(n, sigs)| AtLeast(n, sigs));
+                .prop_map(|(n, sigs)| AtLeast(n, StackSafe::new(sigs)));
 
-            prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
+            prop_oneof![sig, before, after, all, some, n_of_k].boxed()
         } else {
             prop_oneof![sig, before, after].boxed()
         }
@@ -639,7 +649,6 @@ mod tests {
         const MAX_DEPTH: usize = 16384 / 3;
 
         #[test]
-        #[ignore]
         fn decodes_the_preprod_transaction_that_broke_indexers() -> TestResult {
             on_a_default_stack(|| {
                 let bytes = nested_script(PREPROD_DEPTH, &PREPROD_SIGNER);
@@ -647,6 +656,7 @@ mod tests {
 
                 assert_eq!(script.script_hash().to_string(), PREPROD_SCRIPT_HASH);
                 assert_eq!(script.original_bytes(), bytes);
+                assert_eq!(script, script);
 
                 assert!(script.eval(&signers(&[PREPROD_SIGNER]), ValidityInterval::default()));
                 assert!(!script.eval(&signers(&[]), ValidityInterval::default()));
@@ -656,13 +666,13 @@ mod tests {
         }
 
         #[test]
-        #[ignore]
         fn handles_the_deepest_script_a_transaction_can_hold() -> TestResult {
             on_a_default_stack(|| {
                 let bytes = nested_script(MAX_DEPTH, &PREPROD_SIGNER);
                 let script: NativeScript = from_cbor(&bytes).ok_or("the script decodes")?;
 
                 assert_eq!(to_cbor(&script), bytes);
+                assert_eq!(script, script);
                 assert!(script.eval(&signers(&[PREPROD_SIGNER]), ValidityInterval::default()));
 
                 let clone = script.clone();
