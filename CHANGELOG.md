@@ -35,6 +35,12 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
+
+### Fixed
+
+- **amaru**: on restart, blocks that an earlier run marked invalid are re-validated. A false reject no longer leaves the node idle on a shorter stored chain while replay of the honest chain is ignored as duplicate headers.
+
 ## v10.11.20260917 _[unreleased; planned for 2026-09-17]_
 
 ### Changed
@@ -52,9 +58,6 @@ Other guiding principles:
 - **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
 - **amaru-kernel**: reject indefinite-length CBOR arrays that hold extra elements beyond the record they encode, anywhere in a block or transaction.
 - **amaru-kernel**: reject malformed Byron addresses in transaction outputs.
-
-## [v10.11.20260912](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260912)
-- **amaru**: on restart, blocks that an earlier run marked invalid are re-validated. A false reject no longer leaves the node idle on a shorter stored chain while replay of the honest chain is ignored as duplicate headers.
 
 ## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
 
