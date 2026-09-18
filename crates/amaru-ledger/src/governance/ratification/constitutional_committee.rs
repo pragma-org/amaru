@@ -21,7 +21,7 @@ use std::{
 
 use amaru_kernel::{
     ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Credential, Epoch, OrphanProposal, ProposalEnum,
-    Vote, into_safe_ratio,
+    Vote,
     rational_number::{SafeRatio, safe_ratio},
 };
 use amaru_observability::warn;
@@ -133,7 +133,7 @@ impl ConstitutionalCommittee {
                     })
                     .collect();
 
-                Ok(Some(Self::new(into_safe_ratio(&threshold), members)))
+                Ok(Some(Self::new(threshold.into(), members)))
             }
         }
     }
@@ -294,7 +294,7 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate,
-            Credential, Epoch, RationalNumber, SafeRatio, any_credential, rational_number::safe_ratio,
+            Credential, Epoch, RationalNumber, SafeRatio, any_credential, safe_ratio,
             utils::tests::run_strategy_with_seed,
         };
         use test_case::test_case;
@@ -334,7 +334,9 @@ mod tests {
         }
 
         fn trusted(numerator: u64, denominator: u64) -> ConstitutionalCommitteeStatus {
-            ConstitutionalCommitteeStatus::Trusted { threshold: RationalNumber { numerator, denominator } }
+            ConstitutionalCommitteeStatus::Trusted {
+                threshold: RationalNumber::new(numerator, denominator).expect("a valid rational number"),
+            }
         }
 
         fn change_members(

@@ -305,12 +305,12 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
             push(9, protocol_parameter_ratio(p))?;
         }
 
-        if let Some(ref p) = self.expansion_rate {
-            push(10, protocol_parameter_ratio(p))?;
+        if let Some(p) = self.expansion_rate {
+            push(10, protocol_parameter_ratio(&p.into()))?;
         }
 
-        if let Some(ref p) = self.treasury_growth_rate {
-            push(11, protocol_parameter_ratio(p))?;
+        if let Some(p) = self.treasury_growth_rate {
+            push(11, protocol_parameter_ratio(&p.into()))?;
         }
 
         if let Some(p) = self.min_pool_cost {
@@ -406,19 +406,12 @@ impl ToPlutusData<3> for CostModels {
     }
 }
 
-fn normalized_ratio(ratio: &RationalNumber) -> (u64, u64) {
-    let gcd = ratio.numerator.gcd(&ratio.denominator);
-    (ratio.numerator / gcd, ratio.denominator / gcd)
-}
-
 fn governance_action_ratio(ratio: &RationalNumber) -> Result<PlutusData, PlutusDataError> {
-    let (numerator, denominator) = normalized_ratio(ratio);
-    constr_v3!(0, [numerator, denominator])
+    constr_v3!(0, [ratio.numerator(), ratio.denominator()])
 }
 
 fn protocol_parameter_ratio(ratio: &RationalNumber) -> Result<PlutusData, PlutusDataError> {
-    let (numerator, denominator) = normalized_ratio(ratio);
-    <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![numerator, denominator])
+    <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![ratio.numerator(), ratio.denominator()])
 }
 
 impl ToPlutusData<3> for ExUnitPrices {
@@ -512,10 +505,7 @@ mod tests {
     use amaru_kernel::{KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor};
     use test_case::test_case;
 
-    use super::{
-        super::test_vectors::TestVector,
-        *,
-    };
+    use super::{super::test_vectors::TestVector, *};
 
     macro_rules! fixture {
         ($title:literal) => {
@@ -578,7 +568,7 @@ mod tests {
             None,
             vec![],
             KeyValuePairs::default(),
-            RationalNumber { numerator: 2, denominator: 4 },
+            RationalNumber::new(2, 4).expect("valid ratio"),
         );
 
         let data = action.to_plutus_data().expect("governance action should encode");
@@ -599,7 +589,7 @@ mod tests {
 
     #[test]
     fn protocol_parameter_ratios_keep_array_encoding() {
-        let ratio = RationalNumber { numerator: 2, denominator: 4 };
+        let ratio = RationalNumber::new(2, 4).expect("valid ratio");
         let data = protocol_parameter_ratio(&ratio).expect("ratio should encode");
 
         let Some(values) = data.as_array() else { panic!("protocol parameter ratio should encode as an array") };

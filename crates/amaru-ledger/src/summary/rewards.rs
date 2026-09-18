@@ -159,10 +159,7 @@ impl PoolState {
     ) -> Lovelace {
         let one = SafeRatio::one();
 
-        let a0 = safe_ratio(
-            protocol_parameters.pledge_influence.numerator,
-            protocol_parameters.pledge_influence.denominator,
-        );
+        let a0: SafeRatio = protocol_parameters.pledge_influence.into();
 
         let z0 = safe_ratio(1, protocol_parameters.optimal_stake_pools_count as u64);
 
@@ -348,18 +345,18 @@ impl RewardsSummary {
 
         blocks_count = blocks_count.max(1);
 
-        let monetary_expansion_rate = &protocol_parameters.monetary_expansion_rate;
+        let monetary_expansion_rate = protocol_parameters.monetary_expansion_rate.as_ratio();
         let monetary_expansion_rate =
-            safe_ratio(monetary_expansion_rate.numerator, monetary_expansion_rate.denominator);
+            safe_ratio(monetary_expansion_rate.numerator(), monetary_expansion_rate.denominator());
         let incentives = floor_to_lovelace(
             (&SafeRatio::one()).min(&efficiency) * &monetary_expansion_rate * BigUint::from(pots.reserves),
         );
 
         let total_rewards: Lovelace = incentives + pots.fees;
 
-        let treasury_expansion_rate = &protocol_parameters.treasury_expansion_rate;
+        let treasury_expansion_rate = protocol_parameters.treasury_expansion_rate;
         let treasury_expansion_rate =
-            safe_ratio(treasury_expansion_rate.numerator, treasury_expansion_rate.denominator);
+            safe_ratio(treasury_expansion_rate.numerator(), treasury_expansion_rate.denominator());
         let treasury_tax: Lovelace = floor_to_lovelace(treasury_expansion_rate * BigUint::from(total_rewards));
 
         let available_rewards: Lovelace = total_rewards - treasury_tax;
@@ -587,8 +584,8 @@ impl From<RewardsSummary> for Rewards<Computed> {
 #[cfg(test)]
 mod test {
     use amaru_kernel::{
-        CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Network, PoolParams, RationalNumber,
-        RewardAccount,
+        CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Network, PoolParams, RewardAccount,
+        UnitRationalNumber,
     };
 
     use super::*;
@@ -680,7 +677,7 @@ mod test {
                 vrf: Hash::new([tag; 32]),
                 pledge: 0,
                 cost: 0,
-                margin: RationalNumber { numerator: 1, denominator: 1 },
+                margin: UnitRationalNumber::new(1, 1).expect("valid unit ratio"),
                 reward_account: RewardAccount::new(Network::Testnet, Credential::ScriptHash(Hash::new([tag; 28]))),
                 owners: Vec::new(),
                 relays: Vec::new(),
