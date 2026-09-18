@@ -96,7 +96,7 @@ where
             })
             .collect::<Result<Vec<(_, _)>, _>>()?;
 
-        Ok(PlutusData::Map(converted))
+        Ok(PlutusData::map(converted))
     }
 }
 
@@ -307,7 +307,6 @@ mod tests {
         prop_assert, proptest,
     };
 
-    use super::*;
     use crate::ToPlutusData;
 
     /// Build a multiasset [`Value`](amaru_kernel::Value) carrying the given lovelace `coin` and one
@@ -334,10 +333,10 @@ mod tests {
             let plutus_data = <Value as ToPlutusData<3>>::to_plutus_data(&value)?;
 
             #[allow(clippy::wildcard_enum_match_arm)]
-            match plutus_data {
-                PlutusData::Map(pairs) => {
+            match plutus_data.as_map() {
+                Some(pairs) => {
                     let has_ada = pairs.iter().any(|(key, _)| {
-                        matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
+                        matches!(key.as_bytes(), Some(b) if b.is_empty())
                     });
 
                     prop_assert!(!has_ada,
@@ -364,10 +363,10 @@ mod tests {
             let plutus_data = <Value as ToPlutusData<3>>::to_plutus_data(&value)?;
 
             #[allow(clippy::wildcard_enum_match_arm)]
-            match plutus_data {
-                PlutusData::Map(pairs) => {
+            match plutus_data.as_map() {
+                Some(pairs) => {
                     let ada_entry = pairs.iter().find(|(key, _)| {
-                        matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
+                        matches!(key.as_bytes(), Some(b) if b.is_empty())
                     });
 
                     prop_assert!(ada_entry.is_some(),

@@ -132,7 +132,7 @@ where
         match self {
             MemoizedDatum::None => constr!(0),
             MemoizedDatum::Hash(hash) => constr!(1, [hash]),
-            MemoizedDatum::Inline(data) => constr!(2, [data.as_ref().as_ref()]),
+            MemoizedDatum::Inline(data) => constr!(2, [data.as_ref().data()]),
         }
     }
 }
@@ -249,7 +249,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BoundedBytes(self.to_vec().into()))
+        Ok(PlutusData::bytes(self.to_vec()))
     }
 }
 
@@ -258,7 +258,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BoundedBytes(self.to_vec().into()))
+        Ok(PlutusData::bytes(self.to_vec()))
     }
 }
 
@@ -267,7 +267,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BoundedBytes(self.to_vec().into()))
+        Ok(PlutusData::bytes(self.to_vec()))
     }
 }
 
@@ -308,7 +308,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self as i64))))
+        Ok(PlutusData::int(BigInt::Int(Int::from(*self as i64))))
     }
 }
 
@@ -317,7 +317,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self))))
+        Ok(PlutusData::int(BigInt::Int(Int::from(*self))))
     }
 }
 
@@ -326,7 +326,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self as i64))))
+        Ok(PlutusData::int(BigInt::Int(Int::from(*self as i64))))
     }
 }
 
@@ -335,7 +335,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BigInt(BigInt::Int(Int::from(*self as i64))))
+        Ok(PlutusData::int(BigInt::Int(Int::from(*self as i64))))
     }
 }
 
@@ -346,7 +346,7 @@ where
     #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         // Unwrap is safe here, u64 cannot possible be too big for the `Int` structure
-        Ok(PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap())))
+        Ok(PlutusData::int(BigInt::Int(Int::try_from(*self as i128).unwrap())))
     }
 }
 
@@ -377,7 +377,7 @@ where
     #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         // Unwrap is safe here, usize cannot possible be too big for the `Int` structure
-        Ok(PlutusData::BigInt(BigInt::Int(Int::try_from(*self as i128).unwrap())))
+        Ok(PlutusData::int(BigInt::Int(Int::try_from(*self as i128).unwrap())))
     }
 }
 
@@ -387,7 +387,7 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Array(self.iter().map(|a| a.to_plutus_data()).collect::<Result<_, _>>()?))
+        Ok(PlutusData::array(self.iter().map(|a| a.to_plutus_data()).collect::<Result<Vec<_>, _>>()?))
     }
 }
 
@@ -396,7 +396,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::BoundedBytes(self.clone().into()))
+        Ok(PlutusData::bytes(self.clone()))
     }
 }
 
@@ -407,7 +407,7 @@ where
     V: ToPlutusData<VER>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(
+        Ok(PlutusData::map(
             self.iter().map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?))).collect::<Result<Vec<_>, _>>()?,
         ))
     }
@@ -420,7 +420,7 @@ where
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(
+        Ok(PlutusData::map(
             self.iter()
                 .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
@@ -435,7 +435,7 @@ where
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(
+        Ok(PlutusData::map(
             self.iter()
                 .map(|(key, value): &(K, V)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,

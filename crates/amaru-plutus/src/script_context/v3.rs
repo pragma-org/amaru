@@ -392,7 +392,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
             push(33, protocol_parameter_ratio(p))?;
         }
 
-        Ok(PlutusData::Map(pparams))
+        Ok(PlutusData::map(pparams))
     }
 }
 
@@ -586,12 +586,11 @@ mod tests {
             RationalNumber { numerator: 2, denominator: 4 },
         );
 
-        let PlutusData::Constr(constr) = action.to_plutus_data().expect("governance action should encode") else {
-            panic!("governance action should encode as a constructor")
-        };
+        let data = action.to_plutus_data().expect("governance action should encode");
+        let Some(constr) = data.as_constr() else { panic!("governance action should encode as a constructor") };
 
         let quorum = constr.fields.last().expect("update committee should contain quorum");
-        let PlutusData::Constr(quorum) = quorum else { panic!("governance quorum should encode as a constructor") };
+        let Some(quorum) = quorum.as_constr() else { panic!("governance quorum should encode as a constructor") };
 
         assert_eq!(quorum.tag, 121);
         assert_eq!(
@@ -606,13 +605,12 @@ mod tests {
     #[test]
     fn protocol_parameter_ratios_keep_array_encoding() {
         let ratio = RationalNumber { numerator: 2, denominator: 4 };
+        let data = protocol_parameter_ratio(&ratio).expect("ratio should encode");
 
-        let PlutusData::Array(values) = protocol_parameter_ratio(&ratio).expect("ratio should encode") else {
-            panic!("protocol parameter ratio should encode as an array")
-        };
+        let Some(values) = data.as_array() else { panic!("protocol parameter ratio should encode as an array") };
 
         assert_eq!(
-            values.deref(),
+            values,
             &[
                 <u64 as ToPlutusData<3>>::to_plutus_data(&1).unwrap(),
                 <u64 as ToPlutusData<3>>::to_plutus_data(&2).unwrap(),

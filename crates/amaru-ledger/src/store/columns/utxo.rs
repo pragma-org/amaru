@@ -65,16 +65,10 @@ pub mod tests {
             let int_val: Int = n.into();
             let big_int = BigInt::Int(int_val);
 
-            let pd = PlutusData::Constr(Constr {
-                tag: 121,
-                any_constructor: None,
-                fields: vec![PlutusData::BigInt(big_int)],
-            });
+            let pd =
+                PlutusData::constr(Constr { tag: 121, any_constructor: None, fields: vec![PlutusData::int(big_int)] });
 
-            #[expect(clippy::expect_used)]
-            let memoized = MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
-
-            MemoizedDatum::from(memoized)
+            MemoizedDatum::from(MemoizedPlutusData::new(pd))
         })
     }
 
