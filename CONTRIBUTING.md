@@ -133,7 +133,7 @@ We use `main` as a default branch. The latest version of `main` captures the lat
 
 It is therefore expected that `main` is kept in a _working state_ (compiles + all tests & CI checks pass) *at all times*.
 
-Pre-compiled executables are [continuously delivered](https://pragma-org.github.io/amaru/) upon changes to `main`.
+Pre-compiled executables are [continuously delivered](https://nightly.amaru.global/) upon changes to `main`.
 
 In addition, we also provide [docker images](https://github.com/pragma-org/amaru/pkgs/container/amaru) continuously.
 

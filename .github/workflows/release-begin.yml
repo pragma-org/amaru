@@ -285,10 +285,42 @@ jobs:
           path: |
             amaru-${{ needs.build-metadata.outputs.version }}-${{ matrix.environments.title }}.msi
 
+  cbor-conformance:
+    name: CBOR decoding conformance report
+    timeout-minutes: 60
+    needs: build-metadata
+    runs-on: ubuntu-24.04
+    env:
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          submodules: true
+
+      - uses: ./.github/actions/cache
+        with:
+          mode: READ
+
+      - uses: ./.github/actions/fetch-cbor-dataset
+
+      - name: Run the decoding conformance suite
+        env:
+          AMARU_TEST_REPORT_DIRECTORY: tests/results
+        run: cargo test --locked -p amaru-kernel --test test_cbor_dataset -- --nocapture
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: amaru-${{ needs.build-metadata.outputs.version }}-cbor-conformance
+          path: crates/amaru-kernel/tests/results/*.json
+          if-no-files-found: warn
+
   draft-release:
     name: Create draft release
     if: ${{ needs.build-metadata.outputs.is_release == 'true' }}
-    needs: [build-metadata, rust-build]
+    needs: [build-metadata, rust-build, cbor-conformance]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -314,7 +346,16 @@ jobs:
 
           mkdir -p release-assets
 
+          conformance_report="amaru-${VERSION}-cbor-conformance"
+
           for artifact_dir in ./artifacts/*; do
+            if [[ "$(basename "$artifact_dir")" == "$conformance_report" ]]; then
+              # The suite names the report after the corpus and the protocol version; there is exactly one.
+              find "$artifact_dir" -maxdepth 1 -type f -name '*.json' \
+                -exec cp {} "release-assets/${conformance_report}.json" \;
+              continue
+            fi
+
             if find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | grep -q .; then
               find "$artifact_dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) -exec cp {} release-assets/ \;
               continue
@@ -389,6 +430,7 @@ jobs:
             "$macos_tar_aarch64"
             "$windows_zip_x86_64"
             "$windows_msi_x86_64"
+            "${conformance_report}.json"
           )
 
           checksum_manifest="amaru-${VERSION}-checksums.manifest"
@@ -468,6 +510,9 @@ jobs:
             printf '| Image | Registry |\n'
             printf '| --- | --- |\n'
             printf '| `%s:%s` | [%s](%s) |\n' "$DOCKER_IMAGE" "$RELEASE_TAG" "$docker_registry_url" "$docker_registry_url"
+            printf '\n## CBOR decoding conformance\n\n'
+            printf 'Per-rule results of decoding the [cardano-cbor-dataset](https://github.com/r2rationality/cardano-cbor-dataset) corpus with this build: [%s](%s)\n' \
+              "${conformance_report}.json" "$(asset_url_for "${conformance_report}.json")"
             printf '\n## Checksum manifest\n\n'
             printf '[%s](%s)\n' "$checksum_manifest" "$(asset_url_for "$checksum_manifest")"
           } > release-body.md
@@ -532,8 +577,16 @@ jobs:
   merge-artifacts:
     name: Merge build artifacts
 
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    needs: rust-build
+    # Run if:
+    # - The job was not cancelled, and
+    # - The rust-build job succeeded (the cbor conformance might have failed), and
+    # - This is a push to main (not a pull request)
+    if: >-
+      ${{ !cancelled()
+          && needs.rust-build.result == 'success'
+          && github.event_name == 'push'
+          && github.ref == 'refs/heads/main' }}
+    needs: [rust-build, cbor-conformance]
 
     runs-on: ubuntu-24.04
 
@@ -559,9 +612,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Names why a report is missing when one is, so the page's log says which job to look at.
+          CBOR_CONFORMANCE_RESULT: ${{ needs.cbor-conformance.result }}
         run: |
           set -euo pipefail
-          mkdir -p dist/downloads
+          mkdir -p dist/downloads dist/cbor-conformance/main
 
           version=""
           for dir in ./artifacts/*; do
@@ -570,6 +625,13 @@ jobs:
 
             if [[ -z "$version" ]]; then
               version="$(echo "$name" | sed -E 's/amaru-(nightly-[0-9a-f]{8,12})-.*/\1/')"
+            fi
+
+            if [[ "$static_name" == cbor-conformance ]]; then
+              while IFS= read -r report; do
+                cp "$report" "dist/cbor-conformance/main/$(basename "$report")"
+              done < <(find "$dir" -maxdepth 1 -type f -name '*.json' | sort)
+              continue
             fi
 
             if find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.msi' \) | grep -q .; then
@@ -599,6 +661,31 @@ jobs:
             fi
           done
 
+          # The conformance report needs to be published to a single fixed URL: 'main/latest.json'
+          # We nevertheless preserve the original report name in case we want to get historical reports in the future.
+          reports=()
+          while IFS= read -r report; do
+            reports+=("$report")
+          done < <(find dist/cbor-conformance/main -maxdepth 1 -type f -name '*.json' | sort)
+
+          case "${#reports[@]}" in
+            0)
+              # The page also carries the nightly downloads, so a missing report must not black it out.
+              # Whatever kept the suite from producing one already shows as a failure of its own job.
+              echo "no conformance report for main (suite result: $CBOR_CONFORMANCE_RESULT);" \
+                   "publishing the page without it" >&2
+              rmdir dist/cbor-conformance/main
+              ;;
+            1)
+              cp "${reports[0]}" dist/cbor-conformance/main/latest.json
+              ;;
+            *)
+              echo "several conformance reports were published; pick which one 'main/latest.json' names:" >&2
+              printf '  %s\n' "${reports[@]}" >&2
+              exit 1
+              ;;
+          esac
+
           latest_release_tag=""
           latest_release_url=""
           latest_release_checksums_url=""
@@ -607,6 +694,23 @@ jobs:
             latest_release_tag="$(jq -r '.tag_name // ""' <<< "$latest_release_json")"
             latest_release_url="$(jq -r '.html_url // ""' <<< "$latest_release_json")"
             latest_release_checksums_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${latest_release_tag}/amaru-${latest_release_tag#v}-checksums.manifest"
+          fi
+
+          # Every deploy replaces the whole site, so the released report is refetched from the release
+          # it belongs to rather than carried over from the previous deploy. That keeps the published
+          # file a copy of the release asset instead of a copy of a copy, and repairs itself if a
+          # deploy ever drops it.
+          if [[ -n "$latest_release_tag" ]]; then
+            mkdir -p dist/cbor-conformance/releases
+            released_report="amaru-${latest_release_tag#v}-cbor-conformance.json"
+            if gh release download "$latest_release_tag" \
+                 --pattern "$released_report" \
+                 --output dist/cbor-conformance/releases/latest.json; then
+              echo "published the conformance report of $latest_release_tag"
+            else
+              echo "release $latest_release_tag has no $released_report asset; publishing without it" >&2
+              rm -rf dist/cbor-conformance/releases
+            fi
           fi
 
           artifact_args=()

@@ -1,0 +1,22 @@
+name: fetch-cbor-dataset
+
+description: Download the Conway CBOR conformance corpus and fail if it did not land
+
+runs:
+  using: composite
+  steps:
+    - name: Download the CBOR dataset
+      shell: bash
+      run: make fetch-cbor-dataset
+
+    - name: Verify the CBOR dataset
+      shell: bash
+      run: |
+        set -euo pipefail
+        dataset="crates/amaru-kernel/tests/data/cbor.dataset"
+        samples="$(find "$dataset" -name '*.cbor' 2>/dev/null | wc -l | tr -d ' ')"
+        if [[ "$samples" -eq 0 ]]; then
+          echo "no CBOR samples under $dataset; the download did not produce the corpus" >&2
+          exit 1
+        fi
+        echo "$samples CBOR samples available under $dataset"
