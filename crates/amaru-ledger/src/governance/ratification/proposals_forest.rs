@@ -1202,6 +1202,7 @@ mod tests {
 
     // Generate a *somewhat meaningful* proposal forest, with relationships and links between
     // proposals.
+    #[expect(clippy::expect_used)]
     fn any_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
         let any_ids = collection::btree_set(any_proposal_id().prop_map(Rc::new), 5 * (MAX_TREE_SIZE + 2))
             .prop_map(|ids| ids.into_iter().collect::<Vec<_>>());
@@ -1233,10 +1234,11 @@ mod tests {
                             removed.into_iter().collect::<Vec<_>>(),
                             KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
                             #[expect(clippy::unwrap_used)]
-                            RationalNumber {
-                                numerator: threshold.numer().try_into().unwrap(),
-                                denominator: threshold.denom().try_into().unwrap(),
-                            },
+                            RationalNumber::new(
+                                threshold.numer().try_into().unwrap(),
+                                threshold.denom().try_into().unwrap(),
+                            )
+                            .expect("threshold is a valid rational number"),
                         )
                     }
                 },

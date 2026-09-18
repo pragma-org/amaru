@@ -146,7 +146,10 @@ impl StakeSummary {
                         blocks_count: 0,
                         stake: 0,
                         voting_stake: 0,
-                        margin: safe_ratio(row.current_params.margin.numerator, row.current_params.margin.denominator),
+                        margin: safe_ratio(
+                            row.current_params.margin.numerator(),
+                            row.current_params.margin.denominator(),
+                        ),
                         parameters: row.current_params,
                         fallback_drep: None,
                     },
@@ -520,8 +523,8 @@ pub mod tests {
             fallback_drep in option::of(any_drep()),
         ) -> PoolState {
             let margin = safe_ratio(
-                parameters.margin.numerator,
-                parameters.margin.denominator,
+                parameters.margin.numerator(),
+                parameters.margin.denominator(),
             );
 
             PoolState {

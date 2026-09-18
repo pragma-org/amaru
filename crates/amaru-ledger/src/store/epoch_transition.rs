@@ -309,10 +309,12 @@ pub fn update_constitutional_committee<'store>(
                 };
 
                 let committee_status = ConstitutionalCommitteeStatus::Trusted {
-                    threshold: RationalNumber {
-                        numerator: unsafe_u64("numerator", threshold.numer()),
-                        denominator: unsafe_u64("denominator", threshold.denom()),
-                    },
+                    #[expect(clippy::expect_used)]
+                    threshold: RationalNumber::new(
+                        unsafe_u64("numerator", threshold.numer()),
+                        unsafe_u64("denominator", threshold.denom()),
+                    )
+                    .expect("threshold is always a valid rational number"),
                 };
 
                 // The committee is a handful of members, so cloning the added/removed sets to hand

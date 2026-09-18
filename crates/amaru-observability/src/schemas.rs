@@ -1084,8 +1084,8 @@ define_schemas! {
                     optional min_fee_b: u64
                     optional stake_credential_deposit: amaru_kernel::Lovelace
                     optional stake_pool_deposit: amaru_kernel::Lovelace
-                    optional monetary_expansion_rate: %amaru_kernel::RationalNumber
-                    optional treasury_expansion_rate: %amaru_kernel::RationalNumber
+                    optional monetary_expansion_rate: %amaru_kernel::UnitRationalNumber
+                    optional treasury_expansion_rate: %amaru_kernel::UnitRationalNumber
                     optional min_pool_cost: amaru_kernel::Lovelace
                     optional lovelace_per_utxo_byte: amaru_kernel::Lovelace
                     optional prices: %amaru_kernel::ExUnitPrices

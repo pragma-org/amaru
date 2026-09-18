@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Credential, Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RationalNumber, RewardAccount,
+    Credential, Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RewardAccount, UnitRationalNumber,
     utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
@@ -127,7 +127,7 @@ impl PoolsEpochTransitionUpdates {
             let vrf = set(&mut current_params.vrf, vrf, Hash::to_string);
             let pledge = set(&mut current_params.pledge, pledge, Lovelace::to_string);
             let cost = set(&mut current_params.cost, cost, Lovelace::to_string);
-            let margin = set(&mut current_params.margin, margin, RationalNumber::to_string);
+            let margin = set(&mut current_params.margin, margin, UnitRationalNumber::to_string);
             let reward_account = set(&mut current_params.reward_account, reward_account, RewardAccount::to_string);
             let owners = set(&mut current_params.owners, owners, |s| display_collection(s));
             let relays = set(&mut current_params.relays, relays, |r| display_collection(r));

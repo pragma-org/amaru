@@ -305,10 +305,11 @@ fn positive_to_i128(qty: &PositiveCoin) -> i128 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::PROTOCOL_VERSION_10;
     use amaru_minicbor_extra::{from_cbor_no_leftovers_with, to_cbor_with};
     use test_case::test_case;
+
+    use super::*;
+    use crate::PROTOCOL_VERSION_10;
 
     /// A value with no assets is the same value as a bare coin, and the ledger re-encodes it as one.
     #[test_case(&[0x82, 0x01, 0xa0]             ; "definite empty multiasset")]

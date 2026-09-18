@@ -14,7 +14,6 @@
 
 use ::serde::ser::SerializeStruct;
 use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, SafeRatio, drep, relay};
-use num::rational::Ratio;
 
 pub mod governance;
 pub mod rewards;
@@ -88,12 +87,9 @@ impl ::serde::Serialize for PoolState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("PoolState", 10)?;
 
-        // Force reduction of the numerator and denominator
-        let r = Ratio::new(self.parameters.margin.numerator, self.parameters.margin.denominator);
-
         s.serialize_field("blocks_count", &self.blocks_count)?;
         s.serialize_field("cost", &self.parameters.cost)?;
-        s.serialize_field("margin", &[r.numer(), r.denom()])?;
+        s.serialize_field("margin", &[self.parameters.margin.numerator(), self.parameters.margin.denominator()])?;
         s.serialize_field("metadata", &self.parameters.metadata)?;
         s.serialize_field("owners", &self.parameters.owners.iter().map(hex::encode).collect::<Vec<_>>())?;
         s.serialize_field("pledge", &self.parameters.pledge)?;

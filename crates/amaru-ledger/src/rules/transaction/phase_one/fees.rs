@@ -126,8 +126,8 @@ mod tests {
         super::tier_ref_script_fee(
             size,
             stride,
-            &amaru_kernel::RationalNumber { numerator: base_n, denominator: base_d },
-            &amaru_kernel::RationalNumber { numerator: mult_n, denominator: mult_d },
+            &amaru_kernel::RationalNumber::new(base_n, base_d).expect("a valid rational number"),
+            &amaru_kernel::RationalNumber::new(mult_n, mult_d).expect("a valid rational number"),
         )
     }
 
@@ -140,8 +140,8 @@ mod tests {
         super::plutus_exec_fee(
             amaru_kernel::ExUnits { mem, steps },
             &amaru_kernel::ExUnitPrices {
-                mem_price: amaru_kernel::RationalNumber { numerator: mem_n, denominator: mem_d },
-                step_price: amaru_kernel::RationalNumber { numerator: step_n, denominator: step_d },
+                mem_price: amaru_kernel::RationalNumber::new(mem_n, mem_d).expect("a valid rational number"),
+                step_price: amaru_kernel::RationalNumber::new(step_n, step_d).expect("a valid rational number"),
             },
         )
     }

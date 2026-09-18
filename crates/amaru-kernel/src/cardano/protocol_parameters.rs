@@ -440,7 +440,8 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
             ref_script_cost_stride: 25600,
             // Hardcoded in the haskell ledger
             // <https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85>
-            ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
+            #[expect(clippy::expect_used)]
+            ref_script_cost_multiplier: RationalNumber::new(12, 10).expect("12/10 is a valid rational number"),
         })
     }
 }

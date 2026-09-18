@@ -16,8 +16,10 @@ use std::fmt;
 
 use crate::{RationalNumber, cbor};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, cbor::Encode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[serde(try_from = "RationalNumber")]
+#[cbor(transparent)]
+#[repr(transparent)]
 pub struct UnitRationalNumber(#[n(0)] RationalNumber);
 
 impl fmt::Display for UnitRationalNumber {
@@ -36,10 +38,23 @@ impl<'b, C> cbor::decode::Decode<'b, C> for UnitRationalNumber {
 impl UnitRationalNumber {
     pub fn new(numerator: u64, denominator: u64) -> Result<Self, String> {
         let rational = RationalNumber::new(numerator, denominator)?;
-        if rational.numerator > rational.denominator {
+        if numerator > denominator {
             return Err("the rational value must belong to the interval [0, 1]".to_string());
         }
         Ok(UnitRationalNumber(rational))
+    }
+
+    /// The underlying ratio, for callers that only need to read the numerator and denominator.
+    pub fn as_ratio(&self) -> &RationalNumber {
+        &self.0
+    }
+
+    pub fn numerator(&self) -> u64 {
+        self.0.numerator()
+    }
+
+    pub fn denominator(&self) -> u64 {
+        self.0.denominator()
     }
 }
 
@@ -53,11 +68,7 @@ impl TryFrom<RationalNumber> for UnitRationalNumber {
     type Error = String;
 
     fn try_from(rational: RationalNumber) -> Result<Self, Self::Error> {
-        if rational.numerator > rational.denominator {
-            Err("the rational value must belong to the interval [0, 1]".to_string())
-        } else {
-            Ok(UnitRationalNumber(rational))
-        }
+        Self::new(rational.numerator(), rational.denominator())
     }
 }
 
@@ -71,16 +82,14 @@ mod tests {
     use super::*;
 
     prop_compose! {
+        #[expect(clippy::unwrap_used)]
         pub fn any_unit_rational_number()(
             denominator in 1..u64::MAX,
         )(
           delta in 0..denominator,
           denominator in Just(denominator),
       ) -> UnitRationalNumber {
-            UnitRationalNumber(RationalNumber {
-                numerator: denominator - delta,
-                denominator,
-            })
+            UnitRationalNumber(RationalNumber::new(denominator - delta, denominator).unwrap())
         }
     }
 }

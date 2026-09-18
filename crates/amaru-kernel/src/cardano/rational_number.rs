@@ -12,16 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::{cmp::Ordering, fmt};
 
 use num::{BigUint, rational::Ratio};
 
-use crate::{Lovelace, cbor};
+use crate::{Lovelace, UnitRationalNumber, cbor};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct RationalNumber {
-    pub numerator: u64,
-    pub denominator: u64,
+    numerator: u64,
+    denominator: u64,
+}
+
+impl PartialOrd for RationalNumber {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RationalNumber {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.numerator as u128 * other.denominator as u128).cmp(&(other.numerator as u128 * self.denominator as u128))
+    }
 }
 
 impl fmt::Display for RationalNumber {
@@ -70,12 +82,38 @@ impl<'de> serde::Deserialize<'de> for RationalNumber {
 }
 
 impl RationalNumber {
+    /// Build a rational in lowest terms.
+    /// This makes sure that PartialEq / Eq are correct and makes the comparison
+    /// with encoded values easier in the conformance test suite.
     pub fn new(numerator: u64, denominator: u64) -> Result<Self, String> {
         if denominator == 0 {
-            return Err("denominator cannot be zero".to_string());
+            return Err("rational denominator cannot be zero".to_string());
         }
-        Ok(RationalNumber { numerator, denominator })
+        let divisor = gcd(numerator, denominator);
+        Ok(Self { numerator: numerator / divisor, denominator: denominator / divisor })
     }
+
+    pub fn numerator(&self) -> u64 {
+        self.numerator
+    }
+
+    pub fn denominator(&self) -> u64 {
+        self.denominator
+    }
+}
+
+impl From<UnitRationalNumber> for SafeRatio {
+    fn from(r: UnitRationalNumber) -> Self {
+        into_safe_ratio(&r.into())
+    }
+}
+
+/// Binary GCD, iterative so a pathological pair cannot blow the stack.
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
 }
 
 // ------------------------------------------------------------------- SafeRatio
@@ -87,7 +125,7 @@ pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
 }
 
 pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
-    SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
+    SafeRatio::new(BigUint::from(ratio.numerator()), BigUint::from(ratio.denominator()))
 }
 
 pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
@@ -111,14 +149,12 @@ mod tests {
     use super::*;
 
     prop_compose! {
+        #[expect(clippy::unwrap_used)]
         pub fn any_rational_number()(
             numerator in any::<u64>(),
             denominator in 1..u64::MAX,
         ) -> RationalNumber {
-            RationalNumber {
-                numerator,
-                denominator,
-            }
+            RationalNumber::new(numerator, denominator).unwrap()
         }
     }
 }

@@ -25,8 +25,8 @@ use amaru_kernel::{
     ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash,
     Lovelace, Network, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots,
     Proposal, ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
-    ProtocolVersion, RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, TransactionPointer, Vote,
-    Voter,
+    ProtocolVersion, RatificationStatus, Relay, Reward, RewardAccount, Slot, TransactionPointer, UnitRationalNumber,
+    Vote, Voter,
     cbor::{
         self, HasProtocolVersion,
         lazy::{Checkpoint, LazyDecoder},
@@ -1092,7 +1092,7 @@ fn import_constitutional_committee(
             info!(
                 bootstrap::constitutional_committee::IMPORT,
                 state = "trusted",
-                threshold = format!("{}/{}", threshold.numerator, threshold.denominator),
+                threshold = format!("{}", threshold),
                 members = members.len(),
             );
 
@@ -1311,7 +1311,7 @@ struct NodePoolParams {
     vrf: Hash<{ size::VRF_KEY }>,
     pledge: Lovelace,
     cost: Lovelace,
-    margin: RationalNumber,
+    margin: UnitRationalNumber,
     reward_account: RewardAccount,
     owners: BTreeSet<Hash<{ size::KEY }>>,
     relays: Vec<Relay>,
