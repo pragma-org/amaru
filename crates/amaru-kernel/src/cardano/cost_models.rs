@@ -33,6 +33,7 @@ pub struct CostModels {
     /// The ledger keeps these verbatim (`costModelsUnknown`) rather than discarding them, so that a
     /// protocol parameter update introducing a future Plutus version applies identically here and on
     /// the Haskell node, and hashes taken over the parameters agree.
+    #[serde(default)]
     pub unknown: BTreeMap<u8, CostModel>,
 }
 
