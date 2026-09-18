@@ -78,8 +78,21 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Value {
             }
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
                 let coin = d.decode_with(ctx)?;
-                let multiasset = d.decode_with(ctx)?;
-                Ok(Value::Multiasset(coin, multiasset))
+                let multiasset: Multiasset<PositiveCoin> = d.decode_with(ctx)?;
+                // In the Haskell code this normalization of a bare coins only occurs
+                // in the encoder, but arguably it makes more sense to model a multiasset value
+                // with assets when they are not empty. This is enforce from protocol version 12.
+                let value = if multiasset.is_empty() {
+                    if ctx.protocol_version().major() >= 12 {
+                        return Err(cbor::decode::Error::message(
+                            "multiasset value with empty assets is not allowed",
+                        ));
+                    }
+                    Value::Coin(coin)
+                } else {
+                    Value::Multiasset(coin, multiasset)
+                };
+                Ok(value)
             }),
             _ => Err(cbor::decode::Error::message("unknown cbor data type for Value enum")),
         }
@@ -295,4 +308,22 @@ fn lovelace_to_i64(amount: u64) -> i64 {
 fn positive_to_i128(qty: &PositiveCoin) -> i128 {
     let raw: u64 = qty.into();
     i128::from(raw)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PROTOCOL_VERSION_10;
+    use amaru_minicbor_extra::{from_cbor_no_leftovers_with, to_cbor_with};
+    use test_case::test_case;
+
+    /// A value with no assets is the same value as a bare coin, and the ledger re-encodes it as one.
+    #[test_case(&[0x82, 0x01, 0xa0]             ; "definite empty multiasset")]
+    #[test_case(&[0x82, 0x01, 0xbf, 0xff]       ; "indefinite empty multiasset")]
+    fn empty_multiasset_collapses_to_coin(bytes: &[u8]) {
+        let mut version = PROTOCOL_VERSION_10;
+        let value: Value = from_cbor_no_leftovers_with(bytes, &mut version).unwrap();
+        assert_eq!(value, Value::Coin(1));
+        assert_eq!(to_cbor_with(&value, &mut version), vec![0x01]);
+    }
 }
