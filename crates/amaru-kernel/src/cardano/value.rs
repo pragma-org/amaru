@@ -76,24 +76,17 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Value {
             cbor::data::Type::U8 | cbor::data::Type::U16 | cbor::data::Type::U32 | cbor::data::Type::U64 => {
                 Ok(Value::Coin(d.decode_with(ctx)?))
             }
-            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
-                let coin = d.decode_with(ctx)?;
-                let multiasset: Multiasset<PositiveCoin> = d.decode_with(ctx)?;
-                // In the Haskell code this normalization of a bare coins only occurs
-                // in the encoder, but arguably it makes more sense to model a multiasset value
-                // with assets when they are not empty. This is enforce from protocol version 12.
-                let value = if multiasset.is_empty() {
-                    if ctx.protocol_version().major() >= 12 {
-                        return Err(cbor::decode::Error::message(
-                            "multiasset value with empty assets is not allowed",
-                        ));
-                    }
-                    Value::Coin(coin)
-                } else {
-                    Value::Multiasset(coin, multiasset)
-                };
-                Ok(value)
-            }),
+            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
+                cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
+                    let coin = d.decode_with(ctx)?;
+                    let multiasset: Multiasset<PositiveCoin> = d.decode_with(ctx)?;
+                    // In the Haskell code this normalization of a bare coin only occurs in the
+                    // encoder, but arguably it makes more sense to model a multiasset value with
+                    // assets only when they are not empty. From protocol version 12 the bundle
+                    // decoder rejects an empty bundle outright, so this branch is pre-12 only.
+                    Ok(if multiasset.is_empty() { Value::Coin(coin) } else { Value::Multiasset(coin, multiasset) })
+                })
+            }
             _ => Err(cbor::decode::Error::message("unknown cbor data type for Value enum")),
         }
     }
