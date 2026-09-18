@@ -123,7 +123,7 @@ mod tests {
 
     use amaru_kernel::{
         CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, ExUnits, Hash, Network, PoolId,
-        PoolParams, PoolVotingThresholds, ProposalEnum, ProposalId, ProtocolParamUpdate, RationalNumber, RewardAccount,
+        PoolParams, PoolVotingThresholds, ProposalEnum, ProposalId, ProtocolParamUpdate, UnitRationalNumber, RewardAccount,
         SafeRatio, Vote, any_vote_ref, safe_ratio,
     };
     use num::{One, Zero};
@@ -189,7 +189,7 @@ mod tests {
             let proposal_no_security_group = ProposalEnum::ProtocolParameters(Box::new(update_no_security_group), parent.clone());
             let result_no = voting_threshold(is_no_confidence, &thresholds, &proposal_no_security_group);
 
-            let is_null_threshold = thresholds.security_voting_threshold.numerator == 0;
+            let is_null_threshold = thresholds.security_voting_threshold.numerator() == 0;
 
             prop_assert!(
                 (result_in > Some(SafeRatio::zero()) || is_null_threshold) && result_no == Some(SafeRatio::zero()),
@@ -346,7 +346,8 @@ mod tests {
                         vrf: Hash::new([7; 32]),
                         pledge: 0,
                         cost: 0,
-                        margin: RationalNumber { numerator: 0, denominator: 1 },
+                        #[expect(clippy::expect_used)]
+                        margin: UnitRationalNumber::new(0, 1).expect("valid unit ratio"),
                         reward_account: RewardAccount::new(
                             Network::Testnet,
                             Credential::ScriptHash(Hash::new([1; 28])),
