@@ -56,6 +56,7 @@ proptest.workspace = true
 rand.workspace = true
 rayon.workspace = true
 test-case.workspace = true
+divan.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 cbor4ii.workspace = true
 
@@ -68,6 +69,11 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 
 [[bench]]
 name = "cbor_encoding"
+harness = false
+required-features = ["test-utils"]
+
+[[bench]]
+name = "stack_safe"
 harness = false
 required-features = ["test-utils"]
 
