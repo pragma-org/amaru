@@ -51,12 +51,12 @@ amaru-minicbor-extra.workspace = true
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 criterion.workspace = true
+divan.workspace = true
 insta.workspace = true
 proptest.workspace = true
 rand.workspace = true
 rayon.workspace = true
 test-case.workspace = true
-divan.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 cbor4ii.workspace = true
 
@@ -76,6 +76,10 @@ required-features = ["test-utils"]
 name = "stack_safe"
 harness = false
 required-features = ["test-utils"]
+
+[[bench]]
+name = "small_collections"
+harness = false
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]

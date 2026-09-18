@@ -16,16 +16,24 @@ use std::env;
 
 use amaru_kernel::{MAINNET_DEFAULT_PROTOCOL_PARAMETERS, MAINNET_GLOBAL_PARAMETERS};
 
+use crate::common::mixed_weights::MixedWeights;
+
 #[derive(Clone, Copy, Debug)]
 pub struct BenchScale {
     pub volatile_size: usize,
     pub block_size: usize,
+    /// How much of `block_size` mixed blocks carry on average, in percent; individual blocks
+    /// vary around it. Single-entity scenarios ignore it and always fill whole blocks.
+    pub block_fill: usize,
+    pub mixed_weights: MixedWeights,
 }
 
 impl BenchScale {
     pub const ENV_VAR_VOLATILE_SIZE: &'static str = "AMARU_BENCH_VOLATILE_SIZE";
 
     pub const ENV_VAR_BLOCK_SIZE: &'static str = "AMARU_BENCH_BLOCK_SIZE";
+
+    pub const ENV_VAR_BLOCK_FILL: &'static str = "AMARU_BENCH_BLOCK_FILL";
 
     pub fn from_env() -> Self {
         let volatile_size =
@@ -34,7 +42,15 @@ impl BenchScale {
         let block_size =
             read_env_usize(Self::ENV_VAR_BLOCK_SIZE, MAINNET_DEFAULT_PROTOCOL_PARAMETERS.max_block_body_size as usize);
 
-        Self { volatile_size, block_size }
+        let block_fill = read_env_usize(Self::ENV_VAR_BLOCK_FILL, 3);
+
+        let mixed_weights = MixedWeights::from_env();
+
+        Self { volatile_size, block_size, block_fill, mixed_weights }
+    }
+
+    pub fn fill_target(&self) -> usize {
+        self.block_size * self.block_fill / 100
     }
 }
 
