@@ -1,27 +1,27 @@
 class Amaru < Formula
   desc "A Cardano blockchain node implementation"
   homepage "https://github.com/pragma-org/amaru"
-  version "10.11.20260912"
+  version "10.11.20260918"
   license "Apache-2.0"
 
   on_macos do
     depends_on arch: :arm64
 
     on_arm do
-      url "https://github.com/pragma-org/amaru/releases/download/v10.11.20260912/amaru-10.11.20260912-macos-aarch64.tar.gz"
-      sha256 "d440ef60c083af72e4c7978b18a765df22f0f1732caad286aaab2ee51abd2c52"
+      url "https://github.com/pragma-org/amaru/releases/download/v10.11.20260918/amaru-10.11.20260918-macos-aarch64.tar.gz"
+      sha256 "2dabbcf8104c079d4a1c3055967d867a1094cb2fb3bda4dbac22046976feb1ce"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/pragma-org/amaru/releases/download/v10.11.20260912/amaru-10.11.20260912-linux-aarch64.tar.gz"
-      sha256 "01564f384335363920ea586012618cb80116d91d90b1f06b74d782ab18e1929c"
+      url "https://github.com/pragma-org/amaru/releases/download/v10.11.20260918/amaru-10.11.20260918-linux-aarch64.tar.gz"
+      sha256 "06da59bad93711e33f31fd10c673852e54e03b1f9c2c2d8f205b8fdce751f30d"
     end
 
     on_intel do
-      url "https://github.com/pragma-org/amaru/releases/download/v10.11.20260912/amaru-10.11.20260912-linux-x86_64.tar.gz"
-      sha256 "5490a4e560c0d7169f3f6168cf55c5d505e928c8b08a550187034c3f8718108a"
+      url "https://github.com/pragma-org/amaru/releases/download/v10.11.20260918/amaru-10.11.20260918-linux-x86_64.tar.gz"
+      sha256 "b6fc46e77720cd3fd9f2e1bd19e77478c89d651d538255253f585561eb532683"
     end
   end
 
