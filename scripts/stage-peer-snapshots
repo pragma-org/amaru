@@ -5,7 +5,6 @@
 # before Amaru HEAD's committer timestamp, downloads peer-snapshot.json for each
 # known network, and writes CONFIGS_COMMIT_CACHE.
 #
-# Auth: set GITHUB_TOKEN or GH_TOKEN for higher GitHub API rate limits.
 # On HTTP status >= 400 or curl failure, prints response headers and body.
 
 set -euo pipefail
@@ -15,13 +14,6 @@ CONFIGS_REPO="cardano-foundation/cardano-configurations"
 USER_AGENT="amaru-ci (https://github.com/pragma-org/amaru)"
 NETWORKS=(mainnet preprod preview)
 STAGING_ROOT="${STAGING_ROOT:-$ROOT_DIR/crates/amaru-node/config/peer-snapshots}"
-
-token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-
-auth_headers=()
-if [[ -n "$token" ]]; then
-  auth_headers+=(-H "Authorization: Bearer ${token}")
-fi
 
 # Perform GET; write body and headers to the given paths.
 # Prints diagnostics and returns non-zero on curl failure or HTTP status >= 400.
@@ -42,7 +34,6 @@ curl_get() {
       -w "%{http_code}" \
       -A "$USER_AGENT" \
       -H "Accept: application/vnd.github+json" \
-      "${auth_headers[@]+"${auth_headers[@]}"}" \
       --connect-timeout 30 \
       --max-time 120 \
       "$url"

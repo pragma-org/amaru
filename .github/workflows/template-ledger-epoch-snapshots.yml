@@ -24,7 +24,6 @@ env:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   snapshots:
@@ -45,7 +44,6 @@ jobs:
             magic: 2
             start_epoch: 1119
             target_epoch: 1180
-        cardano_node_version: [11.0.1]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
       AMARU_PEER_ADDRESS: 127.0.0.1:3001
@@ -63,6 +61,7 @@ jobs:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
       OTEL_METRIC_EXPORT_INTERVAL: 1000
       RUST_BACKTRACE: 1
+      CARDANO_NODE_IMAGE: ghcr.io/intersectmbo/cardano-node:11.0.1@sha256:007da778998d0bdb043fb834c62b9da1c95e33610f31f6f9cccab29a945e2b99
 
     steps:
       - name: Support longpaths
@@ -70,6 +69,8 @@ jobs:
         if: runner.os == 'Windows'
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Configure runner paths
         shell: bash
@@ -101,7 +102,7 @@ jobs:
           CONFIG_DIR: cardano-node-config/${{ matrix.network.name }}
         run: |
           set -euo pipefail
-          docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
+          docker pull "$CARDANO_NODE_IMAGE"
           make download-haskell-config
           jq '
             .UseTraceDispatcher = true
@@ -132,7 +133,7 @@ jobs:
             -v "./$CONFIG_DIR:/genesis" \
             -p 3001:3001 \
             -p 127.0.0.1:12798:12798 \
-            ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }} run \
+            "$CARDANO_NODE_IMAGE" run \
               --config /config/config.json \
               --database-path /db \
               --socket-path /ipc/node.socket \
@@ -158,7 +159,7 @@ jobs:
           docker run -d --network host \
             --name otlp-collector \
             -v "$PWD/monitoring/otlp-collector.yml:/etc/otlp-collector.yml:ro" \
-            otel/opentelemetry-collector-contrib:0.133.0 \
+            otel/opentelemetry-collector-contrib:0.133.0@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea \
               --config=/etc/otlp-collector.yml \
               --set exporters::prometheus::metric_expiration=10m
 
