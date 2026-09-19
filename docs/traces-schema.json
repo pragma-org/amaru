@@ -456,120 +456,92 @@
       "description": "Import treasury/reserves/fees pots from a snapshot",
       "public": true
     },
-    "amaru::bootstrap::progress::CANCEL": {
-      "type": "object",
-      "properties": {
-        "phase": {
-          "type": "string"
-        },
-        "current": {
-          "type": "integer"
-        },
-        "elapsed_seconds": {
-          "type": "number"
-        },
-        "total": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "phase",
-        "current",
-        "elapsed_seconds"
-      ],
-      "optional": [
-        "total"
-      ],
-      "additionalProperties": false,
-      "name": "cancel",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::progress",
-      "description": "Cancel a long-running bootstrap phase",
-      "public": true
-    },
     "amaru::bootstrap::progress::COMPLETE": {
       "type": "object",
       "properties": {
-        "phase": {
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "point": {
           "type": "string"
-        },
-        "current": {
-          "type": "integer"
-        },
-        "elapsed_seconds": {
-          "type": "number"
-        },
-        "total": {
-          "type": "integer"
         }
       },
       "required": [
-        "phase",
-        "current",
-        "elapsed_seconds"
+        "epoch",
+        "point"
       ],
-      "optional": [
-        "total"
-      ],
+      "optional": [],
       "additionalProperties": false,
       "name": "complete",
       "level": "TRACE",
       "target": "amaru::bootstrap::progress",
-      "description": "Complete a long-running bootstrap phase",
+      "description": "Report successful bootstrap completion",
       "public": true
     },
-    "amaru::bootstrap::progress::START": {
+    "amaru::bootstrap::progress::DOWNLOAD": {
       "type": "object",
       "properties": {
-        "phase": {
-          "type": "string"
+        "downloaded_bytes": {
+          "type": "integer"
         },
-        "total": {
+        "completed_snapshots": {
           "type": "integer"
         }
       },
       "required": [
-        "phase"
+        "downloaded_bytes",
+        "completed_snapshots"
       ],
-      "optional": [
-        "total"
-      ],
+      "optional": [],
       "additionalProperties": false,
-      "name": "start",
+      "name": "download",
       "level": "TRACE",
       "target": "amaru::bootstrap::progress",
-      "description": "Start a long-running bootstrap phase",
+      "description": "Report absolute aggregate snapshot download progress",
       "public": true
     },
-    "amaru::bootstrap::progress::UPDATE": {
+    "amaru::bootstrap::progress::SNAPSHOTS_SELECTED": {
       "type": "object",
       "properties": {
-        "phase": {
-          "type": "string"
-        },
-        "current": {
+        "snapshot_count": {
           "type": "integer"
         },
-        "elapsed_seconds": {
-          "type": "number"
-        },
-        "total": {
+        "total_bytes": {
           "type": "integer"
         }
       },
       "required": [
-        "phase",
-        "current",
-        "elapsed_seconds"
+        "snapshot_count"
       ],
       "optional": [
-        "total"
+        "total_bytes"
       ],
       "additionalProperties": false,
-      "name": "update",
+      "name": "snapshots_selected",
       "level": "TRACE",
       "target": "amaru::bootstrap::progress",
-      "description": "Report non-terminal progress for a long-running bootstrap phase",
+      "description": "Report the selected snapshot window and its aggregate compressed size",
+      "public": true
+    },
+    "amaru::bootstrap::progress::STAGE": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stage",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::progress",
+      "description": "Enter a canonical bootstrap stage",
       "public": true
     },
     "amaru::bootstrap::proposal_roots::IMPORT": {
@@ -6247,6 +6219,175 @@
       "level": "TRACE",
       "target": "amaru::mempool::transaction",
       "description": "Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.",
+      "public": true
+    },
+    "amaru::mithril::progress::COMPLETE": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "processed_blocks": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "point",
+        "processed_blocks"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "complete",
+      "level": "TRACE",
+      "target": "amaru::mithril::progress",
+      "description": "Mithril synchronization completed successfully",
+      "public": true
+    },
+    "amaru::mithril::progress::DOWNLOAD": {
+      "type": "object",
+      "properties": {
+        "downloaded_bytes": {
+          "type": "integer"
+        },
+        "completed_files": {
+          "type": "integer"
+        },
+        "total_files": {
+          "type": "integer"
+        },
+        "total_bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "downloaded_bytes",
+        "completed_files",
+        "total_files"
+      ],
+      "optional": [
+        "total_bytes"
+      ],
+      "additionalProperties": false,
+      "name": "download",
+      "level": "TRACE",
+      "target": "amaru::mithril::progress",
+      "description": "Absolute Mithril database download progress",
+      "public": true
+    },
+    "amaru::mithril::progress::INGEST": {
+      "type": "object",
+      "properties": {
+        "blocks": {
+          "type": "integer"
+        },
+        "point": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        }
+      },
+      "required": [
+        "blocks",
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ingest",
+      "level": "TRACE",
+      "target": "amaru::mithril::progress",
+      "description": "Absolute block ingestion progress",
+      "public": true
+    },
+    "amaru::mithril::progress::SNAPSHOT": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        },
+        "through_chunk": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "through_chunk"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "snapshot",
+      "level": "TRACE",
+      "target": "amaru::mithril::progress",
+      "description": "Selected the applicable Mithril snapshot",
+      "public": true
+    },
+    "amaru::mithril::progress::STAGE": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stage",
+      "level": "TRACE",
+      "target": "amaru::mithril::progress",
+      "description": "Mithril synchronization entered a new stage",
       "public": true
     },
     "amaru::mithril::snapshot::DOWNLOAD": {

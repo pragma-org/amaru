@@ -37,6 +37,16 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Added
+
+- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
+- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
+
+### Fixed
+
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Changed
@@ -59,7 +69,7 @@ Other guiding principles:
 - **amaru-protocols**: a deeply nested CBOR mini-protocol message no longer crashes the node with a stack overflow while mux is splitting frames.
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
-## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
+## v10.11.20260910 _[unreleased]_
 
 ### Added
 

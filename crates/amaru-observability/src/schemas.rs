@@ -1212,31 +1212,24 @@ define_schemas! {
                 }
             }
             progress {
-                /// Start a long-running bootstrap phase
-                public START {
-                    required phase: String
-                    optional total: usize
+                /// Enter a canonical bootstrap stage
+                public STAGE {
+                    required stage: String
                 }
-                /// Report non-terminal progress for a long-running bootstrap phase
-                public UPDATE {
-                    required phase: String
-                    required current: usize
-                    optional total: usize
-                    required elapsed_seconds: f64
+                /// Report the selected snapshot window and its aggregate compressed size
+                public SNAPSHOTS_SELECTED {
+                    required snapshot_count: usize
+                    optional total_bytes: u64
                 }
-                /// Cancel a long-running bootstrap phase
-                public CANCEL {
-                    required phase: String
-                    required current: usize
-                    optional total: usize
-                    required elapsed_seconds: f64
+                /// Report absolute aggregate snapshot download progress
+                public DOWNLOAD {
+                    required downloaded_bytes: u64
+                    required completed_snapshots: usize
                 }
-                /// Complete a long-running bootstrap phase
+                /// Report successful bootstrap completion
                 public COMPLETE {
-                    required phase: String
-                    required current: usize
-                    optional total: usize
-                    required elapsed_seconds: f64
+                    required epoch: amaru_kernel::Epoch
+                    required point: String
                 }
             }
             proposals {
@@ -1556,6 +1549,34 @@ define_schemas! {
             }
         }
         mithril {
+            progress {
+                /// Mithril synchronization entered a new stage
+                public STAGE {
+                    required stage: String
+                }
+                /// Selected the applicable Mithril snapshot
+                public SNAPSHOT {
+                    required hash: String
+                    required through_chunk: u64
+                }
+                /// Absolute Mithril database download progress
+                public DOWNLOAD {
+                    required downloaded_bytes: u64
+                    required completed_files: u64
+                    required total_files: u64
+                    optional total_bytes: u64
+                }
+                /// Absolute block ingestion progress
+                public INGEST {
+                    required blocks: u64
+                    required point: amaru_kernel::Point
+                }
+                /// Mithril synchronization completed successfully
+                public COMPLETE {
+                    required point: amaru_kernel::Point
+                    required processed_blocks: u64
+                }
+            }
             snapshot {
                 /// Fetch and verify a Mithril snapshot
                 public FETCH {

@@ -16,8 +16,8 @@
 //!
 //! # Embedding
 //!
-//! Depend on this crate only for steady-state operation (see EDR 031). Cold-start
-//! snapshot import lives in `amaru-bootstrap`. The product TUI is never required.
+//! Depend on this crate as the public facade for steady-state operation and Mithril
+//! synchronization (see EDR 031). The product TUI is never required.
 //!
 //! ```ignore
 //! use amaru_node::{LedgerObservers, NetworkName, NodeBuilder};
@@ -39,6 +39,7 @@ const _: () = amaru_deps::AMARU_DEPS_USED;
 pub mod builder;
 pub mod chain_realign;
 pub mod ledger_reset;
+pub mod mithril;
 pub mod peer_snapshot;
 pub mod stages;
 pub mod submit_api;
@@ -46,7 +47,7 @@ pub mod system_metrics;
 pub mod telemetry;
 
 pub use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, Point, Transaction, TransactionRef,
+    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, NetworkPoint, Point, Transaction, TransactionRef,
 };
 pub use amaru_ledger::{
     AccountState, AdoptedBlock, DRepState, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, PoolState,
@@ -55,8 +56,12 @@ pub use amaru_ledger::{
 pub use amaru_metrics::{METRICS_METER_NAME, Meter};
 pub use amaru_observability::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
 pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
-pub use chain_realign::{ClearValidity, realign_chain_store_to};
+pub use chain_realign::{ClearValidity, StoreRecoveryRequired, ensure_store_consistency, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
+pub use mithril::{
+    DefaultMithrilObserver, MithrilCancellation, MithrilObserver, MithrilProgress, MithrilStage, MithrilSyncError,
+    MithrilSyncReport, MithrilSynchronizer, RebootstrapRequired,
+};
 pub use stages::{
     build_node::{NodeRunning, build_and_run_node, build_node, make_state},
     config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
