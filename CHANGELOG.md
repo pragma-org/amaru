@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Fixed
+
+- **amaru-uplc**: deeply nested UPLC programs and constants no longer crash the node with a stack overflow during FLAT decoding.
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Changed
