@@ -756,6 +756,7 @@ dependencies = [
  "secp256k1",
  "serde",
  "serde_json",
+ "stacksafe",
  "test-case",
  "thiserror 2.0.19",
  "walkdir",
