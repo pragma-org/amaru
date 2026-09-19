@@ -69,6 +69,13 @@ Other guiding principles:
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 
+### Fixed
+
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
+
+## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
+
 ### Changed
 
 - **amaru-kernel**: opaque byte values (raw blocks, mux frames, original CBOR, and similar) are lowercase hex in JSON and CBOR byte strings in binary traces, not arrays of integers, when serialized using `serde`.
@@ -82,12 +89,6 @@ Other guiding principles:
 - **amaru**: on restart, blocks that an earlier run marked invalid are re-validated. A false reject no longer leaves the node idle on a shorter stored chain while replay of the honest chain is ignored as duplicate headers.
 - **amaru-kernel**: deeply nested native scripts no longer crash the node while their block is decoded.
 - **amaru-kernel**: recursive data types (`NativeScript`, `PlutusData`, `Metadatum`) are now stack-safe and do not cause stack overflow when decoding deeply nested structures.
-- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
-- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
-- **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
-- **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
-- **amaru-kernel**: reject transaction inputs whose index does not fit in 16 bits.
-- **amaru-kernel**: reject bootstrap witnesses whose chain code is not exactly 32 bytes from protocol version 12 onwards, and no longer panic when hashing a witness whose chain code has another length.
 - **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
 - **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
 - **amaru-kernel**: reject blocks with mismatched transaction body and witness set counts, or out-of-bounds auxiliary data and invalid transaction indices.
@@ -98,7 +99,7 @@ Other guiding principles:
 - **amaru-protocols**: a deeply nested CBOR mini-protocol message no longer crashes the node with a stack overflow while mux is splitting frames.
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
-## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
+## v10.11.20260910 _[unreleased]_
 
 ### Added
 
