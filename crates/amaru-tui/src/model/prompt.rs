@@ -50,9 +50,9 @@ impl PromptState {
 
     pub fn prefix(&self) -> &'static str {
         match self.kind {
-            PromptKind::Filter => "& ",
-            PromptKind::Highlight => "/ ",
-            PromptKind::JumpTime => "@ ",
+            PromptKind::Filter => "filter = ",
+            PromptKind::Highlight => "highlight = ",
+            PromptKind::JumpTime => "timestamp = ",
         }
     }
 

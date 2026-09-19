@@ -166,6 +166,34 @@ fn civil_to_system_time(year: u16, month: u8, day: u8, hour: u8, minute: u8, sec
     Some(UNIX_EPOCH + Duration::from_secs(secs))
 }
 
+pub(crate) fn utc_compact_stamp(time: SystemTime) -> String {
+    let secs = unix_secs(time);
+    let days = i64::try_from(secs / 86_400).unwrap_or_default();
+    let (year, month, day) = civil_from_days(days);
+    let sod = secs % 86_400;
+    let hour = sod / 3_600;
+    let minute = (sod % 3_600) / 60;
+    let second = sod % 60;
+    format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}Z")
+}
+
+/// Inverse of [`days_from_civil`]. See Howard Hinnant, *chrono-Compatible Low-Level Date Algorithms*.
+fn civil_from_days(mut z: i64) -> (i32, u32, u32) {
+    z += 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = (z - era * 146_097) as u32;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut year = yoe as i32 + era as i32 * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    if month <= 2 {
+        year += 1;
+    }
+    (year, month, day)
+}
+
 /// Days from the Unix epoch for a civil date. See Howard Hinnant, *chrono-Compatible Low-Level Date Algorithms*.
 fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
@@ -222,5 +250,19 @@ mod tests {
             civil_to_system_time(1970, 1, 2, 1, 2, 3),
             Some(UNIX_EPOCH + Duration::from_secs(86_400 + 3_600 + 120 + 3))
         );
+    }
+
+    #[test]
+    fn civil_from_days_inverts_days_from_civil() {
+        for (year, month, day) in [(1970, 1, 1), (1970, 1, 2), (2000, 2, 29), (2026, 9, 17)] {
+            let days = days_from_civil(year, month, day);
+            assert_eq!(civil_from_days(days), (year, month, day), "{year}-{month:02}-{day:02}");
+        }
+    }
+
+    #[test]
+    fn utc_compact_stamp_formats_unix_epoch() {
+        assert_eq!(utc_compact_stamp(UNIX_EPOCH), "19700101-000000Z");
+        assert_eq!(utc_compact_stamp(UNIX_EPOCH + Duration::from_secs(86_400 + 3_600 + 120 + 3)), "19700102-010203Z");
     }
 }

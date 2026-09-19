@@ -21,6 +21,7 @@ use std::{
 use self::{
     governance_summary::GovernanceSummary,
     log_buffer::LogBuffer,
+    log_selection::LogSelection,
     mempool_state::MempoolState,
     proposal_activity::{ProposalActivity, proposal_id},
     rate_counter::RateCounter,
@@ -34,13 +35,16 @@ use crate::{
     startup::StartupContext,
 };
 
+mod command_menu;
 mod exponential_moving_average;
 mod governance_summary;
 mod initial_stake_distribution_state;
 mod interaction;
 mod interaction_mode;
+mod key_aliases;
 mod level_filter;
 mod log_buffer;
+mod log_selection;
 mod log_time;
 mod mempool_state;
 mod metrics_update;
@@ -60,6 +64,11 @@ mod telemetry_update;
 mod terminal_event_outcome;
 mod tip_state;
 
+pub(crate) use self::{
+    command_menu::CommandMenu,
+    key_aliases::{ENVIRONMENT_VARIABLE, KeyAliases},
+    log_time::utc_compact_stamp,
+};
 pub use self::{
     initial_stake_distribution_state::InitialStakeDistributionState,
     interaction_mode::InteractionMode,
@@ -79,6 +88,7 @@ pub struct Model {
     pub startup: StartupContext,
     pub page: Page,
     pub interaction_mode: InteractionMode,
+    pub(crate) command_menu: CommandMenu,
     pub log_pane_mode: PaneMode,
     pub peer_pane_mode: PaneMode,
     pub proposal_pane_mode: PaneMode,
@@ -88,12 +98,14 @@ pub struct Model {
     pub text_filter_pattern: String,
     pub highlight_pattern: String,
     pub prompt: Option<PromptState>,
+    key_aliases: KeyAliases,
     pub catching_up: bool,
     pub log_scroll: usize,
     pub log_hscroll: usize,
     pub log_wrap: bool,
     pub log_scrollbar_focused: bool,
     log_scrollbar_drag: bool,
+    log_select_drag: bool,
     pub peer_scroll: usize,
     pub proposal_scroll: usize,
     pub config_scroll: usize,
@@ -117,7 +129,13 @@ pub struct Model {
     text_filter: Option<regex::Regex>,
     highlight: Option<regex::Regex>,
     log_cursor: Option<Rc<TelemetryRecord>>,
+    log_selection: Option<LogSelection>,
+    log_export_status: Option<String>,
     logs_viewport_rows: usize,
+    logs_viewport_columns: usize,
+    peers_viewport_rows: usize,
+    proposals_viewport_rows: usize,
+    config_viewport_rows: usize,
     pub system_sample: Option<SystemSample>,
     pub block_rate: RateCounter,
     pub transaction_rate: RateCounter,
@@ -137,6 +155,7 @@ impl Model {
             startup,
             page: Page::Amaru,
             interaction_mode: InteractionMode::Normal,
+            command_menu: CommandMenu::Default,
             log_pane_mode: PaneMode::Normal,
             peer_pane_mode: PaneMode::Normal,
             proposal_pane_mode: PaneMode::Normal,
@@ -146,12 +165,14 @@ impl Model {
             text_filter_pattern: String::new(),
             highlight_pattern: String::new(),
             prompt: None,
+            key_aliases: KeyAliases::default(),
             catching_up: true,
             log_scroll: 0,
             log_hscroll: 0,
             log_wrap: true,
             log_scrollbar_focused: false,
             log_scrollbar_drag: false,
+            log_select_drag: false,
             peer_scroll: 0,
             proposal_scroll: 0,
             config_scroll: 0,
@@ -173,7 +194,13 @@ impl Model {
             text_filter: None,
             highlight: None,
             log_cursor: None,
+            log_selection: None,
+            log_export_status: None,
             logs_viewport_rows: 10,
+            logs_viewport_columns: 80,
+            peers_viewport_rows: 10,
+            proposals_viewport_rows: 10,
+            config_viewport_rows: 10,
             system_sample: None,
             block_rate: RateCounter::new(config.block_sample_capacity),
             transaction_rate: RateCounter::new(config.transaction_sample_capacity),
@@ -203,6 +230,22 @@ impl Model {
 
     pub fn initial_stake_distributions(&self) -> impl Iterator<Item = &InitialStakeDistributionState> {
         self.initial_stake_distribution_order.iter().filter_map(|epoch| self.initial_stake_distributions.get(epoch))
+    }
+
+    pub(crate) fn set_key_aliases(&mut self, key_aliases: KeyAliases) {
+        self.key_aliases = key_aliases;
+    }
+
+    pub(crate) fn key_label(&self, key: &str) -> String {
+        self.key_aliases.label(key).unwrap_or_else(|| key.to_owned())
+    }
+
+    pub(crate) fn page_navigation_key_label(&self) -> &'static str {
+        self.key_aliases.page_navigation_label()
+    }
+
+    pub(crate) fn scroll_navigation_key_label(&self) -> &'static str {
+        self.key_aliases.scroll_navigation_label()
     }
 }
 
@@ -799,7 +842,8 @@ mod tests {
     #[test]
     fn stake_distribution_begin_closes_an_open_prompt() {
         let mut model = ready_model();
-        model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
         assert!(model.prompt_is_open());
 
         model.handle_message(Message::Telemetry(telemetry!(
@@ -911,15 +955,21 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_navigation_uses_ctrl_arrows_for_focus_and_enter_for_pane_toggle() {
+    fn keyboard_navigation_uses_semicolon_for_focus_and_control_arrows_for_large_steps() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.initial_stake_distributions_ready = true;
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        model.logs_viewport_rows = 10;
 
         assert_eq!(model.page, Page::Amaru);
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.page, Page::Amaru);
@@ -932,11 +982,11 @@ mod tests {
         assert_eq!(model.peer_pane_mode, PaneMode::Maximized);
         assert_eq!(model.log_pane_mode, PaneMode::Normal);
 
-        assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL)),
-            TerminalEventOutcome::Continue
-        );
+        model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE));
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL));
+        assert!(model.log_scroll > 1, "control-up should move by a full scrollbar step");
 
         assert_eq!(
             model.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
@@ -945,10 +995,7 @@ mod tests {
         assert_eq!(model.page, Page::Cardano);
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
 
-        assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
-            TerminalEventOutcome::Continue
-        );
+        model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE));
         assert_eq!(model.scroll_focus, ScrollFocus::Proposals);
 
         assert_eq!(
@@ -956,6 +1003,24 @@ mod tests {
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.proposal_pane_mode, PaneMode::Maximized);
+    }
+
+    #[test]
+    fn aliases_replace_keyboard_controls() {
+        let mut model = ready_model();
+        model.set_key_aliases(KeyAliases::parse("esc=~").unwrap());
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('~'), KeyModifiers::SHIFT)),
+            TerminalEventOutcome::EnterCopyMode
+        );
+        assert!(model.is_copy_mode());
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.is_copy_mode());
     }
 
     #[test]
@@ -982,7 +1047,7 @@ mod tests {
         assert_eq!(model.config_scroll, 1);
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(';'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.scroll_focus, ScrollFocus::Config);
@@ -1039,13 +1104,17 @@ mod tests {
     }
 
     #[test]
-    fn ampersand_filters_log_view_by_regex() {
+    fn log_filter_menu_filters_log_view_by_regex() {
         let mut model = ready_model();
         model.handle_message(named_log("keep-me"));
         model.handle_message(named_log("drop-me"));
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Char('&'), KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         assert!(model.prompt_is_open());
@@ -1081,6 +1150,7 @@ mod tests {
         assert_eq!(model.log_hscroll, 0, "wrap on: left/right do not pan");
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
 
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
         model.handle_key_event(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
         assert!(!model.log_wrap);
 
@@ -1094,19 +1164,69 @@ mod tests {
     }
 
     #[test]
-    fn copy_mode_allows_scrolling() {
+    fn copy_mode_allows_full_log_navigation() {
         let mut model = ready_model();
+        for index in 0..40 {
+            model.handle_message(named_log(&format!("row-{index}")));
+        }
+        model.sync_logs();
+        model.logs_viewport_rows = 10;
+
         assert_eq!(
             model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             TerminalEventOutcome::EnterCopyMode
         );
         assert!(model.is_copy_mode());
+
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL)),
             TerminalEventOutcome::Continue
         );
-        assert_eq!(model.log_scroll, 1);
+        assert!(model.log_scroll > 1, "control-up should move by a scrollbar step");
+
+        model.handle_key_event(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 0);
+        model.handle_key_event(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 10);
+        model.handle_key_event(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 30);
+        model.handle_key_event(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(model.log_scroll, 0);
         assert!(model.is_copy_mode());
+    }
+
+    #[test]
+    fn command_menus_require_confirmation_and_escape_returns_to_the_previous_level() {
+        let mut model = ready_model();
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Logs);
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        assert!(model.prompt_is_open());
+        model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!model.prompt_is_open());
+        assert_eq!(model.command_menu, CommandMenu::Logs);
+        model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Default);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Quit);
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Shutdown
+        );
+        model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Default);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert_eq!(model.command_menu, CommandMenu::Default);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Shutdown
+        );
     }
 
     #[test]
@@ -1118,7 +1238,11 @@ mod tests {
         model.sync_logs();
 
         assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
             TerminalEventOutcome::Continue
         );
         for character in "alpha".chars() {
@@ -1157,31 +1281,21 @@ mod tests {
     }
 
     #[test]
-    fn pipe_focuses_the_log_scrollbar_for_large_steps() {
+    fn control_arrows_scrub_logs_by_a_scrollbar_step() {
         let mut model = ready_model();
         for index in 0..40 {
             model.handle_message(named_log(&format!("row-{index}")));
         }
         model.sync_logs();
+        model.logs_viewport_rows = 10;
         assert_eq!(model.log_scroll, 0);
 
-        assert_eq!(
-            model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE)),
-            TerminalEventOutcome::Continue
-        );
-        assert!(model.log_scrollbar_focused);
-        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
-
-        let before = model.log_scroll;
-        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-        assert!(model.log_scroll > before, "scrub up should move toward older logs");
+        model.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL));
+        assert!(model.log_scroll > 1, "control-up should move toward older logs by a scrollbar step");
         model.handle_key_event(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
         assert_eq!(model.log_scroll, 30);
         model.handle_key_event(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
         assert_eq!(model.log_scroll, 0);
-
-        model.handle_key_event(KeyEvent::new(KeyCode::Char('|'), KeyModifiers::NONE));
-        assert!(!model.log_scrollbar_focused);
     }
 
     #[test]
@@ -1192,7 +1306,8 @@ mod tests {
         }
         model.sync_logs();
 
-        model.handle_key_event(KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
         assert!(model.prompt_is_open());
         for character in "13:00".chars() {
             model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
@@ -1241,5 +1356,240 @@ mod tests {
             &views,
         );
         assert_eq!(model.log_scroll, 0);
+    }
+
+    fn named_log_level_at(name: &str, level: Level, at: Instant) -> Message {
+        let mut record = telemetry_record(at, "amaru::ledger", name, []);
+        record.level = level;
+        Message::Telemetry(record)
+    }
+
+    fn log_hits_for(view_len: usize) -> Views {
+        Views {
+            logs_area: Rect::new(0, 0, 80, view_len as u16 + 2),
+            logs_body: Rect::new(0, 2, 80, view_len as u16),
+            log_hits: (0..view_len)
+                .map(|index| crate::ui::LogLineHit { y: 2 + index as u16, view_index: index })
+                .collect(),
+            ..Views::default()
+        }
+    }
+
+    fn click_log(model: &mut Model, views: &Views, view_index: usize) {
+        let outcome = model.handle_terminal_event(
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 10,
+                row: 2 + view_index as u16,
+                modifiers: KeyModifiers::NONE,
+            }),
+            views,
+        );
+        assert_eq!(outcome, TerminalEventOutcome::Continue);
+    }
+
+    fn drag_log(model: &mut Model, views: &Views, view_index: usize) {
+        let outcome = model.handle_terminal_event(
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: 10,
+                row: 2 + view_index as u16,
+                modifiers: KeyModifiers::NONE,
+            }),
+            views,
+        );
+        assert_eq!(outcome, TerminalEventOutcome::Continue);
+    }
+
+    fn selected_names(model: &Model) -> Vec<String> {
+        model
+            .log_view()
+            .iter()
+            .filter_map(|item| {
+                let record = item.record()?;
+                model.log_record_is_selected(record).then(|| record.name.clone())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn copy_mode_two_clicks_select_a_time_range() {
+        let mut model = ready_model();
+        let t0 = Instant::now();
+        model.handle_message(named_log_level_at("warn-a", Level::WARN, t0));
+        model.handle_message(named_log_level_at("debug-mid", Level::DEBUG, t0 + Duration::from_millis(1)));
+        model.handle_message(named_log_level_at("warn-b", Level::WARN, t0 + Duration::from_millis(2)));
+        model.handle_message(named_log_level_at("debug-after", Level::DEBUG, t0 + Duration::from_millis(3)));
+        model.sync_logs();
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::EnterCopyMode
+        );
+
+        let views = log_hits_for(model.log_view().len());
+        click_log(&mut model, &views, 0);
+        assert_eq!(selected_names(&model), vec!["warn-a".to_string()]);
+        click_log(&mut model, &views, 1);
+        assert_eq!(selected_names(&model), vec!["warn-a".to_string(), "warn-b".to_string()]);
+        assert_eq!(model.selected_log_count(), Some(2));
+    }
+
+    #[test]
+    fn copy_mode_later_click_moves_the_nearer_end() {
+        let mut model = ready_model();
+        let t0 = Instant::now();
+        for (index, name) in ["one", "two", "three", "four"].into_iter().enumerate() {
+            model.handle_message(named_log_level_at(name, Level::INFO, t0 + Duration::from_millis(index as u64)));
+        }
+        model.sync_logs();
+        model.enter_copy_mode();
+
+        let views = log_hits_for(model.log_view().len());
+        click_log(&mut model, &views, 0);
+        click_log(&mut model, &views, 3);
+        assert_eq!(selected_names(&model), vec!["one", "two", "three", "four"]);
+
+        click_log(&mut model, &views, 1);
+        assert_eq!(selected_names(&model), vec!["two", "three", "four"]);
+
+        model.log_selection = None;
+        click_log(&mut model, &views, 0);
+        click_log(&mut model, &views, 3);
+        click_log(&mut model, &views, 2);
+        assert_eq!(selected_names(&model), vec!["one", "two", "three"]);
+    }
+
+    #[test]
+    fn copy_mode_drag_selects_from_the_press_to_the_pointer() {
+        let mut model = ready_model();
+        let t0 = Instant::now();
+        for (index, name) in ["one", "two", "three"].into_iter().enumerate() {
+            model.handle_message(named_log_level_at(name, Level::INFO, t0 + Duration::from_millis(index as u64)));
+        }
+        model.sync_logs();
+        model.enter_copy_mode();
+
+        let views = log_hits_for(model.log_view().len());
+        click_log(&mut model, &views, 0);
+        drag_log(&mut model, &views, 2);
+        assert_eq!(selected_names(&model), vec!["one", "two", "three"]);
+    }
+
+    #[test]
+    fn log_selection_survives_level_and_text_filters_and_exports_the_visible_slice() {
+        let mut model = ready_model();
+        let t0 = Instant::now();
+        model.handle_message(named_log_level_at("warn-a", Level::WARN, t0));
+        model.handle_message(named_log_level_at("debug-mid", Level::DEBUG, t0 + Duration::from_millis(1)));
+        model.handle_message(named_log_level_at("warn-b", Level::WARN, t0 + Duration::from_millis(2)));
+        model.handle_message(named_log_level_at("debug-after", Level::DEBUG, t0 + Duration::from_millis(3)));
+        model.sync_logs();
+        model.enter_copy_mode();
+
+        let views = log_hits_for(model.log_view().len());
+        click_log(&mut model, &views, 0);
+        click_log(&mut model, &views, 1);
+
+        model.set_level_filter(LevelFilter::Debug);
+        let exported = model.exported_log_text();
+        assert!(exported.contains("warn-a"), "{exported}");
+        assert!(exported.contains("debug-mid"), "{exported}");
+        assert!(exported.contains("warn-b"), "{exported}");
+        assert!(!exported.contains("debug-after"), "{exported}");
+        assert!(exported.contains(" WARN "), "{exported}");
+        assert!(exported.contains("DEBUG"), "{exported}");
+        assert!(!exported.contains('\u{1b}'), "{exported}");
+        assert_eq!(model.exported_log_line_count(), 3);
+
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        model.handle_key_event(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+        for character in "debug".chars() {
+            model.handle_key_event(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        model.sync_logs();
+
+        let exported = model.exported_log_text();
+        assert!(exported.contains("debug-mid"), "{exported}");
+        assert!(!exported.contains("warn-a"), "{exported}");
+        assert!(!exported.contains("debug-after"), "{exported}");
+        assert_eq!(model.exported_log_line_count(), 1);
+        assert_eq!(model.selected_log_count(), Some(1));
+    }
+
+    #[test]
+    fn export_without_selection_writes_every_visible_line() {
+        let mut model = ready_model();
+        let t0 = Instant::now();
+        model.handle_message(named_log_level_at("warn-a", Level::WARN, t0));
+        model.handle_message(named_log_level_at("debug-mid", Level::DEBUG, t0 + Duration::from_millis(1)));
+        model.handle_message(named_log_level_at("warn-b", Level::WARN, t0 + Duration::from_millis(2)));
+        model.sync_logs();
+        model.enter_copy_mode();
+
+        let exported = model.exported_log_text();
+        assert!(exported.contains("warn-a"), "{exported}");
+        assert!(exported.contains("warn-b"), "{exported}");
+        assert!(!exported.contains("debug-mid"), "{exported}");
+        assert!(exported.contains(" WARN "), "{exported}");
+        assert_eq!(model.exported_log_line_count(), 2);
+
+        model.set_level_filter(LevelFilter::Debug);
+        assert_eq!(model.exported_log_line_count(), 3);
+        assert!(model.exported_log_text().contains("debug-mid"));
+    }
+
+    #[test]
+    fn escape_clears_selection_before_leaving_copy_mode() {
+        let mut model = ready_model();
+        let t0 = Instant::now();
+        model.handle_message(named_log_level_at("warn-a", Level::WARN, t0));
+        model.sync_logs();
+        model.enter_copy_mode();
+
+        let views = log_hits_for(model.log_view().len());
+        click_log(&mut model, &views, 0);
+        assert_eq!(model.selected_log_count(), Some(1));
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.is_copy_mode());
+        assert_eq!(model.selected_log_count(), None);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::ExitCopyMode
+        );
+        assert!(!model.is_copy_mode());
+    }
+
+    #[test]
+    fn export_key_is_copy_mode_only() {
+        let mut model = ready_model();
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        model.enter_copy_mode();
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+            TerminalEventOutcome::ExportLogs
+        );
+    }
+
+    #[test]
+    fn clicking_a_tier_boundary_does_not_start_a_selection() {
+        let mut model = ready_model();
+        let views = Views {
+            logs_body: Rect::new(0, 2, 80, 1),
+            log_hits: vec![crate::ui::LogLineHit { y: 2, view_index: 99 }],
+            ..Views::default()
+        };
+        model.enter_copy_mode();
+        click_log(&mut model, &views, 0);
+        assert_eq!(model.selected_log_count(), None);
     }
 }

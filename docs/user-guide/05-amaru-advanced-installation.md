@@ -126,7 +126,7 @@ OTEL_METRIC_EXPORT_INTERVAL=1000
 `OTEL_METRIC_EXPORT_INTERVAL` is the time between two OTLP metrics export (default is [60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader), here set to 1s)
 :::
 
-You can get the full config list with the TUI under the config menu (pressing `ESC` enter copy mode, enabling cursor selection):
+You can get the full config list with the TUI under the config menu (press `ESC` on the Config page to enter copy mode and select values with the terminal):
 
 ![Amuru_config_TUI.png](img/Amuru_Config_TUI.png)
 

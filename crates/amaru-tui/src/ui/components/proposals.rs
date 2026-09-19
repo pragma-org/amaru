@@ -16,13 +16,14 @@ use ratatui::{
     Frame,
     layout::{Constraint, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Borders, Cell, Row, Table},
+    widgets::{Block, Cell, Row, Table},
 };
 
 use super::super::{
     common::{
         border_title_chrome_width, border_title_line, border_title_prefix_width, button_label, format_vote_status,
-        panel_title, render_scrollbar, scroll_panel_border, scroll_panel_border_type, table_body_area,
+        panel_borders, panel_padding, panel_title, render_scrollbar, scroll_panel_border, scroll_panel_border_type,
+        table_body_area,
     },
     format::format_count,
     theme::{accent_primary, emphasis_primary, emphasis_white_color, striped_row_style, table_header_style},
@@ -55,11 +56,13 @@ pub(in crate::ui) fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, m
             )
             .right_aligned(),
         )
-        .borders(Borders::ALL)
+        .borders(panel_borders(model.interaction_mode))
         .border_style(scroll_panel_border(focused, model.interaction_mode))
-        .border_type(scroll_panel_border_type(focused));
+        .border_type(scroll_panel_border_type(focused))
+        .padding(panel_padding(model.interaction_mode));
     let inner = block.inner(area);
     let body = table_body_area(inner);
+    views.proposals_body = body;
     let visible = body.height as usize;
     let proposals_len = proposals.len();
     let start = model.proposal_scroll.min(proposals_len.saturating_sub(visible));

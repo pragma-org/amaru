@@ -29,6 +29,10 @@ pub(super) fn accent_primary(mode: InteractionMode) -> Color {
 }
 
 pub(super) fn block_title(mode: InteractionMode, title: &str) -> Line<'static> {
+    if mode == InteractionMode::Copy {
+        return Line::from(Span::styled(title.to_string(), emphasis_primary(mode)));
+    }
+
     Line::from(vec![
         Span::styled("─ ", border_secondary(mode)),
         Span::styled(title.to_string(), emphasis_primary(mode)),
@@ -102,6 +106,14 @@ pub(super) fn style_for_level_filter(filter: LevelFilter) -> Style {
 
 pub(super) fn style_for_target(_target: &str) -> Style {
     Style::default().fg(muted_color())
+}
+
+pub(super) fn style_for_log_selection(mode: InteractionMode) -> Style {
+    let background = match mode {
+        InteractionMode::Copy => Color::Rgb(36, 58, 96),
+        InteractionMode::Normal | InteractionMode::Shutdown => Color::Rgb(32, 52, 44),
+    };
+    Style::default().bg(background)
 }
 
 pub(super) fn style_for_log_match(current: bool, mode: InteractionMode) -> Style {
