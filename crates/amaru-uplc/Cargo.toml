@@ -30,6 +30,7 @@ num-bigint.workspace = true
 num.workspace = true
 once_cell.workspace = true
 secp256k1.workspace = true
+stacksafe.workspace = true
 thiserror.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
