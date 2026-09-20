@@ -1,0 +1,285 @@
+// Copyright 2026 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Pure decisions used by [`super::stage`]. Kept free of effects so they can be
+//! unit-tested without a simulation.
+
+use std::time::Duration;
+
+use amaru_kernel::{BlockHeight, Slot};
+use amaru_pure_stage::Instant;
+
+/// How far before slot onset `LeadSlot` is armed so forging can finish in time.
+pub(super) const FORGE_LEAD_OFFSET: Duration = Duration::from_millis(50);
+
+/// Parent of the block we are about to forge, given the adopted tip's slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ParentChoice {
+    /// `tip.slot < lead_slot`: extend the adopted tip.
+    AdoptedTip,
+    /// `tip.slot == lead_slot`: a same-slot block is already adopted; extend its parent.
+    AdoptedParent,
+    /// `tip.slot > lead_slot`: forging would produce a block whose parent is later than its slot.
+    MissedTipAhead,
+}
+
+/// Whether the operational certificate covers a KES period.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OcertCoverage {
+    Valid,
+    NotYetValid,
+    Expired,
+}
+
+/// Why a led slot was not forged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MissedSlotReason {
+    OcertNotYetValid,
+    OcertExpired,
+    TipAhead,
+}
+
+impl MissedSlotReason {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::OcertNotYetValid => "ocert_not_yet_valid",
+            Self::OcertExpired => "ocert_expired",
+            Self::TipAhead => "tip_ahead",
+        }
+    }
+}
+
+/// Whether a rollback of the adopted tip can change the next-epoch candidate nonce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CandidateRollback {
+    None,
+    PastWindow,
+}
+
+/// Pick the parent of a block for `lead_slot` from the adopted tip's slot.
+pub(super) fn choose_parent(tip_slot: Slot, lead_slot: Slot) -> ParentChoice {
+    match tip_slot.cmp(&lead_slot) {
+        std::cmp::Ordering::Less => ParentChoice::AdoptedTip,
+        std::cmp::Ordering::Equal => ParentChoice::AdoptedParent,
+        std::cmp::Ordering::Greater => ParentChoice::MissedTipAhead,
+    }
+}
+
+/// OCERT window: `start_period <= kes_period < start_period + max_evolutions`.
+///
+/// Mainnet `max_evolutions` is 62 (Sum6KES has 64 periods, two of margin).
+pub(super) fn ocert_covers(kes_period: u64, start_period: u64, max_evolutions: u64) -> OcertCoverage {
+    if kes_period < start_period {
+        OcertCoverage::NotYetValid
+    } else if kes_period >= start_period.saturating_add(max_evolutions) {
+        OcertCoverage::Expired
+    } else {
+        OcertCoverage::Valid
+    }
+}
+
+/// Combine OCERT and parent checks into a miss reason, if any.
+pub(super) fn missed_slot(coverage: OcertCoverage, parent: ParentChoice) -> Option<MissedSlotReason> {
+    match coverage {
+        OcertCoverage::NotYetValid => Some(MissedSlotReason::OcertNotYetValid),
+        OcertCoverage::Expired => Some(MissedSlotReason::OcertExpired),
+        OcertCoverage::Valid => match parent {
+            ParentChoice::MissedTipAhead => Some(MissedSlotReason::TipAhead),
+            ParentChoice::AdoptedTip | ParentChoice::AdoptedParent => None,
+        },
+    }
+}
+
+/// Blocks adopted on the best chain since the freeze header.
+pub(super) fn freeze_depth(freeze_height: BlockHeight, tip_height: BlockHeight) -> u64 {
+    tip_height - freeze_height
+}
+
+pub(super) fn schedule_settled(blocks_since_freeze: u64, k: u64) -> bool {
+    blocks_since_freeze >= k
+}
+
+/// A rollback reaches past the freeze when the new tip predates the freeze slot
+/// or the freeze header is no longer an ancestor of the adopted tip.
+///
+/// NOTE: even though the new tip’s BlockHeight will always be at least the previous one’s,
+/// the slot might decrease (which means that the chain got denser)
+pub(super) fn candidate_rollback(new_tip_slot: Slot, freeze_slot: Slot, freeze_is_ancestor: bool) -> CandidateRollback {
+    if new_tip_slot < freeze_slot || !freeze_is_ancestor {
+        CandidateRollback::PastWindow
+    } else {
+        CandidateRollback::None
+    }
+}
+
+/// Drop led slots whose onset is no longer in the future. Order is preserved.
+pub(super) fn drop_past_led_slots(led: &mut Vec<Slot>, now: Instant, slot_onset: impl Fn(Slot) -> Instant) {
+    led.retain(|&slot| slot_onset(slot) > now);
+}
+
+/// Next led slot that can still be published (`onset > now`).
+pub(super) fn next_schedulable_slot(
+    led: &[Slot],
+    now: Instant,
+    slot_onset: impl Fn(Slot) -> Option<Instant>,
+) -> Option<(Slot, Instant)> {
+    led.iter().copied().find_map(|slot| {
+        let onset = slot_onset(slot)?;
+        (onset > now).then_some((slot, onset))
+    })
+}
+
+/// Replace led slots that fall in `[from, until)` with `new`.
+pub(super) fn replace_epoch_slots(led: &mut Vec<Slot>, from: Slot, until: Slot, new: impl IntoIterator<Item = Slot>) {
+    led.retain(|slot| *slot < from || *slot >= until);
+    led.extend(new);
+    led.sort();
+    led.dedup();
+}
+
+/// Instant at which `LeadSlot` should fire: `offset` before onset, but not in the past.
+pub(super) fn lead_fire_at(onset: Instant, now: Instant, offset: Duration) -> Instant {
+    let early = onset - offset;
+    if early > now { early } else { now }
+}
+
+/// Remaining time until slot onset, if we finished forging early. `None` means publish now.
+pub(super) fn wait_until_onset(onset: Instant, now: Instant) -> Option<Duration> {
+    onset.checked_since(now).filter(|duration| *duration > Duration::ZERO)
+}
+
+/// Map a duration since Cardano system start onto the simulation clock.
+pub(super) fn instant_for_relative(now: Instant, relative: Duration) -> Instant {
+    let elapsed = now.duration_since_global_epoch();
+    if relative >= elapsed { now + (relative - elapsed) } else { now - (elapsed - relative) }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::BlockHeight;
+
+    use super::*;
+
+    fn slot(n: u64) -> Slot {
+        Slot::from(n)
+    }
+
+    fn instant(secs: u64) -> Instant {
+        Instant::at_offset(Duration::from_secs(secs), Duration::ZERO)
+    }
+
+    #[test]
+    fn choose_parent_extends_earlier_tip() {
+        assert_eq!(choose_parent(slot(10), slot(11)), ParentChoice::AdoptedTip);
+    }
+
+    #[test]
+    fn choose_parent_uses_parent_on_same_slot() {
+        assert_eq!(choose_parent(slot(11), slot(11)), ParentChoice::AdoptedParent);
+    }
+
+    #[test]
+    fn choose_parent_misses_when_tip_is_ahead() {
+        assert_eq!(choose_parent(slot(12), slot(11)), ParentChoice::MissedTipAhead);
+    }
+
+    #[test]
+    fn ocert_covers_the_inclusive_start_and_excludes_the_end() {
+        assert_eq!(ocert_covers(5, 5, 62), OcertCoverage::Valid);
+        assert_eq!(ocert_covers(66, 5, 62), OcertCoverage::Valid);
+        assert_eq!(ocert_covers(67, 5, 62), OcertCoverage::Expired);
+        assert_eq!(ocert_covers(4, 5, 62), OcertCoverage::NotYetValid);
+    }
+
+    #[test]
+    fn missed_slot_prefers_ocert_over_tip() {
+        assert_eq!(
+            missed_slot(OcertCoverage::Expired, ParentChoice::MissedTipAhead),
+            Some(MissedSlotReason::OcertExpired)
+        );
+        assert_eq!(missed_slot(OcertCoverage::Valid, ParentChoice::MissedTipAhead), Some(MissedSlotReason::TipAhead));
+        assert_eq!(missed_slot(OcertCoverage::Valid, ParentChoice::AdoptedParent), None);
+    }
+
+    #[test]
+    fn freeze_depth_is_height_difference() {
+        assert_eq!(freeze_depth(BlockHeight::from(10), BlockHeight::from(15)), 5);
+        assert_eq!(freeze_depth(BlockHeight::from(15), BlockHeight::from(10)), 0);
+    }
+
+    #[test]
+    fn schedule_settles_at_k() {
+        assert!(!schedule_settled(2159, 2160));
+        assert!(schedule_settled(2160, 2160));
+        assert!(schedule_settled(2161, 2160));
+    }
+
+    #[test]
+    fn rollback_past_window_on_earlier_slot_or_lost_ancestor() {
+        assert_eq!(candidate_rollback(slot(99), slot(100), true), CandidateRollback::PastWindow);
+        assert_eq!(candidate_rollback(slot(150), slot(100), false), CandidateRollback::PastWindow);
+        assert_eq!(candidate_rollback(slot(150), slot(100), true), CandidateRollback::None);
+    }
+
+    #[test]
+    fn unpublished_slots_are_those_whose_onset_is_still_ahead() {
+        let onset = |s: Slot| instant(u64::from(s));
+        let mut led = vec![slot(5), slot(8), slot(3)];
+        drop_past_led_slots(&mut led, instant(5), onset);
+        assert_eq!(led, vec![slot(8)]);
+        let mut led = vec![slot(5)];
+        drop_past_led_slots(&mut led, instant(4), onset);
+        assert_eq!(led, vec![slot(5)]);
+    }
+
+    #[test]
+    fn next_schedulable_slot_skips_past_onsets() {
+        let onset = |s: Slot| Some(instant(u64::from(s)));
+        assert_eq!(
+            next_schedulable_slot(&[slot(3), slot(5), slot(8)], instant(5), onset),
+            Some((slot(8), instant(8)))
+        );
+        assert_eq!(next_schedulable_slot(&[slot(8)], instant(4), onset), Some((slot(8), instant(8))));
+    }
+
+    #[test]
+    fn replace_epoch_slots_swaps_a_range() {
+        let mut led = vec![slot(1), slot(5), slot(9)];
+        replace_epoch_slots(&mut led, slot(4), slot(8), [slot(6), slot(7)]);
+        assert_eq!(led, vec![slot(1), slot(6), slot(7), slot(9)]);
+    }
+
+    #[test]
+    fn lead_fire_at_is_offset_before_onset_unless_that_is_past() {
+        let onset = instant(10);
+        assert_eq!(lead_fire_at(onset, instant(1), Duration::from_secs(2)), instant(8));
+        assert_eq!(lead_fire_at(onset, instant(9), Duration::from_secs(2)), instant(9));
+    }
+
+    #[test]
+    fn wait_until_onset_is_none_when_already_at_or_past_onset() {
+        assert_eq!(wait_until_onset(instant(10), instant(8)), Some(Duration::from_secs(2)));
+        assert_eq!(wait_until_onset(instant(10), instant(10)), None);
+        assert_eq!(wait_until_onset(instant(10), instant(11)), None);
+    }
+
+    #[test]
+    fn instant_for_relative_is_symmetric_with_duration_since_global_epoch() {
+        let now = instant(10);
+        let at = instant_for_relative(now, Duration::from_secs(15));
+        assert_eq!(at.duration_since_global_epoch(), Duration::from_secs(15));
+        let past = instant_for_relative(now, Duration::from_secs(4));
+        assert_eq!(past.duration_since_global_epoch(), Duration::from_secs(4));
+    }
+}

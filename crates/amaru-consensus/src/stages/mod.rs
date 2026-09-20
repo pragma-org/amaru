@@ -15,6 +15,7 @@
 pub mod adopt_chain;
 pub mod block_source;
 pub mod fetch_blocks;
+pub mod forge_block;
 pub mod mempool;
 pub mod peer_selection;
 pub mod select_chain;

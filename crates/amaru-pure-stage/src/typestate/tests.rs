@@ -17,7 +17,7 @@
 
 use super::{
     Choice, FmtPar, Here, OnReceive, Par, Select, Then,
-    effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout},
+    effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout, Terminate},
     list::{CanFinish, ConsIfPresent, DiscardRepeat, describe},
     session::describe_receive,
 };
@@ -185,6 +185,17 @@ fn star_then_required_send_does_not_finish() {
 fn using_star_keeps_the_star() {
     type Rem = Choice<(Then<Par<((Repeat<SendAny<toy::Peer>>,),)>, toy::Idle>,)>;
     assert_after::<Rem, SendAny<toy::Peer>, Rem, _>();
+}
+
+#[test]
+fn parallel_star_survives_selecting_the_other_branch() {
+    type Rem = Choice<(Then<Par<((Repeat<Terminate>,), (Send<toy::Peer, u8>,))>, toy::Idle>,)>;
+    type AfterSend = Choice<(Then<Par<((Repeat<Terminate>,),)>, toy::Idle>,)>;
+    assert_after::<Rem, Send<toy::Peer, u8>, AfterSend, _>();
+    fn assert_still_terminates<R: Select<Terminate, I>, I>() {}
+    assert_still_terminates::<AfterSend, _>();
+    fn assert_finish<R: CanFinish<toy::Idle, Here>>() {}
+    assert_finish::<AfterSend>();
 }
 
 #[test]
@@ -425,5 +436,115 @@ mod occupancy {
         assert!(idle.in_switch());
         assert!(!idle.is_remote());
         assert!(!idle.is_terminal());
+    }
+}
+
+mod selectable {
+
+    use super::*;
+    use crate::{BoxFuture, ExternalEffectAPI, Resources, SendData, typestate::prelude::*};
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct SomeEffect;
+
+    impl ExternalEffectAPI for SomeEffect {
+        type Response = ();
+
+        fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+            self.wrap_sync(())
+        }
+    }
+
+    struct Lead;
+    struct Tick;
+    struct Go;
+    struct Kick;
+    struct Stop;
+    struct RepeatStop;
+
+    make_states!(Live { Idle; Done });
+    const _: Option<Live> = None;
+
+    on_receive!(Idle, Tick => Clock => Done);
+    on_receive!(Idle, Go => External<SomeEffect> => Done);
+    on_receive!(Idle, Kick => Detach<SomeEffect> => Done);
+    on_receive!(Idle, Lead => Schedule<Lead> => Done);
+    on_receive!(Idle, Stop => CancelSchedule => Done);
+    on_receive!(Idle, RepeatStop => Repeat<CancelSchedule> => Done);
+
+    #[test]
+    fn describe_clock_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Tick>(),
+            format!("Idle + Receive<{}> → Clock => Done", std::any::type_name::<Tick>())
+        );
+    }
+
+    #[test]
+    fn describe_external_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Go>(),
+            format!(
+                "Idle + Receive<{}> → External<{}> => Done",
+                std::any::type_name::<Go>(),
+                std::any::type_name::<SomeEffect>()
+            )
+        );
+    }
+
+    #[test]
+    fn describe_detach_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Kick>(),
+            format!(
+                "Idle + Receive<{}> → Detach<{}> => Done",
+                std::any::type_name::<Kick>(),
+                std::any::type_name::<SomeEffect>()
+            )
+        );
+    }
+
+    #[test]
+    fn describe_schedule_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Lead>(),
+            format!(
+                "Idle + Receive<{}> → Schedule<{}> => Done",
+                std::any::type_name::<Lead>(),
+                std::any::type_name::<Lead>()
+            )
+        );
+    }
+
+    #[test]
+    fn describe_cancel_schedule_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Stop>(),
+            format!("Idle + Receive<{}> → CancelSchedule => Done", std::any::type_name::<Stop>())
+        );
+    }
+
+    #[test]
+    fn describe_repeat_cancel_schedule_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, RepeatStop>(),
+            format!("Idle + Receive<{}> → Repeat<CancelSchedule> => Done", std::any::type_name::<RepeatStop>())
+        );
+    }
+
+    #[test]
+    fn clock_is_required_before_finish() {
+        type Rem = Choice<(Then<Par<((Clock,),)>, Idle>,)>;
+        fn assert_selects<R: Select<Clock, I>, I>() {}
+        assert_selects::<Rem, _>();
+        assert_eq!(describe::<Rem>(), "Clock => Idle");
+    }
+
+    #[test]
+    fn cancel_schedule_is_required_before_finish() {
+        type Rem = Choice<(Then<Par<((CancelSchedule,),)>, Idle>,)>;
+        fn assert_selects<R: Select<CancelSchedule, I>, I>() {}
+        assert_selects::<Rem, _>();
+        assert_eq!(describe::<Rem>(), "CancelSchedule => Idle");
     }
 }

@@ -15,8 +15,9 @@
 //! Phantom tags that appear in a remainder list. No runtime data; [`Effect::fmt`]
 //! is for diagnostics. [`Repeat<E>`] is Kleene star (use does not consume it).
 //! [`SendAny<R>`] is “any mailbox payload to role `R`.” [`Call<R, T>`] is a
-//! request/response to role `R`. Other variants (`Clock`, …) are reserved and
-//! not selected by [`Session`](super::Session) yet.
+//! request/response to role `R`. [`Clock`], [`External`], [`Detach`],
+//! [`Schedule`], and [`CancelSchedule`] are selected by [`Session`](super::Session)
+//! the same way as [`Wait`] / [`SetTimeout`].
 
 use std::{any::type_name, fmt, marker::PhantomData};
 
@@ -78,6 +79,7 @@ impl<R, T> Effect for Call<R, T> {
     }
 }
 
+/// Read the current time (see [`Session::clock`](super::Session::clock)).
 pub struct Clock;
 impl Effect for Clock {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -92,6 +94,7 @@ impl Effect for Wait {
     }
 }
 
+/// Schedule a mailbox message at a future instant (see [`Session::schedule_at`](super::Session::schedule_at)).
 pub struct Schedule<T>(PhantomData<T>);
 impl<T> Effect for Schedule<T> {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -99,6 +102,7 @@ impl<T> Effect for Schedule<T> {
     }
 }
 
+/// Cancel a previously scheduled message (see [`Session::cancel_schedule`](super::Session::cancel_schedule)).
 pub struct CancelSchedule;
 impl Effect for CancelSchedule {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -122,10 +126,19 @@ impl Effect for ClearTimeout {
     }
 }
 
+/// Run an external effect and wait for its response (see [`Session::external`](super::Session::external)).
 pub struct External<E: ExternalEffect>(PhantomData<E>);
 impl<E: ExternalEffect> Effect for External<E> {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "External<{}>", type_name::<E>())
+    }
+}
+
+/// Start an external effect without occupying the airlock (see [`Session::detach`](super::Session::detach)).
+pub struct Detach<E: ExternalEffect>(PhantomData<E>);
+impl<E: ExternalEffect> Effect for Detach<E> {
+    fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Detach<{}>", type_name::<E>())
     }
 }
 

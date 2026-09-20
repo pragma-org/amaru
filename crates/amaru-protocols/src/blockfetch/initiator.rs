@@ -262,13 +262,13 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             Ok(PipelineIdleIn::Fetch(fetch)) => {
                 let range = RequestRange { from: fetch.from, through: fetch.through };
                 inflight = Some(Inflight { id: fetch.id, cr: fetch.cr.clone(), remaining: MAX_FETCHED_BLOCKS });
-                let (_, s) = idle.receive(fetch, eff).call(&mux, range).await;
+                let (_, s) = idle.receive(&fetch, eff).call(&mux, range).await;
                 s.finish().into()
             }
             Ok(PipelineIdleIn::Close(close)) => {
                 inflight = None;
                 pending_close = false;
-                let (_, s) = idle.receive(close, eff).call(&mux, ClientDone).await;
+                let (_, s) = idle.receive(&close, eff).call(&mux, ClientDone).await;
                 s.finish().into()
             }
             // TODO: handle timeouts generically to make mistakes impossible
@@ -277,7 +277,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
         },
         Proto::Busy(busy) => match busy.convert_input(mail) {
             Ok(ClientBusyIn::Pull(pull)) => busy
-                .receive(pull, eff)
+                .receive(&pull, eff)
                 .send(&mux, WantNext)
                 .await
                 .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
@@ -285,7 +285,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                 .finish()
                 .into(),
             Ok(ClientBusyIn::StartBatch(start)) => busy
-                .receive(start, eff)
+                .receive(&start, eff)
                 .send(&mux, WantNext)
                 .await
                 .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
@@ -297,7 +297,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                     return invalid(peer, busy.name(), no_blocks, eff).await;
                 };
                 let collector = CollectorOut::new(flight.cr);
-                busy.receive(no_blocks, eff)
+                busy.receive(&no_blocks, eff)
                     .clear_timeout()
                     .await
                     .send_any(&collector, Blocks::NoBlocks(flight.id, peer))
@@ -332,7 +332,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                 let collector = CollectorOut::new(flight.cr.clone());
                 let id = flight.id;
                 streaming
-                    .receive(block, eff)
+                    .receive(&block, eff)
                     .send(&mux, WantNext)
                     .await
                     .send_any(&collector, Blocks::Block(id, peer, network_block))
@@ -348,7 +348,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                 };
                 let collector = CollectorOut::new(flight.cr);
                 streaming
-                    .receive(done, eff)
+                    .receive(&done, eff)
                     .clear_timeout()
                     .await
                     .send_any(&collector, Blocks::Done(flight.id))
@@ -379,15 +379,15 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
         (true, _, Proto::Idle(idle)) => {
             pending_close = false;
             inflight = None;
-            let (_, s) = idle.receive(Close, follow_eff).call(&mux, ClientDone).await;
+            let (_, s) = idle.receive(&Close, follow_eff).call(&mux, ClientDone).await;
             s.finish().into()
         }
         (false, Some(fetch), Proto::Idle(idle)) => {
             let range = RequestRange { from: fetch.from, through: fetch.through };
             inflight = Some(Inflight { id: fetch.id, cr: fetch.cr.clone(), remaining: MAX_FETCHED_BLOCKS });
-            let (_, s) = idle.receive(fetch, follow_eff).call(&mux, range).await;
+            let (_, s) = idle.receive(&fetch, follow_eff).call(&mux, range).await;
             s.finish()
-                .receive(Pull, pull_eff)
+                .receive(&Pull, pull_eff)
                 .send(&mux, WantNext)
                 .await
                 .set_timeout(BLOCKFETCH_AGENCY_TIMEOUT, Instance::timeout_mail())
