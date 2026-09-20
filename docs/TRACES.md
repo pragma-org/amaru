@@ -1370,6 +1370,44 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::forge`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `forged` | `TRACE` | public | A block was forged and stored, and its tip sent to chain selection. | slot, header_hash, parent |  |
+| `missed_slot` | `TRACE` | public | A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead}. | slot, reason |  |
+| `schedule` | `TRACE` | public | Leader schedule for an epoch, with how many of k blocks since freeze have been adopted. | epoch, n_slots, freeze_depth, settled |  |
+
+<details><summary>span: `forged`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `integer` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `missed_slot`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `schedule`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+| `n_slots` | `integer` | ✓ |
+| `freeze_depth` | `integer` | ✓ |
+| `settled` | `boolean` | ✓ |
+
+</details>
+
 ## target: `amaru::consensus::perf::fork`
 
 | name | level | public | description | required fields | optional fields |

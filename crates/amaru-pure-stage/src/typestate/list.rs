@@ -35,9 +35,12 @@
 //! **Limits:** sequences, parallel branches, and choice alternatives are tuples
 //! of length at most 10. Sequences are ordered. Two choice alternatives with
 //! the same head are ambiguous (see [`Select`] `There` on [`Choice`]). `finish`
-//! only strips `Repeat` at a branch prefix. [`SetTimeout`](super::SetTimeout) /
-//! [`ClearTimeout`](super::ClearTimeout) are required steps and are not
-//! stripped.
+//! only strips `Repeat` at a branch prefix. A `Repeat` that is a whole parallel
+//! branch stays while another branch is selected. [`SetTimeout`](super::SetTimeout) /
+//! [`ClearTimeout`](super::ClearTimeout) / [`Clock`](super::Clock) /
+//! [`External`](super::External) / [`Detach`](super::Detach) /
+//! [`Schedule`](super::Schedule) / [`CancelSchedule`](super::CancelSchedule) are
+//! required steps and are not stripped.
 
 use std::{fmt, marker::PhantomData};
 
@@ -168,6 +171,7 @@ impl NotRepeat for super::effect::CancelSchedule {}
 impl NotRepeat for super::effect::SetTimeout {}
 impl NotRepeat for super::effect::ClearTimeout {}
 impl<E: crate::ExternalEffect> NotRepeat for super::effect::External<E> {}
+impl<E: crate::ExternalEffect> NotRepeat for super::effect::Detach<E> {}
 impl NotRepeat for super::effect::AddStage {}
 impl<T> NotRepeat for super::effect::Receive<T> {}
 
@@ -240,10 +244,22 @@ impl<E, Body, SeqTail, RestPar, I> TakeHead<E, Skip<I>, SeqTail, RestPar> for Re
 where
     Body: RepeatBody,
     If<{ types_eq::<Body::Head, E>() }>: IsFalse,
-    SeqTail: ConsIfPresent<RestPar>,
+    SeqTail: Uncons + ConsIfPresent<RestPar>,
     SeqTail::Out: SelectTup<E, I>,
 {
     type Rest = <SeqTail::Out as SelectTup<E, I>>::Rest;
+}
+
+/// A `Repeat` that is the whole parallel sequence stays while another sequence is used.
+#[diagnostic::do_not_recommend]
+impl<E, Body, RestPar, I> TakeHead<E, There<I>, (), RestPar> for Repeat<Body>
+where
+    Body: RepeatBody,
+    If<{ types_eq::<Body::Head, E>() }>: IsFalse,
+    RestPar: SelectTup<E, I>,
+    <RestPar as SelectTup<E, I>>::Rest: Prefix<(Repeat<Body>,)>,
+{
+    type Rest = <<RestPar as SelectTup<E, I>>::Rest as Prefix<(Repeat<Body>,)>>::Out;
 }
 
 #[diagnostic::do_not_recommend]
@@ -406,6 +422,9 @@ impl<Tail: Prefix<super::effect::ClearTimeout>> StripHead<Tail> for super::effec
 impl<E: crate::ExternalEffect, Tail: Prefix<super::effect::External<E>>> StripHead<Tail>
     for super::effect::External<E>
 {
+    type Out = Tail::Out;
+}
+impl<E: crate::ExternalEffect, Tail: Prefix<super::effect::Detach<E>>> StripHead<Tail> for super::effect::Detach<E> {
     type Out = Tail::Out;
 }
 impl<Tail: Prefix<super::effect::AddStage>> StripHead<Tail> for super::effect::AddStage {

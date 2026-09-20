@@ -40,9 +40,14 @@
 //! Sequences are ordered. When several parallel heads match, the **leftmost**
 //! wins. Two choice alternatives with the same head are ambiguous (payload
 //! inference would otherwise stick to the first alternative). `finish` strips
-//! `Repeat` only at each branch prefix. [`SetTimeout`] / [`ClearTimeout`] are
-//! required remainders for agency timers (`Effects::set_timeout`). Existing
-//! stages keep using [`Effects`](crate::Effects).
+//! `Repeat` only at each branch prefix. A `Repeat` that is a whole parallel
+//! branch (`Repeat<Terminate> | External<…> => S`) stays selectable while the
+//! other branch runs; a `Repeat` sequenced before a suffix is discarded when
+//! that suffix is selected (zero iterations). [`Wait`] / [`SetTimeout`] /
+//! [`ClearTimeout`] / [`Clock`] / [`External`] / [`Detach`] / [`Schedule`] /
+//! [`CancelSchedule`] are selectable remainders (`Effects::wait`,
+//! `set_timeout`, `clock`, `external`, `detach`, `schedule_at`,
+//! `cancel_schedule`). Existing stages keep using [`Effects`](crate::Effects).
 
 mod describe;
 mod effect;
@@ -55,8 +60,8 @@ mod session;
 
 pub use describe::{ConstDesc, Remainder, remainder_ctfe_panic};
 pub use effect::{
-    AddStage, Call, CancelSchedule, ClearTimeout, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny,
-    SetTimeout, Terminate, Wait,
+    AddStage, Call, CancelSchedule, ClearTimeout, Clock, Detach, Effect, External, Receive, Repeat, Schedule, Send,
+    SendAny, SetTimeout, Terminate, Wait,
 };
 pub use list::{
     CanFinish, Choice, Clean, DescribeAst, DiscardRepeat, EffectAst, FinishIn, FmtPar, Here, InputName, Par,
@@ -72,9 +77,9 @@ pub use session::{
 
 pub mod prelude {
     pub use super::{
-        AddStage, Call, CancelSchedule, Choice, ClearTimeout, Clock, External, ExtractInput, FromMailbox, IntoRoleCall,
-        IntoRoleMail, Occupancy, OccupancyOf, OnReceive, Par, Receive, Remainder, Repeat, Role, RoleTag, Schedule,
-        Send, SendAny, Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
+        AddStage, Call, CancelSchedule, Choice, ClearTimeout, Clock, Detach, External, ExtractInput, FromMailbox,
+        IntoRoleCall, IntoRoleMail, Occupancy, OccupancyOf, OnReceive, Par, Receive, Remainder, Repeat, Role, RoleTag,
+        Schedule, Send, SendAny, Session, SessionOps, SetTimeout, State, Terminate, To, Wait, initial_state,
     };
     pub use crate::{
         define_mailbox, define_messages, define_role, define_role_tag, impl_label, make_states, on_receive,

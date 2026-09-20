@@ -205,7 +205,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
     let Instance { proto, mux, peer } = inst;
     let proto = match proto {
         Proto::Idle(idle) => match idle.convert_input(mail) {
-            Ok(ServerIdleIn::Pull(pull)) => idle.receive(pull, eff).send(&mux, WantNext).await.finish().into(),
+            Ok(ServerIdleIn::Pull(pull)) => idle.receive(&pull, eff).send(&mux, WantNext).await.finish().into(),
             Ok(ServerIdleIn::RequestRange(range)) => {
                 let store = Store::new(eff.clone());
                 match PointsRange::request_range(&store, range.from, range.through).await {
@@ -213,7 +213,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                         let metrics_eff = eff.clone();
                         let for_err = eff.clone();
                         let metrics = Metrics::new(&metrics_eff);
-                        let (_, mut session) = idle.receive(range, eff).call(&mux, StartBatch).await;
+                        let (_, mut session) = idle.receive(&range, eff).call(&mux, StartBatch).await;
                         loop {
                             let (block, rest) = match points.next_block(&store).await {
                                 Ok(pair) => pair,
@@ -230,7 +230,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                         session.send(&mux, WantNext).await.finish().into()
                     }
                     Ok(None) => {
-                        let (_, session) = idle.receive(range, eff).call(&mux, NoBlocks).await;
+                        let (_, session) = idle.receive(&range, eff).call(&mux, NoBlocks).await;
                         session.send(&mux, WantNext).await.finish().into()
                     }
                     Err(err) => return invalid(peer, idle.name(), err, eff).await,

@@ -232,7 +232,7 @@ macro_rules! typestate_occupancy_map {
 macro_rules! typestate_state_structs {
     ($vis:vis $($init:ident),+ ; $($other:ident),+) => {
         $(
-            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $init($crate::typestate::Marker);
             impl $crate::typestate::State for $init {
                 const NAME: &'static str = stringify!($init);
@@ -243,7 +243,7 @@ macro_rules! typestate_state_structs {
             }
         )*
         $(
-            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $other($crate::typestate::Marker);
             impl $crate::typestate::State for $other {
                 const NAME: &'static str = stringify!($other);
@@ -256,7 +256,7 @@ macro_rules! typestate_state_structs {
     };
     ($vis:vis $($init:ident),+) => {
         $(
-            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $init($crate::typestate::Marker);
             impl $crate::typestate::State for $init {
                 const NAME: &'static str = stringify!($init);
@@ -273,7 +273,7 @@ macro_rules! typestate_state_structs {
 #[doc(hidden)]
 macro_rules! typestate_live_enum {
     ($vis:vis $name:ident { $($state:ident),+ $(,)? }) => {
-        #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         $vis enum $name {
             $($state($state),)+
         }

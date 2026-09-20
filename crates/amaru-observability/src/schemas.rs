@@ -584,6 +584,27 @@ define_schemas! {
                     required suppressed: u32
                 }
             }
+            forge {
+                /// A led slot was not forged.
+                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead}.
+                public MISSED_SLOT {
+                    required slot: amaru_kernel::Slot
+                    required reason: String
+                }
+                /// Leader schedule for an epoch, with how many of k blocks since freeze have been adopted.
+                public SCHEDULE {
+                    required epoch: amaru_kernel::Epoch
+                    required n_slots: usize
+                    required freeze_depth: u64
+                    required settled: bool
+                }
+                /// A block was forged and stored, and its tip sent to chain selection.
+                public FORGED {
+                    required slot: amaru_kernel::Slot
+                    required header_hash: amaru_kernel::HeaderHash
+                    required parent: amaru_kernel::HeaderHash
+                }
+            }
             peer {
                 tags: cpu
                 /// A peer behaves like an adversary, ban it

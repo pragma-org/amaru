@@ -4078,6 +4078,99 @@
       "description": "The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike `INTERSECT_NOT_FOUND` this points at local state, not at the peer.",
       "public": true
     },
+    "amaru::consensus::forge::FORGED": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "parent": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "slot",
+        "header_hash",
+        "parent"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forged",
+      "level": "TRACE",
+      "target": "amaru::consensus::forge",
+      "description": "A block was forged and stored, and its tip sent to chain selection.",
+      "public": true
+    },
+    "amaru::consensus::forge::MISSED_SLOT": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "missed_slot",
+      "level": "TRACE",
+      "target": "amaru::consensus::forge",
+      "description": "A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead}.",
+      "public": true
+    },
+    "amaru::consensus::forge::SCHEDULE": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "n_slots": {
+          "type": "integer"
+        },
+        "freeze_depth": {
+          "type": "integer"
+        },
+        "settled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "epoch",
+        "n_slots",
+        "freeze_depth",
+        "settled"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "schedule",
+      "level": "TRACE",
+      "target": "amaru::consensus::forge",
+      "description": "Leader schedule for an epoch, with how many of k blocks since freeze have been adopted.",
+      "public": true
+    },
     "amaru::consensus::perf::fork::SWITCH": {
       "type": "object",
       "properties": {
