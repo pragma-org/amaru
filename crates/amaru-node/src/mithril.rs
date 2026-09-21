@@ -610,13 +610,13 @@ where
     Download: FnOnce() -> F,
     F: Future<Output = Result<MithrilDownloadReport, MithrilDownloadError>>,
 {
-    observer.on_progress(MithrilProgress::StageChanged { stage: MithrilStage::RecoveringStores });
-    recover_stores(chain_store, resume_point)?;
     if let Some(requested) = requested
         && requested != NetworkPoint::from(resume_point)
     {
         return Err(MithrilSyncError::ResumePointMismatch { requested, stored: NetworkPoint::from(resume_point) });
     }
+    observer.on_progress(MithrilProgress::StageChanged { stage: MithrilStage::RecoveringStores });
+    recover_stores(chain_store, resume_point)?;
     if cancellation.is_cancelled() {
         return Err(MithrilSyncError::Cancelled);
     }
