@@ -28,6 +28,7 @@ use super::{
 use crate::protocol::{Pull, ToMux, check_want_next};
 
 pub(crate) fn session_spec() -> SessionSpec {
+    // `Message` is the protocol's one wire enum. Every edge label must be `Into<Message>`.
     session_spec! {
         Message;
         [*] --> Idle
@@ -92,5 +93,5 @@ fn protocol_conformance() {
     let spec = session_spec();
     let h_i = assert_projects(&initiator::Proto::type_graph(), &blockfetch_initiator(), &spec);
     let h_r = assert_projects(&responder::Proto::type_graph(), &blockfetch_responder(), &spec);
-    h_r.dual().assert_bisimilar(&h_i);
+    h_r.dual().assert_structurally_eq(&h_i);
 }

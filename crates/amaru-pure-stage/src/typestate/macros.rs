@@ -283,7 +283,7 @@ macro_rules! typestate_live_enum {
     };
 }
 
-/// [`MessageLabel`] and `LABEL` for a type whose `stringify!` is a graph name.
+/// [`MessageLabel`](crate::typestate::MessageLabel) and `LABEL` for a type whose `stringify!` is a graph name.
 ///
 /// Used by [`define_messages`](crate::define_messages) and by local/plumbing
 /// inputs (`Pull`, `Fetch`, …) that are not message payloads.
@@ -297,7 +297,7 @@ macro_rules! impl_label {
         }
 
         impl $name {
-            /// [`MessageLabel`] without constructing a value.
+            /// [`MessageLabel`]($crate::typestate::MessageLabel) without constructing a value.
             #[allow(dead_code)]
             pub const LABEL: &'static dyn $crate::typestate::MessageLabel = {
                 struct __Label;

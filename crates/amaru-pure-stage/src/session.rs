@@ -114,7 +114,7 @@ impl Display for Label {
 
 /// Oriented exclusive-agency machine. Timeouts live on [`SessionSpec`], not here.
 /// Vertex identities are arbitrary; comparison is structural (labels + agency).
-/// [`names`](Self::names) is diagnostic only (SessionSpec / typestate constructors).
+/// State names are diagnostic only.
 #[derive(Debug, Clone)]
 pub struct Cfsm {
     pub states: BTreeSet<Vertex>,
@@ -139,23 +139,19 @@ impl PartialEq for Cfsm {
 impl Eq for Cfsm {}
 
 impl Cfsm {
-    /// Panic unless the reachable fragments are isomorphic (edge labels + agency).
+    /// Panic unless the reachable fragments are isomorphic.
+    ///
+    /// Edge labels, agency, and terminal-ness must match. State names are not
+    /// compared. This is not language inclusion: an extra edge on either side
+    /// fails, and two machines that differ only by a redundant state fail too.
     #[track_caller]
-    pub fn assert_refines(&self, spec: &Cfsm) {
-        if let Err(reason) = self.structural_eq(spec) {
-            panic!(
-                "assert_refines mismatch: {reason}\nprojected:\n{}\n\nspec:\n{}",
-                self.fmt_table(),
-                spec.fmt_table()
-            );
-        }
-    }
-
-    /// Same as [`assert_refines`](Self::assert_refines): names are not compared.
-    #[track_caller]
-    pub fn assert_bisimilar(&self, other: &Cfsm) {
+    pub fn assert_structurally_eq(&self, other: &Cfsm) {
         if let Err(reason) = self.structural_eq(other) {
-            panic!("assert_bisimilar mismatch: {reason}\nleft:\n{}\n\nright:\n{}", self.fmt_table(), other.fmt_table());
+            panic!(
+                "assert_structurally_eq mismatch: {reason}\nleft:\n{}\n\nright:\n{}",
+                self.fmt_table(),
+                other.fmt_table()
+            );
         }
     }
 
@@ -218,7 +214,7 @@ impl Cfsm {
     /// `dual(project(I))` equals `project(R)` for exclusive-agency specs without
     /// [`SessionSpec::sim_open`]. Handshake-shaped specs omit the `sim_open` edge
     /// on the agency holder, so the two projections are not duals; do not
-    /// [`assert_bisimilar`](Self::assert_bisimilar) them.
+    /// [`assert_structurally_eq`](Self::assert_structurally_eq) them.
     #[must_use]
     pub fn dual(&self) -> Cfsm {
         let transitions = self
@@ -391,8 +387,8 @@ impl SessionSpec {
         }
     }
 
-    /// Panic on mismatch. Compares the undirected table after `map`.
-    /// Does **not** compare timeouts or start state (`initial`).
+    /// Panic on mismatch. Equality of the undirected table after `map`, not
+    /// language inclusion. Does **not** compare timeouts or start state (`initial`).
     #[track_caller]
     pub fn assert_refines(&self, spec: &SessionSpec, map: impl Fn(&StateName) -> StateName) {
         let simplified = collapse_undirected(&self.transitions, map);
@@ -713,13 +709,13 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
 
 /// Project `graph` with `cfg` and check it against `spec`.
 ///
-/// Runs timeout well-formedness, projection, structural refinement of
+/// Runs timeout well-formedness, projection, structural equality with
 /// `spec.project(cfg.role)`, and wire-input coverage.
 #[track_caller]
 pub fn assert_projects(graph: &TypeGraph, cfg: &ProjectionConfig, spec: &SessionSpec) -> Cfsm {
     check_timeouts(graph, cfg, spec).unwrap_or_else(|e| panic!("{e}"));
     let projected = project(graph, cfg).unwrap_or_else(|e| panic!("{e}"));
-    projected.assert_refines(&spec.project(cfg.role));
+    projected.assert_structurally_eq(&spec.project(cfg.role));
     assert_wire_inputs_cover_receives(graph, cfg, spec);
     projected
 }
@@ -1452,7 +1448,7 @@ mod tests {
     fn initiator_graph_projects_to_table_37() {
         let spec = table_37().project(Agency::Initiator);
         let got = project(&initiator_graph(), &cfg_initiator()).unwrap();
-        got.assert_refines(&spec);
+        got.assert_structurally_eq(&spec);
         let idle = got.initial;
         assert_eq!(got.agency.get(&idle), Some(&Agency::Initiator));
         let busy = got.dest(idle, "RequestRange");
@@ -1478,8 +1474,7 @@ mod tests {
         assert_eq!(got.dest(start, "Block"), start);
         assert_eq!(got.dest(start, "BatchDone"), idle);
         assert!(got.terminal.contains(&got.dest(idle, "ClientDone")));
-        got.assert_refines(&spec);
-        got.assert_bisimilar(&spec);
+        got.assert_structurally_eq(&spec);
     }
 
     #[test]
@@ -1550,7 +1545,7 @@ Done agency=None terminal=true
     fn assert_refines_ignores_timeouts() {
         let mut timed = table_37();
         timed.set_timeout("Idle", Duration::from_secs(1));
-        timed.project(Agency::Initiator).assert_refines(&table_37().project(Agency::Initiator));
+        timed.project(Agency::Initiator).assert_structurally_eq(&table_37().project(Agency::Initiator));
         timed.assert_refines(&table_37(), |s| *s);
     }
 
