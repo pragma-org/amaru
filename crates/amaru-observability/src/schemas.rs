@@ -591,6 +591,13 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required reason: String
                 }
+                /// Forging the header or storing it failed. The node shuts down.
+                /// Step ∈ {sign_header, validate_header, store_header, store_block}.
+                public FORGE_FAILED {
+                    required slot: amaru_kernel::Slot
+                    required step: String
+                    required error: String
+                }
                 /// Leader schedule for an epoch, with how many of k blocks since freeze have been adopted.
                 public SCHEDULE {
                     required epoch: amaru_kernel::Epoch

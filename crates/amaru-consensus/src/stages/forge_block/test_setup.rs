@@ -12,11 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use amaru_kernel::{ConsensusParameters, NULL_HASH28, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
+use amaru_kernel::{ConsensusParameters, NULL_HASH28, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Slot};
+use amaru_ouroboros_traits::in_memory_chain_store::InMemoryChainStore;
+use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{
-    DeserializerGuards, StageGraph, StageRef, simulation::SimulationRunning, stage_ref::StageStateRef,
+    DeserializerGuards, StageGraph, StageRef,
+    simulation::{SimulationRunning, running::OverrideResult},
+    stage_ref::StageStateRef,
 };
 
 use super::{ForgeBlock, ForgeBlockMsg, ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect, stage};
@@ -33,6 +37,7 @@ pub const STAGE: &str = "fb-1";
 pub struct TestPrep {
     pub state: ForgeBlock,
     pub rt: tokio::runtime::Runtime,
+    pub store: Arc<InMemoryChainStore>,
 }
 
 pub fn test_prep() -> TestPrep {
@@ -47,6 +52,7 @@ pub fn test_prep() -> TestPrep {
             0,
         ),
         rt: crate::stages::test_utils::test_runtime(),
+        store: Arc::new(InMemoryChainStore::new()),
     }
 }
 
@@ -63,6 +69,9 @@ pub fn register_guards() -> DeserializerGuards {
             .boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::store_effects::StoreBlockEffect>().boxed(),
     ]
+    .into_iter()
+    .chain(amaru_protocols::store_effects::register_deserializers())
+    .collect()
 }
 
 pub fn setup(
@@ -90,8 +99,14 @@ pub fn setup_msgs(
             *wired_slot.lock().expect("wired slot") = Some(wired);
             network
         },
-        |_resources| {},
-        |_running| {},
+        |resources| {
+            resources.put::<ResourceHeaderStore>(prep.store.clone());
+        },
+        |running| {
+            running.override_external_effect::<LeaderScheduleEffect>(usize::MAX, |_| {
+                OverrideResult::handled(Vec::<Slot>::new())
+            });
+        },
     );
     let wired = wired_slot.lock().expect("wired slot").take().expect("stage was wired");
     (running, guards, logs, wired)

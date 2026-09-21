@@ -23,22 +23,13 @@ mod protocol;
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{BlockHeight, ConsensusParameters, Epoch, HeaderHash, Point, PoolId, Slot};
+use amaru_kernel::{ConsensusParameters, Epoch, Point, PoolId, Slot};
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
+pub use calc::FreezeWatch;
 pub use effects::{ForgeEffectError, ForgeHeaderEffect, ForgedBody, LeaderScheduleEffect, TakeForForgeEffect};
 pub use protocol::{AdoptedTip, ForgeBlockMsg, LeadSlot, LeaderSchedule, Live, SelectChainOut, stage};
 
 use crate::stages::select_chain::SelectChainMsg;
-
-/// Watch on the freeze header of the current epoch, used to settle or recompute
-/// the next-epoch schedule.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct FreezeWatch {
-    pub epoch: Epoch,
-    pub slot: Slot,
-    pub hash: HeaderHash,
-    pub height: BlockHeight,
-}
 
 /// Block forging stage state.
 ///
@@ -55,8 +46,13 @@ pub struct ForgeBlock {
     pub adopted_parent: Point,
     pub led_slots: Vec<Slot>,
     pub next_lead: Option<ScheduleId>,
+    /// Identifies the latest scheduling decision. A `LeadSlot` queued under an older
+    /// value is ignored, including one whose timer `cancel_schedule` could not stop.
+    pub schedule_generation: u64,
     pub freeze: Option<FreezeWatch>,
     pub pending_epochs: BTreeSet<Epoch>,
+    /// Next epoch whose schedule we computed from a freeze, if any.
+    pub predicted_epoch: Option<Epoch>,
 }
 
 impl ForgeBlock {
@@ -78,8 +74,10 @@ impl ForgeBlock {
             adopted_parent: Point::Origin,
             led_slots: Vec::new(),
             next_lead: None,
+            schedule_generation: 0,
             freeze: None,
             pending_epochs: BTreeSet::new(),
+            predicted_epoch: None,
         }
     }
 }

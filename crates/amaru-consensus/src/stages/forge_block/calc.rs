@@ -17,7 +17,7 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeight, Slot};
+use amaru_kernel::{BlockHeight, Epoch, Point, Slot};
 use amaru_pure_stage::Instant;
 
 /// How far before slot onset `LeadSlot` is armed so forging can finish in time.
@@ -60,11 +60,29 @@ impl MissedSlotReason {
     }
 }
 
-/// Whether a rollback of the adopted tip can change the next-epoch candidate nonce.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum CandidateRollback {
-    None,
-    PastWindow,
+/// Watch on the first header of a freeze window. The next epoch's schedule is
+/// computed from this header's candidate nonce and is unsettled until `k` deep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FreezeWatch {
+    pub epoch: Epoch,
+    pub point: Point,
+}
+
+impl FreezeWatch {
+    /// Epoch whose leader schedule was computed from this freeze's candidate nonce.
+    pub fn scheduled_epoch(self) -> Epoch {
+        self.epoch + 1
+    }
+}
+
+/// What to do with the freeze watch and next-epoch schedule after a new tip.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct FreezeDecision {
+    pub freeze: Option<FreezeWatch>,
+    /// Leader schedule to discard: the old watch's `scheduled_epoch`, if any.
+    pub drop_epoch: Option<Epoch>,
+    /// Leader schedule to compute: the tip's next epoch, if we just entered a freeze.
+    pub schedule_epoch: Option<Epoch>,
 }
 
 /// Pick the parent of a block for `lead_slot` from the adopted tip's slot.
@@ -110,16 +128,52 @@ pub(super) fn schedule_settled(blocks_since_freeze: u64, k: u64) -> bool {
     blocks_since_freeze >= k
 }
 
-/// A rollback reaches past the freeze when the new tip predates the freeze slot
-/// or the freeze header is no longer an ancestor of the adopted tip.
+/// Decide freeze-watch and next-epoch scheduling from the adopted tip.
 ///
-/// NOTE: even though the new tip’s BlockHeight will always be at least the previous one’s,
-/// the slot might decrease (which means that the chain got denser)
-pub(super) fn candidate_rollback(new_tip_slot: Slot, freeze_slot: Slot, freeze_is_ancestor: bool) -> CandidateRollback {
-    if new_tip_slot < freeze_slot || !freeze_is_ancestor {
-        CandidateRollback::PastWindow
-    } else {
-        CandidateRollback::None
+/// - Enter the window of epoch `N` → watch this header, schedule `N+1`.
+/// - Stay in that window (or past it but not `k` deep) → keep the watch.
+/// - `k` blocks after the watch, and no longer in a freeze window → clear it so
+///   a later epoch can enter.
+/// - A later epoch's freeze window while a watch from an earlier epoch is still
+///   set → replace the watch and schedule the new next epoch (do not drop the
+///   schedule that just became current).
+/// - Rollback past the watch (it is not an ancestor of the adopted tip) → drop
+///   that watch's next-epoch schedule; re-enter if this tip is in a freeze window.
+///   An adopted tip is never shorter than the previous one (`select_chain::cmp_tip`),
+///   so a switch off the watch is an ancestor check, not a lower block height.
+pub(super) fn decide_freeze(
+    freeze: Option<&FreezeWatch>,
+    tip: FreezeWatch,
+    in_freeze_window: bool,
+    freeze_is_ancestor: bool,
+    k: u64,
+) -> FreezeDecision {
+    let rolled_back = freeze.is_some_and(|_| !freeze_is_ancestor);
+    let drop_epoch = freeze.filter(|_| rolled_back).map(|watch| watch.scheduled_epoch());
+
+    if rolled_back {
+        return if in_freeze_window {
+            FreezeDecision { freeze: Some(tip), drop_epoch, schedule_epoch: Some(tip.scheduled_epoch()) }
+        } else {
+            FreezeDecision { freeze: None, drop_epoch, schedule_epoch: None }
+        };
+    }
+
+    if in_freeze_window {
+        return match freeze {
+            Some(watch) if watch.epoch == tip.epoch => {
+                FreezeDecision { freeze: Some(*watch), drop_epoch: None, schedule_epoch: None }
+            }
+            _ => FreezeDecision { freeze: Some(tip), drop_epoch: None, schedule_epoch: Some(tip.scheduled_epoch()) },
+        };
+    }
+
+    match freeze {
+        Some(watch) if schedule_settled(freeze_depth(watch.point.block_height(), tip.point.block_height()), k) => {
+            FreezeDecision { freeze: None, drop_epoch: None, schedule_epoch: None }
+        }
+        Some(watch) => FreezeDecision { freeze: Some(*watch), drop_epoch: None, schedule_epoch: None },
+        None => FreezeDecision { freeze: None, drop_epoch: None, schedule_epoch: None },
     }
 }
 
@@ -167,7 +221,7 @@ pub(super) fn instant_for_relative(now: Instant, relative: Duration) -> Instant 
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::BlockHeight;
+    use amaru_kernel::{BlockHeight, Epoch, HeaderHash};
 
     use super::*;
 
@@ -225,11 +279,88 @@ mod tests {
         assert!(schedule_settled(2161, 2160));
     }
 
+    fn watch(epoch: u64, slot: u64, height: u64, tag: u8) -> FreezeWatch {
+        FreezeWatch {
+            epoch: Epoch::from(epoch),
+            point: Point::Specific(Slot::from(slot), HeaderHash::from([tag; 32]), BlockHeight::from(height)),
+        }
+    }
+
+    fn enter(tip: FreezeWatch) -> FreezeDecision {
+        FreezeDecision { freeze: Some(tip), drop_epoch: None, schedule_epoch: Some(tip.scheduled_epoch()) }
+    }
+
+    fn hold(watch: FreezeWatch) -> FreezeDecision {
+        FreezeDecision { freeze: Some(watch), drop_epoch: None, schedule_epoch: None }
+    }
+
+    fn clear() -> FreezeDecision {
+        FreezeDecision { freeze: None, drop_epoch: None, schedule_epoch: None }
+    }
+
     #[test]
-    fn rollback_past_window_on_earlier_slot_or_lost_ancestor() {
-        assert_eq!(candidate_rollback(slot(99), slot(100), true), CandidateRollback::PastWindow);
-        assert_eq!(candidate_rollback(slot(150), slot(100), false), CandidateRollback::PastWindow);
-        assert_eq!(candidate_rollback(slot(150), slot(100), true), CandidateRollback::None);
+    fn freeze_enters_on_first_tip_in_the_window() {
+        let tip = watch(5, 80, 10, 1);
+        assert_eq!(decide_freeze(None, tip, true, true, 3), enter(tip));
+    }
+
+    #[test]
+    fn freeze_holds_on_later_tips_in_the_same_window() {
+        let first = watch(5, 80, 10, 1);
+        let later = watch(5, 90, 12, 2);
+        assert_eq!(decide_freeze(Some(&first), later, true, true, 3), hold(first));
+    }
+
+    #[test]
+    fn freeze_holds_across_the_epoch_boundary_until_k_deep() {
+        let first = watch(5, 80, 10, 1);
+        let next_epoch = watch(6, 100, 11, 2);
+        assert_eq!(decide_freeze(Some(&first), next_epoch, false, true, 3), hold(first));
+    }
+
+    #[test]
+    fn freeze_clears_once_k_deep_and_out_of_the_window() {
+        let first = watch(5, 80, 10, 1);
+        let settled = watch(6, 100, 13, 2);
+        assert_eq!(decide_freeze(Some(&first), settled, false, true, 3), clear());
+    }
+
+    #[test]
+    fn freeze_enters_the_next_epoch_window_after_clearing() {
+        let tip = watch(6, 180, 20, 3);
+        assert_eq!(decide_freeze(None, tip, true, true, 3), enter(tip));
+    }
+
+    #[test]
+    fn freeze_replaces_the_watch_when_a_later_epoch_window_opens() {
+        let old = watch(5, 80, 10, 1);
+        let next_window = watch(6, 180, 40, 3);
+        assert_eq!(decide_freeze(Some(&old), next_window, true, true, 3), enter(next_window));
+    }
+
+    #[test]
+    fn freeze_resets_on_a_fork_that_drops_the_watch() {
+        let first = watch(5, 80, 10, 1);
+        let fork = watch(5, 90, 12, 9);
+        assert_eq!(
+            decide_freeze(Some(&first), fork, true, false, 3),
+            FreezeDecision {
+                freeze: Some(fork),
+                drop_epoch: Some(first.scheduled_epoch()),
+                schedule_epoch: Some(fork.scheduled_epoch()),
+            }
+        );
+    }
+
+    #[test]
+    fn freeze_exits_on_a_chain_switch_out_of_the_window() {
+        let first = watch(5, 80, 10, 1);
+        // Denser fork: greater height, earlier slot, freeze header not an ancestor.
+        let switched = watch(5, 50, 12, 8);
+        assert_eq!(
+            decide_freeze(Some(&first), switched, false, false, 3),
+            FreezeDecision { freeze: None, drop_epoch: Some(first.scheduled_epoch()), schedule_epoch: None }
+        );
     }
 
     #[test]
@@ -246,10 +377,7 @@ mod tests {
     #[test]
     fn next_schedulable_slot_skips_past_onsets() {
         let onset = |s: Slot| Some(instant(u64::from(s)));
-        assert_eq!(
-            next_schedulable_slot(&[slot(3), slot(5), slot(8)], instant(5), onset),
-            Some((slot(8), instant(8)))
-        );
+        assert_eq!(next_schedulable_slot(&[slot(3), slot(5), slot(8)], instant(5), onset), Some((slot(8), instant(8))));
         assert_eq!(next_schedulable_slot(&[slot(8)], instant(4), onset), Some((slot(8), instant(8))));
     }
 
