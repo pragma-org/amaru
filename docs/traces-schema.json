@@ -4113,6 +4113,35 @@
       "description": "A block was forged and stored, and its tip sent to chain selection.",
       "public": true
     },
+    "amaru::consensus::forge::FORGE_FAILED": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "step": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "step",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forge_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::forge",
+      "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}.",
+      "public": true
+    },
     "amaru::consensus::forge::MISSED_SLOT": {
       "type": "object",
       "properties": {

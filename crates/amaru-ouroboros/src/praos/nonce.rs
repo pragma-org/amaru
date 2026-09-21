@@ -84,10 +84,9 @@ pub fn randomness_stability_window<H: IsHeader>(
     randomness_stabilization_window: u64,
 ) -> Result<(Epoch, bool), EraHistoryError> {
     let slot = header.slot();
-    let tip = slot;
-    let epoch = era_history.slot_to_epoch(tip, tip)?;
+    let epoch = era_history.slot_to_epoch(slot, slot)?;
 
-    let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch, &tip)?;
+    let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch, &slot)?;
 
     let is_within_stability_window = slot.as_u64() + randomness_stabilization_window < next_epoch_first_slot.as_u64();
 

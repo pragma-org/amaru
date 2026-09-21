@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use amaru_kernel::{ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, Slot};
 use amaru_observability::{error, info, warn};
 use amaru_ouroboros::praos::nonce as praos_nonce;
-use amaru_ouroboros_traits::Nonces;
+use amaru_ouroboros_traits::{FindCommonAncestorResult, Nonces};
 use amaru_protocols::store_effects::{Store, StoreBlockEffect, StoreValidatedHeaderEffect};
 use amaru_pure_stage::{
     Effects, Instant, define_messages, define_role, define_role_tag, make_states, on_receive, typestate::prelude::*,
@@ -26,9 +26,9 @@ use amaru_pure_stage::{
 use super::{
     ForgeBlock, FreezeWatch,
     calc::{
-        CandidateRollback, FORGE_LEAD_OFFSET, ParentChoice, candidate_rollback, choose_parent, drop_past_led_slots,
-        freeze_depth, instant_for_relative, lead_fire_at, missed_slot, next_schedulable_slot, ocert_covers,
-        replace_epoch_slots, schedule_settled, wait_until_onset,
+        FORGE_LEAD_OFFSET, ParentChoice, choose_parent, decide_freeze, drop_past_led_slots, freeze_depth,
+        instant_for_relative, lead_fire_at, missed_slot, next_schedulable_slot, ocert_covers, replace_epoch_slots,
+        schedule_settled, wait_until_onset,
     },
     effects::{ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect},
 };
@@ -43,7 +43,7 @@ define_messages! {
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     pub enum ForgeBlockMsg {
         AdoptedTip { tip: Point, parent: Point },
-        LeadSlot { slot: Slot },
+        LeadSlot { slot: Slot, generation: u64 },
         LeaderSchedule { epoch: Epoch, slots: Vec<Slot> },
     }
 }
@@ -90,10 +90,14 @@ on_receive!(Idle as IdleIn {
 
 macro_rules! arm_next_lead {
     ($session:expr, $state:ident, $now:expr) => {{
+        // Every scheduling decision, including "nothing to arm", invalidates a LeadSlot
+        // that was already queued when its timer was cancelled.
+        $state.schedule_generation = $state.schedule_generation.wrapping_add(1);
         if let Some((slot, when)) =
             next_lead_deadline(&$state.led_slots, $state.consensus_parameters.era_history(), $now)
         {
-            let (id, session) = $session.schedule_at(LeadSlot { slot }, when).await;
+            let generation = $state.schedule_generation;
+            let (id, session) = $session.schedule_at(LeadSlot { slot, generation }, when).await;
             $state.next_lead = Some(id);
             $state.live = session.finish().into();
         } else {
@@ -139,57 +143,68 @@ async fn handle_adopted_tip(
     let Live::Idle(idle) = state.live;
     state.adopted_tip = tip.tip;
     state.adopted_parent = tip.parent;
-    let (now, session) = idle.receive(&tip, eff).clock().await;
+    let (now, session) = idle.receive(&tip, eff.clone()).clock().await;
 
     let mut to_schedule: BTreeSet<Epoch> = BTreeSet::new();
+    let mut tip_epoch = None;
     if state.adopted_tip != Point::Origin
         && let Some(header) = store.load_header(&state.adopted_tip.hash()).await
     {
         let window = state.consensus_parameters.randomness_stabilization_window();
-        if let Ok((epoch, nonce_still_evolving)) =
+        if let Ok((epoch, in_stability_window)) =
             praos_nonce::randomness_stability_window(&header, state.consensus_parameters.era_history(), window)
         {
-            // NOTE: `randomness_stability_window` returns “within the stability window” == `true` at the beginning of the epoch, `false` at the end
-            let frozen = !nonce_still_evolving;
-            if let Some(watch) = state.freeze.as_ref() {
-                let on_chain = store.is_on_best_chain(Point::Specific(watch.slot, watch.hash, watch.height)).await;
-                if candidate_rollback(state.adopted_tip.slot(), watch.slot, on_chain) == CandidateRollback::PastWindow {
-                    state.led_slots.clear();
-                    state.freeze = None;
-                    state.pending_epochs.clear();
-                    if frozen {
-                        to_schedule.insert(epoch + 1);
-                        state.freeze = Some(FreezeWatch {
-                            epoch,
-                            slot: header.slot(),
-                            hash: header.hash(),
-                            height: header.block_height(),
-                        });
+            // the “praos stability window” is the part from the beginning of the epoch until 3k/f slots before the end of the epoch
+            let in_freeze_window = !in_stability_window;
+            tip_epoch = Some(epoch);
+            let tip_watch = FreezeWatch { epoch, point: header.point() };
+            // Parent links of this tip, not the best-chain fragment: adopt_chain may
+            // switch the chain again before this effect runs.
+            let freeze_is_ancestor = match &state.freeze {
+                Some(watch) => match store.find_common_ancestor(header.hash(), watch.point.hash()).await {
+                    Ok(FindCommonAncestorResult::Found(point)) => point.hash() == watch.point.hash(),
+                    Ok(_) => false,
+                    Err(error) => {
+                        error!(
+                            consensus::block::INVARIANT_VIOLATED,
+                            tip = state.adopted_tip,
+                            invariant = error.to_string()
+                        );
+                        return eff.terminate().await;
                     }
-                } else if frozen {
-                    let depth = freeze_depth(watch.height, header.block_height());
-                    info!(
-                        consensus::forge::SCHEDULE,
-                        epoch = watch.epoch + 1,
-                        n_slots = state.led_slots.len(),
-                        freeze_depth = depth,
-                        settled = schedule_settled(depth, state.k)
-                    );
+                },
+                None => true,
+            };
+            let decision =
+                decide_freeze(state.freeze.as_ref(), tip_watch, in_freeze_window, freeze_is_ancestor, state.k);
+            if let Some(drop) = decision.drop_epoch {
+                state.pending_epochs.remove(&drop);
+                if state.predicted_epoch == Some(drop) {
+                    state.predicted_epoch = None;
                 }
-            } else if frozen {
-                to_schedule.insert(epoch + 1);
-                state.freeze = Some(FreezeWatch {
-                    epoch,
-                    slot: header.slot(),
-                    hash: header.hash(),
-                    height: header.block_height(),
-                });
+                if let Ok(bounds) = state.consensus_parameters.era_history().epoch_bounds(drop) {
+                    replace_epoch_slots(&mut state.led_slots, bounds.start, epoch_until(bounds.end), []);
+                }
+            }
+            if state.predicted_epoch == Some(epoch) {
+                state.predicted_epoch = None;
+            }
+            state.freeze = decision.freeze;
+            if let Some(watch) = state.freeze.as_ref() {
+                let depth = freeze_depth(watch.point.block_height(), header.block_height());
+                info!(
+                    consensus::forge::SCHEDULE,
+                    epoch = watch.scheduled_epoch(),
+                    n_slots = state.led_slots.len(),
+                    freeze_depth = depth,
+                    settled = schedule_settled(depth, state.k)
+                );
+            }
+            if let Some(next) = decision.schedule_epoch {
+                to_schedule.insert(next);
             }
             if state.led_slots.is_empty() && state.pending_epochs.is_empty() {
                 to_schedule.insert(epoch);
-                if frozen {
-                    to_schedule.insert(epoch + 1);
-                }
             }
         }
     }
@@ -202,6 +217,9 @@ async fn handle_adopted_tip(
         if let Some(effect) =
             leader_schedule_effect(&state.consensus_parameters, state.adopted_tip, state.pool, &store, epoch).await
         {
+            if tip_epoch.is_some_and(|current| epoch == current + 1) {
+                state.predicted_epoch = Some(epoch);
+            }
             session = session.detach(effect, move |slots| LeaderSchedule { epoch, slots }.into()).await;
         } else {
             state.pending_epochs.remove(&epoch);
@@ -227,7 +245,7 @@ async fn handle_leader_schedule(
         let depth = state
             .freeze
             .as_ref()
-            .map(|watch| freeze_depth(watch.height, state.adopted_tip.block_height()))
+            .map(|watch| freeze_depth(watch.point.block_height(), state.adopted_tip.block_height()))
             .unwrap_or(0);
         info!(
             consensus::forge::SCHEDULE,
@@ -245,6 +263,11 @@ async fn handle_leader_schedule(
 async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<ForgeBlockMsg>) -> ForgeBlock {
     let Live::Idle(idle) = state.live;
     let slot = lead.slot;
+    if lead.generation != state.schedule_generation {
+        let (_now, session) = idle.receive(&lead, eff).clock().await;
+        state.live = session.finish().into();
+        return state;
+    }
     state.led_slots.retain(|&s| s > slot);
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
     let coverage = ocert_covers(kes_period, state.ocert_start_period, state.consensus_parameters.max_kes_evolutions());
@@ -270,7 +293,7 @@ async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<Fo
     let header = match header {
         Ok(header) => header,
         Err(error) => {
-            error!(consensus::forge::MISSED_SLOT, slot, reason = error.to_string());
+            error!(consensus::forge::FORGE_FAILED, slot, step = "sign_header", error = error.to_string());
             // Not in the remainder: a sequence is at most 10 effects, and signing
             // failure shuts the node down the same way a store error does.
             return eff.terminate().await;
@@ -281,7 +304,7 @@ async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<Fo
     let nonces: Nonces = match nonces {
         Ok(nonces) => nonces,
         Err(error) => {
-            error!(consensus::forge::MISSED_SLOT, slot, reason = error.to_string());
+            error!(consensus::forge::FORGE_FAILED, slot, step = "validate_header", error = error.to_string());
             // A header we just signed must validate; this is an invariant, not a protocol choice.
             return eff.terminate().await;
         }
@@ -291,14 +314,14 @@ async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<Fo
     let header_point = header.point();
     let (stored, session) = session.external(StoreValidatedHeaderEffect::new(header, nonces)).await;
     if let Err(error) = stored {
-        error!(consensus::forge::MISSED_SLOT, slot, reason = error.to_string());
+        error!(consensus::forge::FORGE_FAILED, slot, step = "store_header", error = error.to_string());
         // Chain-store invariant; Amaru is shutting down regardless of this remainder.
         return eff.terminate().await;
     }
 
     let (stored, session) = session.external(StoreBlockEffect::new(&header_hash, body.block)).await;
     if let Err(error) = stored {
-        error!(consensus::forge::MISSED_SLOT, slot, reason = error.to_string());
+        error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
         return eff.terminate().await;
     }
 
