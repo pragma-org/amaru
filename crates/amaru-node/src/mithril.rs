@@ -48,7 +48,7 @@ use crate::{
 };
 
 const LEDGER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
-const STRUCTURED_DOWNLOAD_INTERVAL: Duration = Duration::from_secs(5);
+const STRUCTURED_PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Cooperative cancellation for [`MithrilSynchronizer::synchronize`].
 pub type MithrilCancellation = CancellationToken;
@@ -145,24 +145,45 @@ impl DefaultRenderer {
 #[derive(Default)]
 struct StructuredRenderer {
     last_download_at: Option<Instant>,
+    last_ingest_at: Option<Instant>,
     completed_files: u64,
 }
 
 impl StructuredRenderer {
     fn render(&mut self, progress: MithrilProgress) {
-        if let MithrilProgress::Downloaded { completed_files, .. } = &progress {
-            let now = Instant::now();
-            let completed = *completed_files > self.completed_files;
-            let interval_elapsed = self
-                .last_download_at
-                .is_none_or(|last_download_at| now.duration_since(last_download_at) >= STRUCTURED_DOWNLOAD_INTERVAL);
-            self.completed_files = *completed_files;
-            if !completed && !interval_elapsed {
-                return;
-            }
-            self.last_download_at = Some(now);
+        if self.should_render(&progress, Instant::now()) {
+            render_structured(progress);
         }
-        render_structured(progress);
+    }
+
+    fn should_render(&mut self, progress: &MithrilProgress, now: Instant) -> bool {
+        match progress {
+            MithrilProgress::Downloaded { completed_files, .. } => {
+                let completed = *completed_files > self.completed_files;
+                let interval_elapsed = self.last_download_at.is_none_or(|last_download_at| {
+                    now.duration_since(last_download_at) >= STRUCTURED_PROGRESS_INTERVAL
+                });
+                self.completed_files = *completed_files;
+                if completed || interval_elapsed {
+                    self.last_download_at = Some(now);
+                    true
+                } else {
+                    false
+                }
+            }
+            MithrilProgress::BlocksIngested { .. } => {
+                let interval_elapsed = self
+                    .last_ingest_at
+                    .is_none_or(|last_ingest_at| now.duration_since(last_ingest_at) >= STRUCTURED_PROGRESS_INTERVAL);
+                if interval_elapsed {
+                    self.last_ingest_at = Some(now);
+                }
+                interval_elapsed
+            }
+            MithrilProgress::StageChanged { .. }
+            | MithrilProgress::SnapshotSelected { .. }
+            | MithrilProgress::Completed { .. } => true,
+        }
     }
 }
 
