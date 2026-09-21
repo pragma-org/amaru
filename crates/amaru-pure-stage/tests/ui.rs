@@ -19,7 +19,10 @@
 //! graph). Expected diagnostics live in the adjacent `*.stderr` file.
 //!
 //! Refresh snapshots with `BLESS=1 cargo test -p amaru-pure-stage --test ui`.
+//!
+//! Skipped on Windows: cargo `--target` artifact paths exceed `MAX_PATH`.
 
+#![cfg(not(windows))]
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::{
