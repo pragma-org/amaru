@@ -41,7 +41,7 @@ BYPASS_LINES = {"no-changelog", "skip-changelog"}
 RELEASE_HEADER_RE = re.compile(r"^## \[(v\d+\.\d+\.\d{8})\]\(([^)]+)\)$")
 UNRELEASED_HEADER_RE = re.compile(
     r"^##\s+(v\d+\.\d+\.\d{8})"
-    r"(?:\s+_\[unreleased(?:;\s+planned for (?P<planned_date>\d{4}-\d{2}-\d{2}))?\]_)?\s*$"
+    r"\s+_\[unreleased(?:;\s+planned for (?P<planned_date>\d{4}-\d{2}-\d{2}))?\]_\s*$"
 )
 SECTION_RE = re.compile(r"^### (Added|Changed|Deprecated|Removed|Fixed|Security)$")
 ENTRY_RE = re.compile(
