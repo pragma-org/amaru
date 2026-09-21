@@ -27,7 +27,9 @@ used=$(find crates -name "*.rs" \
 # Match against the suffix so both forms count as used.
 while IFS= read -r path; do
     suffix=${path#amaru::}
-    if ! echo "$used" | grep -qF "$suffix"; then
+    # Avoid a producer pipeline here: grep -q closes it after a match, which can
+    # make the producer fail with SIGPIPE under pipefail.
+    if ! grep -Fxq -- "$suffix" <<< "$used"; then
         echo "UNUSED  $path"
         unused=$((unused + 1))
     fi
