@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Changed
+
+- **amaru-pure-stage**: session typestate remainders print as `Choice`/`Par`/`Repeat` over tuples of at most 10 steps. `reveal_remainder!(session)` dumps the remainder as a compile-time panic.
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Changed
@@ -89,10 +93,6 @@ Other guiding principles:
 - **amaru**: `--peer-mix` / `AMARU_PEER_MIX` accepts an `inbound` group that shares Using slots with `static` / `shared` / `snapshot` / `ledger`. The default formula includes `inbound~6`. Omitting `inbound` means duplex inbound connections stay downstream-only. ([#1334](https://github.com/pragma-org/amaru/issues/1334))
 - **amaru-protocols**: handshake offers node-to-node protocol version 15 by default, advertising CIP-0155 SRV support. Minimum offered version is still 11. ([#1332](https://github.com/pragma-org/amaru/issues/1332))
 - **amaru**: the default `/etc/default/amaru` env configuration packages with Debian and RPM no longer define defaults backbone peers and enables JSON traces by default.
-- **amaru-pure-stage**: typestate remainders are right-nested pairs (`Cons<H, T>` = `(H, T)`, `Nil` = `()`), so rustc prints `(Send<Role, T>, (Wait, ()))` instead of a Cons encoding. `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
-- **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
-- **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `Session::remainder()` returns the surface syntax as `&'static str` (`"Send<Role, T> => Idle"`). `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
-- **amaru-pure-stage**: typestate remainders are `Choice` / `Par` / `Repeat` wrapping tuples of length at most 10, so rustc prints `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` instead of a Cons encoding. `reveal_remainder!(session)` is a compile-time dump of the surface syntax (`error[E0080]: evaluation panicked: Send<Role, T> => Idle`). `send_any` is always in scope; a missing `SendAny` fails at `.await` (`IntoFuture`) instead of “no method named send_any”. Other protocol steps live on `SessionOps` (prelude) with `Take` / `FinishIn` bounds.
 
 ### Fixed
 

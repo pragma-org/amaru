@@ -23,6 +23,7 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::{
+    collections::BTreeSet,
     env, fs,
     path::{Path, PathBuf},
     process::Command,
@@ -35,14 +36,17 @@ use serde_json::Value;
 fn session_typestate_diagnostics() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let ui_dir = manifest.join("tests/ui");
-    let artifacts = find_artifact_dir();
-    let lib_dirs = collect_lib_dirs(&artifacts);
-    let rlib = crate_artifact(&lib_dirs, "amaru_pure_stage", &["rlib"])
-        .or_else(|| crate_artifact(&lib_dirs, "amaru_pure_stage", &["rmeta"]))
-        .expect("amaru_pure_stage rlib");
-    let rlib = prefer_rmeta(&rlib);
+    let lib_dirs = collect_lib_dirs();
+    let externs = crate_externs(&lib_dirs, &direct_crate_names(&manifest));
+    assert!(
+        externs.iter().any(|(name, _)| name == "amaru_pure_stage"),
+        "could not find libamaru_pure_stage (searched {}; started at {})",
+        lib_dirs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "),
+        env::current_exe().map(|p| p.display().to_string()).unwrap_or_default()
+    );
     let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
-    let out_dir = artifacts.join("amaru-ui-out");
+    let target = rustc_target();
+    let out_dir = env::temp_dir().join("amaru-pure-stage-ui");
     fs::create_dir_all(&out_dir).unwrap();
 
     let mut cases: Vec<PathBuf> = fs::read_dir(&ui_dir)
@@ -59,7 +63,7 @@ fn session_typestate_diagnostics() {
     for src in &cases {
         let rel = src.strip_prefix(&manifest).unwrap_or(src);
         let expected_path = src.with_extension("stderr");
-        let actual = compile_snippet(&rustc, &manifest, rel, &lib_dirs, &rlib, &out_dir);
+        let actual = compile_snippet(&rustc, &manifest, rel, &lib_dirs, &externs, target.as_deref(), &out_dir);
         if bless {
             fs::write(&expected_path, &actual).unwrap();
             continue;
@@ -82,7 +86,8 @@ fn compile_snippet(
     manifest: &Path,
     rel: &Path,
     lib_dirs: &[PathBuf],
-    rlib: &Path,
+    externs: &[(String, PathBuf)],
+    target: Option<&str>,
     out_dir: &Path,
 ) -> String {
     let mut cmd = Command::new(rustc);
@@ -96,11 +101,16 @@ fn compile_snippet(
         "-A=unused",
         "-A=dead_code",
     ]);
+    if let Some(target) = target {
+        cmd.arg("--target").arg(target);
+    }
     cmd.arg("--out-dir").arg(out_dir);
     for dir in lib_dirs {
         cmd.arg("-L").arg(format!("dependency={}", dir.display()));
     }
-    cmd.arg("--extern").arg(format!("amaru_pure_stage={}", rlib.display()));
+    for (name, path) in externs {
+        cmd.arg("--extern").arg(format!("{name}={}", path.display()));
+    }
     let output = cmd.arg(rel).output().unwrap_or_else(|e| panic!("failed to spawn {rustc}: {e}"));
 
     if output.status.success() {
@@ -191,28 +201,32 @@ fn normalize_path(file: &str, manifest: &Path) -> String {
     file.replace('\\', "/")
 }
 
-fn find_artifact_dir() -> PathBuf {
-    let exe = env::current_exe().expect("current_exe");
-    let mut dir = exe.parent().unwrap_or(Path::new(".")).to_path_buf();
-    for _ in 0..10 {
-        if dir.join("libamaru_pure_stage.rlib").exists() || newest_hashed(&dir, "amaru_pure_stage", &["rlib"]).is_some()
-        {
-            return dir;
+fn collect_lib_dirs() -> Vec<PathBuf> {
+    let profile = find_profile_dir();
+    let mut dirs = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut push = |p: PathBuf| {
+        if p.is_dir() && seen.insert(p.clone()) {
+            dirs.push(p);
         }
-        match dir.parent() {
-            Some(parent) => dir = parent.to_path_buf(),
-            None => break,
-        }
+    };
+    add_profile_libs(&profile, &mut push);
+    // `--target` puts the test binary under `target/<triple>/debug`, but proc
+    // macros stay on the host in `target/debug`.
+    if let Some(triple_dir) = profile.parent()
+        && triple_dir.file_name().and_then(|n| n.to_str()).is_some_and(|s| s.contains('-'))
+        && let Some(target_root) = triple_dir.parent()
+    {
+        add_profile_libs(&target_root.join("debug"), &mut push);
+        add_profile_libs(&target_root.join("release"), &mut push);
     }
-    panic!("could not find libamaru_pure_stage.rlib (started at {})", exe.display());
+    dirs
 }
 
-fn collect_lib_dirs(artifacts: &Path) -> Vec<PathBuf> {
-    // Hashed `build/<crate>/<hash>/out` artifacts only. `target/debug/lib*.rlib`
-    // copies are metadata stubs under this cargo layout.
-    let mut dirs = Vec::new();
-    let Ok(crates) = fs::read_dir(artifacts.join("build")) else {
-        return dirs;
+fn add_profile_libs(profile: &Path, push: &mut impl FnMut(PathBuf)) {
+    push(profile.join("deps"));
+    let Ok(crates) = fs::read_dir(profile.join("build")) else {
+        return;
     };
     for crate_dir in crates.flatten() {
         let Ok(hashes) = fs::read_dir(crate_dir.path()) else {
@@ -220,12 +234,149 @@ fn collect_lib_dirs(artifacts: &Path) -> Vec<PathBuf> {
         };
         for hash in hashes.flatten() {
             let out = hash.path().join("out");
-            if out.is_dir() {
-                dirs.push(out);
+            if rustc_lib_dir(&out) {
+                push(out);
             }
         }
     }
-    dirs
+}
+
+fn find_profile_dir() -> PathBuf {
+    let exe = env::current_exe().expect("current_exe");
+    let mut dir = exe.parent().unwrap_or(Path::new(".")).to_path_buf();
+    for _ in 0..12 {
+        if dir.join("deps").is_dir() || has_build_outs(&dir.join("build")) {
+            return dir;
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent.to_path_buf(),
+            None => break,
+        }
+    }
+    panic!("could not find cargo profile dir (started at {})", exe.display());
+}
+
+fn rustc_lib_dir(dir: &Path) -> bool {
+    let Ok(ents) = fs::read_dir(dir) else {
+        return false;
+    };
+    ents.flatten().any(|ent| {
+        let name = ent.file_name();
+        let name = name.to_string_lossy();
+        name.starts_with("lib")
+            && (name.ends_with(".rlib")
+                || name.ends_with(".rmeta")
+                || name.ends_with(".so")
+                || name.ends_with(".dylib")
+                || name.ends_with(".dll"))
+    })
+}
+
+fn has_build_outs(build: &Path) -> bool {
+    let Ok(crates) = fs::read_dir(build) else {
+        return false;
+    };
+    for crate_dir in crates.flatten() {
+        let Ok(hashes) = fs::read_dir(crate_dir.path()) else {
+            continue;
+        };
+        if hashes.flatten().any(|hash| hash.path().join("out").is_dir()) {
+            return true;
+        }
+    }
+    false
+}
+
+fn rustc_target() -> Option<String> {
+    if let Ok(t) = env::var("CARGO_BUILD_TARGET")
+        && !t.is_empty()
+    {
+        return Some(t);
+    }
+    let exe = env::current_exe().ok()?;
+    for dir in exe.ancestors() {
+        let name = dir.file_name()?.to_str()?;
+        if name != "debug" && name != "release" {
+            continue;
+        }
+        let triple = dir.parent()?.file_name()?.to_str()?;
+        if triple.contains('-') && triple != "target" {
+            return Some(triple.to_string());
+        }
+    }
+    None
+}
+
+fn direct_crate_names(manifest_dir: &Path) -> Vec<String> {
+    let mut names = vec!["amaru_pure_stage".into()];
+    let Ok(toml) = fs::read_to_string(manifest_dir.join("Cargo.toml")) else {
+        return names;
+    };
+    let mut in_deps = false;
+    for line in toml.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_deps = t == "[dependencies]" || (t.starts_with("[target.") && t.contains("dependencies"));
+            continue;
+        }
+        if !in_deps || t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let name = t.split([' ', '.', '=', '{']).next().unwrap_or("");
+        if !name.is_empty() {
+            names.push(name.replace('-', "_"));
+        }
+    }
+    names
+}
+
+/// One rlib + matching rmeta per crate. Hashes are chosen so they appear in
+/// `amaru_pure_stage`'s rmeta (same pairing cargo passes as `--extern`).
+fn crate_externs(dirs: &[PathBuf], crate_names: &[String]) -> Vec<(String, PathBuf)> {
+    let Some(stage) = crate_artifact(dirs, "amaru_pure_stage", &["rlib"]) else {
+        return Vec::new();
+    };
+    let stage_rmeta = stage.with_extension("rmeta");
+    let meta = fs::read(&stage_rmeta).unwrap_or_default();
+    let mut out = vec![("amaru_pure_stage".into(), stage)];
+    if fs::metadata(&stage_rmeta).is_ok_and(|m| m.len() > 0) {
+        out.push(("amaru_pure_stage".into(), stage_rmeta));
+    }
+    for name in crate_names {
+        if name == "amaru_pure_stage" {
+            continue;
+        }
+        let mut cands: Vec<(SystemTime, PathBuf)> = Vec::new();
+        for dir in dirs {
+            if let Some(path) = newest_hashed(dir, name, &["rlib"])
+                && let Ok(mtime) = fs::metadata(&path).and_then(|m| m.modified())
+            {
+                cands.push((mtime, path));
+            }
+        }
+        cands.sort_by_key(|a| std::cmp::Reverse(a.0));
+        let chosen = cands
+            .iter()
+            .find(|(_, p)| extra_filename(p).is_some_and(|h| contains_bytes(&meta, h.as_bytes())))
+            .or(cands.first());
+        let Some((_, rlib)) = chosen else {
+            continue;
+        };
+        out.push((name.clone(), rlib.clone()));
+        let rmeta = rlib.with_extension("rmeta");
+        if fs::metadata(&rmeta).is_ok_and(|m| m.len() > 0) {
+            out.push((name.clone(), rmeta));
+        }
+    }
+    out
+}
+
+fn extra_filename(path: &Path) -> Option<&str> {
+    path.file_stem()?.to_str()?.rsplit_once('-').map(|(_, hash)| hash)
+}
+
+fn contains_bytes(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len()).any(|w| w == needle)
 }
 
 fn crate_artifact(dirs: &[PathBuf], crate_name: &str, exts: &[&str]) -> Option<PathBuf> {
@@ -241,7 +392,7 @@ fn crate_artifact(dirs: &[PathBuf], crate_name: &str, exts: &[&str]) -> Option<P
             best = Some((mtime, path));
         }
     }
-    best.map(|(_, p)| p).or_else(|| dirs.iter().find_map(|dir| unhashed(dir, crate_name, exts)))
+    best.map(|(_, p)| p)
 }
 
 fn newest_hashed(dir: &Path, crate_name: &str, exts: &[&str]) -> Option<PathBuf> {
@@ -266,16 +417,4 @@ fn newest_hashed(dir: &Path, crate_name: &str, exts: &[&str]) -> Option<PathBuf>
         }
     }
     best.map(|(_, p)| p)
-}
-
-fn unhashed(dir: &Path, crate_name: &str, exts: &[&str]) -> Option<PathBuf> {
-    exts.iter().map(|ext| dir.join(format!("lib{crate_name}.{ext}"))).find(|p| p.exists())
-}
-
-fn prefer_rmeta(artifact: &Path) -> PathBuf {
-    let rmeta = artifact.with_extension("rmeta");
-    match fs::metadata(&rmeta) {
-        Ok(meta) if meta.len() > 0 => rmeta,
-        _ => artifact.to_path_buf(),
-    }
 }

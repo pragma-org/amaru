@@ -15,7 +15,7 @@
 //! Opt-in session types over [`Effects`](crate::Effects).
 //!
 //! Receive is implicit (the stage was invoked). [`State::receive`] consumes that
-//! allowance and returns a [`Session`] whose type is the remainder. [`Session::finish`]
+//! allowance and returns a [`Session`] whose type is the remainder. [`SessionOps::finish`]
 //! is the only constructor of a non-initial state; put it in the live enum via [`Into`].
 //!
 //! Remainder syntax: `,` sequences effects; `|` before `=> S` is parallel (all
@@ -24,10 +24,10 @@
 //! single effect, or a sequence via [`star`](crate::star). Selecting the first
 //! step unrolls the rest in front of the same `Repeat`. Selecting a later
 //! step discards the star (zero iterations) when the selected type is given
-//! in full (type-level [`Select`]); [`Session::send`](session::Session::send)
-//! / [`Session::call`](session::Session::call) cannot skip that way because
+//! in full (type-level [`Select`]); [`SessionOps::send`]
+//! / [`SessionOps::call`] cannot skip that way because
 //! `Repeat<Send<Role, T>>` / `Repeat<Call<Role, T>>` unifies `T` with the
-//! star. Use [`Session::discard_repeat`](session::Session::discard_repeat)
+//! star. Use [`SessionOps::discard_repeat`]
 //! after the last iteration.
 //!
 //! Hover a failing `send` still shows the encoding. Dump the surface syntax

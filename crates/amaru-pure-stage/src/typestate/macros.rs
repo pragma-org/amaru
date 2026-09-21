@@ -29,7 +29,7 @@
 ///
 /// Names before `;` are initial (constructible via
 /// [`initial_state`](crate::typestate::initial_state)); the rest are only
-/// produced by [`Session::finish`](crate::typestate::Session::finish). Each
+/// produced by [`SessionOps::finish`](crate::typestate::SessionOps::finish). Each
 /// enum variant holds the matching typed state; wrap `finish()` / `initial_state()`
 /// with [`Into`].
 ///

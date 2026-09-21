@@ -14,12 +14,12 @@
 
 //! Linear handle: [`Effects`] plus a remainder type `Rem`.
 //!
-//! [`State::receive`] opens a [`Session`]. [`send`](Session::send) / [`send_any`](Session::send_any)
-//! / [`call`](Session::call) / [`wait`](Session::wait) / [`set_timeout`](Session::set_timeout) /
-//! [`clear_timeout`](Session::clear_timeout) require [`Select`] of that effect
+//! [`State::receive`] opens a [`Session`]. [`send`](SessionOps::send) / [`send_any`](Session::send_any)
+//! / [`call`](SessionOps::call) / [`wait`](SessionOps::wait) / [`set_timeout`](SessionOps::set_timeout) /
+//! [`clear_timeout`](SessionOps::clear_timeout) require [`Select`](super::Select) of that effect
 //! ([`IntoRoleMail`](super::IntoRoleMail) at the send call site,
 //! [`IntoRoleCall`](super::IntoRoleCall) at the call site);
-//! [`finish`](Session::finish) requires [`CanFinish`].
+//! [`finish`](SessionOps::finish) requires [`CanFinish`](super::CanFinish).
 //! [`convert_input`](State::convert_input) classifies a mailbox value and does
 //! not consume the state token — [`receive`](State::receive) does.
 
@@ -37,7 +37,7 @@ use super::{
 };
 use crate::{Effects, ExternalEffectAPI, Instant, SendData, StageRef};
 
-/// Witness that only [`initial_state`] and [`Session::finish`] may construct a protocol state.
+/// Witness that only [`initial_state`] and [`SessionOps::finish`] may construct a protocol state.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Marker(Private);
 
@@ -50,7 +50,7 @@ pub struct NotInitialState;
 /// A zero-sized protocol state. Construct the initial one with [`initial_state`].
 pub trait State: Sized + Send + 'static {
     const NAME: &'static str;
-    /// Used by [`initial_state`] and [`Session::finish`] only.
+    /// Used by [`initial_state`] and [`SessionOps::finish`] only.
     #[doc(hidden)]
     fn make(marker: Marker) -> Self;
     type Initial;
@@ -143,7 +143,7 @@ pub trait OnReceive<In>: State {
 }
 
 /// Construct the unique initial state of a protocol. The only other way to
-/// obtain a state value is [`Session::finish`].
+/// obtain a state value is [`SessionOps::finish`].
 pub fn initial_state<S>() -> S
 where
     S: State<Initial = InitialState>,
@@ -157,7 +157,7 @@ pub struct To<S: State>(PhantomData<S>);
 
 /// `Effects` plus the type-level remainder of a receive.
 ///
-/// Protocol [`send`](SessionOps::send), [`send_any`](SessionOps::send_any), [`call`](SessionOps::call),
+/// Protocol [`send`](SessionOps::send), [`send_any`](Session::send_any), [`call`](SessionOps::call),
 /// [`wait`](SessionOps::wait), [`set_timeout`](SessionOps::set_timeout),
 /// [`clear_timeout`](SessionOps::clear_timeout), and [`terminate`](SessionOps::terminate)
 /// consume from `Rem` ([`SessionOps`], in the prelude). Local helpers (`clock`, `external`) do not.
@@ -274,7 +274,7 @@ where
 }
 
 /// Protocol steps on [`Session`]. Implemented for every remainder; a missing
-/// effect is [`Take`] / [`FinishIn`] / [`DiscardRepeat`] (E0277), not E0599.
+/// effect is [`Take`] / [`FinishIn`] / [`DiscardRepeat`](super::DiscardRepeat) (E0277), not E0599.
 pub trait SessionOps<M, Rem>: Sized {
     /// Protocol send. Consumes a [`Send<Tag, T>`] allowance.
     ///
