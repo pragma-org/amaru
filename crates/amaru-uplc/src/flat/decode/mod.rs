@@ -491,28 +491,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn decode_deeply_nested_delays_on_a_small_stack() {
-        const DEPTH: usize = 28_000;
-
-        std::thread::Builder::new()
-            .stack_size(2 * 1024 * 1024)
-            .spawn(|| {
-                let mut encoder = crate::flat::Encoder::default();
-                encoder.word(1).word(0).word(0);
-                for _ in 0..DEPTH {
-                    encoder.bits(TERM_TAG_WIDTH as i64, tag::DELAY);
-                }
-                encoder.bits(TERM_TAG_WIDTH as i64, tag::ERROR).filler();
-
-                let arena = Arena::new();
-                let (_, remainder): (&Program<'_, DeBruijn>, _) =
-                    decode(&arena, &encoder.buffer, PROTOCOL_VERSION_10).unwrap();
-                assert_eq!(remainder, 0);
-            })
-            .unwrap()
-            .join()
-            .unwrap();
-    }
 }

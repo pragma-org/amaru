@@ -184,6 +184,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 }
 
 impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
+    #[stacksafe]
     fn encode<W: minicbor::encode::Write>(
         &self,
         e: &mut minicbor::Encoder<W>,
