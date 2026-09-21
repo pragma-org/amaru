@@ -462,9 +462,9 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.u64(self.stake_pool_deposit)?;
         e.u32(self.stake_pool_max_retirement_epoch)?;
         e.u16(self.optimal_stake_pools_count)?;
-        e.encode_with(&self.pledge_influence, ctx)?;
-        e.encode_with(&self.monetary_expansion_rate, ctx)?;
-        e.encode_with(&self.treasury_expansion_rate, ctx)?;
+        e.encode_with(self.pledge_influence, ctx)?;
+        e.encode_with(self.monetary_expansion_rate, ctx)?;
+        e.encode_with(self.treasury_expansion_rate, ctx)?;
         e.encode_with(self.protocol_version, ctx)?;
         e.u64(self.min_pool_cost)?;
         e.u64(self.lovelace_per_utxo_byte)?;
@@ -510,7 +510,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.u64(self.gov_action_deposit)?;
         e.u64(self.drep_deposit)?;
         e.encode_with(self.drep_expiry, ctx)?;
-        e.encode_with(&self.min_fee_ref_script_lovelace_per_byte, ctx)?;
+        e.encode_with(self.min_fee_ref_script_lovelace_per_byte, ctx)?;
 
         Ok(())
     }

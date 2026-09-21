@@ -223,7 +223,7 @@ mod tests {
         let make_redeemer = |mem: u64, steps: u64, payload: u8| Redeemer {
             tag: RedeemerTag::Spend,
             index: 0,
-            data: MemoizedPlutusData::new(PlutusData::bytes(vec![payload].into())),
+            data: MemoizedPlutusData::new(PlutusData::bytes(vec![payload])),
             ex_units: ExUnits { mem, steps },
         };
 

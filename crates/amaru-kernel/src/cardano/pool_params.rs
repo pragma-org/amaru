@@ -103,11 +103,11 @@ mod tests {
     }
 
     fn any_optional_ipv4() -> impl Strategy<Value = Option<IPv4>> {
-        option::of(any::<[u8; 4]>().prop_map(|a| FixedBytes::from(a)))
+        option::of(any::<[u8; 4]>().prop_map(FixedBytes::from))
     }
 
     fn any_optional_ipv6() -> impl Strategy<Value = Option<IPv6>> {
-        option::of(any::<[u8; 16]>().prop_map(|a| FixedBytes::from(a)))
+        option::of(any::<[u8; 16]>().prop_map(FixedBytes::from))
     }
 
     prop_compose! {
@@ -144,6 +144,7 @@ mod tests {
     }
 
     prop_compose! {
+        #[expect(clippy::expect_used)]
         pub fn any_pool_params()(
             id in any_hash28(),
             vrf in any_hash32(),
