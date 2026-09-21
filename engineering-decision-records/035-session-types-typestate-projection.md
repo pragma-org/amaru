@@ -69,7 +69,7 @@ Typestate already forbids skipping remainder effects. `convert_input` still abor
 
 - Each typestate protocol gets a `spec.rs` that is the network diagram, readable by humans (to cross-check with the PDF) and by `cargo test`.
 - `ProtoSpec` / `miniprotocol()` stay for unmigrated protocols until those handlers are rewritten.
-- Ambiguous remainders (two wire actions in parallel, mixed send/receive in one state, a `Repeat` of several different wire messages) fail the test — the typestate API currently is more expressive than the session types can handle.
+- Ambiguous remainders (two wire actions in parallel, mixed send/receive in one state, a `Repeat` of several different wire messages, two wire `Repeat`s with no wire message between them, or a trailing wire `Repeat` that moves to a different state) fail the test — the typestate API currently is more expressive than the session types can handle.
 - Session theory stays in `amaru-pure-stage::session`. Mux-specific `WantNext` stays in `amaru-protocols`.
 
 ## Discussion points

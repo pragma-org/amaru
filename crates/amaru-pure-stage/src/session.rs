@@ -512,6 +512,8 @@ pub enum ProjectError {
     MixedAgency { state: Vertex },
     AmbiguousRepeat { origin: Vertex },
     RepeatStarTooWide { origin: Vertex },
+    SequencedRepeat { origin: Vertex },
+    TrailingRepeat { origin: Vertex },
     PeerSendAny { role: RoleName },
     UnknownPeerPayload { payload: PayloadName },
     UnknownRole { role: RoleName },
@@ -546,6 +548,12 @@ impl Display for ProjectError {
             }
             ProjectError::RepeatStarTooWide { origin } => {
                 write!(f, "repeat of more than one remaining wire effect at {origin}")
+            }
+            ProjectError::SequencedRepeat { origin } => {
+                write!(f, "second wire repeat on {origin}")
+            }
+            ProjectError::TrailingRepeat { origin } => {
+                write!(f, "trailing wire repeat at {origin} moves to a different state")
             }
             ProjectError::PeerSendAny { role } => write!(f, "SendAny to peer role {role}"),
             ProjectError::UnknownPeerPayload { payload } => {
@@ -845,22 +853,35 @@ impl Projector<'_> {
     }
 
     /// `seq` is already hide-filtered (`Call` / `Send` / non-hidable `Repeat` only).
+    ///
+    /// One wire `Repeat` is a self-loop on the vertex it is expanded from. The
+    /// exit is a later wire label, or the successor already being that vertex.
+    /// Another wire `Repeat` on that same vertex, or a trailing star whose
+    /// successor is a different vertex, has no edge in this machine.
     fn expand_seq(&mut self, origin: Vertex, seq: &[&EffectAst], named_next: StateName) -> Result<(), ProjectError> {
         assert!(!seq.is_empty(), "expand_seq on hide-filtered empty seq at {origin}");
         let mut state = origin;
+        let mut repeated_at = None;
         for (i, e) in seq.iter().copied().enumerate() {
             match e {
                 EffectAst::Repeat(body) => {
                     let body = self.non_hidable_flat(body)?;
                     assert!(!body.is_empty(), "expand_seq Repeat body empty after hide at {state}");
-                    if let Some(m) = self.single_wire_send(&body) {
-                        if self.first_wire(&seq[i + 1..]).is_some_and(|head| head == m) {
-                            return Err(ProjectError::AmbiguousRepeat { origin: state });
-                        }
-                        self.emit(state, Label::send(m), state)?;
-                    } else {
+                    let Some(m) = self.single_wire_send(&body) else {
                         return Err(ProjectError::RepeatStarTooWide { origin: state });
+                    };
+                    if repeated_at == Some(state) {
+                        return Err(ProjectError::SequencedRepeat { origin: state });
                     }
+                    let exit = self.first_wire(&seq[i + 1..]);
+                    if exit.is_some_and(|head| head == m) {
+                        return Err(ProjectError::AmbiguousRepeat { origin: state });
+                    }
+                    if exit.is_none() && self.alloc.named(named_next) != state {
+                        return Err(ProjectError::TrailingRepeat { origin: state });
+                    }
+                    self.emit(state, Label::send(m), state)?;
+                    repeated_at = Some(state);
                 }
                 EffectAst::Call { payload, .. } | EffectAst::Send { payload, .. } => {
                     if !self.cfg.wire_payload.contains(payload) {
@@ -1578,6 +1599,62 @@ Done agency=None terminal=true
     }
 
     #[test]
+    fn trailing_repeat_stays_in_the_current_state() {
+        let graph = idle_graph(BTreeMap::from([(
+            "Fetch",
+            seq(vec![repeat(vec![call("ToResponder", "RequestRange")])], "Idle"),
+        )]));
+        let got = project(&graph, &cfg_initiator()).unwrap();
+        assert_eq!(got.states.len(), 1);
+        assert_eq!(got.dest(got.initial, "RequestRange"), got.initial);
+    }
+
+    #[test]
+    fn one_repeat_between_distinct_sends() {
+        let graph = idle_graph(BTreeMap::from([(
+            "Fetch",
+            seq(
+                vec![
+                    call("ToResponder", "RequestRange"),
+                    repeat(vec![call("ToResponder", "ClientDone")]),
+                    call("ToResponder", "StartBatch"),
+                ],
+                "Done",
+            ),
+        )]));
+        let got = project(&graph, &cfg_initiator()).unwrap();
+        let mid = got.dest(got.initial, "RequestRange");
+        assert_ne!(mid, got.initial);
+        assert_eq!(got.dest(mid, "ClientDone"), mid);
+        let done = got.dest(mid, "StartBatch");
+        assert_ne!(done, mid);
+        assert!(got.terminal.contains(&done));
+    }
+
+    #[test]
+    fn repeats_separated_by_a_send_are_independent() {
+        let graph = idle_graph(BTreeMap::from([(
+            "Fetch",
+            seq(
+                vec![
+                    repeat(vec![call("ToResponder", "RequestRange")]),
+                    call("ToResponder", "ClientDone"),
+                    repeat(vec![call("ToResponder", "StartBatch")]),
+                    call("ToResponder", "BatchDone"),
+                ],
+                "Done",
+            ),
+        )]));
+        let got = project(&graph, &cfg_initiator()).unwrap();
+        let idle = got.initial;
+        assert_eq!(got.dest(idle, "RequestRange"), idle);
+        let mid = got.dest(idle, "ClientDone");
+        assert_ne!(mid, idle);
+        assert_eq!(got.dest(mid, "StartBatch"), mid);
+        assert!(got.terminal.contains(&got.dest(mid, "BatchDone")));
+    }
+
+    #[test]
     fn projection_errors() {
         struct Case {
             name: &'static str,
@@ -1671,20 +1748,65 @@ Done agency=None terminal=true
                 check: |e| matches!(e, ProjectError::Nondeterministic { .. }),
             },
             Case {
-                name: "AmbiguousRepeatSkipsRepeatInSuffix",
+                name: "SequencedRepeat",
                 graph: idle_graph(BTreeMap::from([(
                     "Fetch",
                     seq(
                         vec![
                             repeat(vec![call("ToResponder", "RequestRange")]),
                             repeat(vec![call("ToResponder", "ClientDone")]),
-                            call("ToResponder", "RequestRange"),
                         ],
-                        "Busy",
+                        "Idle",
                     ),
                 )])),
                 cfg: cfg_initiator(),
-                check: |e| matches!(e, ProjectError::AmbiguousRepeat { .. }),
+                check: |e| matches!(e, ProjectError::SequencedRepeat { .. }),
+            },
+            Case {
+                name: "SequencedRepeatThenSend",
+                graph: idle_graph(BTreeMap::from([(
+                    "Fetch",
+                    seq(
+                        vec![
+                            repeat(vec![call("ToResponder", "RequestRange")]),
+                            repeat(vec![call("ToResponder", "ClientDone")]),
+                            call("ToResponder", "StartBatch"),
+                        ],
+                        "Done",
+                    ),
+                )])),
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::SequencedRepeat { .. }),
+            },
+            Case {
+                name: "TrailingRepeat",
+                graph: idle_graph(BTreeMap::from([(
+                    "Fetch",
+                    seq(vec![repeat(vec![call("ToResponder", "RequestRange")])], "Done"),
+                )])),
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::TrailingRepeat { .. }),
+            },
+            Case {
+                name: "TrailingRepeatAfterSend",
+                graph: idle_graph(BTreeMap::from([(
+                    "Fetch",
+                    seq(
+                        vec![call("ToResponder", "RequestRange"), repeat(vec![call("ToResponder", "ClientDone")])],
+                        "Idle",
+                    ),
+                )])),
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::TrailingRepeat { .. }),
+            },
+            Case {
+                name: "TrailingRepeatOnWireInput",
+                graph: idle_graph(BTreeMap::from([(
+                    "RequestRange",
+                    seq(vec![repeat(vec![call("ToInitiator", "Block")])], "Done"),
+                )])),
+                cfg: cfg_responder(),
+                check: |e| matches!(e, ProjectError::TrailingRepeat { .. }),
             },
             Case {
                 name: "MixedAgency",
