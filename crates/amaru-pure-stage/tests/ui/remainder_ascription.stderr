@@ -1,0 +1,4 @@
+error[E0080]: evaluation panicked: Send<ToPeer, String> => Done
+ --> crates/amaru-pure-stage/src/typestate/macros.rs:593:18
+  = evaluation of `go::reveal::<M, amaru_pure_stage::typestate::Choice<(amaru_pure_stage::typestate::Then<amaru_pure_stage::typestate::Par<((amaru_pure_stage::typestate::Send<harness::ToPeer, std::string::String>,),)>, harness::Done>,)>>::{constant#0}` failed inside this call
+  = note: inside `amaru_pure_stage::typestate::remainder_ctfe_panic::<Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>>`

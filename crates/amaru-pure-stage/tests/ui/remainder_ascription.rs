@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,29 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(type_alias_impl_trait, generic_const_exprs)]
+#![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 
-#[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
-const _: () = amaru_deps::AMARU_DEPS_USED;
+#[path = "harness.rs"]
+mod harness;
 
-pub mod accept;
-pub mod blockfetch;
-pub mod chainsync;
-pub mod connection;
-pub mod deserializers;
-pub mod handshake;
-pub mod keepalive;
-pub mod manager;
-pub mod mempool_effects;
-pub mod metrics_effects;
-pub mod mux;
-pub mod network_effects;
-pub mod peer_sharing;
-pub mod protocol;
-pub mod protocol_messages;
-pub mod store_effects;
-pub mod tx_submission;
+use amaru_pure_stage::typestate::prelude::*;
+use harness::{Done, Idle, ToPeer};
 
-#[cfg(test)]
-mod tests;
+on_receive!(Idle, u8 => Send<ToPeer, String> => Done);
+
+fn go<M>(s: Idle, eff: amaru_pure_stage::Effects<M>) {
+    let session = s.receive(1u8, eff);
+    reveal_remainder!(session);
+}

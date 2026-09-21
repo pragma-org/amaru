@@ -27,7 +27,7 @@ use crate::{SendData, StageRef};
 
 /// Name of a send destination, used as the first parameter of [`Send`](super::Send).
 ///
-/// The value passed to [`Session::send`](super::Session::send) is a [`Role`]
+/// The value passed to [`SessionOps::send`](super::SessionOps::send) is a [`Role`]
 /// wrapper that claims this tag and holds the [`StageRef`].
 pub trait RoleTag {
     const NAME: &'static str;
@@ -66,7 +66,7 @@ where
 /// message must carry [`StageRef<Reply>`] so the callee can answer.
 pub trait IntoRoleCall<Tag: RoleTag, T>: Role<Tag> {
     type Reply: SendData + DeserializeOwned;
-    /// How long [`Session::call`](super::Session::call) waits for [`Self::Reply`].
+    /// How long [`SessionOps::call`](super::SessionOps::call) waits for [`Self::Reply`].
     const TIMEOUT: Duration;
     fn encode(&self, msg: T, reply: StageRef<Self::Reply>) -> Self::Mailbox;
 }

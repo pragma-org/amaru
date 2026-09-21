@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Changed
+
+- **amaru-pure-stage**: session typestate remainders print as `Choice`/`Par`/`Repeat` over tuples of at most 10 steps. `reveal_remainder!(session)` dumps the remainder as a compile-time panic.
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Added

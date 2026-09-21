@@ -14,11 +14,13 @@
 
 //! Type-level remainder algebra.
 //!
-//! A remainder is a choice of [`Then<P, S>`] (`A => S | B => T | C => U`).
-//! `P` is a flat [`Cons`] of sequences (parallel, one `S` for the `Then`).
-//! [`Select`]`<E, I>` takes the **leftmost** matching head; `I` is inferred
-//! and is unique (later matches are not offered). Exclusive choice drops
-//! every `Then` that was not chosen.
+//! A remainder is a [`Choice`] of [`Then<Par<P>, S>`] (`A => S | B => T | C => U`).
+//! [`Par`]`<P>` is a tuple of sequences; each sequence is a tuple of effects
+//! (or [`Repeat`](super::Repeat) of a tuple). rustc therefore prints
+//! `Choice<(Then<Par<((Send<Role, T>, Wait),)>, Idle>,)>` rather than a Cons
+//! encoding. [`Select`]`<E, I>` takes the **leftmost** matching head; `I` is
+//! inferred and is unique (later matches are not offered). Exclusive choice
+//! drops every `Then` that was not chosen.
 //!
 //! [`Repeat<Seq>`](super::Repeat) is a Kleene star. Selecting `Seq`'s first
 //! effect **unrolls** the rest in front of the same `Repeat` (or keeps a
@@ -30,12 +32,12 @@
 //! [`CanFinish`]: strip leading `Repeat` on each parallel branch, drop empties,
 //! succeed iff nothing remains.
 //!
-//! **Limits:** lists are flat, not tree-associative. Sequences are ordered.
-//! Two choice alternatives with the same head are ambiguous (see [`Select`]
-//! `There` on `Then`). `finish` only strips `Repeat` at a branch prefix.
-//! [`StripRepeat`] knows `Send`, `SendAny`, `Call`, `Wait`, `Terminate`.
-//! [`SetTimeout`](super::SetTimeout) / [`ClearTimeout`](super::ClearTimeout) are
-//! required steps and are not stripped.
+//! **Limits:** sequences, parallel branches, and choice alternatives are tuples
+//! of length at most 10. Sequences are ordered. Two choice alternatives with
+//! the same head are ambiguous (see [`Select`] `There` on [`Choice`]). `finish`
+//! only strips `Repeat` at a branch prefix. [`SetTimeout`](super::SetTimeout) /
+//! [`ClearTimeout`](super::ClearTimeout) are required steps and are not
+//! stripped.
 
 use std::{fmt, marker::PhantomData};
 
@@ -44,8 +46,11 @@ use super::{
     effect::{Repeat, SendAny},
 };
 
-pub struct Nil;
-pub struct Cons<H, T>(PhantomData<(H, T)>);
+/// Exclusive choice of [`Then`] alternatives. `C` is a tuple, at most 10 long.
+pub struct Choice<C>(PhantomData<C>);
+
+/// Parallel composition of sequences. `P` is a tuple of sequence tuples, at most 10 long.
+pub struct Par<P>(PhantomData<P>);
 
 /// Parallel composition `P` of sequences, then next state `S`.
 pub struct Then<P, S>(PhantomData<(P, S)>);
@@ -59,65 +64,94 @@ pub struct In<I>(PhantomData<I>);
 /// Discard a leading [`Repeat`](super::Repeat) and search what follows with `I`.
 pub struct Skip<I>(PhantomData<I>);
 
-/// First effect of a `Repeat` body (a single tag, or the head of a `Cons`).
-pub trait FirstEffect {
+/// Split a tuple into its first element and the rest.
+///
+/// Implemented for arities 1 through 10. `()` and 11-element tuples have no
+/// impl, so exceeding the remainder limit is a trait-bound error.
+#[diagnostic::on_unimplemented(
+    message = "session remainder tuples support at most 10 elements",
+    note = "`{Self}` is empty or longer than 10 — split the protocol or shorten this list"
+)]
+pub trait Uncons {
     type Head;
+    type Tail;
 }
 
-impl<R, T> FirstEffect for super::effect::Send<R, T> {
-    type Head = super::effect::Send<R, T>;
+/// Prepend `H` to this tuple. Implemented for arities 0 through 9 (result ≤ 10).
+pub trait Prefix<H> {
+    type Out;
 }
 
-impl<R> FirstEffect for SendAny<R> {
-    type Head = SendAny<R>;
+/// Body of a [`Repeat`]: a single [`NotRepeat`] effect, or a tuple of effects.
+pub trait RepeatBody {
+    type Head;
+    type Tail;
 }
 
-impl FirstEffect for super::effect::Wait {
-    type Head = super::effect::Wait;
+/// Concatenate two sequences. Generated per arity so recursion is structural.
+pub trait Concat<Suf> {
+    type Out;
 }
 
-impl FirstEffect for super::effect::Terminate {
-    type Head = super::effect::Terminate;
+/// [`Select`] on a tuple of sequences (the inner type of [`Par`]).
+pub trait SelectTup<E, I> {
+    type Rest;
 }
 
-impl<R, T> FirstEffect for super::effect::Call<R, T> {
-    type Head = super::effect::Call<R, T>;
+/// Strip stars and drop empty sequences from a parallel tuple.
+pub trait PruneTup {
+    type Out;
 }
 
-impl FirstEffect for super::effect::Clock {
-    type Head = super::effect::Clock;
+macro_rules! impl_tuple_ladders {
+    ($H:ident $(, $T:ident)* $(,)?) => {
+        impl<$H $(, $T)*> Uncons for ($H, $($T,)*) {
+            type Head = $H;
+            type Tail = ($($T,)*);
+        }
+        impl<$H $(, $T)*> RepeatBody for ($H, $($T,)*) {
+            type Head = $H;
+            type Tail = ($($T,)*);
+        }
+        impl<$H $(, $T)*, Suf> Concat<Suf> for ($H, $($T,)*)
+        where
+            ($($T,)*): Concat<Suf>,
+            <($($T,)*) as Concat<Suf>>::Out: Prefix<$H>,
+        {
+            type Out = <<($($T,)*) as Concat<Suf>>::Out as Prefix<$H>>::Out;
+        }
+        impl_tuple_ladders!($($T),*);
+    };
+    () => {};
 }
 
-impl<T> FirstEffect for super::effect::Schedule<T> {
-    type Head = super::effect::Schedule<T>;
+macro_rules! impl_prefix {
+    (@from [$($T:ident),*]) => {
+        impl<H $(, $T)*> Prefix<H> for ($($T,)*) {
+            type Out = (H, $($T,)*);
+        }
+    };
+    (@acc [$($done:ident),*] $next:ident $(, $rest:ident)*) => {
+        impl_prefix!(@from [$($done),*]);
+        impl_prefix!(@acc [$($done,)* $next] $($rest),*);
+    };
+    (@acc [$($done:ident),*]) => {
+        impl_prefix!(@from [$($done),*]);
+    };
+    ($($T:ident),*) => {
+        impl_prefix!(@acc [] $($T),*);
+    };
 }
 
-impl FirstEffect for super::effect::CancelSchedule {
-    type Head = super::effect::CancelSchedule;
+impl_tuple_ladders!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_prefix!(T0, T1, T2, T3, T4, T5, T6, T7, T8);
+
+impl<Suf> Concat<Suf> for () {
+    type Out = Suf;
 }
 
-impl FirstEffect for super::effect::SetTimeout {
-    type Head = super::effect::SetTimeout;
-}
-
-impl FirstEffect for super::effect::ClearTimeout {
-    type Head = super::effect::ClearTimeout;
-}
-
-impl<E: crate::ExternalEffect> FirstEffect for super::effect::External<E> {
-    type Head = super::effect::External<E>;
-}
-
-impl FirstEffect for super::effect::AddStage {
-    type Head = super::effect::AddStage;
-}
-
-impl<T> FirstEffect for super::effect::Receive<T> {
-    type Head = super::effect::Receive<T>;
-}
-
-impl<H, T> FirstEffect for Cons<H, T> {
-    type Head = H;
+impl PruneTup for () {
+    type Out = ();
 }
 
 /// Sequence heads that are not a [`Repeat`] (later parallel branches apply).
@@ -136,6 +170,11 @@ impl NotRepeat for super::effect::ClearTimeout {}
 impl<E: crate::ExternalEffect> NotRepeat for super::effect::External<E> {}
 impl NotRepeat for super::effect::AddStage {}
 impl<T> NotRepeat for super::effect::Receive<T> {}
+
+impl<E: NotRepeat> RepeatBody for E {
+    type Head = E;
+    type Tail = ();
+}
 
 /// Compile-time inequality for `Select` bounds. Names are compared only
 /// within one rustc invocation, so two distinct types never collide.
@@ -161,144 +200,219 @@ pub trait IsFalse {}
 impl IsFalse for If<false> {}
 
 /// Select the leftmost head `E`. `I` is inferred and unique.
+#[diagnostic::on_unimplemented(
+    message = "cannot `{E}` from this remainder",
+    label = "not allowed in the remaining session",
+    note = "`{Self}` has no leftmost `{E}`"
+)]
 pub trait Select<E, I> {
     type Rest;
 }
 
-impl<E, Tail, Rest> Select<E, Here> for Cons<Cons<E, Tail>, Rest>
-where
-    E: NotRepeat,
-{
-    type Rest = Cons<Tail, Rest>;
+/// Dispatch `Select` on the head of the first parallel sequence.
+///
+/// `Self` is that head (`E` or [`Repeat<Body>`]), so the Repeat/effect cases
+/// are disjoint type constructors rather than overlapping `Par<P>` impls.
+pub trait TakeHead<E, I, SeqTail, RestPar> {
+    type Rest;
 }
 
-/// `Repeat` at the front of a sequence: keep or unroll.
-impl<E, Seq, Tail, Rest> Select<E, Here> for Cons<Cons<Repeat<Seq>, Tail>, Rest>
+#[diagnostic::do_not_recommend]
+impl<E: NotRepeat, SeqTail, RestPar> TakeHead<E, Here, SeqTail, RestPar> for E
 where
-    Self: TakeRepeat<E, Here>,
+    SeqTail: ConsIfPresent<RestPar>,
 {
-    type Rest = <Self as TakeRepeat<E, Here>>::Rest;
+    type Rest = SeqTail::Out;
 }
 
-/// `Repeat` that does not match `E`: discard it and search what follows.
-impl<E, Seq, Tail, Rest, I> Select<E, Skip<I>> for Cons<Cons<Repeat<Seq>, Tail>, Rest>
+#[diagnostic::do_not_recommend]
+impl<E, Body, SeqTail, RestPar> TakeHead<E, Here, SeqTail, RestPar> for Repeat<Body>
 where
-    Self: TakeRepeat<E, Skip<I>>,
+    Body: RepeatBody<Head = E>,
+    Repeat<Body>: UnrollRepeat<Body, SeqTail>,
+    <Repeat<Body> as UnrollRepeat<Body, SeqTail>>::Out: ConsIfPresent<RestPar>,
 {
-    type Rest = <Self as TakeRepeat<E, Skip<I>>>::Rest;
+    type Rest = <<Repeat<Body> as UnrollRepeat<Body, SeqTail>>::Out as ConsIfPresent<RestPar>>::Out;
 }
 
-/// Later parallel sequence. Applies only when this head cannot serve `E`.
-impl<E, Eff, Tail, Rest, I> Select<E, There<I>> for Cons<Cons<Eff, Tail>, Rest>
+#[diagnostic::do_not_recommend]
+impl<E, Body, SeqTail, RestPar, I> TakeHead<E, Skip<I>, SeqTail, RestPar> for Repeat<Body>
+where
+    Body: RepeatBody,
+    If<{ types_eq::<Body::Head, E>() }>: IsFalse,
+    SeqTail: ConsIfPresent<RestPar>,
+    SeqTail::Out: SelectTup<E, I>,
+{
+    type Rest = <SeqTail::Out as SelectTup<E, I>>::Rest;
+}
+
+#[diagnostic::do_not_recommend]
+impl<E, Eff, SeqTail, RestPar, I> TakeHead<E, There<I>, SeqTail, RestPar> for Eff
 where
     Eff: NotRepeat,
     If<{ types_eq::<Eff, E>() }>: IsFalse,
-    Rest: Select<E, I>,
+    SeqTail: Prefix<Eff>,
+    RestPar: SelectTup<E, I>,
+    <RestPar as SelectTup<E, I>>::Rest: Prefix<SeqTail::Out>,
 {
-    type Rest = Cons<Cons<Eff, Tail>, Rest::Rest>;
+    type Rest = <<RestPar as SelectTup<E, I>>::Rest as Prefix<SeqTail::Out>>::Out;
 }
 
-impl<E, I, P, S> Select<E, I> for Then<P, S>
+#[diagnostic::do_not_recommend]
+impl<E, I, P> Select<E, I> for Par<P>
 where
-    P: Select<E, I>,
-    P::Rest: Clean,
+    P: SelectTup<E, I>,
 {
-    type Rest = Then<<P::Rest as Clean>::Out, S>;
+    type Rest = Par<P::Rest>;
+}
+
+#[diagnostic::do_not_recommend]
+impl<E, I, P, S> Select<E, I> for Then<Par<P>, S>
+where
+    Par<P>: Select<E, I>,
+    <Par<P> as Select<E, I>>::Rest: Clean,
+{
+    type Rest = Then<<<Par<P> as Select<E, I>>::Rest as Clean>::Out, S>;
 }
 
 /// First choice alternative that can serve `E`. Other `Then`s are dropped.
-impl<E, I, P, S, Rest> Select<E, In<I>> for Cons<Then<P, S>, Rest>
-where
-    P: Select<E, I>,
-    P::Rest: Clean,
-{
-    type Rest = Cons<Then<<P::Rest as Clean>::Out, S>, Nil>;
-}
-
-/// Later choice alternative. This `Then` is dropped.
 ///
 /// `There` stays a candidate even while `E` is still inferred (a `types_eq`
 /// bound here would freeze `T` to the first alternative's payload). Distinct
 /// heads therefore pick a unique `I`; two alternatives with the same head
 /// are ambiguous.
-impl<E, I, P, S, Rest> Select<E, There<I>> for Cons<Then<P, S>, Rest>
-where
-    Rest: Select<E, I>,
-{
-    type Rest = Rest::Rest;
+macro_rules! impl_choice_select {
+    ($H:ident $(, $T:ident)* $(,)?) => {
+        #[diagnostic::do_not_recommend]
+        impl<E, I, $H $(, $T)*> Select<E, In<I>> for Choice<($H, $($T,)*)>
+        where
+            $H: Select<E, I>,
+            <$H as Select<E, I>>::Rest: Clean,
+        {
+            type Rest = Choice<(<<$H as Select<E, I>>::Rest as Clean>::Out,)>;
+        }
+        impl_choice_select!(@there $H $(, $T)*);
+        impl_choice_select!($($T),*);
+    };
+    (@there $H:ident $(, $T:ident)+) => {
+        #[diagnostic::do_not_recommend]
+        impl<E, I, $H, $($T),+> Select<E, There<I>> for Choice<($H, $($T,)+)>
+        where
+            Choice<($($T,)+)>: Select<E, I>,
+        {
+            type Rest = <Choice<($($T,)+)> as Select<E, I>>::Rest;
+        }
+    };
+    (@there $H:ident) => {};
+    () => {};
 }
 
-/// Concatenate two sequences.
-pub trait Concat<Suf> {
+impl_choice_select!(C0, C1, C2, C3, C4, C5, C6, C7, C8, C9);
+
+/// Unroll `Repeat<Body>` in front of `Suffix`: leftover body, then the star, then `Suffix`.
+pub trait UnrollRepeat<Body, Suffix> {
     type Out;
 }
 
-impl<Suf> Concat<Suf> for Nil {
-    type Out = Suf;
-}
-
-impl<H, T: Concat<Suf>, Suf> Concat<Suf> for Cons<H, T> {
-    type Out = Cons<H, T::Out>;
-}
-
-/// How a leading [`Repeat`] serves a selection of `E`.
-///
-/// - [`Here`]: `Repeat<E>` keeps the star; `Repeat<Cons<E, T>>` unrolls `T`
-///   in front of the same `Repeat`.
-/// - [`Skip`]: the star's first step is not `E`, so it is discarded and `E`
-///   is selected from what follows.
-///
-/// [`Here`] unifies `E` with the star body, so [`Session::send`](super::Session::send)
-/// of a later payload cannot skip; use [`Session::discard_repeat`](super::Session::discard_repeat).
-pub trait TakeRepeat<E, I> {
-    type Rest;
-}
-
-impl<E, Tail, Rest> TakeRepeat<E, Here> for Cons<Cons<Repeat<E>, Tail>, Rest> {
-    type Rest = Cons<Cons<Repeat<E>, Tail>, Rest>;
-}
-
-impl<E, T, Tail, Rest> TakeRepeat<E, Here> for Cons<Cons<Repeat<Cons<E, T>>, Tail>, Rest>
+impl<Body, Suffix> UnrollRepeat<Body, Suffix> for Repeat<Body>
 where
-    T: Concat<Cons<Repeat<Cons<E, T>>, Tail>>,
+    Body: RepeatBody,
+    (Repeat<Body>,): Concat<Suffix>,
+    Body::Tail: Concat<<(Repeat<Body>,) as Concat<Suffix>>::Out>,
 {
-    type Rest = Cons<T::Out, Rest>;
-}
-
-impl<E, Seq, Tail, Rest, I> TakeRepeat<E, Skip<I>> for Cons<Cons<Repeat<Seq>, Tail>, Rest>
-where
-    Seq: FirstEffect,
-    If<{ types_eq::<Seq::Head, E>() }>: IsFalse,
-    Cons<Tail, Rest>: Clean,
-    <Cons<Tail, Rest> as Clean>::Out: Select<E, I>,
-{
-    type Rest = <<Cons<Tail, Rest> as Clean>::Out as Select<E, I>>::Rest;
+    type Out = <Body::Tail as Concat<<(Repeat<Body>,) as Concat<Suffix>>::Out>>::Out;
 }
 
 /// Drop a leading [`Repeat`] from the current sequence, leaving the suffix.
 ///
-/// Used by [`Session::discard_repeat`](super::Session::discard_repeat). There is
+/// Used by [`SessionOps::discard_repeat`](super::SessionOps::discard_repeat). There is
 /// no impl when the head is not a star, so skipping is a compile error.
+#[diagnostic::on_unimplemented(
+    message = "no leading Repeat to discard in `{Self}`",
+    label = "remainder does not start with Repeat"
+)]
 pub trait DiscardRepeat {
     type Out;
 }
 
-impl<Seq, Tail, Rest> DiscardRepeat for Cons<Cons<Repeat<Seq>, Tail>, Rest>
+#[diagnostic::do_not_recommend]
+impl<P, Body> DiscardRepeat for Par<P>
 where
-    Cons<Tail, Rest>: Clean,
+    P: Uncons,
+    P::Head: Uncons<Head = Repeat<Body>>,
+    <P::Head as Uncons>::Tail: ConsIfPresent<P::Tail>,
+    Par<<<P::Head as Uncons>::Tail as ConsIfPresent<P::Tail>>::Out>: Clean,
 {
-    type Out = <Cons<Tail, Rest> as Clean>::Out;
+    type Out = <Par<<<P::Head as Uncons>::Tail as ConsIfPresent<P::Tail>>::Out> as Clean>::Out;
 }
 
-impl<P: DiscardRepeat, S> DiscardRepeat for Then<P, S> {
-    type Out = Then<P::Out, S>;
+#[diagnostic::do_not_recommend]
+impl<P, S> DiscardRepeat for Then<Par<P>, S>
+where
+    Par<P>: DiscardRepeat,
+{
+    type Out = Then<<Par<P> as DiscardRepeat>::Out, S>;
 }
 
-impl<P, S, Rest> DiscardRepeat for Cons<Then<P, S>, Rest>
+#[diagnostic::do_not_recommend]
+impl<C> DiscardRepeat for Choice<C>
 where
-    Then<P, S>: DiscardRepeat,
+    C: Uncons,
+    C::Head: DiscardRepeat,
+    C::Tail: Prefix<<C::Head as DiscardRepeat>::Out>,
 {
-    type Out = Cons<<Then<P, S> as DiscardRepeat>::Out, Rest>;
+    type Out = Choice<<C::Tail as Prefix<<C::Head as DiscardRepeat>::Out>>::Out>;
+}
+
+/// How a leading effect or [`Repeat`] is treated when stripping stars for [`CanFinish`].
+pub trait StripHead<Tail> {
+    type Out;
+}
+
+impl<Seq, Tail: StripRepeat> StripHead<Tail> for Repeat<Seq> {
+    type Out = Tail::Out;
+}
+
+impl<R, T, Tail: Prefix<super::effect::Send<R, T>>> StripHead<Tail> for super::effect::Send<R, T> {
+    type Out = Tail::Out;
+}
+impl<R, Tail: Prefix<SendAny<R>>> StripHead<Tail> for SendAny<R> {
+    type Out = Tail::Out;
+}
+impl<Tail: Prefix<super::effect::Wait>> StripHead<Tail> for super::effect::Wait {
+    type Out = Tail::Out;
+}
+impl<Tail: Prefix<super::effect::Terminate>> StripHead<Tail> for super::effect::Terminate {
+    type Out = Tail::Out;
+}
+impl<R, T, Tail: Prefix<super::effect::Call<R, T>>> StripHead<Tail> for super::effect::Call<R, T> {
+    type Out = Tail::Out;
+}
+impl<Tail: Prefix<super::effect::Clock>> StripHead<Tail> for super::effect::Clock {
+    type Out = Tail::Out;
+}
+impl<T, Tail: Prefix<super::effect::Schedule<T>>> StripHead<Tail> for super::effect::Schedule<T> {
+    type Out = Tail::Out;
+}
+impl<Tail: Prefix<super::effect::CancelSchedule>> StripHead<Tail> for super::effect::CancelSchedule {
+    type Out = Tail::Out;
+}
+impl<Tail: Prefix<super::effect::SetTimeout>> StripHead<Tail> for super::effect::SetTimeout {
+    type Out = Tail::Out;
+}
+impl<Tail: Prefix<super::effect::ClearTimeout>> StripHead<Tail> for super::effect::ClearTimeout {
+    type Out = Tail::Out;
+}
+impl<E: crate::ExternalEffect, Tail: Prefix<super::effect::External<E>>> StripHead<Tail>
+    for super::effect::External<E>
+{
+    type Out = Tail::Out;
+}
+impl<Tail: Prefix<super::effect::AddStage>> StripHead<Tail> for super::effect::AddStage {
+    type Out = Tail::Out;
+}
+impl<T, Tail: Prefix<super::effect::Receive<T>>> StripHead<Tail> for super::effect::Receive<T> {
+    type Out = Tail::Out;
 }
 
 /// Strip leading [`Repeat`] from a sequence.
@@ -306,32 +420,8 @@ pub trait StripRepeat {
     type Out;
 }
 
-impl StripRepeat for Nil {
-    type Out = Nil;
-}
-
-impl<E, T: StripRepeat> StripRepeat for Cons<Repeat<E>, T> {
-    type Out = T::Out;
-}
-
-impl<R, T, Tail> StripRepeat for Cons<super::effect::Send<R, T>, Tail> {
-    type Out = Cons<super::effect::Send<R, T>, Tail>;
-}
-
-impl<R, T, Tail> StripRepeat for Cons<super::effect::Call<R, T>, Tail> {
-    type Out = Cons<super::effect::Call<R, T>, Tail>;
-}
-
-impl<R, Tail> StripRepeat for Cons<SendAny<R>, Tail> {
-    type Out = Cons<SendAny<R>, Tail>;
-}
-
-impl<Tail> StripRepeat for Cons<super::effect::Wait, Tail> {
-    type Out = Cons<super::effect::Wait, Tail>;
-}
-
-impl<Tail> StripRepeat for Cons<super::effect::Terminate, Tail> {
-    type Out = Cons<super::effect::Terminate, Tail>;
+impl StripRepeat for () {
+    type Out = ();
 }
 
 /// After stripping `Repeat` prefixes, drop empty branches.
@@ -339,68 +429,152 @@ pub trait Prune {
     type Out;
 }
 
-impl Prune for Nil {
-    type Out = Nil;
-}
-
-impl<Seq, Rest: Prune> Prune for Cons<Seq, Rest>
-where
-    Seq: StripRepeat,
-    Seq::Out: ConsIfPresent<Rest::Out>,
-{
-    type Out = <Seq::Out as ConsIfPresent<Rest::Out>>::Out;
+impl<P: PruneTup> Prune for Par<P> {
+    type Out = Par<P::Out>;
 }
 
 pub trait ConsIfPresent<Rest> {
     type Out;
 }
 
-impl<Rest> ConsIfPresent<Rest> for Nil {
+impl<Rest> ConsIfPresent<Rest> for () {
     type Out = Rest;
 }
 
-impl<H, T, Rest> ConsIfPresent<Rest> for Cons<H, T> {
-    type Out = Cons<Cons<H, T>, Rest>;
+impl<Seq, Rest> ConsIfPresent<Rest> for Seq
+where
+    Seq: Uncons,
+    Rest: Prefix<Seq>,
+{
+    type Out = Rest::Out;
 }
 
-/// A remainder that may [`Session::finish`](super::Session::finish) in `S`.
+macro_rules! impl_seq_tuples {
+    ($H:ident $(, $T:ident)* $(,)?) => {
+        impl<$H $(, $T)*> StripRepeat for ($H, $($T,)*)
+        where
+            $H: StripHead<($($T,)*)>,
+        {
+            type Out = <$H as StripHead<($($T,)*)>>::Out;
+        }
+        impl<E, I, $H $(, $T)*> SelectTup<E, I> for ($H, $($T,)*)
+        where
+            $H: Uncons,
+            <$H as Uncons>::Head: TakeHead<E, I, <$H as Uncons>::Tail, ($($T,)*)>,
+        {
+            type Rest = <<$H as Uncons>::Head as TakeHead<E, I, <$H as Uncons>::Tail, ($($T,)*)>>::Rest;
+        }
+        impl<$H $(, $T)*> PruneTup for ($H, $($T,)*)
+        where
+            $H: StripRepeat,
+            ($($T,)*): PruneTup,
+            <$H as StripRepeat>::Out: ConsIfPresent<<($($T,)*) as PruneTup>::Out>,
+        {
+            type Out = <<$H as StripRepeat>::Out as ConsIfPresent<<($($T,)*) as PruneTup>::Out>>::Out;
+        }
+        impl_seq_tuples!($($T),*);
+    };
+    () => {};
+}
+
+impl_seq_tuples!(S0, S1, S2, S3, S4, S5, S6, S7, S8, S9);
+
+/// A remainder that may [`SessionOps::finish`](super::SessionOps::finish) in `S`.
 ///
-/// For [`Then<P, S>`], leading [`Repeat`] on each branch of `P` is discarded;
+/// For [`Then<Par<P>, S>`], leading [`Repeat`] on each branch of `P` is discarded;
 /// empty branches are dropped; finish is allowed only when no branch remains.
+#[diagnostic::on_unimplemented(
+    message = "cannot finish in `{S}` from remainder `{Self}`",
+    label = "required effects still remain",
+    note = "leading Repeat is stripped automatically; other effects must be performed first"
+)]
 pub trait CanFinish<S, I> {}
 
-impl<P, S: State> CanFinish<S, Here> for Then<P, S> where P: Prune<Out = Nil> {}
+#[diagnostic::do_not_recommend]
+impl<P, S: State> CanFinish<S, Here> for Then<Par<P>, S> where Par<P>: Prune<Out = Par<()>> {}
 
-impl<P, S: State, Rest> CanFinish<S, Here> for Cons<Then<P, S>, Rest> where Then<P, S>: CanFinish<S, Here> {}
+macro_rules! impl_choice_finish {
+    ($H:ident $(, $T:ident)* $(,)?) => {
+        #[diagnostic::do_not_recommend]
+        impl<S: State, $H $(, $T)*> CanFinish<S, Here> for Choice<($H, $($T,)*)>
+        where
+            $H: CanFinish<S, Here>,
+        {
+        }
+        impl_choice_finish!(@there $H $(, $T)*);
+        impl_choice_finish!($($T),*);
+    };
+    (@there $H:ident $(, $T:ident)+) => {
+        #[diagnostic::do_not_recommend]
+        impl<S: State, I, $H, $($T),+> CanFinish<S, There<I>> for Choice<($H, $($T,)+)>
+        where
+            Choice<($($T,)+)>: CanFinish<S, I>,
+        {
+        }
+    };
+    (@there $H:ident) => {};
+    () => {};
+}
 
-impl<P, S: State, Rest, I> CanFinish<S, There<I>> for Cons<Then<P, S>, Rest> where Rest: CanFinish<S, I> {}
+impl_choice_finish!(C0, C1, C2, C3, C4, C5, C6, C7, C8, C9);
 
-/// Drop exhausted (`Nil`) sequences after a consume.
+/// [`Select`] plus [`Clean`]. `I` is inferred and unique.
+///
+/// [`Session`](super::Session) methods name this in the **return type**, not a
+/// `where` clause, so a missing effect is E0277 rather than E0599 (“no method”).
+#[diagnostic::on_unimplemented(
+    message = "cannot `{E}` from this remainder",
+    label = "not allowed in the remaining session",
+    note = "`{Self}` has no leftmost `{E}`"
+)]
+pub trait Take<E, I> {
+    type Rest;
+}
+
+#[diagnostic::do_not_recommend]
+impl<R, E, I> Take<E, I> for R
+where
+    R: Select<E, I>,
+    R::Rest: Clean,
+{
+    type Rest = <R::Rest as Clean>::Out;
+}
+
+/// [`CanFinish`] as a projection so [`SessionOps::finish`](super::SessionOps::finish)
+/// does not hide behind E0599.
+#[diagnostic::on_unimplemented(
+    message = "cannot finish in `{S}` from remainder `{Self}`",
+    label = "required effects still remain",
+    note = "leading Repeat is stripped automatically; other effects must be performed first"
+)]
+pub trait FinishIn<S, I> {
+    type Out;
+}
+
+#[diagnostic::do_not_recommend]
+impl<R, S: State, I> FinishIn<S, I> for R
+where
+    R: CanFinish<S, I>,
+{
+    type Out = S;
+}
+
+/// Drop exhausted sequences after a consume. Selection already omits empty
+/// branches, so this is identity on [`Par`] / [`Then`] / [`Choice`].
 pub trait Clean {
     type Out;
 }
 
-impl Clean for Nil {
-    type Out = Nil;
+impl<P> Clean for Par<P> {
+    type Out = Par<P>;
 }
 
-impl<T: Clean> Clean for Cons<Nil, T> {
-    type Out = T::Out;
+impl<P, S> Clean for Then<Par<P>, S> {
+    type Out = Then<Par<P>, S>;
 }
 
-impl<H, Tail, T: Clean> Clean for Cons<Cons<H, Tail>, T> {
-    type Out = Cons<Cons<H, Tail>, T::Out>;
-}
-
-impl<P: Clean, S> Clean for Then<P, S> {
-    type Out = Then<P::Out, S>;
-}
-
-impl<P, S, Rest: Clean> Clean for Cons<Then<P, S>, Rest>
-where
-    Then<P, S>: Clean,
-{
-    type Out = Cons<<Then<P, S> as Clean>::Out, Rest::Out>;
+impl<C> Clean for Choice<C> {
+    type Out = Choice<C>;
 }
 
 /// Format a sequence (`Send<A>, Wait`).
@@ -417,77 +591,113 @@ pub trait IsNil {
     const IS_NIL: bool;
 }
 
-impl IsNil for Nil {
+impl IsNil for Par<()> {
     const IS_NIL: bool = true;
 }
 
-impl<H, T> IsNil for Cons<H, T> {
+impl<P: Uncons> IsNil for Par<P> {
     const IS_NIL: bool = false;
 }
 
-impl<H, T> crate::typestate::effect::Effect for Repeat<Cons<H, T>>
-where
-    Cons<H, T>: FmtSeq,
-{
-    fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Repeat<")?;
-        <Cons<H, T> as FmtSeq>::fmt_seq(f)?;
-        write!(f, ">")
+impl FmtSeq for () {
+    fn fmt_seq(_f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
     }
 }
 
-impl<E: Effect> FmtSeq for Cons<E, Nil> {
-    fn fmt_seq(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        E::fmt(f)
-    }
+macro_rules! impl_fmt_seq {
+    ($H:ident) => {
+        impl<$H: Effect> FmtSeq for ($H,) {
+            fn fmt_seq(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                $H::fmt(f)
+            }
+        }
+        impl<$H: Effect> crate::typestate::effect::Effect for Repeat<($H,)> {
+            fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "Repeat<")?;
+                $H::fmt(f)?;
+                write!(f, ">")
+            }
+        }
+    };
+    ($H:ident, $($T:ident),+) => {
+        impl<$H: Effect, $($T: Effect),+> FmtSeq for ($H, $($T,)+) {
+            fn fmt_seq(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                $H::fmt(f)?;
+                write!(f, ", ")?;
+                <($($T,)+) as FmtSeq>::fmt_seq(f)
+            }
+        }
+        impl<$H: Effect, $($T: Effect),+> crate::typestate::effect::Effect for Repeat<($H, $($T,)+)> {
+            fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "Repeat<")?;
+                <($H, $($T,)+) as FmtSeq>::fmt_seq(f)?;
+                write!(f, ">")
+            }
+        }
+        impl_fmt_seq!($($T),+);
+    };
 }
 
-impl<E: Effect, H, T> FmtSeq for Cons<E, Cons<H, T>>
-where
-    Cons<H, T>: FmtSeq,
-{
-    fn fmt_seq(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        E::fmt(f)?;
-        write!(f, ", ")?;
-        <Cons<H, T> as FmtSeq>::fmt_seq(f)
-    }
+macro_rules! impl_fmt_par {
+    ($H:ident) => {
+        impl<$H: FmtSeq> FmtPar for Par<($H,)> {
+            fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                $H::fmt_seq(f)
+            }
+        }
+        impl<$H: FmtPar> FmtPar for Choice<($H,)> {
+            fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                $H::fmt_par(f)
+            }
+        }
+    };
+    ($H:ident, $($T:ident),+) => {
+        impl<$H: FmtSeq, $($T: FmtSeq),+> FmtPar for Par<($H, $($T,)+)> {
+            fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                $H::fmt_seq(f)?;
+                write!(f, " | ")?;
+                <Par<($($T,)+)> as FmtPar>::fmt_par(f)
+            }
+        }
+        impl<$H: FmtPar, $($T: FmtPar),+> FmtPar for Choice<($H, $($T,)+)> {
+            fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                $H::fmt_par(f)?;
+                write!(f, " | ")?;
+                <Choice<($($T,)+)> as FmtPar>::fmt_par(f)
+            }
+        }
+        impl_fmt_par!($($T),+);
+    };
 }
 
-impl FmtPar for Nil {
+impl_fmt_seq!(E0, E1, E2, E3, E4, E5, E6, E7, E8, E9);
+impl_fmt_par!(B0, B1, B2, B3, B4, B5, B6, B7, B8, B9);
+
+impl FmtPar for Par<()> {
     fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "(none)")
     }
 }
 
-impl<H: FmtSeq> FmtPar for Cons<H, Nil> {
-    fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        H::fmt_seq(f)
-    }
-}
-
-impl<H: FmtSeq, T1, T2> FmtPar for Cons<H, Cons<T1, T2>>
+impl<P, S: State> FmtSeq for Then<Par<P>, S>
 where
-    Cons<T1, T2>: FmtPar,
+    Par<P>: FmtPar + IsNil,
 {
-    fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        H::fmt_seq(f)?;
-        write!(f, " | ")?;
-        <Cons<T1, T2> as FmtPar>::fmt_par(f)
-    }
-}
-
-impl<P: FmtPar + IsNil, S: State> FmtSeq for Then<P, S> {
     fn fmt_seq(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if P::IS_NIL {
+        if <Par<P> as IsNil>::IS_NIL {
             write!(f, "=> {}", S::NAME)
         } else {
-            P::fmt_par(f)?;
+            <Par<P> as FmtPar>::fmt_par(f)?;
             write!(f, " => {}", S::NAME)
         }
     }
 }
 
-impl<P: FmtPar + IsNil, S: State> FmtPar for Then<P, S> {
+impl<P, S: State> FmtPar for Then<Par<P>, S>
+where
+    Par<P>: FmtPar + IsNil,
+{
     fn fmt_par(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         <Self as FmtSeq>::fmt_seq(f)
     }

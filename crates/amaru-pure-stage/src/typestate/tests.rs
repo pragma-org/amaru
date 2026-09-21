@@ -16,9 +16,9 @@
 //! `tests/typestate.rs`.
 
 use super::{
-    Cons, FmtPar, Here, Nil, OnReceive, Select, Then,
+    Choice, FmtPar, Here, OnReceive, Par, Select, Then,
     effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout},
-    list::{CanFinish, Clean, DiscardRepeat, describe},
+    list::{CanFinish, ConsIfPresent, DiscardRepeat, describe},
     session::describe_receive,
 };
 
@@ -102,24 +102,27 @@ fn receive_constructor_selects_by_input_variant() {
 
 #[test]
 fn select_picks_first_matching_head() {
-    type Left = Then<Cons<Cons<Send<toy::Peer, u8>, Nil>, Nil>, toy::Idle>;
-    type Rem = Cons<Left, Cons<Then<Cons<Cons<Send<toy::Peer, String>, Nil>, Nil>, toy::Done>, Nil>>;
+    type Left = Then<Par<((Send<toy::Peer, u8>,),)>, toy::Idle>;
+    type Rem = Choice<(Left, Then<Par<((Send<toy::Peer, String>,),)>, toy::Done>)>;
 
-    assert_after::<Rem, Send<toy::Peer, u8>, Cons<Then<Nil, toy::Idle>, Nil>, _>();
+    assert_after::<Rem, Send<toy::Peer, u8>, Choice<(Then<Par<()>, toy::Idle>,)>, _>();
 }
 
 #[test]
 fn select_call_is_required_before_finish() {
-    type Rem = Cons<Then<Cons<Cons<Call<toy::Peer, u8>, Nil>, Nil>, toy::Done>, Nil>;
+    type Rem = Choice<(Then<Par<((Call<toy::Peer, u8>,),)>, toy::Done>,)>;
     fn assert_selects<R: Select<Call<toy::Peer, u8>, I>, I>() {}
     assert_selects::<Rem, _>();
     assert_eq!(describe::<Rem>(), format!("Call<{}, u8> => Done", std::any::type_name::<toy::Peer>()));
 }
 
 #[test]
-fn clean_drops_exhausted_sequences() {
-    type Dirty = Cons<Nil, Cons<Then<Nil, toy::Done>, Nil>>;
-    assert_types_eq::<<Dirty as Clean>::Out, Cons<Then<Nil, toy::Done>, Nil>>();
+fn exhausted_sequence_is_dropped_from_parallel() {
+    assert_types_eq::<<() as ConsIfPresent<((Send<toy::Peer, u8>,),)>>::Out, ((Send<toy::Peer, u8>,),)>();
+    assert_types_eq::<
+        <(Send<toy::Peer, u16>,) as ConsIfPresent<((Send<toy::Peer, u8>,),)>>::Out,
+        ((Send<toy::Peer, u16>,), (Send<toy::Peer, u8>,)),
+    >();
 }
 
 #[test]
@@ -136,8 +139,21 @@ fn describe_remainder() {
 }
 
 #[test]
+fn remainder_const_text_matches_describe() {
+    use super::describe::ConstDesc;
+    type Rem = <toy::Idle as OnReceive<toy::FindIntersect>>::Then;
+    assert_eq!(Rem::TEXT, "Send<Peer, String>, Send<Peer, u8> => Intersect | Wait => Idle");
+    const TEXT: &str = Rem::TEXT;
+    let _: super::Remainder<{ TEXT }> = super::Remainder;
+}
+
+fn _remainder_binding_is_str<M, R: super::describe::ConstDesc>(s: &super::Session<M, R>) {
+    let _: &'static str = s.remainder();
+}
+
+#[test]
 fn set_timeout_is_required_before_finish() {
-    type Rem = Cons<Then<Cons<Cons<SetTimeout, Nil>, Nil>, toy::Idle>, Nil>;
+    type Rem = Choice<(Then<Par<((SetTimeout,),)>, toy::Idle>,)>;
     fn assert_selects<R: Select<SetTimeout, I>, I>() {}
     assert_selects::<Rem, _>();
     assert_eq!(describe::<Rem>(), "SetTimeout => Idle");
@@ -145,7 +161,7 @@ fn set_timeout_is_required_before_finish() {
 
 #[test]
 fn clear_timeout_is_required_before_finish() {
-    type Rem = Cons<Then<Cons<Cons<ClearTimeout, Nil>, Nil>, toy::Idle>, Nil>;
+    type Rem = Choice<(Then<Par<((ClearTimeout,),)>, toy::Idle>,)>;
     fn assert_selects<R: Select<ClearTimeout, I>, I>() {}
     assert_selects::<Rem, _>();
     assert_eq!(describe::<Rem>(), "ClearTimeout => Idle");
@@ -153,31 +169,27 @@ fn clear_timeout_is_required_before_finish() {
 
 #[test]
 fn unused_star_does_not_block_finish() {
-    type Rem = Cons<Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>, toy::Idle>, Nil>;
+    type Rem = Choice<(Then<Par<((Repeat<SendAny<toy::Peer>>,),)>, toy::Idle>,)>;
     fn assert_finish<R: CanFinish<toy::Idle, Here>>() {}
     assert_finish::<Rem>();
 }
 
 #[test]
 fn star_then_required_send_does_not_finish() {
-    type Rem = Cons<Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Cons<Send<toy::Peer, u8>, Nil>>, Nil>, toy::Idle>, Nil>;
+    type Rem = Choice<(Then<Par<((Repeat<SendAny<toy::Peer>>, Send<toy::Peer, u8>),)>, toy::Idle>,)>;
     fn assert_selects_send<R: Select<Send<toy::Peer, u8>, I>, I>() {}
     assert_selects_send::<Rem, _>();
 }
 
 #[test]
 fn using_star_keeps_the_star() {
-    type Inner = Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>, toy::Idle>;
-    type Rem = Cons<Inner, Nil>;
+    type Rem = Choice<(Then<Par<((Repeat<SendAny<toy::Peer>>,),)>, toy::Idle>,)>;
     assert_after::<Rem, SendAny<toy::Peer>, Rem, _>();
 }
 
 #[test]
 fn parallel_star_is_usable_beside_a_required_send() {
-    type Rem = Cons<
-        Then<Cons<Cons<Send<toy::Peer, u8>, Nil>, Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>>, toy::Idle>,
-        Nil,
-    >;
+    type Rem = Choice<(Then<Par<((Send<toy::Peer, u8>,), (Repeat<SendAny<toy::Peer>>,))>, toy::Idle>,)>;
     fn assert_send<R: Select<Send<toy::Peer, u8>, I>, I>() {}
     fn assert_any<R: Select<SendAny<toy::Peer>, I>, I>() {}
     assert_send::<Rem, _>();
@@ -186,50 +198,42 @@ fn parallel_star_is_usable_beside_a_required_send() {
 
 #[test]
 fn repeat_sequence_unrolls_then_keeps_the_star() {
-    type Seq = Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>;
-    type Rem = Cons<Then<Cons<Cons<Repeat<Seq>, Nil>, Nil>, toy::Idle>, Nil>;
-    type Expect = Cons<Then<Cons<Cons<Send<toy::Peer, u16>, Cons<Repeat<Seq>, Nil>>, Nil>, toy::Idle>, Nil>;
+    type Seq = (Send<toy::Peer, u8>, Send<toy::Peer, u16>);
+    type Rem = Choice<(Then<Par<((Repeat<Seq>,),)>, toy::Idle>,)>;
+    type Expect = Choice<(Then<Par<((Send<toy::Peer, u16>, Repeat<Seq>),)>, toy::Idle>,)>;
     assert_after::<Rem, Send<toy::Peer, u8>, Expect, _>();
 }
 
 #[test]
 fn discard_repeat_leaves_the_suffix() {
-    type Rem =
-        Cons<Then<Cons<Cons<Repeat<Send<toy::Peer, u8>>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>, toy::Idle>, Nil>;
-    type Expect = Cons<Then<Cons<Cons<Send<toy::Peer, u16>, Nil>, Nil>, toy::Idle>, Nil>;
+    type Rem = Choice<(Then<Par<((Repeat<Send<toy::Peer, u8>>, Send<toy::Peer, u16>),)>, toy::Idle>,)>;
+    type Expect = Choice<(Then<Par<((Send<toy::Peer, u16>,),)>, toy::Idle>,)>;
     assert_discard::<Rem, Expect>();
 }
 
 #[test]
 fn repeat_is_discarded_when_the_suffix_matches() {
-    type Rem =
-        Cons<Then<Cons<Cons<Repeat<Send<toy::Peer, u8>>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>, toy::Idle>, Nil>;
-    assert_after::<Rem, Send<toy::Peer, u16>, Cons<Then<Nil, toy::Idle>, Nil>, _>();
+    type Rem = Choice<(Then<Par<((Repeat<Send<toy::Peer, u8>>, Send<toy::Peer, u16>),)>, toy::Idle>,)>;
+    assert_after::<Rem, Send<toy::Peer, u16>, Choice<(Then<Par<()>, toy::Idle>,)>, _>();
 }
 
 #[test]
 fn repeat_of_sequence_is_discarded_when_the_suffix_matches() {
-    type Seq = Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>;
-    type Rem = Cons<Then<Cons<Cons<Repeat<Seq>, Cons<Send<toy::Peer, u32>, Nil>>, Nil>, toy::Idle>, Nil>;
-    assert_after::<Rem, Send<toy::Peer, u32>, Cons<Then<Nil, toy::Idle>, Nil>, _>();
+    type Seq = (Send<toy::Peer, u8>, Send<toy::Peer, u16>);
+    type Rem = Choice<(Then<Par<((Repeat<Seq>, Send<toy::Peer, u32>),)>, toy::Idle>,)>;
+    assert_after::<Rem, Send<toy::Peer, u32>, Choice<(Then<Par<()>, toy::Idle>,)>, _>();
 }
 
 #[test]
 fn repeat_wins_over_a_matching_suffix() {
-    type Rem = Cons<Then<Cons<Cons<Repeat<Send<toy::Peer, u8>>, Cons<Send<toy::Peer, u8>, Nil>>, Nil>, toy::Idle>, Nil>;
+    type Rem = Choice<(Then<Par<((Repeat<Send<toy::Peer, u8>>, Send<toy::Peer, u8>),)>, toy::Idle>,)>;
     assert_after::<Rem, Send<toy::Peer, u8>, Rem, _>();
 }
 
 #[test]
 fn leftmost_parallel_head_wins_when_both_match() {
-    type Rem = Cons<
-        Then<
-            Cons<Cons<Send<toy::Peer, u8>, Nil>, Cons<Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>>,
-            toy::Idle,
-        >,
-        Nil,
-    >;
-    type Expect = Cons<Then<Cons<Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>, toy::Idle>, Nil>;
+    type Rem = Choice<(Then<Par<((Send<toy::Peer, u8>,), (Send<toy::Peer, u8>, Send<toy::Peer, u16>))>, toy::Idle>,)>;
+    type Expect = Choice<(Then<Par<((Send<toy::Peer, u8>, Send<toy::Peer, u16>),)>, toy::Idle>,)>;
     assert_after::<Rem, Send<toy::Peer, u8>, Expect, _>();
     assert_eq!(
         describe_after::<Rem, Send<toy::Peer, u8>, _>(),
@@ -244,14 +248,9 @@ fn leftmost_parallel_head_wins_when_both_match() {
 #[test]
 fn star_macro_unrolls_the_sequence() {
     use crate::typestate::prelude::*;
-    type Rem = Cons<Then<Cons<Cons<star!(Send<toy::Peer, u8>, Send<toy::Peer, u16>), Nil>, Nil>, toy::Idle>, Nil>;
-    type Expect = Cons<
-        Then<
-            Cons<Cons<Send<toy::Peer, u16>, Cons<star!(Send<toy::Peer, u8>, Send<toy::Peer, u16>), Nil>>, Nil>,
-            toy::Idle,
-        >,
-        Nil,
-    >;
+    type Rem = Choice<(Then<Par<((star!(Send<toy::Peer, u8>, Send<toy::Peer, u16>),),)>, toy::Idle>,)>;
+    type Expect =
+        Choice<(Then<Par<((Send<toy::Peer, u16>, star!(Send<toy::Peer, u8>, Send<toy::Peer, u16>)),)>, toy::Idle>,)>;
     assert_after::<Rem, Send<toy::Peer, u8>, Expect, _>();
 }
 
@@ -284,8 +283,8 @@ mod exclusive_choice {
     });
 
     type Rem = <Idle as OnReceive<Go>>::Then;
-    type AfterAExpect = Cons<Then<Cons<Cons<Send<RoleB, B1>, Nil>, Nil>, StateA>, Nil>;
-    type AfterCExpect = Cons<Then<Cons<Cons<Send<RoleD, D1>, Nil>, Nil>, StateC>, Nil>;
+    type AfterAExpect = Choice<(Then<Par<((Send<RoleB, B1>,),)>, StateA>,)>;
+    type AfterCExpect = Choice<(Then<Par<((Send<RoleD, D1>,),)>, StateC>,)>;
 
     #[test]
     fn after_a_only_b_remains() {
@@ -325,7 +324,7 @@ mod exclusive_choice {
     });
 
     type Rem3 = <Start as OnReceive<Kick>>::Then;
-    type AfterEExpect = Cons<Then<Nil, StateZ>, Nil>;
+    type AfterEExpect = Choice<(Then<Par<()>, StateZ>,)>;
 
     #[test]
     fn three_way_choice_picks_the_last_alternative() {

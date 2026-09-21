@@ -45,7 +45,7 @@ impl<R> Effect for SendAny<R> {
     }
 }
 
-/// Kleene star of a single effect or of a sequence (`Repeat<Cons<A, Cons<B, Nil>>>`).
+/// Kleene star of a single effect or of a sequence (`Repeat<(A, B)>`).
 ///
 /// Selecting the first step unrolls the rest in front of the same `Repeat`.
 /// Selecting the following step discards the star (zero iterations).
@@ -106,7 +106,7 @@ impl Effect for CancelSchedule {
     }
 }
 
-/// Replace the current protocol timeout (see [`Session::set_timeout`](super::Session::set_timeout)).
+/// Replace the current protocol timeout (see [`SessionOps::set_timeout`](super::SessionOps::set_timeout)).
 pub struct SetTimeout;
 impl Effect for SetTimeout {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -114,7 +114,7 @@ impl Effect for SetTimeout {
     }
 }
 
-/// Cancel the current protocol timeout (see [`Session::clear_timeout`](super::Session::clear_timeout)).
+/// Cancel the current protocol timeout (see [`SessionOps::clear_timeout`](super::SessionOps::clear_timeout)).
 pub struct ClearTimeout;
 impl Effect for ClearTimeout {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
