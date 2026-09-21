@@ -505,7 +505,10 @@ mod tests {
     use amaru_kernel::{KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor};
     use test_case::test_case;
 
-    use super::{super::test_vectors::TestVector, *};
+    use super::{
+        super::test_vectors::{self, TestVector},
+        *,
+    };
 
     macro_rules! fixture {
         ($title:literal) => {

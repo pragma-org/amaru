@@ -107,7 +107,9 @@ pub static MAINNET_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
     stake_pool_max_retirement_epoch: 18,
     pledge_influence: RationalNumber::new(3, 10).expect("3/10 is a valid rational number"),
     optimal_stake_pools_count: 500,
+    #[expect(clippy::expect_used)]
     treasury_expansion_rate: UnitRationalNumber::new(2, 10).expect("2 <= 10"),
+    #[expect(clippy::expect_used)]
     monetary_expansion_rate: UnitRationalNumber::new(3, 1_000).expect("3 <= 1000"),
     min_pool_cost: 170000000,
     collateral_percentage: 150,
@@ -184,7 +186,9 @@ pub static PREPROD_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
         stake_pool_max_retirement_epoch: 18,
         pledge_influence: RationalNumber::new(3, 10).expect("3/10 is a valid rational number"),
         optimal_stake_pools_count: 500,
+        #[expect(clippy::expect_used)]
         treasury_expansion_rate: UnitRationalNumber::new(2, 10).expect("2 <= 10"),
+        #[expect(clippy::expect_used)]
         monetary_expansion_rate: UnitRationalNumber::new(3, 1_000).expect("3 <= 1000"),
         min_pool_cost: 340000000,
         collateral_percentage: 150,
@@ -262,7 +266,9 @@ pub static PREVIEW_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
         stake_pool_max_retirement_epoch: 18,
         pledge_influence: RationalNumber::new(3, 10).expect("3/10 is a valid rational number"),
         optimal_stake_pools_count: 500,
+        #[expect(clippy::expect_used)]
         treasury_expansion_rate: UnitRationalNumber::new(2, 10).expect("2 <= 10"),
+        #[expect(clippy::expect_used)]
         monetary_expansion_rate: UnitRationalNumber::new(3, 1_000).expect("3 <= 1000"),
         min_pool_cost: 340000000,
         collateral_percentage: 150,
