@@ -920,7 +920,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 return state;
             }
             let span = debug_span!(
-                amaru::protocols::peer_selection::peer::CONNECTED,
+                protocols::peer_selection::peer::CONNECTED,
                 peer,
                 conn_id = connection.id.as_u64(),
                 direction = ConnectionDirection::Inbound,
@@ -947,7 +947,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             let now = eff.clock().await;
             eff.external(Performance::record_advertisability(peer, advertisable, now)).await;
             let span = debug_span!(
-                amaru::protocols::peer_selection::peer::CONNECTED,
+                protocols::peer_selection::peer::CONNECTED,
                 peer,
                 conn_id = connection.id.as_u64(),
                 direction = ConnectionDirection::Outbound,
@@ -987,7 +987,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound) => {
             {
                 let _span = debug_span!(
-                    amaru::protocols::peer_selection::peer::DISCONNECTED,
+                    protocols::peer_selection::peer::DISCONNECTED,
                     peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Inbound,
@@ -1007,7 +1007,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 && conn.id == conn_id
             {
                 let span = debug_span!(
-                    amaru::protocols::peer_selection::peer::DISCONNECTED,
+                    protocols::peer_selection::peer::DISCONNECTED,
                     peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Outbound,

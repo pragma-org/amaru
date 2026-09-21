@@ -81,21 +81,12 @@ pub fn parse_schema_path(path: &str) -> (&str, &str) {
 /// Parse a full schema path and extract the macro module path.
 ///
 /// Local schemas are identified by a leading `self::` or `crate::` segment.
-/// Exported schemas are everything up to and including the `amaru` segment;
-/// when no `amaru` segment is present, the path is assumed to be an exported
-/// schema whose `amaru` prefix was elided.
+/// Exported schemas use crate-relative paths and resolve to the `amaru` schema
+/// module. Fully qualified exported paths are rejected by the call-site macros.
 ///
 /// # Examples
 /// ```ignore
-/// // Full path from external crate
-/// parse_macro_module("amaru_observability::schemas::amaru::ledger::state::SCHEMA")
-///   -> "amaru_observability::schemas::amaru"
-///
-/// // Short path with import
-/// parse_macro_module("amaru::ledger::state::SCHEMA")
-///   -> "amaru"
-///
-/// // No prefix — auto-prepended `amaru`
+/// // Exported schema — `amaru` is added by the call-site macro
 /// parse_macro_module("ledger::state::SCHEMA")
 ///   -> "amaru"
 ///
@@ -110,15 +101,7 @@ pub fn parse_macro_module(full_path: &str) -> &str {
         "self"
     } else if full_path.starts_with("crate::") || full_path == "crate" {
         "crate"
-    } else if let Some(pos) = full_path.find("amaru::") {
-        // Return everything up to and including "amaru"
-        &full_path[..pos + 5] // "amaru" is 5 chars
-    } else if full_path == "amaru" || full_path.starts_with("amaru::") {
-        "amaru"
     } else {
-        // No prefix: auto-prepend `amaru`. Macro helpers still live under
-        // amaru_observability, so callers treat this the same as an
-        // amaru-prefixed path.
         "amaru"
     }
 }
@@ -131,17 +114,11 @@ pub fn parse_macro_module(full_path: &str) -> &str {
 ///
 /// # Examples
 /// ```ignore
-/// parse_full_schema_path("amaru::ledger::state::SCHEMA")
+/// parse_full_schema_path("ledger::state::SCHEMA")
 ///   -> ("SCHEMA", "amaru::ledger::state", "amaru")
 ///
-/// parse_full_schema_path("ledger::state::SCHEMA")        // amaru elided
-///   -> ("SCHEMA", "amaru::ledger::state", "amaru")
-///
-/// parse_full_schema_path("SCHEMA")                       // amaru elided, no categories
+/// parse_full_schema_path("SCHEMA")
 ///   -> ("SCHEMA", "amaru", "amaru")
-///
-/// parse_full_schema_path("my_crate::schemas::amaru::test::sub::MY_SCHEMA")
-///   -> ("MY_SCHEMA", "amaru::test::sub", "my_crate::schemas::amaru")
 ///
 /// parse_full_schema_path("self::test::sub::SCHEMA")      // local schema
 ///   -> ("SCHEMA", "test::sub", "self")
@@ -160,18 +137,9 @@ pub fn parse_full_schema_path(full_path: &str) -> (&str, String, &str) {
         return (schema_name, target_path.to_string(), macro_module);
     }
 
-    if let Some(amaru_pos) = full_path.find("amaru::") {
-        // Keep "amaru::..." for the categories path.
-        let after_crate_prefix = &full_path[amaru_pos..];
-        let (schema_name, target_path) = parse_schema_path(after_crate_prefix);
-        (schema_name, target_path.to_string(), macro_module)
-    } else {
-        // No prefix at all: auto-prepend `amaru` to the categories so the
-        // generated identifiers match the amaru-prefixed form.
-        let (schema_name, target_path) = parse_schema_path(full_path);
-        let prefixed = if target_path.is_empty() { "amaru".to_string() } else { format!("amaru::{target_path}") };
-        (schema_name, prefixed, macro_module)
-    }
+    let (schema_name, target_path) = parse_schema_path(full_path);
+    let prefixed = if target_path.is_empty() { "amaru".to_string() } else { format!("amaru::{target_path}") };
+    (schema_name, prefixed, macro_module)
 }
 
 /// Create a Rust identifier from a string.
@@ -289,23 +257,10 @@ mod tests {
 
     #[test]
     fn test_parse_macro_module() {
-        assert_eq!(parse_macro_module("amaru::ledger::state::SCHEMA"), "amaru");
-        assert_eq!(
-            parse_macro_module("amaru_observability::amaru::ledger::state::SCHEMA"),
-            "amaru_observability::amaru"
-        );
         assert_eq!(parse_macro_module("ledger::state::SCHEMA"), "amaru");
         assert_eq!(parse_macro_module("SCHEMA"), "amaru");
         assert_eq!(parse_macro_module("self::test::sub::SCHEMA"), "self");
         assert_eq!(parse_macro_module("crate::test::sub::SCHEMA"), "crate");
-    }
-
-    #[test]
-    fn test_parse_full_schema_path_amaru_prefixed() {
-        let (name, target, module) = parse_full_schema_path("amaru::ledger::state::SCHEMA");
-        assert_eq!(name, "SCHEMA");
-        assert_eq!(target, "amaru::ledger::state");
-        assert_eq!(module, "amaru");
     }
 
     #[test]

@@ -1,0 +1,17 @@
+error: exported schema paths must be crate-relative; remove the `amaru::` or `amaru_observability::amaru::` prefix
+  --> tests/ui/compile_fail/prefixed_exported_schema_path.rs:31:29
+   |
+31 |     let _span = trace_span!(amaru::test::example::SCHEMA, value = 1_u64);
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: exported schema paths must be crate-relative; remove the `amaru::` or `amaru_observability::amaru::` prefix
+  --> tests/ui/compile_fail/prefixed_exported_schema_path.rs:32:24
+   |
+32 |     trace_event!(INFO, amaru_observability::amaru::test::example::SCHEMA, value = 1_u64);
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: exported schema paths must be crate-relative; remove the `amaru::` or `amaru_observability::amaru::` prefix
+  --> tests/ui/compile_fail/prefixed_exported_schema_path.rs:33:19
+   |
+33 |     trace_record!(amaru::test::example::SCHEMA, value = 1_u64);
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

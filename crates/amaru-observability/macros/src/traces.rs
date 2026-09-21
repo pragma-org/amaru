@@ -89,24 +89,38 @@ fn parse_call_site_fields(input: ParseStream<'_>) -> syn::Result<Vec<CallSiteFie
 
 /// Parsed schema path with optional inline field expressions.
 ///
-/// Extracted from the macro argument like:
-/// - `amaru::consensus::chain_sync::VALIDATE_HEADER`
-/// - `amaru::consensus::chain_sync::VALIDATE_HEADER, hash = compute_hash()`
-/// - `debug: amaru::consensus::chain_sync::VALIDATE_HEADER`
-/// - `debug: amaru::consensus::chain_sync::VALIDATE_HEADER, hash = compute_hash()`
+/// Extracted from a crate-relative macro argument like
+/// `consensus::chain_sync::VALIDATE_HEADER`.
 struct SchemaMeta {
     /// The schema name (e.g., `VALIDATE_HEADER`)
     schema_name: String,
     /// The module path for tracing target (e.g., `consensus::chain_sync`)
     module_path: String,
-    /// The macro module path (e.g., `amaru` or `my_crate::schemas::amaru`)
-    /// Used to determine if this is a local schema (non-amaru prefix) or exported schema
+    /// The macro namespace (`amaru` for exported schemas, `self`/`crate` for local schemas).
     macro_module: String,
 }
 
 const SEPARATOR: &str = "::";
 
 impl SchemaMeta {
+    fn parse(schema_path: &syn::Path) -> syn::Result<Self> {
+        let first = schema_path.segments.first().map(|segment| segment.ident.to_string());
+        if matches!(first.as_deref(), Some("amaru" | "amaru_observability")) {
+            return Err(syn::Error::new_spanned(
+                schema_path,
+                "exported schema paths must be crate-relative; remove the `amaru::` or `amaru_observability::amaru::` prefix",
+            ));
+        }
+
+        let path = quote! { #schema_path }
+            .to_string()
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>();
+        let (schema_name, module_path, macro_module) = parse_full_schema_path(&path);
+        Ok(Self { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() })
+    }
+
     /// Get all categories as a Vec<String> from module_path
     fn categories(&self) -> Vec<String> {
         self.module_path.split(SEPARATOR).map(|s| s.to_string()).collect()
@@ -184,26 +198,16 @@ fn wrap_in_module_validator(meta: &SchemaMeta, body: proc_macro2::TokenStream) -
 /// and/or `amaru` prefixes as needed.
 ///
 /// - Local schemas: emit the user-supplied path verbatim (relative to `self`/`crate`).
-/// - Path starts with `amaru_observability::...`: emit `::path` unchanged.
-/// - Path starts with `amaru::...`: prepend `::amaru_observability::`.
-/// - Path has neither prefix: prepend `::amaru_observability::amaru::`.
+/// - Exported schemas: prepend `::amaru_observability::amaru::`.
 fn build_exported_path(meta: &SchemaMeta, path: &syn::Path) -> proc_macro2::TokenStream {
     if meta.is_local_schema() {
         return quote! { #path };
     }
 
-    let first = path.segments.first().map(|segment| segment.ident.to_string());
-
-    if matches!(first.as_deref(), Some("amaru_observability")) {
-        return quote! { ::#path };
-    }
-
     let mut prefixed =
         syn::Path { leading_colon: Some(Default::default()), segments: syn::punctuated::Punctuated::new() };
     prefixed.segments.push(syn::PathSegment::from(make_ident("amaru_observability")));
-    if !matches!(first.as_deref(), Some("amaru")) {
-        prefixed.segments.push(syn::PathSegment::from(make_ident("amaru")));
-    }
+    prefixed.segments.push(syn::PathSegment::from(make_ident("amaru")));
     for segment in path.segments.iter() {
         prefixed.segments.push(segment.clone());
     }
@@ -372,11 +376,10 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         .into();
     }
 
-    let schema_const_tokens = &args.schema_path;
-    let full_path_tokens = quote! { #schema_const_tokens };
-    let path_str: String = full_path_tokens.to_string().chars().filter(|c| !c.is_whitespace()).collect();
-    let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
-    let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
+    let meta = match SchemaMeta::parse(&args.schema_path) {
+        Ok(meta) => meta,
+        Err(error) => return error.to_compile_error().into(),
+    };
 
     let record_macro_ident = make_ident(&make_record_macro_name(&meta.categories(), &meta.schema_name));
 
@@ -554,11 +557,10 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
     }
     let level_macro = syn::Ident::new(&level_str, proc_macro2::Span::call_site());
 
-    let schema_const_tokens = &args.schema_path;
-    let full_path_tokens = quote! { #schema_const_tokens };
-    let path_str: String = full_path_tokens.to_string().chars().filter(|c| !c.is_whitespace()).collect();
-    let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
-    let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
+    let meta = match SchemaMeta::parse(&args.schema_path) {
+        Ok(meta) => meta,
+        Err(error) => return error.to_compile_error().into(),
+    };
 
     let categories = meta.categories();
     let name_path = build_schema_associated_const_path(&meta, &args.schema_path, "NAME");
@@ -779,11 +781,10 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         "trace".to_string()
     };
 
-    let schema_const_tokens = &args.schema_path;
-    let full_path_tokens = quote! { #schema_const_tokens };
-    let path_str: String = full_path_tokens.to_string().chars().filter(|c| !c.is_whitespace()).collect();
-    let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
-    let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
+    let meta = match SchemaMeta::parse(&args.schema_path) {
+        Ok(meta) => meta,
+        Err(error) => return error.to_compile_error().into(),
+    };
 
     let categories = meta.categories();
     let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
