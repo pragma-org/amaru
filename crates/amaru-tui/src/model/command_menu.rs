@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TerminalEventOutcome {
-    Continue,
-    EnterCopyMode,
-    ExitCopyMode,
-    ExportLogs,
-    Shutdown,
+/// The active level of the keyboard command menu.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandMenu {
+    /// Direct navigation and mode-switching commands.
+    #[default]
+    Default,
+    /// Commands that operate on the log pane.
+    Logs,
+    /// Explicit confirmation before requesting shutdown.
+    Quit,
 }

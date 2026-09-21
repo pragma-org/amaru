@@ -197,8 +197,32 @@ While copy mode is active:
 - the accent switches to a dedicated visual treatment
 - the header indicates the mode clearly
 - command hints reflect the reduced interaction surface
-- mouse capture is released so the terminal can select text
-- keyboard scrolling, `&` view filtering, and `/` highlighting still work
+- on pages that show logs, mouse capture stays enabled so unmodified left
+  clicks can mark a time range of log records (first click, second click, later
+  clicks move the nearer end; drag also works); `e` writes the currently
+  visible lines in that range (or every visible line if nothing is selected) to
+  a plain-text file in the working directory
+- on the Config page, mouse capture is released so the terminal can select text
+- shell and widget borders, scrollbars, and separators are omitted so the log
+  pane is easier to read and so Config text can be copied cleanly
+- directional keys keep scrolling available, while `f` opens the log command
+  menu for filtering, highlighting, time jumps, and wrapping
+
+The normal command footer is deliberately shallow. `Tab` changes page, `;`
+cycles panel focus, and directional keys scroll or pan the focused content.
+Holding `Ctrl` moves by one scrollbar step; `PgUp`, `PgDn`, `Home`, and `End`
+remain available without permanently consuming footer space. Log operations are
+grouped behind `f`, and shutdown requires `q` followed by either `q` or `y`.
+`Esc` moves back one command level before it exits copy mode. This keeps the
+always-visible controls compact while retaining discoverable labels for less
+frequent actions.
+
+Operators may replace controls through `AMARU_TUI_ALIASES`, a comma-separated
+list of `key=alias` entries. `ctrl+` and `shift+` denote Ctrl and Shift.
+Resolution must produce a unique physical key for every built-in
+control: ambiguity aborts startup and names the conflicting controls. The
+footer renders individual aliases and conservatively labels page or scrolling
+groups as `aliased` whenever any binding in the group changes.
 
 The same shell chrome also supports a non-interactive shutdown mode. When the
 first termination signal is observed:

@@ -23,7 +23,7 @@ mod proposals;
 
 pub(super) use self::{
     card::render_card,
-    config_sections::render_section_groups,
+    config_sections::{render_section_groups, sections_content_width},
     epoch_progress::render_epoch_progress,
     gauge_card::render_gauge_card,
     logs::render_logs,

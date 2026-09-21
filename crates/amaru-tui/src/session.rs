@@ -13,14 +13,16 @@
 // limitations under the License.
 
 use std::{
+    fs,
     io::{self, IsTerminal},
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use amaru_metrics::MetricsEvent;
@@ -31,7 +33,7 @@ use crate::{
     Config,
     capture::from_observability,
     events::{Message, MetricRecord},
-    model::{Model, TerminalEventOutcome},
+    model::{ENVIRONMENT_VARIABLE, KeyAliases, Model, Page, TerminalEventOutcome},
     startup::StartupContext,
     terminal_guard::TerminalGuard,
     ui::{self, Views},
@@ -50,6 +52,9 @@ pub struct Session {
 
 impl Session {
     pub fn spawn(config: Config, startup: StartupContext, signal_count: Arc<AtomicU8>) -> io::Result<Self> {
+        #[allow(clippy::panic)]
+        let key_aliases =
+            KeyAliases::from_environment().unwrap_or_else(|error| panic!("invalid {ENVIRONMENT_VARIABLE}: {error}"));
         let (obs_tx, obs_rx) = mpsc::sync_channel(config.channel_capacity);
         let (telemetry_tx, telemetry_rx) = mpsc::sync_channel(config.channel_capacity);
         let (control_tx, control_rx) = mpsc::channel();
@@ -75,7 +80,7 @@ impl Session {
 
         let join = thread::Builder::new()
             .name("amaru-tui".into())
-            .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx, signal_count))
+            .spawn(move || run_terminal(config, startup, key_aliases, telemetry_rx, control_rx, signal_count))
             .map_err(|err| io::Error::other(format!("failed to spawn tui thread: {err}")))?;
 
         Ok(Self {
@@ -143,12 +148,14 @@ enum Control {
 fn run_terminal(
     config: Config,
     startup: StartupContext,
+    key_aliases: KeyAliases,
     telemetry_rx: Receiver<crate::events::Message>,
     control_rx: Receiver<Control>,
     signal_count: Arc<AtomicU8>,
 ) -> io::Result<()> {
     let mut terminal = TerminalGuard::enter()?;
     let mut model = Model::new(config.clone(), startup);
+    model.set_key_aliases(key_aliases);
     let mut views = Views::default();
     let mut next_draw_at = Instant::now();
     let mut immediate_draw = true;
@@ -190,6 +197,10 @@ fn run_terminal(
                     terminal.set_mouse_capture(true)?;
                     immediate_draw = true;
                 }
+                TerminalEventOutcome::ExportLogs => {
+                    export_logs_to_cwd(&mut model);
+                    immediate_draw = true;
+                }
                 TerminalEventOutcome::Shutdown => request_shutdown()?,
             }
         }
@@ -217,7 +228,37 @@ fn run_terminal(
 
 fn enter_copy_mode(terminal: &mut TerminalGuard, model: &Model, views: &mut Views, now: Instant) -> io::Result<()> {
     terminal.terminal().draw(|frame| ui::render(frame, model, views, now))?;
-    terminal.set_mouse_capture(false)
+    // Log pages keep mouse capture so left-click/drag can mark a time range.
+    // The Config page still releases it for native terminal selection.
+    if model.page == Page::Config {
+        terminal.set_mouse_capture(false)?;
+    }
+    Ok(())
+}
+
+fn export_logs_to_cwd(model: &mut Model) {
+    let contents = model.exported_log_text();
+    let count = model.exported_log_line_count();
+    match write_log_export(&contents) {
+        Ok(path) => model.set_log_export_status(format!("wrote {count} lines to {}", path.display())),
+        Err(err) => model.set_log_export_status(format!("export failed: {err}")),
+    }
+}
+
+fn write_log_export(contents: &str) -> io::Result<PathBuf> {
+    let stamp = crate::model::utc_compact_stamp(SystemTime::now());
+    let mut candidate = format!("amaru-logs-{stamp}.txt");
+    let mut n = 2u32;
+    while Path::new(&candidate).exists() {
+        candidate = format!("amaru-logs-{stamp}-{n}.txt");
+        n = n.saturating_add(1);
+        if n > 10_000 {
+            return Err(io::Error::other("could not choose an unused export filename"));
+        }
+    }
+    let path = PathBuf::from(&candidate);
+    fs::write(&path, contents)?;
+    Ok(path)
 }
 
 #[cfg(unix)]

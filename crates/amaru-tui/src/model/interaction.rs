@@ -19,6 +19,7 @@ use ratatui::layout::Rect;
 use regex::Regex;
 
 use super::{
+    log_selection::LogSelection,
     log_time::TimeJump,
     prompt::{PromptAction, PromptKind, PromptState},
     scrollbar::ScrollbarGeometry,
@@ -28,11 +29,7 @@ use crate::{events::TelemetryRecord, ui::Views};
 
 impl Model {
     pub fn handle_terminal_event(&mut self, event: Event, views: &Views) -> TerminalEventOutcome {
-        if views.logs_body.height > 0 {
-            self.logs_viewport_rows = views.logs_body.height as usize;
-        } else if views.logs_area.height > 0 {
-            self.logs_viewport_rows = (views.logs_area.height as usize).saturating_sub(6).max(1);
-        }
+        self.update_viewport_sizes(views);
 
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key_event(key),
@@ -69,14 +66,20 @@ impl Model {
 
     pub fn enter_copy_mode(&mut self) {
         self.interaction_mode = InteractionMode::Copy;
+        self.command_menu = CommandMenu::Default;
+        self.log_export_status = None;
     }
 
     pub fn enter_shutdown_mode(&mut self) {
         self.interaction_mode = InteractionMode::Shutdown;
+        self.command_menu = CommandMenu::Default;
     }
 
     pub fn exit_copy_mode(&mut self) {
         self.interaction_mode = InteractionMode::Normal;
+        self.command_menu = CommandMenu::Default;
+        self.log_selection = None;
+        self.log_export_status = None;
     }
 
     pub fn is_copy_mode(&self) -> bool {
@@ -113,10 +116,6 @@ impl Model {
 
     pub fn next_scroll_focus(&mut self) {
         self.set_scroll_focus(self.scroll_focus.next_for(self.page));
-    }
-
-    pub fn previous_scroll_focus(&mut self) {
-        self.set_scroll_focus(self.scroll_focus.previous_for(self.page));
     }
 
     pub fn set_level_filter(&mut self, level: LevelFilter) {
@@ -179,6 +178,7 @@ impl Model {
 
     pub fn handle_click(&mut self, views: &Views, point: Rect) {
         self.log_scrollbar_drag = false;
+        self.log_select_drag = false;
 
         if let Some(page) = views.page_at(point) {
             self.set_page(page);
@@ -227,6 +227,11 @@ impl Model {
 
         if let Some(filter) = views.target_filter_at(point) {
             self.set_target_filter(filter);
+            return;
+        }
+
+        if self.is_copy_mode() {
+            self.select_log_at_point(views, point);
         }
     }
 
@@ -260,7 +265,32 @@ impl Model {
         }
     }
 
+    pub fn focused_pane_toggle_label(&self) -> Option<&'static str> {
+        match (self.page, self.scroll_focus) {
+            (Page::Amaru | Page::Cardano, ScrollFocus::Logs) => {
+                Some(if self.log_pane_mode.is_maximized() { "MINIMIZE" } else { "MAXIMIZE" })
+            }
+            (Page::Amaru, ScrollFocus::Peers) => {
+                Some(if self.peer_pane_mode.is_maximized() { "MINIMIZE" } else { "MAXIMIZE" })
+            }
+            (Page::Cardano, ScrollFocus::Proposals) => {
+                Some(if self.proposal_pane_mode.is_maximized() { "MINIMIZE" } else { "MAXIMIZE" })
+            }
+            (Page::Amaru, ScrollFocus::Proposals | ScrollFocus::Config)
+            | (Page::Cardano, ScrollFocus::Peers | ScrollFocus::Config)
+            | (Page::Config, _) => None,
+        }
+    }
+
+    pub fn log_wrap_toggle_label(&self) -> &'static str {
+        if self.log_wrap { "UNWRAP" } else { "WRAP" }
+    }
+
     pub(super) fn handle_key_event(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        let Some(key) = self.key_aliases.translate(key) else {
+            return TerminalEventOutcome::Continue;
+        };
+
         if self.is_shutdown_mode() {
             return TerminalEventOutcome::Continue;
         }
@@ -273,103 +303,70 @@ impl Model {
             return self.handle_prompt_key(key);
         }
 
-        if let Some(outcome) = self.handle_ctrl_focus_key(&key) {
-            return outcome;
+        match self.command_menu {
+            CommandMenu::Default => self.handle_default_key(key),
+            CommandMenu::Logs => self.handle_logs_menu_key(key),
+            CommandMenu::Quit => self.handle_quit_menu_key(key),
         }
+    }
 
-        if self.is_copy_mode() {
-            return self.handle_copy_mode_key(key);
-        }
-
-        if let Some(outcome) = self.handle_log_scrollbar_key(&key) {
+    fn handle_default_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        if let Some(outcome) = self.handle_navigation_key(&key) {
             return outcome;
         }
 
         match key.code {
             KeyCode::Esc => {
+                if self.is_copy_mode() {
+                    if self.log_selection.is_some() || self.log_export_status.is_some() {
+                        self.log_selection = None;
+                        self.log_export_status = None;
+                        return TerminalEventOutcome::Continue;
+                    }
+                    self.exit_copy_mode();
+                    return TerminalEventOutcome::ExitCopyMode;
+                }
+
                 if !self.is_ready(std::time::Instant::now()) {
                     return TerminalEventOutcome::Continue;
                 }
                 self.enter_copy_mode();
                 TerminalEventOutcome::EnterCopyMode
             }
-            KeyCode::Char('q') => TerminalEventOutcome::Shutdown,
-            KeyCode::Char('&') => {
-                self.open_prompt(PromptKind::Filter);
+            KeyCode::Char('e') if self.is_copy_mode() && key.modifiers.is_empty() => TerminalEventOutcome::ExportLogs,
+            KeyCode::Char('f') if key.modifiers.is_empty() => {
+                self.command_menu = CommandMenu::Logs;
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Char('/') => {
-                self.open_prompt(PromptKind::Highlight);
+            KeyCode::Char('q') if key.modifiers.is_empty() => {
+                self.command_menu = CommandMenu::Quit;
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Char('@') => {
-                self.open_prompt(PromptKind::JumpTime);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Char('|') => {
-                self.enter_log_scrollbar_focus();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Char('w') if key.modifiers.is_empty() => {
-                self.toggle_log_wrap();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Tab => {
+            KeyCode::Tab if !self.is_copy_mode() => {
                 self.next_page();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::BackTab => {
+            KeyCode::BackTab if !self.is_copy_mode() => {
                 self.previous_page();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Char(']') => {
+            KeyCode::Char(';') if !self.is_copy_mode() && key.modifiers.is_empty() => {
                 self.next_scroll_focus();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Char('[') => {
-                self.previous_scroll_focus();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Right => {
-                self.scroll_logs_horizontal(1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Left => {
-                self.scroll_logs_horizontal(-1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Enter => {
+            KeyCode::Enter if !self.is_copy_mode() => {
                 let _ = self.toggle_focused_pane();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Char('+') | KeyCode::Char('=') => {
-                let _ = self.toggle_focused_pane();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Up => {
-                self.scroll_focused(-1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Down => {
-                self.scroll_focused(1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::PageUp => {
-                self.scroll_focused(-10);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::PageDown => {
-                self.scroll_focused(10);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Home if self.scroll_focus == ScrollFocus::Logs => {
-                self.jump_logs_to_oldest();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::End if self.scroll_focus == ScrollFocus::Logs => {
-                self.jump_logs_to_newest();
-                TerminalEventOutcome::Continue
-            }
+            KeyCode::Enter
+            | KeyCode::Tab
+            | KeyCode::BackTab
+            | KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::PageUp
+            | KeyCode::PageDown => TerminalEventOutcome::Continue,
             KeyCode::Backspace
             | KeyCode::Home
             | KeyCode::End
@@ -390,6 +387,149 @@ impl Model {
         }
     }
 
+    fn handle_logs_menu_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        if key.code == KeyCode::Esc {
+            self.command_menu = CommandMenu::Default;
+            return TerminalEventOutcome::Continue;
+        }
+
+        let KeyCode::Char(command) = key.code else {
+            return TerminalEventOutcome::Continue;
+        };
+        if !key.modifiers.is_empty() {
+            return TerminalEventOutcome::Continue;
+        }
+
+        match command {
+            'f' => self.open_prompt(PromptKind::Filter),
+            'h' => self.open_prompt(PromptKind::Highlight),
+            't' => self.open_prompt(PromptKind::JumpTime),
+            'w' => {
+                self.toggle_log_wrap();
+                self.command_menu = CommandMenu::Default;
+            }
+            _ => {}
+        }
+
+        TerminalEventOutcome::Continue
+    }
+
+    fn handle_quit_menu_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        if key.code == KeyCode::Esc {
+            self.command_menu = CommandMenu::Default;
+            return TerminalEventOutcome::Continue;
+        }
+
+        let KeyCode::Char(command) = key.code else {
+            return TerminalEventOutcome::Continue;
+        };
+        if !key.modifiers.is_empty() {
+            return TerminalEventOutcome::Continue;
+        }
+
+        match command {
+            'q' | 'y' => TerminalEventOutcome::Shutdown,
+            'n' => {
+                self.command_menu = CommandMenu::Default;
+                TerminalEventOutcome::Continue
+            }
+            _ => TerminalEventOutcome::Continue,
+        }
+    }
+
+    fn update_viewport_sizes(&mut self, views: &Views) {
+        if views.logs_body.height > 0 {
+            self.logs_viewport_rows = views.logs_body.height as usize;
+            self.logs_viewport_columns = views.logs_body.width as usize;
+        }
+        if views.peers_body.height > 0 {
+            self.peers_viewport_rows = views.peers_body.height as usize;
+        }
+        if views.proposals_body.height > 0 {
+            self.proposals_viewport_rows = views.proposals_body.height as usize;
+        }
+        if views.config_area.height > 0 {
+            self.config_viewport_rows = views.config_area.height as usize;
+        }
+    }
+
+    fn handle_navigation_key(&mut self, key: &event::KeyEvent) -> Option<TerminalEventOutcome> {
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        let vertical_step = if control { self.focused_scrollbar_step() } else { 1 };
+        let horizontal_step = if control { (self.logs_viewport_columns / Self::LOG_HSCROLL_STEP).max(1) } else { 1 };
+
+        if key.code == KeyCode::Up {
+            self.scroll_focused(-(vertical_step as isize));
+        } else if key.code == KeyCode::Down {
+            self.scroll_focused(vertical_step as isize);
+        } else if key.code == KeyCode::Left {
+            self.scroll_logs_horizontal(-(horizontal_step as isize));
+        } else if key.code == KeyCode::Right {
+            self.scroll_logs_horizontal(horizontal_step as isize);
+        } else if key.code == KeyCode::PageUp {
+            self.scroll_focused(-(self.focused_page_step() as isize));
+        } else if key.code == KeyCode::PageDown {
+            self.scroll_focused(self.focused_page_step() as isize);
+        } else if key.code == KeyCode::Home {
+            self.jump_focused_to_start();
+        } else if key.code == KeyCode::End {
+            self.jump_focused_to_end();
+        } else {
+            return None;
+        }
+
+        Some(TerminalEventOutcome::Continue)
+    }
+
+    fn focused_scrollbar_step(&self) -> usize {
+        match self.scroll_focus {
+            ScrollFocus::Logs => self.log_scrollbar_geometry().map(|geometry| geometry.step()).unwrap_or(1),
+            ScrollFocus::Peers => self.peers_viewport_rows,
+            ScrollFocus::Proposals => self.proposals_viewport_rows,
+            ScrollFocus::Config => self.config_viewport_rows,
+        }
+        .max(1)
+    }
+
+    fn focused_page_step(&self) -> usize {
+        match self.scroll_focus {
+            ScrollFocus::Logs => self.logs_viewport_rows,
+            ScrollFocus::Peers => self.peers_viewport_rows,
+            ScrollFocus::Proposals => self.proposals_viewport_rows,
+            ScrollFocus::Config => self.config_viewport_rows,
+        }
+        .max(1)
+    }
+
+    fn jump_focused_to_start(&mut self) {
+        match self.scroll_focus {
+            ScrollFocus::Logs => self.jump_logs_to_oldest(),
+            ScrollFocus::Peers => self.peer_scroll = 0,
+            ScrollFocus::Proposals => self.proposal_scroll = 0,
+            ScrollFocus::Config => self.config_scroll = 0,
+        }
+    }
+
+    fn jump_focused_to_end(&mut self) {
+        match self.scroll_focus {
+            ScrollFocus::Logs => self.jump_logs_to_newest(),
+            ScrollFocus::Peers => self.peer_scroll = self.peers.len().saturating_sub(self.peers_viewport_rows.max(1)),
+            ScrollFocus::Proposals => {
+                self.proposal_scroll = self.proposal_order.len().saturating_sub(self.proposals_viewport_rows.max(1));
+            }
+            ScrollFocus::Config => {
+                self.config_scroll = self.config_content_height().saturating_sub(self.config_viewport_rows.max(1));
+            }
+        }
+    }
+
+    fn config_content_height(&self) -> usize {
+        let section_height = |section: &crate::startup::ConfigSection| section.entries.len().saturating_add(3);
+        let runtime_height: usize = self.startup.runtime_sections.iter().map(section_height).sum();
+        let protocol_height: usize = self.startup.protocol_sections.iter().map(section_height).sum();
+        runtime_height.max(protocol_height)
+    }
+
     fn handle_mouse_event(&mut self, mouse: event::MouseEvent, views: &Views) -> TerminalEventOutcome {
         if self.is_shutdown_mode() || self.prompt.is_some() {
             return TerminalEventOutcome::Continue;
@@ -402,7 +542,13 @@ impl Model {
             MouseEventKind::Drag(MouseButton::Left) if self.log_scrollbar_drag => {
                 self.jump_logs_to_track_y(views, mouse.row);
             }
-            MouseEventKind::Up(_) => self.log_scrollbar_drag = false,
+            MouseEventKind::Drag(MouseButton::Left) if self.log_select_drag => {
+                self.drag_log_selection(views, point);
+            }
+            MouseEventKind::Up(_) => {
+                self.log_scrollbar_drag = false;
+                self.log_select_drag = false;
+            }
             MouseEventKind::ScrollDown if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.handle_horizontal_scroll(views, point, 1);
             }
@@ -417,89 +563,6 @@ impl Model {
         }
 
         TerminalEventOutcome::Continue
-    }
-
-    fn handle_copy_mode_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
-        if let Some(outcome) = self.handle_log_scrollbar_key(&key) {
-            return outcome;
-        }
-
-        match key.code {
-            KeyCode::Esc => {
-                self.exit_copy_mode();
-                TerminalEventOutcome::ExitCopyMode
-            }
-            KeyCode::Char('&') => {
-                self.open_prompt(PromptKind::Filter);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Char('/') => {
-                self.open_prompt(PromptKind::Highlight);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Char('@') => {
-                self.open_prompt(PromptKind::JumpTime);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Char('|') => {
-                self.enter_log_scrollbar_focus();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Char('w') if key.modifiers.is_empty() => {
-                self.toggle_log_wrap();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Left => {
-                self.scroll_logs_horizontal(-1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Right => {
-                self.scroll_logs_horizontal(1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Up => {
-                self.scroll_focused(-1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Down => {
-                self.scroll_focused(1);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::PageUp => {
-                self.scroll_focused(-10);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::PageDown => {
-                self.scroll_focused(10);
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Home => {
-                self.jump_logs_to_oldest();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::End => {
-                self.jump_logs_to_newest();
-                TerminalEventOutcome::Continue
-            }
-            KeyCode::Backspace
-            | KeyCode::Enter
-            | KeyCode::Tab
-            | KeyCode::BackTab
-            | KeyCode::Delete
-            | KeyCode::Insert
-            | KeyCode::F(_)
-            | KeyCode::Char(_)
-            | KeyCode::Null
-            | KeyCode::CapsLock
-            | KeyCode::ScrollLock
-            | KeyCode::NumLock
-            | KeyCode::PrintScreen
-            | KeyCode::Pause
-            | KeyCode::Menu
-            | KeyCode::KeypadBegin
-            | KeyCode::Media(_)
-            | KeyCode::Modifier(_) => TerminalEventOutcome::Continue,
-        }
     }
 
     fn handle_prompt_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
@@ -517,6 +580,7 @@ impl Model {
                 if let Some(prompt) = self.prompt.take() {
                     self.apply_prompt(prompt);
                 }
+                self.command_menu = CommandMenu::Default;
                 TerminalEventOutcome::Continue
             }
         }
@@ -647,34 +711,42 @@ impl Model {
         if focus != ScrollFocus::Logs {
             self.log_scrollbar_focused = false;
             self.log_scrollbar_drag = false;
+            self.log_select_drag = false;
         }
         self.scroll_focus = focus;
-    }
-
-    fn enter_log_scrollbar_focus(&mut self) {
-        self.set_scroll_focus(ScrollFocus::Logs);
-        self.log_scrollbar_focused = true;
-    }
-
-    fn handle_ctrl_focus_key(&mut self, key: &event::KeyEvent) -> Option<TerminalEventOutcome> {
-        if !key.modifiers.contains(KeyModifiers::CONTROL) {
-            return None;
-        }
-
-        if key.code == KeyCode::Left {
-            self.previous_scroll_focus();
-            return Some(TerminalEventOutcome::Continue);
-        }
-        if key.code == KeyCode::Right {
-            self.next_scroll_focus();
-            return Some(TerminalEventOutcome::Continue);
-        }
-        None
     }
 
     fn toggle_log_wrap(&mut self) {
         self.log_wrap = !self.log_wrap;
         self.set_scroll_focus(ScrollFocus::Logs);
+    }
+
+    fn select_log_at_point(&mut self, views: &Views, point: Rect) {
+        let Some(at) = self.log_instant_at(views, point) else {
+            return;
+        };
+        self.log_export_status = None;
+        self.log_selection = Some(match self.log_selection {
+            Some(selection) => selection.click(at),
+            None => LogSelection::point(at),
+        });
+        self.log_select_drag = true;
+        self.set_scroll_focus(ScrollFocus::Logs);
+    }
+
+    fn drag_log_selection(&mut self, views: &Views, point: Rect) {
+        let Some(at) = self.log_instant_at(views, point) else {
+            return;
+        };
+        if let Some(selection) = self.log_selection {
+            self.log_selection = Some(selection.extend(at));
+        }
+    }
+
+    fn log_instant_at(&mut self, views: &Views, point: Rect) -> Option<std::time::Instant> {
+        let index = views.log_view_index_at(point)?;
+        self.sync_logs();
+        self.logs.view().get(index).and_then(|item| item.record()).map(|record| record.at)
     }
 
     const LOG_HSCROLL_STEP: usize = 8;
@@ -695,64 +767,6 @@ impl Model {
         }
     }
 
-    fn handle_log_scrollbar_key(&mut self, key: &event::KeyEvent) -> Option<TerminalEventOutcome> {
-        if !self.log_scrollbar_focused || self.scroll_focus != ScrollFocus::Logs {
-            return None;
-        }
-
-        match key.code {
-            KeyCode::Char('|') => {
-                self.log_scrollbar_focused = false;
-                Some(TerminalEventOutcome::Continue)
-            }
-            KeyCode::Up => {
-                self.scrub_logs(-1);
-                Some(TerminalEventOutcome::Continue)
-            }
-            KeyCode::Down => {
-                self.scrub_logs(1);
-                Some(TerminalEventOutcome::Continue)
-            }
-            KeyCode::PageUp => {
-                self.scrub_logs(-10);
-                Some(TerminalEventOutcome::Continue)
-            }
-            KeyCode::PageDown => {
-                self.scrub_logs(10);
-                Some(TerminalEventOutcome::Continue)
-            }
-            KeyCode::Home => {
-                self.jump_logs_to_oldest();
-                Some(TerminalEventOutcome::Continue)
-            }
-            KeyCode::End => {
-                self.jump_logs_to_newest();
-                Some(TerminalEventOutcome::Continue)
-            }
-            KeyCode::Backspace
-            | KeyCode::Enter
-            | KeyCode::Left
-            | KeyCode::Right
-            | KeyCode::Tab
-            | KeyCode::BackTab
-            | KeyCode::Delete
-            | KeyCode::Insert
-            | KeyCode::F(_)
-            | KeyCode::Char(_)
-            | KeyCode::Null
-            | KeyCode::Esc
-            | KeyCode::CapsLock
-            | KeyCode::ScrollLock
-            | KeyCode::NumLock
-            | KeyCode::PrintScreen
-            | KeyCode::Pause
-            | KeyCode::Menu
-            | KeyCode::KeypadBegin
-            | KeyCode::Media(_)
-            | KeyCode::Modifier(_) => None,
-        }
-    }
-
     fn log_max_scroll(&self) -> usize {
         self.logs.view().len().saturating_sub(self.logs_viewport_rows.max(1))
     }
@@ -763,23 +777,6 @@ impl Model {
         let max = total.saturating_sub(visible);
         let position = max.saturating_sub(self.log_scroll.min(max));
         ScrollbarGeometry::new(total, visible, position, visible)
-    }
-
-    fn scrub_logs(&mut self, thumb_delta: isize) {
-        self.sync_logs();
-        let Some(geo) = self.log_scrollbar_geometry() else {
-            self.log_scroll = 0;
-            return;
-        };
-        let step = geo.step();
-        let max = geo.max_position;
-        let from_top = max.saturating_sub(self.log_scroll.min(max));
-        let new_from_top = if thumb_delta.is_negative() {
-            from_top.saturating_sub(thumb_delta.unsigned_abs().saturating_mul(step))
-        } else {
-            from_top.saturating_add((thumb_delta as usize).saturating_mul(step)).min(max)
-        };
-        self.log_scroll = max.saturating_sub(new_from_top);
     }
 
     fn jump_logs_to_oldest(&mut self) {

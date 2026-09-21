@@ -39,9 +39,17 @@ Other guiding principles:
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
+### Added
+
+- **amaru-tui**: keyboard controls can be remapped with comma-separated `key=alias` entries in `AMARU_TUI_ALIASES`; `ctrl+` and `shift+` denote Ctrl and Shift. Startup reports conflicting bindings instead of accepting ambiguous controls.
+- **amaru-tui**: copy mode can write logs to a file in the working directory. Click one log line and click another to mark a time range (a later click moves the nearer end; drag also works). The range stays put if you then change the level or regex filter. `e` writes the currently visible lines in that range, or every visible line if nothing is selected, as plain text including the level column.
+
 ### Changed
 
 - **amaru-kernel**: opaque byte values (raw blocks, mux frames, original CBOR, and similar) are lowercase hex in JSON and CBOR byte strings in binary traces, not arrays of integers, when serialized using `serde`.
+- **amaru-tui**: copy mode still omits panel chrome. On log pages the mouse stays captured so a time range can be selected; on the Config page it is still released for native text selection.
+- **amaru-tui**: log actions and shutdown now use compact confirmation menus; a second `q` or `y` confirms shutdown.
+- **amaru-tui**: configuration tables now reserve space for complete option and parameter names, hiding the environment column on narrow terminals.
 
 ### Fixed
 
