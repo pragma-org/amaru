@@ -13,23 +13,24 @@
 // limitations under the License.
 
 use std::{
-    fs::{self, File, TryLockError},
+    ffi::OsString,
+    fs::{self, File, OpenOptions, TryLockError},
     future::Future,
     io::{self, IsTerminal},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use amaru_consensus::{block_validator::BlockValidator, validate_header::validate_header};
 use amaru_kernel::{
-    Block, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, NetworkName, NetworkPoint, ORIGIN_HASH, Point,
-    RawBlock, cardano::network_block::NetworkBlock,
+    Block, ConsensusParameters, EraHistory, IsHeader, NetworkName, NetworkPoint, ORIGIN_HASH, Point, RawBlock, Slot,
+    cardano::network_block::NetworkBlock,
 };
 use amaru_ledger::store::ReadStore;
 use amaru_mithril::{
     MithrilDownloadError, MithrilDownloadObserver, MithrilDownloadProgress, MithrilDownloadReport,
-    download_from_mithril_for_resume_point_with_observer, read_blocks_after_point,
+    download_from_mithril_for_range_with_observer, read_blocks_after_point,
 };
 use amaru_observability::info;
 use amaru_ouroboros::{ChainStore, PoolSummaries, can_validate_blocks::CanValidateBlocks};
@@ -37,6 +38,7 @@ use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use thiserror::Error;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -198,16 +200,14 @@ impl TerminalRenderer {
     fn render(&mut self, progress: MithrilProgress) {
         match progress {
             MithrilProgress::Downloaded { downloaded_bytes, total_bytes, .. } => {
+                let total_bytes = total_bytes.filter(|total_bytes| *total_bytes > 0);
                 let total_became_known = self.total_bytes.is_none() && total_bytes.is_some();
                 if total_became_known && let Some(download) = self.download.take() {
                     download.clear();
                 }
                 let download = self.download.get_or_insert_with(|| {
-                    TerminalProgressBar::new(
-                        total_bytes.unwrap_or(0),
-                        "{spinner:.green} Downloading Mithril files {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
-                    )
-                    .boxed()
+                    let (length, template) = download_progress_bar_spec(total_bytes);
+                    TerminalProgressBar::new(length, template).boxed()
                 });
                 let increment = if total_became_known {
                     downloaded_bytes
@@ -227,6 +227,16 @@ impl TerminalRenderer {
             | MithrilProgress::SnapshotSelected { .. }
             | MithrilProgress::BlocksIngested { .. } => {}
         }
+    }
+}
+
+fn download_progress_bar_spec(total_bytes: Option<u64>) -> (u64, &'static str) {
+    match total_bytes.filter(|total_bytes| *total_bytes > 0) {
+        Some(total_bytes) => (
+            total_bytes,
+            "{spinner:.green} Downloading Mithril files {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
+        ),
+        None => (0, "{spinner:.green} Downloading Mithril files {bytes_per_sec:>10} [{bytes:>10} downloaded]"),
     }
 }
 
@@ -356,7 +366,7 @@ pub struct MithrilSynchronizer {
     chain_dir: PathBuf,
     snapshots_dir: PathBuf,
     resume_point: Option<NetworkPoint>,
-    ingest_until_slot: Option<u64>,
+    ingest_until_slot: Option<Slot>,
     ingest_maximum_blocks: Option<usize>,
 }
 
@@ -385,7 +395,7 @@ impl MithrilSynchronizer {
     }
 
     /// Bound ingestion for diagnostics and tests.
-    pub fn ingest_limits(mut self, until_slot: Option<u64>, maximum_blocks: Option<usize>) -> Self {
+    pub fn ingest_limits(mut self, until_slot: Option<Slot>, maximum_blocks: Option<usize>) -> Self {
         self.ingest_until_slot = until_slot;
         self.ingest_maximum_blocks = maximum_blocks;
         self
@@ -419,10 +429,11 @@ impl MithrilSynchronizer {
             &cancellation,
             observer.as_ref(),
             || {
-                download_from_mithril_for_resume_point_with_observer(
+                download_from_mithril_for_range_with_observer(
                     self.network,
                     target_dir,
                     resume_point,
+                    self.ingest_until_slot,
                     Arc::new(ForwardDownloadProgress(download_observer)),
                 )
             },
@@ -450,10 +461,7 @@ impl MithrilSynchronizer {
         let ledger = ReadOnlyRocksDB::new(&RocksDbConfig::new(self.ledger_dir.clone()))
             .map_err(|source| store_error("open ledger store", source))?;
         let stored = NetworkPoint::from(ledger.tip().map_err(|source| store_error("read ledger tip", source))?);
-        chain_store
-            .load_point(&stored.hash())
-            .filter(|point| NetworkPoint::from(point) == stored)
-            .ok_or(MithrilSyncError::ResumePointNotFound { point: stored })
+        resolve_resume_point(chain_store, stored)
     }
 
     async fn ingest(
@@ -464,23 +472,9 @@ impl MithrilSynchronizer {
         cancellation: &MithrilCancellation,
         observer: &dyn MithrilObserver,
     ) -> Result<(Point, u64), MithrilSyncError> {
-        let era_history = Arc::new(
-            self.network
-                .as_era_history()
-                .ok_or_else(|| store_error("resolve era history", anyhow!("unsupported network: {}", self.network)))?
-                .clone(),
-        );
-        let global_parameters: &GlobalParameters = self.network.as_global_parameters().ok_or_else(|| {
-            store_error("resolve global parameters", anyhow!("unsupported network: {}", self.network))
-        })?;
-        let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), &era_history));
-        let ledger_config = LedgerConfig {
-            ledger_store: RocksDbConfig::new(self.ledger_dir.clone()),
-            network: self.network,
-            era_history: era_history.as_ref().clone(),
-            global_parameters: global_parameters.clone(),
-            ..LedgerConfig::default()
-        };
+        let ledger_config = ledger_config_for_network(self.network, self.ledger_dir.clone())?;
+        let era_history = Arc::new(ledger_config.era_history.clone());
+        let consensus_parameters = Arc::new(ledger_config.to_consensus_parameters());
         let state = make_state(&ledger_config, None, chain_store.clone())
             .map_err(|source| store_error("open ledger state", source))?;
         let stable_tip = state.tip().into_owned();
@@ -490,16 +484,13 @@ impl MithrilSynchronizer {
                 stored: NetworkPoint::from(stable_tip),
             });
         }
-        let pool_summaries = Arc::new(RwLock::new(state.pool_summaries()));
+        let (pool_summaries_tx, pool_summaries_rx) = watch::channel(state.pool_summaries());
         let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())
             .map_err(|source| store_error("start ledger worker", source))?;
         let ledger_stop = block_validator.thread_stop();
-        {
-            let pool_summaries = pool_summaries.clone();
-            block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
-                *pool_summaries.write().unwrap_or_else(std::sync::PoisonError::into_inner) = summaries;
-            }));
-        }
+        block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
+            pool_summaries_tx.send_replace(summaries);
+        }));
 
         observer.on_progress(MithrilProgress::StageChanged { stage: MithrilStage::Ingesting });
         let before = Instant::now();
@@ -512,13 +503,12 @@ impl MithrilSynchronizer {
                 &chain_store,
                 consensus_parameters,
                 &block_validator,
-                &pool_summaries,
+                pool_summaries_rx,
                 era_history,
             )
             .await;
 
         drop(block_validator);
-        drop(pool_summaries);
         let shutdown = tokio::task::spawn_blocking(move || ledger_stop.join_timeout(LEDGER_SHUTDOWN_TIMEOUT))
             .await
             .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?
@@ -526,15 +516,7 @@ impl MithrilSynchronizer {
         shutdown?;
 
         let ledger_tip = self.resolve_ledger_tip(chain_store.as_ref())?;
-        let chain_tip = chain_store.get_best_chain_tip();
-        let coherence = recover_chain_tip(chain_store.as_ref(), ledger_tip);
-        if let Err(source) = coherence {
-            return Err(MithrilSyncError::RebootstrapRequired(Box::new(RebootstrapRequired {
-                ledger_tip,
-                chain_tip,
-                reason: source.to_string(),
-            })));
-        }
+        recover_stores(chain_store.as_ref(), ledger_tip)?;
         let (final_point, processed) = result?;
         let duration_seconds = Instant::now().saturating_duration_since(before).as_secs_f64();
         info!(
@@ -556,7 +538,7 @@ impl MithrilSynchronizer {
         chain_store: &Arc<dyn ChainStore>,
         consensus_parameters: Arc<ConsensusParameters>,
         block_validator: &BlockValidator,
-        pool_summaries: &RwLock<PoolSummaries>,
+        mut pool_summaries: watch::Receiver<PoolSummaries>,
         era_history: Arc<EraHistory>,
     ) -> Result<(Point, u64), MithrilSyncError> {
         let blocks = read_blocks_after_point(immutable_dir, self.network, current_tip)
@@ -575,20 +557,20 @@ impl MithrilSynchronizer {
                 .decode_block()
                 .map_err(|source| MithrilSyncError::Validation { point: current_tip, source: source.into() })?;
             let point = block.header.point();
-            if self.ingest_until_slot.is_some_and(|until| point.slot_or_default() > until.into()) {
+            if self.ingest_until_slot.is_some_and(|until| point.slot_or_default() > until) {
                 break;
             }
             process_block(
                 chain_store,
                 consensus_parameters.clone(),
                 block_validator,
-                pool_summaries,
+                &mut pool_summaries,
                 era_history.clone(),
+                cancellation,
                 &raw_block,
                 block,
             )
-            .await
-            .map_err(|source| MithrilSyncError::Validation { point, source })?;
+            .await?;
             current_tip = point;
             processed += 1;
             observer.on_progress(MithrilProgress::BlocksIngested { blocks: processed, point });
@@ -601,6 +583,29 @@ impl MithrilSynchronizer {
         }
         Ok((current_tip, processed))
     }
+}
+
+fn resolve_resume_point(chain_store: &dyn ChainStore, stored: NetworkPoint) -> Result<Point, MithrilSyncError> {
+    chain_store
+        .load_point(&stored.hash())
+        .filter(|point| NetworkPoint::from(point) == stored)
+        .ok_or(MithrilSyncError::ResumePointNotFound { point: stored })
+}
+
+fn ledger_config_for_network(network: NetworkName, ledger_dir: PathBuf) -> Result<LedgerConfig, MithrilSyncError> {
+    let era_history = network
+        .as_era_history()
+        .ok_or_else(|| store_error("resolve era history", anyhow!("unsupported network: {network}")))?;
+    let global_parameters = network
+        .as_global_parameters()
+        .ok_or_else(|| store_error("resolve global parameters", anyhow!("unsupported network: {network}")))?;
+    Ok(LedgerConfig {
+        ledger_store: RocksDbConfig::new(ledger_dir),
+        network,
+        era_history: era_history.clone(),
+        global_parameters: global_parameters.clone(),
+        ..LedgerConfig::default()
+    })
 }
 
 struct ForwardDownloadProgress(Arc<dyn MithrilObserver>);
@@ -667,27 +672,73 @@ fn validate_store_directory(path: &Path, operation: &'static str) -> Result<(), 
 }
 
 fn acquire_sync_locks(target_dir: &Path, ledger_dir: &Path, chain_dir: &Path) -> Result<Vec<File>, MithrilSyncError> {
-    let mut directories = [target_dir, ledger_dir, chain_dir].into_iter().map(Path::to_path_buf).collect::<Vec<_>>();
-    directories.sort_unstable();
-    directories.dedup();
-    directories
+    let mut directories = [target_dir, ledger_dir, chain_dir]
         .into_iter()
         .map(|directory| {
-            let lock = File::create(directory.join(".mithril-sync.lock"))
-                .map_err(|source| store_error("create synchronization lock", source))?;
-            match lock.try_lock() {
-                Ok(()) => Ok(lock),
-                Err(TryLockError::WouldBlock) => Err(MithrilSyncError::Concurrent { path: directory }),
-                Err(source) => Err(store_error("acquire synchronization lock", source)),
-            }
+            fs::canonicalize(directory).map_err(|source| store_error("resolve synchronization lock path", source))
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    directories.sort_unstable();
+    directories.dedup();
+
+    let mut legacy_locks = Vec::new();
+    for directory in &directories {
+        let legacy_path = directory.join(".mithril-sync.lock");
+        let legacy_lock = match OpenOptions::new().read(true).write(true).open(&legacy_path) {
+            Ok(lock) => lock,
+            Err(source) if source.kind() == io::ErrorKind::NotFound => continue,
+            Err(source) => return Err(store_error("open legacy synchronization lock", source)),
+        };
+        lock_sync_file(&legacy_lock, directory)?;
+        legacy_locks.push((legacy_path, legacy_lock));
+    }
+
+    let mut locks = Vec::with_capacity(directories.len());
+    for directory in &directories {
+        let lock = File::create(sync_lock_path(directory)?)
+            .map_err(|source| store_error("create synchronization lock", source))?;
+        lock_sync_file(&lock, directory)?;
+        locks.push(lock);
+    }
+
+    for (legacy_path, legacy_lock) in legacy_locks {
+        drop(legacy_lock);
+        match fs::remove_file(legacy_path) {
+            Ok(()) => {}
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => return Err(store_error("remove legacy synchronization lock", source)),
+        }
+    }
+
+    Ok(locks)
+}
+
+fn sync_lock_path(directory: &Path) -> Result<PathBuf, MithrilSyncError> {
+    let name = directory.file_name().ok_or_else(|| {
+        store_error(
+            "resolve synchronization lock path",
+            io::Error::new(io::ErrorKind::InvalidInput, format!("cannot lock store root {}", directory.display())),
+        )
+    })?;
+    let mut lock_name = OsString::from(".");
+    lock_name.push(name);
+    lock_name.push(".mithril-sync.lock");
+    Ok(directory.with_file_name(lock_name))
+}
+
+fn lock_sync_file(lock: &File, directory: &Path) -> Result<(), MithrilSyncError> {
+    match lock.try_lock() {
+        Ok(()) => Ok(()),
+        Err(TryLockError::WouldBlock) => Err(MithrilSyncError::Concurrent { path: directory.to_path_buf() }),
+        Err(source) => Err(store_error("acquire synchronization lock", source)),
+    }
 }
 
 fn recover_stores(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<(), MithrilSyncError> {
     let chain_tip = chain_store.get_best_chain_tip();
     if ledger_tip != chain_tip {
         let recovery = if can_adopt(chain_store, ledger_tip, chain_tip) {
+            info!(cli::mithril::RECOVER_CHAIN_TIP, ledger_tip, chain_tip);
             adopt_validated_block(chain_store, ledger_tip)
         } else {
             realign_chain_store_to(chain_store, ledger_tip, ClearValidity::ValidOnly)
@@ -699,18 +750,6 @@ fn recover_stores(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<(),
                 reason: source.to_string(),
             }))
         })?;
-    }
-    Ok(())
-}
-
-fn recover_chain_tip(chain_store: &dyn ChainStore, ledger_tip: Point) -> anyhow::Result<()> {
-    let chain_tip = chain_store.get_best_chain_tip();
-    if ledger_tip != chain_tip {
-        if !can_adopt(chain_store, ledger_tip, chain_tip) {
-            anyhow::bail!("ledger tip cannot be finalized from adopted chain tip {chain_tip}");
-        }
-        info!(cli::mithril::RECOVER_CHAIN_TIP, ledger_tip, chain_tip);
-        adopt_validated_block(chain_store, ledger_tip)?;
     }
     Ok(())
 }
@@ -734,30 +773,80 @@ fn adopt_validated_block(chain_store: &dyn ChainStore, point: Point) -> anyhow::
     Ok(())
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator,
-    pool_summaries: &RwLock<PoolSummaries>,
+    pool_summaries: &mut watch::Receiver<PoolSummaries>,
     era_history: Arc<EraHistory>,
+    cancellation: &MithrilCancellation,
     raw_block: &RawBlock,
     block: Block,
-) -> anyhow::Result<()> {
+) -> Result<(), MithrilSyncError> {
     let point = block.header.point();
     // Keep adoption last: an interruption after the ledger commit then leaves its tip off the
     // adopted chain, which normal startup detects before opening the node.
-    chain_store.store_block(&point.hash(), raw_block)?;
-    let pool_summaries = Arc::new(pool_summaries.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone());
-    let nonces =
-        validate_header(&block.header, consensus_parameters, chain_store.clone(), pool_summaries, era_history)?;
-    chain_store.store_validated_header(&block.header, &nonces)?;
+    chain_store
+        .store_block(&point.hash(), raw_block)
+        .map_err(|source| MithrilSyncError::Validation { point, source: source.into() })?;
+    let nonces = loop {
+        let summaries = Arc::new(pool_summaries.borrow_and_update().clone());
+        match validate_header(
+            &block.header,
+            consensus_parameters.clone(),
+            chain_store.clone(),
+            summaries,
+            era_history.clone(),
+        ) {
+            Ok(nonces) => break nonces,
+            Err(source) => {
+                let Some(target) = source.missing_stake_distribution() else {
+                    return Err(MithrilSyncError::Validation { point, source: source.into() });
+                };
+                if !wait_for_stake_distribution(pool_summaries, target, cancellation).await? {
+                    return Err(MithrilSyncError::Validation { point, source: source.into() });
+                }
+            }
+        }
+    };
+    chain_store
+        .store_validated_header(&block.header, &nonces)
+        .map_err(|source| MithrilSyncError::Validation { point, source: source.into() })?;
     block_validator
         .roll_forward_block(block)
         .await
-        .map_err(|source| anyhow!("ledger worker failed at {point}: {source:?}"))?
-        .map_err(|source| anyhow!("ledger rejected block at {point}: {source:?}"))?;
-    adopt_validated_block(chain_store.as_ref(), point)?;
+        .map_err(|source| MithrilSyncError::Validation {
+            point,
+            source: anyhow!("ledger worker failed at {point}: {source:?}"),
+        })?
+        .map_err(|source| MithrilSyncError::Validation {
+            point,
+            source: anyhow!("ledger rejected block at {point}: {source:?}"),
+        })?;
+    adopt_validated_block(chain_store.as_ref(), point)
+        .map_err(|source| MithrilSyncError::Validation { point, source })?;
     Ok(())
+}
+
+async fn wait_for_stake_distribution(
+    pool_summaries: &mut watch::Receiver<PoolSummaries>,
+    target: amaru_kernel::Epoch,
+    cancellation: &MithrilCancellation,
+) -> Result<bool, MithrilSyncError> {
+    loop {
+        if pool_summaries.borrow().by_epoch.contains_key(&target) {
+            return Ok(true);
+        }
+        tokio::select! {
+            changed = pool_summaries.changed() => {
+                if changed.is_err() {
+                    return Ok(false);
+                }
+            }
+            _ = cancellation.cancelled() => return Err(MithrilSyncError::Cancelled),
+        }
+    }
 }
 
 fn store_error(operation: &'static str, source: impl Into<anyhow::Error>) -> MithrilSyncError {
@@ -779,9 +868,9 @@ fn classify_download_error(source: MithrilDownloadError) -> MithrilSyncError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{collections::BTreeMap, sync::Mutex};
 
-    use amaru_kernel::{Header, make_header};
+    use amaru_kernel::{Epoch, Header, make_header};
     use amaru_ouroboros::{BaseReadChainStore, Nonces, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use tempfile::tempdir;
 
@@ -870,14 +959,42 @@ mod tests {
         for path in [&ledger_dir, &chain_dir, &first_cache, &second_cache] {
             fs::create_dir(path).unwrap();
         }
+        File::create(ledger_dir.join(".mithril-sync.lock")).unwrap();
 
         let locks = acquire_sync_locks(&first_cache, &ledger_dir, &chain_dir).unwrap();
+        assert!(!ledger_dir.join(".mithril-sync.lock").exists());
+        assert!(directory.path().join(".ledger.mithril-sync.lock").exists());
+        assert!(directory.path().join(".chain.mithril-sync.lock").exists());
         assert!(matches!(
             acquire_sync_locks(&second_cache, &ledger_dir, &chain_dir),
             Err(MithrilSyncError::Concurrent { .. })
         ));
         drop(locks);
         acquire_sync_locks(&second_cache, &ledger_dir, &chain_dir).unwrap();
+    }
+
+    #[test]
+    fn synchronization_respects_an_active_legacy_lock_before_removing_it() {
+        let directory = tempdir().unwrap();
+        let ledger_dir = directory.path().join("ledger");
+        let chain_dir = directory.path().join("chain");
+        let cache_dir = directory.path().join("cache");
+        for path in [&ledger_dir, &chain_dir, &cache_dir] {
+            fs::create_dir(path).unwrap();
+        }
+        let legacy_path = ledger_dir.join(".mithril-sync.lock");
+        let legacy_lock = File::create(&legacy_path).unwrap();
+        legacy_lock.try_lock().unwrap();
+
+        assert!(matches!(
+            acquire_sync_locks(&cache_dir, &ledger_dir, &chain_dir),
+            Err(MithrilSyncError::Concurrent { .. })
+        ));
+        assert!(legacy_path.exists());
+
+        drop(legacy_lock);
+        acquire_sync_locks(&cache_dir, &ledger_dir, &chain_dir).unwrap();
+        assert!(!legacy_path.exists());
     }
 
     #[derive(Clone, Copy)]
@@ -939,5 +1056,69 @@ mod tests {
         store.roll_forward_chain(&from.point()).unwrap();
 
         assert!(matches!(recover_stores(&store, target.point()), Err(MithrilSyncError::RebootstrapRequired(_))));
+    }
+
+    #[test]
+    fn resolves_the_bootstrap_ledger_tip_height_from_the_chain_store() {
+        let tip = make_header(42, 123, None);
+        let store = InMemoryChainStore::new();
+        store.store_header(&tip).unwrap();
+
+        let stored_tip = NetworkPoint::from(tip.point());
+        let resolved = resolve_resume_point(&store, stored_tip).unwrap();
+
+        assert_eq!(resolved, tip.point());
+        assert_eq!(resolved.block_height(), 42.into());
+    }
+
+    #[test]
+    fn recovery_initializes_a_bootstrapped_store_without_a_best_chain() {
+        let parent = make_header(41, 122, None);
+        let tip = make_header(42, 123, Some(parent.hash()));
+        let store = InMemoryChainStore::new();
+        store.store_validated_header(&parent, &Nonces::for_tests()).unwrap();
+        store.store_validated_header(&tip, &Nonces::for_tests()).unwrap();
+        assert_eq!(store.get_best_chain_tip(), Point::Origin);
+
+        recover_stores(&store, tip.point()).unwrap();
+
+        assert_eq!(store.get_anchor_point(), tip.point());
+        assert_eq!(store.get_best_chain_tip(), tip.point());
+        assert!(store.is_on_best_chain(NetworkPoint::from(tip.point())));
+    }
+
+    #[test]
+    fn recovery_rewinds_the_adopted_chain_to_the_durable_ledger_tip() {
+        let durable = make_header(1, 1, None);
+        let volatile_1 = make_header(2, 2, Some(durable.hash()));
+        let volatile_2 = make_header(3, 3, Some(volatile_1.hash()));
+        let store = InMemoryChainStore::new();
+        for header in [&durable, &volatile_1, &volatile_2] {
+            store.store_validated_header(header, &Nonces::for_tests()).unwrap();
+            store.set_block_valid(&header.hash(), true).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+
+        recover_stores(&store, durable.point()).unwrap();
+
+        assert_eq!(store.get_anchor_point(), durable.point());
+        assert_eq!(store.get_best_chain_tip(), durable.point());
+        assert_eq!(store.load_header_with_validity(&volatile_1.hash()).unwrap().1, None);
+        assert_eq!(store.load_header_with_validity(&volatile_2.hash()).unwrap().1, None);
+    }
+
+    #[tokio::test]
+    async fn replay_waits_for_a_background_stake_distribution() {
+        let target = Epoch::from(1120);
+        let (sender, mut receiver) = watch::channel(PoolSummaries::default());
+        let update = tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            sender.send_modify(|summaries| {
+                summaries.by_epoch.insert(target, BTreeMap::new());
+            });
+        });
+
+        assert!(wait_for_stake_distribution(&mut receiver, target, &MithrilCancellation::new()).await.unwrap());
+        update.await.unwrap();
     }
 }

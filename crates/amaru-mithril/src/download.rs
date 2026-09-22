@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, Mutex as StdMutex},
 };
 
-use amaru_kernel::{NetworkName, Point};
+use amaru_kernel::{NetworkName, Point, Slot};
 use amaru_observability::{info, warn};
 use amaru_progress_bar::{NoProgressBar, ProgressBar};
 use anyhow::anyhow;
@@ -311,16 +311,18 @@ pub async fn download_from_mithril(
     from_chunk: u64,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> Result<(), MithrilDownloadError> {
-    download_from_mithril_with_resume_chunk(network, target_dir, from_chunk, None, with_progress, None, (0, 0))
+    download_from_mithril_with_chunk_range(network, target_dir, from_chunk, None, None, with_progress, None, (0, 0))
         .await
         .map(|_| ())
 }
 
-async fn download_from_mithril_with_resume_chunk(
+#[expect(clippy::too_many_arguments)]
+async fn download_from_mithril_with_chunk_range(
     network: NetworkName,
     target_dir: PathBuf,
     from_chunk: u64,
     resume_chunk: Option<u64>,
+    requested_through_chunk: Option<u64>,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
     observer: Option<Arc<dyn MithrilDownloadObserver>>,
     cached: (u64, u64),
@@ -354,12 +356,13 @@ async fn download_from_mithril_with_resume_chunk(
             source: anyhow::anyhow!("Mithril snapshot not found: {}", snapshot_list_item.hash),
         }
     })?;
-    let through_chunk = snapshot.beacon.immutable_file_number;
-    validate_snapshot_range(from_chunk, resume_chunk, through_chunk)?;
+    let snapshot_through_chunk = snapshot.beacon.immutable_file_number;
+    validate_snapshot_range(from_chunk, resume_chunk, requested_through_chunk, snapshot_through_chunk)?;
+    let through_chunk = requested_through_chunk.unwrap_or(snapshot_through_chunk);
     if let Some(observer) = observer.as_ref() {
         observer.on_progress(MithrilDownloadProgress::SnapshotSelected {
             hash: snapshot_list_item.hash.clone(),
-            through_chunk,
+            through_chunk: snapshot_through_chunk,
         });
     }
     let certificate = client
@@ -368,7 +371,7 @@ async fn download_from_mithril_with_resume_chunk(
         .await
         .map_err(|source| MithrilDownloadError::Validation { source })?;
 
-    let immutable_file_range = ImmutableFileRange::From(from_chunk);
+    let immutable_file_range = immutable_file_range(from_chunk, requested_through_chunk);
     let download_unpack_options =
         DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
     info!(mithril::snapshot::DOWNLOAD, target_dir = target_dir.display().to_string(), from_chunk, through_chunk);
@@ -411,18 +414,32 @@ async fn download_from_mithril_with_resume_chunk(
     Ok(snapshot_list_item.hash)
 }
 
+fn immutable_file_range(from_chunk: u64, requested_through_chunk: Option<u64>) -> ImmutableFileRange {
+    requested_through_chunk.map_or(ImmutableFileRange::From(from_chunk), |through_chunk| {
+        ImmutableFileRange::Range(from_chunk, through_chunk)
+    })
+}
+
+fn requested_through_chunk(
+    network: NetworkName,
+    resume_chunk: u64,
+    until_slot: Option<Slot>,
+) -> anyhow::Result<Option<u64>> {
+    until_slot
+        .map(|slot| chunk_for_slot(network, slot))
+        .transpose()
+        .map(|through_chunk| through_chunk.map(|through_chunk| through_chunk.max(resume_chunk)))
+}
+
 fn validate_snapshot_range(
     from_chunk: u64,
     resume_chunk: Option<u64>,
-    through_chunk: u64,
+    requested_through_chunk: Option<u64>,
+    snapshot_through_chunk: u64,
 ) -> Result<(), MithrilDownloadError> {
-    if let Some(resume_chunk) = resume_chunk
-        && resume_chunk > through_chunk
-    {
-        return Err(MithrilDownloadError::Inapplicable { through_chunk, required_chunk: resume_chunk });
-    }
-    if from_chunk > through_chunk {
-        return Err(MithrilDownloadError::Inapplicable { through_chunk, required_chunk: from_chunk });
+    let required_chunk = resume_chunk.into_iter().chain(requested_through_chunk).fold(from_chunk, u64::max);
+    if required_chunk > snapshot_through_chunk {
+        return Err(MithrilDownloadError::Inapplicable { through_chunk: snapshot_through_chunk, required_chunk });
     }
     Ok(())
 }
@@ -437,7 +454,7 @@ pub async fn download_from_mithril_for_resume_point(
     resume_point: Point,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> Result<PathBuf, MithrilDownloadError> {
-    download_from_mithril_for_resume_point_inner(network, target_dir, resume_point, with_progress, None)
+    download_from_mithril_for_resume_point_inner(network, target_dir, resume_point, None, with_progress, None)
         .await
         .map(|report| report.immutable_dir)
 }
@@ -449,10 +466,24 @@ pub async fn download_from_mithril_for_resume_point_with_observer(
     resume_point: Point,
     observer: Arc<dyn MithrilDownloadObserver>,
 ) -> Result<MithrilDownloadReport, MithrilDownloadError> {
+    download_from_mithril_for_range_with_observer(network, target_dir, resume_point, None, observer).await
+}
+
+/// Downloads a verified Mithril database from `resume_point` through the immutable chunk containing `until_slot`.
+///
+/// When `until_slot` is `None`, the download continues through the selected snapshot's latest immutable chunk.
+pub async fn download_from_mithril_for_range_with_observer(
+    network: NetworkName,
+    target_dir: PathBuf,
+    resume_point: Point,
+    until_slot: Option<Slot>,
+    observer: Arc<dyn MithrilDownloadObserver>,
+) -> Result<MithrilDownloadReport, MithrilDownloadError> {
     download_from_mithril_for_resume_point_inner(
         network,
         target_dir,
         resume_point,
+        until_slot,
         Arc::new(|_, _| Box::new(NoProgressBar {})),
         Some(observer),
     )
@@ -463,11 +494,13 @@ async fn download_from_mithril_for_resume_point_inner(
     network: NetworkName,
     target_dir: PathBuf,
     resume_point: Point,
+    until_slot: Option<Slot>,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
     observer: Option<Arc<dyn MithrilDownloadObserver>>,
 ) -> Result<MithrilDownloadReport, MithrilDownloadError> {
     let immutable_dir = target_dir.join("immutable");
-    let resume_chunk = chunk_for_slot(network, resume_point.slot_or_default().into())?;
+    let resume_chunk = chunk_for_slot(network, resume_point.slot_or_default())?;
+    let requested_through_chunk = requested_through_chunk(network, resume_chunk, until_slot)?;
     let observer =
         observer.map(|observer| Arc::new(MonotonicDownloadObserver::new(observer)) as Arc<dyn MithrilDownloadObserver>);
     let mut rebuilt = false;
@@ -487,11 +520,12 @@ async fn download_from_mithril_for_resume_point_inner(
             }
         };
 
-        let snapshot_hash = match download_from_mithril_with_resume_chunk(
+        let snapshot_hash = match download_from_mithril_with_chunk_range(
             network,
             target_dir.clone(),
             from_chunk,
             Some(resume_chunk),
+            requested_through_chunk,
             with_progress.clone(),
             observer.clone(),
             cached_download_state(&immutable_dir)?,

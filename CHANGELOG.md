@@ -63,14 +63,17 @@ Other guiding principles:
 
 - **amaru-tui**: keyboard controls can be remapped with comma-separated `key=alias` entries in `AMARU_TUI_ALIASES`; `ctrl+` and `shift+` denote Ctrl and Shift. Startup reports conflicting bindings instead of accepting ambiguous controls.
 - **amaru-tui**: copy mode can write logs to a file in the working directory. Click one log line and click another to mark a time range (a later click moves the nearer end; drag also works). The range stays put if you then change the level or regex filter. `e` writes the currently visible lines in that range, or every visible line if nothing is selected, as plain text including the level column.
-
-### Added
-
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 
+### Changed
+
+- **amaru-pure-stage**: session typestate remainders print as `Choice`/`Par`/`Repeat` over tuples of at most 10 steps. `reveal_remainder!(session)` dumps the remainder as a compile-time panic.
+
 ### Fixed
 
+- **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
+- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
 - **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 

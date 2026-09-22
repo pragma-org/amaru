@@ -28,7 +28,7 @@ pub use archive::{
 };
 pub use download::{
     MithrilDownloadError, MithrilDownloadObserver, MithrilDownloadProgress, MithrilDownloadReport,
-    download_from_mithril, download_from_mithril_for_resume_point,
+    download_from_mithril, download_from_mithril_for_range_with_observer, download_from_mithril_for_resume_point,
     download_from_mithril_for_resume_point_with_observer,
 };
 pub use immutable::{
