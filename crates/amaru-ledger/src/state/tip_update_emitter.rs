@@ -44,7 +44,7 @@ impl TipUpdateEmitter {
         });
 
         debug!(
-            amaru_observability::amaru::ledger::tip::UPDATE,
+            ledger::tip::UPDATE,
             slot,
             header_hash = point.hash(),
             block_height = metrics.block_height,

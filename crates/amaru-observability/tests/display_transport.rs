@@ -30,9 +30,9 @@ fn peer_and_hash_schema_fields_are_emitted_as_plain_strings() {
     let header_hash = Hash::<32>::from([0xabu8; 32]);
 
     tracing::subscriber::with_default(subscriber, || {
-        info!(amaru::protocols::manager::peer::ADD, peer = peer);
+        info!(protocols::manager::peer::ADD, peer = peer);
         info!(
-            amaru::ledger::tip::UPDATE,
+            ledger::tip::UPDATE,
             slot = Slot::from(42),
             header_hash,
             block_height = 99_u64,

@@ -23,11 +23,13 @@ used=$(find crates -name "*.rs" \
     | sort -u)
 
 # Schema keys are fully qualified with a leading `amaru::`, but call sites
-# typically use crate-relative paths (e.g. `ledger::block::APPLY`).
-# Match against the suffix so both forms count as used.
+# use crate-relative paths (e.g. `ledger::block::APPLY`). Match the suffix
+# exactly so a fully qualified reference does not count as a use.
 while IFS= read -r path; do
     suffix=${path#amaru::}
-    if ! echo "$used" | grep -qF "$suffix"; then
+    # Avoid a producer pipeline here: grep -q closes it after a match, which can
+    # make the producer fail with SIGPIPE under pipefail.
+    if ! grep -Fxq -- "$suffix" <<< "$used"; then
         echo "UNUSED  $path"
         unused=$((unused + 1))
     fi

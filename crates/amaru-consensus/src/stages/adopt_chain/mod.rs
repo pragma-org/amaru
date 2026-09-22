@@ -143,7 +143,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
     let root_trace_context = trace_context.clone();
     let span = debug_span!(
         parent_context: trace_context,
-        amaru::consensus::block::ADOPT,
+        consensus::block::ADOPT,
         tip = msg,
         header_hash = msg.hash()
     );
