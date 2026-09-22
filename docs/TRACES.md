@@ -1376,7 +1376,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `forge_failed` | `TRACE` | public | Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}. | slot, step, error |  |
 | `forged` | `TRACE` | public | A block was forged and stored, and its tip sent to chain selection. | slot, header_hash, parent |  |
-| `missed_slot` | `TRACE` | public | A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead}. | slot, reason |  |
+| `missed_slot` | `TRACE` | public | A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led}. | slot, reason |  |
 | `schedule` | `TRACE` | public | Leader schedule for an epoch, with how many of k blocks since freeze have been adopted. | epoch, n_slots, freeze_depth, settled |  |
 
 <details><summary>span: `forge_failed`</summary>

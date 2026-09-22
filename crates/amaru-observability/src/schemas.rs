@@ -586,7 +586,7 @@ define_schemas! {
             }
             forge {
                 /// A led slot was not forged.
-                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead}.
+                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led}.
                 public MISSED_SLOT {
                     required slot: amaru_kernel::Slot
                     required reason: String
