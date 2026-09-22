@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru**: `amaru mithril sync` now finds the ledger tip of a store created by `amaru node bootstrap` in the downloaded immutable files. It previously stopped with `cannot find block in immutable storage`.
+- **amaru**: `amaru mithril sync` now continues from a store created by `amaru node bootstrap`, and from a store left by an earlier sync. It previously stopped with `cannot find block in immutable storage` or `ledger tip ... does not match adopted chain tip`.
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
