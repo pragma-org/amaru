@@ -14,7 +14,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use amaru_kernel::{ConsensusParameters, NULL_HASH28, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Slot};
+use amaru_kernel::{ConsensusParameters, NULL_HASH28, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
 use amaru_ouroboros_traits::in_memory_chain_store::InMemoryChainStore;
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{
@@ -23,7 +23,10 @@ use amaru_pure_stage::{
     stage_ref::StageStateRef,
 };
 
-use super::{ForgeBlock, ForgeBlockMsg, ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect, stage};
+use super::{
+    ForgeBlock, ForgeBlockMsg, ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect, schedule::EpochSchedule,
+    stage,
+};
 use crate::{
     effects::ValidateHeaderEffect,
     stages::{
@@ -103,8 +106,8 @@ pub fn setup_msgs(
             resources.put::<ResourceHeaderStore>(prep.store.clone());
         },
         |running| {
-            running.override_external_effect::<LeaderScheduleEffect>(usize::MAX, |_| {
-                OverrideResult::handled(Vec::<Slot>::new())
+            running.override_external_effect::<LeaderScheduleEffect>(usize::MAX, |effect| {
+                OverrideResult::handled(EpochSchedule::empty(effect.epoch, effect.nonce))
             });
         },
     );

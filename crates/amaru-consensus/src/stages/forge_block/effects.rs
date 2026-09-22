@@ -16,8 +16,10 @@
 //! credentials and mempool-for-parent are not provided here; tests override
 //! these effects.
 
-use amaru_kernel::{Epoch, Hash, Header, HeaderHash, Nonce, PoolId, RawBlock, Slot};
+use amaru_kernel::{Epoch, Hash, Header, HeaderHash, Nonce, PoolId, RawBlock, Slot, VrfCert};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
+
+use super::schedule::EpochSchedule;
 
 /// Transactions selected for a parent and slot, already a well-formed block body.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -47,6 +49,7 @@ pub struct LeaderScheduleEffect {
     pub nonce: Nonce,
     pub pool: PoolId,
     pub from: Slot,
+    /// Exclusive upper bound: the first slot of the next epoch.
     pub until: Slot,
 }
 
@@ -57,15 +60,19 @@ impl LeaderScheduleEffect {
 }
 
 impl ExternalEffectAPI for LeaderScheduleEffect {
-    type Response = Vec<Slot>;
+    type Response = EpochSchedule;
     const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
 
     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync(Vec::new())
+        let schedule = EpochSchedule::empty(self.epoch, self.nonce);
+        self.wrap_sync(schedule)
     }
 }
 
 /// Sign a header for `slot` over `body`. KES evolution happens inside this call.
+///
+/// `vrf_cert` comes from the leader schedule, so this call reaches for the KES
+/// secret only; the VRF secret stays confined to [`LeaderScheduleEffect`].
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ForgeHeaderEffect {
     pub slot: Slot,
@@ -73,11 +80,12 @@ pub struct ForgeHeaderEffect {
     pub block_number: u64,
     pub body_hash: Hash<32>,
     pub body_size: u64,
+    pub vrf_cert: VrfCert,
 }
 
 impl ForgeHeaderEffect {
-    pub fn new(slot: Slot, parent: HeaderHash, block_number: u64, body: &ForgedBody) -> Self {
-        Self { slot, parent, block_number, body_hash: body.hash, body_size: body.size }
+    pub fn new(slot: Slot, parent: HeaderHash, block_number: u64, body: &ForgedBody, vrf_cert: VrfCert) -> Self {
+        Self { slot, parent, block_number, body_hash: body.hash, body_size: body.size, vrf_cert }
     }
 }
 

@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, Slot};
+use amaru_kernel::{Epoch, EraHistory, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, Point, Slot};
 use amaru_observability::{error, info, warn};
 use amaru_ouroboros::praos::nonce as praos_nonce;
 use amaru_ouroboros_traits::{FindCommonAncestorResult, Nonces};
@@ -26,11 +26,11 @@ use amaru_pure_stage::{
 use super::{
     ForgeBlock, ForgeData, FreezeWatch,
     calc::{
-        FORGE_LEAD_OFFSET, ParentChoice, choose_parent, decide_freeze, drop_past_led_slots, freeze_depth,
-        instant_for_relative, lead_fire_at, missed_slot, next_schedulable_slot, ocert_covers, replace_epoch_slots,
-        schedule_settled, wait_until_onset,
+        FORGE_LEAD_OFFSET, MissedSlotReason, ParentChoice, choose_parent, decide_freeze, freeze_depth,
+        instant_for_relative, lead_fire_at, missed_slot, ocert_covers, schedule_settled, wait_until_onset,
     },
     effects::{ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect},
+    schedule::{EpochSchedule, Schedule as Schedules},
 };
 use crate::{effects::ValidateHeaderEffect, stages::select_chain::SelectChainMsg};
 
@@ -49,7 +49,7 @@ define_messages! {
     pub enum ForgeBlockMsg {
         AdoptedTip { tip: Point, parent: Point },
         LeadSlot { slot: Slot, generation: u64 },
-        LeaderSchedule { epoch: Epoch, slots: Vec<Slot> },
+        LeaderSchedule { schedule: EpochSchedule },
     }
 }
 
@@ -104,7 +104,7 @@ macro_rules! arm_next_lead {
         // that was already queued when its timer was cancelled.
         $state.schedule_generation = $state.schedule_generation.wrapping_add(1);
         if let Some((slot, when)) =
-            next_lead_deadline(&$state.led_slots, $state.consensus_parameters.era_history(), $now)
+            next_lead_deadline(&$state.schedule, $state.consensus_parameters.era_history(), $now)
         {
             let generation = $state.schedule_generation;
             let (id, session) = $session.schedule_at(LeadSlot { slot, generation }, when).await;
@@ -163,7 +163,6 @@ async fn handle_adopted_tip(
     let (now, session) = idle.receive(&tip, eff.clone()).clock().await;
 
     let mut to_schedule: BTreeSet<Epoch> = BTreeSet::new();
-    let mut tip_epoch = None;
     if state.adopted_tip != Point::Origin
         && let Some(header) = store.load_header(&state.adopted_tip.hash()).await
     {
@@ -173,7 +172,6 @@ async fn handle_adopted_tip(
         {
             // the “praos stability window” is the part from the beginning of the epoch until 3k/f slots before the end of the epoch
             let in_freeze_window = !in_stability_window;
-            tip_epoch = Some(epoch);
             let tip_watch = FreezeWatch { epoch, point: header.point() };
             // Parent links of this tip, not the best-chain fragment: adopt_chain may
             // switch the chain again before this effect runs.
@@ -195,16 +193,7 @@ async fn handle_adopted_tip(
             let decision =
                 decide_freeze(state.freeze.as_ref(), tip_watch, in_freeze_window, freeze_is_ancestor, state.k);
             if let Some(drop) = decision.drop_epoch {
-                state.pending_epochs.remove(&drop);
-                if state.predicted_epoch == Some(drop) {
-                    state.predicted_epoch = None;
-                }
-                if let Ok(bounds) = state.consensus_parameters.era_history().epoch_bounds(drop) {
-                    replace_epoch_slots(&mut state.led_slots, bounds.start, epoch_until(bounds.end), []);
-                }
-            }
-            if state.predicted_epoch == Some(epoch) {
-                state.predicted_epoch = None;
+                state.schedule.forget(drop);
             }
             state.freeze = decision.freeze;
             if let Some(watch) = state.freeze.as_ref() {
@@ -212,7 +201,7 @@ async fn handle_adopted_tip(
                 info!(
                     consensus::forge::SCHEDULE,
                     epoch = watch.scheduled_epoch(),
-                    n_slots = state.led_slots.len(),
+                    n_slots = state.schedule.slots(),
                     freeze_depth = depth,
                     settled = schedule_settled(depth, state.k)
                 );
@@ -220,27 +209,33 @@ async fn handle_adopted_tip(
             if let Some(next) = decision.schedule_epoch {
                 to_schedule.insert(next);
             }
-            if state.led_slots.is_empty() && state.pending_epochs.is_empty() {
+            if !state.schedule.knows(epoch) {
                 to_schedule.insert(epoch);
             }
+
+            // Slots below the tip's epoch can never be forged into: `choose_parent`
+            // rejects any lead slot at or before the adopted tip.
+            state.schedule.prune(epoch);
         }
     }
 
     let mut session = session;
     for epoch in to_schedule {
-        if !state.pending_epochs.insert(epoch) {
+        let Some(nonce) = schedule_nonce(state.adopted_tip, &store, epoch).await else {
+            continue;
+        };
+
+        if !state.schedule.request(epoch, nonce) {
             continue;
         }
-        if let Some(effect) =
-            leader_schedule_effect(&state.consensus_parameters, state.adopted_tip, state.pool, &store, epoch).await
-        {
-            if tip_epoch.is_some_and(|current| epoch == current + 1) {
-                state.predicted_epoch = Some(epoch);
-            }
-            session = session.detach(effect, move |slots| LeaderSchedule { epoch, slots }.into()).await;
-        } else {
-            state.pending_epochs.remove(&epoch);
-        }
+
+        let Some((from, until)) = epoch_slots(state.consensus_parameters.era_history(), epoch) else {
+            state.schedule.forget(epoch);
+            continue;
+        };
+
+        let effect = LeaderScheduleEffect::new(epoch, nonce, state.pool, from, until);
+        session = session.detach(effect, |schedule| LeaderSchedule { schedule }.into()).await;
     }
     finish_with_next_lead!(session, state, now)
 }
@@ -248,25 +243,25 @@ async fn handle_adopted_tip(
 async fn handle_leader_schedule(
     state: &mut ForgeData,
     idle: Idle,
-    schedule: LeaderSchedule,
+    msg: LeaderSchedule,
     eff: Effects<ForgeBlockMsg>,
 ) -> Idle {
-    state.pending_epochs.remove(&schedule.epoch);
-    let (now, session) = idle.receive(&schedule, eff).clock().await;
-    if let Ok(bounds) = state.consensus_parameters.era_history().epoch_bounds(schedule.epoch) {
-        let until = epoch_until(bounds.end);
-        replace_epoch_slots(&mut state.led_slots, bounds.start, until, schedule.slots.iter().copied());
-        let era_history = state.consensus_parameters.era_history();
-        drop_past_led_slots(&mut state.led_slots, now, |slot| slot_onset(era_history, now, slot).unwrap_or(now));
+    let (now, session) = idle.receive(&msg, eff).clock().await;
+    let epoch = msg.schedule.epoch();
+
+    // A result whose nonce no longer matches the outstanding request was computed
+    // from a candidate nonce a rollback has since replaced; it is dropped.
+    if state.schedule.install(msg.schedule) {
         let depth = state
             .freeze
             .as_ref()
             .map(|watch| freeze_depth(watch.point.block_height(), state.adopted_tip.block_height()))
             .unwrap_or(0);
+
         info!(
             consensus::forge::SCHEDULE,
-            epoch = schedule.epoch,
-            n_slots = state.led_slots.len(),
+            epoch,
+            n_slots = state.schedule.slots(),
             freeze_depth = depth,
             settled = schedule_settled(depth, state.k)
         );
@@ -281,7 +276,6 @@ async fn handle_lead_slot(state: &mut ForgeData, idle: Idle, lead: LeadSlot, eff
         let (_now, session) = idle.receive(&lead, eff).clock().await;
         return session.finish();
     }
-    state.led_slots.retain(|&s| s > slot);
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
     let coverage = ocert_covers(kes_period, state.ocert_start_period, state.consensus_parameters.max_kes_evolutions());
     let parent_choice = choose_parent(state.adopted_tip.slot(), slot);
@@ -290,6 +284,13 @@ async fn handle_lead_slot(state: &mut ForgeData, idle: Idle, lead: LeadSlot, eff
         let (now, session) = idle.receive(&lead, eff).clock().await;
         return finish_with_next_lead!(session, state, now);
     }
+
+    let cert = state.schedule.lead_at(slot).map(|lead| lead.cert().clone());
+    let Some(cert) = cert else {
+        warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::NotLed.as_str());
+        let (now, session) = idle.receive(&lead, eff).clock().await;
+        return finish_with_next_lead!(session, state, now);
+    };
 
     let parent_point = match parent_choice {
         ParentChoice::AdoptedTip => state.adopted_tip,
@@ -301,7 +302,8 @@ async fn handle_lead_slot(state: &mut ForgeData, idle: Idle, lead: LeadSlot, eff
 
     let session = idle.receive(&lead, eff.clone());
     let (body, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
-    let (header, session) = session.external(ForgeHeaderEffect::new(slot, parent_hash, block_number, &body)).await;
+    let (header, session) =
+        session.external(ForgeHeaderEffect::new(slot, parent_hash, block_number, &body, cert)).await;
     let header = match header {
         Ok(header) => header,
         Err(error) => {
@@ -349,38 +351,37 @@ async fn handle_lead_slot(state: &mut ForgeData, idle: Idle, lead: LeadSlot, eff
     finish_with_next_lead!(session, state, now)
 }
 
-fn next_lead_deadline(led_slots: &[Slot], era_history: &EraHistory, now: Instant) -> Option<(Slot, Instant)> {
-    let (slot, onset) = next_schedulable_slot(led_slots, now, |slot| slot_onset(era_history, now, slot))?;
+fn next_lead_deadline(schedules: &Schedules, era_history: &EraHistory, now: Instant) -> Option<(Slot, Instant)> {
+    let slot = schedules.next_lead(current_slot(era_history, now)?)?.slot();
+    let onset = slot_onset(era_history, now, slot)?;
     Some((slot, lead_fire_at(onset, now, FORGE_LEAD_OFFSET)))
 }
 
-fn epoch_until(end: Option<Slot>) -> Slot {
-    end.unwrap_or(Slot::from(u64::MAX))
+fn current_slot(era_history: &EraHistory, now: Instant) -> Option<Slot> {
+    era_history.relative_time_to_slot(now.duration_since_global_epoch()).ok()
 }
 
 fn slot_onset(era_history: &EraHistory, now: Instant, slot: Slot) -> Option<Instant> {
     era_history.slot_to_relative_time_unchecked_horizon(slot).ok().map(|relative| instant_for_relative(now, relative))
 }
 
-async fn leader_schedule_effect(
-    consensus_parameters: &ConsensusParameters,
-    adopted_tip: Point,
-    pool: PoolId,
-    store: &Store,
-    epoch: Epoch,
-) -> Option<LeaderScheduleEffect> {
-    let bounds = consensus_parameters.era_history().epoch_bounds(epoch).ok()?;
-    let until = epoch_until(bounds.end);
+fn epoch_slots(era_history: &EraHistory, epoch: Epoch) -> Option<(Slot, Slot)> {
+    let from = era_history.epoch_bounds(epoch).ok()?.start;
+    let until = era_history.epoch_bounds(epoch + 1).ok()?.start;
+    Some((from, until))
+}
+
+/// Epoch nonce the leader schedule for `epoch` is computed from, as of `adopted_tip`.
+async fn schedule_nonce(adopted_tip: Point, store: &Store, epoch: Epoch) -> Option<Nonce> {
     let header = store.load_header(&adopted_tip.hash()).await?;
     let nonces = store.get_nonces(&header.hash()).await?;
-    let nonce = if epoch == nonces.epoch {
-        nonces.active
-    } else {
-        let tail_parent = match store.load_header(&nonces.tail).await {
-            Some(tail) => tail.parent().unwrap_or(ORIGIN_HASH),
-            None => ORIGIN_HASH,
-        };
-        nonces.next_active(tail_parent)
+    if epoch == nonces.epoch {
+        return Some(nonces.active);
+    }
+    let tail_parent = match store.load_header(&nonces.tail).await {
+        Some(tail) => tail.parent().unwrap_or(ORIGIN_HASH),
+        None => ORIGIN_HASH,
     };
-    Some(LeaderScheduleEffect::new(epoch, nonce, pool, bounds.start, until))
+
+    Some(nonces.next_active(tail_parent))
 }

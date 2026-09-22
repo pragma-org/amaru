@@ -48,6 +48,8 @@ pub(super) enum MissedSlotReason {
     OcertNotYetValid,
     OcertExpired,
     TipAhead,
+    /// Woken for a slot the current schedule does not lead.
+    NotLed,
 }
 
 impl MissedSlotReason {
@@ -56,6 +58,7 @@ impl MissedSlotReason {
             Self::OcertNotYetValid => "ocert_not_yet_valid",
             Self::OcertExpired => "ocert_expired",
             Self::TipAhead => "tip_ahead",
+            Self::NotLed => "not_led",
         }
     }
 }
@@ -175,31 +178,6 @@ pub(super) fn decide_freeze(
         Some(watch) => FreezeDecision { freeze: Some(*watch), drop_epoch: None, schedule_epoch: None },
         None => FreezeDecision { freeze: None, drop_epoch: None, schedule_epoch: None },
     }
-}
-
-/// Drop led slots whose onset is no longer in the future. Order is preserved.
-pub(super) fn drop_past_led_slots(led: &mut Vec<Slot>, now: Instant, slot_onset: impl Fn(Slot) -> Instant) {
-    led.retain(|&slot| slot_onset(slot) > now);
-}
-
-/// Next led slot that can still be published (`onset > now`).
-pub(super) fn next_schedulable_slot(
-    led: &[Slot],
-    now: Instant,
-    slot_onset: impl Fn(Slot) -> Option<Instant>,
-) -> Option<(Slot, Instant)> {
-    led.iter().copied().find_map(|slot| {
-        let onset = slot_onset(slot)?;
-        (onset > now).then_some((slot, onset))
-    })
-}
-
-/// Replace led slots that fall in `[from, until)` with `new`.
-pub(super) fn replace_epoch_slots(led: &mut Vec<Slot>, from: Slot, until: Slot, new: impl IntoIterator<Item = Slot>) {
-    led.retain(|slot| *slot < from || *slot >= until);
-    led.extend(new);
-    led.sort();
-    led.dedup();
 }
 
 /// Instant at which `LeadSlot` should fire: `offset` before onset, but not in the past.
@@ -361,31 +339,6 @@ mod tests {
             decide_freeze(Some(&first), switched, false, false, 3),
             FreezeDecision { freeze: None, drop_epoch: Some(first.scheduled_epoch()), schedule_epoch: None }
         );
-    }
-
-    #[test]
-    fn unpublished_slots_are_those_whose_onset_is_still_ahead() {
-        let onset = |s: Slot| instant(u64::from(s));
-        let mut led = vec![slot(5), slot(8), slot(3)];
-        drop_past_led_slots(&mut led, instant(5), onset);
-        assert_eq!(led, vec![slot(8)]);
-        let mut led = vec![slot(5)];
-        drop_past_led_slots(&mut led, instant(4), onset);
-        assert_eq!(led, vec![slot(5)]);
-    }
-
-    #[test]
-    fn next_schedulable_slot_skips_past_onsets() {
-        let onset = |s: Slot| Some(instant(u64::from(s)));
-        assert_eq!(next_schedulable_slot(&[slot(3), slot(5), slot(8)], instant(5), onset), Some((slot(8), instant(8))));
-        assert_eq!(next_schedulable_slot(&[slot(8)], instant(4), onset), Some((slot(8), instant(8))));
-    }
-
-    #[test]
-    fn replace_epoch_slots_swaps_a_range() {
-        let mut led = vec![slot(1), slot(5), slot(9)];
-        replace_epoch_slots(&mut led, slot(4), slot(8), [slot(6), slot(7)]);
-        assert_eq!(led, vec![slot(1), slot(6), slot(7), slot(9)]);
     }
 
     #[test]
