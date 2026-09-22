@@ -157,8 +157,13 @@ pub(super) async fn run(
     let chain_store: Arc<dyn ChainStore> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
     let praos_chain_store = create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
 
-    let ledger_config =
-        LedgerConfig { ledger_store: RocksDbConfig::new(ledger_dir), network, ..LedgerConfig::default() };
+    let ledger_config = LedgerConfig {
+        ledger_store: RocksDbConfig::new(ledger_dir),
+        network,
+        era_history: era_history.clone(),
+        global_parameters: global_parameters.clone(),
+        ..LedgerConfig::default()
+    };
     let state = make_state(&ledger_config, None, chain_store.clone())?;
     let tip = state.tip().into_owned();
     recover_chain_tip(chain_store.as_ref(), tip)?;
