@@ -18,7 +18,7 @@ use amaru::{
     default_chain_dir, default_ledger_dir,
     lifecycle::{Runnable, RuntimeKind},
 };
-use amaru_kernel::NetworkName;
+use amaru_kernel::{NetworkName, Slot};
 use amaru_node::{DefaultMithrilObserver, MithrilCancellation, MithrilSyncError, MithrilSynchronizer};
 
 #[derive(Debug, clap::Parser)]
@@ -57,7 +57,7 @@ pub(crate) struct Args {
     /// Ingest blocks until (and including) the given slot.
     /// If not provided, will ingest all available blocks.
     #[arg(long, value_name = "SLOT", env = "AMARU_INGEST_UNTIL_SLOT")]
-    ingest_until_slot: Option<u64>,
+    ingest_until_slot: Option<Slot>,
 
     /// Ingest at most the given number of blocks.
     /// If not provided, will ingest all available blocks.

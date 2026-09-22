@@ -295,7 +295,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     );
 
     let from_chunk = first_missing_immutable_chunk(&immutable_dir)?;
-    let required_chunk = targets.last().and_then(|t| chunk_for_slot(network, t.slot.into()).ok()).unwrap_or(0);
+    let required_chunk = targets.last().and_then(|t| chunk_for_slot(network, t.slot).ok()).unwrap_or(0);
 
     let progress_factory: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync> =
         Arc::new(|size: usize, template: &str| {
