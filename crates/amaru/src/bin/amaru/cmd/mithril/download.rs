@@ -24,7 +24,12 @@ use amaru_mithril::download_from_mithril_for_resume_point;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 
-pub(super) async fn run(network: NetworkName, ledger_dir: &Path, snapshots_dir: &Path) -> anyhow::Result<PathBuf> {
+pub(super) async fn run(
+    network: NetworkName,
+    ledger_dir: &Path,
+    snapshots_dir: &Path,
+    until_slot: Option<u64>,
+) -> anyhow::Result<PathBuf> {
     let target_dir = snapshots_dir.join(network.to_string());
     fs::create_dir_all(&target_dir)?;
 
@@ -35,6 +40,7 @@ pub(super) async fn run(network: NetworkName, ledger_dir: &Path, snapshots_dir: 
         network,
         target_dir,
         tip,
+        until_slot,
         Arc::new(|length, template| {
             Box::new(TerminalProgressBar::new(length as u64, template)) as Box<dyn ProgressBar + Send + Sync>
         }),

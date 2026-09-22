@@ -91,6 +91,6 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
     let _sync_lock = acquire_sync_lock(&snapshots_dir, network)?;
 
-    let immutable_dir = download::run(network, &ledger_dir, &snapshots_dir).await?;
+    let immutable_dir = download::run(network, &ledger_dir, &snapshots_dir, ingest_until_slot).await?;
     ingest::run(network, ledger_dir, chain_dir, immutable_dir, ingest_until_slot, ingest_maximum_blocks).await
 }

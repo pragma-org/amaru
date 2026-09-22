@@ -127,7 +127,7 @@ pub async fn download_from_mithril(
     from_chunk: u64,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> anyhow::Result<()> {
-    download_from_mithril_with_resume_chunk(network, target_dir, from_chunk, None, with_progress).await
+    download_from_mithril_with_resume_chunk(network, target_dir, from_chunk, None, None, with_progress).await
 }
 
 async fn download_from_mithril_with_resume_chunk(
@@ -135,6 +135,7 @@ async fn download_from_mithril_with_resume_chunk(
     target_dir: PathBuf,
     from_chunk: u64,
     resume_chunk: Option<u64>,
+    until_chunk: Option<u64>,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> anyhow::Result<()> {
     let AggregatorDetails { endpoint, verification_key } = aggregator_details(network)?;
@@ -157,11 +158,16 @@ async fn download_from_mithril_with_resume_chunk(
     fetch_progress.clear();
     let snapshot =
         snapshot?.ok_or_else(|| anyhow::anyhow!("Mithril snapshot not found: {}", snapshot_list_item.hash))?;
-    let through_chunk = snapshot.beacon.immutable_file_number;
-    validate_snapshot_range(from_chunk, resume_chunk, through_chunk)?;
+    let snapshot_chunk = snapshot.beacon.immutable_file_number;
+    validate_snapshot_range(from_chunk, resume_chunk, snapshot_chunk)?;
+    // Stop at the chunk holding `until_chunk` when it is earlier than the snapshot's last chunk,
+    // without cutting off the resume point.
+    let lower_bound = resume_chunk.map_or(from_chunk, |resume_chunk| resume_chunk.max(from_chunk));
+    let through_chunk =
+        until_chunk.map_or(snapshot_chunk, |until_chunk| until_chunk.max(lower_bound).min(snapshot_chunk));
     let certificate = client.certificate().verify_chain(&snapshot.certificate_hash).await?;
 
-    let immutable_file_range = ImmutableFileRange::From(from_chunk);
+    let immutable_file_range = ImmutableFileRange::Range(from_chunk, through_chunk);
     let download_unpack_options =
         DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
     info!(mithril::snapshot::DOWNLOAD, target_dir = target_dir.display().to_string(), from_chunk, through_chunk);
@@ -210,16 +216,20 @@ fn validate_snapshot_range(from_chunk: u64, resume_chunk: Option<u64>, through_c
 
 /// Downloads a Mithril snapshot for resuming from `resume_point`.
 ///
-/// The selected range is bounded by both the validated cache tail and the resume point. If local
-/// immutable validation fails, only the disposable `immutable` directory is rebuilt, at most once.
+/// The selected range is bounded by both the validated cache tail and the resume point. When
+/// `until_slot` is given, the download stops at the chunk containing that slot instead of the end
+/// of the snapshot. If local immutable validation fails, only the disposable `immutable` directory
+/// is rebuilt, at most once.
 pub async fn download_from_mithril_for_resume_point(
     network: NetworkName,
     target_dir: PathBuf,
     resume_point: Point,
+    until_slot: Option<u64>,
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> anyhow::Result<PathBuf> {
     let immutable_dir = target_dir.join("immutable");
     let resume_chunk = chunk_for_slot(network, resume_point.slot_or_default().into())?;
+    let until_chunk = until_slot.map(|until_slot| chunk_for_slot(network, until_slot)).transpose()?;
     let mut rebuilt = false;
 
     loop {
@@ -238,6 +248,7 @@ pub async fn download_from_mithril_for_resume_point(
             target_dir.clone(),
             from_chunk,
             Some(resume_chunk),
+            until_chunk,
             with_progress.clone(),
         )
         .await?;

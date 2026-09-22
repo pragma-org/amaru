@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Changed
+
+- **amaru**: `amaru mithril sync --ingest-until-slot` no longer downloads immutable files past the requested slot.
+
 ### Fixed
 
 - **amaru**: `amaru mithril sync` now continues from a store created by `amaru node bootstrap`, and from a store left by an earlier sync. It previously stopped with `cannot find block in immutable storage` or `ledger tip ... does not match adopted chain tip`.
