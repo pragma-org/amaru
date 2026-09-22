@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Fixed
+
+- **amaru**: `amaru mithril sync` now finds the ledger tip of a store created by `amaru node bootstrap` in the downloaded immutable files. It previously stopped with `cannot find block in immutable storage`.
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Added
