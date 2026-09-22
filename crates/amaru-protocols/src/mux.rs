@@ -398,7 +398,7 @@ pub async fn stage(mut state: State, msg: MuxMessage, mut eff: Effects<MuxMessag
                 }
                 write!(&mut err, "{}", error).ok();
             }
-            error!(
+            warn!(
                 protocols::mux::FAILED,
                 peer,
                 role = muxer.role().to_string().to_string().to_string().to_string(),
@@ -480,7 +480,7 @@ async fn read_segment(
         let first = Network::new(&eff)
             .recv(conn, HEADER_LEADING_EDGE, None)
             .or_terminate_with(&eff, async |err| {
-                error!(
+                warn!(
                     protocols::mux::FAILED,
                     role = role.to_string(),
                     peer,
