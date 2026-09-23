@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use amaru_consensus::{
-    block_validator::BlockValidator,
+    block_validator::{BlockValidator, LedgerThreadStop},
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
         ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
@@ -57,6 +57,8 @@ use crate::{
         config::{Config, LedgerConfig, StoreType},
     },
 };
+
+const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Build a node given the provided configuration and run it on `runtime`.
 ///
@@ -105,6 +107,20 @@ impl NodeRunning {
     /// Abort all stage tasks without consuming this handle (safe from any thread).
     pub fn request_abort(&self) {
         self.tokio_running.request_abort();
+    }
+
+    /// Stop every stage and wait for the ledger thread to close its stores.
+    pub async fn shutdown(self) -> anyhow::Result<()> {
+        let Self { tokio_running, mempool_sender } = self;
+        let resources = tokio_running.resources().clone();
+        let ledger_thread = resources.get::<LedgerThreadStop>()?.clone();
+
+        tokio_running.request_abort();
+        drop(mempool_sender);
+        tokio_running.join().await;
+        resources.clear();
+        ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT)?;
+        Ok(())
     }
 
     pub fn abort(self) {
@@ -327,4 +343,29 @@ fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -
     // not walk its children). Re-validation either repeats the error or, if the bug is gone, adopts
     // the chain. Runtime `FindBestCandidate` still skips blocks marked invalid in *this* run.
     realign_chain_store_to(chain_store.as_ref(), ledger_tip, ClearValidity::All)
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::NetworkName;
+
+    use super::*;
+    use crate::tests::configuration::NodeTestConfig;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn shutdown_allows_starting_another_network() -> anyhow::Result<()> {
+        for network in [NetworkName::Preprod, NetworkName::Preview] {
+            let test_config = NodeTestConfig::default()
+                .with_network_name(network)
+                .with_no_upstream_peers()
+                .with_listen_address("127.0.0.1:0");
+            let mut config = test_config.make_node_configuration()?;
+            config.ledger_config.global_parameters = network.as_global_parameters().unwrap().clone();
+
+            let running = build_and_run_node(config, &Handle::current())?;
+            running.shutdown().await?;
+        }
+
+        Ok(())
+    }
 }

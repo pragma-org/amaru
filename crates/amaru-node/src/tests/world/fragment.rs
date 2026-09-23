@@ -290,7 +290,6 @@ async fn run_until_target_epoch(primed: &Path, meta: &FragmentMeta, meter: Arc<M
 
     loop {
         if done.load(Ordering::SeqCst) {
-            running.request_abort();
             break;
         }
         tokio::select! {
@@ -298,7 +297,7 @@ async fn run_until_target_epoch(primed: &Path, meta: &FragmentMeta, meter: Arc<M
             _ = tokio::time::sleep(Duration::from_millis(200)) => {}
         }
     }
-    running.termination().await;
+    running.shutdown().await?;
     if !done.load(Ordering::SeqCst) {
         anyhow::bail!("node terminated before target epoch {target_epoch}");
     }

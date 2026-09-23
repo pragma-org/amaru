@@ -27,7 +27,7 @@
 //!     .listen_ephemeral_localhost()
 //!     .observers(LedgerObservers::new().on_adopted_block(|_block| { /* ... */ }))
 //!     .build_and_run(rt.handle())?;
-//! // Stop from outside with running.request_abort(); await running.termination().
+//! // Stop from outside and wait for stages and stores to close with running.shutdown().await.
 //! ```
 //!
 //! The Tokio runtime is always an **explicit** argument — never taken from ambient

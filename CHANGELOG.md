@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Added
+
+- **amaru-node**: embedders can shut down a running node and wait for its stores to close before starting another node.
+
 ### Changed
 
 - **amaru-pure-stage**: session typestate remainders print as `Choice`/`Par`/`Repeat` over tuples of at most 10 steps. `reveal_remainder!(session)` dumps the remainder as a compile-time panic.
