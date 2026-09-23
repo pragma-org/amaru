@@ -60,6 +60,10 @@ Other guiding principles:
 - **amaru-consensus**: performance worker panic logs now include the panic message when it is a string.
 - **amaru-ledger**: expired governance proposals now prune their descendants, preventing synchronization from stopping at the following epoch boundary. ([#1381](https://github.com/pragma-org/amaru/issues/1381))
 
+### Fixed
+
+- **amaru-ledger**: expired governance proposals now prune their descendants, preventing synchronization from stopping at the following epoch boundary. ([#1381](https://github.com/pragma-org/amaru/issues/1381))
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Added
