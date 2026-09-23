@@ -22,7 +22,10 @@ use std::{
     collections::BTreeMap,
     future::{Future, poll_fn},
     marker::PhantomData,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -36,7 +39,7 @@ use tokio::{
         mpsc::{self, Receiver},
         oneshot, watch,
     },
-    task::JoinHandle,
+    task::{JoinError, JoinHandle},
 };
 use tracing::trace_span;
 
@@ -67,6 +70,8 @@ pub struct SendError {
 struct TokioInner {
     senders: Mutex<BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>>,
     handles: Mutex<Vec<JoinHandle<()>>>,
+    failures: Mutex<Vec<JoinError>>,
+    stopping: AtomicBool,
     clock: Arc<dyn Clock + Send + Sync>,
     global_epoch_offset: Duration,
     resources: Resources,
@@ -82,6 +87,8 @@ impl TokioInner {
         Self {
             senders: Default::default(),
             handles: Default::default(),
+            failures: Default::default(),
+            stopping: AtomicBool::new(false),
             clock: Arc::new(TokioClock),
             global_epoch_offset: Duration::ZERO,
             resources: Resources::default(),
@@ -94,13 +101,16 @@ impl TokioInner {
     }
 
     fn push_handle(&self, handle: JoinHandle<()>) {
+        if self.stopping.load(Ordering::SeqCst) {
+            handle.abort();
+        }
         let mut handles = self.handles.lock();
-        reap_finished_handles(&mut handles);
+        reap_finished_handles(&mut handles, &mut self.failures.lock());
         handles.push(handle);
     }
 }
 
-fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>) {
+fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>, failures: &mut Vec<JoinError>) {
     handles.retain_mut(|handle| {
         if !handle.is_finished() {
             return true;
@@ -109,7 +119,7 @@ fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>) {
         match handle.poll_unpin(&mut cx) {
             Poll::Ready(Ok(())) => {}
             Poll::Ready(Err(err)) if err.is_cancelled() => {}
-            Poll::Ready(Err(err)) => tracing::error!("detached task failed: {err:?}"),
+            Poll::Ready(Err(err)) => failures.push(err),
             Poll::Pending => return true,
         }
         false
@@ -158,7 +168,7 @@ impl TokioBuilder {
         // abort all tasks as soon as the termination signal is received
         let mut termination2 = termination.clone();
         let inner2 = inner.clone();
-        rt.spawn(async move {
+        let monitor = rt.spawn(async move {
             termination2.wait_for(|x| *x).await.ok();
             let handles = inner2.handles.lock();
             tracing::info!(stages = handles.len(), "termination signal received, shutting down stages");
@@ -167,7 +177,7 @@ impl TokioBuilder {
             }
         });
 
-        TokioRunning { inner, termination }
+        TokioRunning { inner, termination, monitor: Arc::new(Mutex::new(Some(monitor))) }
     }
 
     pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
@@ -248,8 +258,10 @@ impl StageGraph for TokioBuilder {
         self.tasks.push(Box::new(move |inner| {
             let stage = run_stage_boxed(state, rx, ff, stage_name, inner);
             Box::pin(async move {
+                let _termination = DropGuard::new(termination_tx, |tx| {
+                    tx.send_replace(true);
+                });
                 stage.await;
-                termination_tx.send_replace(true);
             })
         }));
         StageStateRef::new(name)
@@ -605,14 +617,14 @@ async fn interpreter(
                 let (tx, rx) = mpsc::channel(inner.mailbox_size);
                 inner.senders.lock().insert(name.clone(), tx);
                 let stage = run_stage_boxed(initial_state, rx, transition.into_inner(), name.clone(), inner.clone());
-                let handle = tokio::spawn(stage);
-                // need to construct DropGuard before pushing into the FuturesUnordered to avoid Future being dropped
-                // before the guard is established
-                let mut handle = DropGuard::new(handle, |handle| handle.abort());
+                let (done_tx, done_rx) = oneshot::channel();
+                let handle = tokio::spawn(async move {
+                    stage.await;
+                    let _ = done_tx.send(());
+                });
+                inner.push_handle(handle);
                 timers.push(Box::pin(async move {
-                    if let Err(err) = (&mut *handle).await {
-                        tracing::error!("stage `{name}` failed: {}", err);
-                    }
+                    let _ = done_rx.await;
                     PriorityMessage::Tombstone(tombstone)
                 }));
                 StageResponse::Unit
@@ -673,6 +685,7 @@ async fn interpreter(
 pub struct TokioRunning {
     inner: Arc<TokioInner>,
     termination: watch::Receiver<bool>,
+    monitor: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl TokioRunning {
@@ -681,8 +694,12 @@ impl TokioRunning {
     /// Safe to call from any thread (including the process main thread). Abort is
     /// cooperative: stage tasks stop at their next `.await`.
     pub fn request_abort(&self) {
+        self.inner.stopping.store(true, Ordering::SeqCst);
         for handle in self.inner.handles.lock().iter() {
             handle.abort();
+        }
+        if let Some(monitor) = self.monitor.lock().as_ref() {
+            monitor.abort();
         }
     }
 
@@ -691,15 +708,17 @@ impl TokioRunning {
         self.request_abort();
     }
 
-    pub async fn join(self) {
+    /// Wait for all registered tasks and surface a task panic.
+    pub async fn join(self) -> Result<(), JoinError> {
+        let inner = Arc::clone(&self.inner);
         poll_fn(move |cx| {
-            let mut handles = self.inner.handles.lock();
+            let mut handles = inner.handles.lock();
             handles.retain_mut(|h| {
                 if let Poll::Ready(res) = h.poll_unpin(cx) {
                     match res {
                         Ok(_) => tracing::info!("stage task completed"),
                         Err(err) if err.is_cancelled() => tracing::info!("stage task cancelled"),
-                        Err(err) => tracing::error!("stage task failed: {:?}", err),
+                        Err(err) => inner.failures.lock().push(err),
                     }
                     false
                 } else {
@@ -709,6 +728,16 @@ impl TokioRunning {
             if handles.is_empty() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
+
+        let monitor = self.monitor.lock().take();
+        if let Some(monitor) = monitor
+            && let Err(err) = monitor.await
+            && !err.is_cancelled()
+        {
+            self.inner.failures.lock().push(err);
+        }
+
+        self.inner.failures.lock().drain(..).next().map_or(Ok(()), Err)
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {

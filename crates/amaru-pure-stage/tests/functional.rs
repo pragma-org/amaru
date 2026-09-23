@@ -96,7 +96,7 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
     graph(&mut network);
 
     let sim = network.run(rt.handle().clone());
-    rt.block_on(async move { tokio::time::timeout(Duration::from_secs(3), sim.join()).await }).unwrap();
+    rt.block_on(async move { tokio::time::timeout(Duration::from_secs(3), sim.join()).await }).unwrap().unwrap();
 
     guard.defuse();
 

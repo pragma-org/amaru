@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, future::Future, sync::Arc, time::Duration};
 
 use amaru_consensus::{
     block_validator::{BlockValidator, LedgerThreadStop},
@@ -47,8 +47,12 @@ use amaru_pure_stage::{
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore};
 use anyhow::anyhow;
+use futures_util::future::join_all;
 use parking_lot::Mutex;
-use tokio::runtime::Handle;
+use tokio::{
+    runtime::Handle,
+    task::{JoinError, JoinHandle},
+};
 
 use crate::{
     ClearValidity, realign_chain_store_to,
@@ -59,6 +63,27 @@ use crate::{
 };
 
 const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Clone, Default)]
+struct StakeDistributionTasks(Arc<Mutex<Vec<JoinHandle<()>>>>);
+
+impl StakeDistributionTasks {
+    fn spawn(&self, runtime: &Handle, future: impl Future<Output = ()> + Send + 'static) {
+        self.0.lock().push(runtime.spawn(future));
+    }
+
+    async fn join(self) -> Result<(), JoinError> {
+        let tasks = std::mem::take(&mut *self.0.lock());
+        join_all(tasks).await.into_iter().find_map(Result::err).map_or(Ok(()), Err)
+    }
+}
+
+#[derive(Clone)]
+struct NodeLifecycle {
+    ledger_thread: LedgerThreadStop,
+    connections: Arc<TokioConnections>,
+    stake_distribution_tasks: StakeDistributionTasks,
+}
 
 /// Build a node given the provided configuration and run it on `runtime`.
 ///
@@ -76,9 +101,10 @@ pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<No
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
     let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
+    let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender })
+    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle })
 }
 
 /// Encapsulation of the running runtime + accesses to entry points to the processing graph.
@@ -89,6 +115,7 @@ pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<No
 pub struct NodeRunning {
     tokio_running: TokioRunning,
     mempool_sender: Sender<MempoolMsg>,
+    lifecycle: NodeLifecycle,
 }
 
 impl NodeRunning {
@@ -109,18 +136,22 @@ impl NodeRunning {
         self.tokio_running.request_abort();
     }
 
-    /// Stop every stage and wait for the ledger thread to close its stores.
+    /// Stop and join every node-owned task, then close listeners and stores.
     pub async fn shutdown(self) -> anyhow::Result<()> {
-        let Self { tokio_running, mempool_sender } = self;
+        let Self { tokio_running, mempool_sender, lifecycle } = self;
+        let NodeLifecycle { ledger_thread, connections, stake_distribution_tasks } = lifecycle;
         let resources = tokio_running.resources().clone();
-        let ledger_thread = resources.get::<LedgerThreadStop>()?.clone();
 
         tokio_running.request_abort();
         drop(mempool_sender);
-        tokio_running.join().await;
+        let stages = tokio_running.join().await.map_err(anyhow::Error::from);
+        let listeners = connections.shutdown().await.map_err(anyhow::Error::from);
         resources.clear();
-        ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT)?;
-        Ok(())
+        drop(connections);
+        let ledger = ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT).map_err(anyhow::Error::from);
+        let stake_distribution = stake_distribution_tasks.join().await.map_err(anyhow::Error::from);
+
+        stages.and(listeners).and(ledger).and(stake_distribution)
     }
 
     pub fn abort(self) {
@@ -176,7 +207,7 @@ pub fn build_node(
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history()));
 
     // Register resources
-    register_resources(
+    let (ledger_thread, connections) = register_resources(
         stage_builder,
         chain_store,
         global_parameters,
@@ -201,6 +232,12 @@ pub fn build_node(
     );
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
+    let stake_distribution_tasks = StakeDistributionTasks::default();
+    stage_builder.resources().put(NodeLifecycle {
+        ledger_thread,
+        connections,
+        stake_distribution_tasks: stake_distribution_tasks.clone(),
+    });
     // Weak: the callback is stored on `block_validator`, which lives in these same
     // resources. A strong capture would leak every node (RocksDB FDs included).
     let resources = stage_builder.resources().downgrade();
@@ -215,7 +252,7 @@ pub fn build_node(
         };
         #[expect(clippy::expect_used)]
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(send);
+            stake_distribution_tasks.spawn(&rt, send);
         } else {
             let rt =
                 tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
@@ -248,17 +285,19 @@ fn register_resources(
     meter: Arc<Meter>,
     mempool_config: MempoolConfig,
     config: &Config,
-) {
+) -> (LedgerThreadStop, Arc<TokioConnections>) {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
 
     stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
     stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
+    let ledger_thread = block_validator.thread_stop();
     // NOTE: used in WorldLoop::stop() and impl Drop for World
-    stage_graph.resources().put(block_validator.thread_stop());
+    stage_graph.resources().put(ledger_thread.clone());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
-    stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
+    let connections = Arc::new(TokioConnections::new(65535));
+    stage_graph.resources().put::<ConnectionsResource>(connections.clone());
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
@@ -290,6 +329,8 @@ fn register_resources(
         Default::default(),
         config.peer_mix.clone(),
     )));
+
+    (ledger_thread, connections)
 }
 
 /// This function migrates the database if necessary
@@ -347,25 +388,48 @@ fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -
 
 #[cfg(test)]
 mod tests {
+    use std::net::{SocketAddr, TcpListener};
+
     use amaru_kernel::NetworkName;
+    use tokio::{net::TcpStream, time::timeout};
 
     use super::*;
     use crate::tests::configuration::NodeTestConfig;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn shutdown_allows_starting_another_network() -> anyhow::Result<()> {
+        let probe = TcpListener::bind("127.0.0.1:0")?;
+        let listen_address = probe.local_addr()?;
+        drop(probe);
+
         for network in [NetworkName::Preprod, NetworkName::Preview] {
             let test_config = NodeTestConfig::default()
                 .with_network_name(network)
                 .with_no_upstream_peers()
-                .with_listen_address("127.0.0.1:0");
+                .with_listen_address(&listen_address.to_string());
             let mut config = test_config.make_node_configuration()?;
             config.ledger_config.global_parameters = network.as_global_parameters().unwrap().clone();
 
             let running = build_and_run_node(config, &Handle::current())?;
+            wait_for_listener(listen_address).await?;
             running.shutdown().await?;
+
+            drop(TcpListener::bind(listen_address)?);
         }
 
+        Ok(())
+    }
+
+    async fn wait_for_listener(address: SocketAddr) -> anyhow::Result<()> {
+        timeout(Duration::from_secs(1), async {
+            loop {
+                if TcpStream::connect(address).await.is_ok() {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
         Ok(())
     }
 }

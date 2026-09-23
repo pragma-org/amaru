@@ -451,6 +451,7 @@ dependencies = [
  "amaru-pure-stage",
  "anyhow",
  "bytes",
+ "futures-util",
  "hickory-resolver",
  "parking_lot",
  "socket2 0.6.5",

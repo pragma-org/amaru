@@ -126,3 +126,19 @@ fn contramap_input_returns_send_error_when_mailbox_is_gone() {
     drop(graph);
     assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError::new(sink.name().clone())));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn join_reports_stage_panic() {
+    let mut graph = TokioBuilder::default();
+    let stage = graph.stage("panic", async |_state, _msg: (), _eff| -> () {
+        panic!("stage failed");
+    });
+    let stage = graph.wire_up(stage, ());
+    let input = graph.input(stage);
+    let running = graph.run(tokio::runtime::Handle::current());
+
+    input.send(()).await.unwrap();
+    let error = timeout(Duration::from_secs(1), running.join()).await.unwrap().unwrap_err();
+
+    assert!(error.is_panic());
+}

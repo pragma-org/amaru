@@ -19,6 +19,7 @@ use amaru_observability::{Instrument, debug, debug_span, info};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
+use futures_util::future::join_all;
 use parking_lot::Mutex;
 use socket2::{Domain, Socket, Type};
 use tokio::{
@@ -28,7 +29,7 @@ use tokio::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     sync::{Mutex as AsyncMutex, mpsc},
-    task::JoinHandle,
+    task::{JoinError, JoinHandle},
 };
 
 pub struct Connection {
@@ -115,6 +116,27 @@ impl TokioConnections {
             tasks: Mutex::new(BTreeMap::new()),
         });
         Self { inner }
+    }
+
+    /// Stop and join all listener tasks, then close every active connection.
+    pub async fn shutdown(&self) -> Result<(), JoinError> {
+        let tasks = std::mem::take(&mut *self.inner.tasks.lock());
+        tasks.values().for_each(JoinHandle::abort);
+        let failure =
+            join_all(tasks.into_values()).await.into_iter().filter_map(Result::err).find(|err| !err.is_cancelled());
+
+        self.inner.connections.lock().connections.clear();
+        self.close_and_drain_pending_accepts().await;
+
+        failure.map_or(Ok(()), Err)
+    }
+
+    async fn close_and_drain_pending_accepts(&self) {
+        let mut incoming = self.inner.incoming_rx.lock().await;
+        incoming.close();
+        while let Some(pending) = incoming.recv().await {
+            drop(pending);
+        }
     }
 }
 
@@ -353,6 +375,18 @@ mod tests {
         connections.close(connection_id).await?;
 
         client.await.expect("client task panicked")?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shutdown_releases_listener() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let addr = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+
+        connections.shutdown().await?;
+
+        let listener = TcpListener::bind(addr).await?;
+        assert_eq!(listener.local_addr()?, addr);
         Ok(())
     }
 
