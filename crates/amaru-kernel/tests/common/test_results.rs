@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use minicbor::decode;
 
-use crate::{AcknowledgedFailure, TestConfiguration, TestKey, TestOutcome, error_class, normalize_shape};
+use crate::{AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutcome, error_class, normalize_shape};
 
 /// Rules for data types whose bytes are hashed. For those data types the,
 /// where the encoding is part of the format since a different encoding is a different hash.
@@ -97,17 +97,12 @@ impl TestResults {
     ) -> anyhow::Result<()> {
         let rule = test_key.rule();
         let outcome = self.per_rule.entry(rule.into()).or_default();
-        if test_key.is_zapped() {
-            outcome.zap_must_be_rejected_expected += 1;
-            if actual_cbor.is_err() {
-                outcome.zap_must_be_rejected_actual += 1;
-            } else {
-                self.failures.insert(test_key.clone(), DECODED_BUT_SHOULD_BE_REJECTED.to_string());
-            }
-        } else {
-            outcome.generated_total += 1;
-
-            if let Some(expected) = expected_cbor {
+        match test_key.category() {
+            Category::Valid => {
+                let Some(expected) = expected_cbor else {
+                    anyhow::bail!("no reference bytes for the valid sample {test_key}");
+                };
+                outcome.generated_total += 1;
                 outcome.generated_decoded_reencoded_expected += 1;
                 match actual_cbor {
                     Ok(re_encoded) => {
@@ -132,10 +127,20 @@ impl TestResults {
                         self.failures.insert(test_key.clone(), e.to_string());
                     }
                 }
-            } else {
+            }
+            Category::InvalidGenerated => {
+                outcome.generated_total += 1;
                 outcome.generated_must_be_rejected_expected += 1;
                 if actual_cbor.is_err() {
                     outcome.generated_must_be_rejected_actual += 1;
+                } else {
+                    self.failures.insert(test_key.clone(), DECODED_BUT_SHOULD_BE_REJECTED.to_string());
+                }
+            }
+            Category::Zapped(_) => {
+                outcome.zap_must_be_rejected_expected += 1;
+                if actual_cbor.is_err() {
+                    outcome.zap_must_be_rejected_actual += 1;
                 } else {
                     self.failures.insert(test_key.clone(), DECODED_BUT_SHOULD_BE_REJECTED.to_string());
                 }
