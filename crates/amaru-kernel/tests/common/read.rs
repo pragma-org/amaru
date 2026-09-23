@@ -21,6 +21,10 @@ use anyhow::{Context, anyhow};
 
 use crate::{Category, Corpus, TestKey, check_no_unknown_rules};
 
+/// Directory holding the canonical re-encoding of the samples it accompanies. It is not a sample category, so
+/// it is skipped when the samples of a rule are collected.
+const EXPECTED_DIR: &str = "expected";
+
 /// Return every `.cbor` sample below a rule directory, ordered by category then file name so runs are
 /// reproducible.
 pub fn read_test_data(corpus: Corpus, rule_dir: &Path) -> anyhow::Result<Vec<TestKey>> {
@@ -33,6 +37,9 @@ pub fn read_test_data(corpus: Corpus, rule_dir: &Path) -> anyhow::Result<Vec<Tes
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
+        if name == EXPECTED_DIR {
+            continue;
+        }
         let category = Category::from_dir(&name).context(format!("directory {}", rule_dir.display()))?;
 
         for file in read_directory(&dir)? {
@@ -47,10 +54,11 @@ pub fn read_test_data(corpus: Corpus, rule_dir: &Path) -> anyhow::Result<Vec<Tes
 }
 
 /// Return the expected canonical CBOR for a given test sample, if it exists.
-/// TODO: when the https://github.com/r2rationality/cardano-cbor-dataset repository is updated to include
-/// normalized canonical CBOR for all valid samples, this function should read the normalized files directly.
+///
+/// A reference lives at `<corpus>/<rule>/expected/<sample>`, next to the categories of the rule it belongs to,
+/// and carries the same file name as the sample it is the re-encoding of.
 pub fn read_expected_canonical_cbor(corpus: Corpus, rule: &str, path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
-    let at = expected_root(corpus).join(rule).join("valid").join(path.file_name().unwrap_or_default());
+    let at = corpus_root(corpus).join(rule).join(EXPECTED_DIR).join(path.file_name().unwrap_or_default());
     at.is_file().then(|| read_file(&at)).transpose()
 }
 
@@ -77,11 +85,6 @@ pub fn dataset_dir() -> PathBuf {
 /// Return the contents of a file
 pub fn read_file(path: &Path) -> anyhow::Result<Vec<u8>> {
     fs::read(path).map_err(|e| anyhow!(io_error(path, e)))
-}
-
-/// The Haskell ledger's re-serialization of each sample it accepted, keyed by the same relative path.
-fn expected_root(corpus: Corpus) -> PathBuf {
-    dataset_dir().join(format!("{corpus}-expected"))
 }
 
 /// Return the directory entries
