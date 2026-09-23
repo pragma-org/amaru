@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, future::Future, sync::Arc, time::Duration};
 
 use amaru_consensus::{
-    block_validator::{BlockValidator, LedgerThreadStop},
+    block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
         ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
@@ -49,6 +49,7 @@ use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDB
 use anyhow::anyhow;
 use futures_util::future::join_all;
 use parking_lot::Mutex;
+use thiserror::Error;
 use tokio::{
     runtime::Handle,
     task::{JoinError, JoinHandle},
@@ -83,6 +84,36 @@ struct NodeLifecycle {
     ledger_thread: LedgerThreadStop,
     connections: Arc<TokioConnections>,
     stake_distribution_tasks: StakeDistributionTasks,
+}
+
+/// Outcome of a shutdown that released every owned resource.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct ShutdownReport {
+    /// Components that terminated unexpectedly before or during shutdown.
+    pub unexpected_exits: Vec<ComponentFailure>,
+}
+
+impl ShutdownReport {
+    /// Whether every component exited as expected.
+    pub fn is_clean(&self) -> bool {
+        self.unexpected_exits.is_empty()
+    }
+}
+
+/// A component failure observed during a completed shutdown.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ComponentFailure {
+    Stages(String),
+    NetworkListeners(String),
+    Ledger(String),
+    StakeDistribution(String),
+}
+
+/// Shutdown stopped without proving that every owned resource was released.
+#[derive(Debug, Clone, Eq, Error, PartialEq)]
+pub enum ShutdownError {
+    #[error("timed out after {timeout:?} waiting for the ledger thread; stores may still be active")]
+    LedgerTimeout { timeout: Duration },
 }
 
 /// Build a node given the provided configuration and run it on `runtime`.
@@ -137,21 +168,36 @@ impl NodeRunning {
     }
 
     /// Stop and join every node-owned task, then close listeners and stores.
-    pub async fn shutdown(self) -> anyhow::Result<()> {
+    ///
+    /// `Ok` means cleanup completed; inspect the report for component failures.
+    /// `Err` means at least one resource may still be active and should not be reopened.
+    pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
         let Self { tokio_running, mempool_sender, lifecycle } = self;
         let NodeLifecycle { ledger_thread, connections, stake_distribution_tasks } = lifecycle;
         let resources = tokio_running.resources().clone();
 
         tokio_running.request_abort();
         drop(mempool_sender);
-        let stages = tokio_running.join().await.map_err(anyhow::Error::from);
-        let listeners = connections.shutdown().await.map_err(anyhow::Error::from);
+        let stages = tokio_running.join().await.err().map(|error| ComponentFailure::Stages(error.to_string()));
+        let listeners =
+            connections.shutdown().await.err().map(|error| ComponentFailure::NetworkListeners(error.to_string()));
         resources.clear();
         drop(connections);
-        let ledger = ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT).map_err(anyhow::Error::from);
-        let stake_distribution = stake_distribution_tasks.join().await.map_err(anyhow::Error::from);
+        let ledger = ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT);
+        let stake_distribution = stake_distribution_tasks
+            .join()
+            .await
+            .err()
+            .map(|error| ComponentFailure::StakeDistribution(error.to_string()));
+        let ledger = match ledger {
+            Ok(()) => None,
+            Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
+            Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
+        };
 
-        stages.and(listeners).and(ledger).and(stake_distribution)
+        Ok(ShutdownReport {
+            unexpected_exits: [stages, listeners, ledger, stake_distribution].into_iter().flatten().collect(),
+        })
     }
 
     pub fn abort(self) {
@@ -412,7 +458,7 @@ mod tests {
 
             let running = build_and_run_node(config, &Handle::current())?;
             wait_for_listener(listen_address).await?;
-            running.shutdown().await?;
+            assert!(running.shutdown().await?.is_clean());
 
             drop(TcpListener::bind(listen_address)?);
         }

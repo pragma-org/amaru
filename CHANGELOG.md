@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Added
 
-- **amaru-node**: embedders can shut down a running node and wait for its tasks, listeners, and stores to close before starting another node.
+- **amaru-node**: embedders can shut down a running node, wait for its tasks, listeners, and stores to close, and inspect a structured report of component failures before starting another node.
 
 ### Changed
 

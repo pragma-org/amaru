@@ -58,7 +58,9 @@ pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
 pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
 pub use stages::{
-    build_node::{NodeRunning, build_and_run_node, build_node, make_state},
+    build_node::{
+        ComponentFailure, NodeRunning, ShutdownError, ShutdownReport, build_and_run_node, build_node, make_state,
+    },
     config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
 };
 pub use system_metrics::{BuildIdentity, track_system_metrics};
