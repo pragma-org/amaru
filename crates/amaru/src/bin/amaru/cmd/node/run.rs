@@ -438,8 +438,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     let running = build_and_run_node(config, &tokio::runtime::Handle::current())?;
 
     // Main-thread signal path can abort stages without scheduling this future.
-    let running_for_abort = running.clone();
-    shutdown.register_abort(move || running_for_abort.request_abort());
+    shutdown.register_abort(running.abort_callback());
     if shutdown.is_cancelled() {
         running.request_abort();
     }

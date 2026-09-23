@@ -79,7 +79,6 @@ impl StakeDistributionTasks {
     }
 }
 
-#[derive(Clone)]
 struct NodeLifecycle {
     ledger_thread: LedgerThreadStop,
     connections: Arc<TokioConnections>,
@@ -142,7 +141,7 @@ pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<No
 ///
 /// It gives us access to be the TokioRunning runtime and to specific input / output points for
 /// the processing graph (just one for now, the mempool, but we can add more as needed).
-#[derive(Clone)]
+/// Unique owner of a running node and its final shutdown result.
 pub struct NodeRunning {
     tokio_running: TokioRunning,
     mempool_sender: Sender<MempoolMsg>,
@@ -165,6 +164,12 @@ impl NodeRunning {
     /// Abort all stage tasks without consuming this handle (safe from any thread).
     pub fn request_abort(&self) {
         self.tokio_running.request_abort();
+    }
+
+    /// Return a non-blocking abort callback that does not own the node's shutdown result.
+    pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
+        let running = self.tokio_running.clone();
+        move || running.request_abort()
     }
 
     /// Stop and join every node-owned task, then close listeners and stores.

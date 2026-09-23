@@ -91,9 +91,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     let running = builder.build_and_run(rt.handle())?;
-    let running_for_term = running.clone();
+    let termination = running.termination();
     rt.spawn(async move {
-        running_for_term.termination().await;
+        termination.await;
         stop_flag.store(true, Ordering::SeqCst);
     });
 
