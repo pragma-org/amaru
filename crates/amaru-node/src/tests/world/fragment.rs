@@ -297,7 +297,8 @@ async fn run_until_target_epoch(primed: &Path, meta: &FragmentMeta, meter: Arc<M
             _ = tokio::time::sleep(Duration::from_millis(200)) => {}
         }
     }
-    running.shutdown().await?;
+    let report = running.shutdown().await?;
+    anyhow::ensure!(report.is_clean(), "node components failed: {:?}", report.unexpected_exits);
     if !done.load(Ordering::SeqCst) {
         anyhow::bail!("node terminated before target epoch {target_epoch}");
     }

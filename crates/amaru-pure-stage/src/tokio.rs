@@ -101,10 +101,10 @@ impl TokioInner {
     }
 
     fn push_handle(&self, handle: JoinHandle<()>) {
+        let mut handles = self.handles.lock();
         if self.stopping.load(Ordering::SeqCst) {
             handle.abort();
         }
-        let mut handles = self.handles.lock();
         reap_finished_handles(&mut handles, &mut self.failures.lock());
         handles.push(handle);
     }
@@ -170,6 +170,7 @@ impl TokioBuilder {
         let inner2 = inner.clone();
         let monitor = rt.spawn(async move {
             termination2.wait_for(|x| *x).await.ok();
+            inner2.stopping.store(true, Ordering::SeqCst);
             let handles = inner2.handles.lock();
             tracing::info!(stages = handles.len(), "termination signal received, shutting down stages");
             for handle in handles.iter() {
@@ -622,8 +623,10 @@ async fn interpreter(
                     stage.await;
                     let _ = done_tx.send(());
                 });
+                let abort = DropGuard::new(handle.abort_handle(), |handle| handle.abort());
                 inner.push_handle(handle);
                 timers.push(Box::pin(async move {
+                    let _abort = abort;
                     let _ = done_rx.await;
                     PriorityMessage::Tombstone(tombstone)
                 }));

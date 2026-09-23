@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Added
 
-- **amaru-node**: embedders get a single-owner running-node handle that shuts down tasks, listeners, and stores and reports component failures before another node is started.
+- **amaru-node**: embedders can await node shutdown, inspect component failures, and restart on another network after stores and listeners close.
 
 ### Changed
 

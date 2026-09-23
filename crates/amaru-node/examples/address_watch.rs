@@ -105,6 +105,9 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    drop(notify_rx);
+    let report = rt.block_on(running.shutdown())?;
+    anyhow::ensure!(report.is_clean(), "node components failed: {:?}", report.unexpected_exits);
     Ok(())
 }
 

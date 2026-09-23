@@ -455,6 +455,8 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
                 handle.abort();
             }
 
+            let report = running.shutdown().await?;
+            anyhow::ensure!(report.is_clean(), "node components failed during cleanup: {:?}", report.unexpected_exits);
             return Err(err);
         }
     };
@@ -463,7 +465,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     let exit_for_term = exit.clone();
     let consensus_died = Arc::new(AtomicBool::new(false));
     let consensus_died_flag = Arc::clone(&consensus_died);
-    tokio::spawn(async move {
+    let termination_monitor = tokio::spawn(async move {
         term.await;
         if !exit_for_term.is_cancelled() {
             consensus_died_flag.store(true, Ordering::SeqCst);
@@ -493,6 +495,11 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     if let Some(handle) = metrics {
         handle.abort();
     }
+
+    let report = running.shutdown().await;
+    termination_monitor.await?;
+    let report = report?;
+    anyhow::ensure!(report.is_clean(), "node components failed: {:?}", report.unexpected_exits);
 
     if consensus_died.load(Ordering::SeqCst) {
         anyhow::bail!("consensus stage graph terminated unexpectedly");

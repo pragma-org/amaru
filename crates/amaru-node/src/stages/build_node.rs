@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, future::Future, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use amaru_consensus::{
     block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
@@ -47,13 +47,9 @@ use amaru_pure_stage::{
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore};
 use anyhow::anyhow;
-use futures_util::future::join_all;
 use parking_lot::Mutex;
 use thiserror::Error;
-use tokio::{
-    runtime::Handle,
-    task::{JoinError, JoinHandle},
-};
+use tokio::runtime::Handle;
 
 use crate::{
     ClearValidity, realign_chain_store_to,
@@ -65,28 +61,15 @@ use crate::{
 
 const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Clone, Default)]
-struct StakeDistributionTasks(Arc<Mutex<Vec<JoinHandle<()>>>>);
-
-impl StakeDistributionTasks {
-    fn spawn(&self, runtime: &Handle, future: impl Future<Output = ()> + Send + 'static) {
-        self.0.lock().push(runtime.spawn(future));
-    }
-
-    async fn join(self) -> Result<(), JoinError> {
-        let tasks = std::mem::take(&mut *self.0.lock());
-        join_all(tasks).await.into_iter().find_map(Result::err).map_or(Ok(()), Err)
-    }
-}
-
 struct NodeLifecycle {
     ledger_thread: LedgerThreadStop,
     connections: Arc<TokioConnections>,
-    stake_distribution_tasks: StakeDistributionTasks,
+    performance: Box<dyn FnOnce() -> std::thread::Result<()> + Send + Sync>,
 }
 
 /// Outcome of a shutdown that released every owned resource.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[must_use = "inspect unexpected_exits even when cleanup completed successfully"]
 pub struct ShutdownReport {
     /// Components that terminated unexpectedly before or during shutdown.
     pub unexpected_exits: Vec<ComponentFailure>,
@@ -105,7 +88,7 @@ pub enum ComponentFailure {
     Stages(String),
     NetworkListeners(String),
     Ledger(String),
-    StakeDistribution(String),
+    Performance(String),
 }
 
 /// Shutdown stopped without proving that every owned resource was released.
@@ -137,10 +120,6 @@ pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<No
     Ok(NodeRunning { tokio_running, mempool_sender, lifecycle })
 }
 
-/// Encapsulation of the running runtime + accesses to entry points to the processing graph.
-///
-/// It gives us access to be the TokioRunning runtime and to specific input / output points for
-/// the processing graph (just one for now, the mempool, but we can add more as needed).
 /// Unique owner of a running node and its final shutdown result.
 pub struct NodeRunning {
     tokio_running: TokioRunning,
@@ -178,7 +157,7 @@ impl NodeRunning {
     /// `Err` means at least one resource may still be active and should not be reopened.
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
         let Self { tokio_running, mempool_sender, lifecycle } = self;
-        let NodeLifecycle { ledger_thread, connections, stake_distribution_tasks } = lifecycle;
+        let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
         let resources = tokio_running.resources().clone();
 
         tokio_running.request_abort();
@@ -189,11 +168,7 @@ impl NodeRunning {
         resources.clear();
         drop(connections);
         let ledger = ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT);
-        let stake_distribution = stake_distribution_tasks
-            .join()
-            .await
-            .err()
-            .map(|error| ComponentFailure::StakeDistribution(error.to_string()));
+        let performance = performance().err().map(|_| ComponentFailure::Performance("worker panicked".into()));
         let ledger = match ledger {
             Ok(()) => None,
             Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
@@ -201,7 +176,7 @@ impl NodeRunning {
         };
 
         Ok(ShutdownReport {
-            unexpected_exits: [stages, listeners, ledger, stake_distribution].into_iter().flatten().collect(),
+            unexpected_exits: [stages, listeners, ledger, performance].into_iter().flatten().collect(),
         })
     }
 
@@ -258,7 +233,7 @@ pub fn build_node(
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history()));
 
     // Register resources
-    let (ledger_thread, connections) = register_resources(
+    let lifecycle = register_resources(
         stage_builder,
         chain_store,
         global_parameters,
@@ -283,36 +258,23 @@ pub fn build_node(
     );
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
-    let stake_distribution_tasks = StakeDistributionTasks::default();
-    stage_builder.resources().put(NodeLifecycle {
-        ledger_thread,
-        connections,
-        stake_distribution_tasks: stake_distribution_tasks.clone(),
-    });
+    stage_builder.resources().put(lifecycle);
     // Weak: the callback is stored on `block_validator`, which lives in these same
     // resources. A strong capture would leak every node (RocksDB FDs included).
     let resources = stage_builder.resources().downgrade();
     block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
         let max_epoch = summaries.max_epoch();
         resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
-        let track_peers_sender = track_peers_sender.clone();
-        let send = async move {
+        let send = async {
             if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
                 amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
             }
         };
+        // The callback runs on the ledger thread; its join also covers notification delivery.
         #[expect(clippy::expect_used)]
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            stake_distribution_tasks.spawn(&rt, send);
-        } else {
-            let rt =
-                tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
-            rt.block_on(send);
-        }
+        let rt = tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
+        rt.block_on(send);
     }));
-    // TODO: The runtime spawn/block_on hack above is required by the current Tokio integration
-    // and ledger being driven from the main thread. It will be cleaned up when the ledger state
-    // is handled in its own non-Tokio thread.
 
     // Open a port to listen for downstream peers
     stage_builder
@@ -336,7 +298,7 @@ fn register_resources(
     meter: Arc<Meter>,
     mempool_config: MempoolConfig,
     config: &Config,
-) -> (LedgerThreadStop, Arc<TokioConnections>) {
+) -> NodeLifecycle {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
 
@@ -374,14 +336,12 @@ fn register_resources(
         .map(PeerCandidate::from)
         .chain(config.peer_snapshot_unresolved.iter().cloned())
         .collect();
-    stage_graph.resources().put::<ResourcePerformance>(Arc::new(Performance::with_peer_sources(
-        static_peers,
-        snapshot_candidates,
-        Default::default(),
-        config.peer_mix.clone(),
-    )));
+    let performance =
+        Performance::with_peer_sources(static_peers, snapshot_candidates, Default::default(), config.peer_mix.clone());
+    let join_performance = Box::new(performance.shutdown_callback());
+    stage_graph.resources().put::<ResourcePerformance>(Arc::new(performance));
 
-    (ledger_thread, connections)
+    NodeLifecycle { ledger_thread, connections, performance: join_performance }
 }
 
 /// This function migrates the database if necessary
@@ -442,6 +402,7 @@ mod tests {
     use std::net::{SocketAddr, TcpListener};
 
     use amaru_kernel::NetworkName;
+    use amaru_stores::rocksdb::RocksDbConfig;
     use tokio::{net::TcpStream, time::timeout};
 
     use super::*;
@@ -453,19 +414,42 @@ mod tests {
         let listen_address = probe.local_addr()?;
         drop(probe);
 
+        let stores = tempfile::tempdir()?;
+        let mut configs = Vec::new();
         for network in [NetworkName::Preprod, NetworkName::Preview] {
             let test_config = NodeTestConfig::default()
                 .with_network_name(network)
                 .with_no_upstream_peers()
                 .with_listen_address(&listen_address.to_string());
+            let seeded = test_config.make_node_configuration()?;
+            configs.push(
+                test_config
+                    .with_store_dirs(stores.path().join(network.to_string()), seeded.ledger_config.ledger_store.dir),
+            );
+        }
+
+        let mut retained = Vec::new();
+        for index in [0, 1, 0] {
+            let test_config = &configs[index];
+            let network = test_config.network_name;
             let mut config = test_config.make_node_configuration()?;
             config.ledger_config.global_parameters = network.as_global_parameters().unwrap().clone();
+            config.migrate_chain_db = true;
+            let ledger_config = config.ledger_config.ledger_store.clone();
+            let chain_config = RocksDbConfig::new(stores.path().join(network.to_string()));
 
             let running = build_and_run_node(config, &Handle::current())?;
+            retained.push((running.abort_callback(), running.mempool_sender()));
             wait_for_listener(listen_address).await?;
-            assert!(running.shutdown().await?.is_clean());
+            assert!(timeout(Duration::from_secs(15), running.shutdown()).await??.is_clean());
 
             drop(TcpListener::bind(listen_address)?);
+            drop(RocksDB::new(&ledger_config)?);
+            drop(RocksDBStore::open(&chain_config)?);
+            for (abort, sender) in &retained {
+                abort();
+                assert!(sender.send(MempoolMsg::NewTip(Point::Origin)).await.is_err());
+            }
         }
 
         Ok(())

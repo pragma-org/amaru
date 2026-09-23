@@ -83,9 +83,10 @@ fn main() -> anyhow::Result<()> {
                 _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
             }
         }
-        running.shutdown().await?;
+        let report = running.shutdown().await?;
 
         telemetry.shutdown().await?;
+        anyhow::ensure!(report.is_clean(), "node components failed: {:?}", report.unexpected_exits);
         Ok::<bool, anyhow::Error>(done.load(Ordering::SeqCst))
     })?;
 
