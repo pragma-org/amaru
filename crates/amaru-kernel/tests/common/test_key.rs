@@ -14,11 +14,9 @@
 
 use std::{fmt::Display, path::PathBuf};
 
-use crate::{
-    Category,
-    Category::{CddlGenerated, Zapped},
-    Corpus, read_expected_canonical_cbor, read_file,
-};
+use anyhow::anyhow;
+
+use crate::{Category, Corpus, read_expected_canonical_cbor, read_file};
 
 /// A unique key for a test sample, consisting of the corpus, rule, category, and path to the sample file.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -51,15 +49,20 @@ impl TestKey {
         read_file(&self.path)
     }
 
-    pub fn read_expected_cbor(&self) -> anyhow::Result<Option<Vec<u8>>> {
-        match self.category {
-            CddlGenerated => read_expected_canonical_cbor(self.corpus, &self.rule, &self.path),
-            Zapped(_) => Ok(None),
-        }
+    pub fn category(&self) -> Category {
+        self.category
     }
 
-    pub fn is_zapped(&self) -> bool {
-        matches!(self.category, Zapped(_))
+    /// The reference bytes the re-encoding of this sample must agree with. Only a `valid` sample has one, and
+    /// every `valid` sample does; a missing one means the corpus is incomplete.
+    pub fn read_expected_cbor(&self) -> anyhow::Result<Option<Vec<u8>>> {
+        match self.category {
+            Category::Valid => Ok(Some(
+                read_expected_canonical_cbor(self.corpus, &self.rule, &self.path)?
+                    .ok_or_else(|| anyhow!("no reference bytes for the valid sample {self}"))?,
+            )),
+            Category::InvalidGenerated | Category::Zapped(_) => Ok(None),
+        }
     }
 }
 

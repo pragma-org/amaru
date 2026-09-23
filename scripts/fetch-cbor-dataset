@@ -28,10 +28,11 @@ rm -rf "$DEST_DIR"
 mkdir -p "$DEST_DIR"
 echo "Downloading cardano-cbor-dataset@$COMMIT ..."
 
-# --strip-components=2 drops the `<repo>-<commit>/dataset/` prefix, leaving `$CORPUS` and
-# `$CORPUS-expected` directly under $DEST_DIR. Only the Conway corpus is downloaded for now.
+# --strip-components=2 drops the `<repo>-<commit>/dataset/` prefix, leaving `$CORPUS` directly under
+# $DEST_DIR, with its `<rule>/{valid,invalid,expected}` sub-directories. Only the Conway corpus is
+# downloaded for now.
 #
 # shellcheck disable=SC2086  # unquoted so an empty $WILDCARDS expands to no argument at all
-curl -Lsf "$URL" | tar -xz -C "$DEST_DIR" --strip-components=2 ${WILDCARDS:-} "*/dataset/$CORPUS*"
+curl -Lsf "$URL" | tar -xz -C "$DEST_DIR" --strip-components=2 ${WILDCARDS:-} "*/dataset/$CORPUS/*"
 
 echo "Extracted $(find "$DEST_DIR" -name '*.cbor' | wc -l | tr -d ' ') samples into $DEST_DIR"
