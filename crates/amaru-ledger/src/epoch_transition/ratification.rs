@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-    iter::successors,
-    rc::Rc,
-};
+use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
     Constitution,
@@ -93,7 +88,6 @@ pub struct GovernanceActivity {
 #[derive(Debug)]
 struct ProposalMetadata {
     valid_until: Epoch,
-    parent: Option<ProposalId>,
     return_account: Credential,
     deposit: Lovelace,
 }
@@ -151,7 +145,6 @@ impl GovernanceUpdates {
 
                 let metadata = ProposalMetadata {
                     valid_until: row.valid_until,
-                    parent: row.proposal.parent().copied(),
                     return_account: row.proposal.reward_account.credential(),
                     deposit: row.proposal.deposit,
                 };
@@ -180,31 +173,6 @@ impl GovernanceUpdates {
                         roots,
                     )
                     .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
-
-                // Expired and otherwise unratified proposals invalidate their entire descendant lineage.
-                let not_ratified: BTreeSet<Rc<ProposalId>> = ctx
-                    .pruned_proposals
-                    .iter()
-                    .filter_map(|(id, status)| (*status == RatificationStatus::NotRatified).then_some(id.clone()))
-                    .chain(proposals_metadata.iter().filter_map(|(id, proposal)| {
-                        (ctx.epoch == proposal.valid_until && !ctx.pruned_proposals.contains_key(id)).then_some(id.clone())
-                    }))
-                    .collect();
-
-                let pruned_descendants = proposals_metadata
-                    .iter()
-                    .filter(|(id, proposal)| {
-                        ctx.epoch != proposal.valid_until
-                            && !ctx.pruned_proposals.contains_key(id.as_ref())
-                            && successors(proposal.parent.as_ref(), |parent| {
-                                proposals_metadata.get(*parent).and_then(|proposal| proposal.parent.as_ref())
-                            })
-                            .any(|ancestor| not_ratified.contains(ancestor))
-                    })
-                    .map(|(id, _)| (id.clone(), RatificationStatus::NotRatified))
-                    .collect::<BTreeMap<_, _>>();
-
-                ctx.pruned_proposals.extend(pruned_descendants);
 
                 // Once ratified, we can go over each proposal and figure out refunds due to
                 // enactment, expiry or conflicts with other enacted proposals.
@@ -442,10 +410,7 @@ fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{
-        GovernanceAction, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, ProtocolVersion,
-        any_proposal_id,
-    };
+    use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, any_proposal_id};
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
 
     use super::*;
@@ -524,59 +489,5 @@ mod tests {
             70_000,
             "enacted withdrawals are totalled for the treasury debit"
         );
-    }
-
-    #[test]
-    fn expired_proposals_prune_their_descendants() {
-        let mut runner = TestRunner::default();
-        let epoch = Epoch::from(10);
-        let parent_id = ProposalId { transaction_id: Hash::new([3; 32]), proposal_index: 0 };
-        let child_id = ProposalId { transaction_id: Hash::new([2; 32]), proposal_index: 0 };
-        let grandchild_id = ProposalId { transaction_id: Hash::new([1; 32]), proposal_index: 0 };
-
-        let mut parent = any_information_proposal(&mut runner, epoch);
-        parent.proposal.gov_action = GovernanceAction::HardForkInitiation(None, ProtocolVersion::new(12, 0));
-
-        let mut child = any_information_proposal(&mut runner, epoch + 5);
-        child.proposed_in = parent.proposed_in;
-        child.proposal.gov_action = GovernanceAction::HardForkInitiation(Some(parent_id), ProtocolVersion::new(12, 0));
-
-        let mut grandchild = any_information_proposal(&mut runner, epoch + 5);
-        grandchild.proposed_in = parent.proposed_in;
-        grandchild.proposal.gov_action =
-            GovernanceAction::HardForkInitiation(Some(child_id), ProtocolVersion::new(12, 0));
-
-        let distribution = empty_stake_distribution(epoch);
-        let ctx = RatificationContext {
-            epoch,
-            treasury: 1_000_000_000,
-            stake_distribution: &distribution,
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::new(),
-            withdrawals: BTreeMap::new(),
-            constitutional_committee: None,
-            constitutional_committee_update: None,
-            new_constitution: None,
-            votes: BTreeMap::new(),
-        };
-
-        let updates = GovernanceUpdates::new(
-            ProposalsRootsRc::default(),
-            [(parent_id, parent), (child_id, child), (grandchild_id, grandchild)].into_iter(),
-            &PREPROD_ERA_HISTORY,
-            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            ctx,
-        )
-        .unwrap();
-
-        assert_eq!(
-            updates.pruned_proposals,
-            BTreeMap::from([
-                (parent_id, RatificationStatus::NotRatified),
-                (child_id, RatificationStatus::NotRatified),
-                (grandchild_id, RatificationStatus::NotRatified),
-            ])
-        );
-        assert_eq!(updates.deposit_refunds.values().sum::<Lovelace>(), 300_000);
     }
 }
