@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(test)]
+use std::iter;
 use std::{collections::BTreeSet, rc::Rc};
 
 use amaru_kernel::{EraHistoryError, Slot};
@@ -66,6 +68,12 @@ impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
         &self.siblings
     }
 
+    /// View all the proposals in the tree, in no particular order.
+    #[cfg(test)]
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.siblings.iter().flat_map(|node| node.iter())
+    }
+
     /// Whether the tree has no proposals (i.e. there are no top-level siblings).
     pub fn is_empty(&self) -> bool {
         self.siblings.is_empty()
@@ -94,14 +102,16 @@ impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
     }
 
     /// Remove a proposal and its complete descendant subtree.
-    pub fn expire(&mut self, id: &T) -> BTreeSet<Rc<T>> {
-        let Some(expired) = Sibling::remove_subtree(&mut self.siblings, id) else {
+    pub fn remove(&mut self, id: &T) -> BTreeSet<Rc<T>> {
+        let Some(node) = Sibling::remove(&mut self.siblings, id) else {
             return BTreeSet::new();
         };
 
-        let mut pruned = BTreeSet::new();
-        Sibling::collect_all(&mut pruned, vec![expired]);
+        let mut pruned = BTreeSet::from([node.id]);
+        Sibling::collect_all(&mut pruned, node.children);
+
         self.seen.retain(|id| !pruned.contains(id));
+
         pruned
     }
 
@@ -194,6 +204,11 @@ impl<T: Eq + Ord> Sibling<T> {
         self.id.as_ref()
     }
 
+    #[cfg(test)]
+    pub fn iter(&self) -> Box<dyn Iterator<Item = &T> + '_> {
+        Box::new(iter::once(self.id.as_ref()).chain(self.children.iter().flat_map(Sibling::iter)))
+    }
+
     pub fn children(&self) -> &Vec<Sibling<T>> {
         &self.children
     }
@@ -216,12 +231,12 @@ impl<T: Eq + Ord> Sibling<T> {
     }
 
     /// Remove the subtree rooted at `id`, searching recursively through all descendants.
-    fn remove_subtree(nodes: &mut Vec<Self>, id: &T) -> Option<Self> {
+    fn remove(nodes: &mut Vec<Self>, id: &T) -> Option<Self> {
         if let Some(index) = nodes.iter().position(|node| node.id.as_ref() == id) {
             return Some(nodes.remove(index));
         }
 
-        nodes.iter_mut().find_map(|node| Self::remove_subtree(&mut node.children, id))
+        nodes.iter_mut().find_map(|node| Self::remove(&mut node.children, id))
     }
 
     /// Split a set of nodes based on a pivot sibling. The result contains Some<pivot> if it was
@@ -329,17 +344,59 @@ mod tests {
         }
     }
 
+    proptest! {
+        #[test]
+        fn prop_reinsert_after_remove(
+            (mut tree, _, _) in any_proposals_tree(),
+            to_remove in any::<u16>(),
+        ) {
+            if !tree.is_empty() {
+                let elems: Vec<u8> = tree.iter().cloned().collect();
+                let removed = tree.remove(&elems[to_remove as usize % elems.len()]);
+                for node in removed {
+                    prop_assert!(tree.insert(node, tree.root()).is_ok());
+                }
+            }
+        }
+    }
+
     #[test]
-    fn expiring_a_nested_proposal_removes_only_its_subtree() {
+    fn removing_a_nested_proposal_removes_only_its_subtree() {
         let mut tree = ProposalsTree::new(Some(Rc::new(0)));
+        // 0
+        // ┝ 1
+        // │ ┝ 2
+        // │ │ ┕ 3
+        // │ ┕ 4
+        // ┕ 5
         for (id, parent) in [(1, 0), (2, 1), (3, 2), (4, 1), (5, 0)] {
             tree.insert(Rc::new(id), Some(Rc::new(parent))).unwrap();
         }
 
-        assert_eq!(tree.expire(&2), BTreeSet::from([Rc::new(2), Rc::new(3)]));
+        assert_eq!(tree.remove(&2), BTreeSet::from([Rc::new(2), Rc::new(3)]));
         assert_eq!(tree.root(), Some(Rc::new(0)));
         assert_eq!(tree.siblings().iter().map(Sibling::id).collect::<Vec<_>>(), vec![Rc::new(1), Rc::new(5)]);
         assert_eq!(tree.siblings()[0].children().iter().map(Sibling::id).collect::<Vec<_>>(), vec![Rc::new(4)]);
+    }
+
+    #[test]
+    fn removing_a_top_level_proposal_returns_its_id() {
+        let mut tree = ProposalsTree::new(Some(Rc::new(0)));
+
+        tree.insert(Rc::new(1), Some(Rc::new(0))).unwrap();
+
+        assert_eq!(tree.remove(&1), BTreeSet::from([Rc::new(1)]));
+        assert_eq!(tree.root(), Some(Rc::new(0)));
+        assert!(tree.is_empty())
+    }
+
+    #[test]
+    fn removing_non_existing_proposal_is_no_op() {
+        let mut tree = ProposalsTree::new(Some(Rc::new(0)));
+
+        assert_eq!(tree.remove(&1), BTreeSet::new());
+        assert_eq!(tree.root(), Some(Rc::new(0)));
+        assert!(tree.is_empty());
     }
 
     #[test]

@@ -274,10 +274,10 @@ impl ProposalsForest {
         };
 
         let pruned = match &proposed_in.proposal {
-            ProposalEnum::HardFork(..) => self.hard_fork.expire(id),
-            ProposalEnum::ProtocolParameters(..) => self.protocol_parameters.expire(id),
-            ProposalEnum::ConstitutionalCommittee(..) => self.constitutional_committee.expire(id),
-            ProposalEnum::Constitution(..) => self.constitution.expire(id),
+            ProposalEnum::HardFork(..) => self.hard_fork.remove(id),
+            ProposalEnum::ProtocolParameters(..) => self.protocol_parameters.remove(id),
+            ProposalEnum::ConstitutionalCommittee(..) => self.constitutional_committee.remove(id),
+            ProposalEnum::Constitution(..) => self.constitution.remove(id),
             ProposalEnum::Orphan(..) => BTreeSet::from([id.clone()]),
         };
 
