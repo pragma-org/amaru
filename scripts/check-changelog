@@ -605,10 +605,17 @@ def validate_target_release(
         line = lines[idx]
         if line.startswith("### ") and not SECTION_RE.match(line):
             heading = line.removeprefix("### ").strip()
-            message = (
-                f"Invalid changelog section '{heading}'. "
-                "Use one of: Added, Changed, Deprecated, Removed, Fixed, Security."
-            )
+            if heading in SECTION_INDEX:
+                message = (
+                    f"Invalid whitespace in changelog section heading {line!r}. "
+                    f"Use exactly '### {heading}', with one space after '###' "
+                    "and no trailing whitespace."
+                )
+            else:
+                message = (
+                    f"Invalid changelog section heading {line!r}. "
+                    "Use one of: Added, Changed, Deprecated, Removed, Fixed, Security."
+                )
             record_failure(failures, message, line=idx + 1, title="Invalid section")
 
     previous_index = -1
