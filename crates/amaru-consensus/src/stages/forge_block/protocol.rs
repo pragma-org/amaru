@@ -30,8 +30,8 @@ use super::{
     ForgeBlock, ForgeData, FreezeWatch,
     calc::{
         FORGE_LEAD_OFFSET, ForgeWindow, MissedSlotReason, ParentChoice, choose_parent, decide_freeze, forge_window,
-        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, missed_slot, ocert_covers,
-        schedule_settled, wait_until_onset,
+        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, missed_slot, schedule_settled,
+        wait_until_onset,
     },
     effects::{ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect},
     schedule::{EpochSchedule, Schedule as Schedules},
@@ -292,7 +292,8 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     }
 
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
-    let coverage = ocert_covers(kes_period, state.ocert_start_period, state.consensus_parameters.max_kes_evolutions());
+    let coverage =
+        kes_period.evolutions_since(state.ocert_start_period, state.consensus_parameters.max_kes_evolutions());
     let parent_choice = choose_parent(state.adopted_tip.slot(), slot);
     if let Some(reason) = missed_slot(coverage, parent_choice) {
         warn!(consensus::forge::MISSED_SLOT, slot, reason = reason.as_str());

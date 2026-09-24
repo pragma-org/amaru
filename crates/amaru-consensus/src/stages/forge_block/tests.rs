@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, Header, IsHeader, Nonce, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Slot, make_header,
-    maths::FixedDecimal,
+    Epoch, Header, IsHeader, KesPeriod, Nonce, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Slot,
+    make_header, maths::FixedDecimal,
 };
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::vrf;
@@ -68,7 +68,7 @@ fn simulation_slot() -> Slot {
 #[test]
 fn lead_slot_before_certificate_start_is_a_miss() {
     let mut prep = test_prep();
-    prep.state.data.ocert_start_period = 1_000_000;
+    prep.state.data.ocert_start_period = KesPeriod::from(1_000_000);
     let slot = simulation_slot();
     prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
@@ -105,7 +105,7 @@ fn stale_lead_slot_does_not_forge() {
 #[test]
 fn an_accepted_lead_arms_the_following_slot() {
     let mut prep = test_prep();
-    prep.state.data.ocert_start_period = 1_000_000;
+    prep.state.data.ocert_start_period = KesPeriod::from(1_000_000);
     // Inside the open forge window, so the miss is the certificate rather than a late wake.
     let slot = simulation_slot();
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 2);
@@ -151,7 +151,7 @@ fn a_late_due_lead_is_not_forged() {
 #[test]
 fn an_early_due_lead_waits_for_the_forge_window() {
     let mut prep = test_prep();
-    prep.state.data.ocert_start_period = 1_000_000;
+    prep.state.data.ocert_start_period = KesPeriod::from(1_000_000);
     let slot = simulation_slot() + 100;
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
