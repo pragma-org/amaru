@@ -91,6 +91,11 @@ pub trait State: Sized + Send + 'static {
     /// inputs; `Err` is the dedicated inadmissible case and yields the original
     /// mailbox value. The state token is not consumed.
     ///
+    /// [`make_states`](crate::make_states) (`Live as LiveIn { Idle(IdleIn); ... }`)
+    /// generates a separate method on the live enum. That one takes `self` and
+    /// returns the token together with the input, or the token and the message
+    /// on `Err`. The input enum's name is the one written after `as`.
+    ///
     /// ```compile_fail
     /// use amaru_pure_stage::typestate::prelude::*;
     /// make_states!(Live { Idle; Done });
@@ -133,6 +138,12 @@ impl<T> FromMailbox<T> for T {
 /// Classify a mailbox message as one of a state's admissible inputs.
 pub trait ExtractInput<M>: Sized {
     fn extract(msg: M) -> Result<Self, M>;
+}
+
+impl<M> ExtractInput<M> for ! {
+    fn extract(msg: M) -> Result<Self, M> {
+        Err(msg)
+    }
 }
 
 /// The remainder after [`State::receive`] of `In`.

@@ -379,6 +379,44 @@ mod convert {
 }
 
 #[allow(dead_code)]
+mod live_convert {
+    use crate::typestate::prelude::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Ping(u8);
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Pong(u16);
+
+    define_mailbox!(Mail { Ping(Ping), Pong(Pong) });
+    make_states!(Live as LiveIn { Idle(IdleIn); Signed(!) });
+    on_receive!(Idle as IdleIn { Ping => { Idle } });
+
+    #[test]
+    fn ok_pairs_the_idle_token_with_the_input() {
+        let live = Live::from(initial_state::<Idle>());
+        match live.convert_input(Mail::Ping(Ping(1))) {
+            Ok(LiveIn::Idle(idle, IdleIn::Ping(ping))) => {
+                assert_eq!(ping, Ping(1));
+                assert_eq!(idle.name(), "Idle");
+            }
+            Ok(LiveIn::Signed(_, void)) => match void {},
+            Err((_, msg)) => panic!("Ping is admissible, got {msg:?}"),
+        }
+    }
+
+    #[test]
+    fn err_returns_the_token_and_the_message() {
+        let live = Live::from(initial_state::<Idle>());
+        match live.convert_input(Mail::Pong(Pong(9))) {
+            Ok(LiveIn::Idle(_, _)) => panic!("Pong is not admissible in Idle"),
+            Ok(LiveIn::Signed(_, void)) => match void {},
+            Err((Live::Idle(idle), Mail::Pong(Pong(9)))) => assert_eq!(idle.name(), "Idle"),
+            Err((_, other)) => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+#[allow(dead_code)]
 mod messages_macro {
     use crate::typestate::prelude::*;
 

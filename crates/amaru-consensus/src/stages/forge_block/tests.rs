@@ -34,7 +34,7 @@ fn adopted_origin_records_the_tip_and_does_not_schedule() {
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(state.adopted_tip, Point::Origin);
     assert!(state.next_lead.is_none());
     assert!(state.led_slots.is_empty());
@@ -43,8 +43,8 @@ fn adopted_origin_records_the_tip_and_does_not_schedule() {
 #[test]
 fn lead_slot_before_certificate_start_is_a_miss() {
     let mut prep = test_prep();
-    prep.state.ocert_start_period = 1_000_000;
-    prep.state.adopted_tip = Point::Specific(Slot::from(10), amaru_kernel::ORIGIN_HASH, 1.into());
+    prep.state.data.ocert_start_period = 1_000_000;
+    prep.state.data.adopted_tip = Point::Specific(Slot::from(10), amaru_kernel::ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(LeadSlot { slot: Slot::from(11), generation: 0 });
     let (running, _guards, mut logs, stage) = setup(&prep, msg);
 
@@ -54,7 +54,7 @@ fn lead_slot_before_certificate_start_is_a_miss() {
         Level::ERROR,
     ]);
 
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert!(state.next_lead.is_none());
 }
 
@@ -62,14 +62,14 @@ fn lead_slot_before_certificate_start_is_a_miss() {
 fn stale_lead_slot_does_not_forge() {
     let mut prep = test_prep();
     let slot = Slot::from(11);
-    prep.state.schedule_generation = 2;
-    prep.state.led_slots = vec![slot];
-    prep.state.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
+    prep.state.data.schedule_generation = 2;
+    prep.state.data.led_slots = vec![slot];
+    prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(LeadSlot { slot, generation: 1 });
     let (running, _guards, mut logs, stage) = setup(&prep, msg);
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(state.led_slots, vec![slot]);
     // The stale handler does not reschedule, so the generation stays put.
     assert_eq!(state.schedule_generation, 2);
@@ -126,13 +126,13 @@ fn watch_epoch(watch: &Option<FreezeWatch>) -> Option<Epoch> {
 #[test]
 fn adopted_tip_enters_freeze_and_predicts_next_epoch() {
     let mut prep = test_prep();
-    prep.state.k = 2;
+    prep.state.data.k = 2;
     let (epoch, freeze_slot, _) = current_era_epochs();
     let mut chain = Chain::new();
     prep.store = chain.store.clone();
     let header = chain.extend(freeze_slot, 1);
     let (running, _guards, _logs, stage) = setup(&prep, adopted(&header, Point::Origin));
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(watch_epoch(&state.freeze), Some(epoch));
     assert_eq!(state.predicted_epoch, Some(epoch + 1));
 }
@@ -140,7 +140,7 @@ fn adopted_tip_enters_freeze_and_predicts_next_epoch() {
 #[test]
 fn adopted_tip_holds_freeze_until_k_deep_across_epoch_boundary() {
     let mut prep = test_prep();
-    prep.state.k = 10;
+    prep.state.data.k = 10;
     let (epoch, freeze_slot, next_epoch_slot) = current_era_epochs();
     let mut chain = Chain::new();
     prep.store = chain.store.clone();
@@ -149,7 +149,7 @@ fn adopted_tip_holds_freeze_until_k_deep_across_epoch_boundary() {
     let next = chain.extend(next_epoch_slot, 2);
     running.enqueue_msg(&stage, [adopted(&next, freeze.point())]);
     running.run(Run::skip_and_resolve());
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(watch_epoch(&state.freeze), Some(epoch));
     assert_eq!(state.predicted_epoch, None);
 }
@@ -157,7 +157,7 @@ fn adopted_tip_holds_freeze_until_k_deep_across_epoch_boundary() {
 #[test]
 fn adopted_tip_clears_freeze_after_k_blocks() {
     let mut prep = test_prep();
-    prep.state.k = 2;
+    prep.state.data.k = 2;
     let (_epoch, freeze_slot, next_epoch_slot) = current_era_epochs();
     let mut chain = Chain::new();
     prep.store = chain.store.clone();
@@ -169,7 +169,7 @@ fn adopted_tip_clears_freeze_after_k_blocks() {
     let h3 = chain.extend(next_epoch_slot + 1, 3);
     running.enqueue_msg(&stage, [adopted(&h3, h2.point())]);
     running.run(Run::skip_and_resolve());
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(watch_epoch(&state.freeze), None);
     assert_eq!(state.predicted_epoch, None);
 }
@@ -177,7 +177,7 @@ fn adopted_tip_clears_freeze_after_k_blocks() {
 #[test]
 fn adopted_tip_enters_the_next_epoch_freeze_after_settling() {
     let mut prep = test_prep();
-    prep.state.k = 2;
+    prep.state.data.k = 2;
     let (epoch, freeze_slot, next_epoch_slot) = current_era_epochs();
     let window = PREPROD_GLOBAL_PARAMETERS.randomness_stabilization_window();
     let next_next = PREPROD_ERA_HISTORY.next_epoch_first_slot(epoch + 1, &next_epoch_slot).expect("epoch after next");
@@ -195,7 +195,7 @@ fn adopted_tip_enters_the_next_epoch_freeze_after_settling() {
     let next_window = chain.extend(next_freeze, 4);
     running.enqueue_msg(&stage, [adopted(&next_window, h3.point())]);
     running.run(Run::skip_and_resolve());
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(watch_epoch(&state.freeze), Some(epoch + 1));
     assert_eq!(state.predicted_epoch, Some(epoch + 2));
 }
@@ -203,7 +203,7 @@ fn adopted_tip_enters_the_next_epoch_freeze_after_settling() {
 #[test]
 fn adopted_tip_resets_freeze_when_a_fork_drops_the_watch() {
     let mut prep = test_prep();
-    prep.state.k = 2;
+    prep.state.data.k = 2;
     let (epoch, freeze_slot, _) = current_era_epochs();
     let mut chain = Chain::new();
     prep.store = chain.store.clone();
@@ -213,7 +213,7 @@ fn adopted_tip_resets_freeze_when_a_fork_drops_the_watch() {
     let fork = chain.fork_from(&before, freeze_slot + 1, 2);
     running.enqueue_msg(&stage, [adopted(&fork, before.point())]);
     running.run(Run::skip_and_resolve());
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(watch_epoch(&state.freeze), Some(epoch));
     assert_eq!(state.freeze.as_ref().map(|w| w.point.hash()), Some(fork.hash()));
     assert_eq!(state.predicted_epoch, Some(epoch + 1));
@@ -222,7 +222,7 @@ fn adopted_tip_resets_freeze_when_a_fork_drops_the_watch() {
 #[test]
 fn adopted_tip_clears_freeze_on_a_switch_before_the_window() {
     let mut prep = test_prep();
-    prep.state.k = 2;
+    prep.state.data.k = 2;
     let (_epoch, freeze_slot, _) = current_era_epochs();
     let mut chain = Chain::new();
     prep.store = chain.store.clone();
@@ -233,7 +233,7 @@ fn adopted_tip_clears_freeze_on_a_switch_before_the_window() {
     let switched = chain.fork_from(&before, Slot::from(u64::from(freeze_slot) - 5), 3);
     running.enqueue_msg(&stage, [adopted(&switched, before.point())]);
     running.run(Run::skip_and_resolve());
-    let state = running.get_state(&stage).cloned().unwrap();
+    let state = running.get_state(&stage).cloned().unwrap().data;
     assert_eq!(watch_epoch(&state.freeze), None);
     assert_eq!(state.predicted_epoch, None);
 }

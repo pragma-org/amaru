@@ -33,10 +33,20 @@ use crate::stages::select_chain::SelectChainMsg;
 
 /// Block forging stage state.
 ///
+/// [`Live`] sits beside [`ForgeData`] so a handler can take the protocol token
+/// by value and still mutably borrow the rest. The token put back is the one
+/// `finish` returns.
+///
 /// See EDR035 for more details on wiring and internal function.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ForgeBlock {
     pub live: Live,
+    pub data: ForgeData,
+}
+
+/// Forging context that persists across mailbox messages.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ForgeData {
     pub select_chain: SelectChainOut,
     pub consensus_parameters: ConsensusParameters,
     pub k: u64,
@@ -65,19 +75,21 @@ impl ForgeBlock {
     ) -> Self {
         Self {
             live: initial_state::<protocol::Idle>().into(),
-            select_chain: SelectChainOut::new(select_chain),
-            consensus_parameters,
-            k,
-            pool,
-            ocert_start_period,
-            adopted_tip: Point::Origin,
-            adopted_parent: Point::Origin,
-            led_slots: Vec::new(),
-            next_lead: None,
-            schedule_generation: 0,
-            freeze: None,
-            pending_epochs: BTreeSet::new(),
-            predicted_epoch: None,
+            data: ForgeData {
+                select_chain: SelectChainOut::new(select_chain),
+                consensus_parameters,
+                k,
+                pool,
+                ocert_start_period,
+                adopted_tip: Point::Origin,
+                adopted_parent: Point::Origin,
+                led_slots: Vec::new(),
+                next_lead: None,
+                schedule_generation: 0,
+                freeze: None,
+                pending_epochs: BTreeSet::new(),
+                predicted_epoch: None,
+            },
         }
     }
 }

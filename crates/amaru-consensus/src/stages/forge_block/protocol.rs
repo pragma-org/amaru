@@ -24,7 +24,7 @@ use amaru_pure_stage::{
 };
 
 use super::{
-    ForgeBlock, FreezeWatch,
+    ForgeBlock, ForgeData, FreezeWatch,
     calc::{
         FORGE_LEAD_OFFSET, ParentChoice, choose_parent, decide_freeze, drop_past_led_slots, freeze_depth,
         instant_for_relative, lead_fire_at, missed_slot, next_schedulable_slot, ocert_covers, replace_epoch_slots,
@@ -34,7 +34,12 @@ use super::{
 };
 use crate::{effects::ValidateHeaderEffect, stages::select_chain::SelectChainMsg};
 
-make_states!(pub Live { Idle });
+make_states!(pub Live as LiveIn { Idle(IdleIn); Signed(!) });
+
+/// Witness for the second half of forging. Not a mailbox message: `LeadSlot`
+/// finishes into [`Signed`] and receives this immediately, so the effect
+/// sequence stays within the tuple limit.
+struct Publish;
 
 define_role_tag!(pub ToSelectChain);
 define_role!(pub SelectChainOut, ToSelectChain, SelectChainMsg);
@@ -73,20 +78,25 @@ on_receive!(Idle as IdleIn {
         Clock, Repeat<CancelSchedule>, Repeat<Schedule<LeadSlot>> => Idle
         | External<TakeForForgeEffect>,
           External<ForgeHeaderEffect>,
-          External<ValidateHeaderEffect>,
-          External<StoreValidatedHeaderEffect>,
-          External<StoreBlockEffect>,
-          Clock,
-          Repeat<Wait>,
-          Send<ToSelectChain, ForgeTip>,
-          Repeat<CancelSchedule>,
-          Repeat<Schedule<LeadSlot>>
-          => Idle
+          Repeat<Terminate> // KES signing failed
+          => Signed
     }
     LeaderSchedule => {
         Clock, Repeat<CancelSchedule>, Repeat<Schedule<LeadSlot>> => Idle
     }
 });
+
+on_receive!(Signed, Publish =>
+    External<ValidateHeaderEffect>,
+    External<StoreValidatedHeaderEffect>,
+    External<StoreBlockEffect>,
+    Clock,
+    Repeat<Wait>,
+    Send<ToSelectChain, ForgeTip>,
+    Repeat<CancelSchedule>,
+    Repeat<Schedule<LeadSlot>>
+    => Idle
+);
 
 macro_rules! arm_next_lead {
     ($session:expr, $state:ident, $now:expr) => {{
@@ -99,9 +109,9 @@ macro_rules! arm_next_lead {
             let generation = $state.schedule_generation;
             let (id, session) = $session.schedule_at(LeadSlot { slot, generation }, when).await;
             $state.next_lead = Some(id);
-            $state.live = session.finish().into();
+            session.finish()
         } else {
-            $state.live = $session.finish().into();
+            $session.finish()
         }
     }};
 }
@@ -110,37 +120,44 @@ macro_rules! finish_with_next_lead {
     ($session:expr, $state:ident, $now:expr) => {{
         if let Some(id) = $state.next_lead.take() {
             let (_cancelled, session) = $session.cancel_schedule(id).await;
-            arm_next_lead!(session, $state, $now);
+            arm_next_lead!(session, $state, $now)
         } else {
-            arm_next_lead!($session, $state, $now);
+            arm_next_lead!($session, $state, $now)
         }
     }};
 }
 
 /// Drive one mailbox message through the Idle remainder.
-pub async fn stage(state: ForgeBlock, msg: ForgeBlockMsg, eff: Effects<ForgeBlockMsg>) -> ForgeBlock {
-    let input = match &state.live {
-        Live::Idle(idle) => idle.convert_input(msg),
-    };
-    match input {
-        Ok(IdleIn::AdoptedTip(tip)) => {
+pub async fn stage(
+    ForgeBlock { live, mut data }: ForgeBlock,
+    msg: ForgeBlockMsg,
+    eff: Effects<ForgeBlockMsg>,
+) -> ForgeBlock {
+    match live.convert_input(msg) {
+        Ok(LiveIn::Idle(idle, IdleIn::AdoptedTip(tip))) => {
             let store = Store::new(eff.clone());
-            handle_adopted_tip(state, tip, store, eff).await
+            let idle = handle_adopted_tip(&mut data, idle, tip, store, eff).await;
+            ForgeBlock { live: idle.into(), data }
         }
-        Ok(IdleIn::LeadSlot(lead)) => handle_lead_slot(state, lead, eff).await,
-        Ok(IdleIn::LeaderSchedule(schedule)) => handle_leader_schedule(state, schedule, eff).await,
-        Err(_msg) => state,
+        Ok(LiveIn::Idle(idle, IdleIn::LeadSlot(lead))) => {
+            let idle = handle_lead_slot(&mut data, idle, lead, eff).await;
+            ForgeBlock { live: idle.into(), data }
+        }
+        Ok(LiveIn::Idle(idle, IdleIn::LeaderSchedule(schedule))) => {
+            let idle = handle_leader_schedule(&mut data, idle, schedule, eff).await;
+            ForgeBlock { live: idle.into(), data }
+        }
+        Err((live, _msg)) => ForgeBlock { live, data },
     }
 }
 
 async fn handle_adopted_tip(
-    mut state: ForgeBlock,
+    state: &mut ForgeData,
+    idle: Idle,
     tip: AdoptedTip,
     store: Store,
     eff: Effects<ForgeBlockMsg>,
-) -> ForgeBlock {
-    // Move `live` out so returning `state` without `Session::finish` is a compile error.
-    let Live::Idle(idle) = state.live;
+) -> Idle {
     state.adopted_tip = tip.tip;
     state.adopted_parent = tip.parent;
     let (now, session) = idle.receive(&tip, eff.clone()).clock().await;
@@ -225,16 +242,15 @@ async fn handle_adopted_tip(
             state.pending_epochs.remove(&epoch);
         }
     }
-    finish_with_next_lead!(session, state, now);
-    state
+    finish_with_next_lead!(session, state, now)
 }
 
 async fn handle_leader_schedule(
-    mut state: ForgeBlock,
+    state: &mut ForgeData,
+    idle: Idle,
     schedule: LeaderSchedule,
     eff: Effects<ForgeBlockMsg>,
-) -> ForgeBlock {
-    let Live::Idle(idle) = state.live;
+) -> Idle {
     state.pending_epochs.remove(&schedule.epoch);
     let (now, session) = idle.receive(&schedule, eff).clock().await;
     if let Ok(bounds) = state.consensus_parameters.era_history().epoch_bounds(schedule.epoch) {
@@ -256,17 +272,14 @@ async fn handle_leader_schedule(
         );
     }
 
-    finish_with_next_lead!(session, state, now);
-    state
+    finish_with_next_lead!(session, state, now)
 }
 
-async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<ForgeBlockMsg>) -> ForgeBlock {
-    let Live::Idle(idle) = state.live;
+async fn handle_lead_slot(state: &mut ForgeData, idle: Idle, lead: LeadSlot, eff: Effects<ForgeBlockMsg>) -> Idle {
     let slot = lead.slot;
     if lead.generation != state.schedule_generation {
         let (_now, session) = idle.receive(&lead, eff).clock().await;
-        state.live = session.finish().into();
-        return state;
+        return session.finish();
     }
     state.led_slots.retain(|&s| s > slot);
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
@@ -275,8 +288,7 @@ async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<Fo
     if let Some(reason) = missed_slot(coverage, parent_choice) {
         warn!(consensus::forge::MISSED_SLOT, slot, reason = reason.as_str());
         let (now, session) = idle.receive(&lead, eff).clock().await;
-        finish_with_next_lead!(session, state, now);
-        return state;
+        return finish_with_next_lead!(session, state, now);
     }
 
     let parent_point = match parent_choice {
@@ -294,11 +306,10 @@ async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<Fo
         Ok(header) => header,
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "sign_header", error = error.to_string());
-            // Not in the remainder: a sequence is at most 10 effects, and signing
-            // failure shuts the node down the same way a store error does.
-            return eff.terminate().await;
+            return session.terminate().await;
         }
     };
+    let session = session.finish().receive(&Publish, eff.clone());
 
     let (nonces, session) = session.external(ValidateHeaderEffect::new(&header)).await;
     let nonces: Nonces = match nonces {
@@ -335,8 +346,7 @@ async fn handle_lead_slot(mut state: ForgeBlock, lead: LeadSlot, eff: Effects<Fo
     let forged = ForgeTip { tip: header_point, parent: parent_point };
     info!(consensus::forge::FORGED, slot, header_hash, parent = parent_hash);
     let session = session.send(&state.select_chain, forged).await;
-    finish_with_next_lead!(session, state, now);
-    state
+    finish_with_next_lead!(session, state, now)
 }
 
 fn next_lead_deadline(led_slots: &[Slot], era_history: &EraHistory, now: Instant) -> Option<(Slot, Instant)> {
