@@ -117,7 +117,6 @@ impl IsHeader for Header {
 
 impl Header {
     /// Create a new Header from its constituant, recomputing the hash.
-    #[cfg(any(test, feature = "test-utils"))]
     pub fn new(body: HeaderBody, signature: KesSignature) -> Self {
         use crate::{hash::ORIGIN_HASH, to_cbor};
 
