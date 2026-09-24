@@ -126,22 +126,16 @@ impl Default for DefaultMithrilObserver {
 
 impl MithrilObserver for DefaultMithrilObserver {
     fn on_progress(&self, progress: MithrilProgress) {
-        self.renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).render(progress);
+        match &mut *self.renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            DefaultRenderer::Terminal(renderer) => renderer.render(progress),
+            DefaultRenderer::Structured(renderer) => renderer.render(progress),
+        }
     }
 }
 
 enum DefaultRenderer {
     Terminal(TerminalRenderer),
     Structured(StructuredRenderer),
-}
-
-impl DefaultRenderer {
-    fn render(&mut self, progress: MithrilProgress) {
-        match self {
-            Self::Terminal(renderer) => renderer.render(progress),
-            Self::Structured(renderer) => renderer.render(progress),
-        }
-    }
 }
 
 #[derive(Default)]
@@ -168,10 +162,8 @@ impl StructuredRenderer {
                 self.completed_files = *completed_files;
                 if completed || interval_elapsed {
                     self.last_download_at = Some(now);
-                    true
-                } else {
-                    false
                 }
+                completed || interval_elapsed
             }
             MithrilProgress::BlocksIngested { .. } => {
                 let interval_elapsed = self
@@ -421,22 +413,19 @@ impl MithrilSynchronizer {
         );
         let resume_point = self.resolve_ledger_tip(chain_store.as_ref())?;
 
-        let download_observer = observer.clone();
         let download = recover_then_download(
             chain_store.as_ref(),
             resume_point,
             self.resume_point,
             &cancellation,
             observer.as_ref(),
-            || {
-                download_from_mithril_for_range_with_observer(
-                    self.network,
-                    target_dir,
-                    resume_point,
-                    self.ingest_until_slot,
-                    Arc::new(ForwardDownloadProgress(download_observer)),
-                )
-            },
+            download_from_mithril_for_range_with_observer(
+                self.network,
+                target_dir,
+                resume_point,
+                self.ingest_until_slot,
+                Arc::new(ForwardDownloadProgress(observer.clone())),
+            ),
         )
         .await?;
         if cancellation.is_cancelled() {
@@ -494,26 +483,58 @@ impl MithrilSynchronizer {
 
         observer.on_progress(MithrilProgress::StageChanged { stage: MithrilStage::Ingesting });
         let before = Instant::now();
-        let result = self
-            .ingest_blocks(
-                immutable_dir,
-                stable_tip,
-                cancellation,
-                observer,
-                &chain_store,
-                consensus_parameters,
-                &block_validator,
-                pool_summaries_rx,
-                era_history,
-            )
-            .await;
+        let result = async {
+            let mut current_tip = stable_tip;
+            let mut pool_summaries = pool_summaries_rx;
+            let blocks = read_blocks_after_point(immutable_dir, self.network, current_tip)
+                .map_err(|source| MithrilSyncError::InvalidCache { source })?;
+            let mut processed = 0_u64;
+            for raw_block in blocks {
+                if cancellation.is_cancelled() {
+                    return Err(MithrilSyncError::Cancelled);
+                }
+                let raw_block = RawBlock::from(
+                    raw_block.map_err(|source| MithrilSyncError::InvalidCache { source })?.into_boxed_slice(),
+                );
+                let network_block = NetworkBlock::try_from(raw_block.clone())
+                    .map_err(|source| MithrilSyncError::Validation { point: current_tip, source: source.into() })?;
+                let block = network_block
+                    .decode_block()
+                    .map_err(|source| MithrilSyncError::Validation { point: current_tip, source: source.into() })?;
+                let point = block.header.point();
+                if self.ingest_until_slot.is_some_and(|until| point.slot_or_default() > until) {
+                    break;
+                }
+                process_block(
+                    &chain_store,
+                    consensus_parameters.clone(),
+                    &block_validator,
+                    &mut pool_summaries,
+                    era_history.clone(),
+                    cancellation,
+                    &raw_block,
+                    block,
+                )
+                .await?;
+                current_tip = point;
+                processed += 1;
+                observer.on_progress(MithrilProgress::BlocksIngested { blocks: processed, point });
+                if self.ingest_maximum_blocks.is_some_and(|maximum| processed as usize >= maximum) {
+                    break;
+                }
+            }
+            if cancellation.is_cancelled() {
+                return Err(MithrilSyncError::Cancelled);
+            }
+            Ok((current_tip, processed))
+        }
+        .await;
 
         drop(block_validator);
-        let shutdown = tokio::task::spawn_blocking(move || ledger_stop.join_timeout(LEDGER_SHUTDOWN_TIMEOUT))
+        tokio::task::spawn_blocking(move || ledger_stop.join_timeout(LEDGER_SHUTDOWN_TIMEOUT))
             .await
             .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?
-            .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() });
-        shutdown?;
+            .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?;
 
         let ledger_tip = self.resolve_ledger_tip(chain_store.as_ref())?;
         recover_stores(chain_store.as_ref(), ledger_tip)?;
@@ -526,62 +547,6 @@ impl MithrilSynchronizer {
             processed_per_seconds = processed as f64 / duration_seconds
         );
         Ok((final_point, processed))
-    }
-
-    #[expect(clippy::too_many_arguments)]
-    async fn ingest_blocks(
-        &self,
-        immutable_dir: &Path,
-        mut current_tip: Point,
-        cancellation: &MithrilCancellation,
-        observer: &dyn MithrilObserver,
-        chain_store: &Arc<dyn ChainStore>,
-        consensus_parameters: Arc<ConsensusParameters>,
-        block_validator: &BlockValidator,
-        mut pool_summaries: watch::Receiver<PoolSummaries>,
-        era_history: Arc<EraHistory>,
-    ) -> Result<(Point, u64), MithrilSyncError> {
-        let blocks = read_blocks_after_point(immutable_dir, self.network, current_tip)
-            .map_err(|source| MithrilSyncError::InvalidCache { source })?;
-        let mut processed = 0_u64;
-        for raw_block in blocks {
-            if cancellation.is_cancelled() {
-                return Err(MithrilSyncError::Cancelled);
-            }
-            let raw_block = RawBlock::from(
-                raw_block.map_err(|source| MithrilSyncError::InvalidCache { source })?.into_boxed_slice(),
-            );
-            let network_block = NetworkBlock::try_from(raw_block.clone())
-                .map_err(|source| MithrilSyncError::Validation { point: current_tip, source: source.into() })?;
-            let block = network_block
-                .decode_block()
-                .map_err(|source| MithrilSyncError::Validation { point: current_tip, source: source.into() })?;
-            let point = block.header.point();
-            if self.ingest_until_slot.is_some_and(|until| point.slot_or_default() > until) {
-                break;
-            }
-            process_block(
-                chain_store,
-                consensus_parameters.clone(),
-                block_validator,
-                &mut pool_summaries,
-                era_history.clone(),
-                cancellation,
-                &raw_block,
-                block,
-            )
-            .await?;
-            current_tip = point;
-            processed += 1;
-            observer.on_progress(MithrilProgress::BlocksIngested { blocks: processed, point });
-            if self.ingest_maximum_blocks.is_some_and(|maximum| processed as usize >= maximum) {
-                break;
-            }
-        }
-        if cancellation.is_cancelled() {
-            return Err(MithrilSyncError::Cancelled);
-        }
-        Ok((current_tip, processed))
     }
 }
 
@@ -624,18 +589,14 @@ impl MithrilDownloadObserver for ForwardDownloadProgress {
     }
 }
 
-async fn recover_then_download<F, Download>(
+async fn recover_then_download(
     chain_store: &dyn ChainStore,
     resume_point: Point,
     requested: Option<NetworkPoint>,
     cancellation: &MithrilCancellation,
     observer: &dyn MithrilObserver,
-    download: Download,
-) -> Result<MithrilDownloadReport, MithrilSyncError>
-where
-    Download: FnOnce() -> F,
-    F: Future<Output = Result<MithrilDownloadReport, MithrilDownloadError>>,
-{
+    download: impl Future<Output = Result<MithrilDownloadReport, MithrilDownloadError>>,
+) -> Result<MithrilDownloadReport, MithrilSyncError> {
     if let Some(requested) = requested
         && requested != NetworkPoint::from(resume_point)
     {
@@ -649,7 +610,7 @@ where
 
     observer.on_progress(MithrilProgress::StageChanged { stage: MithrilStage::Downloading });
     tokio::select! {
-        result = download() => result.map_err(classify_download_error),
+        result = download => result.map_err(classify_download_error),
         _ = cancellation.cancelled() => Err(MithrilSyncError::Cancelled),
     }
 }
@@ -922,7 +883,7 @@ mod tests {
             Some(NetworkPoint::from(target.point())),
             &MithrilCancellation::new(),
             &observer,
-            || async {
+            async {
                 assert_eq!(store.get_best_chain_tip(), target.point());
                 Err(MithrilDownloadError::Unavailable { source: anyhow!("offline") })
             },

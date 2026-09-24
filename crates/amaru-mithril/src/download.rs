@@ -110,11 +110,7 @@ impl MithrilDownloadObserver for MonotonicDownloadObserver {
                 state.downloaded_bytes = state.downloaded_bytes.max(downloaded_bytes);
                 state.completed_files = state.completed_files.max(completed_files);
                 state.total_files = state.total_files.max(total_files);
-                state.total_bytes = match (state.total_bytes, total_bytes) {
-                    (Some(previous), Some(current)) => Some(previous.max(current)),
-                    (known @ Some(_), None) => known,
-                    (None, current) => current,
-                };
+                state.total_bytes = state.total_bytes.max(total_bytes);
                 MithrilDownloadProgress::Downloaded {
                     downloaded_bytes: state.downloaded_bytes,
                     completed_files: state.completed_files,
@@ -309,7 +305,7 @@ pub async fn download_from_mithril(
     network: NetworkName,
     target_dir: PathBuf,
     from_chunk: u64,
-    with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+    with_progress: ProgressFactory,
 ) -> Result<(), MithrilDownloadError> {
     download_from_mithril_with_chunk_range(network, target_dir, from_chunk, None, None, with_progress, None, (0, 0))
         .await
@@ -323,7 +319,7 @@ async fn download_from_mithril_with_chunk_range(
     from_chunk: u64,
     resume_chunk: Option<u64>,
     requested_through_chunk: Option<u64>,
-    with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+    with_progress: ProgressFactory,
     observer: Option<Arc<dyn MithrilDownloadObserver>>,
     cached: (u64, u64),
 ) -> Result<String, MithrilDownloadError> {
@@ -452,7 +448,7 @@ pub async fn download_from_mithril_for_resume_point(
     network: NetworkName,
     target_dir: PathBuf,
     resume_point: Point,
-    with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+    with_progress: ProgressFactory,
 ) -> Result<PathBuf, MithrilDownloadError> {
     download_from_mithril_for_resume_point_inner(network, target_dir, resume_point, None, with_progress, None)
         .await
@@ -495,7 +491,7 @@ async fn download_from_mithril_for_resume_point_inner(
     target_dir: PathBuf,
     resume_point: Point,
     until_slot: Option<Slot>,
-    with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+    with_progress: ProgressFactory,
     observer: Option<Arc<dyn MithrilDownloadObserver>>,
 ) -> Result<MithrilDownloadReport, MithrilDownloadError> {
     let immutable_dir = target_dir.join("immutable");
@@ -578,24 +574,19 @@ fn reuse_immutable_cache(
 }
 
 fn cached_download_state(immutable_dir: &Path) -> anyhow::Result<(u64, u64)> {
-    let entries = match fs::read_dir(immutable_dir) {
+    let mut entries = match fs::read_dir(immutable_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((0, 0)),
         Err(error) => return Err(error.into()),
     };
-    let mut bytes = 0_u64;
-    let mut chunks = 0_u64;
-    for entry in entries {
+    entries.try_fold((0_u64, 0_u64), |(bytes, chunks), entry| {
         let entry = entry?;
         if !entry.file_type()?.is_file() {
-            continue;
+            return Ok((bytes, chunks));
         }
-        bytes = bytes.saturating_add(entry.metadata()?.len());
-        if entry.path().extension().and_then(|extension| extension.to_str()) == Some("chunk") {
-            chunks = chunks.saturating_add(1);
-        }
-    }
-    Ok((bytes, chunks))
+        let is_chunk = entry.path().extension().and_then(|extension| extension.to_str()) == Some("chunk");
+        Ok((bytes.saturating_add(entry.metadata()?.len()), chunks.saturating_add(u64::from(is_chunk))))
+    })
 }
 
 fn rebuild_immutable_cache(immutable_dir: &Path, reason: &anyhow::Error) -> anyhow::Result<()> {

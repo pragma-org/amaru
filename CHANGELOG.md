@@ -43,6 +43,8 @@ Other guiding principles:
 
 - **amaru-node**: embedders can await node shutdown, inspect component failures, and restart on another network after stores and listeners close.
 - **amaru-node**: startup reports typed errors for invalid configuration, stores already in use, incompatible chain-store versions, and detected ledger/chain-store mismatches.
+- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
+- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 
 ### Changed
 
@@ -56,6 +58,10 @@ Other guiding principles:
 - **amaru-ledger**: expired governance proposals now prune their descendants, preventing synchronization from stopping at the following epoch boundary. ([#1381](https://github.com/pragma-org/amaru/issues/1381))
 - **amaru-network**: shutting down an idle listener no longer hangs while an accept call is waiting for a connection.
 - **amaru-uplc**: deeply nested UPLC programs and constants no longer crash the node with a stack overflow during FLAT encoding, FLAT decoding, or result reconstruction.
+- **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
+- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
@@ -63,21 +69,6 @@ Other guiding principles:
 
 - **amaru-tui**: keyboard controls can be remapped with comma-separated `key=alias` entries in `AMARU_TUI_ALIASES`; `ctrl+` and `shift+` denote Ctrl and Shift. Startup reports conflicting bindings instead of accepting ambiguous controls.
 - **amaru-tui**: copy mode can write logs to a file in the working directory. Click one log line and click another to mark a time range (a later click moves the nearer end; drag also works). The range stays put if you then change the level or regex filter. `e` writes the currently visible lines in that range, or every visible line if nothing is selected, as plain text including the level column.
-- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
-- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
-
-### Changed
-
-- **amaru-pure-stage**: session typestate remainders print as `Choice`/`Par`/`Repeat` over tuples of at most 10 steps. `reveal_remainder!(session)` dumps the remainder as a compile-time panic.
-
-### Fixed
-
-- **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
-- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
-- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
-- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
-
-## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Changed
 
