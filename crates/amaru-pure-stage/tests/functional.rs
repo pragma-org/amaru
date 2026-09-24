@@ -96,7 +96,10 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
     graph(&mut network);
 
     let sim = network.run(rt.handle().clone());
-    rt.block_on(async move { tokio::time::timeout(Duration::from_secs(3), sim.join()).await }).unwrap();
+    let report =
+        rt.block_on(async move { tokio::time::timeout(Duration::from_secs(3), sim.join()).await }).unwrap().unwrap();
+    assert_eq!(report.unexpected_exits.len(), 1);
+    assert!(report.unexpected_exits[0].as_str().starts_with("trigger-"));
 
     guard.defuse();
 

@@ -19,8 +19,10 @@ use amaru_observability::{Instrument, debug, debug_span, info};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
+use futures_util::future::join_all;
 use parking_lot::Mutex;
 use socket2::{Domain, Socket, Type};
+use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -28,8 +30,9 @@ use tokio::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     sync::{Mutex as AsyncMutex, mpsc},
-    task::JoinHandle,
+    task::{JoinError, JoinHandle},
 };
+use tokio_util::sync::CancellationToken;
 
 pub struct Connection {
     peer_addr: SocketAddr,
@@ -88,17 +91,27 @@ pub struct TokioConnections {
     inner: Arc<Inner>,
 }
 
+/// A listener failure reported during shutdown.
+#[derive(Debug, Error)]
+pub enum ListenerError {
+    #[error("listener accept failed: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("listener task failed: {0}")]
+    Join(#[from] JoinError),
+}
+
 struct Inner {
     connections: Mutex<Connections>,
     read_buf_size: usize,
     incoming_tx: mpsc::Sender<PendingAccept>,
     incoming_rx: AsyncMutex<mpsc::Receiver<PendingAccept>>,
-    tasks: Mutex<BTreeMap<SocketAddr, JoinHandle<()>>>,
+    shutdown: CancellationToken,
+    tasks: AsyncMutex<BTreeMap<SocketAddr, JoinHandle<std::io::Result<()>>>>,
 }
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        for task in self.tasks.lock().values() {
+        for task in self.tasks.get_mut().values() {
             task.abort();
         }
     }
@@ -112,9 +125,39 @@ impl TokioConnections {
             read_buf_size,
             incoming_tx,
             incoming_rx: AsyncMutex::new(incoming_rx),
-            tasks: Mutex::new(BTreeMap::new()),
+            shutdown: CancellationToken::new(),
+            tasks: AsyncMutex::new(BTreeMap::new()),
         });
         Self { inner }
+    }
+
+    /// Cancel pending accepts, stop and join all listener tasks, then close every active connection.
+    ///
+    /// New listeners are rejected once shutdown begins.
+    ///
+    /// Return every listener I/O and task failure, excluding expected task cancellations.
+    pub async fn shutdown(&self) -> Vec<ListenerError> {
+        self.inner.shutdown.cancel();
+        let tasks = std::mem::take(&mut *self.inner.tasks.lock().await);
+        tasks.values().for_each(JoinHandle::abort);
+        let failures = join_all(tasks.into_values())
+            .await
+            .into_iter()
+            .filter_map(|result| match result {
+                Ok(Err(error)) => Some(ListenerError::Io(error)),
+                Err(error) if !error.is_cancelled() => Some(ListenerError::Join(error)),
+                Ok(Ok(())) | Err(_) => None,
+            })
+            .collect();
+
+        self.inner.connections.lock().connections.clear();
+        let mut incoming = self.inner.incoming_rx.lock().await;
+        incoming.close();
+        while let Some(pending) = incoming.recv().await {
+            drop(pending);
+        }
+
+        failures
     }
 }
 
@@ -133,14 +176,23 @@ impl ConnectionProvider for TokioConnections {
 
         Box::pin(
             async move {
-                // If a listener already exists for this address, abort and remove it.
+                let mut tasks = inner.tasks.lock().await;
+                if inner.shutdown.is_cancelled() {
+                    return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection listener shut down"));
+                }
+
+                // If a listener already exists for this address, abort and join it.
                 // This allows supervised restarts to work correctly.
-                let existing_task = inner.tasks.lock().remove(&address);
-                if let Some(task) = existing_task {
+                if let Some(task) = tasks.get_mut(&address) {
                     info!(network::connection::LISTENER_RESTART, address = address.to_string());
                     task.abort();
                     // Wait for the task to complete so the TcpListener is dropped and the port is released.
                     let _ = task.await;
+                    tasks.remove(&address);
+                }
+
+                if inner.shutdown.is_cancelled() {
+                    return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection listener shut down"));
                 }
 
                 // Bind the listener with SO_REUSEADDR
@@ -153,17 +205,22 @@ impl ConnectionProvider for TokioConnections {
                 let task = tokio::spawn(
                     // this task contains the listener and the sender, dropping them upon abort()
                     async move {
-                        while let Ok((stream, peer_addr)) = listener.accept().await {
-                            let Ok(_) = incoming_tx.send(PendingAccept { stream, peer_addr }).await else {
-                                break;
+                        let result = loop {
+                            let (stream, peer_addr) = match listener.accept().await {
+                                Ok(connection) => connection,
+                                Err(error) => break Err(error),
                             };
-                        }
+                            let Ok(_) = incoming_tx.send(PendingAccept { stream, peer_addr }).await else {
+                                break Ok(());
+                            };
+                        };
                         info!(network::connection::ACCEPT_LOOP_STOPPED, local = local.to_string());
+                        result
                     }
                     .instrument(debug_span!(network::connection::ACCEPT_LOOP,)),
                 );
 
-                inner.tasks.lock().insert(local, task);
+                tasks.insert(local, task);
 
                 Ok(local)
             }
@@ -178,12 +235,17 @@ impl ConnectionProvider for TokioConnections {
 
         Box::pin(
             async move {
-                let mut rx = inner.incoming_rx.lock().await;
-
-                #[expect(clippy::expect_used)]
-                let PendingAccept { stream, peer_addr } =
-                    rx.recv().await.expect("sender cannot be dropped since we hold Inner");
-                drop(rx);
+                let pending = tokio::select! {
+                    biased;
+                    _ = inner.shutdown.cancelled() => None,
+                    pending = async {
+                        let mut rx = inner.incoming_rx.lock().await;
+                        rx.recv().await
+                    } => pending,
+                };
+                let PendingAccept { stream, peer_addr } = pending.ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection listener shut down")
+                })?;
 
                 debug!(network::connection::ACCEPTED, peer_addr = peer_addr.to_string());
                 let peer = Peer::try_from(peer_addr)
@@ -353,6 +415,91 @@ mod tests {
         connections.close(connection_id).await?;
 
         client.await.expect("client task panicked")?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shutdown_releases_listener() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let addr = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+
+        assert!(connections.shutdown().await.is_empty());
+
+        let listener = TcpListener::bind(addr).await?;
+        assert_eq!(listener.local_addr()?, addr);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shutdown_rejects_new_listeners() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let address = SocketAddr::from(([127, 0, 0, 1], 0));
+        let listening = connections.listen(address);
+
+        assert!(connections.shutdown().await.is_empty());
+
+        assert_eq!(listening.await.unwrap_err().kind(), std::io::ErrorKind::BrokenPipe);
+        assert_eq!(connections.listen(address).await.unwrap_err().kind(), std::io::ErrorKind::BrokenPipe);
+        assert!(connections.inner.tasks.lock().await.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shutdown_unblocks_pending_accepts() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let addr = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        let mut accepting = connections.accept(addr);
+        let mut waiting = connections.accept(addr);
+        assert!(futures_util::poll!(&mut accepting).is_pending());
+        assert!(futures_util::poll!(&mut waiting).is_pending());
+
+        let (shutdown, accepted, waited) =
+            timeout(Duration::from_secs(1), async { tokio::join!(connections.shutdown(), accepting, waiting) }).await?;
+        assert!(shutdown.is_empty());
+        assert_eq!(accepted.unwrap_err().kind(), std::io::ErrorKind::BrokenPipe);
+        assert_eq!(waited.unwrap_err().kind(), std::io::ErrorKind::BrokenPipe);
+
+        let error = timeout(Duration::from_secs(1), connections.accept(addr)).await?.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        let listener = TcpListener::bind(addr).await?;
+        assert_eq!(listener.local_addr()?, addr);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shutdown_reports_all_listener_failures() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let messages = ["first listener failed", "second listener failed"];
+        let tasks = [
+            tokio::spawn(async move { panic!("{}", messages[0]) }),
+            tokio::spawn(async move { panic!("{}", messages[1]) }),
+            tokio::spawn(async { Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "accept failed")) }),
+            tokio::spawn(async { Ok(()) }),
+        ];
+        for (port, task) in (1..).zip(tasks) {
+            timeout(Duration::from_secs(1), async {
+                while !task.is_finished() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await?;
+            connections.inner.tasks.lock().await.insert(SocketAddr::from(([127, 0, 0, 1], port)), task);
+        }
+        let address = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+
+        let failures = connections.shutdown().await;
+        assert_eq!(failures.len(), messages.len() + 1);
+        for (failure, message) in failures.iter().zip(messages) {
+            assert!(matches!(failure, ListenerError::Join(error) if error.is_panic()));
+            assert!(failure.to_string().contains(message), "{failure}");
+        }
+        let ListenerError::Io(error) = &failures[messages.len()] else {
+            panic!("expected a listener I/O error");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::ConnectionAborted);
+        assert_eq!(error.to_string(), "accept failed");
+        let listener = TcpListener::bind(address).await?;
+        assert_eq!(listener.local_addr()?, address);
         Ok(())
     }
 

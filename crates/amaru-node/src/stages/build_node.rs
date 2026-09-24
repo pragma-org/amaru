@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc, time::Duration};
 
 use amaru_consensus::{
-    block_validator::BlockValidator,
+    block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
         ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
@@ -23,10 +23,11 @@ use amaru_consensus::{
     performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, PeerCandidate, Point, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
     state::State,
+    store::{OpenErrorKind, StoreError as LedgerStoreError},
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::Meter;
@@ -34,6 +35,7 @@ use amaru_network::{connection::TokioConnections, resolve::init_resolver};
 use amaru_observability::warn;
 use amaru_ouroboros::{
     BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
+    StoreError as ChainStoreError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
@@ -41,13 +43,14 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_pure_stage::{
-    BoxFuture, Sender, StageGraph, StageGraphRunning,
+    BoxFuture, Name, Sender, StageGraph, StageGraphRunning,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore};
 use anyhow::anyhow;
 use parking_lot::Mutex;
+use thiserror::Error;
 use tokio::runtime::Handle;
 
 use crate::{
@@ -58,6 +61,93 @@ use crate::{
     },
 };
 
+const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A startup failure that an embedding host can handle without inspecting error text.
+///
+/// Listener binding happens after construction; this result does not establish network readiness.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum NodeStartError {
+    #[error("invalid configuration: {reason}")]
+    InvalidConfiguration { reason: String },
+    #[error("store at '{}' is already in use", path.display())]
+    StoreInUse { path: PathBuf },
+    #[error("incompatible store at '{}': {source}", path.display())]
+    IncompatibleStore {
+        path: PathBuf,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    #[error(
+        "the chain database is inconsistent with the ledger: its best chain, ending at \
+         {best_chain}, does not contain the ledger tip {ledger_tip}. This happens when \
+         a ledger snapshot is imported on top of a chain database built for another chain. \
+         Remove the chain database so that it can be rebuilt from the ledger tip."
+    )]
+    StorePairMismatch { ledger_tip: Point, best_chain: HeaderHash },
+    #[error("{source}")]
+    Other {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
+impl NodeStartError {
+    fn other(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self::Other { source: source.into() }
+    }
+}
+
+impl From<anyhow::Error> for NodeStartError {
+    fn from(error: anyhow::Error) -> Self {
+        error.downcast::<Self>().unwrap_or_else(Self::other)
+    }
+}
+
+struct NodeLifecycle {
+    ledger_thread: LedgerThreadStop,
+    connections: Arc<TokioConnections>,
+    performance: Box<dyn FnOnce() -> std::thread::Result<()> + Send + Sync>,
+}
+
+/// Outcome of a shutdown that released every owned resource.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[must_use = "inspect unexpected_exits even when cleanup completed successfully"]
+pub struct ShutdownReport {
+    /// Components that terminated unexpectedly before or during shutdown.
+    pub unexpected_exits: Vec<ComponentFailure>,
+}
+
+impl ShutdownReport {
+    /// Whether every component exited as expected.
+    pub fn is_clean(&self) -> bool {
+        self.unexpected_exits.is_empty()
+    }
+}
+
+/// A component failure observed during a completed shutdown.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ComponentFailure {
+    Stage(String),
+    /// A root stage returned normally before shutdown was requested.
+    StageExited {
+        stage: Name,
+    },
+    NetworkListener(String),
+    Ledger(String),
+    Performance(String),
+}
+
+/// Shutdown stopped without proving that every owned resource was released.
+#[derive(Debug, Clone, Eq, Error, PartialEq)]
+pub enum ShutdownError {
+    #[error("timed out after {timeout:?} waiting for the ledger thread; stores may still be active")]
+    LedgerTimeout { timeout: Duration },
+    #[error("shutdown join task failed: {reason}; resources may still be active")]
+    JoinTask { reason: String },
+}
+
 /// Build a node given the provided configuration and run it on `runtime`.
 ///
 /// The Tokio [`Handle`] must be passed explicitly; this never uses ambient
@@ -65,8 +155,12 @@ use crate::{
 /// [`Meter`] when unset.
 ///
 /// For the common embedding path prefer [`crate::NodeBuilder`].
-pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<NodeRunning> {
-    init_resolver()?;
+///
+/// Success starts the tasks but does not establish network readiness. Listener binding
+/// failures terminate the graph; await [`NodeRunning::termination`] and inspect
+/// [`NodeRunning::shutdown`] for unexpected stage exits.
+pub fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+    init_resolver().map_err(NodeStartError::other)?;
     let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default()
@@ -74,19 +168,17 @@ pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<No
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
     let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
+    let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender })
+    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle })
 }
 
-/// Encapsulation of the running runtime + accesses to entry points to the processing graph.
-///
-/// It gives us access to be the TokioRunning runtime and to specific input / output points for
-/// the processing graph (just one for now, the mempool, but we can add more as needed).
-#[derive(Clone)]
+/// Unique owner of a running node and its final shutdown result.
 pub struct NodeRunning {
     tokio_running: TokioRunning,
     mempool_sender: Sender<MempoolMsg>,
+    lifecycle: NodeLifecycle,
 }
 
 impl NodeRunning {
@@ -105,6 +197,49 @@ impl NodeRunning {
     /// Abort all stage tasks without consuming this handle (safe from any thread).
     pub fn request_abort(&self) {
         self.tokio_running.request_abort();
+    }
+
+    /// Return a non-blocking abort callback that does not own the node's shutdown result.
+    pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
+        self.tokio_running.abort_callback()
+    }
+
+    /// Stop and join every node-owned task, then close listeners and stores.
+    ///
+    /// `Ok` means cleanup completed; inspect the report for component failures.
+    /// `Err` means at least one resource may still be active and should not be reopened.
+    /// Cancelling this future does not stop worker joins already running on the blocking pool
+    /// and does not establish that cleanup completed.
+    pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
+        let Self { tokio_running, mempool_sender, lifecycle } = self;
+        let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
+
+        tokio_running.request_abort();
+        drop(mempool_sender);
+        let mut unexpected_exits = match tokio_running.join().await {
+            Ok(report) => {
+                report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
+            }
+            Err(error) => vec![ComponentFailure::Stage(error.to_string())],
+        };
+        unexpected_exits.extend(
+            connections.shutdown().await.into_iter().map(|error| ComponentFailure::NetworkListener(error.to_string())),
+        );
+        drop(connections);
+        let (ledger, performance) = tokio::task::spawn_blocking(move || {
+            (ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT), performance())
+        })
+        .await
+        .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
+        let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
+        let ledger = match ledger {
+            Ok(()) => None,
+            Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
+            Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
+        };
+
+        unexpected_exits.extend([ledger, performance].into_iter().flatten());
+        Ok(ShutdownReport { unexpected_exits })
     }
 
     pub fn abort(self) {
@@ -130,6 +265,9 @@ pub fn build_node(
     meter: Arc<Meter>,
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
+    let listen_address = config
+        .listen_address()
+        .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
     // NOTE: Open the chain store first so incompatible DB versions fail before the slower ledger open.
     let chain_store = make_chain_store(config)?;
 
@@ -140,7 +278,6 @@ pub fn build_node(
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
     let pool_summaries = state.pool_summaries();
-    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
     let max_epoch = pool_summaries.max_epoch();
 
     // Production restarts drop the volatile ledger, so the chain store can be ahead of the
@@ -153,6 +290,7 @@ pub fn build_node(
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.
     let recovery_best_hash = find_best_candidate(chain_store.as_ref())?;
+    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
 
     // Make resources
     let era_history = &config.era_history();
@@ -191,28 +329,20 @@ pub fn build_node(
     block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
         let max_epoch = summaries.max_epoch();
         resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
-        let track_peers_sender = track_peers_sender.clone();
-        let send = async move {
+        let send = async {
             if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
                 amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
             }
         };
+        // The callback runs on the ledger thread; its join also covers notification delivery.
         #[expect(clippy::expect_used)]
-        if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(send);
-        } else {
-            let rt =
-                tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
-            rt.block_on(send);
-        }
+        let rt = tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
+        rt.block_on(send);
     }));
-    // TODO: The runtime spawn/block_on hack above is required by the current Tokio integration
-    // and ledger being driven from the main thread. It will be cleaned up when the ledger state
-    // is handled in its own non-Tokio thread.
 
     // Open a port to listen for downstream peers
     stage_builder
-        .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(config.listen_address()?)])
+        .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(listen_address)])
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
     Ok(node_stages)
@@ -239,10 +369,12 @@ fn register_resources(
     stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
     stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
+    let ledger_thread = block_validator.thread_stop();
     // NOTE: used in WorldLoop::stop() and impl Drop for World
-    stage_graph.resources().put(block_validator.thread_stop());
+    stage_graph.resources().put(ledger_thread.clone());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
-    stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
+    let connections = Arc::new(TokioConnections::new(65535));
+    stage_graph.resources().put::<ConnectionsResource>(connections.clone());
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
@@ -268,22 +400,30 @@ fn register_resources(
         .map(PeerCandidate::from)
         .chain(config.peer_snapshot_unresolved.iter().cloned())
         .collect();
-    stage_graph.resources().put::<ResourcePerformance>(Arc::new(Performance::with_peer_sources(
-        static_peers,
-        snapshot_candidates,
-        Default::default(),
-        config.peer_mix.clone(),
-    )));
+    let performance =
+        Performance::with_peer_sources(static_peers, snapshot_candidates, Default::default(), config.peer_mix.clone());
+    let join_performance = Box::new(performance.shutdown_callback());
+    stage_graph.resources().put::<ResourcePerformance>(Arc::new(performance));
+
+    stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });
 }
 
 /// This function migrates the database if necessary
 fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
     let chain_store: Arc<dyn ChainStore> = match config.chain_store {
         StoreType::InMem(ref chain_store) => chain_store.clone(),
-        StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
-            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config)?)
+        StoreType::RocksDb(ref rocks_db_config) => {
+            let open = if config.migrate_chain_db { RocksDBStore::open_and_migrate } else { RocksDBStore::open };
+            Arc::new(open(rocks_db_config).map_err(|error| match error {
+                ChainStoreError::Locked { path } => NodeStartError::StoreInUse { path },
+                error @ ChainStoreError::IncompatibleChainStoreVersions { .. } => {
+                    NodeStartError::IncompatibleStore { path: rocks_db_config.dir.clone(), source: Box::new(error) }
+                }
+                error @ (ChainStoreError::WriteError { .. }
+                | ChainStoreError::ReadError { .. }
+                | ChainStoreError::OpenError { .. }) => NodeStartError::other(error),
+            })?)
         }
-        StoreType::RocksDb(ref rocks_db_config) => Arc::new(RocksDBStore::open(rocks_db_config)?),
     };
 
     Ok(chain_store)
@@ -306,7 +446,14 @@ pub fn make_state(
     on_startup: Option<StartupHook<RocksDB>>,
     chain_store: Arc<dyn BaseReadChainStore>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
-    let store = RocksDB::new(&config.ledger_store)?;
+    let store = RocksDB::new(&config.ledger_store).map_err(|error| match error {
+        LedgerStoreError::Open(OpenErrorKind::Locked { file, .. }) => NodeStartError::StoreInUse { path: file },
+        error @ (LedgerStoreError::Internal(_)
+        | LedgerStoreError::Undecodable(_)
+        | LedgerStoreError::Send
+        | LedgerStoreError::Open(_)
+        | LedgerStoreError::Missing(..)) => NodeStartError::other(error),
+    })?;
     store.set_chain_store(chain_store);
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
     Ok(State::new(
@@ -327,4 +474,114 @@ fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -
     // not walk its children). Re-validation either repeats the error or, if the bug is gone, adopts
     // the chain. Runtime `FindBestCandidate` still skips blocks marked invalid in *this* run.
     realign_chain_store_to(chain_store.as_ref(), ledger_tip, ClearValidity::All)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{SocketAddr, TcpListener};
+
+    use amaru_kernel::{IsHeader, NetworkName, make_header};
+    use amaru_ouroboros::WriteChainStore;
+    use amaru_stores::rocksdb::RocksDbConfig;
+    use tokio::{net::TcpStream, time::timeout};
+
+    use super::*;
+    use crate::tests::configuration::NodeTestConfig;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn listener_bind_failure_is_an_unclean_shutdown() -> anyhow::Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let test_config = lifecycle_test_config(NetworkName::Preprod, listener.local_addr()?)?;
+        let config = test_config.make_node_configuration()?;
+        let ledger_config = config.ledger_config.ledger_store.clone();
+        let running = build_and_run_node(config, &Handle::current())?;
+
+        timeout(Duration::from_secs(5), running.termination()).await?;
+        let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
+
+        assert!(!report.is_clean());
+        assert!(
+            report.unexpected_exits.iter().any(|exit| {
+                matches!(exit, ComponentFailure::StageExited { stage } if stage.as_str().starts_with("manager-"))
+            }),
+            "{report:?}"
+        );
+        drop(RocksDB::new(&ledger_config)?);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn shutdown_allows_starting_another_network() -> anyhow::Result<()> {
+        let probe = TcpListener::bind("127.0.0.1:0")?;
+        let listen_address = probe.local_addr()?;
+        drop(probe);
+
+        let stores = tempfile::tempdir()?;
+        let mut configs = Vec::new();
+        for network in [NetworkName::Preprod, NetworkName::Preview] {
+            let test_config = lifecycle_test_config(network, listen_address)?;
+            let seeded = test_config.make_node_configuration()?;
+            let chain_config = RocksDbConfig::new(stores.path().join(network.to_string()));
+            let chain_store = RocksDBStore::open_and_migrate(&chain_config)?;
+            let header = test_config.chain_store.load_header(&test_config.chain_store.get_anchor_hash()).unwrap();
+            chain_store.store_header(&header)?;
+            drop(chain_store);
+            configs.push(
+                test_config
+                    .with_store_dirs(stores.path().join(network.to_string()), seeded.ledger_config.ledger_store.dir),
+            );
+        }
+
+        let mut retained = Vec::new();
+        for index in [0, 1, 0] {
+            let test_config = &configs[index];
+            let network = test_config.network_name;
+            let mut config = test_config.make_node_configuration()?;
+            config.ledger_config.global_parameters = network.as_global_parameters().unwrap().clone();
+            config.migrate_chain_db = true;
+            let ledger_config = config.ledger_config.ledger_store.clone();
+            let chain_config = RocksDbConfig::new(stores.path().join(network.to_string()));
+
+            let running = build_and_run_node(config, &Handle::current())?;
+            retained.push((running.abort_callback(), running.mempool_sender()));
+            wait_for_listener(listen_address).await?;
+            let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
+            assert!(report.is_clean(), "{report:?}");
+
+            drop(TcpListener::bind(listen_address)?);
+            drop(RocksDB::new(&ledger_config)?);
+            drop(RocksDBStore::open(&chain_config)?);
+            for (abort, sender) in &retained {
+                abort();
+                assert!(sender.send(MempoolMsg::NewTip(Point::Origin)).await.is_err());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn lifecycle_test_config(network: NetworkName, listen_address: SocketAddr) -> anyhow::Result<NodeTestConfig> {
+        let config = NodeTestConfig::default()
+            .with_network_name(network)
+            .with_no_upstream_peers()
+            .with_listen_address(&listen_address.to_string());
+        let header = make_header(1, 1, None);
+        config.chain_store.store_header(&header)?;
+        config.chain_store.roll_forward_chain(&header.point())?;
+        config.chain_store.set_anchor_point(&header.point())?;
+        Ok(config)
+    }
+
+    async fn wait_for_listener(address: SocketAddr) -> anyhow::Result<()> {
+        timeout(Duration::from_secs(1), async {
+            loop {
+                if TcpStream::connect(address).await.is_ok() {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        Ok(())
+    }
 }

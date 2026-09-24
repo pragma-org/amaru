@@ -37,6 +37,11 @@ Other guiding principles:
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
+### Added
+
+- **amaru-node**: embedders can await node shutdown, inspect component failures, and restart on another network after stores and listeners close.
+- **amaru-node**: startup reports typed errors for invalid configuration, stores already in use, incompatible chain-store versions, and detected ledger/chain-store mismatches.
+
 ### Changed
 
 - **amaru-pure-stage**: session typestate remainders print as `Choice`/`Par`/`Repeat` over tuples of at most 10 steps. `reveal_remainder!(session)` dumps the remainder as a compile-time panic.
@@ -45,6 +50,8 @@ Other guiding principles:
 
 - **amaru-uplc**: deeply nested UPLC programs and constants no longer crash the node with a stack overflow during FLAT encoding, FLAT decoding, or result reconstruction.
 - **amaru**: completed terminal progress bars remain on their own line instead of merging with later logs.
+- **amaru-network**: shutting down an idle listener no longer hangs while an accept call is waiting for a connection.
+- **amaru-consensus**: performance worker panic logs now include the panic message when it is a string.
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 

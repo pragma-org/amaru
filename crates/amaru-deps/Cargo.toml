@@ -170,6 +170,7 @@ subtle = { version = "2", default-features = false, features = ["const-generics"
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "full", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["codec", "io"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 url = { version = "2" }

@@ -1415,7 +1415,8 @@ mod tests {
         buf[5] += 1;
         t(tcp.write_all(&buf)).await.unwrap();
         t(tcp.flush()).await.unwrap();
-        t(running.join()).await;
+        let report = t(running.join()).await.unwrap();
+        assert_eq!(report.unexpected_exits, vec![mux.name().clone()]);
 
         trace_guard.defuse();
     }

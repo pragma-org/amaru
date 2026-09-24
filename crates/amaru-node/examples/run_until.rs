@@ -76,7 +76,6 @@ fn main() -> anyhow::Result<()> {
 
         loop {
             if done.load(Ordering::SeqCst) {
-                running.request_abort();
                 break;
             }
             tokio::select! {
@@ -84,10 +83,10 @@ fn main() -> anyhow::Result<()> {
                 _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
             }
         }
-        // Wait for stages to finish so final metric samples can export.
-        running.termination().await;
+        let report = running.shutdown().await?;
 
         telemetry.shutdown().await?;
+        anyhow::ensure!(report.is_clean(), "node components failed: {:?}", report.unexpected_exits);
         Ok::<bool, anyhow::Error>(done.load(Ordering::SeqCst))
     })?;
 

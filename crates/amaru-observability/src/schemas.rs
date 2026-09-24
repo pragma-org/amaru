@@ -332,7 +332,9 @@ define_schemas! {
             }
             performance {
                 /// The performance worker thread stopped because it panicked
-                public WORKER_PANICKED {}
+                public WORKER_PANICKED {
+                    required error: String
+                }
                 /// The performance operation queue is growing faster than the worker drains it
                 public QUEUE_LAGGING {
                     required queue_depth: u64

@@ -723,6 +723,20 @@ fn dropping_last_performance_handle_joins_worker() {
     drop(clone);
 }
 
+#[test]
+fn shutdown_callback_reports_worker_panic() {
+    let mut perf = Performance::new();
+    let original_worker = perf.shutdown_callback();
+    perf.worker = Arc::new(super::WorkerGuard {
+        join: parking_lot::Mutex::new(Some(std::thread::spawn(|| panic!("performance worker failed")))),
+    });
+    let join = perf.shutdown_callback();
+    drop(perf);
+
+    original_worker().unwrap();
+    assert!(join().is_err());
+}
+
 /// Queue-depth rate limiting calls [`tokio::time::Instant::now`] from stage threads that may
 /// not be running a Tokio runtime. This guards that assumption.
 #[test]

@@ -86,12 +86,21 @@ struct WorkerGuard {
     join: Mutex<Option<JoinHandle<()>>>,
 }
 
+impl WorkerGuard {
+    fn join(&self) -> thread::Result<()> {
+        self.join.lock().take().map_or(Ok(()), JoinHandle::join)
+    }
+}
+
 impl Drop for WorkerGuard {
     fn drop(&mut self) {
-        if let Some(handle) = self.join.lock().take()
-            && let Err(_panic) = handle.join()
-        {
-            error!(consensus::performance::WORKER_PANICKED);
+        if let Err(payload) = self.join() {
+            let error = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic payload");
+            error!(consensus::performance::WORKER_PANICKED, error);
         }
     }
 }
@@ -101,7 +110,8 @@ impl Drop for WorkerGuard {
 /// Field order matters for cleanup: `tx` is dropped before the worker join guard, so the last
 /// sender closes the op channel and the worker can exit before the join runs.
 ///
-/// Dropping the last clone joins the worker and waits while it drains any remaining ops.
+/// Dropping the last clone joins the worker and waits while it drains any remaining ops,
+/// unless a retained [`Self::shutdown_callback`] owns that join.
 pub struct Performance {
     tx: UnboundedSender<PerformanceOp>,
     /// Approximate number of ops queued or being processed (incremented before send).
@@ -225,6 +235,15 @@ impl Performance {
             last_queue_warn: Arc::new(Mutex::new(None)),
             worker: Arc::new(WorkerGuard { join: Mutex::new(Some(join)) }),
         }
+    }
+
+    /// Retain a worker join callback without keeping its request channel open.
+    ///
+    /// Drop all `Performance` handles before invoking this callback. It waits for the
+    /// worker to finish and returns its panic instead of logging it during drop.
+    pub fn shutdown_callback(&self) -> impl FnOnce() -> thread::Result<()> + Send + Sync + 'static {
+        let worker = Arc::clone(&self.worker);
+        move || worker.join()
     }
 
     /// Enqueue an operation. Updates the pending counter and logs WARN/ERROR thresholds.

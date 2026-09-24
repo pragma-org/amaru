@@ -27,7 +27,7 @@
 //!     .listen_ephemeral_localhost()
 //!     .observers(LedgerObservers::new().on_adopted_block(|_block| { /* ... */ }))
 //!     .build_and_run(rt.handle())?;
-//! // Stop from outside with running.request_abort(); await running.termination().
+//! // Stop from outside and wait for stages and stores to close with running.shutdown().await.
 //! ```
 //!
 //! The Tokio runtime is always an **explicit** argument — never taken from ambient
@@ -58,7 +58,10 @@ pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
 pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
 pub use stages::{
-    build_node::{NodeRunning, build_and_run_node, build_node, make_state},
+    build_node::{
+        ComponentFailure, NodeRunning, NodeStartError, ShutdownError, ShutdownReport, build_and_run_node, build_node,
+        make_state,
+    },
     config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
 };
 pub use system_metrics::{BuildIdentity, track_system_metrics};

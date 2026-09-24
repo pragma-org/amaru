@@ -1413,7 +1413,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `queue_lagging` | `TRACE` | public | The performance operation queue is growing faster than the worker drains it | queue_depth |  |
 | `queue_overflow` | `TRACE` | public | The performance operation queue exceeded its hard limit; the node aborts | queue_depth, threshold |  |
-| `worker_panicked` | `TRACE` | public | The performance worker thread stopped because it panicked |  |  |
+| `worker_panicked` | `TRACE` | public | The performance worker thread stopped because it panicked | error |  |
 
 <details><summary>span: `queue_lagging`</summary>
 
@@ -1429,6 +1429,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `queue_depth` | `integer` | ✓ |
 | `threshold` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `worker_panicked`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
 
 </details>
 

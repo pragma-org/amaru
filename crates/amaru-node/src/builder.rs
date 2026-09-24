@@ -26,14 +26,14 @@ use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::LedgerObservers;
 use amaru_metrics::Meter;
 use amaru_stores::rocksdb::RocksDbConfig;
-use anyhow::{Context, bail};
+use anyhow::Context;
 use tokio::runtime::Handle;
 
 use crate::{
     DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
     peer_snapshot::load_embedded_peer_snapshot,
     stages::{
-        build_node::{NodeRunning, build_and_run_node},
+        build_node::{NodeRunning, NodeStartError, build_and_run_node},
         config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
     },
 };
@@ -190,15 +190,15 @@ impl NodeBuilder {
     }
 
     /// Finish a full [`Config`] (for inspection or further field tweaks).
-    pub fn build(self) -> anyhow::Result<Config> {
-        let era_history = self.era_history.ok_or_else(|| {
-            anyhow::anyhow!("era history is required for network {}; provide NodeBuilder::era_history", self.network)
+    pub fn build(self) -> Result<Config, NodeStartError> {
+        let era_history = self.era_history.ok_or_else(|| NodeStartError::InvalidConfiguration {
+            reason: format!("era history is required for network {}; provide NodeBuilder::era_history", self.network),
         })?;
-        let global_parameters = self.global_parameters.ok_or_else(|| {
-            anyhow::anyhow!(
+        let global_parameters = self.global_parameters.ok_or_else(|| NodeStartError::InvalidConfiguration {
+            reason: format!(
                 "global parameters are required for network {}; provide NodeBuilder::global_parameters",
                 self.network
-            )
+            ),
         })?;
 
         let mut upstream_peers = self.upstream_peers;
@@ -216,7 +216,9 @@ impl NodeBuilder {
         };
 
         if upstream_peers.is_empty() && peer_snapshot_peers.is_empty() {
-            bail!("at least one static upstream peer or snapshot peer is required");
+            return Err(NodeStartError::InvalidConfiguration {
+                reason: "at least one static upstream peer or snapshot peer is required".into(),
+            });
         }
 
         let mut config = Config {
@@ -256,7 +258,7 @@ impl NodeBuilder {
     /// The runtime is **not** taken from ambient context: pass an explicit
     /// [`Handle`] (for example `runtime.handle()` or `Handle::current()` when
     /// you are already inside that runtime).
-    pub fn build_and_run(self, runtime: &Handle) -> anyhow::Result<NodeRunning> {
+    pub fn build_and_run(self, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
         let config = self.build()?;
         build_and_run_node(config, runtime)
     }

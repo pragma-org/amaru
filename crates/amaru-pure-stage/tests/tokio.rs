@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use amaru_pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
+use amaru_pure_stage::{StageGraph, StageGraphRunning, StageRef, drop_guard::DropGuard, tokio::TokioBuilder};
 use futures_util::StreamExt;
 use tokio::time::timeout;
 
@@ -125,4 +125,68 @@ fn contramap_input_returns_send_error_when_mailbox_is_gone() {
     let sender = graph.input(&as_u8);
     drop(graph);
     assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError::new(sink.name().clone())));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn join_reports_stage_panic() {
+    let mut graph = TokioBuilder::default();
+    let stage = graph.stage("panic", async |_state, _msg: (), _eff| -> () {
+        panic!("stage failed");
+    });
+    let stage = graph.wire_up(stage, ());
+    let input = graph.input(stage);
+    let running = graph.run(tokio::runtime::Handle::current());
+
+    input.send(()).await.unwrap();
+    let error = timeout(Duration::from_secs(1), running.join()).await.unwrap().unwrap_err();
+
+    assert!(error.is_panic());
+}
+
+#[tokio::test]
+async fn terminating_dynamic_parent_drops_child() {
+    let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+    let guard = DropGuard::new(dropped_tx, |tx| {
+        let _ = tx.send(());
+    });
+    let mut guard = Some(guard);
+    let mut graph = TokioBuilder::default();
+    let root = graph.stage("root", move |state, start: bool, eff| {
+        let guard = if start { guard.take() } else { None };
+        async move {
+            if let Some(guard) = guard {
+                let mut guard = Some(guard);
+                let parent = eff
+                    .stage("parent", move |state, (): (), eff| {
+                        let guard = guard.take().unwrap();
+                        async move {
+                            let child = eff
+                                .stage("child", move |state, (): (), _eff| {
+                                    let _ = &guard;
+                                    std::future::ready(state)
+                                })
+                                .await;
+                            eff.wire_up(child, ()).await;
+                            eff.terminate::<()>().await;
+                            state
+                        }
+                    })
+                    .await;
+                let parent = eff.supervise(parent, false);
+                let parent = eff.wire_up(parent, ()).await;
+                eff.send(&parent, ()).await;
+            }
+            state
+        }
+    });
+    let root = graph.wire_up(root, ());
+    let input = graph.input(root);
+    let running = graph.run(tokio::runtime::Handle::current());
+    input.send(true).await.unwrap();
+
+    let dropped = timeout(Duration::from_secs(1), dropped_rx).await;
+    assert!(!running.is_terminated());
+    running.request_abort();
+    assert!(running.join().await.unwrap().unexpected_exits.is_empty());
+    dropped.unwrap().unwrap();
 }
