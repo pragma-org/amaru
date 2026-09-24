@@ -102,23 +102,16 @@ impl DefaultBootstrapObserver {
 
 impl BootstrapObserver for DefaultBootstrapObserver {
     fn on_progress(&self, progress: BootstrapProgress) {
-        let mut renderer = self.renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        renderer.render(progress);
+        match &mut *self.renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            DefaultRenderer::Terminal(renderer) => renderer.render(progress),
+            DefaultRenderer::Structured(renderer) => renderer.render(progress),
+        }
     }
 }
 
 enum DefaultRenderer {
     Terminal(TerminalRenderer),
     Structured(StructuredRenderer),
-}
-
-impl DefaultRenderer {
-    fn render(&mut self, progress: BootstrapProgress) {
-        match self {
-            Self::Terminal(renderer) => renderer.render(progress),
-            Self::Structured(renderer) => renderer.render(progress),
-        }
-    }
 }
 
 #[derive(Default)]
