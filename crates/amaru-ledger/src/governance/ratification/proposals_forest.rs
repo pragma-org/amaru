@@ -254,7 +254,9 @@ impl ProposalsForest {
 
         pruned.insert(id, RatificationStatus::Ratified);
 
-        self.remove_pruned(&pruned, compass);
+        self.prune(&pruned);
+
+        *compass = self.new_compass();
 
         Ok(pruned)
     }
@@ -282,18 +284,17 @@ impl ProposalsForest {
         assert!(pruned.contains(id), "proposal {id:?} was present in the forest but missing from its tree");
 
         let pruned = pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
-        self.remove_pruned(&pruned, compass);
+
+        self.prune(&pruned);
+
+        *compass = self.new_compass();
+
         pruned
     }
 
-    fn remove_pruned(
-        &mut self,
-        pruned: &BTreeMap<Rc<ProposalId>, RatificationStatus>,
-        compass: &mut ProposalsForestCompass,
-    ) {
+    fn prune<T>(&mut self, pruned: &BTreeMap<Rc<ProposalId>, T>) {
         self.proposals.retain(|id, _| !pruned.contains_key(id));
         self.sequence.retain(|id| !pruned.contains_key(id));
-        *compass = self.new_compass();
     }
 
     /// Check whether a given proposal's parent matches the current forest root. Orphans proposals
