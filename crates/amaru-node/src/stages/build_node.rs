@@ -43,7 +43,7 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_pure_stage::{
-    BoxFuture, Sender, StageGraph, StageGraphRunning,
+    BoxFuture, Name, Sender, StageGraph, StageGraphRunning,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
 };
@@ -129,8 +129,12 @@ impl ShutdownReport {
 /// A component failure observed during a completed shutdown.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ComponentFailure {
-    Stages(String),
-    NetworkListeners(String),
+    Stage(String),
+    /// A root stage returned normally before shutdown was requested.
+    StageExited {
+        stage: Name,
+    },
+    NetworkListener(String),
     Ledger(String),
     Performance(String),
 }
@@ -151,6 +155,10 @@ pub enum ShutdownError {
 /// [`Meter`] when unset.
 ///
 /// For the common embedding path prefer [`crate::NodeBuilder`].
+///
+/// Success starts the tasks but does not establish network readiness. Listener binding
+/// failures terminate the graph; await [`NodeRunning::termination`] and inspect
+/// [`NodeRunning::shutdown`] for unexpected stage exits.
 pub fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
     init_resolver().map_err(NodeStartError::other)?;
     let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
@@ -208,9 +216,15 @@ impl NodeRunning {
 
         tokio_running.request_abort();
         drop(mempool_sender);
-        let stages = tokio_running.join().await.err().map(|error| ComponentFailure::Stages(error.to_string()));
-        let listeners =
-            connections.shutdown().await.err().map(|error| ComponentFailure::NetworkListeners(error.to_string()));
+        let mut unexpected_exits = match tokio_running.join().await {
+            Ok(report) => {
+                report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
+            }
+            Err(error) => vec![ComponentFailure::Stage(error.to_string())],
+        };
+        unexpected_exits.extend(
+            connections.shutdown().await.into_iter().map(|error| ComponentFailure::NetworkListener(error.to_string())),
+        );
         drop(connections);
         let (ledger, performance) = tokio::task::spawn_blocking(move || {
             (ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT), performance())
@@ -224,9 +238,8 @@ impl NodeRunning {
             Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
         };
 
-        Ok(ShutdownReport {
-            unexpected_exits: [stages, listeners, ledger, performance].into_iter().flatten().collect(),
-        })
+        unexpected_exits.extend([ledger, performance].into_iter().flatten());
+        Ok(ShutdownReport { unexpected_exits })
     }
 
     pub fn abort(self) {
@@ -467,12 +480,35 @@ fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -
 mod tests {
     use std::net::{SocketAddr, TcpListener};
 
-    use amaru_kernel::NetworkName;
+    use amaru_kernel::{IsHeader, NetworkName, make_header};
+    use amaru_ouroboros::WriteChainStore;
     use amaru_stores::rocksdb::RocksDbConfig;
     use tokio::{net::TcpStream, time::timeout};
 
     use super::*;
     use crate::tests::configuration::NodeTestConfig;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn listener_bind_failure_is_an_unclean_shutdown() -> anyhow::Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let test_config = lifecycle_test_config(NetworkName::Preprod, listener.local_addr()?)?;
+        let config = test_config.make_node_configuration()?;
+        let ledger_config = config.ledger_config.ledger_store.clone();
+        let running = build_and_run_node(config, &Handle::current())?;
+
+        timeout(Duration::from_secs(5), running.termination()).await?;
+        let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
+
+        assert!(!report.is_clean());
+        assert!(
+            report.unexpected_exits.iter().any(|exit| {
+                matches!(exit, ComponentFailure::StageExited { stage } if stage.as_str().starts_with("manager-"))
+            }),
+            "{report:?}"
+        );
+        drop(RocksDB::new(&ledger_config)?);
+        Ok(())
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn shutdown_allows_starting_another_network() -> anyhow::Result<()> {
@@ -483,11 +519,13 @@ mod tests {
         let stores = tempfile::tempdir()?;
         let mut configs = Vec::new();
         for network in [NetworkName::Preprod, NetworkName::Preview] {
-            let test_config = NodeTestConfig::default()
-                .with_network_name(network)
-                .with_no_upstream_peers()
-                .with_listen_address(&listen_address.to_string());
+            let test_config = lifecycle_test_config(network, listen_address)?;
             let seeded = test_config.make_node_configuration()?;
+            let chain_config = RocksDbConfig::new(stores.path().join(network.to_string()));
+            let chain_store = RocksDBStore::open_and_migrate(&chain_config)?;
+            let header = test_config.chain_store.load_header(&test_config.chain_store.get_anchor_hash()).unwrap();
+            chain_store.store_header(&header)?;
+            drop(chain_store);
             configs.push(
                 test_config
                     .with_store_dirs(stores.path().join(network.to_string()), seeded.ledger_config.ledger_store.dir),
@@ -507,7 +545,8 @@ mod tests {
             let running = build_and_run_node(config, &Handle::current())?;
             retained.push((running.abort_callback(), running.mempool_sender()));
             wait_for_listener(listen_address).await?;
-            assert!(timeout(Duration::from_secs(15), running.shutdown()).await??.is_clean());
+            let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
+            assert!(report.is_clean(), "{report:?}");
 
             drop(TcpListener::bind(listen_address)?);
             drop(RocksDB::new(&ledger_config)?);
@@ -519,6 +558,18 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    fn lifecycle_test_config(network: NetworkName, listen_address: SocketAddr) -> anyhow::Result<NodeTestConfig> {
+        let config = NodeTestConfig::default()
+            .with_network_name(network)
+            .with_no_upstream_peers()
+            .with_listen_address(&listen_address.to_string());
+        let header = make_header(1, 1, None);
+        config.chain_store.store_header(&header)?;
+        config.chain_store.roll_forward_chain(&header.point())?;
+        config.chain_store.set_anchor_point(&header.point())?;
+        Ok(config)
     }
 
     async fn wait_for_listener(address: SocketAddr) -> anyhow::Result<()> {

@@ -187,6 +187,6 @@ async fn terminating_dynamic_parent_drops_child() {
     let dropped = timeout(Duration::from_secs(1), dropped_rx).await;
     assert!(!running.is_terminated());
     running.request_abort();
-    running.join().await.unwrap();
+    assert!(running.join().await.unwrap().unexpected_exits.is_empty());
     dropped.unwrap().unwrap();
 }

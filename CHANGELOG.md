@@ -50,6 +50,8 @@ Other guiding principles:
 
 - **amaru-uplc**: deeply nested UPLC programs and constants no longer crash the node with a stack overflow during FLAT encoding, FLAT decoding, or result reconstruction.
 - **amaru**: completed terminal progress bars remain on their own line instead of merging with later logs.
+- **amaru-network**: shutting down an idle listener no longer hangs while an accept call is waiting for a connection.
+- **amaru-consensus**: performance worker panic logs now include the panic message when it is a string.
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 

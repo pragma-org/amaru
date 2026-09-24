@@ -375,6 +375,7 @@ fn tokio_detach_completes_after_stage_continues() {
         timeout(Duration::from_secs(1), send.send(Msg::Go(21))).await.unwrap().unwrap();
         assert_eq!(timeout(Duration::from_secs(1), out_rx.next()).await.unwrap(), Some(0));
         assert_eq!(timeout(Duration::from_secs(1), out_rx.next()).await.unwrap(), Some(42));
-        graph.abort();
+        graph.request_abort();
+        assert!(graph.join().await.unwrap().unexpected_exits.is_empty());
     });
 }

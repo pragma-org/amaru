@@ -4199,8 +4199,14 @@
     },
     "amaru::consensus::performance::WORKER_PANICKED": {
       "type": "object",
-      "properties": {},
-      "required": [],
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
       "optional": [],
       "additionalProperties": false,
       "name": "worker_panicked",

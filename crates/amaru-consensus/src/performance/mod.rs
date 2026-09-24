@@ -94,8 +94,13 @@ impl WorkerGuard {
 
 impl Drop for WorkerGuard {
     fn drop(&mut self) {
-        if self.join().is_err() {
-            error!(consensus::performance::WORKER_PANICKED);
+        if let Err(payload) = self.join() {
+            let error = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic payload");
+            error!(consensus::performance::WORKER_PANICKED, error);
         }
     }
 }

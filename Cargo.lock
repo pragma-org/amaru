@@ -282,6 +282,7 @@ dependencies = [
  "syn 3.0.3",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
  "tower",
  "tracing",
  "tracing-core",
@@ -455,7 +456,9 @@ dependencies = [
  "hickory-resolver",
  "parking_lot",
  "socket2 0.6.5",
+ "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

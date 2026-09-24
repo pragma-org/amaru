@@ -20,7 +20,9 @@ futures-util.workspace = true
 hickory-resolver.workspace = true
 parking_lot.workspace = true
 socket2.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["net"] }
+tokio-util.workspace = true
 
 amaru-kernel.workspace = true
 amaru-observability.workspace = true

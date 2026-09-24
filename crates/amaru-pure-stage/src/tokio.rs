@@ -71,6 +71,7 @@ struct TokioInner {
     senders: Mutex<BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>>,
     handles: Mutex<Vec<JoinHandle<()>>>,
     failures: Mutex<Vec<JoinError>>,
+    unexpected_exits: Mutex<Vec<Name>>,
     stopping: AtomicBool,
     clock: Arc<dyn Clock + Send + Sync>,
     global_epoch_offset: Duration,
@@ -88,6 +89,7 @@ impl TokioInner {
             senders: Default::default(),
             handles: Default::default(),
             failures: Default::default(),
+            unexpected_exits: Default::default(),
             stopping: AtomicBool::new(false),
             clock: Arc::new(TokioClock),
             global_epoch_offset: Duration::ZERO,
@@ -259,12 +261,15 @@ impl StageGraph for TokioBuilder {
         let state = Box::new(state);
         let termination_tx = self.termination_tx.clone();
         self.tasks.push(Box::new(move |inner| {
-            let stage = run_stage_boxed(state, rx, ff, stage_name, inner);
+            let stage = run_stage_boxed(state, rx, ff, stage_name.clone(), inner.clone());
             Box::pin(async move {
                 let _termination = DropGuard::new(termination_tx, |tx| {
                     tx.send_replace(true);
                 });
                 stage.await;
+                if !inner.stopping.load(Ordering::SeqCst) {
+                    inner.unexpected_exits.lock().push(stage_name);
+                }
             })
         }));
         StageStateRef::new(name)
@@ -684,6 +689,15 @@ async fn interpreter(
     }
 }
 
+/// Normal root-stage exits observed before the graph was asked to stop.
+///
+/// Dynamically spawned stages and detached effects may complete normally and are not included.
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
+#[must_use = "inspect unexpected_exits even when no task panicked"]
+pub struct TokioJoinReport {
+    pub unexpected_exits: Vec<Name>,
+}
+
 /// Handle to the running stages.
 #[derive(Clone)]
 #[must_use = "this handle needs to be either joined or aborted"]
@@ -716,8 +730,11 @@ impl TokioRunning {
         self.request_abort();
     }
 
-    /// Wait for all registered tasks and surface a task panic.
-    pub async fn join(self) -> Result<(), JoinError> {
+    /// Wait for all registered tasks, reporting early root-stage exits or a task panic.
+    ///
+    /// `Ok` means no task panicked; inspect the report for roots that exited before shutdown.
+    /// Requesting an abort after a root has exited does not erase that exit from the report.
+    pub async fn join(self) -> Result<TokioJoinReport, JoinError> {
         poll_fn(|cx| {
             let mut handles = self.inner.handles.lock();
             handles.retain_mut(|h| {
@@ -736,7 +753,10 @@ impl TokioRunning {
         })
         .await;
 
-        self.inner.failures.lock().drain(..).next().map_or(Ok(()), Err)
+        if let Some(error) = self.inner.failures.lock().drain(..).next() {
+            return Err(error);
+        }
+        Ok(TokioJoinReport { unexpected_exits: std::mem::take(&mut *self.inner.unexpected_exits.lock()) })
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
