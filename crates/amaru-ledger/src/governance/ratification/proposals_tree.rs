@@ -93,6 +93,18 @@ impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
         }
     }
 
+    /// Remove a proposal and its complete descendant subtree.
+    pub fn expire(&mut self, id: &T) -> BTreeSet<Rc<T>> {
+        let Some(expired) = Sibling::remove_subtree(&mut self.siblings, id) else {
+            return BTreeSet::new();
+        };
+
+        let mut pruned = BTreeSet::new();
+        Sibling::collect_all(&mut pruned, vec![expired]);
+        self.seen.retain(|id| !pruned.contains(id));
+        pruned
+    }
+
     /// Insert a not-already-inserted proposal in the tree.
     pub fn insert(&mut self, id: Rc<T>, parent: Option<Rc<T>>) -> Result<(), ProposalsInsertError<T>> {
         use ProposalsInsertError::*;
@@ -203,6 +215,15 @@ impl<T: Eq + Ord> Sibling<T> {
             .fold(st, |st, child| st.or_else(|UnknownParent { id, parent }| child.insert(id, parent)))
     }
 
+    /// Remove the subtree rooted at `id`, searching recursively through all descendants.
+    fn remove_subtree(nodes: &mut Vec<Self>, id: &T) -> Option<Self> {
+        if let Some(index) = nodes.iter().position(|node| node.id.as_ref() == id) {
+            return Some(nodes.remove(index));
+        }
+
+        nodes.iter_mut().find_map(|node| Self::remove_subtree(&mut node.children, id))
+    }
+
     /// Split a set of nodes based on a pivot sibling. The result contains Some<pivot> if it was
     /// found amongst the node, and the rest of the nodes on the other hand.
     fn partition(nodes: Vec<Self>, pivot: &T) -> (Option<Self>, Vec<Self>) {
@@ -242,7 +263,7 @@ mod tests {
     use amaru_kernel::utils::tests::assert_strategy_sometimes_panics;
     use proptest::{collection, prelude::*, test_runner::RngSeed};
 
-    use super::{ProposalsEnactError, ProposalsTree};
+    use super::{ProposalsEnactError, ProposalsTree, Sibling};
 
     proptest! {
         #[test]
@@ -306,6 +327,19 @@ mod tests {
             let result = tree.enact(Rc::new(next));
             prop_assert!(result.is_err(), "{result:?}");
         }
+    }
+
+    #[test]
+    fn expiring_a_nested_proposal_removes_only_its_subtree() {
+        let mut tree = ProposalsTree::new(Some(Rc::new(0)));
+        for (id, parent) in [(1, 0), (2, 1), (3, 2), (4, 1), (5, 0)] {
+            tree.insert(Rc::new(id), Some(Rc::new(parent))).unwrap();
+        }
+
+        assert_eq!(tree.expire(&2), BTreeSet::from([Rc::new(2), Rc::new(3)]));
+        assert_eq!(tree.root(), Some(Rc::new(0)));
+        assert_eq!(tree.siblings().iter().map(Sibling::id).collect::<Vec<_>>(), vec![Rc::new(1), Rc::new(5)]);
+        assert_eq!(tree.siblings()[0].children().iter().map(Sibling::id).collect::<Vec<_>>(), vec![Rc::new(4)]);
     }
 
     #[test]

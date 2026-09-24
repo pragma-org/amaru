@@ -182,11 +182,8 @@ impl GovernanceUpdates {
                     let expired = ctx.epoch == proposal.valid_until;
                     let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
 
-                    if expired || ratified_or_evicted {
+                    if ratified_or_evicted {
                         info!(ledger::proposal::DROP, id = id.to_string(), expired, ratified_or_evicted);
-                        // Expired proposals aren't in the pruned set yet; ratified or evicted ones
-                        // already are, and must keep the status recorded during ratification.
-                        ctx.pruned_proposals.entry(id).or_insert(RatificationStatus::NotRatified);
                         let return_account = proposal.return_account;
                         let deposit = proposal.deposit;
                         deposit_refunds
@@ -196,6 +193,8 @@ impl GovernanceUpdates {
                             })
                             .or_insert_with(|| deposit);
                     } else {
+                        assert!(!expired, "expired proposal {id} was not pruned from the proposal forest");
+
                         // NOTE: dormant epochs
                         //
                         // An epoch is said to be 'dormant' if there's no active proposals at the beginning of

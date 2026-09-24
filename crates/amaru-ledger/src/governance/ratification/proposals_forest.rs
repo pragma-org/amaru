@@ -16,6 +16,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
+    iter::from_fn,
     rc::Rc,
 };
 
@@ -118,7 +119,7 @@ impl ProposalsForest {
                 row.valid_until,
             );
 
-            forest.insert(era_history, id, row.proposed_in, row.governance_action)?;
+            forest.insert(era_history, id, row.valid_until, row.proposed_in, row.governance_action)?;
 
             Ok(forest)
         })?;
@@ -141,6 +142,7 @@ impl ProposalsForest {
         &mut self,
         era_history: &'_ EraHistory,
         id: Rc<ProposalId>,
+        valid_until: Epoch,
         proposed_in: ProposalPointer,
         proposal: GovernanceAction,
     ) -> Result<(), ProposalsInsertError<ProposalId>> {
@@ -166,7 +168,7 @@ impl ProposalsForest {
             .slot_to_epoch(slot, slot)
             .map_err(|e| ProposalsInsertError::InternalSlotToEpochError(slot, e))?;
 
-        self.proposals.insert(id.clone(), ProposedIn { epoch, pointer: proposed_in, proposal });
+        self.proposals.insert(id.clone(), ProposedIn { epoch, valid_until, pointer: proposed_in, proposal });
 
         Ok(())
     }
@@ -252,16 +254,46 @@ impl ProposalsForest {
 
         pruned.insert(id, RatificationStatus::Ratified);
 
-        // Clean up the lookup table.
-        self.proposals.retain(|pid, _| !pruned.contains_key(pid.as_ref()));
-
-        // Clean up sequence, while preserving its order.
-        self.sequence.retain(|sid| !pruned.contains_key(sid.as_ref()));
-
-        // Force replacement of the compass; since any previous one is now obsolete.
-        *compass = self.new_compass();
+        self.remove_pruned(&pruned, compass);
 
         Ok(pruned)
+    }
+
+    /// Remove a proposal and all its descendants if it expires this round.
+    /// Call only after a failed tally or when ratification is skipped, since proposals remain
+    /// eligible for enactment during their final valid epoch.
+    pub fn expire(
+        &mut self,
+        id: &Rc<ProposalId>,
+        compass: &mut ProposalsForestCompass,
+    ) -> BTreeMap<Rc<ProposalId>, RatificationStatus> {
+        let Some(proposed_in) = self.proposals.get(id).filter(|p| p.valid_until == self.current_epoch) else {
+            return BTreeMap::new();
+        };
+
+        let pruned = match &proposed_in.proposal {
+            ProposalEnum::HardFork(..) => self.hard_fork.expire(id),
+            ProposalEnum::ProtocolParameters(..) => self.protocol_parameters.expire(id),
+            ProposalEnum::ConstitutionalCommittee(..) => self.constitutional_committee.expire(id),
+            ProposalEnum::Constitution(..) => self.constitution.expire(id),
+            ProposalEnum::Orphan(..) => BTreeSet::from([id.clone()]),
+        };
+
+        assert!(pruned.contains(id), "proposal {id:?} was present in the forest but missing from its tree");
+
+        let pruned = pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
+        self.remove_pruned(&pruned, compass);
+        pruned
+    }
+
+    fn remove_pruned(
+        &mut self,
+        pruned: &BTreeMap<Rc<ProposalId>, RatificationStatus>,
+        compass: &mut ProposalsForestCompass,
+    ) {
+        self.proposals.retain(|id, _| !pruned.contains_key(id));
+        self.sequence.retain(|id| !pruned.contains_key(id));
+        *compass = self.new_compass();
     }
 
     /// Check whether a given proposal's parent matches the current forest root. Orphans proposals
@@ -288,7 +320,7 @@ impl ProposalsForest {
 /// compass.
 ///
 /// This enables a consumer to walk the forest, and perform short-lived mutations on it (prune
-/// trees by enacting proposals). Following any mutation, a new compass needs to be acquired.
+/// trees by enacting or expiring proposals). Following any mutation, a new compass needs to be acquired.
 /// Re-using an old compass will create a panic.
 #[derive(Debug)]
 pub struct ProposalsForestCompass {
@@ -306,16 +338,47 @@ impl ProposalsForestCompass {
     ///
     /// - the `sequence` ultimately defines the order
     /// - any id present in the sequence also exists in the `proposals` lookup table.
-    /// - a cursor isn't reused following an enactment.
+    /// - a cursor isn't reused following an enactment or expiration.
     pub fn next<'forest>(
         &mut self,
         forest: &'forest ProposalsForest,
         protocol_parameters: &'_ ProtocolParameters,
     ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
+        from_fn(|| self.next_any(forest))
+            .find_map(|(id, proposed_in)| Self::is_ratifiable(forest, protocol_parameters, id, proposed_in))
+    }
+
+    /// Get the next proposal regardless of whether ratification has been interrupted or the
+    /// proposal is otherwise eligible for tallying.
+    pub(super) fn next_any<'forest>(
+        &mut self,
+        forest: &'forest ProposalsForest,
+    ) -> Option<(Rc<ProposalId>, &'forest ProposedIn<ProposalEnum>)> {
         assert!(
             forest.sequence.len() == self.original_len,
             "compass re-used on a forest that has changed; you should have created a new compass."
         );
+
+        let id = forest.sequence.get(self.cursor)?.clone();
+        self.cursor += 1;
+
+        let proposed_in = forest.proposals.get(&id).unwrap_or_else(|| {
+            unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
+        });
+
+        Some((id, proposed_in))
+    }
+
+    pub(super) fn is_ratifiable<'forest>(
+        forest: &'forest ProposalsForest,
+        protocol_parameters: &'_ ProtocolParameters,
+        id: Rc<ProposalId>,
+        proposed_in: &'forest ProposedIn<ProposalEnum>,
+    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
+        use ConstitutionalCommitteeUpdate::*;
+        use OrphanProposal::*;
+
+        let ProposedIn { epoch: proposed_in, proposal, pointer, .. } = proposed_in;
 
         // NOTE(RATIFICATION_INTERRUPTION):
         //
@@ -336,32 +399,12 @@ impl ProposalsForestCompass {
         //   Said differently, there can be many treasury withdrawals, protocol parameters changes
         //   or nice polls; but as soon as one of the other is encountered; EVERYTHING (including
         //   treasury withdrawals and parameters changes) is postponed until the next epoch.
+        //
+        //   This interrupts ratification, not traversal: callers must still use `next_any` to
+        //   check the remaining proposals for expiration and prune them and their dependents.
         if forest.is_interrupted {
             return None;
         }
-
-        loop {
-            let step = self.step(forest, protocol_parameters);
-            self.cursor += 1;
-            if step.is_some() || self.cursor >= self.original_len {
-                return step;
-            }
-        }
-    }
-
-    fn step<'forest>(
-        &self,
-        forest: &'forest ProposalsForest,
-        protocol_parameters: &'_ ProtocolParameters,
-    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
-        use ConstitutionalCommitteeUpdate::*;
-        use OrphanProposal::*;
-
-        let id = forest.sequence.get(self.cursor)?.clone();
-
-        let ProposedIn { epoch: proposed_in, proposal, pointer } = forest.proposals.get(&id).unwrap_or_else(|| {
-            unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
-        });
 
         // NOTE: Skip just-submitted governance proposals
         //
@@ -677,10 +720,11 @@ impl From<proposals::Row> for CandidateProposal {
 // Helpers
 // ----------------------------------------------------------------------------
 
-/// A type akin to a (Epoch, T), but with field name for readability.
+/// A proposal with its submission time and final valid epoch.
 #[derive(Debug, Clone)]
 pub struct ProposedIn<T> {
     pub epoch: Epoch,
+    pub valid_until: Epoch,
     pub pointer: ProposalPointer,
     pub proposal: T,
 }
@@ -826,7 +870,7 @@ mod tests {
                 action = set_parent(action, select(&parents, parent));
             }
 
-            forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action).unwrap();
+            forest.insert(&ERA_HISTORY, Rc::new(id), forest.current_epoch + 1, pointer, action).unwrap();
 
             let size_after = check_invariants(&forest);
 
@@ -1024,7 +1068,7 @@ mod tests {
             (any_grown_proposals_forest(), any_gov_action(), any_proposal_pointer(u64::MAX)),
             ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
             |((DebugAsDisplay(mut forest), root), action, proposed_in)| {
-                let _ = forest.insert(&ERA_HISTORY, Rc::new(root), proposed_in, action);
+                let _ = forest.insert(&ERA_HISTORY, Rc::new(root), forest.current_epoch + 1, proposed_in, action);
             },
         );
     }
@@ -1199,7 +1243,15 @@ mod tests {
                             std::iter::empty().chain(protocol_parameters.1).chain(orphan).for_each(
                                 |(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action.clone()).unwrap();
+                                    forest
+                                        .insert(
+                                            &ERA_HISTORY,
+                                            Rc::new(id),
+                                            forest.current_epoch + 1,
+                                            pointer,
+                                            action.clone(),
+                                        )
+                                        .unwrap();
                                 },
                             );
                         } else {
@@ -1211,7 +1263,15 @@ mod tests {
                                 .chain(orphan)
                                 .for_each(|(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action.clone()).unwrap();
+                                    forest
+                                        .insert(
+                                            &ERA_HISTORY,
+                                            Rc::new(id),
+                                            forest.current_epoch + 1,
+                                            pointer,
+                                            action.clone(),
+                                        )
+                                        .unwrap();
                                 });
                         }
 
