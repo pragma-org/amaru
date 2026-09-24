@@ -233,6 +233,35 @@ impl From<&Signature> for [u8; 448] {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl SecretKey {
+    #[allow(clippy::expect_used)]
+    pub fn for_tests() -> Self {
+        Self::from_bytes(hex::decode(KES_SK_HEX).expect("valid hex")).expect("valid KES key")
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+const KES_SK_HEX: &str = "68b77b6e61925be0499d1445fd9210cec5bdfd5dd92662802eb2720ff70bc68fd89\
+     64580ff18bd2b232eb716dfbbeef82e2844b466ddd5dacaad9f15d3c753b3483541\
+     41e973d039b1147c48e71e5b7cadc6deb28c86e4ae4fc26e8bbe1695c3374d4eb10\
+     94a7a698722894301546466c750947778b18ac3270397efd2eced4d25ced55d2bd2\
+     c09e7c0fa7b849d41787ca11defc91609d930a9870881a56a587bff20b2c5c59f63\
+     ccb008be495917da3fcae536d05401b6771bb1f9356f031b3ddadbffbc426a9a23e\
+     34274b187f7e93892e990644f6273772a02d3e38bee7459ed6a9bb5760fe012e47a\
+     2e75880125e7fb072b2b7a626a5375e2039d8d748cb8ad4dd02697250d3155eee39\
+     308ecc2925405a8c15e1cbe556cc4315d43ee5101003639bcb33bd6e27da3885888\
+     d7cca20b05cadbaa53941ef5282cde8f377c3bd0bf732cfac6b5d4d5597a1f72d81\
+     bc0d8af634a4c760b309fe8959bbde666ff10310377b313860bd52d56fd7cb14963\
+     3beb1eb2e0076111df61e570a042f7cebae74a8de298a6f114938946230db42651e\
+     a4eddf5df2d7d2f3016464073da8a9dc715817b43586a61874e576da7b47a2bb6c2\
+     e19d4cbd5b1b39a24427e89b812cce6d30e0506e207f1eaab313c45a236068ea319\
+     958474237a5ffe02736e1c51c02a05999816c9253a557f09375c83acf5d7250f3bb\
+     c638e10c58fb274e2002eed841ecef6a9cbc57c3157a7c3cf47e66b1741e8173b66\
+     76ac973bc9715027a3225087cabad45407b891416330485891dc9a3875488a26428\
+     d20d581b629a8f4f42e3aa00cbcaae6c8e2b8f3fe033b874d1de6a3f8c321c92b77\
+     643f00d28e";
+
 // ----------------------------------------------------------------------- Error
 
 /// KES error
@@ -258,31 +287,7 @@ mod tests {
 
     use super::*;
 
-    const KES_SK_HEX: &str = "68b77b6e61925be0499d1445fd9210cec5bdfd5dd92662802eb2720ff70bc68fd89\
-         64580ff18bd2b232eb716dfbbeef82e2844b466ddd5dacaad9f15d3c753b3483541\
-         41e973d039b1147c48e71e5b7cadc6deb28c86e4ae4fc26e8bbe1695c3374d4eb10\
-         94a7a698722894301546466c750947778b18ac3270397efd2eced4d25ced55d2bd2\
-         c09e7c0fa7b849d41787ca11defc91609d930a9870881a56a587bff20b2c5c59f63\
-         ccb008be495917da3fcae536d05401b6771bb1f9356f031b3ddadbffbc426a9a23e\
-         34274b187f7e93892e990644f6273772a02d3e38bee7459ed6a9bb5760fe012e47a\
-         2e75880125e7fb072b2b7a626a5375e2039d8d748cb8ad4dd02697250d3155eee39\
-         308ecc2925405a8c15e1cbe556cc4315d43ee5101003639bcb33bd6e27da3885888\
-         d7cca20b05cadbaa53941ef5282cde8f377c3bd0bf732cfac6b5d4d5597a1f72d81\
-         bc0d8af634a4c760b309fe8959bbde666ff10310377b313860bd52d56fd7cb14963\
-         3beb1eb2e0076111df61e570a042f7cebae74a8de298a6f114938946230db42651e\
-         a4eddf5df2d7d2f3016464073da8a9dc715817b43586a61874e576da7b47a2bb6c2\
-         e19d4cbd5b1b39a24427e89b812cce6d30e0506e207f1eaab313c45a236068ea319\
-         958474237a5ffe02736e1c51c02a05999816c9253a557f09375c83acf5d7250f3bb\
-         c638e10c58fb274e2002eed841ecef6a9cbc57c3157a7c3cf47e66b1741e8173b66\
-         76ac973bc9715027a3225087cabad45407b891416330485891dc9a3875488a26428\
-         d20d581b629a8f4f42e3aa00cbcaae6c8e2b8f3fe033b874d1de6a3f8c321c92b77\
-         643f00d28e";
-
     const KES_PK_HEX: &str = "2e5823037de29647e495b97d9dd7bf739f7ebc11d3701c8d0720f55618e1b292";
-
-    fn secret_key() -> SecretKey {
-        SecretKey::from_bytes(hex::decode(KES_SK_HEX).unwrap()).unwrap()
-    }
 
     fn envelope(r#type: &str, cbor_hex: &str) -> String {
         format!(r#"{{"type":"{type}","description":"KES Signing Key","cborHex":"{cbor_hex}"}}"#)
@@ -290,7 +295,7 @@ mod tests {
 
     #[test]
     fn kes_key_evolution() {
-        let mut kes_sk = secret_key();
+        let mut kes_sk = SecretKey::for_tests();
         assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
 
         assert_eq!(kes_sk.period(), KesEvolution::from(0));
@@ -314,7 +319,7 @@ mod tests {
     #[test_case(5)]
     #[test_case(63)]
     fn sign_then_verify_at_period(period: u32) {
-        let mut kes_sk = secret_key();
+        let mut kes_sk = SecretKey::for_tests();
         kes_sk.evolve_to(KesEvolution::from(period)).unwrap();
         let kes_pk = PublicKey::from(&mut kes_sk);
         let msg = b"header body";
@@ -325,7 +330,7 @@ mod tests {
 
     #[test]
     fn evolve_to_refuses_to_go_backwards() {
-        let mut kes_sk = secret_key();
+        let mut kes_sk = SecretKey::for_tests();
         kes_sk.evolve_to(KesEvolution::from(3)).unwrap();
         assert!(matches!(
             kes_sk.evolve_to(KesEvolution::from(2)),
@@ -336,7 +341,7 @@ mod tests {
 
     #[test]
     fn evolve_past_last_period_fails() {
-        let mut kes_sk = secret_key();
+        let mut kes_sk = SecretKey::for_tests();
         assert!(kes_sk.evolve_to(KesEvolution::from(64)).is_err());
     }
 

@@ -19,29 +19,30 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, Header, IsHeader, KesPeriod, Nonce, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Slot,
-    make_header, maths::FixedDecimal,
+    Epoch, Header, IsHeader, KesPeriod, Nonce, ORIGIN_HASH, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point,
+    Slot, make_header, maths::FixedDecimal,
 };
 use amaru_observability::tracing::Level;
-use amaru_ouroboros::vrf;
-use amaru_ouroboros_traits::{Nonces, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros::{kes, praos::header::AssertKesSignatureError};
+use amaru_ouroboros_traits::{
+    DiagnosticChainStore, ForgingCredentials, Nonces, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_pure_stage::simulation::Run;
 
 use super::{
     ForgeBlockMsg, FreezeWatch,
     protocol::{AdoptedTip, DueLead},
     schedule::{EpochSchedule, Schedule},
-    test_setup::{setup, setup_until_sleeping, test_prep},
+    test_setup::{TestCredentials, setup, setup_until_sleeping, test_prep, vrf_key},
 };
 use crate::stages::test_utils::start_in_era;
 
 fn ready_schedule(epoch: Epoch, slots: Range<Slot>) -> Schedule {
     let nonce = Nonce::from([0u8; 32]);
     let always = FixedDecimal::one();
-    let vrf = vrf::SecretKey::from(&[7u8; vrf::SecretKey::SIZE]);
     let mut schedule = Schedule::default();
     schedule.request(epoch, nonce);
-    schedule.install(EpochSchedule::compute(epoch, nonce, slots, always, always, &vrf));
+    schedule.install(EpochSchedule::compute(epoch, nonce, slots, always, always, &vrf_key()));
     schedule
 }
 
@@ -158,6 +159,60 @@ fn an_early_due_lead_waits_for_the_forge_window() {
     let (_running, _guards, mut logs, _stage) = setup_until_sleeping(&prep, msg);
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn lead_slot_forges_a_signed_header() {
+    let mut prep = test_prep();
+    let slot = simulation_slot();
+    let period = prep.state.data.consensus_parameters.slot_to_kes_period(slot);
+    prep.state.data.ocert_start_period = period;
+    prep.credentials =
+        Some(Arc::new(TestCredentials::new(period, prep.state.data.consensus_parameters.max_kes_evolutions())));
+    prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
+    prep.state.data.adopted_tip = Point::Specific(Slot::from(u64::from(slot).saturating_sub(1)), ORIGIN_HASH, 1.into());
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
+    let (_running, _guards, mut logs, _stage) = setup(&prep, msg);
+
+    logs.assert_and_remove(Level::INFO, &["forge.forged"]).assert_no_remaining_at([Level::WARN, Level::ERROR]);
+
+    let header = prep.store.load_headers().find(|header| header.slot() == slot).expect("forged header stored");
+    let credentials = prep.credentials.as_ref().unwrap();
+    let parameters = &prep.state.data.consensus_parameters;
+    let ocert = &header.body().operational_cert;
+    assert_eq!(header.parent_hash(), Some(ORIGIN_HASH));
+    assert_eq!(header.block_height(), 2.into());
+    assert_eq!(header.body().issuer_verification_key, credentials.issuer_verification_key());
+    assert_eq!(header.body().vrf_verification_key, credentials.vrf_verification_key());
+    assert_eq!(header.body().protocol_version, prep.state.data.protocol_version);
+    AssertKesSignatureError::new(
+        parameters.slot_to_kes_period(slot),
+        ocert.operational_cert_kes_period,
+        header.body(),
+        &kes::PublicKey::from(ocert.operational_cert_hot_verification_key.as_array()),
+        &kes::Signature::from(header.signature().as_array()),
+        parameters.max_kes_evolutions(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn lead_slot_without_credentials_terminates() {
+    let mut prep = test_prep();
+    prep.credentials = None;
+    let slot = simulation_slot();
+    prep.state.data.ocert_start_period = prep.state.data.consensus_parameters.slot_to_kes_period(slot);
+    prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
+    prep.state.data.adopted_tip = Point::Specific(Slot::from(u64::from(slot).saturating_sub(1)), ORIGIN_HASH, 1.into());
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
+    let (_running, _guards, mut logs, _stage) = setup(&prep, msg);
+
+    logs.assert_and_remove(Level::ERROR, &["sign_header", "credentials resource is missing"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+    assert!(prep.store.load_headers().next().is_none());
 }
 
 fn current_era_epochs() -> (Epoch, Slot, Slot) {
