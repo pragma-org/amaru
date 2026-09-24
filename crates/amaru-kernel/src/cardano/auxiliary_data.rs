@@ -73,20 +73,6 @@ impl AuxiliaryData {
     }
 }
 
-impl Default for AuxiliaryData {
-    fn default() -> Self {
-        Self {
-            hash: NULL_HASH32,
-            original_bytes: Vec::default(),
-            metadata: KeyValuePairs::default(),
-            native_scripts: Vec::default(),
-            plutus_v1_scripts: Vec::default(),
-            plutus_v2_scripts: Vec::default(),
-            plutus_v3_scripts: Vec::default(),
-        }
-    }
-}
-
 // ```cddl
 // auxiliary_data = metadata / auxiliary_data_array / auxiliary_data_map
 //
@@ -157,6 +143,23 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AuxiliaryData {
 // ----------------------------------------------------------------------------
 
 impl AuxiliaryData {
+    /// A value with no fields set, for the era decoders to fill in.
+    ///
+    /// Deliberately not a [`Default`] impl: the hash and the original bytes only make sense for data
+    /// that was actually decoded, and [`cbor::Encode`] replays those bytes verbatim, so an empty value
+    /// would encode to nothing at all. Every decoder below overwrites both before the value escapes.
+    fn empty() -> Self {
+        Self {
+            hash: NULL_HASH32,
+            original_bytes: Vec::default(),
+            metadata: KeyValuePairs::default(),
+            native_scripts: Vec::default(),
+            plutus_v1_scripts: Vec::default(),
+            plutus_v2_scripts: Vec::default(),
+            plutus_v3_scripts: Vec::default(),
+        }
+    }
+
     /// Decode some auxiliary data using the Shelley-era codecs.
     ///
     /// /!\ Does not compute the underlying hash digest. This is a responsibility of the caller.
@@ -165,7 +168,7 @@ impl AuxiliaryData {
         ctx: &mut C,
     ) -> Result<Self, cbor::decode::Error> {
         let metadata = d.decode_with(ctx)?;
-        Ok(Self { metadata, ..Self::default() })
+        Ok(Self { metadata, ..Self::empty() })
     }
 
     /// Decode some auxiliary data using the Allegra-era codecs
@@ -179,7 +182,7 @@ impl AuxiliaryData {
             assert_len(2)?;
             let metadata = d.decode_with(ctx)?;
             let native_scripts = d.decode_with(ctx)?;
-            Ok(Self { metadata, native_scripts, ..Self::default() })
+            Ok(Self { metadata, native_scripts, ..Self::empty() })
         })
     }
 
@@ -194,7 +197,7 @@ impl AuxiliaryData {
             return Err(cbor::decode::Error::tag_mismatch(cbor::TAG_MAP_259));
         }
 
-        let mut st = Self::default();
+        let mut st = Self::empty();
 
         cbor::heterogeneous_map(
             d,
