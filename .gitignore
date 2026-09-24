@@ -34,6 +34,12 @@ crates/amaru/tests/**/stake-distributions/**/*.json.zst
 !crates/amaru/tests/**/stake-distributions/**/package.json
 !crates/amaru/tests/**/haskell-node-extractor/**/schemas/*.json
 
+# Downloaded test data for the serialization tests. Since the data is large, it is not committed to the repo.
+# It can be downloaded by running `make fetch-cbor-dataset`.
+crates/amaru-kernel/tests/data/cbor.dataset
+# json results of the serialization tests. Since the data is large, it is not committed to the repo.
+crates/amaru-kernel/tests/results
+
 # Files downloaded for the demo
 /snapshots
 

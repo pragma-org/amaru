@@ -29,7 +29,7 @@ Pick whichever method fits your environment:
 <details>
 <summary><strong>Release Binaries</strong> — pre-compiled executables</summary>
 
-Statically-linked executables for Linux, macOS, and Windows, with shell completion scripts, are attached to every [release](https://github.com/pragma-org/amaru/releases) and [nightly build](https://pragma-org.github.io/amaru/). Download the archive for your platform and put the `amaru` binary on your `$PATH`.
+Statically-linked executables for Linux, macOS, and Windows, with shell completion scripts, are attached to every [release](https://github.com/pragma-org/amaru/releases) and [nightly build](https://nightly.amaru.global/). Download the archive for your platform and put the `amaru` binary on your `$PATH`.
 
 </details>
 

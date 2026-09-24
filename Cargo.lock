@@ -340,6 +340,7 @@ dependencies = [
  "sysinfo",
  "test-case",
  "thiserror 2.0.19",
+ "toml",
 ]
 
 [[package]]
