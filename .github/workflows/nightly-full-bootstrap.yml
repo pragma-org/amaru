@@ -1,0 +1,111 @@
+name: Nightly Full Bootstrap
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-full-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  bootstrap-to-tip:
+    name: Bootstrap ${{ matrix.network }} and synchronize to tip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        network: [preprod, preview]
+
+    env:
+      AMARU_NETWORK: ${{ matrix.network }}
+      AMARU_NO_TUI: "true"
+      AMARU_BIN: target/release/amaru
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/cache
+
+      - name: Build Amaru
+        shell: bash
+        run: |
+          cargo build --release --locked --bin amaru
+          test -x "$AMARU_BIN"
+
+      - name: Bootstrap from scratch and synchronize to the initial tip
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          state_dir="$RUNNER_TEMP/amaru-nightly-full-bootstrap-$AMARU_NETWORK"
+          export AMARU_LEDGER_DIR="$state_dir/ledger.db"
+          export AMARU_CHAIN_DIR="$state_dir/chain.db"
+          mkdir -p "$state_dir"
+
+          target_slot="$(
+            curl --fail --silent --show-error --retry 5 --retry-all-errors \
+              "https://$AMARU_NETWORK.koios.rest/api/v1/tip" \
+              | jq -er '.[0].abs_slot'
+          )"
+          echo "Network tip at test start: slot $target_slot"
+
+          "$AMARU_BIN" node bootstrap 2>&1 | tee bootstrap.log
+
+          "$AMARU_BIN" node run > amaru.log 2>&1 &
+          amaru_pid=$!
+
+          cleanup() {
+            if kill -0 "$amaru_pid" 2>/dev/null; then
+              kill -INT "$amaru_pid"
+              wait "$amaru_pid" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          source scripts/demos/common/amaru.sh
+
+          deadline=$((SECONDS + 7200))
+          while (( SECONDS < deadline )); do
+            if ! kill -0 "$amaru_pid" 2>/dev/null; then
+              wait "$amaru_pid" || true
+              echo "Amaru stopped before reaching target slot $target_slot" >&2
+              tail -200 amaru.log >&2
+              exit 1
+            fi
+
+            adopted_slot="$(adopted_slot_from_log amaru.log)"
+            echo "Amaru slot: ${adopted_slot:-initializing}; target: $target_slot"
+
+            if [[ "$adopted_slot" =~ ^[0-9]+$ ]] && (( adopted_slot >= target_slot )); then
+              echo "Amaru reached target slot $target_slot at slot $adopted_slot"
+              kill -INT "$amaru_pid"
+              wait "$amaru_pid"
+              trap - EXIT
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          echo "Amaru did not reach target slot $target_slot within two hours" >&2
+          tail -200 amaru.log >&2
+          exit 1
+
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: nightly-full-bootstrap-${{ matrix.network }}-logs
+          path: |
+            bootstrap.log
+            amaru.log
+          if-no-files-found: warn
+          retention-days: 7
