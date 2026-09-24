@@ -44,6 +44,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-uplc**: deeply nested UPLC programs and constants no longer crash the node with a stack overflow during FLAT encoding, FLAT decoding, or result reconstruction.
+- **amaru**: completed terminal progress bars remain on their own line instead of merging with later logs.
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
