@@ -17,7 +17,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use amaru_kernel::{BlockHeight, Epoch, Point, Slot};
+use amaru_kernel::{BlockHeight, Epoch, KesEvolution, KesPeriodError, Point, Slot};
 use amaru_pure_stage::Instant;
 
 /// Forging starts this long before slot onset, so the block can diffuse as the slot begins.
@@ -33,14 +33,6 @@ pub(super) enum ParentChoice {
     AdoptedParent,
     /// `tip.slot > lead_slot`: forging would produce a block whose parent is later than its slot.
     MissedTipAhead,
-}
-
-/// Whether the operational certificate covers a KES period.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum OcertCoverage {
-    Valid,
-    NotYetValid,
-    Expired,
 }
 
 /// Why a led slot was not forged.
@@ -101,25 +93,15 @@ pub(super) fn choose_parent(tip_slot: Slot, lead_slot: Slot) -> ParentChoice {
     }
 }
 
-/// OCERT window: `start_period <= kes_period < start_period + max_evolutions`.
-///
-/// Mainnet `max_evolutions` is 62 (Sum6KES has 64 periods, two of margin).
-pub(super) fn ocert_covers(kes_period: u64, start_period: u64, max_evolutions: u64) -> OcertCoverage {
-    if kes_period < start_period {
-        OcertCoverage::NotYetValid
-    } else if kes_period >= start_period.saturating_add(max_evolutions) {
-        OcertCoverage::Expired
-    } else {
-        OcertCoverage::Valid
-    }
-}
-
 /// Combine OCERT and parent checks into a miss reason, if any.
-pub(super) fn missed_slot(coverage: OcertCoverage, parent: ParentChoice) -> Option<MissedSlotReason> {
+pub(super) fn missed_slot(
+    coverage: Result<KesEvolution, KesPeriodError>,
+    parent: ParentChoice,
+) -> Option<MissedSlotReason> {
     match coverage {
-        OcertCoverage::NotYetValid => Some(MissedSlotReason::OcertNotYetValid),
-        OcertCoverage::Expired => Some(MissedSlotReason::OcertExpired),
-        OcertCoverage::Valid => match parent {
+        Err(KesPeriodError::StartsInTheFuture { .. }) => Some(MissedSlotReason::OcertNotYetValid),
+        Err(KesPeriodError::Expired { .. }) => Some(MissedSlotReason::OcertExpired),
+        Ok(_) => match parent {
             ParentChoice::MissedTipAhead => Some(MissedSlotReason::TipAhead),
             ParentChoice::AdoptedTip | ParentChoice::AdoptedParent => None,
         },
@@ -272,7 +254,7 @@ fn is_leap_year(year: u64) -> bool {
 mod tests {
     use std::time::SystemTime;
 
-    use amaru_kernel::{BlockHeight, Epoch, HeaderHash};
+    use amaru_kernel::{BlockHeight, Epoch, HeaderHash, KesPeriod};
 
     use super::*;
 
@@ -300,21 +282,15 @@ mod tests {
     }
 
     #[test]
-    fn ocert_covers_the_inclusive_start_and_excludes_the_end() {
-        assert_eq!(ocert_covers(5, 5, 62), OcertCoverage::Valid);
-        assert_eq!(ocert_covers(66, 5, 62), OcertCoverage::Valid);
-        assert_eq!(ocert_covers(67, 5, 62), OcertCoverage::Expired);
-        assert_eq!(ocert_covers(4, 5, 62), OcertCoverage::NotYetValid);
-    }
-
-    #[test]
     fn missed_slot_prefers_ocert_over_tip() {
-        assert_eq!(
-            missed_slot(OcertCoverage::Expired, ParentChoice::MissedTipAhead),
-            Some(MissedSlotReason::OcertExpired)
-        );
-        assert_eq!(missed_slot(OcertCoverage::Valid, ParentChoice::MissedTipAhead), Some(MissedSlotReason::TipAhead));
-        assert_eq!(missed_slot(OcertCoverage::Valid, ParentChoice::AdoptedParent), None);
+        let period = KesPeriod::from;
+        let expired = period(67).evolutions_since(period(5), 62);
+        let covered = period(66).evolutions_since(period(5), 62);
+        let early = period(4).evolutions_since(period(5), 62);
+        assert_eq!(missed_slot(expired, ParentChoice::MissedTipAhead), Some(MissedSlotReason::OcertExpired));
+        assert_eq!(missed_slot(early, ParentChoice::AdoptedTip), Some(MissedSlotReason::OcertNotYetValid));
+        assert_eq!(missed_slot(covered.clone(), ParentChoice::MissedTipAhead), Some(MissedSlotReason::TipAhead));
+        assert_eq!(missed_slot(covered, ParentChoice::AdoptedParent), None);
     }
 
     #[test]

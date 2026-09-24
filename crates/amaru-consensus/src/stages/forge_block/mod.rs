@@ -22,7 +22,7 @@ mod effects;
 mod protocol;
 mod schedule;
 
-use amaru_kernel::{ConsensusParameters, Point, PoolId};
+use amaru_kernel::{ConsensusParameters, KesPeriod, Point, PoolId};
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
 pub use calc::FreezeWatch;
 pub use effects::{ForgeEffectError, ForgeHeaderEffect, ForgedBody, LeaderScheduleEffect, TakeForForgeEffect};
@@ -50,7 +50,7 @@ pub struct ForgeData {
     pub consensus_parameters: ConsensusParameters,
     pub k: u64,
     pub pool: PoolId,
-    pub ocert_start_period: u64,
+    pub ocert_start_period: KesPeriod,
     /// Ouroboros system start, as Unix time in milliseconds.
     pub system_start_unix_ms: u64,
     pub adopted_tip: Point,
@@ -70,7 +70,7 @@ impl ForgeBlock {
         system_start_unix_ms: u64,
         k: u64,
         pool: PoolId,
-        ocert_start_period: u64,
+        ocert_start_period: KesPeriod,
     ) -> Self {
         Self {
             live: initial_state::<protocol::Idle>().into(),

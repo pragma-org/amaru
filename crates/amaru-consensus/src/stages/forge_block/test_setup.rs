@@ -14,7 +14,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use amaru_kernel::{ConsensusParameters, NULL_HASH28, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
+use amaru_kernel::{ConsensusParameters, KesPeriod, NULL_HASH28, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
 use amaru_ouroboros_traits::in_memory_chain_store::InMemoryChainStore;
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{
@@ -53,7 +53,7 @@ pub fn test_prep() -> TestPrep {
             PREPROD_GLOBAL_PARAMETERS.system_start,
             PREPROD_GLOBAL_PARAMETERS.consensus_security_param,
             NULL_HASH28,
-            0,
+            KesPeriod::from(0),
         ),
         rt: crate::stages::test_utils::test_runtime(),
         store: Arc::new(InMemoryChainStore::new()),
