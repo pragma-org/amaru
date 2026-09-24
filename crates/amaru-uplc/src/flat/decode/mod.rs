@@ -15,6 +15,7 @@
 use amaru_kernel::{PlutusScript, PlutusVersion, ProtocolVersion, ToBytes, reify_plutus_version};
 use bumpalo::collections::Vec as BumpVec;
 use num::Zero;
+use stacksafe::stacksafe;
 
 use super::{
     tag,
@@ -96,6 +97,7 @@ where
     Ok((Program::new(arena, machine_version, term), remainder))
 }
 
+#[stacksafe]
 fn decode_term<'a, V>(ctx: &mut Ctx<'a>, decoder: &mut Decoder<'_>) -> Result<&'a Term<'a, V>, FlatDecodeError>
 where
     V: Binder<'a>,
@@ -187,6 +189,7 @@ where
     }
 }
 
+#[stacksafe]
 fn type_from_tags<'a>(ctx: &Ctx<'a>, tags: &[u8]) -> Result<(&'a Type<'a>, usize), FlatDecodeError> {
     match tags {
         [tag::INTEGER, ..] => Ok((Type::integer(ctx.arena), 1)),
@@ -224,67 +227,11 @@ fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder<'_>) -> Result<&'a Con
     let tags = decode_constant_tags(ctx, d)?;
     let (ty, _) = type_from_tags(ctx, tags.as_slice())?;
 
-    match ty {
-        Type::Integer => {
-            let v = d.integer()?;
-            let v = ctx.arena.alloc_integer(v);
-
-            Ok(Constant::integer(ctx.arena, v))
-        }
-        Type::ByteString => {
-            let b = d.bytes(ctx.arena)?;
-            let b = ctx.arena.alloc(b);
-
-            Ok(Constant::byte_string(ctx.arena, b))
-        }
-        Type::Bool => {
-            let v = d.bit()?;
-
-            Ok(Constant::bool(ctx.arena, v))
-        }
-        Type::String => {
-            let s = d.utf8(ctx.arena)?;
-            let s = ctx.arena.alloc(s);
-
-            Ok(Constant::string(ctx.arena, s))
-        }
-        Type::Unit => Ok(Constant::unit(ctx.arena)),
-        Type::List(sub_typ) => {
-            let fields = d.list_with(ctx, |ctx, d| decode_constant_with_type(ctx, d, sub_typ))?;
-            let fields = ctx.arena.alloc(fields);
-
-            Ok(Constant::proto_list(ctx.arena, sub_typ, fields))
-        }
-
-        Type::Array(sub_typ) => {
-            let fields = d.list_with(ctx, |ctx, d| decode_constant_with_type(ctx, d, sub_typ))?;
-            let fields = ctx.arena.alloc(fields);
-            Ok(Constant::proto_array(ctx.arena, sub_typ, fields))
-        }
-        Type::Pair(sub_typ1, sub_typ2) => {
-            let fst = decode_constant_with_type(ctx, d, sub_typ1)?;
-            let snd = decode_constant_with_type(ctx, d, sub_typ2)?;
-
-            Ok(Constant::proto_pair(ctx.arena, sub_typ1, sub_typ2, fst, snd))
-        }
-        Type::Data => {
-            let cbor = d.bytes(ctx.arena)?;
-            let data = minicbor::decode_with(&cbor, &mut SimpleCtx { arena: ctx.arena })?;
-            Ok(Constant::data(ctx.arena, data))
-        }
-        // BLS12-381 element *values* have no flat encoding: their `Flat` instances fail in the
-        // Haskell implementation (plutus #5663), so a script carrying an actual BLS constant is
-        // malformed there too. The *types* must still decode (see `type_from_tags`) so that
-        // constants like `(con (list bls12_381_G1_element) [])`, which contain no element value,
-        // deserialize exactly as they do on the Haskell side.
-        Type::Bls12_381G1Element | Type::Bls12_381G2Element | Type::Bls12_381MlResult => {
-            Err(FlatDecodeError::BlsValueNotSupported)
-        }
-        Type::Value => decode_value(ctx, d),
-    }
+    decode_constant_with_type(ctx, d, ty)
 }
 
 // BLS literals not supported
+#[stacksafe]
 fn decode_constant_with_type<'a>(
     ctx: &mut Ctx<'a>,
     d: &mut Decoder<'_>,

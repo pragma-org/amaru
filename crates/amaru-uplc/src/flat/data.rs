@@ -15,10 +15,12 @@
 use amaru_minicbor_extra::{decode_bigint, encode_bigint, encode_bytestring};
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
+use stacksafe::stacksafe;
 
 use crate::{data::PlutusData, flat::SimpleCtx};
 
 impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> {
+    #[stacksafe]
     fn decode(decoder: &mut minicbor::Decoder<'b>, ctx: &mut SimpleCtx<'a>) -> Result<Self, minicbor::decode::Error> {
         let typ = decoder.datatype()?;
 
@@ -182,6 +184,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 }
 
 impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
+    #[stacksafe]
     fn encode<W: minicbor::encode::Write>(
         &self,
         e: &mut minicbor::Encoder<W>,

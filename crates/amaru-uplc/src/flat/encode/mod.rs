@@ -17,6 +17,7 @@ mod error;
 
 pub use encoder::Encoder;
 pub use error::FlatEncodeError;
+use stacksafe::stacksafe;
 
 use super::tag;
 use crate::{binder::Binder, constant::Constant, ledger_value::LedgerValue, program::Program, term::Term, typ::Type};
@@ -36,6 +37,7 @@ where
     Ok(encoder.buffer)
 }
 
+#[stacksafe]
 fn encode_term<'a, V>(encoder: &mut Encoder, term: &'a Term<'a, V>) -> Result<(), FlatEncodeError>
 where
     V: Binder<'a>,
@@ -185,6 +187,7 @@ fn encode_constant_tag(e: &mut Encoder, tag: &u8) -> Result<(), FlatEncodeError>
     safe_encode_bits(e, tag::CONST_TAG_WIDTH, *tag)
 }
 
+#[stacksafe]
 fn encode_type(typ: &Type<'_>, bytes: &mut Vec<u8>) -> Result<(), FlatEncodeError> {
     match typ {
         Type::Integer => bytes.push(tag::INTEGER),
@@ -218,6 +221,7 @@ fn encode_type(typ: &Type<'_>, bytes: &mut Vec<u8>) -> Result<(), FlatEncodeErro
     Ok(())
 }
 
+#[stacksafe]
 fn encode_constant_value<'a>(e: &mut Encoder, x: &'a &Constant<'a>) -> Result<(), FlatEncodeError> {
     match *x {
         Constant::Integer(x) => {

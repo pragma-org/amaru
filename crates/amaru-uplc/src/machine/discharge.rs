@@ -13,10 +13,12 @@
 // limitations under the License.
 
 use bumpalo::collections::{CollectIn, Vec as BumpVec};
+use stacksafe::stacksafe;
 
 use super::{env::Env, value::Value};
 use crate::{arena::Arena, binder::Eval, term::Term};
 
+#[stacksafe]
 pub fn value_as_term<'a, V>(arena: &'a Arena, value: &'a Value<'a, V>) -> &'a Term<'a, V>
 where
     V: Eval<'a>,
@@ -49,6 +51,7 @@ where
     }
 }
 
+#[stacksafe]
 fn with_env<'a, V>(arena: &'a Arena, lam_cnt: usize, env: &'a Env<'a, V>, term: &'a Term<'a, V>) -> &'a Term<'a, V>
 where
     V: Eval<'a>,
