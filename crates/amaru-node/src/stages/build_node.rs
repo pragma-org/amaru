@@ -140,6 +140,8 @@ pub enum ComponentFailure {
 pub enum ShutdownError {
     #[error("timed out after {timeout:?} waiting for the ledger thread; stores may still be active")]
     LedgerTimeout { timeout: Duration },
+    #[error("shutdown join task failed: {reason}; resources may still be active")]
+    JoinTask { reason: String },
 }
 
 /// Build a node given the provided configuration and run it on `runtime`.
@@ -198,6 +200,8 @@ impl NodeRunning {
     ///
     /// `Ok` means cleanup completed; inspect the report for component failures.
     /// `Err` means at least one resource may still be active and should not be reopened.
+    /// Cancelling this future does not stop worker joins already running on the blocking pool
+    /// and does not establish that cleanup completed.
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
         let Self { tokio_running, mempool_sender, lifecycle } = self;
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
@@ -208,8 +212,12 @@ impl NodeRunning {
         let listeners =
             connections.shutdown().await.err().map(|error| ComponentFailure::NetworkListeners(error.to_string()));
         drop(connections);
-        let ledger = ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT);
-        let performance = performance().err().map(|_| ComponentFailure::Performance("worker panicked".into()));
+        let (ledger, performance) = tokio::task::spawn_blocking(move || {
+            (ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT), performance())
+        })
+        .await
+        .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
+        let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
         let ledger = match ledger {
             Ok(()) => None,
             Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
