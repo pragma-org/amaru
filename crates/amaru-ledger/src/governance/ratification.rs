@@ -54,9 +54,6 @@ pub struct RatificationContext<'distr> {
     /// Last enacted protocol parameters for this epoch.
     pub protocol_parameters: ProtocolParameters,
 
-    /// All proposals that have been pruned due to ratification, expiration or conflict.
-    pub pruned_proposals: BTreeMap<Rc<ProposalId>, RatificationStatus>,
-
     /// Enacted withdrawals during this round of ratification.
     pub withdrawals: BTreeMap<Credential, Lovelace>,
 
@@ -120,7 +117,6 @@ impl<'distr> RatificationContext<'distr> {
                 treasury,
                 stake_distribution,
                 protocol_parameters,
-                pruned_proposals: BTreeMap::new(),
                 withdrawals: BTreeMap::new(),
                 constitutional_committee,
                 constitutional_committee_update: None,
@@ -135,7 +131,7 @@ impl<'distr> RatificationContext<'distr> {
         era_history: &EraHistory,
         proposals: Vec<(Rc<ProposalId>, CandidateProposal)>,
         roots: ProposalsRootsRc,
-    ) -> Result<ProposalsRootsRc, RatificationInternalError> {
+    ) -> Result<(ProposalsRootsRc, BTreeMap<Rc<ProposalId>, RatificationStatus>), RatificationInternalError> {
         info_span!(
             ledger::governance::RATIFY_PROPOSALS,
             epoch = self.epoch,
@@ -159,27 +155,23 @@ impl<'distr> RatificationContext<'distr> {
             // iterating.
             let mut compass = forest.new_compass();
 
-            while let Some((id, proposed_in)) = compass.next_any(&forest) {
-                let ratified =
-                    ProposalsForestCompass::is_ratifiable(&forest, &self.protocol_parameters, id.clone(), proposed_in)
-                        .filter(|(_, (proposal, _))| {
-                            Self::new_ratify_span(&id, proposal)
-                                .in_scope(|| self.is_accepted_by_everyone(&id, proposal, self.stake_distribution))
-                        })
-                        .map(|(_, (proposal, _))| proposal.clone());
+            while let Some((id, (proposal, _))) = compass.next(&forest, &self.protocol_parameters) {
+                let ratified = Self::new_ratify_span(&id, proposal).in_scope(|| {
+                    if self.is_accepted_by_everyone(&id, proposal, self.stake_distribution) {
+                        Some((id.clone(), proposal.clone()))
+                    } else {
+                        None
+                    }
+                });
 
-                if let Some(proposal) = ratified {
+                if let Some((id, proposal)) = ratified {
                     self.enact_proposal(id, proposal, &mut forest, &mut compass)?;
-                } else {
-                    // Failed tallies and skipped proposals, including those delayed by an
-                    // enactment, must expire before traversal continues.
-                    self.pruned_proposals.extend(forest.expire(&id, &mut compass));
                 }
             }
 
             // Finally, replace the roots in the store. Note that this is pretty much a no-op when no
             // proposals are ratified; but it's just one db key/value update.
-            Ok(forest.roots())
+            Ok((forest.roots(), forest.end()))
         })
     }
 
@@ -195,14 +187,7 @@ impl<'distr> RatificationContext<'distr> {
         compass: &mut ProposalsForestCompass,
     ) -> Result<(), RatificationInternalError> {
         Self::new_enact_span(&id, &proposal).in_scope(|| -> Result<(), RatificationInternalError> {
-            let mut now_obsolete = forest.enact(id, &proposal, compass)?;
-
-            Span::current().record(
-                "pruned_relatives",
-                now_obsolete.keys().map(|id| id.to_compact_string()).collect::<Vec<_>>().join(", "),
-            );
-
-            self.pruned_proposals.append(&mut now_obsolete);
+            forest.enact(id, &proposal, compass)?;
 
             match proposal {
                 ProposalEnum::ProtocolParameters(params_update, _parent) => {
@@ -502,7 +487,6 @@ mod tests {
                 treasury: 0,
                 stake_distribution: distribution,
                 protocol_parameters,
-                pruned_proposals: BTreeMap::new(),
                 withdrawals: BTreeMap::new(),
                 constitutional_committee: Some(ConstitutionalCommittee::new(safe_ratio(0, 1), BTreeMap::new())),
                 constitutional_committee_update: None,
@@ -519,7 +503,7 @@ mod tests {
             ctx.protocol_parameters.drep_voting_thresholds.hard_fork_initiation =
                 RationalNumber { numerator: 1, denominator: 1 };
 
-            let roots = ctx
+            let (roots, pruned_proposals) = ctx
                 .ratify_proposals(
                     &ERA_HISTORY,
                     vec![
@@ -545,7 +529,7 @@ mod tests {
 
             assert_eq!(roots.hard_fork, Some(proposal_id(3)));
             assert_eq!(
-                ctx.pruned_proposals,
+                pruned_proposals,
                 BTreeMap::from([
                     (proposal_id(1), RatificationStatus::NotRatified),
                     (proposal_id(2), RatificationStatus::NotRatified),
@@ -559,7 +543,7 @@ mod tests {
         fn final_epoch_enactment_still_expires_delayed_proposals_and_their_descendants() {
             let distribution = StakeDistribution::default();
             let mut ctx = ratification_context(&distribution);
-            let roots = ctx
+            let (roots, pruned_proposals) = ctx
                 .ratify_proposals(
                     &ERA_HISTORY,
                     vec![
@@ -574,7 +558,7 @@ mod tests {
 
             assert_eq!(roots.hard_fork, Some(proposal_id(1)));
             assert_eq!(
-                ctx.pruned_proposals,
+                pruned_proposals,
                 BTreeMap::from([
                     (proposal_id(1), RatificationStatus::Ratified),
                     (proposal_id(2), RatificationStatus::NotRatified),

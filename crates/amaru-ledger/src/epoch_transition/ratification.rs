@@ -157,7 +157,7 @@ impl GovernanceUpdates {
 
         info_span!(ledger::epoch_transition::NEW_GOVERNANCE_UPDATES, proposals_count = proposals.len() as u64).in_scope(
             || {
-                let roots = ctx
+                let (roots, pruned_proposals) = ctx
                     .ratify_proposals(
                         era_history,
                         // Get all proposals to ratify / enact. Note that, even though the ratification happens
@@ -180,7 +180,7 @@ impl GovernanceUpdates {
                 let mut deposit_refunds = BTreeMap::new();
                 for (id, proposal) in proposals_metadata.into_iter() {
                     let expired = ctx.epoch == proposal.valid_until;
-                    let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
+                    let ratified_or_evicted = pruned_proposals.contains_key(&id);
 
                     if ratified_or_evicted {
                         info!(ledger::proposal::DROP, id = id.to_string(), expired, ratified_or_evicted);
@@ -224,8 +224,7 @@ impl GovernanceUpdates {
                 // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
                 // clean transfer of ownership without clone.
                 let mut pruned_proposals_str = String::new();
-                let pruned_proposals: BTreeMap<ProposalId, RatificationStatus> = ctx
-                    .pruned_proposals
+                let pruned_proposals: BTreeMap<ProposalId, RatificationStatus> = pruned_proposals
                     .into_iter()
                     .map(|(id, status)| {
                         let id = Rc::unwrap_or_clone(id);
@@ -457,7 +456,6 @@ mod tests {
             treasury: 1_000_000_000,
             stake_distribution: &distribution,
             protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::from([(Rc::new(ratified_id), RatificationStatus::Ratified)]),
             withdrawals: BTreeMap::from([(withdrawal_account, 70_000)]),
             constitutional_committee: None,
             constitutional_committee_update: None,

@@ -16,7 +16,6 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
-    iter::from_fn,
     rc::Rc,
 };
 
@@ -36,7 +35,10 @@ pub struct ProposalsForest {
     /// We keep a map of id -> ProposalEnum. This serves as a lookup table to retrieve proposals
     /// from the forest in a timely manner while the relationships between all proposals is
     /// maintained independently.
-    proposals: BTreeMap<Rc<ProposalId>, ProposedIn<ProposalEnum>>,
+    proposals: BTreeMap<Rc<ProposalId>, WithContext<ProposalEnum>>,
+
+    /// Proposals that have been pruned (due to being enacted, expired or removed due to either).
+    pruned: BTreeMap<Rc<ProposalId>, RatificationStatus>,
 
     /// The order in which proposals are inserted matters. The forest is an insertion-preserving
     /// structure. Iterating on the forest will yield the proposals in the order they were
@@ -73,6 +75,7 @@ impl ProposalsForest {
             current_epoch,
             is_interrupted: false,
 
+            pruned: BTreeMap::new(),
             proposals: BTreeMap::new(),
             sequence: VecDeque::new(),
 
@@ -82,6 +85,30 @@ impl ProposalsForest {
             constitutional_committee: ProposalsTree::new(roots.constitutional_committee.clone()),
             constitution: ProposalsTree::new(roots.constitution.clone()),
         }
+    }
+
+    /// Drop the forest and returns all the pruned proposals, including any proposal that expires
+    /// after this epoch round.
+    pub fn end(mut self) -> BTreeMap<Rc<ProposalId>, RatificationStatus> {
+        // Expire any proposals left whose validity is now over. Note that `self.current_epoch`
+        // describes the epoch for which the ratification is done; which is typically the *previous
+        // epoch* that the local node is terminating -> ratification happens with one epoch of
+        // delay.
+        for id in &self.sequence {
+            let WithContext { proposal, valid_until, .. } = self.proposals.get(id).unwrap_or_else(|| {
+                unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
+            });
+
+            if *valid_until == self.current_epoch {
+                self.pruned.insert(id.clone(), RatificationStatus::NotRatified);
+            } else if let Some(parent) = proposal.parent()
+                && self.pruned.contains_key(parent)
+            {
+                self.pruned.insert(id.clone(), RatificationStatus::NotRatified);
+            }
+        }
+
+        self.pruned
     }
 
     /// Returns an iterator over the forest's proposal.
@@ -168,7 +195,8 @@ impl ProposalsForest {
             .slot_to_epoch(slot, slot)
             .map_err(|e| ProposalsInsertError::InternalSlotToEpochError(slot, e))?;
 
-        self.proposals.insert(id.clone(), ProposedIn { epoch, valid_until, pointer: proposed_in, proposal });
+        self.proposals
+            .insert(id.clone(), WithContext { proposed_in: epoch, valid_until, pointer: proposed_in, proposal });
 
         Ok(())
     }
@@ -208,7 +236,7 @@ impl ProposalsForest {
         id: Rc<ProposalId>,
         proposal: &ProposalEnum,
         compass: &mut ProposalsForestCompass,
-    ) -> Result<BTreeMap<Rc<ProposalId>, RatificationStatus>, ProposalsEnactError<ProposalId>> {
+    ) -> Result<(), ProposalsEnactError<ProposalId>> {
         // Promote to new root & remember delaying cases
         let (id, pruned) = match proposal {
             ProposalEnum::HardFork(..) => {
@@ -249,52 +277,19 @@ impl ProposalsForest {
             );
         }
 
-        let mut pruned: BTreeMap<Rc<ProposalId>, RatificationStatus> =
-            pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
+        for id in pruned {
+            self.pruned.insert(id, RatificationStatus::NotRatified);
+        }
 
-        pruned.insert(id, RatificationStatus::Ratified);
+        self.pruned.insert(id, RatificationStatus::Ratified);
 
-        self.prune(&pruned);
+        self.proposals.retain(|id, _| !self.pruned.contains_key(id));
 
-        *compass = self.new_compass();
-
-        Ok(pruned)
-    }
-
-    /// Remove a proposal and all its descendants if it expires this round.
-    /// Call only after a failed tally or when ratification is skipped, since proposals remain
-    /// eligible for enactment during their final valid epoch.
-    pub fn expire(
-        &mut self,
-        id: &Rc<ProposalId>,
-        compass: &mut ProposalsForestCompass,
-    ) -> BTreeMap<Rc<ProposalId>, RatificationStatus> {
-        let Some(proposed_in) = self.proposals.get(id).filter(|p| p.valid_until == self.current_epoch) else {
-            return BTreeMap::new();
-        };
-
-        let pruned = match &proposed_in.proposal {
-            ProposalEnum::HardFork(..) => self.hard_fork.remove(id),
-            ProposalEnum::ProtocolParameters(..) => self.protocol_parameters.remove(id),
-            ProposalEnum::ConstitutionalCommittee(..) => self.constitutional_committee.remove(id),
-            ProposalEnum::Constitution(..) => self.constitution.remove(id),
-            ProposalEnum::Orphan(..) => BTreeSet::from([id.clone()]),
-        };
-
-        assert!(pruned.contains(id), "proposal {id:?} was present in the forest but missing from its tree");
-
-        let pruned = pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
-
-        self.prune(&pruned);
+        self.sequence.retain(|id| !self.pruned.contains_key(id));
 
         *compass = self.new_compass();
 
-        pruned
-    }
-
-    fn prune<T>(&mut self, pruned: &BTreeMap<Rc<ProposalId>, T>) {
-        self.proposals.retain(|id, _| !pruned.contains_key(id));
-        self.sequence.retain(|id| !pruned.contains_key(id));
+        Ok(())
     }
 
     /// Check whether a given proposal's parent matches the current forest root. Orphans proposals
@@ -339,47 +334,16 @@ impl ProposalsForestCompass {
     ///
     /// - the `sequence` ultimately defines the order
     /// - any id present in the sequence also exists in the `proposals` lookup table.
-    /// - a cursor isn't reused following an enactment or expiration.
+    /// - a cursor isn't reused following an enactment.
     pub fn next<'forest>(
         &mut self,
         forest: &'forest ProposalsForest,
         protocol_parameters: &'_ ProtocolParameters,
     ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
-        from_fn(|| self.next_any(forest))
-            .find_map(|(id, proposed_in)| Self::is_ratifiable(forest, protocol_parameters, id, proposed_in))
-    }
-
-    /// Get the next proposal regardless of whether ratification has been interrupted or the
-    /// proposal is otherwise eligible for tallying.
-    pub(super) fn next_any<'forest>(
-        &mut self,
-        forest: &'forest ProposalsForest,
-    ) -> Option<(Rc<ProposalId>, &'forest ProposedIn<ProposalEnum>)> {
         assert!(
             forest.sequence.len() == self.original_len,
             "compass re-used on a forest that has changed; you should have created a new compass."
         );
-
-        let id = forest.sequence.get(self.cursor)?.clone();
-        self.cursor += 1;
-
-        let proposed_in = forest.proposals.get(&id).unwrap_or_else(|| {
-            unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
-        });
-
-        Some((id, proposed_in))
-    }
-
-    pub(super) fn is_ratifiable<'forest>(
-        forest: &'forest ProposalsForest,
-        protocol_parameters: &'_ ProtocolParameters,
-        id: Rc<ProposalId>,
-        proposed_in: &'forest ProposedIn<ProposalEnum>,
-    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
-        use ConstitutionalCommitteeUpdate::*;
-        use OrphanProposal::*;
-
-        let ProposedIn { epoch: proposed_in, proposal, pointer, .. } = proposed_in;
 
         // NOTE(RATIFICATION_INTERRUPTION):
         //
@@ -400,12 +364,32 @@ impl ProposalsForestCompass {
         //   Said differently, there can be many treasury withdrawals, protocol parameters changes
         //   or nice polls; but as soon as one of the other is encountered; EVERYTHING (including
         //   treasury withdrawals and parameters changes) is postponed until the next epoch.
-        //
-        //   This interrupts ratification, not traversal: callers must still use `next_any` to
-        //   check the remaining proposals for expiration and prune them and their dependents.
         if forest.is_interrupted {
             return None;
         }
+
+        loop {
+            let step = self.step(forest, protocol_parameters);
+            self.cursor += 1;
+            if step.is_some() || self.cursor >= self.original_len {
+                return step;
+            }
+        }
+    }
+
+    fn step<'forest>(
+        &self,
+        forest: &'forest ProposalsForest,
+        protocol_parameters: &'_ ProtocolParameters,
+    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
+        use ConstitutionalCommitteeUpdate::*;
+        use OrphanProposal::*;
+
+        let id = forest.sequence.get(self.cursor)?.clone();
+
+        let WithContext { proposed_in, proposal, pointer, .. } = forest.proposals.get(&id).unwrap_or_else(|| {
+            unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
+        });
 
         // NOTE: Skip just-submitted governance proposals
         //
@@ -723,8 +707,8 @@ impl From<proposals::Row> for CandidateProposal {
 
 /// A proposal with its submission time and final valid epoch.
 #[derive(Debug, Clone)]
-pub struct ProposedIn<T> {
-    pub epoch: Epoch,
+pub struct WithContext<T> {
+    pub proposed_in: Epoch,
     pub valid_until: Epoch,
     pub pointer: ProposalPointer,
     pub proposal: T,
@@ -736,12 +720,12 @@ fn priority_insert(
     seq: &mut VecDeque<Rc<ProposalId>>,
     new_id: Rc<ProposalId>,
     (new_pointer, new_proposal): (&ProposalPointer, &ProposalEnum),
-    proposals: &BTreeMap<Rc<ProposalId>, ProposedIn<ProposalEnum>>,
+    proposals: &BTreeMap<Rc<ProposalId>, WithContext<ProposalEnum>>,
 ) {
     let mut insertion_ix = 0;
 
     for id in seq.iter() {
-        if let Some(ProposedIn { proposal, pointer, .. }) = proposals.get(id) {
+        if let Some(WithContext { proposal, pointer, .. }) = proposals.get(id) {
             match proposal.cmp_priority(new_proposal) {
                 // Next proposal has a lower priority;
                 // -> we must insert before it.
@@ -1092,7 +1076,7 @@ mod tests {
 
                 let mut compass = forest.new_compass();
 
-                let pruned = forest.enact(id.clone(), &proposal, &mut compass).unwrap();
+                forest.enact(id.clone(), &proposal, &mut compass).unwrap();
 
                 // Control that
                 // (1) the compass still work;
@@ -1102,7 +1086,7 @@ mod tests {
                 while let Some((id, _)) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
                     yielded_another = true;
                     prop_assert!(
-                        !pruned.contains_key(&id),
+                        !forest.pruned.contains_key(&id),
                         "compass yielded a pruned proposal!",
                     );
                 }
