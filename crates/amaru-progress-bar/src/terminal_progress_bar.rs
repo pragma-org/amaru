@@ -53,4 +53,8 @@ impl ProgressBar for TerminalProgressBar {
     fn clear(self: Box<Self>) {
         self.finish_and_clear();
     }
+
+    fn finish(self: Box<Self>) {
+        self.inner.finish();
+    }
 }
