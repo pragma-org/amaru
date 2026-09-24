@@ -94,11 +94,6 @@ impl Resources {
             .map_err(|_| anyhow::anyhow!("Resource of type `{}` not found", type_name::<T>()))
     }
 
-    /// Drop every resource owned by this collection.
-    pub fn clear(&self) {
-        self.0.write().clear();
-    }
-
     /// A weak handle that does not keep the collection alive.
     ///
     /// Use this when a resource (for example a ledger callback stored inside
@@ -140,17 +135,6 @@ mod tests {
 
         assert_eq!(resources.take::<u32>().unwrap(), 43);
         assert_eq!(resources.take::<u32>().unwrap_err().to_string(), "Resource of type `u32` not found");
-    }
-
-    #[test]
-    fn clear_drops_resources() {
-        let token = Arc::new(());
-        let resources = Resources::default();
-        resources.put(token.clone());
-
-        resources.clear();
-
-        assert_eq!(Arc::strong_count(&token), 1);
     }
 
     #[test]

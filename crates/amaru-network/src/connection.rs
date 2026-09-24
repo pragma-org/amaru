@@ -126,17 +126,13 @@ impl TokioConnections {
             join_all(tasks.into_values()).await.into_iter().filter_map(Result::err).find(|err| !err.is_cancelled());
 
         self.inner.connections.lock().connections.clear();
-        self.close_and_drain_pending_accepts().await;
-
-        failure.map_or(Ok(()), Err)
-    }
-
-    async fn close_and_drain_pending_accepts(&self) {
         let mut incoming = self.inner.incoming_rx.lock().await;
         incoming.close();
         while let Some(pending) = incoming.recv().await {
             drop(pending);
         }
+
+        failure.map_or(Ok(()), Err)
     }
 }
 

@@ -108,6 +108,11 @@ impl TokioInner {
         reap_finished_handles(&mut handles, &mut self.failures.lock());
         handles.push(handle);
     }
+
+    fn request_abort(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+        self.handles.lock().iter().for_each(JoinHandle::abort);
+    }
 }
 
 fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>, failures: &mut Vec<JoinError>) {
@@ -170,15 +175,12 @@ impl TokioBuilder {
         let inner2 = inner.clone();
         let monitor = rt.spawn(async move {
             termination2.wait_for(|x| *x).await.ok();
-            inner2.stopping.store(true, Ordering::SeqCst);
-            let handles = inner2.handles.lock();
-            tracing::info!(stages = handles.len(), "termination signal received, shutting down stages");
-            for handle in handles.iter() {
-                handle.abort();
-            }
+            tracing::info!(stages = inner2.handles.lock().len(), "termination signal received, shutting down stages");
+            inner2.request_abort();
         });
+        inner.push_handle(monitor);
 
-        TokioRunning { inner, termination, monitor: Arc::new(Mutex::new(Some(monitor))) }
+        TokioRunning { inner, termination }
     }
 
     pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
@@ -688,7 +690,6 @@ async fn interpreter(
 pub struct TokioRunning {
     inner: Arc<TokioInner>,
     termination: watch::Receiver<bool>,
-    monitor: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl TokioRunning {
@@ -697,12 +698,16 @@ impl TokioRunning {
     /// Safe to call from any thread (including the process main thread). Abort is
     /// cooperative: stage tasks stop at their next `.await`.
     pub fn request_abort(&self) {
-        self.inner.stopping.store(true, Ordering::SeqCst);
-        for handle in self.inner.handles.lock().iter() {
-            handle.abort();
-        }
-        if let Some(monitor) = self.monitor.lock().as_ref() {
-            monitor.abort();
+        self.inner.request_abort();
+    }
+
+    /// Return an abort callback that does not keep the graph or its resources alive.
+    pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || {
+            if let Some(inner) = inner.upgrade() {
+                inner.request_abort();
+            }
         }
     }
 
@@ -713,15 +718,14 @@ impl TokioRunning {
 
     /// Wait for all registered tasks and surface a task panic.
     pub async fn join(self) -> Result<(), JoinError> {
-        let inner = Arc::clone(&self.inner);
-        poll_fn(move |cx| {
-            let mut handles = inner.handles.lock();
+        poll_fn(|cx| {
+            let mut handles = self.inner.handles.lock();
             handles.retain_mut(|h| {
                 if let Poll::Ready(res) = h.poll_unpin(cx) {
                     match res {
                         Ok(_) => tracing::info!("stage task completed"),
                         Err(err) if err.is_cancelled() => tracing::info!("stage task cancelled"),
-                        Err(err) => inner.failures.lock().push(err),
+                        Err(err) => self.inner.failures.lock().push(err),
                     }
                     false
                 } else {
@@ -731,14 +735,6 @@ impl TokioRunning {
             if handles.is_empty() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
-
-        let monitor = self.monitor.lock().take();
-        if let Some(monitor) = monitor
-            && let Err(err) = monitor.await
-            && !err.is_cancelled()
-        {
-            self.inner.failures.lock().push(err);
-        }
 
         self.inner.failures.lock().drain(..).next().map_or(Ok(()), Err)
     }

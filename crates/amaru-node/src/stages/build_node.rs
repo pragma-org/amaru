@@ -147,8 +147,7 @@ impl NodeRunning {
 
     /// Return a non-blocking abort callback that does not own the node's shutdown result.
     pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
-        let running = self.tokio_running.clone();
-        move || running.request_abort()
+        self.tokio_running.abort_callback()
     }
 
     /// Stop and join every node-owned task, then close listeners and stores.
@@ -158,14 +157,12 @@ impl NodeRunning {
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
         let Self { tokio_running, mempool_sender, lifecycle } = self;
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
-        let resources = tokio_running.resources().clone();
 
         tokio_running.request_abort();
         drop(mempool_sender);
         let stages = tokio_running.join().await.err().map(|error| ComponentFailure::Stages(error.to_string()));
         let listeners =
             connections.shutdown().await.err().map(|error| ComponentFailure::NetworkListeners(error.to_string()));
-        resources.clear();
         drop(connections);
         let ledger = ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT);
         let performance = performance().err().map(|_| ComponentFailure::Performance("worker panicked".into()));
@@ -233,7 +230,7 @@ pub fn build_node(
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history()));
 
     // Register resources
-    let lifecycle = register_resources(
+    register_resources(
         stage_builder,
         chain_store,
         global_parameters,
@@ -258,7 +255,6 @@ pub fn build_node(
     );
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
-    stage_builder.resources().put(lifecycle);
     // Weak: the callback is stored on `block_validator`, which lives in these same
     // resources. A strong capture would leak every node (RocksDB FDs included).
     let resources = stage_builder.resources().downgrade();
@@ -298,7 +294,7 @@ fn register_resources(
     meter: Arc<Meter>,
     mempool_config: MempoolConfig,
     config: &Config,
-) -> NodeLifecycle {
+) {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
 
@@ -341,7 +337,7 @@ fn register_resources(
     let join_performance = Box::new(performance.shutdown_callback());
     stage_graph.resources().put::<ResourcePerformance>(Arc::new(performance));
 
-    NodeLifecycle { ledger_thread, connections, performance: join_performance }
+    stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });
 }
 
 /// This function migrates the database if necessary

@@ -1415,7 +1415,7 @@ mod tests {
         buf[5] += 1;
         t(tcp.write_all(&buf)).await.unwrap();
         t(tcp.flush()).await.unwrap();
-        t(running.join()).await;
+        t(running.join()).await.unwrap();
 
         trace_guard.defuse();
     }
