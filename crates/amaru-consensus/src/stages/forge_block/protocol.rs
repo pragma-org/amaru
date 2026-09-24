@@ -318,8 +318,9 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let block_number = u64::from(parent_point.block_height()) + 1;
 
     let (body, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
-    let (header, session) =
-        session.external(ForgeHeaderEffect::new(slot, parent_hash, block_number, &body, cert)).await;
+    let forge_header =
+        ForgeHeaderEffect::new(slot, kes_period, parent_hash, block_number, &body, cert, state.protocol_version);
+    let (header, session) = session.external(forge_header).await;
     let header = match header {
         Ok(header) => header,
         Err(error) => {
