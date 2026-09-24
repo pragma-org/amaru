@@ -40,6 +40,7 @@ Other guiding principles:
 ### Added
 
 - **amaru-node**: embedders can await node shutdown, inspect component failures, and restart on another network after stores and listeners close.
+- **amaru-node**: startup reports typed errors for invalid configuration, stores already in use, incompatible chain-store versions, and detected ledger/chain-store mismatches.
 
 ### Changed
 

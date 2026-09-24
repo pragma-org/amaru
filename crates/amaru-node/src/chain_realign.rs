@@ -15,7 +15,8 @@
 use amaru_kernel::{ORIGIN_HASH, Point};
 use amaru_observability::{debug, info, info_record};
 use amaru_ouroboros::ChainStore;
-use anyhow::bail;
+
+use crate::NodeStartError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClearValidity {
@@ -44,12 +45,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
     // different chains and truncating the best chain would silently discard headers. This is
     // checked before any mutation so that a rejected chain database is left untouched.
     if has_best_chain && !chain_store.is_on_best_chain(tip.into()) {
-        bail!(
-            "the chain database is inconsistent with the ledger: its best chain, ending at \
-             {best_chain_hash}, does not contain the ledger tip {tip}. This happens when \
-             a ledger snapshot is imported on top of a chain database built for another chain. \
-             Remove the chain database so that it can be rebuilt from the ledger tip."
-        );
+        return Err(NodeStartError::StorePairMismatch { ledger_tip: tip, best_chain: best_chain_hash }.into());
     }
 
     chain_store.set_anchor_point(&tip)?;
@@ -247,10 +243,10 @@ mod tests {
         }
         chain_store.set_anchor_point(&h0.point()).unwrap();
 
-        let error =
-            realign_chain_store_to(chain_store.as_ref(), h1a.point(), ClearValidity::All).unwrap_err().to_string();
-
-        assert!(error.contains("inconsistent with the ledger"), "unexpected error: {error}");
+        let error = NodeStartError::from(
+            realign_chain_store_to(chain_store.as_ref(), h1a.point(), ClearValidity::All).unwrap_err(),
+        );
+        assert!(matches!(error, NodeStartError::StorePairMismatch { ledger_tip, .. } if ledger_tip == h1a.point()));
         assert_eq!(chain_store.get_best_chain_hash(), h1.hash(), "the best chain must be left untouched");
         assert_eq!(chain_store.get_anchor_hash(), h0.hash(), "the anchor must be left untouched");
         for header in [&h0, &h1, &h1a] {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, fmt::Display};
+use std::{collections::VecDeque, fmt::Display, path::PathBuf};
 
 use amaru_kernel::{Header, HeaderHash, IsHeader, NonEmptyVec, Point, RawBlock};
 use thiserror::Error;
@@ -58,6 +58,7 @@ pub enum StoreError {
     WriteError { error: String },
     ReadError { error: String },
     OpenError { error: String },
+    Locked { path: PathBuf },
     IncompatibleChainStoreVersions { stored: u16, current: u16 },
 }
 
@@ -67,6 +68,7 @@ impl Display for StoreError {
             StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
             StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
             StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
+            StoreError::Locked { path } => write!(f, "Chain store at '{}' is locked", path.display()),
             StoreError::IncompatibleChainStoreVersions { stored, current } => {
                 write!(
                     f,

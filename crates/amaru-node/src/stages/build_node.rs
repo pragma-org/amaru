@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc, time::Duration};
 
 use amaru_consensus::{
     block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
@@ -23,10 +23,11 @@ use amaru_consensus::{
     performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, PeerCandidate, Point, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
     state::State,
+    store::{OpenErrorKind, StoreError as LedgerStoreError},
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::Meter;
@@ -34,6 +35,7 @@ use amaru_network::{connection::TokioConnections, resolve::init_resolver};
 use amaru_observability::warn;
 use amaru_ouroboros::{
     BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
+    StoreError as ChainStoreError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
@@ -60,6 +62,48 @@ use crate::{
 };
 
 const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A startup failure that an embedding host can handle without inspecting error text.
+///
+/// Listener binding happens after construction; this result does not establish network readiness.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum NodeStartError {
+    #[error("invalid configuration: {reason}")]
+    InvalidConfiguration { reason: String },
+    #[error("store at '{}' is already in use", path.display())]
+    StoreInUse { path: PathBuf },
+    #[error("incompatible store at '{}': {source}", path.display())]
+    IncompatibleStore {
+        path: PathBuf,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    #[error(
+        "the chain database is inconsistent with the ledger: its best chain, ending at \
+         {best_chain}, does not contain the ledger tip {ledger_tip}. This happens when \
+         a ledger snapshot is imported on top of a chain database built for another chain. \
+         Remove the chain database so that it can be rebuilt from the ledger tip."
+    )]
+    StorePairMismatch { ledger_tip: Point, best_chain: HeaderHash },
+    #[error("{source}")]
+    Other {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+}
+
+impl NodeStartError {
+    fn other(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Self::Other { source: source.into() }
+    }
+}
+
+impl From<anyhow::Error> for NodeStartError {
+    fn from(error: anyhow::Error) -> Self {
+        error.downcast::<Self>().unwrap_or_else(Self::other)
+    }
+}
 
 struct NodeLifecycle {
     ledger_thread: LedgerThreadStop,
@@ -105,8 +149,8 @@ pub enum ShutdownError {
 /// [`Meter`] when unset.
 ///
 /// For the common embedding path prefer [`crate::NodeBuilder`].
-pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<NodeRunning> {
-    init_resolver()?;
+pub fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+    init_resolver().map_err(NodeStartError::other)?;
     let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default()
@@ -200,6 +244,9 @@ pub fn build_node(
     meter: Arc<Meter>,
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
+    let listen_address = config
+        .listen_address()
+        .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
     // NOTE: Open the chain store first so incompatible DB versions fail before the slower ledger open.
     let chain_store = make_chain_store(config)?;
 
@@ -210,7 +257,6 @@ pub fn build_node(
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
     let pool_summaries = state.pool_summaries();
-    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
     let max_epoch = pool_summaries.max_epoch();
 
     // Production restarts drop the volatile ledger, so the chain store can be ahead of the
@@ -223,6 +269,7 @@ pub fn build_node(
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.
     let recovery_best_hash = find_best_candidate(chain_store.as_ref())?;
+    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
 
     // Make resources
     let era_history = &config.era_history();
@@ -274,7 +321,7 @@ pub fn build_node(
 
     // Open a port to listen for downstream peers
     stage_builder
-        .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(config.listen_address()?)])
+        .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(listen_address)])
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
     Ok(node_stages)
@@ -344,10 +391,18 @@ fn register_resources(
 fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
     let chain_store: Arc<dyn ChainStore> = match config.chain_store {
         StoreType::InMem(ref chain_store) => chain_store.clone(),
-        StoreType::RocksDb(ref rocks_db_config) if config.migrate_chain_db => {
-            Arc::new(RocksDBStore::open_and_migrate(rocks_db_config)?)
+        StoreType::RocksDb(ref rocks_db_config) => {
+            let open = if config.migrate_chain_db { RocksDBStore::open_and_migrate } else { RocksDBStore::open };
+            Arc::new(open(rocks_db_config).map_err(|error| match error {
+                ChainStoreError::Locked { path } => NodeStartError::StoreInUse { path },
+                error @ ChainStoreError::IncompatibleChainStoreVersions { .. } => {
+                    NodeStartError::IncompatibleStore { path: rocks_db_config.dir.clone(), source: Box::new(error) }
+                }
+                error @ (ChainStoreError::WriteError { .. }
+                | ChainStoreError::ReadError { .. }
+                | ChainStoreError::OpenError { .. }) => NodeStartError::other(error),
+            })?)
         }
-        StoreType::RocksDb(ref rocks_db_config) => Arc::new(RocksDBStore::open(rocks_db_config)?),
     };
 
     Ok(chain_store)
@@ -370,7 +425,14 @@ pub fn make_state(
     on_startup: Option<StartupHook<RocksDB>>,
     chain_store: Arc<dyn BaseReadChainStore>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
-    let store = RocksDB::new(&config.ledger_store)?;
+    let store = RocksDB::new(&config.ledger_store).map_err(|error| match error {
+        LedgerStoreError::Open(OpenErrorKind::Locked { file, .. }) => NodeStartError::StoreInUse { path: file },
+        error @ (LedgerStoreError::Internal(_)
+        | LedgerStoreError::Undecodable(_)
+        | LedgerStoreError::Send
+        | LedgerStoreError::Open(_)
+        | LedgerStoreError::Missing(..)) => NodeStartError::other(error),
+    })?;
     store.set_chain_store(chain_store);
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
     Ok(State::new(

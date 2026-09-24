@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use amaru_ouroboros_traits::StoreError;
 use rocksdb::{DB, Options};
 
-use crate::rocksdb::RocksDbConfig;
+use crate::rocksdb::{RocksDbConfig, is_rocksdb_lock_error};
 
 pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
 
@@ -58,6 +58,12 @@ pub fn open_or_create_db(config: &RocksDbConfig) -> Result<(PathBuf, DB), StoreE
 
 fn do_open_rocks_db(basedir: &PathBuf, mut opts: Options) -> Result<DB, StoreError> {
     opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(CONSENSUS_PREFIX_LEN));
-    let db = DB::open(&opts, basedir).map_err(|e| StoreError::OpenError { error: e.to_string() })?;
+    let db = DB::open(&opts, basedir).map_err(|error| {
+        if is_rocksdb_lock_error(error.as_ref()) {
+            StoreError::Locked { path: basedir.clone() }
+        } else {
+            StoreError::OpenError { error: error.to_string() }
+        }
+    })?;
     Ok(db)
 }
