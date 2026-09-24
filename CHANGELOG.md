@@ -53,6 +53,10 @@ Other guiding principles:
 - **amaru-network**: shutting down an idle listener no longer hangs while an accept call is waiting for a connection.
 - **amaru-consensus**: performance worker panic logs now include the panic message when it is a string.
 
+### Fixed
+
+- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Added

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(reentrant_lock)]
+
 mod capture;
 mod config;
 mod events;
@@ -31,6 +33,7 @@ pub use model::{
 pub use session::{Session, should_enable};
 pub use settings::Settings;
 pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};
+pub use terminal_guard::emergency_restore_terminal;
 
 /// Back-compat alias: the TUI now installs the shared observability capture layer.
 pub type TracingLayer = TelemetryCaptureLayer;

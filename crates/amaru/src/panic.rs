@@ -19,6 +19,10 @@ use std::{io::Write, process::exit};
 pub fn panic_handler() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // The process exits below, so TerminalGuard::drop will not run. Restore the primary
+        // screen before writing diagnostics so the panic remains visible to the operator.
+        amaru_tui::emergency_restore_terminal();
+
         // We present the user with a helpful and welcoming error message;
         // Block producing nodes should be considered mission critical software, and so
         // They should endeavor *never* to crash, and should always handle and recover from errors.
