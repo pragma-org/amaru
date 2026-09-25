@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
+### Fixed
+
+- **amaru-protocols**: a connection stays up when a peer starts a mini-protocol this node will serve before that protocol's handler is registered
+
 ## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added

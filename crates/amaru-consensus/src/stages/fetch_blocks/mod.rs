@@ -325,6 +325,11 @@ impl FetchBlocks {
 
     /// Ask peers for a batch of blocks already known to be missing, or tell the upstream stage to
     /// carry on when the batch turns out to be empty.
+    ///
+    /// An empty batch whose tip body is already stored still has to be validated when that body
+    /// has no validity flag. Forging stores the block before chain selection asks for it, and
+    /// `find_missing_blocks` then reports no gap. Recovery passes `parent == tip` after it has
+    /// already replayed that tip, so this path does not send it a second time.
     async fn request_blocks(
         &mut self,
         missing: MissingBlocks,
@@ -335,6 +340,28 @@ impl FetchBlocks {
     ) {
         let Some((from, through)) = missing.from_to().map(|(from, through)| (*from, *through)) else {
             self.missing = None;
+            if parent != tip {
+                let store = Store::new(eff.clone());
+                if let Some((_, None)) = store.load_header_with_validity(&tip.hash()).await {
+                    match store.has_block(&tip.hash()).await {
+                        Ok(true) => {
+                            let downloaded = DownloadedBlock {
+                                tip,
+                                parent,
+                                max_block_height: self.block_height,
+                                trace_context: parent_context,
+                            };
+                            eff.send(&self.downstream, downloaded).await;
+                            return self.fetch_next_from(eff, tip).await;
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            error!(consensus::blocks::FIND_MISSING_FAILED, error = error.to_string());
+                            return eff.terminate().await;
+                        }
+                    }
+                }
+            }
             info!(consensus::blocks::NOTHING_TO_FETCH, tip, parent);
             return self.fetch_next_from(eff, tip).await;
         };

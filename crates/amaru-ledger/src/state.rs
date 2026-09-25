@@ -550,7 +550,10 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 on_ledger_snapshot: self.observers.on_ledger_snapshot.clone(),
             };
 
-            self.rewards_join_handle = Some(std::thread::spawn(move || tasks.run()))
+            // The rewards task is a fresh thread, so it does not inherit the caller's subscriber.
+            let dispatch = tracing::dispatcher::get_default(|dispatch| dispatch.clone());
+            self.rewards_join_handle =
+                Some(std::thread::spawn(move || tracing::dispatcher::with_default(&dispatch, || tasks.run())))
         }
 
         Ok(())

@@ -326,10 +326,11 @@ enum Connection {
 }
 
 impl State {
-    /// Create a new state with the given connection ID and buffering the given protocols.
+    /// Create a new state with the given connection ID, buffering the given protocols.
     ///
-    /// Note that upon receiving the first message, the stage will start reading from the network.
-    /// Any data received for unregistered protocols will lead to stage termination.
+    /// Upon receiving the first message, the stage starts reading from the network.
+    /// Bytes for a protocol in `buffer` (or named later by [`MuxMessage::Buffer`]) are held
+    /// until `Register` installs its handler. Bytes for any other protocol fail the connection.
     pub fn new(conn: ConnectionId, buffer: &[(ProtocolId<Erased>, usize)], role: Role, peer: Peer) -> Self {
         let mut muxer = Muxer::new(role);
         for &(proto_id, limit) in buffer {
@@ -738,11 +739,10 @@ impl Muxer {
     ) -> anyhow::Result<()> {
         let byte_len = bytes.len() as u64;
         async {
-            if let Some(proto) = self.protocols.get_mut(&proto_id) {
-                proto.received(timestamp, bytes, eff).await
-            } else {
-                anyhow::bail!("received data for unknown protocol {}", proto_id)
-            }
+            let Some(proto) = self.protocols.get_mut(&proto_id) else {
+                anyhow::bail!("received data for unknown protocol {}", proto_id);
+            };
+            proto.received(timestamp, bytes, eff).await
         }
         .instrument(debug_span!(protocols::mux::protocol::RECEIVED, bytes = byte_len))
         .await
@@ -1268,6 +1268,88 @@ mod tests {
         running.run(Run::skip_wakeups()).assert_terminated(mux.name());
 
         drop_guard.defuse();
+    }
+
+    fn with_buffered_mux(test: impl FnOnce(&mut SimulationRunning, &StageRef<MuxMessage>)) {
+        let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
+        let _mux_msg = amaru_pure_stage::register_data_deserializer::<MuxMessage>();
+        let _bytes = amaru_pure_stage::register_data_deserializer::<NonEmptyBytes>();
+        let _handler_msg = amaru_pure_stage::register_data_deserializer::<HandlerMessage>();
+        let _state = amaru_pure_stage::register_data_deserializer::<State>();
+        let _peer = amaru_pure_stage::register_data_deserializer::<Peer>();
+        let _reader_state =
+            amaru_pure_stage::register_data_deserializer::<(ConnectionId, StageRef<MuxMessage>, Role, Peer)>();
+
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", super::stage);
+        let conn_id = ConnectionId::initial();
+        let mux =
+            network.wire_up(mux, State::new(conn_id, &[(PROTO_TEST.erase(), 1024)], Role::Initiator, test_peer()));
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.breakpoint("recv", |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<RecvEffect>()));
+        let handler_name = StageRef::<HandlerMessage>::named_for_tests("handler").name().clone();
+        running.breakpoint("to-handler", move |eff| matches!(eff, Effect::Send { to, .. } if to == &handler_name));
+        test(&mut running, &mux);
+    }
+
+    fn assert_to_handler(running: &SimulationRunning, expected: &HandlerMessage) {
+        let hit = running.breakpoint_effect();
+        let Effect::Send { msg, .. } = hit.effect() else {
+            panic!("expected send, got {:?}", hit.effect());
+        };
+        assert_eq!(msg.cast_ref::<HandlerMessage>().expect("HandlerMessage"), expected);
+    }
+
+    /// Skip reader recv suspensions until the mux sends to the handler or stops.
+    fn run_until_handler(running: &mut SimulationRunning) -> Blocked {
+        for _ in 0..8 {
+            let blocked = running.run(Run::skip_wakeups());
+            if matches!(&blocked, Blocked::Breakpoint(name) if name.as_str() == "recv") {
+                running.discard_breakpoint();
+                continue;
+            }
+            return blocked;
+        }
+        panic!("mux made no progress");
+    }
+
+    #[test]
+    fn buffered_protocol_holds_segment_until_register() {
+        with_buffered_mux(|running, mux| {
+            let payload = NonEmptyBytes::from_slice(&[0x18, 0x2a]).unwrap();
+            // Wire id is the peer's view. `received` looks up the opposite, which is the buffered id.
+            running.enqueue_msg(
+                mux,
+                [
+                    MuxMessage::FromNetwork(Timestamp(1), PROTO_TEST.opposite().erase(), payload.clone()),
+                    MuxMessage::Register {
+                        protocol: PROTO_TEST.erase(),
+                        frame: Frame::OneCborItem,
+                        handler: StageRef::named_for_tests("handler"),
+                        max_buffer: 1024,
+                    },
+                ],
+            );
+
+            assert!(matches!(run_until_handler(running), Blocked::Breakpoint(name) if name.as_str() == "to-handler"));
+            assert_to_handler(running, &HandlerMessage::Registered(PROTO_TEST.erase()));
+            running.interpret_breakpoint();
+
+            running.enqueue_msg(mux, [MuxMessage::WantNext(PROTO_TEST.erase())]);
+            assert!(matches!(run_until_handler(running), Blocked::Breakpoint(name) if name.as_str() == "to-handler"));
+            assert_to_handler(running, &HandlerMessage::FromNetwork(payload));
+        });
+    }
+
+    #[test]
+    fn unbuffered_protocol_fails_the_connection() {
+        with_buffered_mux(|running, mux| {
+            let payload = NonEmptyBytes::from_slice(&[0x01]).unwrap();
+            // Opposite of this wire id is block-fetch responder, which was not buffered.
+            running.enqueue_msg(mux, [MuxMessage::FromNetwork(Timestamp(1), PROTO_N2N_BLOCK_FETCH.erase(), payload)]);
+            run_until_handler(running).assert_terminated("mux");
+        });
     }
 
     #[test]
