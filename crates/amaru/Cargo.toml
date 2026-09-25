@@ -124,6 +124,8 @@ systemd-units = { enable = false, start = false }
 assets = [
   ["target/release/amaru", "usr/bin/amaru", "755"],
   ["../../.github/debian/amaru.env", "etc/default/amaru", "644"],
+  ["../../.github/debian/amaru.service", "/usr/lib/systemd/system/amaru.service", "644"],
+  ["../../.github/debian/amaru-bootstrap.service", "/usr/lib/systemd/system/amaru-bootstrap.service", "644"],
   ["../../dist/share/man/man1/amaru.1", "usr/share/man/man1/amaru.1", "644"],
   ["../../dist/share/bash-completion/completions/amaru", "usr/share/bash-completion/completions/amaru", "644"],
   ["../../dist/share/zsh/site-functions/_amaru", "usr/share/zsh/vendor-completions/_amaru", "644"],
