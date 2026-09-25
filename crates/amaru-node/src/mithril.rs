@@ -694,7 +694,7 @@ impl MithrilSynchronizer {
             stop_ledger_worker(ledger_stop, LEDGER_SHUTDOWN_TIMEOUT).await?;
 
             let ledger_tip = resolve_ledger_tip(&self.ledger_dir, chain_store.as_ref())?;
-            recover_stores(chain_store.as_ref(), ledger_tip).map(|_| ())
+            recover_stores(chain_store.as_ref(), ledger_tip).map(StoreRecoveryOutcome::point)
         };
         let (final_point, processed) = complete_ingestion(ingestion, cleanup).await?;
         let duration_seconds = Instant::now().saturating_duration_since(before).as_secs_f64();
@@ -732,14 +732,15 @@ async fn stop_ledger_worker(ledger_stop: LedgerThreadStop, timeout: Duration) ->
 }
 
 /// Drop the ingestion future (and its validator) before joining the worker, even on panic.
-async fn complete_ingestion<T>(
-    ingestion: impl Future<Output = Result<T, MithrilSyncError>>,
-    cleanup: impl Future<Output = Result<(), MithrilSyncError>>,
-) -> Result<T, MithrilSyncError> {
+/// Return the reconciled store tip with the ingestion block count.
+async fn complete_ingestion(
+    ingestion: impl Future<Output = Result<(Point, u64), MithrilSyncError>>,
+    cleanup: impl Future<Output = Result<Point, MithrilSyncError>>,
+) -> Result<(Point, u64), MithrilSyncError> {
     let result = AssertUnwindSafe(ingestion).catch_unwind().await;
-    cleanup.await?;
+    let final_point = cleanup.await?;
     match result {
-        Ok(result) => result,
+        Ok(result) => result.map(|(_, processed)| (final_point, processed)),
         Err(payload) => std::panic::resume_unwind(payload),
     }
 }
@@ -1210,12 +1211,12 @@ mod tests {
                         cancellation.cancelled().await;
                     }
                     drop(validator);
-                    Err::<(), _>(ingestion_error)
+                    Err::<(Point, u64), _>(ingestion_error)
                 },
                 async {
                     stop_ledger_worker(stop, Duration::ZERO).await?;
                     reconciled = true;
-                    Ok(())
+                    Ok(Point::Origin)
                 },
             )
             .await;
@@ -1321,13 +1322,13 @@ mod tests {
                 started_tx.send(()).unwrap();
                 cancellation.cancelled().await;
                 drop(validator);
-                Err::<(), _>(MithrilSyncError::Cancelled)
+                Err::<(Point, u64), _>(MithrilSyncError::Cancelled)
             };
             let cleanup = async move {
                 stopping_tx.send(()).unwrap();
                 release_rx.await.unwrap();
                 let ledger_tip = worker.await.unwrap();
-                recover_stores(cleanup_store.as_ref(), ledger_tip).map(|_| ())
+                recover_stores(cleanup_store.as_ref(), ledger_tip).map(StoreRecoveryOutcome::point)
             };
             let result = complete_ingestion(ingestion, cleanup).await;
             drop(locks);
@@ -1384,11 +1385,11 @@ mod tests {
                 let ingestion = async move {
                     PanickingObserver.on_progress(progress);
                     drop(validator);
-                    Ok(())
+                    Ok((Point::Origin, 0))
                 };
                 complete_ingestion(ingestion, async move {
                     let ledger_tip = worker.await.unwrap();
-                    recover_stores(cleanup_store.as_ref(), ledger_tip).map(|_| ())
+                    recover_stores(cleanup_store.as_ref(), ledger_tip).map(StoreRecoveryOutcome::point)
                 })
                 .await
             });
