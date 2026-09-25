@@ -167,6 +167,10 @@ where
 
             let tag = decoder.word()?;
             let fields = decoder.list_with(ctx, decode_term)?;
+            let max_fields = ctx.max_constr_fields();
+            if fields.len() > max_fields {
+                return Err(FlatDecodeError::ConstructorTooWide(fields.len(), max_fields));
+            }
             let fields = ctx.arena.alloc(fields);
 
             let term = Term::constr(ctx.arena, tag, fields);
@@ -225,6 +229,10 @@ fn type_from_tags<'a>(ctx: &Ctx<'a>, tags: &[u8]) -> Result<(&'a Type<'a>, usize
 // BLS literals not supported
 fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder<'_>) -> Result<&'a Constant<'a>, FlatDecodeError> {
     let tags = decode_constant_tags(ctx, d)?;
+    let max_tags = ctx.max_type_header_tags();
+    if tags.len() > max_tags {
+        return Err(FlatDecodeError::TypeHeaderTooLong(tags.len(), max_tags));
+    }
     let (ty, _) = type_from_tags(ctx, tags.as_slice())?;
 
     decode_constant_with_type(ctx, d, ty)
@@ -386,7 +394,7 @@ fn decode_constant_tag(d: &mut Decoder<'_>) -> Result<u8, FlatDecodeError> {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::PROTOCOL_VERSION_10;
+    use amaru_kernel::{PROTOCOL_VERSION_10, protocol_version::PROTOCOL_VERSION_11};
     use hex;
     use num::BigInt;
 
@@ -490,5 +498,26 @@ mod tests {
                 panic!("{}", e);
             }
         }
+    }
+
+    /// `maxBoundsByPV` in plutus-ledger-api leaves a `constr`'s arity unbounded below protocol
+    /// version 11 and caps it at 1024 from there on.
+    #[test_case::test_case(PROTOCOL_VERSION_10, 1025 => matches Ok(_)  ; "1025 fields before v11")]
+    #[test_case::test_case(PROTOCOL_VERSION_11, 1024 => matches Ok(_)  ; "1024 fields at v11")]
+    #[test_case::test_case(PROTOCOL_VERSION_11, 1025 => matches Err(_) ; "1025 fields at v11")]
+    fn constr_arity_is_bounded_from_version_11(
+        protocol_version: amaru_kernel::ProtocolVersion,
+        arity: usize,
+    ) -> Result<(), FlatDecodeError> {
+        let arena = Arena::new();
+
+        let fields = arena.alloc((0..arity).map(|_| Term::<DeBruijn>::error(&arena)).collect::<Vec<_>>());
+        let term = Term::constr(&arena, 0, fields);
+        let program = Program::new(&arena, crate::machine::MachineVersion::V1_1_0, term);
+
+        let bytes = crate::flat::encode::encode(program).expect("the program encodes");
+
+        let decoded = Arena::new();
+        decode::<DeBruijn>(&decoded, &bytes, protocol_version).map(|_| ())
     }
 }
