@@ -342,6 +342,13 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
 
     let header_hash = header.hash();
     let header_point = header.point();
+    let block = match body.seal(&header, state.consensus_parameters.era_history()) {
+        Ok(block) => block,
+        Err(error) => {
+            error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
+            return eff.terminate().await;
+        }
+    };
     let (stored, session) = session.external(StoreValidatedHeaderEffect::new(header, nonces)).await;
     if let Err(error) = stored {
         error!(consensus::forge::FORGE_FAILED, slot, step = "store_header", error = error.to_string());
@@ -349,7 +356,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         return eff.terminate().await;
     }
 
-    let (stored, session) = session.external(StoreBlockEffect::new(&header_hash, body.block)).await;
+    let (stored, session) = session.external(StoreBlockEffect::new(&header_hash, block)).await;
     if let Err(error) = stored {
         error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
         return eff.terminate().await;

@@ -86,6 +86,8 @@ pub struct NodeTestConfig {
     pub blockfetch_pipeline_n: NonZeroU8,
     /// When set, overrides [`Config::share_request_initial_delay`] (production default 300s).
     pub share_request_initial_delay: Option<Duration>,
+    /// Forwarded to [`Config::forging_credentials`]. `None` leaves the node a follower.
+    pub forging_credentials: Option<Arc<dyn amaru_ouroboros_traits::ForgingCredentials>>,
     /// Keeps a dummy ledger tempdir alive until the last node graph holding it is dropped.
     dummy_ledger: Arc<Mutex<Option<Arc<tempfile::TempDir>>>>,
 }
@@ -117,6 +119,7 @@ impl Debug for NodeTestConfig {
             .field("peer_mix", &self.peer_mix)
             .field("blockfetch_pipeline_n", &self.blockfetch_pipeline_n)
             .field("share_request_initial_delay", &self.share_request_initial_delay)
+            .field("forging_credentials", &self.forging_credentials.is_some())
             .finish()
     }
 }
@@ -151,6 +154,7 @@ impl Default for NodeTestConfig {
             peer_mix: None,
             blockfetch_pipeline_n: NonZeroU8::MIN,
             share_request_initial_delay: None,
+            forging_credentials: None,
             dummy_ledger: Arc::new(Mutex::new(None)),
         }
     }
@@ -315,6 +319,14 @@ impl NodeTestConfig {
         self
     }
 
+    pub fn with_forging_credentials(
+        mut self,
+        credentials: Arc<dyn amaru_ouroboros_traits::ForgingCredentials>,
+    ) -> Self {
+        self.forging_credentials = Some(credentials);
+        self
+    }
+
     /// First peer-sharing request this long after an outbound handshake (production 300s).
     pub fn with_share_request_initial_delay(mut self, delay: Duration) -> Self {
         self.share_request_initial_delay = Some(delay);
@@ -377,6 +389,7 @@ impl NodeTestConfig {
             config.peer_mix = mix.parse().map_err(|e| anyhow::anyhow!("invalid peer-mix `{mix}`: {e}"))?;
         }
         config.blockfetch_pipeline_n = self.blockfetch_pipeline_n;
+        config.forging_credentials = self.forging_credentials.clone();
         if let Some(delay) = self.share_request_initial_delay {
             config.share_request_initial_delay = delay;
         }

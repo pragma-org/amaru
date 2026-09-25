@@ -12,19 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Block production stage. Not wired into the consensus graph.
+//! Block production stage.
+//!
+//! Wired from `build_node` when forging credentials are installed on the node.
+//! The product binary leaves that resource empty, so the stage is not in the graph.
 //!
 //! The typestate remainder in `protocol` is the audit surface for messages,
 //! timers, and forging effects. Internal decisions live in `calc`.
 
 mod calc;
+#[cfg(any(test, feature = "test-utils"))]
+mod credentials;
 mod effects;
 mod protocol;
 mod schedule;
 
 use amaru_kernel::{ConsensusParameters, KesPeriod, Point, PoolId, ProtocolVersion};
+pub use amaru_ouroboros_traits::ForgingCredentials;
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
 pub use calc::FreezeWatch;
+#[cfg(any(test, feature = "test-utils"))]
+pub use credentials::{TEST_COLD_KEY, TEST_VRF_SEED, TestCredentials, test_vrf_key};
 pub use effects::{
     ForgeEffectError, ForgeHeaderEffect, ForgedBody, LeaderScheduleEffect, ResourceForgingCredentials,
     TakeForForgeEffect,

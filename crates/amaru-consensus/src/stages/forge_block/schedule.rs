@@ -81,6 +81,11 @@ impl EpochSchedule {
         self.epoch
     }
 
+    #[cfg(test)]
+    pub(crate) fn slots(&self) -> &BTreeMap<Slot, VrfCert> {
+        &self.slots
+    }
+
     fn at(&self, slot: Slot) -> Option<LeadSlot<'_>> {
         self.slots.get(&slot).map(|cert| LeadSlot { slot, cert })
     }

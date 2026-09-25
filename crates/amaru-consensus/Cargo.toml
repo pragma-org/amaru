@@ -17,7 +17,7 @@ categories.workspace = true
 [features]
 default = ["test-utils"]
 profiling = ["dep:pprof"]
-test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions"]
+test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions", "amaru-ouroboros/test-utils"]
 
 [dependencies]
 async-trait.workspace = true

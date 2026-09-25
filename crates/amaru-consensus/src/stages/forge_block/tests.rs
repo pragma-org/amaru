@@ -25,7 +25,8 @@ use amaru_kernel::{
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::{kes, praos::header::AssertKesSignatureError};
 use amaru_ouroboros_traits::{
-    DiagnosticChainStore, ForgingCredentials, Nonces, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+    BaseReadChainStore, DiagnosticChainStore, ForgingCredentials, Nonces, WriteChainStore,
+    in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_pure_stage::simulation::Run;
 
@@ -167,8 +168,10 @@ fn lead_slot_forges_a_signed_header() {
     let slot = simulation_slot();
     let period = prep.state.data.consensus_parameters.slot_to_kes_period(slot);
     prep.state.data.ocert_start_period = period;
-    prep.credentials =
-        Some(Arc::new(TestCredentials::new(period, prep.state.data.consensus_parameters.max_kes_evolutions())));
+    prep.credentials = Some(Arc::new(TestCredentials::for_test_keys(
+        period,
+        prep.state.data.consensus_parameters.max_kes_evolutions(),
+    )));
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     prep.state.data.adopted_tip = Point::Specific(Slot::from(u64::from(slot).saturating_sub(1)), ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
@@ -177,6 +180,9 @@ fn lead_slot_forges_a_signed_header() {
     logs.assert_and_remove(Level::INFO, &["forge.forged"]).assert_no_remaining_at([Level::WARN, Level::ERROR]);
 
     let header = prep.store.load_headers().find(|header| header.slot() == slot).expect("forged header stored");
+    let block = prep.store.load_block(&header.hash()).unwrap().expect("forged block stored");
+    assert_eq!(block.decode_header().unwrap().hash(), header.hash());
+    assert_eq!(block.body_hash().unwrap(), header.body().block_body_hash);
     let credentials = prep.credentials.as_ref().unwrap();
     let parameters = &prep.state.data.consensus_parameters;
     let ocert = &header.body().operational_cert;
