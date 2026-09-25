@@ -459,14 +459,17 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             let computed_rewards = if let Some(handle) = mem::take(&mut self.rewards_join_handle) {
                 let (new_distribution, rewards) =
                     handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: "rewards".to_string() })??;
-                self.distributions.rotate(new_distribution);
-                let summaries = self.pool_summaries();
-                info!(
-                    ledger::stake_distribution::ROTATE,
-                    available_stake_distributions = display_collection(summaries.by_epoch.keys()),
-                );
-                if let Some(notify) = &self.on_stake_dist_updated {
-                    notify(summaries);
+                let is_newer = self.distributions.current().map_or(true, |d| new_distribution.epoch > d.epoch);
+                if is_newer {
+                    self.distributions.rotate(new_distribution);
+                    let summaries = self.pool_summaries();
+                    info!(
+                        ledger::stake_distribution::ROTATE,
+                        available_stake_distributions = display_collection(summaries.by_epoch.keys()),
+                    );
+                    if let Some(notify) = &self.on_stake_dist_updated {
+                        notify(summaries);
+                    }
                 }
                 Some(Rewards::<Computed>::from(rewards))
             } else {
