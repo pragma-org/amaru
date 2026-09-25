@@ -325,9 +325,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PlutusData
 // BoundedBytes
 // ---------------------------------------------------------------------------------------------
 
-/// Largest byte string accepted inside Plutus data, whether as a definite-length
-/// string or as a single chunk of an indefinite-length one.
-pub const MAX_BOUNDED_BYTES_CHUNK: usize = 64;
+pub use amaru_minicbor_extra::MAX_BOUNDED_BYTES_CHUNK;
 
 /// Decode a Plutus data byte string, accepting both the definite-length form and the
 /// indefinite-length (chunked) form as long as no piece exceeds [`MAX_BOUNDED_BYTES_CHUNK`].
@@ -335,12 +333,7 @@ pub fn decode_bounded_bytes(d: &mut cbor::Decoder<'_>) -> Result<Bytes, cbor::de
     let mut bytes = Vec::new();
     for chunk in d.bytes_iter()? {
         let chunk = chunk?;
-        if chunk.len() > MAX_BOUNDED_BYTES_CHUNK {
-            return Err(cbor::decode::Error::message(format!(
-                "plutus data byte string of {} bytes exceeds the {MAX_BOUNDED_BYTES_CHUNK}-byte limit",
-                chunk.len()
-            )));
-        }
+        amaru_minicbor_extra::assert_bounded_chunk(chunk)?;
         bytes.extend_from_slice(chunk);
     }
     Ok(Bytes::from(bytes))

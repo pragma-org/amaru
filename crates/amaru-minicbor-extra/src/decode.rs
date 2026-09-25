@@ -31,6 +31,25 @@ pub use with_size::*;
 mod with_original_bytes;
 pub use with_original_bytes::*;
 
+/// Largest byte string accepted inside Plutus data, whether as a definite-length string or as a
+/// single chunk of an indefinite-length one.
+///
+/// Plutus imposes this limit on the leaves of a serialised `Data` (see
+/// *Note [The 64-byte limit]* in `PlutusCore.Data`) and enforces it per chunk, so a longer value is
+/// legal as long as it arrives split into chunks of at most this size.
+pub const MAX_BOUNDED_BYTES_CHUNK: usize = 64;
+
+/// Reject a Plutus data byte string chunk above [`MAX_BOUNDED_BYTES_CHUNK`].
+pub fn assert_bounded_chunk(chunk: &[u8]) -> Result<(), decode::Error> {
+    if chunk.len() > MAX_BOUNDED_BYTES_CHUNK {
+        return Err(decode::Error::message(format!(
+            "plutus data byte string of {} bytes exceeds the {MAX_BOUNDED_BYTES_CHUNK}-byte limit",
+            chunk.len()
+        )));
+    }
+    Ok(())
+}
+
 /// Decode an arbitrary-precision integer, accepting both CBOR native integers and the tagged
 /// bignum forms (tag 2 for positive, tag 3 for negative).
 pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error> {
@@ -40,7 +59,9 @@ pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error>
             Ok(iana @ (IanaTag::PosBignum | IanaTag::NegBignum)) => {
                 let mut bytes = Vec::new();
                 for chunk in d.bytes_iter()? {
-                    bytes.extend_from_slice(chunk?);
+                    let chunk = chunk?;
+                    assert_bounded_chunk(chunk)?;
+                    bytes.extend_from_slice(chunk);
                 }
 
                 let magnitude = BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
