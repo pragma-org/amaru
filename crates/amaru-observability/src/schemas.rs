@@ -439,6 +439,15 @@ define_schemas! {
                     required peer: %amaru_kernel::Peer
                     required error: String
                 }
+                /// Near-now headers have been arriving for a minute and the adopted tip is not
+                /// getting closer to the wall clock. Sync that is still adopting faster than 10
+                /// blocks per second does not raise this. Emitted at most once a minute.
+                public CHAIN_LAGGING {
+                    required peer: %amaru_kernel::Peer
+                    required live_slot: amaru_kernel::Slot
+                    required our_slot: amaru_kernel::Slot
+                    required lag: i64
+                }
                 /// A header's validation is held back until what blocks it resolves.
                 /// Reason ∈ {ledger_height, stake_distribution, clock_skew, follow_up}; the height
                 /// fields are present for `ledger_height`, where they say how far behind we are.
@@ -575,6 +584,13 @@ define_schemas! {
                 }
             }
             tip {
+                /// The node switched between catching up and live.
+                /// `mode` and `previous` ∈ {sync, live}.
+                public MODE {
+                    required mode: String
+                    required previous: String
+                    required slot: amaru_kernel::Slot
+                }
                 /// Adopt a tip as the next tip in the best chain
                 public ADOPT {
                     required slot: amaru_kernel::Slot
@@ -624,11 +640,11 @@ define_schemas! {
             perf {
                 header {
                     /// Event recorded once per header, when its processing reaches a terminal state.
-                    /// It covers the four network-health processing points of a header's lifecycle:
-                    /// reception of the header, request of its block, reception of its block and
-                    /// local adoption of the block. `outcome` describes the terminal state (including
-                    /// headers rejected on reception, which carry no durations). The optional
-                    /// durations are the intervals between those points:
+                    /// The four network-health points themselves are the `amaru::blockperf` events
+                    /// (`header.announced`, `block.requested`, `block.received`, `block.adopted`).
+                    /// This event carries the intervals between those points once the header reaches
+                    /// a terminal state. `outcome` describes that state (including headers rejected
+                    /// on reception, which carry no durations). The optional durations are:
                     /// - `block_fetch_wait_micros`: reception of the header to the request of its block
                     /// - `block_fetch_micros`: request of the block to its reception
                     /// - `forward_micros`: reception of the header to the adoption of its block
@@ -651,6 +667,40 @@ define_schemas! {
                         optional outcome: String
                         optional duration_micros: u64
                     }
+                }
+            }
+        }
+        blockperf {
+            header {
+                /// One of the first three distinct peers to announce this header while it is still
+                /// being collected. A header that is already stored does not start a new line, and
+                /// a header that has been adopted is not announced again.
+                /// `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.
+                public ANNOUNCED {
+                    required peer: %amaru_kernel::Peer
+                    required header_hash: amaru_kernel::HeaderHash
+                    required rank: u64
+                }
+            }
+            block {
+                /// Peers asked to fetch this block body. `peers` is a comma-separated list of
+                /// socket addresses, sorted.
+                public REQUESTED {
+                    required header_hash: amaru_kernel::HeaderHash
+                    required peers: String
+                }
+                /// A distinct peer delivered this block body.
+                /// `rank` is 1 for the first delivery, then 2, 3, … in arrival order.
+                public RECEIVED {
+                    required peer: %amaru_kernel::Peer
+                    required header_hash: amaru_kernel::HeaderHash
+                    required rank: u64
+                }
+                /// The block was adopted locally.
+                /// `peer` is the first peer that delivered the body, when a delivery was recorded.
+                public ADOPTED {
+                    required header_hash: amaru_kernel::HeaderHash
+                    optional peer: %amaru_kernel::Peer
                 }
             }
         }

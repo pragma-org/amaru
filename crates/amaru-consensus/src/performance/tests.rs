@@ -15,10 +15,16 @@
 //! Unit tests drive [`PeerPerformance`] / [`HeaderPerformance`] directly (no worker thread).
 //! A small smoke test exercises the resource handle + external-effect path.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    io::{self, Write},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot};
+use amaru_observability::{CborConsoleEventFormat, console_field_formatter, debug, info};
 use amaru_pure_stage::{ExternalEffect, Instant, Resources};
+use tracing_subscriber::{EnvFilter, prelude::*};
 
 use super::{
     ClaimKind, HeaderLifecycleOutcome, HeaderPerformance, PeerPerformance, PeerShareFlags, Performance,
@@ -599,7 +605,7 @@ fn header_received_and_peer_claim_are_independent_maps() {
     let alice = peer("alice");
 
     peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000, false);
 
     assert_eq!(headers.lifecycle_count(), 1);
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
@@ -612,9 +618,9 @@ fn first_header_announcer_peer_is_retained() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000, false);
     // Later announcer must not overwrite the first peer or slot interval.
-    headers.apply_header_received(bob, tip(1, 1), t(2), 9_999);
+    headers.apply_header_received(bob, tip(1, 1), t(2), 9_999, false);
 
     assert_eq!(headers.first_announcer(&hash(1)), Some(alice));
     assert_eq!(headers.slot_start_to_header_micros(&hash(1)), Some(1_000));
@@ -623,13 +629,18 @@ fn first_header_announcer_peer_is_retained() {
 #[test]
 fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 500);
+    let alice = peer("alice");
+    headers.apply_header_received(alice, tip(1, 1), t(1), 500, false);
     headers.apply_blocks_requested(&[hash(1)], t(2));
-    headers.apply_block_downloaded(&hash(1), t(3));
+    let received = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), t(3));
+    assert!(matches!(
+        &received[..],
+        [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == alice
+    ));
     assert_eq!(headers.lifecycle_count(), 1);
     let telemetry = headers.apply_block_valid(&hash(1), t(4), false);
     assert_eq!(headers.lifecycle_count(), 0);
-    assert_eq!(telemetry.len(), 1);
+    assert_eq!(telemetry.len(), 2);
     assert!(matches!(
         &telemetry[0],
         super::HeaderTelemetry::Lifecycle {
@@ -638,6 +649,7 @@ fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
             ..
         }
     ));
+    assert!(matches!(&telemetry[1], super::HeaderTelemetry::Adopted { peer: Some(peer), .. } if *peer == alice));
 }
 
 #[test]
@@ -652,18 +664,18 @@ fn header_rejected_does_not_require_lifecycle_entry() {
 #[test]
 fn fork_started_and_closed_on_valid_block() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0, false);
     assert!(headers.apply_fork_started(tip(1, 1), t(1)).is_empty());
     assert!(headers.has_fork_switch(&hash(1)));
     let telemetry = headers.apply_block_valid(&hash(1), t(2), false);
     assert!(!headers.has_fork_switch(&hash(1)));
-    assert_eq!(telemetry.len(), 2); // lifecycle + fork switch
+    assert_eq!(telemetry.len(), 3); // lifecycle + adopted + fork switch
 }
 
 #[test]
 fn slot_start_metric_omitted_while_syncing() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000);
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000, false);
     let telemetry = headers.apply_block_valid(&hash(1), t(2), true);
     assert_eq!(headers.lifecycle_count(), 0);
     assert!(matches!(
@@ -677,10 +689,63 @@ fn slot_start_metric_omitted_while_syncing() {
 }
 
 #[test]
+fn announcement_logs_three_peers_and_deliveries_keep_arrival_order() {
+    let mut headers = HeaderPerformance::new();
+    let peers: Vec<Peer> = (1..=4).map(|port| Peer::for_test(3000 + port)).collect();
+    let announced: Vec<_> =
+        peers.iter().flat_map(|peer| headers.apply_header_received(*peer, tip(1, 1), t(1), 0, false)).collect();
+    assert_eq!(announced.len(), 3);
+    assert!(matches!(&announced[0], super::HeaderTelemetry::Announced { rank: 1, peer, .. } if *peer == peers[0]));
+    assert!(matches!(&announced[2], super::HeaderTelemetry::Announced { rank: 3, peer, .. } if *peer == peers[2]));
+    assert!(headers.apply_header_received(peers[0], tip(1, 1), t(2), 0, false).is_empty());
+
+    let first = headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), t(3));
+    assert!(headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), t(4)).is_empty());
+    let second = headers.apply_block_downloaded(peers[0], &hash(1), BlockHeight::from(1), t(5));
+    assert!(matches!(&first[..], [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == peers[2]));
+    assert!(matches!(&second[..], [super::HeaderTelemetry::Received { rank: 2, peer, .. }] if *peer == peers[0]));
+
+    let adopted = headers.apply_block_valid(&hash(1), t(6), false);
+    assert!(
+        matches!(adopted.last(), Some(super::HeaderTelemetry::Adopted { peer: Some(peer), .. }) if *peer == peers[2])
+    );
+}
+
+#[test]
+fn already_stored_header_does_not_open_a_rank_one_announcement() {
+    let mut headers = HeaderPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+
+    let first = headers.apply_header_received(alice, tip(1, 1), t(1), 1_000, false);
+    assert!(matches!(&first[..], [super::HeaderTelemetry::Announced { rank: 1, .. }]));
+
+    // A later peer extends the open list and leaves the first announcer's interval in place.
+    let second = headers.apply_header_received(bob, tip(1, 1), t(2), 9_000, true);
+    assert!(matches!(&second[..], [super::HeaderTelemetry::Announced { rank: 2, peer, .. }] if *peer == bob));
+    assert_eq!(headers.first_announcer(&hash(1)), Some(alice));
+    assert_eq!(headers.slot_start_to_header_micros(&hash(1)), Some(1_000));
+
+    headers.apply_block_valid(&hash(1), t(3), false);
+    assert!(
+        headers.apply_header_received(peer("carol"), tip(1, 1), t(4), 1, true).is_empty(),
+        "an adopted header is not announced again"
+    );
+    assert!(headers.apply_header_received(peer("dave"), tip(1, 1), t(4), 1, false).is_empty());
+    headers.apply_prune_below(BlockHeight::from(2), t(5));
+    assert!(headers.apply_header_received(peer("carol"), tip(1, 1), t(5), 1, true).is_empty());
+    assert_eq!(headers.lifecycle_count(), 0);
+
+    // A stored header this node never collected announcers for stays silent.
+    assert!(headers.apply_header_received(alice, tip(9, 9), t(6), 1, true).is_empty());
+    assert_eq!(headers.lifecycle_count(), 0);
+}
+
+#[test]
 fn prune_below_closes_open_lifecycles_as_pruned() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
-    headers.apply_header_received(peer("alice"), tip(5, 5), t(2), 0);
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0, false);
+    headers.apply_header_received(peer("alice"), tip(5, 5), t(2), 0, false);
     assert_eq!(headers.lifecycle_count(), 2);
     let pruned = headers.apply_prune_below(BlockHeight::from(5), t(3));
     assert_eq!(headers.lifecycle_count(), 1);
@@ -749,4 +814,123 @@ fn tokio_time_instant_now_works_outside_tokio_thread() {
         assert!(b.duration_since(a) >= std::time::Duration::from_millis(1));
     });
     assert!(result.is_ok(), "tokio::time::Instant::now panicked outside a Tokio runtime/thread: {result:?}");
+}
+
+#[derive(Clone)]
+struct MemWriter(Arc<Mutex<Vec<u8>>>);
+
+impl Write for MemWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.lock().expect("log buffer").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Drive the same effect path the stages use: four announcers, a fetch request, two deliveries,
+/// adoption, plus ordinary consensus logs that must stay selectable apart from block propagation.
+fn capture_blockperf(filter: &str, live: bool) -> String {
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let writer = MemWriter(Arc::clone(&buf));
+    let layer = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .event_format(CborConsoleEventFormat::new().with_ansi(false))
+        .fmt_fields(console_field_formatter())
+        .with_writer(move || writer.clone())
+        .with_filter(EnvFilter::new(filter));
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    amaru_observability::tracing::subscriber::with_default(subscriber, || {
+        let resources = Resources::default();
+        resources.put::<ResourcePerformance>(Arc::new(Performance::new()));
+        if live {
+            resources.put(crate::consensus_mode::ConsensusMode::Live);
+        }
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+        let body = hash(9);
+        let point = tip(9, 4);
+        let peers: Vec<Peer> = (1..=4).map(|port| Peer::for_test(3000 + port)).collect();
+        for peer in &peers {
+            let effect = Performance::record_header_announcement(*peer, point, None, t(1), 0, false);
+            rt.block_on(Box::new(effect).run(resources.clone()));
+        }
+        super::emit_blocks_requested(&[body], &peers[..2], live);
+        for peer in [peers[1], peers[0]] {
+            let effect = Performance::record_block_delivery(
+                peer,
+                body,
+                BlockHeight::from(4),
+                None,
+                t(2),
+                Duration::from_millis(5),
+                100,
+            );
+            rt.block_on(Box::new(effect).run(resources.clone()));
+        }
+        let effect = Performance::record_block_valid(body, t(3), false);
+        rt.block_on(Box::new(effect).run(resources.clone()));
+        info!(consensus::blocks::PAUSED, req_id = 1u64);
+        debug!(consensus::blocks::TIMEOUT, req_id = 1u64);
+    });
+
+    String::from_utf8(buf.lock().expect("log buffer").clone()).expect("utf-8 log")
+}
+
+#[test]
+fn env_filter_selects_exactly_the_four_blockperf_events() {
+    let only = capture_blockperf("off,amaru::blockperf=debug", false);
+    let lines: Vec<_> = only.lines().filter(|line| !line.is_empty()).collect();
+    assert!(lines.iter().all(|line| line.contains("amaru::blockperf")), "unexpected lines:\n{only}");
+    for name in ["header.announced", "block.requested", "block.received", "block.adopted"] {
+        assert!(lines.iter().any(|line| line.contains(name)), "missing {name}:\n{only}");
+    }
+    assert_eq!(lines.iter().filter(|line| line.contains("header.announced")).count(), 3, "{only}");
+    assert!(only.contains(r#"peers="127.0.0.1:3001,127.0.0.1:3002""#), "{only}");
+    assert!(only.contains(r#"peer="127.0.0.1:3001""#), "{only}");
+    assert!(only.contains(r#"peer="127.0.0.1:3002""#), "{only}");
+    assert!(only.contains(r#"peer="127.0.0.1:3003""#), "{only}");
+    assert!(!only.contains("127.0.0.1:3004"), "{only}");
+    assert!(only.contains("rank=1") && only.contains("rank=2") && only.contains("rank=3"), "{only}");
+    assert!(!only.contains("rank=4"), "{only}");
+    assert!(
+        lines.iter().any(|line| {
+            line.contains("block.received") && line.contains(r#"peer="127.0.0.1:3002""#) && line.contains("rank=1")
+        }),
+        "{only}"
+    );
+    assert!(
+        lines.iter().any(|line| {
+            line.contains("block.received") && line.contains(r#"peer="127.0.0.1:3001""#) && line.contains("rank=2")
+        }),
+        "{only}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("block.adopted") && line.contains(r#"peer="127.0.0.1:3002""#)),
+        "{only}"
+    );
+    assert!(!only.contains("blocks.paused"), "{only}");
+    assert!(!only.contains("blocks.timeout"), "{only}");
+    assert!(!only.contains("perf.header.lifecycle"), "{only}");
+
+    // The span-name syntax does not select these events: a bracketed name matches the current span.
+    let legacy = capture_blockperf("info,amaru::consensus[perf.header.lifecycle{peer}]", false);
+    assert!(!legacy.contains("header.announced"), "{legacy}");
+    assert!(!legacy.contains("block.requested"), "{legacy}");
+    assert!(!legacy.contains("block.received"), "{legacy}");
+    assert!(!legacy.contains("block.adopted"), "{legacy}");
+    assert!(legacy.contains("blocks.paused"), "{legacy}");
+
+    let with_info = capture_blockperf("info,amaru::blockperf=debug", false);
+    assert!(with_info.lines().any(|line| line.contains(" DEBUG ") && line.contains("header.announced")), "{with_info}");
+
+    let live = capture_blockperf("info,amaru::blockperf=info", true);
+    assert!(live.lines().any(|line| line.contains(" INFO ") && line.contains("header.announced")), "{live}");
+    assert!(live.lines().any(|line| line.contains(" INFO ") && line.contains("block.adopted")), "{live}");
+    assert!(!live.lines().any(|line| line.contains(" DEBUG ") && line.contains("amaru::blockperf")), "{live}");
+    assert!(with_info.contains("blocks.paused"), "{with_info}");
+    assert!(!with_info.contains("blocks.timeout"), "{with_info}");
+    assert!(with_info.contains("header.announced") && with_info.contains("block.adopted"), "{with_info}");
 }

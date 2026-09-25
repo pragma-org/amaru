@@ -53,8 +53,20 @@ It is also possible to filter events by severity: `error`, `warn`, `info`, `debu
 
 ### By span
 
-A `span` name can be used as a filter too. Note that any `span` or `event` inside this `span` will be considered, including those not matching the initial `target` (e.g. `pallas` events could match).
-For example `amaru[find_intersection]=trace` will filter all `spans` and `events` with the name `find_intersection` plus all children of this event.
+A `span` name can be used as a filter too. The name in brackets matches the current span. Events and spans created inside that span are included, including those with a different target (e.g. `pallas` events could match).
+For example `amaru[find_intersection]=trace` enables the `find_intersection` span and everything recorded while it is entered.
+
+### Block propagation
+
+Header announcement, block request, block delivery, and local adoption are events on the target `amaru::blockperf` (`header.announced`, `block.requested`, `block.received`, `block.adopted`). Select them with:
+
+```bash
+AMARU_LOG=info,amaru::blockperf=debug
+```
+
+`AMARU_LOG=off,amaru::blockperf=debug` prints only those events. `header.announced` is emitted for the first three distinct peers of a header hash, with `rank` 1, 2, or 3. A header that is already stored does not start a new rank-1 line; a later peer is logged only while that header is still within those three announcements and has not yet been adopted. `block.requested` lists the peers asked for that body. `block.received` names each delivering peer with its arrival rank. `block.adopted` records local adoption and, when known, the first peer that delivered the body.
+
+While the adopted chain is more than 60 seconds from the wall clock these lines are debug, and `tip.adopt` is limited to one info line per second. Once the adopted tip is within 60 seconds they are info, and every adoption is printed. A change between sync and live is logged at info as `tip.mode`. `chainsync.chain_lagging` is logged when near-now headers keep arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, and during the minute in which sync is finishing.
 
 ### By tag
 

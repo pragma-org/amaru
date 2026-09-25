@@ -4,6 +4,115 @@
   "title": "Amaru Trace Schemas",
   "description": "JSON Schema definitions for all registered traces in Amaru",
   "definitions": {
+    "amaru::blockperf::block::ADOPTED": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [
+        "peer"
+      ],
+      "additionalProperties": false,
+      "name": "adopted",
+      "level": "TRACE",
+      "target": "amaru::blockperf::block",
+      "description": "The block was adopted locally. `peer` is the first peer that delivered the body, when a delivery was recorded.",
+      "public": true
+    },
+    "amaru::blockperf::block::RECEIVED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rank": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "header_hash",
+        "rank"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "received",
+      "level": "TRACE",
+      "target": "amaru::blockperf::block",
+      "description": "A distinct peer delivered this block body. `rank` is 1 for the first delivery, then 2, 3, … in arrival order.",
+      "public": true
+    },
+    "amaru::blockperf::block::REQUESTED": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "peers": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "header_hash",
+        "peers"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "requested",
+      "level": "TRACE",
+      "target": "amaru::blockperf::block",
+      "description": "Peers asked to fetch this block body. `peers` is a comma-separated list of socket addresses, sorted.",
+      "public": true
+    },
+    "amaru::blockperf::header::ANNOUNCED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "rank": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "header_hash",
+        "rank"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "announced",
+      "level": "TRACE",
+      "target": "amaru::blockperf::header",
+      "description": "One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.",
+      "public": true
+    },
     "amaru::bootstrap::COMPLETE": {
       "type": "object",
       "properties": {
@@ -3697,6 +3806,42 @@
       "description": "A database migration relies on an assumption that may not hold; see the reason",
       "public": true
     },
+    "amaru::consensus::chainsync::CHAIN_LAGGING": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "live_slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "our_slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "lag": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "live_slot",
+        "our_slot",
+        "lag"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "chain_lagging",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "Near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. Sync that is still adopting faster than 10 blocks per second does not raise this. Emitted at most once a minute.",
+      "public": true
+    },
     "amaru::consensus::chainsync::INITIALIZED": {
       "type": "object",
       "properties": {
@@ -4280,7 +4425,7 @@
       "name": "lifecycle",
       "level": "TRACE",
       "target": "amaru::consensus::perf::header",
-      "description": "Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. `outcome` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
+      "description": "Event recorded once per header, when its processing reaches a terminal state. The four network-health points themselves are the `amaru::blockperf` events (`header.announced`, `block.requested`, `block.received`, `block.adopted`). This event carries the intervals between those points once the header reaches a terminal state. `outcome` describes that state (including headers rejected on reception, which carry no durations). The optional durations are: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
       "public": true
     },
     "amaru::consensus::performance::QUEUE_LAGGING": {
@@ -4379,6 +4524,35 @@
       "level": "TRACE",
       "target": "amaru::consensus::tip",
       "description": "Adopt a tip as the next tip in the best chain",
+      "public": true
+    },
+    "amaru::consensus::tip::MODE": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "previous": {
+          "type": "string"
+        },
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "mode",
+        "previous",
+        "slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mode",
+      "level": "TRACE",
+      "target": "amaru::consensus::tip",
+      "description": "The node switched between catching up and live. `mode` and `previous` ∈ {sync, live}.",
       "public": true
     },
     "amaru::ledger::account::PAY_OR_REFUND": {

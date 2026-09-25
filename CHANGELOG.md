@@ -37,6 +37,11 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
+### Fixed
+
+- **amaru**: block propagation can be followed on its own. `AMARU_LOG=off,amaru::blockperf=info` prints, for each block, the first three peers that announced the header (`header.announced`, with rank), the peers asked for the body (`block.requested`), each peer that delivered the body in arrival order (`block.received`), and local adoption (`block.adopted`). A header that is already stored does not start a new announcement line. The logging is at DEBUG level while syncing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
+- **amaru**: `chainsync.chain_lagging` is logged when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, including while sync is finishing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
+
 ## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added

@@ -67,11 +67,13 @@ async fn enqueue_query<T: Send + 'static>(
 /// Await worker telemetry, then emit on this (effect-executor) path.
 async fn enqueue_and_emit_telemetry(
     perf: &Performance,
-    meter: Option<Arc<amaru_metrics::Meter>>,
+    resources: Resources,
     make: impl FnOnce(oneshot::Sender<Vec<HeaderTelemetry>>) -> PerformanceOp,
 ) {
     let events = enqueue_query(perf, make).await;
-    HeaderTelemetry::emit_all(&events, meter.as_deref());
+    let meter = optional_meter(&resources);
+    let live = crate::consensus_mode::is_live(&resources);
+    HeaderTelemetry::emit_all(&events, meter.as_deref(), live);
 }
 
 // ---------------------------------------------------------------------------
@@ -88,14 +90,19 @@ impl Performance {
         RecordIntersectionEffect { peer, current, parent, at }
     }
 
+    /// Record that `peer` announced `header`.
+    ///
+    /// `already_stored` is set when the chain store already holds the header. That announcement
+    /// can extend an open list (ranks 2 and 3) but does not start a new rank-1 line or lifecycle.
     pub fn record_header_announcement(
         peer: Peer,
         header: Point,
         parent: Option<HeaderHash>,
         at: Instant,
         slot_start_to_header_micros: u64,
+        already_stored: bool,
     ) -> RecordHeaderAnnouncementEffect {
-        RecordHeaderAnnouncementEffect { peer, header, parent, at, slot_start_to_header_micros }
+        RecordHeaderAnnouncementEffect { peer, header, parent, at, slot_start_to_header_micros, already_stored }
     }
 
     pub fn record_blocks_requested(hashes: Vec<HeaderHash>, requested_at: Instant) -> RecordBlocksRequestedEffect {
@@ -242,6 +249,16 @@ impl Performance {
     ) -> RecordBlockPrunedEffect {
         RecordBlockPrunedEffect { hash, invalid, now, syncing }
     }
+
+    /// Record one chain adoption. `live` clears the sync pace; sync adoptions update it.
+    pub fn record_sync_adoption(at: Instant, live: bool) -> RecordSyncAdoptionEffect {
+        RecordSyncAdoptionEffect { at, live }
+    }
+
+    /// Whether sync adoptions are still arriving faster than 10 per second and are not overdue.
+    pub fn sync_adoption_is_fast(now: Instant) -> SyncAdoptionPaceEffect {
+        SyncAdoptionPaceEffect { now }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,15 +292,22 @@ pub struct RecordHeaderAnnouncementEffect {
     pub(crate) at: Instant,
     /// Stage-computed interval from virtual slot start to header reception.
     pub(crate) slot_start_to_header_micros: u64,
+    /// The chain store already held this header. Used to avoid a fresh rank-1 announcement.
+    pub(crate) already_stored: bool,
 }
 
 impl ExternalEffectAPI for RecordHeaderAnnouncementEffect {
     type Response = ();
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
-            let perf = require_perf(&resources);
-            enqueue(&perf, PerformanceOp::RecordHeaderAnnouncement { effect: self.as_ref().clone() });
+        let perf = require_perf(&resources);
+        let resources = resources.clone();
+        self.wrap(|this| async move {
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordHeaderAnnouncement {
+                effect: this,
+                reply,
+            })
+            .await
         })
     }
 }
@@ -320,9 +344,14 @@ impl ExternalEffectAPI for RecordBlockDeliveryEffect {
     type Response = ();
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
-            let perf = require_perf(&resources);
-            enqueue(&perf, PerformanceOp::RecordBlockDelivery { effect: self.as_ref().clone() });
+        let perf = require_perf(&resources);
+        let resources = resources.clone();
+        self.wrap(|this| async move {
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordBlockDelivery {
+                effect: this,
+                reply,
+            })
+            .await
         })
     }
 }
@@ -441,9 +470,10 @@ impl ExternalEffectAPI for PruneBelowEffect {
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
+        let resources = resources.clone();
         self.wrap(|this| async move {
-            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::PruneBelow { effect: this, reply }).await
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::PruneBelow { effect: this, reply })
+                .await
         })
     }
 }
@@ -757,7 +787,7 @@ impl ExternalEffectAPI for RecordHeaderRejectedEffect {
         self.wrap_sync({
             // NOTE: No worker state; emit directly on the effect path (never on the performance thread).
             let meter = optional_meter(&resources);
-            HeaderPerformance::apply_header_rejected(self.outcome).emit(meter.as_deref());
+            HeaderPerformance::apply_header_rejected(self.outcome).emit(meter.as_deref(), false);
         })
     }
 }
@@ -773,9 +803,9 @@ impl ExternalEffectAPI for RecordHeaderAbandonedEffect {
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
+        let resources = resources.clone();
         self.wrap(|this| async move {
-            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordHeaderAbandoned {
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordHeaderAbandoned {
                 effect: this,
                 reply,
             })
@@ -795,10 +825,13 @@ impl ExternalEffectAPI for RecordForkStartedEffect {
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
+        let resources = resources.clone();
         self.wrap(|this| async move {
-            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordForkStarted { effect: this, reply })
-                .await
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordForkStarted {
+                effect: this,
+                reply,
+            })
+            .await
         })
     }
 }
@@ -816,10 +849,13 @@ impl ExternalEffectAPI for RecordBlockValidEffect {
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
+        let resources = resources.clone();
         self.wrap(|this| async move {
-            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordBlockValid { effect: this, reply })
-                .await
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordBlockValid {
+                effect: this,
+                reply,
+            })
+            .await
         })
     }
 }
@@ -838,10 +874,46 @@ impl ExternalEffectAPI for RecordBlockPrunedEffect {
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
+        let resources = resources.clone();
         self.wrap(|this| async move {
-            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordBlockPruned { effect: this, reply })
-                .await
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordBlockPruned {
+                effect: this,
+                reply,
+            })
+            .await
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RecordSyncAdoptionEffect {
+    pub(crate) at: Instant,
+    pub(crate) live: bool,
+}
+
+impl ExternalEffectAPI for RecordSyncAdoptionEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordSyncAdoption { effect: self.as_ref().clone() });
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SyncAdoptionPaceEffect {
+    pub(crate) now: Instant,
+}
+
+impl ExternalEffectAPI for SyncAdoptionPaceEffect {
+    type Response = bool;
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        self.wrap(|this| async move {
+            enqueue_query(&perf, |reply| PerformanceOp::SyncAdoptionPace { effect: this, reply }).await
         })
     }
 }

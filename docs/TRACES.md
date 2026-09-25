@@ -5,6 +5,58 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
+## target: `amaru::blockperf::block`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `adopted` | `TRACE` | public | The block was adopted locally. \`peer\` is the first peer that delivered the body, when a delivery was recorded. | header_hash | peer |
+| `received` | `TRACE` | public | A distinct peer delivered this block body. \`rank\` is 1 for the first delivery, then 2, 3, … in arrival order. | peer, header_hash, rank |  |
+| `requested` | `TRACE` | public | Peers asked to fetch this block body. \`peers\` is a comma-separated list of socket addresses, sorted. | header_hash, peers |  |
+
+<details><summary>span: `adopted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+| `peer` | `string` |  |
+
+</details>
+
+<details><summary>span: `received`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `rank` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `requested`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+| `peers` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::blockperf::header`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `announced` | `TRACE` | public | One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. | peer, header_hash, rank |  |
+
+<details><summary>span: `announced`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `rank` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::bootstrap`
 
 | name | level | public | description | required fields | optional fields |
@@ -1285,6 +1337,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `chain_lagging` | `TRACE` | public | Near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. Sync that is still adopting faster than 10 blocks per second does not raise this. Emitted at most once a minute. | peer, live_slot, our_slot, lag |  |
 | `initialized` | `TRACE` | public | A chainsync session with an upstream peer was initialized | peer, conn_id |  |
 | `intersect_found` | `TRACE` | public | An intersection with the peer's chain was found | peer, conn_id, current, highest |  |
 | `intersect_not_found` | `TRACE` | public | No intersection with the peer's chain was found, so chainsync with it stops | peer, highest |  |
@@ -1293,6 +1346,17 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `roll_backward_failed` | `TRACE` | public | A rollback requested by a peer could not be applied; the peer is adversarial | peer, error |  |
 | `terminated` | `TRACE` | public | A chainsync session terminated and its connection state was purged | peer, conn_id |  |
 | `unknown_intersection_point` | `TRACE` | public | The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike \`INTERSECT_NOT_FOUND\` this points at local state, not at the peer. | peer, current, highest |  |
+
+<details><summary>span: `chain_lagging`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `live_slot` | `integer` | ✓ |
+| `our_slot` | `integer` | ✓ |
+| `lag` | `integer` | ✓ |
+
+</details>
 
 <details><summary>span: `initialized`</summary>
 
@@ -1439,7 +1503,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. The four network-health points themselves are the \`amaru::blockperf\` events (\`header.announced\`, \`block.requested\`, \`block.received\`, \`block.adopted\`). This event carries the intervals between those points once the header reaches a terminal state. \`outcome\` describes that state (including headers rejected on reception, which carry no durations). The optional durations are: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros |
 
 <details><summary>span: `lifecycle`</summary>
 
@@ -1494,6 +1558,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `adopt` | `TRACE` | public | Adopt a tip as the next tip in the best chain | slot, header_hash, block_height, max_block_height, suppressed |  |
+| `mode` | `TRACE` | public | The node switched between catching up and live. \`mode\` and \`previous\` ∈ {sync, live}. | mode, previous, slot |  |
 
 <details><summary>span: `adopt`</summary>
 
@@ -1504,6 +1569,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `block_height` | `integer` | ✓ |
 | `max_block_height` | `integer` | ✓ |
 | `suppressed` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `mode`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `mode` | `string` | ✓ |
+| `previous` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
 
 </details>
 

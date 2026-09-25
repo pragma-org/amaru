@@ -17,8 +17,8 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc, time::Duration};
 use amaru_consensus::{
     block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
     effects::{
-        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
-        ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
+        ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
+        ResourceMeter, ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
     },
     performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
@@ -379,6 +379,7 @@ fn register_resources(
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
     stage_graph.resources().put::<ResourceEraHistory>(era_history);
+    stage_graph.resources().put(ConsensusMode::Sync);
 
     stage_graph.resources().put::<ResourceMeter>(meter);
 

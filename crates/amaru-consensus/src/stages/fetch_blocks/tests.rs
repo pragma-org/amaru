@@ -344,12 +344,18 @@ fn test_block_received() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["blocks.received"]).assert_no_remaining_at([
-        Level::DEBUG,
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.received"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &[
+                "amaru::blockperf",
+                "block.received",
+                r#"peer="127.0.0.1:3009""#,
+                "rank=1",
+                &format!(r#"header_hash="{}""#, prep.headers.h1.hash()),
+            ],
+        )
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -409,12 +415,18 @@ fn test_block2_received() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["blocks.received"]).assert_no_remaining_at([
-        Level::DEBUG,
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.received"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &[
+                "amaru::blockperf",
+                "block.received",
+                r#"peer="127.0.0.1:3009""#,
+                "rank=1",
+                &format!(r#"header_hash="{}""#, prep.headers.h2.hash()),
+            ],
+        )
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -471,6 +483,16 @@ fn test_block_point_mismatch() {
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &prep.state).into()]);
 
     logs.assert_and_remove(Level::DEBUG, &["blocks.received"])
+        .assert_and_remove(
+            Level::DEBUG,
+            &[
+                "amaru::blockperf",
+                "block.received",
+                r#"peer="127.0.0.1:3009""#,
+                "rank=1",
+                &format!(r#"header_hash="{}""#, prep.headers.h1.hash()),
+            ],
+        )
         .assert_and_remove(Level::WARN, &["blocks.point_mismatch"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -722,7 +744,16 @@ fn test_peers_asked_stores_peer_set() {
         state
     };
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &expected).into()]);
-    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &[
+            "amaru::blockperf",
+            "block.requested",
+            &format!(r#"header_hash="{}""#, prep.headers.h1.hash()),
+            r#"peers="127.0.0.1:3009""#,
+        ],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Regression: `NoBlocks` may arrive before `PeersAsked` (no cross-stage order). A late
@@ -763,7 +794,54 @@ fn test_peers_asked_does_not_resurrect_no_blocks_peer() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &[
+            "amaru::blockperf",
+            "block.requested",
+            &format!(r#"header_hash="{}""#, prep.headers.h1.hash()),
+            r#"peers="127.0.0.1:3003""#,
+        ],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// Peers actually contacted are logged per header, and each distinct delivery is ranked.
+#[test]
+fn test_block_request_names_asked_peers_and_deliveries_are_ranked() {
+    use crate::stages::fetch_blocks::test_setup::setup_preload;
+
+    let mut prep = test_prep();
+    let alice = Peer::for_test(3001);
+    let bob = Peer::for_test(3002);
+    let schedule_id = prep.schedule_at(Duration::from_secs(5));
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    prep.state = {
+        let mut state = prep.state_with_request(
+            MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
+            1,
+            schedule_id,
+        );
+        state.fetch_started_at = Some(requested_at);
+        state
+    };
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
+    prep.store_block(&prep.headers.h0);
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let asked = FetchBlocksMsg::PeersAsked(1, vec![bob, alice]);
+    let first = FetchBlocksMsg::Block(bob, TestPrep::network_block(&prep.headers.h1));
+    let second = FetchBlocksMsg::Block(alice, TestPrep::network_block(&prep.headers.h1));
+    let (_running, _guards, mut logs) = setup_preload(&prep, [asked, first, second]);
+
+    let first_hash = format!(r#"header_hash="{}""#, prep.headers.h1.hash());
+    let second_hash = format!(r#"header_hash="{}""#, prep.headers.h2.hash());
+    logs.assert_and_remove(Level::DEBUG, &["block.requested", &first_hash, r#"peers="127.0.0.1:3001,127.0.0.1:3002""#])
+        .assert_and_remove(Level::DEBUG, &["block.requested", &second_hash, r#"peers="127.0.0.1:3001,127.0.0.1:3002""#])
+        .assert_and_remove(Level::DEBUG, &["block.received", &first_hash, r#"peer="127.0.0.1:3002""#, "rank=1"])
+        .assert_and_remove(Level::DEBUG, &["block.received", &first_hash, r#"peer="127.0.0.1:3001""#, "rank=2"]);
+    let rest = logs.to_string();
+    assert!(!rest.contains("block.received"), "only the two deliveries of this body:\n{rest}");
 }
 
 #[test]
