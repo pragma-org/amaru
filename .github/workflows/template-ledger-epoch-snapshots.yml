@@ -44,6 +44,7 @@ jobs:
             magic: 2
             start_epoch: 1119
             target_epoch: 1180
+        cardano_node_version: [11.0.1]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
       AMARU_PEER_ADDRESS: 127.0.0.1:3001
@@ -61,7 +62,7 @@ jobs:
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
       OTEL_METRIC_EXPORT_INTERVAL: 1000
       RUST_BACKTRACE: 1
-      CARDANO_NODE_IMAGE: ghcr.io/intersectmbo/cardano-node:11.0.1@sha256:007da778998d0bdb043fb834c62b9da1c95e33610f31f6f9cccab29a945e2b99
+      CARDANO_NODE_IMAGE: ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}@sha256:007da778998d0bdb043fb834c62b9da1c95e33610f31f6f9cccab29a945e2b99
 
     steps:
       - name: Support longpaths
