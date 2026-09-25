@@ -1478,7 +1478,7 @@ fn open_with_older_version_recommends_migration() {
         "expected IncompatibleChainStoreVersions, got: {err:?}"
     );
     assert!(
-        message.contains("--migrate-chain-db") && message.contains("AMARU_MIGRATE_CHAIN_DB"),
+        message.contains("--db-chain-automatic-migration") && message.contains("AMARU_DB_CHAIN_AUTOMATIC_MIGRATION"),
         "error should recommend enabling migration on node run, got: {message}"
     );
 }

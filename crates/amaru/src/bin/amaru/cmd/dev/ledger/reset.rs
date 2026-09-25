@@ -17,12 +17,7 @@
 //! Prefer [`amaru node rollback --epoch`](crate::cmd::node::rollback) which also realigns the
 //! chain store and clears descendant validation flags.
 
-use std::path::PathBuf;
-
-use amaru::{
-    default_ledger_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{Epoch, NetworkName};
 use amaru_node::reset_ledger_to_epoch;
 use amaru_observability::info;
@@ -37,21 +32,11 @@ pub struct Args {
     )]
     pub epoch: Epoch,
 
-    /// The path to the ledger database to reset
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-    )]
-    pub ledger_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_ledger: amaru::args::DbLedger,
 
-    /// Network of the underlying chain database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    pub network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -59,17 +44,12 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let network = NetworkName::from(args.network);
+    let db_ledger = args.db_ledger.into_path_buf(network);
 
-    info!(
-        cli::dev::RUN,
-        command = "dev ledger reset",
-        network = args.network,
-        epoch = args.epoch.to_string(),
-        ledger_dir = ledger_dir.to_string_lossy(),
-        hint = "prefer `amaru node rollback --epoch` which also realigns the chain store"
-    );
+    info!(cli::dev::ledger::RESET, epoch = args.epoch, db_ledger = db_ledger.to_string_lossy(), network,);
 
-    reset_ledger_to_epoch(&ledger_dir, args.epoch)?;
+    reset_ledger_to_epoch(&db_ledger, args.epoch)?;
+
     Ok(())
 }

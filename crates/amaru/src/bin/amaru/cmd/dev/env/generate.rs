@@ -32,7 +32,7 @@ use crate::{cli, version};
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Override the default value of an environment variable.
-    #[arg(long = "override", value_name = value_names::STR_KEY_VALUE)]
+    #[arg(long = "override", value_name = value_names::KEY_VALUE)]
     overrides: Vec<EnvironmentOverride>,
 
     /// Generate a JSON object instead of .env textual config
@@ -146,7 +146,7 @@ impl FromStr for EnvironmentOverride {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let Some((name, value)) = value.split_once('=') else {
-            return Err(format!("expected {}", value_names::STR_KEY_VALUE));
+            return Err(format!("expected {}", value_names::KEY_VALUE));
         };
 
         if name.is_empty() || value.is_empty() {
@@ -358,7 +358,7 @@ mod tests {
         let variables = collect_environment_variables(&cli::command("test")).expect("command tree is valid");
 
         assert_eq!(variables["AMARU_WITH_JSON_TRACES"].meta_type, "BOOL");
-        assert_eq!(variables["AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS"].meta_type, "UINT|all");
+        assert_eq!(variables["AMARU_DB_LEDGER_MAX_EXTRA_SNAPSHOTS"].meta_type, "UINT|all");
         assert!(variables.contains_key("AMARU_S3_BUCKET"));
         assert!(!variables.contains_key("AMARU_GLOBAL_SYSTEM_START"));
         assert!(!variables.contains_key("AMARU_SNAPSHOTS_DIR"));

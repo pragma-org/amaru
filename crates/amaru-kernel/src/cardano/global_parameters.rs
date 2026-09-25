@@ -22,7 +22,7 @@ fn default_global_parameters() -> &'static GlobalParameters {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
-#[cfg_attr(feature = "clap", command(next_help_heading = "Network Global Parameters Overrides"))]
+#[cfg_attr(feature = "clap", command(next_help_heading = "Network global parameters"))]
 pub struct GlobalParameters {
     /// The maximum depth of a rollback, also known as the security parameter 'k'.
     ///

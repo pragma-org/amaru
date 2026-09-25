@@ -140,16 +140,16 @@ amaru node run --network preprod
 | Flag | Description                                                                       |
 |------|-----------------------------------------------------------------------------------|
 | `--network` | Network to run on: `mainnet`, `preprod`, `preview`, or a custom `testnet_<magic>` |
-| `--chain-dir` | Directory for the chain database (defaults to `./chain.<network>.db`)             |
-| `--ledger-dir` | Directory for the ledger database (defaults to `./ledger.<network>.db`)           |
-| `--listen-address` | Address to accept incoming peer connections on (default `0.0.0.0:3000`)           |
-| `--peer-address` | Upstream peer(s) to sync from; repeatable or comma-separated                      |
-| `--upstream-peers` | Maximum number of upstream (outbound) peers Amaru maintains at once (default `3`) |
-| `--submit-api-address` | If set, exposes an HTTP `POST /api/submit/tx` endpoint for transaction submission |
+| `--db-chain` | Directory for the chain database (defaults to `./chain.<network>.db`)             |
+| `--db-ledger` | Directory for the ledger database (defaults to `./ledger.<network>.db`)           |
+| `--peers-listen-on` | Address to accept incoming peer connections on (default `0.0.0.0:3000`)           |
+| `--peer` | Upstream peer(s) to sync from; repeatable or comma-separated                      |
+| `--peers-max-upstream` | Maximum number of upstream (outbound) peers Amaru maintains at once (default `3`) |
+| `--submit-api-listen-on` | If set, exposes an HTTP `POST /api/submit/tx` endpoint for transaction submission |
 
 For the full list of options run `amaru node run --help`.
 
-Unless `--no-tui` is passed (or stdout isn't a terminal), `amaru node run` opens an embedded terminal dashboard showing sync progress, peers, and logs live, that's the quickest way to confirm the node is catching up to the tip. See [The Amaru TUI](02-amaru-tui.md) for a full tour of what it shows.
+Unless `--tui-off` is passed (or stdout isn't a terminal), `amaru node run` opens an embedded terminal dashboard showing sync progress, peers, and logs live, that's the quickest way to confirm the node is catching up to the tip. See [The Amaru TUI](02-amaru-tui.md) for a full tour of what it shows.
 
 ![img](img/Amaru_Syncing_TUI.png)
 

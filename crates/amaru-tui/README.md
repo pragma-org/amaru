@@ -1,7 +1,7 @@
 # Amaru TUI
 
 `amaru-tui` is the terminal UI used by Amaru when running in an interactive
-terminal. It is launched automatically by `amaru node run` when `--no-tui` is
+terminal. It is launched automatically by `amaru node run` when `--tui-off` is
 not set.
 
 The architectural rationale lives in

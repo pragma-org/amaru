@@ -59,7 +59,7 @@ pub use peer::{
     SHARE_MALUS_THRESHOLD, SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SelectUsing, SharedIngestResult,
     SourceCounts, malus_at,
 };
-pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
+pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEERS_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
 use tokio::{
     sync::{
         mpsc::{UnboundedSender, unbounded_channel},

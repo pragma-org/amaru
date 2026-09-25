@@ -507,21 +507,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::cli::chain_db`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `exist` | `TRACE` | public | Chain database already exists | dir, hint |  |
-
-<details><summary>span: `exist`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `dir` | `string` | ✓ |
-| `hint` | `string` | ✓ |
-
-</details>
-
 ## target: `amaru::cli::current_epoch`
 
 | name | level | public | description | required fields | optional fields |
@@ -563,32 +548,33 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::cli::dev`
+## target: `amaru::cli::db_chain`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `run` | `TRACE` | public | A developer command started, with the arguments it resolved. Command names the subcommand, e.g. "dev chain prune". | command, network | chain_dir, ledger_dir, headers_dir, input, start, block, parent, peer_address, epoch, count, from_point, only_blocks, only_validation_results, hint |
+| `exist` | `TRACE` | public | Chain database already exists | dir, hint |  |
 
-<details><summary>span: `run`</summary>
+<details><summary>span: `exist`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `command` | `string` | ✓ |
-| `network` | `string` | ✓ |
-| `chain_dir` | `string` |  |
-| `ledger_dir` | `string` |  |
-| `headers_dir` | `string` |  |
-| `input` | `string` |  |
-| `start` | `string` |  |
-| `block` | `string` |  |
-| `parent` | `string` |  |
-| `peer_address` | `string` |  |
-| `epoch` | `string` |  |
-| `count` | `integer` |  |
-| `from_point` | `string` |  |
-| `only_blocks` | `boolean` |  |
-| `only_validation_results` | `boolean` |  |
-| `hint` | `string` |  |
+| `dir` | `string` | ✓ |
+| `hint` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::cli::db_ledger`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `exist` | `TRACE` | public | Ledger database already exists | dir, hint |  |
+
+<details><summary>span: `exist`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `dir` | `string` | ✓ |
+| `hint` | `string` | ✓ |
 
 </details>
 
@@ -596,21 +582,98 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `ancestors` | `TRACE` | public | Walk back from a given point showing block height, presence, validation status and best chain flag. | db_chain, network, start |  |
 | `anchor_updated` | `TRACE` | public | The chain store anchor was moved to a new hash | new_anchor |  |
+| `best_chain` | `TRACE` | public | Show the best chain tip and computed best tip candidate. | db_chain, network |  |
+| `children` | `TRACE` | public | Walk forward from a point and show its children. | db_chain, network, start |  |
+| `clear_invalid` | `TRACE` | public | Clear the validation status for selected blocks. | blocks, db_chain, network |  |
+| `dump` | `TRACE` | public | Dump selected chain database tables. | db_chain, network |  |
+| `fetch` | `TRACE` | public | Fetch chain headers from a peer. | headers, network, parent, peer |  |
+| `migrate` | `TRACE` | public | Migrate the chain database to the current format. | db_chain, network |  |
 | `migration_not_needed` | `TRACE` | public | The chain database is already at the current version |  |  |
 | `moving_best_chain` | `TRACE` | public | The best chain hash is being moved back before removing points |  |  |
 | `open_failed` | `TRACE` | public | The chain database could not be opened | error |  |
 | `parent_not_found` | `TRACE` | public | A header on the path back to the best chain has no stored parent | header_hash |  |
 | `point_removed` | `TRACE` | public | A point is being removed from the chain store | point |  |
 | `points_to_remove` | `TRACE` | public | The number of stored points selected for removal | points |  |
+| `prune` | `TRACE` | public | Prune chain data that precedes the oldest ledger snapshot. | db_chain, db_ledger, network |  |
 | `prune_boundary` | `TRACE` | public | The pruning boundary derived from the oldest ledger snapshot | oldest_ledger_epoch, boundary_slot |  |
+| `remove` | `TRACE` | public | Remove data after a chain point. | db_chain, from_point, network, only_blocks, only_validation_results |  |
 | `validation_cleared` | `TRACE` | public | The stored validation status of a block is being cleared | header_hash |  |
+
+<details><summary>span: `ancestors`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `start` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `anchor_updated`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `new_anchor` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `best_chain`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `children`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `start` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `clear_invalid`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `blocks` | `string` | ✓ |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `dump`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `headers` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+| `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `migrate`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
 
 </details>
 
@@ -646,12 +709,34 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `prune`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_chain` | `string` | ✓ |
+| `db_ledger` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
 <details><summary>span: `prune_boundary`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `oldest_ledger_epoch` | `integer` | ✓ |
 | `boundary_slot` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_chain` | `string` | ✓ |
+| `from_point` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `only_blocks` | `boolean` | ✓ |
+| `only_validation_results` | `boolean` | ✓ |
 
 </details>
 
@@ -667,8 +752,30 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `snapshot_not_found` | `TRACE` | public | A ledger snapshot to remove does not exist | epoch |  |
-| `snapshot_removed` | `TRACE` | public | A ledger snapshot was removed | epoch |  |
+| `convert` | `TRACE` | public | Convert a cardano-node snapshot into an Amaru ledger database. | input, db_ledger, network |  |
+| `reset` | `TRACE` | public | Reset an Amaru ledger database to a snapshot epoch. | epoch, db_ledger, network |  |
+| `snapshot_not_found` | `TRACE` | public | A ledger snapshot to remove does not exist. | epoch |  |
+| `snapshot_removed` | `TRACE` | public | A ledger snapshot was removed. | epoch |  |
+
+<details><summary>span: `convert`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `input` | `string` | ✓ |
+| `db_ledger` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `reset`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+| `db_ledger` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `snapshot_not_found`</summary>
 
@@ -686,6 +793,69 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::cli::dev::ledger::nonces`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `get` | `TRACE` | public | Look up the nonces associated with a block. | block, db_chain, network |  |
+| `set` | `TRACE` | public | Set the nonces associated with a block. | block, db_chain, network |  |
+
+<details><summary>span: `get`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `block` | `string` | ✓ |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `set`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `block` | `string` | ✓ |
+| `db_chain` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::cli::dev::ledger::state`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `import` | `TRACE` | public | Import ledger state snapshots. | count, db_ledger, network |  |
+| `list` | `TRACE` | public | List ledger state snapshots. | db_ledger, network |  |
+| `remove` | `TRACE` | public | Removing ledger state | db_ledger, network |  |
+
+<details><summary>span: `import`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `count` | `integer` | ✓ |
+| `db_ledger` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `list`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_ledger` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `db_ledger` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::cli::last_block`
 
 | name | level | public | description | required fields | optional fields |
@@ -698,21 +868,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `epoch` | `integer` | ✓ |
 | `point` | `string` | ✓ |
-
-</details>
-
-## target: `amaru::cli::ledger_db`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `exist` | `TRACE` | public | Ledger database already exists | dir, hint |  |
-
-<details><summary>span: `exist`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `dir` | `string` | ✓ |
-| `hint` | `string` | ✓ |
 
 </details>
 
@@ -768,18 +923,18 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
-| `rm` | `TRACE` | public | Remove ledger and chain database from disk | chain_dir, ledger_dir, network |  |
-| `rollback` | `TRACE` | public | Roll the node databases back after a failure | chain_dir, ledger_dir, network, mode | epoch, ledger_tip, best_chain, anchor |
-| `run` | `TRACE` | public | The effective configuration a node run starts with | chain_dir, ledger_dir, listen_address, max_extra_ledger_snapshots, migrate_chain_db, network, peer_address, peer_snapshot, peer_snapshot_relays, pid_file, submit_api_address, trace_buffer_min_entries, trace_buffer_max_size, trace_dump_path, peer_removal_cooldown_secs, mempool_max_bytes, tx_submission_max_window, tx_submission_fetch_batch_bytes, tx_submission_inflight_timeout_ms, tx_submission_insert_timeout_ms | era_history, global_parameters |
+| `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | db_chain, db_ledger, network | epoch |
+| `rm` | `TRACE` | public | Remove ledger and chain database from disk | db_chain, db_ledger, network |  |
+| `rollback` | `TRACE` | public | Roll the node databases back after a failure | db_chain, db_ledger, mode, network | anchor, best_chain, epoch, ledger_tip |
+| `run` | `TRACE` | public | The effective configuration a node run starts with | db_chain, db_chain_automatic_migration, db_ledger, db_ledger_max_extra_snapshots, mempool_max_bytes, network, peer, peers_listen_on, peers_max_downstream, peers_max_upstream, peers_mix, peers_removal_cooldown_ms, peers_snapshot, peers_snapshot_relays, pid_export, submit_api_listen_on, trace_buffer, trace_buffer_dump, tui_log_retention, tui_off, tx_submission_fetch_batch_bytes, tx_submission_inflight_timeout_ms, tx_submission_insert_timeout_ms, tx_submission_max_window | era_history, global_parameters |
 | `submit_api_shutdown_failed` | `TRACE` | public | The submit API did not stop cleanly during shutdown. Reason ∈ {join_error, timeout}. | reason | error |
 
 <details><summary>span: `bootstrap`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `chain_dir` | `string` | ✓ |
-| `ledger_dir` | `string` | ✓ |
+| `db_chain` | `string` | ✓ |
+| `db_ledger` | `string` | ✓ |
 | `network` | `string` | ✓ |
 | `epoch` | `integer` |  |
 
@@ -789,8 +944,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `chain_dir` | `string` | ✓ |
-| `ledger_dir` | `string` | ✓ |
+| `db_chain` | `string` | ✓ |
+| `db_ledger` | `string` | ✓ |
 | `network` | `string` | ✓ |
 
 </details>
@@ -799,14 +954,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `chain_dir` | `string` | ✓ |
-| `ledger_dir` | `string` | ✓ |
-| `network` | `string` | ✓ |
+| `db_chain` | `string` | ✓ |
+| `db_ledger` | `string` | ✓ |
 | `mode` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `anchor` | `string` |  |
+| `best_chain` | `string` |  |
 | `epoch` | `integer` |  |
 | `ledger_tip` | `string` |  |
-| `best_chain` | `string` |  |
-| `anchor` | `string` |  |
 
 </details>
 
@@ -814,26 +969,30 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `chain_dir` | `string` | ✓ |
-| `ledger_dir` | `string` | ✓ |
-| `listen_address` | `string` | ✓ |
-| `max_extra_ledger_snapshots` | `string` | ✓ |
-| `migrate_chain_db` | `boolean` | ✓ |
-| `network` | `string` | ✓ |
-| `peer_address` | `string` | ✓ |
-| `peer_snapshot` | `string` | ✓ |
-| `peer_snapshot_relays` | `integer` | ✓ |
-| `pid_file` | `string` | ✓ |
-| `submit_api_address` | `string` | ✓ |
-| `trace_buffer_min_entries` | `integer` | ✓ |
-| `trace_buffer_max_size` | `integer` | ✓ |
-| `trace_dump_path` | `string` | ✓ |
-| `peer_removal_cooldown_secs` | `integer` | ✓ |
+| `db_chain` | `string` | ✓ |
+| `db_chain_automatic_migration` | `boolean` | ✓ |
+| `db_ledger` | `string` | ✓ |
+| `db_ledger_max_extra_snapshots` | `string` | ✓ |
 | `mempool_max_bytes` | `string` | ✓ |
-| `tx_submission_max_window` | `integer` | ✓ |
+| `network` | `string` | ✓ |
+| `peer` | `string` | ✓ |
+| `peers_listen_on` | `string` | ✓ |
+| `peers_max_downstream` | `integer` | ✓ |
+| `peers_max_upstream` | `integer` | ✓ |
+| `peers_mix` | `string` | ✓ |
+| `peers_removal_cooldown_ms` | `integer` | ✓ |
+| `peers_snapshot` | `string` | ✓ |
+| `peers_snapshot_relays` | `integer` | ✓ |
+| `pid_export` | `string` | ✓ |
+| `submit_api_listen_on` | `string` | ✓ |
+| `trace_buffer` | `string` | ✓ |
+| `trace_buffer_dump` | `string` | ✓ |
+| `tui_log_retention` | `string` | ✓ |
+| `tui_off` | `boolean` | ✓ |
 | `tx_submission_fetch_batch_bytes` | `integer` | ✓ |
 | `tx_submission_inflight_timeout_ms` | `integer` | ✓ |
 | `tx_submission_insert_timeout_ms` | `integer` | ✓ |
+| `tx_submission_max_window` | `integer` | ✓ |
 | `era_history` | `string` |  |
 | `global_parameters` | `string` |  |
 
@@ -852,7 +1011,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `create` | `TRACE` | public | Create snapshots for the given network | network, snapshot_output_dir, config_dir, cardano_node_db, dist_dir | epoch, snapshots |
+| `create` | `TRACE` | public | Create snapshots for the given network | cardano_node_db, config, dist, network, to | epoch, snapshots |
 | `created` | `TRACE` | public | Finished creating a snapshot archive | epoch, slot, archive |  |
 | `package` | `TRACE` | public | Package a snapshot archive | epoch, slot, archive |  |
 | `publish` | `TRACE` | public | Publish snapshot archives | network, local, remote |  |
@@ -866,11 +1025,11 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `network` | `string` | ✓ |
-| `snapshot_output_dir` | `string` | ✓ |
-| `config_dir` | `string` | ✓ |
 | `cardano_node_db` | `string` | ✓ |
-| `dist_dir` | `string` | ✓ |
+| `config` | `string` | ✓ |
+| `dist` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `to` | `string` | ✓ |
 | `epoch` | `integer` |  |
 | `snapshots` | `string` |  |
 
@@ -1308,41 +1467,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::consensus::chain_db_migration`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `execute` | `TRACE` | public | Migrate the database if necessary | from, to |  |
-| `reset_best_chain` | `TRACE` | public | Reset the best chain to the anchor during migration so blocks are revalidated | prev_best_chain, new_best_chain |  |
-| `warn` | `TRACE` | public | A database migration relies on an assumption that may not hold; see the reason | to, reason |  |
-
-<details><summary>span: `execute`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `from` | `integer` | ✓ |
-| `to` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `reset_best_chain`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `prev_best_chain` | `string` | ✓ |
-| `new_best_chain` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `warn`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `to` | `integer` | ✓ |
-| `reason` | `string` | ✓ |
-
-</details>
-
 ## target: `amaru::consensus::chainsync`
 
 | name | level | public | description | required fields | optional fields |
@@ -1441,6 +1565,41 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `peer` | `string` | ✓ |
 | `current` | `array` | ✓ |
 | `highest` | `array` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::db_chain_migration`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `execute` | `TRACE` | public | Migrate the database if necessary | from, to |  |
+| `reset_best_chain` | `TRACE` | public | Reset the best chain to the anchor during migration so blocks are revalidated | prev_best_chain, new_best_chain |  |
+| `warn` | `TRACE` | public | A database migration relies on an assumption that may not hold; see the reason | to, reason |  |
+
+<details><summary>span: `execute`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from` | `integer` | ✓ |
+| `to` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `reset_best_chain`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `prev_best_chain` | `string` | ✓ |
+| `new_best_chain` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `warn`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `to` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
 
 </details>
 

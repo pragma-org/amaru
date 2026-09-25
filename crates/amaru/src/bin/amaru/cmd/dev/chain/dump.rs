@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Display, path::PathBuf};
+use std::fmt::Display;
 
-use amaru::{
-    default_chain_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{HeaderHash, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
 use amaru_observability::info;
@@ -29,21 +26,11 @@ use crate::cmd::PointOrHash;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The path to the chain database to dump.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_chain: amaru::args::DbChain,
 
-    /// Network for which we are importing headers.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 
     #[arg(long)]
     headers: bool,
@@ -78,11 +65,12 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
+    let network = NetworkName::from(args.network);
+    let db_chain = args.db_chain.into_path_buf(network);
 
-    info!(cli::dev::RUN, command = "dev chain dump", network = args.network, chain_dir = chain_dir.to_string_lossy());
+    info!(cli::dev::chain::DUMP, db_chain = db_chain.to_string_lossy(), network);
 
-    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
+    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(db_chain))?;
 
     if args.headers {
         print_iterator(

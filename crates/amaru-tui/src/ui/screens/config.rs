@@ -136,9 +136,9 @@ mod tests {
             "Runtime",
             vec![ConfigEntry::new(
                 "peer removal cooldown",
-                Some("--peer-removal-cooldown-secs"),
-                Some("AMARU_PEER_REMOVAL_COOLDOWN_SECS"),
-                "/var/lib/amaru/peer-removal-cooldown-seconds",
+                Some("--peers-removal-cooldown"),
+                Some("AMARU_PEERS_REMOVAL_COOLDOWN"),
+                "/var/lib/amaru/peers-removal-cooldown-seconds",
             )],
         )];
         let protocol = vec![ConfigSection::new(

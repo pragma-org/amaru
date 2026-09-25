@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
-use amaru::{
-    default_chain_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{IsHeader, NetworkName, Point};
 use amaru_observability::{error, info, warn};
 use amaru_ouroboros::{ChainStore, ChildTipsMode, WriteChainStore};
@@ -43,21 +38,11 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     only_validation_results: bool,
 
-    /// The path to the chain store database to remove the validation status from
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_chain: amaru::args::DbChain,
 
-    /// Network of the underlying chain database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -65,24 +50,24 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { from_point, only_blocks, only_validation_results, chain_dir, network } = args;
-    let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    let Args { from_point, only_blocks, only_validation_results, db_chain, network } = args;
+    let network = NetworkName::from(network);
+    let db_chain = db_chain.into_path_buf(network);
 
     if only_blocks && only_validation_results {
         anyhow::bail!("cannot combine both --only-blocks and --only-validation-results");
     }
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain remove",
-        network,
-        chain_dir = chain_dir.to_string_lossy(),
+        cli::dev::chain::REMOVE,
+        db_chain = db_chain.to_string_lossy(),
         from_point = from_point.to_string(),
+        network,
         only_blocks,
         only_validation_results
     );
 
-    let rocks_db = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
+    let rocks_db = RocksDBStore::open(&RocksDbConfig::new(db_chain))?;
     let chain_store: &dyn ChainStore = &rocks_db;
 
     let points = chain_store.child_tips(&from_point.hash(), ChildTipsMode::All);

@@ -24,16 +24,16 @@ use std::{
 };
 
 use amaru::{
-    DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
+    DEFAULT_PEERS_LISTEN_ON, default_chain_dir, default_ledger_dir,
     lifecycle::{Runnable, RuntimeKind, ShutdownHandle},
     metrics::track_system_metrics,
     version,
 };
-use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
+use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, utils::duration};
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
 use amaru_node::{
-    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
+    DEFAULT_PEERS_MAX_DOWNSTREAM, DEFAULT_PEERS_MAX_UPSTREAM,
     peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
     stages::{
         build_node::build_and_run_node,
@@ -56,148 +56,28 @@ use crate::pid::optional_pid_file;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The target network to run against.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-        display_order = 0,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 
-    /// Path of the chain on-disk storage.
-    ///
-    /// Defaults to ./chain.<NETWORK>.db when unspecified.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-        display_order = 0,
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_chain: amaru::args::DbChain,
 
     /// Flag to automatically migrate the chain database if needed.
     ///
     /// By default, the migration is not performed automatically, checkout `amaru dev chain migrate` command.
     #[arg(
         long,
-        env = amaru::env_vars::MIGRATE_CHAIN_DB,
+        env = amaru::env_vars::DB_CHAIN_AUTOMATIC_MIGRATION,
         action = ArgAction::SetTrue,
         default_value_t = false,
         display_order = 0,
+        help_heading = "Storage options",
+        alias = "migrate-chain-db",
     )]
-    migrate_chain_db: bool,
+    db_chain_automatic_migration: bool,
 
-    /// Path of the ledger on-disk storage.
-    ///
-    /// Defaults to ./ledger.<NETWORK>.db when unspecified.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-        display_order = 0,
-    )]
-    ledger_dir: Option<PathBuf>,
-
-    /// The address to listen on for incoming connections.
-    #[arg(
-        long,
-        value_name = amaru::value_names::ENDPOINT,
-        env = amaru::env_vars::LISTEN_ADDRESS,
-        default_value = DEFAULT_LISTEN_ADDRESS,
-        display_order = 0,
-    )]
-    listen_address: String,
-
-    /// Address for the HTTP transaction submit API.
-    ///
-    /// When set, starts an HTTP server exposing POST /api/submit/tx (Cardano Submit API).
-    #[arg(
-        long,
-        value_name = amaru::value_names::ENDPOINT,
-        env = amaru::env_vars::SUBMIT_API_ADDRESS,
-        display_order = 0,
-    )]
-    submit_api_address: Option<String>,
-
-    /// Disable the embedded terminal dashboard, even in an interactive terminal.
-    #[arg(
-        long,
-        env = amaru::env_vars::NO_TUI,
-        action = ArgAction::SetTrue,
-        default_value_t = false,
-        help_heading = "TUI",
-    )]
-    no_tui: bool,
-
-    /// Maximum in-memory log retention for the TUI.
-    ///
-    /// Accepts a byte count or a size with a unit. SI units (`kB`, `MB`, `GB`) use powers
-    /// of 1000; IEC units (`KiB`, `MiB`, `GiB`) use powers of 1024.
-    /// The newest 70% keeps debug and up; the next 10% keeps info and up; then 10% warn
-    /// and up; the oldest 10% keeps errors only.
-    #[arg(
-        long,
-        env = amaru::env_vars::TUI_LOG_RETENTION,
-        value_name = amaru::value_names::SIZE,
-        default_value = "100MiB",
-        help_heading = "TUI",
-    )]
-    tui_log_retention: ByteSize,
-
-    /// Upstream peer addresses to synchronize from.
-    ///
-    /// This option can be specified multiple times to connect to multiple peers.
-    ///
-    /// If not specified, defaults to the network-specific bootstrap peer.
-    #[arg(
-        long,
-        value_name = amaru::value_names::ENDPOINT,
-        env = amaru::env_vars::PEER_ADDRESS,
-        action = ArgAction::Append,
-        value_delimiter = ',',
-        num_args(0..),
-        display_order = 0,
-    )]
-    peer_address: Vec<String>,
-
-    /// Path to a Cardano ledger peer snapshot JSON file (`bigLedgerPools`).
-    ///
-    /// Supplies stake-weighted big-ledger relays for peer selection at cold start,
-    /// complementary to `--peer-address`. Compatible with cardano-node's
-    /// `mainnet-peer-snapshot.json` (and similar per-network files).
-    ///
-    /// When omitted, Amaru uses the snapshot embedded at build time for known networks
-    /// (for example mainnet, preprod, preview), if one was available when the binary was built.
-    #[arg(
-        long,
-        value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::PEER_SNAPSHOT,
-        display_order = 0,
-    )]
-    peer_snapshot: Option<PathBuf>,
-
-    /// The number of upstream peers to connect to.
-    #[arg(
-        long,
-        value_name = amaru::value_names::UINT,
-        env = amaru::env_vars::UPSTREAM_PEERS,
-        default_value_t = DEFAULT_UPSTREAM_PEERS,
-        display_order = 0,
-        help_heading = "Advanced Options",
-    )]
-    upstream_peers: usize,
-
-    /// The maximum number of downstream peers allowed to connect.
-    #[arg(
-        long,
-        value_name = amaru::value_names::UINT,
-        env = amaru::env_vars::DOWNSTREAM_PEERS,
-        default_value_t = DEFAULT_DOWNSTREAM_PEERS,
-        display_order = 0,
-        help_heading = "Advanced Options",
-    )]
-    downstream_peers: usize,
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_ledger: amaru::args::DbLedger,
 
     /// The maximum number of additional ledger snapshots to keep around.
     ///
@@ -208,25 +88,140 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::UINT_ALL,
-        env = amaru::env_vars::MAX_EXTRA_LEDGER_SNAPSHOTS,
+        env = amaru::env_vars::DB_LEDGER_MAX_EXTRA_SNAPSHOTS,
         default_value_t = MaxExtraLedgerSnapshots::default(),
         display_order = 0,
-        help_heading = "Advanced Options",
+        help_heading = "Storage options",
+        alias = "max-extra-ledger-snapshots",
     )]
-    max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+    db_ledger_max_extra_snapshots: MaxExtraLedgerSnapshots,
 
-    /// After removing a misbehaving upstream peer, wait this many seconds before allowing it to be re-added.
+    /// KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
+    ///
+    /// Together with `--operator-vrf` and `--operator-operational-certificate`, the node forges
+    /// blocks. Preprod, preview, and other testnets only. Mainnet refuses these flags.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::OPERATOR_KES,
+        display_order = 0,
+        help_heading = "Block forging options",
+        alias = "kes-signing-key-file"
+    )]
+    operator_kes: Option<PathBuf>,
+
+    /// Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
+    ///
+    /// The file includes the cold verification key. No separate cold-key file is read.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::OPERATOR_OPERATIONAL_CERTIFICATE,
+        display_order = 0,
+        help_heading = "Block forging options",
+        alias = "operational-certificate",
+    )]
+    operator_operational_certificate: Option<PathBuf>,
+
+    /// VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::OPERATOR_VRF,
+        display_order = 0,
+        help_heading = "Block forging options",
+        alias = "vrf-signing-key-file",
+    )]
+    operator_vrf: Option<PathBuf>,
+
+    /// Upstream peer addresses to synchronize from.
+    ///
+    /// This option can be specified multiple times to connect to multiple peers.
+    ///
+    /// If not specified, defaults to the network-specific bootstrap peer.
+    #[arg(
+        long,
+        value_name = amaru::value_names::ENDPOINT,
+        env = amaru::env_vars::PEER,
+        action = ArgAction::Append,
+        value_delimiter = ',',
+        num_args(0..),
+        display_order = 0,
+        help_heading = "Peers options",
+        alias = "peer-address",
+    )]
+    peer: Vec<String>,
+
+    /// The address to listen on for incoming connections.
+    #[arg(
+        long,
+        value_name = amaru::value_names::ENDPOINT,
+        env = amaru::env_vars::PEERS_LISTEN_ON,
+        default_value = DEFAULT_PEERS_LISTEN_ON,
+        display_order = 0,
+        help_heading = "Peers options",
+        alias = "listen-address",
+    )]
+    peers_listen_on: String,
+
+    /// The maximum number of downstream peers allowed to connect.
     #[arg(
         long,
         value_name = amaru::value_names::UINT,
-        env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-        default_value_t = DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+        env = amaru::env_vars::PEERS_MAX_DOWNSTREAM,
+        default_value_t = DEFAULT_PEERS_MAX_DOWNSTREAM,
         display_order = 0,
-        help_heading = "Advanced Options",
+        help_heading = "Peers options",
+        alias = "downstream-peers",
     )]
-    peer_removal_cooldown_secs: u64,
+    peers_max_downstream: usize,
 
-    /// Using-slot mix formula (floors `!n`, weights `~n`, optional malus half-lives `@Nd`).
+    /// The maximum number of upstream peers to connect to.
+    #[arg(
+        long,
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::PEERS_MAX_UPSTREAM,
+        default_value_t = DEFAULT_PEERS_MAX_UPSTREAM,
+        display_order = 0,
+        help_heading = "Peers options",
+        alias = "upstream-peers",
+    )]
+    peers_max_upstream: usize,
+
+    /// After removing a misbehaving upstream peer, wait this long before allowing it to be re-added.
+    ///
+    /// Provided as duration with units (e.g. 30s, 2min, ...)
+    #[arg(
+        long,
+        value_name = amaru::value_names::DURATION,
+        value_parser = duration::parse,
+        env = amaru::env_vars::PEERS_REMOVAL_COOLDOWN,
+        default_value = "10min",
+        display_order = 0,
+        help_heading = "Peers options",
+        alias = "peer-removal-cooldown-secs",
+    )]
+    peers_removal_cooldown: Duration,
+
+    /// Path to a Cardano ledger peer snapshot JSON file (`bigLedgerPools`).
+    ///
+    /// Supplies stake-weighted big-ledger relays for peer selection at cold start,
+    /// complementary to `--peer`. Compatible with cardano-node's
+    /// `mainnet-peer-snapshot.json` (and similar per-network files).
+    ///
+    /// When omitted, Amaru uses the snapshot embedded at build time for known networks
+    /// (for example mainnet, preprod, preview), if one was available when the binary was built.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::PEERS_SNAPSHOT,
+        display_order = 0,
+        help_heading = "Peers options",
+        alias = "peer-snapshot"
+    )]
+    peers_snapshot: Option<PathBuf>,
+
+    /// Using-slot mix formula (floors `!n`, weights `~n`, (optional) half-lives `@Nd`).
     ///
     /// Sources: `static`, `shared`, `snapshot`, `ledger`, and `inbound` (duplex inbound
     /// connections promoted to Using). Leaving a source out disables it; unused slots spill
@@ -235,33 +230,76 @@ pub struct Args {
     /// Example: `@12h, static!2, inbound~6, shared~6, snapshot~8, ledger~4@48h` (naked `@12h` is the default half-life for following sources)
     #[arg(
         long,
-        value_name = amaru::value_names::PEER_MIX,
-        env = amaru::env_vars::PEER_MIX,
-        default_value = amaru_consensus::stages::peer_selection::DEFAULT_PEER_MIX,
+        value_name = amaru::value_names::PEERS_MIX,
+        env = amaru::env_vars::PEERS_MIX,
+        default_value = amaru_consensus::stages::peer_selection::DEFAULT_PEERS_MIX,
         display_order = 0,
-        help_heading = "Advanced Options",
+        help_heading = "Peers options",
+        alias = "peer-mix"
     )]
-    peer_mix: String,
+    peers_mix: String,
+
+    /// Disable the embedded terminal dashboard, even in an interactive terminal.
+    #[arg(
+        long,
+        env = amaru::env_vars::TUI_OFF,
+        action = ArgAction::SetTrue,
+        default_value_t = false,
+        help_heading = "TUI options",
+        display_order = 0,
+        alias = "no-tui",
+    )]
+    tui_off: bool,
+
+    /// Maximum in-memory log retention for the TUI.
+    ///
+    /// Accepts a byte count or a size with a unit. SI units (`kB`, `MB`, `GB`) use powers
+    /// of 1000; IEC units (`KiB`, `MiB`, `GiB`) use powers of 1024.
+    /// The newest 70% keeps debug and up; the next 10% keeps info and up; then 10% warn
+    /// and up; the oldest 10% keeps errors only.
+    #[arg(
+        long,
+        env = amaru::env_vars::TUI_LOG_RETENTION,
+        value_name = amaru::value_names::BYTE_SIZE,
+        default_value = "100MiB",
+        help_heading = "TUI options",
+        display_order = 0,
+    )]
+    tui_log_retention: ByteSize,
+
+    /// Address for the HTTP transaction submit API.
+    ///
+    /// When set, starts an HTTP server exposing POST /api/submit/tx (Cardano Submit API).
+    #[arg(
+        long,
+        value_name = amaru::value_names::ENDPOINT,
+        env = amaru::env_vars::SUBMIT_API_LISTEN_ON,
+        help_heading = "Advanced options",
+        display_order = 0,
+        alias = "submit-api-address"
+    )]
+    submit_api_listen_on: Option<String>,
 
     /// Path to the PID file managed by Amaru.
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::PID_FILE,
+        env = amaru::env_vars::PID_EXPORT,
+        help_heading = "Advanced options",
         display_order = 0,
-        help_heading = "Advanced Options",
+        alias = "pid-file"
     )]
-    pid_file: Option<PathBuf>,
+    pid_export: Option<PathBuf>,
 
     /// Stage graph trace buffer: `min_entries,max_total_bytes` (e.g. `100,1000000`).
     ///
     /// Omit or use `0,0` to disable recording (default).
     #[arg(
         long,
-        value_name = "MIN_ENTRIES,MAX_SIZE",
+        value_name = amaru::value_names::TRACE_BUFFER,
         env = amaru::env_vars::TRACE_BUFFER,
+        help_heading = "Advanced options",
         display_order = 0,
-        help_heading = "Advanced Options",
     )]
     trace_buffer: Option<String>,
 
@@ -271,46 +309,12 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::DUMP_TRACE_BUFFER,
+        env = amaru::env_vars::TRACE_BUFFER_DUMP,
+        help_heading = "Advanced options",
         display_order = 0,
-        help_heading = "Advanced Options",
+        alias = "dump-trace-buffer"
     )]
-    dump_trace_buffer: Option<PathBuf>,
-
-    /// KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
-    ///
-    /// Together with `--vrf-signing-key-file` and `--operational-certificate`, the node forges
-    /// blocks. Preprod, preview, and other testnets only. Mainnet refuses these flags.
-    #[arg(
-        long,
-        value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::KES_SIGNING_KEY_FILE,
-        display_order = 0,
-        help_heading = "Block Forging",
-    )]
-    kes_signing_key_file: Option<PathBuf>,
-
-    /// VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
-    #[arg(
-        long,
-        value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::VRF_SIGNING_KEY_FILE,
-        display_order = 0,
-        help_heading = "Block Forging",
-    )]
-    vrf_signing_key_file: Option<PathBuf>,
-
-    /// Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
-    ///
-    /// The file includes the cold verification key. No separate cold-key file is read.
-    #[arg(
-        long,
-        value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::OPERATIONAL_CERTIFICATE,
-        display_order = 0,
-        help_heading = "Block Forging",
-    )]
-    operational_certificate: Option<PathBuf>,
+    trace_buffer_dump: Option<PathBuf>,
 
     /// Path to a JSON era history file overriding the network default.
     ///
@@ -322,13 +326,15 @@ pub struct Args {
         long,
         value_name = amaru::value_names::FILEPATH,
         env = amaru::env_vars::ERA_HISTORY,
+        help_heading = "Network global parameters overrides (for custom devnets)",
         display_order = 0,
-        help_heading = "Network Global Parameters Overrides",
     )]
     era_history: Option<PathBuf>,
 
-    /// Override network's global parameters for custom testnets.
-    #[command(flatten)]
+    /// Override network's global parameters for custom testnets / devnets.
+    ///
+    /// DO NOT override for known networks (e.g. mainnet, preprod, preview, ...), as these parameters are set in stone.
+    #[command(flatten, next_help_heading = "Network global parameters")]
     global_parameters: GlobalParameters,
 
     /// Show global network parameter overrides, for custom testnets.
@@ -337,24 +343,25 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn listen_address(&self) -> &str {
-        &self.listen_address
+    pub fn peers_listen_on(&self) -> &str {
+        &self.peers_listen_on
     }
 
     pub fn tui_settings(&self) -> tui::Settings {
         let global_parameters = self.effective_global_parameters();
+        let network = NetworkName::from(self.network);
 
         tui::Settings::new(
-            self.no_tui,
+            self.tui_off,
             tui::StartupContext::new(
                 std::process::id(),
-                self.network.to_string(),
+                network.to_string(),
                 version::display_version(),
                 format!("{}/{}", version::target_os(), version::target_arch()),
                 MempoolConfig::default().max_bytes,
                 &global_parameters,
-                self.network.as_protocol_parameters(),
-                self.network
+                network.as_protocol_parameters(),
+                network
                     .as_era_history()
                     .cloned()
                     .or_else(|| self.era_history.as_deref().and_then(|path| EraHistory::load(path).ok())),
@@ -365,49 +372,53 @@ impl Args {
     }
 
     fn effective_global_parameters(&self) -> GlobalParameters {
-        self.network.as_global_parameters().cloned().unwrap_or_else(|| self.global_parameters.clone())
+        NetworkName::from(self.network)
+            .as_global_parameters()
+            .cloned()
+            .unwrap_or_else(|| self.global_parameters.clone())
     }
 }
 
 impl tui::RuntimeSettingsSource for Args {
     fn value_for(&self, id: &str) -> Option<String> {
         let global_parameters = self.effective_global_parameters();
+        let network = NetworkName::from(self.network);
 
         match id {
-            "network" => Some(self.network.to_string()),
-            "chain_dir" => Some(
-                self.chain_dir
-                    .as_deref()
+            "network" => Some(network.to_string()),
+            "db_chain" => Some(
+                self.db_chain
+                    .path()
                     .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| default_chain_dir(self.network)),
+                    .unwrap_or_else(|| default_chain_dir(network)),
             ),
-            "migrate_chain_db" => Some(self.migrate_chain_db.to_string()),
-            "ledger_dir" => Some(
-                self.ledger_dir
-                    .as_deref()
+            "db_chain_automatic_migration" => Some(self.db_chain_automatic_migration.to_string()),
+            "db_ledger" => Some(
+                self.db_ledger
+                    .path()
                     .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| default_ledger_dir(self.network)),
+                    .unwrap_or_else(|| default_ledger_dir(network)),
             ),
-            "listen_address" => Some(self.listen_address.clone()),
-            "submit_api_address" => Some(self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string())),
-            "no_tui" => Some(self.no_tui.to_string()),
+            "db_ledger_max_extra_snapshots" => Some(self.db_ledger_max_extra_snapshots.to_string()),
+            "submit_api_listen_on" => Some(self.submit_api_listen_on.clone().unwrap_or_else(|| "disabled".to_string())),
+            "tui_off" => Some(self.tui_off.to_string()),
             "tui_log_retention" => Some(self.tui_log_retention.to_string()),
-            "peer_address" => Some(peer_addresses_value(self)),
-            "peer_snapshot" => Some(peer_snapshot_value(self)),
-            "upstream_peers" => Some(self.upstream_peers.to_string()),
-            "downstream_peers" => Some(self.downstream_peers.to_string()),
-            "max_extra_ledger_snapshots" => Some(self.max_extra_ledger_snapshots.to_string()),
-            "peer_removal_cooldown_secs" => Some(self.peer_removal_cooldown_secs.to_string()),
-            "peer_mix" => Some(self.peer_mix.clone()),
-            "pid_file" => Some(
-                self.pid_file
+            "peer" => Some(self.peer.join(", ")),
+            "peers_listen_on" => Some(self.peers_listen_on.clone()),
+            "peers_max_downstream" => Some(self.peers_max_downstream.to_string()),
+            "peers_max_upstream" => Some(self.peers_max_upstream.to_string()),
+            "peers_mix" => Some(self.peers_mix.clone()),
+            "peers_removal_cooldown" => Some(duration::format(&self.peers_removal_cooldown)),
+            "peers_snapshot" => Some(peers_snapshot_value(self)),
+            "pid_export" => Some(
+                self.pid_export
                     .as_deref()
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| "disabled".to_string()),
             ),
             "trace_buffer" => Some(self.trace_buffer.clone().unwrap_or_else(|| "disabled".to_string())),
-            "dump_trace_buffer" => Some(
-                self.dump_trace_buffer
+            "trace_buffer_dump" => Some(
+                self.trace_buffer_dump
                     .as_deref()
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| "disabled".to_string()),
@@ -416,7 +427,7 @@ impl tui::RuntimeSettingsSource for Args {
                 self.era_history
                     .as_deref()
                     .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| self.network.to_string()),
+                    .unwrap_or_else(|| network.to_string()),
             ),
             "consensus_security_param" => Some(global_parameters.consensus_security_param.to_string()),
             "epoch_length_scale_factor" => Some(global_parameters.epoch_length_scale_factor.to_string()),
@@ -430,20 +441,12 @@ impl tui::RuntimeSettingsSource for Args {
     }
 }
 
-fn peer_addresses_value(args: &Args) -> String {
-    if args.peer_address.is_empty() {
-        default_peer_for_network(args.network).to_string()
-    } else {
-        args.peer_address.join(", ")
-    }
-}
-
-fn peer_snapshot_value(args: &Args) -> String {
-    if let Some(path) = args.peer_snapshot.as_deref() {
+fn peers_snapshot_value(args: &Args) -> String {
+    if let Some(path) = args.peers_snapshot.as_deref() {
         return path.display().to_string();
     }
 
-    if PEER_SNAPSHOT_NETWORKS.contains(&args.network) {
+    if PEER_SNAPSHOT_NETWORKS.contains(&NetworkName::from(args.network)) {
         return embedded_configs_commit()
             .map(|commit| format!("embedded ({commit})"))
             .unwrap_or_else(|| "none".to_string());
@@ -459,7 +462,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Result<()> {
-    let _pid_file = optional_pid_file(args.pid_file.clone());
+    let _pid = optional_pid_file(args.pid_export.clone());
 
     let mut config = parse_args(args)?;
     let trace_dump_path = config.trace_dump_path.clone();
@@ -591,7 +594,7 @@ fn parse_trace_buffer_limits(s: &str) -> anyhow::Result<(usize, usize)> {
 
 #[allow(clippy::expect_used)]
 fn parse_args(args: Args) -> anyhow::Result<Config> {
-    let network = args.network;
+    let network = NetworkName::from(args.network);
 
     let era_history = match network.as_era_history().cloned() {
         Some(history) => history,
@@ -606,42 +609,35 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
     let forging_credentials = amaru_ouroboros::forging_credentials_from_files(
         network,
         u64::from(global_parameters.max_kes_evolution),
-        args.kes_signing_key_file.as_deref(),
-        args.vrf_signing_key_file.as_deref(),
-        args.operational_certificate.as_deref(),
+        args.operator_kes.as_deref(),
+        args.operator_vrf.as_deref(),
+        args.operator_operational_certificate.as_deref(),
     )?;
 
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
-    if !std::fs::metadata(&ledger_dir)
-        .with_context(|| format!("failed to stat ledger_dir `{}`", ledger_dir.display()))?
+    let db_ledger = args.db_ledger.into_path_buf(network);
+    if !std::fs::metadata(&db_ledger)
+        .with_context(|| format!("failed to stat db_ledger `{}`", db_ledger.display()))?
         .is_dir()
     {
         anyhow::bail!(
-            "ledger_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
-            ledger_dir.display()
+            "db_ledger `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            db_ledger.display()
         );
     }
 
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
-    if !std::fs::metadata(&chain_dir)
-        .with_context(|| format!("failed to stat chain_dir `{}`", chain_dir.display()))?
+    let db_chain = args.db_chain.into_path_buf(network);
+    if !std::fs::metadata(&db_chain)
+        .with_context(|| format!("failed to stat db_chain `{}`", db_chain.display()))?
         .is_dir()
     {
         anyhow::bail!(
-            "chain_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
-            chain_dir.display()
+            "db_chain `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            db_chain.display()
         );
     }
 
-    // Use network-specific default peer if no peer-address was provided
-    let peer_address = if args.peer_address.is_empty() {
-        vec![default_peer_for_network(network).to_string()]
-    } else {
-        args.peer_address
-    };
-
-    let network_magic = args.network.to_network_magic();
-    let (peer_snapshot_peers, peer_snapshot_unresolved) = match args.peer_snapshot.as_deref() {
+    let network_magic = network.to_network_magic();
+    let (peers_snapshot_peers, peers_snapshot_unresolved) = match args.peers_snapshot.as_deref() {
         Some(path) => {
             let snapshot = load_peer_snapshot(path, network_magic)?;
             log_loaded_snapshot(Some(path), &snapshot);
@@ -666,8 +662,6 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         Some(s) => parse_trace_buffer_limits(s)?,
     };
 
-    let trace_dump_path = args.dump_trace_buffer;
-
     let mempool = MempoolConfig::default();
     let tx_submission_params = ResponderParams::default();
 
@@ -677,34 +671,41 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 
     let _span = info_span!(
         cli::node::RUN,
-        chain_dir = chain_dir.to_string_lossy(),
-        ledger_dir = ledger_dir.to_string_lossy(),
-        listen_address = &args.listen_address,
-        max_extra_ledger_snapshots = args.max_extra_ledger_snapshots.to_string(),
-        migrate_chain_db = args.migrate_chain_db,
-        network = args.network,
-        peer_address = peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
-        peer_snapshot = args.peer_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| {
-            if peer_snapshot_peers.is_empty() && peer_snapshot_unresolved.is_empty() {
+        db_chain = db_chain.to_string_lossy(),
+        db_chain_automatic_migration = args.db_chain_automatic_migration,
+        db_ledger = db_ledger.to_string_lossy(),
+        db_ledger_max_extra_snapshots = args.db_ledger_max_extra_snapshots.to_string(),
+        mempool_max_bytes = &ByteSize::from_bytes(mempool.max_bytes).display_iec().to_string(),
+        network,
+        peer = args.peer.join(", "),
+        peers_mix = &args.peers_mix,
+        peers_removal_cooldown_ms = args.peers_removal_cooldown.as_millis() as u64,
+        peers_listen_on = &args.peers_listen_on,
+        peers_max_downstream = args.peers_max_downstream,
+        peers_max_upstream = args.peers_max_upstream,
+        peers_snapshot = args.peers_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| {
+            if peers_snapshot_peers.is_empty() && peers_snapshot_unresolved.is_empty() {
                 "none".to_string()
             } else {
                 format!("embedded{}", embedded_configs_commit().map(|sha| format!("@{sha}")).unwrap_or_default())
             }
         }),
-        peer_snapshot_relays = peer_snapshot_peers.len() + peer_snapshot_unresolved.len(),
-        pid_file = args.pid_file.clone().unwrap_or_default().display().to_string(),
-        submit_api_address = args.submit_api_address.as_deref().unwrap_or("disabled"),
-        trace_buffer_min_entries,
-        trace_buffer_max_size,
-        trace_dump_path =
-            trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
-        peer_removal_cooldown_secs = args.peer_removal_cooldown_secs,
-        mempool_max_bytes = &ByteSize::from_bytes(mempool.max_bytes).display_iec().to_string(),
-        tx_submission_max_window = tx_submission_params.max_window.get(),
+        peers_snapshot_relays = peers_snapshot_peers.len() + peers_snapshot_unresolved.len(),
+        pid_export = args.pid_export.clone().unwrap_or_default().display().to_string(),
+        submit_api_listen_on = args.submit_api_listen_on.as_deref().unwrap_or("disabled"),
+        trace_buffer = args.trace_buffer.as_deref().unwrap_or("disabled"),
+        trace_buffer_dump = args
+            .trace_buffer_dump
+            .as_deref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "disabled".to_string()),
+        tui_log_retention = args.tui_log_retention.to_string(),
+        tui_off = args.tui_off,
         tx_submission_fetch_batch_bytes = tx_submission_params.fetch_batch_bytes.get(),
         tx_submission_inflight_timeout_ms =
             tx_submission_params.inflight_fetch_timeout.as_duration().as_millis() as u64,
         tx_submission_insert_timeout_ms = tx_submission_params.mempool_insert_timeout.as_duration().as_millis() as u64,
+        tx_submission_max_window = tx_submission_params.max_window.get(),
     )
     .entered();
     if let Some(era_history) = era_history_path.as_deref() {
@@ -716,29 +717,29 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 
     Ok(Config {
         ledger_config: LedgerConfig {
-            ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
-            network: args.network,
+            ledger_store: RocksDbConfig::new(db_ledger).with_shared_env(),
+            network,
             global_parameters,
             era_history,
-            max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
-            emit_initial_stake_distribution_progress_ticks: !args.no_tui && std::io::stdout().is_terminal(),
+            max_extra_ledger_snapshots: args.db_ledger_max_extra_snapshots,
+            emit_initial_stake_distribution_progress_ticks: !args.tui_off && std::io::stdout().is_terminal(),
             ..LedgerConfig::default()
         },
-        chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
-        upstream_peers: peer_address,
-        peer_snapshot_peers,
-        peer_snapshot_unresolved,
-        target_upstream_peers: args.upstream_peers,
-        target_downstream_peers: args.downstream_peers,
-        network_magic: args.network.to_network_magic(),
-        listen_address: args.listen_address,
-        migrate_chain_db: args.migrate_chain_db,
-        submit_api_address: args.submit_api_address,
+        chain_store: StoreType::RocksDb(RocksDbConfig::new(db_chain).with_shared_env()),
+        upstream_peers: args.peer,
+        peer_snapshot_peers: peers_snapshot_peers,
+        peer_snapshot_unresolved: peers_snapshot_unresolved,
+        target_upstream_peers: args.peers_max_upstream,
+        target_downstream_peers: args.peers_max_downstream,
+        network_magic: network.to_network_magic(),
+        listen_address: args.peers_listen_on,
+        migrate_chain_db: args.db_chain_automatic_migration,
+        submit_api_address: args.submit_api_listen_on,
         trace_buffer_min_entries,
         trace_buffer_max_size,
-        trace_dump_path,
-        peer_removal_cooldown_secs: args.peer_removal_cooldown_secs,
-        peer_mix: args.peer_mix.parse().context("invalid --peer-mix")?,
+        trace_dump_path: args.trace_buffer_dump,
+        peer_removal_cooldown: args.peers_removal_cooldown,
+        peer_mix: args.peers_mix.parse().context("invalid --peers-mix")?,
         mempool,
         tx_submission_responder_params: tx_submission_params,
         forging_credentials: forging_credentials

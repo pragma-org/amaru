@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
-use amaru::{
-    default_chain_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{NetworkName, utils::string::ListToString};
 use amaru_observability::info;
@@ -27,21 +22,11 @@ use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The path to the chain database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_chain: amaru::args::DbChain,
 
-    /// Network of the underlying chain database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -50,16 +35,15 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
+    let db_chain = args.db_chain.into_path_buf(args.network);
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain best-chain",
-        network = args.network,
-        chain_dir = chain_dir.to_string_lossy()
+        cli::dev::chain::BEST_CHAIN,
+        db_chain = db_chain.to_string_lossy(),
+        network = NetworkName::from(args.network)
     );
 
-    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
+    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(db_chain))?;
 
     let best_chain = db.retrieve_best_chain();
     let anchor = db.get_anchor_hash();

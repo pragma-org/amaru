@@ -12,15 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{fs, io, path::Path};
 
-use amaru::{
-    default_chain_dir, default_ledger_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::NetworkName;
 use amaru_observability::info;
 use anyhow::Context;
@@ -32,29 +26,14 @@ pub struct Args {
     #[arg(long, required = true)]
     wipe_all_dbs: bool,
 
-    /// Path of the chain on-disk storage.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten)]
+    network: amaru::args::Network,
 
-    /// Path of the ledger on-disk storage.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-    )]
-    ledger_dir: Option<PathBuf>,
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_chain: amaru::args::DbChain,
 
-    /// Network whose node databases should be removed.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_ledger: amaru::args::DbLedger,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -62,23 +41,23 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { wipe_all_dbs, chain_dir, ledger_dir, network } = args;
-    if !wipe_all_dbs {
+    if !args.wipe_all_dbs {
         anyhow::bail!("refusing to remove node databases without --wipe-all-dbs");
     }
 
-    let ledger_dir = ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
-    let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    let network = NetworkName::from(args.network);
+    let db_ledger = args.db_ledger.into_path_buf(network);
+    let db_chain = args.db_chain.into_path_buf(network);
 
     info!(
         cli::node::RM,
-        chain_dir = chain_dir.display().to_string(),
-        ledger_dir = ledger_dir.display().to_string(),
+        db_chain = db_chain.display().to_string(),
+        db_ledger = db_ledger.display().to_string(),
         network,
     );
 
-    remove_database(&ledger_dir)?;
-    remove_database(&chain_dir)?;
+    remove_database(&db_ledger)?;
+    remove_database(&db_chain)?;
 
     Ok(())
 }

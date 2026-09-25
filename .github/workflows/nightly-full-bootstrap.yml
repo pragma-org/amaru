@@ -24,7 +24,7 @@ jobs:
 
     env:
       AMARU_NETWORK: ${{ matrix.network }}
-      AMARU_NO_TUI: "true"
+      AMARU_TUI_OFF: "true"
       AMARU_BIN: target/release/amaru
 
     steps:
@@ -47,8 +47,8 @@ jobs:
           set -Eeuo pipefail
 
           state_dir="$RUNNER_TEMP/amaru-nightly-full-bootstrap-$AMARU_NETWORK"
-          export AMARU_LEDGER_DIR="$state_dir/ledger.db"
-          export AMARU_CHAIN_DIR="$state_dir/chain.db"
+          export AMARU_DB_LEDGER="$state_dir/ledger.db"
+          export AMARU_DB_CHAIN="$state_dir/chain.db"
           mkdir -p "$state_dir"
 
           koios_host="$AMARU_NETWORK"

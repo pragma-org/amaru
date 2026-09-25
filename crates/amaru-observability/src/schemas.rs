@@ -95,7 +95,7 @@ use amaru_observability_macros::define_schemas;
 define_schemas! {
     amaru {
         consensus {
-            chain_db_migration {
+            db_chain_migration {
                 /// Migrate the database if necessary
                 public EXECUTE {
                     required from: u16
@@ -113,7 +113,7 @@ define_schemas! {
                     required new_best_chain: amaru_kernel::HeaderHash
                 }
             }
-            chain_db {
+            db_chain {
                 tags: setup
                 /// Open the database
                 OPEN {
@@ -1401,28 +1401,132 @@ define_schemas! {
             }
             dev {
                 tags: cli
-                /// A developer command started, with the arguments it resolved.
-                /// Command names the subcommand, e.g. "dev chain prune".
-                public RUN {
-                    required command: String
-                    required network: %amaru_kernel::NetworkName
-                    optional chain_dir: String
-                    optional ledger_dir: String
-                    optional headers_dir: String
-                    optional input: String
-                    optional start: String
-                    optional block: String
-                    optional parent: String
-                    optional peer_address: String
-                    optional epoch: String
-                    optional count: usize
-                    optional from_point: String
-                    optional only_blocks: bool
-                    optional only_validation_results: bool
-                    /// Extra guidance for the operator, when a better command exists
-                    optional hint: String
+                ledger {
+                    /// Convert a cardano-node snapshot into an Amaru ledger database.
+                    public CONVERT {
+                        required input: String
+                        required db_ledger: String
+                        required network: %amaru_kernel::NetworkName
+                    }
+
+                    /// Reset an Amaru ledger database to a snapshot epoch.
+                    public RESET {
+                        required epoch: amaru_kernel::Epoch
+                        required db_ledger: String
+                        required network: %amaru_kernel::NetworkName
+                    }
+
+                    nonces {
+                        /// Look up the nonces associated with a block.
+                        public GET {
+                            required block: String
+                            required db_chain: String
+                            required network: %amaru_kernel::NetworkName
+                        }
+
+                        /// Set the nonces associated with a block.
+                        public SET {
+                            required block: String
+                            required db_chain: String
+                            required network: %amaru_kernel::NetworkName
+                        }
+                    }
+
+                    state {
+                        /// Import ledger state snapshots.
+                        public IMPORT {
+                            required count: usize
+                            required db_ledger: String
+                            required network: %amaru_kernel::NetworkName
+                        }
+
+                        /// List ledger state snapshots.
+                        public LIST {
+                            required db_ledger: String
+                            required network: %amaru_kernel::NetworkName
+                        }
+
+                        /// Removing ledger state
+                        public REMOVE {
+                            required db_ledger: String
+                            required network: %amaru_kernel::NetworkName
+                        }
+                    }
+
+                    /// A ledger snapshot was removed.
+                    public SNAPSHOT_REMOVED {
+                        required epoch: u64
+                    }
+
+                    /// A ledger snapshot to remove does not exist.
+                    public SNAPSHOT_NOT_FOUND {
+                        required epoch: u64
+                    }
                 }
                 chain {
+                    /// Walk back from a given point showing block height, presence, validation status and best chain flag.
+                    public ANCESTORS {
+                        required db_chain: String
+                        required network: %amaru_kernel::NetworkName
+                        required start: String
+                    }
+
+                    /// Show the best chain tip and computed best tip candidate.
+                    public BEST_CHAIN {
+                        required db_chain: String
+                        required network: %amaru_kernel::NetworkName
+                    }
+
+                    /// Walk forward from a point and show its children.
+                    public CHILDREN {
+                        required db_chain: String
+                        required network: %amaru_kernel::NetworkName
+                        required start: String
+                    }
+
+                    /// Clear the validation status for selected blocks.
+                    public CLEAR_INVALID {
+                        required blocks: String
+                        required db_chain: String
+                        required network: %amaru_kernel::NetworkName
+                    }
+
+                    /// Dump selected chain database tables.
+                    public DUMP {
+                        required db_chain: String
+                        required network: %amaru_kernel::NetworkName
+                    }
+
+                    /// Fetch chain headers from a peer.
+                    public FETCH {
+                        required headers: String
+                        required network: %amaru_kernel::NetworkName
+                        required parent: String
+                        required peer: String
+                    }
+
+                    /// Migrate the chain database to the current format.
+                    public MIGRATE {
+                        required db_chain: String
+                        required network: %amaru_kernel::NetworkName
+                    }
+
+                    /// Prune chain data that precedes the oldest ledger snapshot.
+                    public PRUNE {
+                        required db_chain: String
+                        required db_ledger: String
+                        required network: %amaru_kernel::NetworkName
+                    }
+
+                    /// Remove data after a chain point.
+                    public REMOVE {
+                        required db_chain: String
+                        required from_point: String
+                        required network: %amaru_kernel::NetworkName
+                        required only_blocks: bool
+                        required only_validation_results: bool
+                    }
+
                     /// The pruning boundary derived from the oldest ledger snapshot
                     public PRUNE_BOUNDARY {
                         required oldest_ledger_epoch: u64
@@ -1457,41 +1561,35 @@ define_schemas! {
                         required header_hash: amaru_kernel::HeaderHash
                     }
                 }
-                ledger {
-                    /// A ledger snapshot was removed
-                    public SNAPSHOT_REMOVED {
-                        required epoch: u64
-                    }
-                    /// A ledger snapshot to remove does not exist
-                    public SNAPSHOT_NOT_FOUND {
-                        required epoch: u64
-                    }
-                }
             }
             node {
                 tags: setup
                 /// The effective configuration a node run starts with
                 public RUN {
-                    required chain_dir: String
-                    required ledger_dir: String
-                    required listen_address: String
-                    required max_extra_ledger_snapshots: String
-                    required migrate_chain_db: bool
-                    required network: %amaru_kernel::NetworkName
-                    required peer_address: String
-                    required peer_snapshot: String
-                    required peer_snapshot_relays: usize
-                    required pid_file: String
-                    required submit_api_address: String
-                    required trace_buffer_min_entries: usize
-                    required trace_buffer_max_size: usize
-                    required trace_dump_path: String
-                    required peer_removal_cooldown_secs: u64
+                    required db_chain: String
+                    required db_chain_automatic_migration: bool
+                    required db_ledger: String
+                    required db_ledger_max_extra_snapshots: String
                     required mempool_max_bytes: String
-                    required tx_submission_max_window: u16
+                    required network: %amaru_kernel::NetworkName
+                    required peer: String
+                    required peers_listen_on: String
+                    required peers_max_downstream: usize
+                    required peers_max_upstream: usize
+                    required peers_mix: String
+                    required peers_removal_cooldown_ms: u64
+                    required peers_snapshot: String
+                    required peers_snapshot_relays: usize
+                    required pid_export: String
+                    required submit_api_listen_on: String
+                    required trace_buffer: String
+                    required trace_buffer_dump: String
+                    required tui_log_retention: String
+                    required tui_off: bool
                     required tx_submission_fetch_batch_bytes: u64
                     required tx_submission_inflight_timeout_ms: u64
                     required tx_submission_insert_timeout_ms: u64
+                    required tx_submission_max_window: u16
                     /// Path to an era history override, when one was given
                     optional era_history: String
                     /// Serialised global parameters, for test networks only
@@ -1504,7 +1602,7 @@ define_schemas! {
                     optional error: String
                 }
             }
-            chain_db {
+            db_chain {
                 /// Chain database already exists
                 public EXIST {
                     required dir: String
@@ -1538,7 +1636,7 @@ define_schemas! {
                     required point: %amaru_kernel::NetworkPoint
                 }
             }
-            ledger_db {
+            db_ledger {
                 /// Ledger database already exists
                 public EXIST {
                     required dir: String
@@ -1573,38 +1671,38 @@ define_schemas! {
             node {
                 /// Bootstrap a node from published snapshots
                 public BOOTSTRAP {
-                    required chain_dir: String
-                    required ledger_dir: String
+                    required db_chain: String
+                    required db_ledger: String
                     required network: %amaru_kernel::NetworkName
                     optional epoch: amaru_kernel::Epoch
                 }
                 /// Remove ledger and chain database from disk
                 public RM {
-                    required chain_dir: String
-                    required ledger_dir: String
+                    required db_chain: String
+                    required db_ledger: String
                     required network: %amaru_kernel::NetworkName
                 }
                 /// Roll the node databases back after a failure
                 public ROLLBACK {
-                    required chain_dir: String
-                    required ledger_dir: String
-                    required network: %amaru_kernel::NetworkName
+                    required db_chain: String
+                    required db_ledger: String
                     required mode: String
+                    required network: %amaru_kernel::NetworkName
+                    optional anchor: String
+                    optional best_chain: String
                     optional epoch: u64
                     optional ledger_tip: String
-                    optional best_chain: String
-                    optional anchor: String
                 }
             }
             snapshot {
                 /// Create snapshots for the given network
                 public CREATE {
-                    required network: %amaru_kernel::NetworkName
-                    optional epoch: amaru_kernel::Epoch
-                    required snapshot_output_dir: String
-                    required config_dir: String
                     required cardano_node_db: String
-                    required dist_dir: String
+                    required config: String
+                    required dist: String
+                    required network: %amaru_kernel::NetworkName
+                    required to: String
+                    optional epoch: amaru_kernel::Epoch
                     optional snapshots: String
                 }
                 /// Finished creating a snapshot archive

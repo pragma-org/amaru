@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{fs, io, path::Path};
 
 use amaru::{
-    aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Config},
+    aws::S3Config,
     bootstrap::bootstrap,
-    default_chain_dir, default_ledger_dir, default_snapshots_dir,
+    default_snapshots_dir,
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{Epoch, GlobalParameters, NetworkName, utils::path::relative_path};
@@ -29,26 +26,6 @@ use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path of the chain on-disk storage.
-    ///
-    /// Defaults to ./chain.<NETWORK>.db when unspecified.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
-
-    /// Path of the ledger on-disk storage.
-    ///
-    /// Defaults to ./ledger.<NETWORK>.db when unspecified.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-    )]
-    ledger_dir: Option<PathBuf>,
-
     /// The target bootstrap epoch; this is the epoch Amaru will start from.
     ///
     /// At least 3 past epochs must exist. When omitted, this defaults the latest available epoch
@@ -60,67 +37,27 @@ pub struct Args {
     )]
     epoch: Option<Epoch>,
 
-    /// Network to bootstrap the node for.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
-
-    /// Override network's global parameters for custom testnets.
     #[command(flatten)]
+    network: amaru::args::Network,
+
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_chain: amaru::args::DbChain,
+
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_ledger: amaru::args::DbLedger,
+
+    #[command(flatten)]
+    s3: amaru::args::S3,
+
+    /// Override network's global parameters for custom testnets / devnets.
+    ///
+    /// DO NOT override for known networks (e.g. mainnet, preprod, preview, ...), as these parameters are set in stone.
+    #[command(flatten, next_help_heading = "Network global parameters")]
     global_parameters: GlobalParameters,
 
     /// Show global network parameter overrides, for custom testnets.
     #[arg(long)]
     pub(crate) help_global_parameters: bool,
-
-    /// S3 bucket containing the bootstrap snapshots.
-    ///
-    /// Defaults to the official Amaru snapshot bucket.
-    #[arg(
-        long,
-        value_name = amaru::value_names::BUCKET_NAME,
-        env = "AMARU_S3_BUCKET",
-        default_value = DEFAULT_BUCKET,
-        help_heading = "S3 Snapshot Options",
-    )]
-    s3_bucket: String,
-
-    /// S3-compatible endpoint URL.
-    ///
-    /// Defaults to the official Amaru R2 endpoint.
-    #[arg(
-        long,
-        value_name = amaru::value_names::URL,
-        env = "AMARU_S3_ENDPOINT",
-        default_value = DEFAULT_ENDPOINT,
-        help_heading = "S3 Snapshot Options",
-    )]
-    s3_endpoint: String,
-
-    /// S3-compatible region.
-    #[arg(
-        long,
-        value_name = amaru::value_names::S3_REGION,
-        env = "AMARU_S3_REGION",
-        default_value = DEFAULT_REGION,
-        help_heading = "S3 Snapshot Options",
-    )]
-    s3_region: String,
-
-    /// Public CDN base URL for anonymous snapshot downloads.
-    ///
-    /// Defaults to the official Amaru public R2 URL.
-    #[arg(
-        long,
-        value_name = amaru::value_names::URL,
-        env = "AMARU_S3_PUBLIC_URL",
-        default_value = DEFAULT_PUBLIC_URL,
-        help_heading = "S3 Snapshot Options",
-    )]
-    s3_public_url: String,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -128,39 +65,39 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let network = args.network;
+    let network = NetworkName::from(args.network);
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
+    let db_ledger = args.db_ledger.into_path_buf(network);
 
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    let db_chain = args.db_chain.into_path_buf(network);
 
     info!(
         cli::node::BOOTSTRAP,
-        chain_dir = relative_path(&chain_dir)?.display().to_string(),
-        ledger_dir = relative_path(&ledger_dir)?.display().to_string(),
+        db_chain = relative_path(&db_chain)?.display().to_string(),
+        db_ledger = relative_path(&db_ledger)?.display().to_string(),
         network,
         epoch = @args.epoch.map(|e| e.to_string()),
     );
 
-    let ledger_dir_populated = is_populated(&ledger_dir)?;
-    let chain_dir_populated = is_populated(&chain_dir)?;
+    let ledger_db_populated = is_populated(&db_ledger)?;
+    let chain_db_populated = is_populated(&db_chain)?;
 
-    if ledger_dir_populated || chain_dir_populated {
+    if ledger_db_populated || chain_db_populated {
         let mut messages = Vec::new();
 
-        if ledger_dir_populated {
-            let dir = relative_path(&ledger_dir)?.display().to_string();
+        if ledger_db_populated {
+            let dir = relative_path(&db_ledger)?.display().to_string();
             let hint = "ledger directory already exists: use another location or remove it manually";
-            warn!(cli::ledger_db::EXIST, dir, hint);
+            warn!(cli::db_ledger::EXIST, dir, hint);
             messages.push(format!("{hint} ({dir})"));
         }
 
-        if chain_dir_populated {
-            let dir = relative_path(&chain_dir)?.display().to_string();
+        if chain_db_populated {
+            let dir = relative_path(&db_chain)?.display().to_string();
             let hint = "chain directory already exists: use another location or remove it manually";
-            warn!(cli::chain_db::EXIST, dir, hint);
+            warn!(cli::db_chain::EXIST, dir, hint);
             messages.push(format!("{hint} ({dir})"));
         }
 
@@ -170,15 +107,15 @@ async fn run(args: Args) -> anyhow::Result<()> {
     bootstrap(
         network,
         &global_parameters,
-        ledger_dir,
-        chain_dir,
+        db_ledger,
+        db_chain,
         default_snapshots_dir(network).into(),
         args.epoch,
         S3Config {
-            bucket: args.s3_bucket,
-            endpoint: args.s3_endpoint,
-            region: args.s3_region,
-            public_url: args.s3_public_url,
+            bucket: args.s3.bucket,
+            endpoint: args.s3.endpoint,
+            region: args.s3.region,
+            public_url: args.s3.public_url,
         },
         amaru_bootstrap::BootstrapCancellation::new(),
     )

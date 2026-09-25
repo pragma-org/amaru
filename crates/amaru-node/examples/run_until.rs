@@ -68,8 +68,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }));
 
-        let builder =
-            if args.peer_address.is_empty() { builder.no_default_peer() } else { builder.peers(args.peer_address) };
+        let builder = if args.peer_address.is_empty() { builder } else { builder.peers(args.peer_address) };
 
         let running = builder.start(&tokio::runtime::Handle::current()).await?;
 
@@ -123,23 +122,23 @@ impl Args {
                     let v = args.next().ok_or_else(|| anyhow::anyhow!("--epoch needs a value"))?;
                     target_epoch = Some(v.parse()?);
                 }
-                "--ledger-dir" => {
+                "--db-ledger" => {
                     ledger_dir = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!("missing path"))?));
                 }
-                "--chain-dir" => {
+                "--db-chain" => {
                     chain_dir = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!("missing path"))?));
                 }
-                "--peer-address" => {
+                "--peer" => {
                     peer_address.push(args.next().ok_or_else(|| anyhow::anyhow!("missing peer"))?);
                 }
-                "--upstream-peers" => {
+                "--peers-max-upstream" => {
                     upstream_peers = args.next().ok_or_else(|| anyhow::anyhow!("missing count"))?.parse()?;
                 }
                 "-h" | "--help" => {
                     eprintln!(
                         "Usage: run_until --epoch <N> [--network preprod|mainnet|preview] \
-                         [--ledger-dir DIR] [--chain-dir DIR] [--peer-address HOST:PORT] \
-                         [--upstream-peers N]"
+                         [--db-ledger DIR] [--db-chain DIR] [--peer HOST:PORT] \
+                         [--peers-max-upstream N]"
                     );
                     std::process::exit(0);
                 }

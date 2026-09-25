@@ -329,13 +329,13 @@ impl Args {
                     let v = args.next().ok_or_else(|| anyhow::anyhow!("--network needs a value"))?;
                     network = v.parse().map_err(|e| anyhow::anyhow!("invalid network: {e}"))?;
                 }
-                "--ledger-dir" => {
+                "--db-ledger" => {
                     ledger_dir = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!("missing path"))?));
                 }
-                "--chain-dir" => {
+                "--db-chain" => {
                     chain_dir = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!("missing path"))?));
                 }
-                "--peer-address" => {
+                "--peer" => {
                     peer_address.push(args.next().ok_or_else(|| anyhow::anyhow!("missing peer"))?);
                 }
                 "--address" => {
@@ -345,7 +345,7 @@ impl Args {
                 }
                 "-h" | "--help" => {
                     eprintln!(
-                        "Usage: address_watch --address <bech32> [--address ...] [--network preprod] [--ledger-dir DIR]"
+                        "Usage: address_watch --address <bech32> [--address ...] [--network preprod] [--peer HOST[:PORT]] [--db-ledger DIR] [--db-chain DIR]"
                     );
                     std::process::exit(0);
                 }

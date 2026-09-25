@@ -39,7 +39,12 @@ Other guiding principles:
 
 ### Added
 
-- **amaru**: `amaru keys hot create --signing-key-file PATH --verification-key-file PATH` generates cardano-cli compatible KES key files without replacing existing files.
+- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
+
+### Changed
+
+- **amaru**: align command-line with the guidelines from EDR-0019; as a consequence, many options (and their corresponding environment variables) have been renamed. However, aliases are in place so that existing scripts or usage of Amaru should keep working. Yet, old options and variables are now deprecated and will be remove in the future.
+- **amaru**: remove legacy commands that were deprecated and hidden away months ago.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -50,44 +55,36 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
+- **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
 - **amaru-protocols**: block-fetch peer timeouts are logged as warnings instead of errors.
 
-- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
-
 ### Fixed
 
-- **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
-- **amaru-kernel**: fixed the ordering of multi assets.
-
-## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
-
-### Changed
-
-- **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
-
-### Fixed
-- **amaru-stores**: immutable epoch snapshots allow concurrent readers, avoiding database lock failures during restarts and bootstrap handoffs.
-- **amaru-node**: shutdown cancels and joins the rewards worker before reporting cleanup complete. A worker that cannot stop within the ledger shutdown timeout reports incomplete cleanup.
-- **amaru-uplc**: prevent a crash by wrapping negative consByteString input modulo 256 for Plutus V1/v2. This matches the Haskell behavior.
-- **amaru-uplc**: prevent a crash when using integers outside [0, 2^64) in constrData.
-- **amaru-uplc**: reject out of range indexByteString and indexArray indices.
-- **amaru-uplc**: saturate dropList cost instead of panicking beyond a u64.
-- **amaru-uplc**: fix a panic when shiftByteString is called with a whole byte shift.
 - **amaru-kernel**: fix some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).
-- **amaru-uplc**: fix a costing bug when working with some polymorphic types.
-- **amaru-uplc**: do not run scripts with disallowed plutus language versions.
-- **amaru-uplc**: reject flat encoded values with extraneous tags.
-- **amaru-uplc**: do not allow case on constants at v10.
-- **amaru-uplc**: evaluate `shiftByteString` and `rotateByteString` when arg is outside i64 bounds at pv10.
+- **amaru-kernel**: fixed the ordering of multi assets.
+- **amaru-node**: shutdown cancels and joins the rewards worker before reporting cleanup complete. A worker that cannot stop within the ledger shutdown timeout reports incomplete cleanup.
+- **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
+- **amaru-stores**: immutable epoch snapshots allow concurrent readers, avoiding database lock failures during restarts and bootstrap handoffs.
 - **amaru-uplc**: bound `writeBits` input at pv11.
 - **amaru-uplc**: correctly cost strings at pv10.
+- **amaru-uplc**: do not allow case on constants at v10.
+- **amaru-uplc**: do not run scripts with disallowed plutus language versions.
+- **amaru-uplc**: evaluate `shiftByteString` and `rotateByteString` when arg is outside i64 bounds at pv10.
+- **amaru-uplc**: fix a costing bug when working with some polymorphic types.
+- **amaru-uplc**: fix a panic when shiftByteString is called with a whole byte shift.
+- **amaru-uplc**: prevent a crash by wrapping negative consByteString input modulo 256 for Plutus V1/v2. This matches the Haskell behavior.
+- **amaru-uplc**: prevent a crash when using integers outside [0, 2^64) in constrData.
+- **amaru-uplc**: reject flat encoded values with extraneous tags.
+- **amaru-uplc**: reject out of range indexByteString and indexArray indices.
+- **amaru-uplc**: saturate dropList cost instead of panicking beyond a u64.
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
 ### Added
 
-- **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--kes-signing-key-file`, `--vrf-signing-key-file`, and `--operational-certificate` (unencrypted cardano-cli files). Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the certificate's cold signature does not verify, or when its sequence number is not the chain's counter for that pool or exactly one ahead.
+- **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--operator-kes`, `--operator-vrf`, and `--operator-operational-certificate` (unencrypted cardano-cli files). Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the certificate's cold signature does not verify, or when its sequence number is not the chain's counter for that pool or exactly one ahead.
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 - **amaru**: `amaru dev env generate` to generate a (curated) list of environment variables available for Amaru main commands, acting as a configuration file.
@@ -110,7 +107,7 @@ Other guiding principles:
 - **amaru**: block propagation can be followed on its own. `AMARU_LOG=off,amaru::blockperf=info` prints, for each block, the first three peers that announced the header (`header.announced`, with rank), the peers asked for the body (`block.requested`), each peer that delivered the body in arrival order (`block.received`), and local adoption (`block.adopted`). The logging is at DEBUG level while syncing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
 - **amaru**: `chainsync.chain_lagging` is logged when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, including while sync is finishing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
 - **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
-- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
+- **amaru-node**: `amaru mithril sync --until-slot` downloads immutable files only through the chunk containing the requested slot.
 - **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
 - **amaru-protocols**: BlockFetch rejects requests whose endpoint slot does not match the requested block hash.
 - **amaru-protocols**: a connection stays up when a peer starts a mini-protocol this node will serve before that protocol's handler is registered. On a connection this node accepted, that includes a handshake that arrives before the handshake handler is registered.

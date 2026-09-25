@@ -30,7 +30,7 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
 
-pub use crate::performance::{DEFAULT_PEER_MIX, PeerMix, PeerMixParseError};
+pub use crate::performance::{DEFAULT_PEERS_MIX, PeerMix, PeerMixParseError};
 use crate::{
     effects::{GenerateRandomSeed, Ledger, LedgerOps, ResolvePeerCandidate, ResolvePeerCandidateResult},
     performance::{Performance, SelectOutboundParams, SelectUsing, SharedIngestResult},
@@ -422,13 +422,13 @@ impl PeerSelection {
         manager: StageRef<ManagerMessage>,
         target_upstream_peers: usize,
         target_downstream_peers: usize,
-        peer_removal_cooldown_secs: u64,
+        peer_removal_cooldown: Duration,
     ) -> Self {
         Self {
             target_upstream_peers,
             target_downstream_peers,
             manager,
-            peer_removal_cooldown: Duration::from_secs(peer_removal_cooldown_secs),
+            peer_removal_cooldown,
             cooldowns: Cooldowns::default(),
             cooldown_timer: None,
             inbound_peers: BTreeMap::new(),

@@ -16,7 +16,6 @@ use std::path::PathBuf;
 
 use amaru::{
     bootstrap::import_snapshots,
-    default_ledger_dir,
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
@@ -30,21 +29,11 @@ pub struct Args {
     #[arg(value_name = amaru::value_names::FILEPATH, required = true)]
     snapshot_paths: Vec<PathBuf>,
 
-    /// The path to the ledger database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-    )]
-    ledger_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_ledger: amaru::args::DbLedger,
 
-    /// Network of the underlying ledger database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -53,22 +42,21 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let network = NetworkName::from(args.network);
+    let db_ledger = args.db_ledger.into_path_buf(network);
 
     info!(
-        cli::dev::RUN,
-        command = "dev ledger states import",
-        network = args.network,
+        cli::dev::ledger::state::IMPORT,
         count = args.snapshot_paths.len(),
-        ledger_dir = ledger_dir.to_string_lossy()
+        db_ledger = db_ledger.to_string_lossy(),
+        network,
     );
 
-    let global_parameters = args
-        .network
+    let global_parameters = network
         .as_global_parameters()
-        .ok_or_else(|| anyhow!("no global parameters available for network {}", args.network))?;
+        .ok_or_else(|| anyhow!("no global parameters available for network {network}"))?;
 
-    import_snapshots(args.network, global_parameters, &args.snapshot_paths, &ledger_dir).await?;
+    import_snapshots(network, global_parameters, &args.snapshot_paths, &db_ledger).await?;
 
     println!("Imported {} snapshot(s) successfully", args.snapshot_paths.len());
 

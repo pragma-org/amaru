@@ -18,7 +18,7 @@ BUILD_PROFILE="${BUILD_PROFILE:-dev}"
 BOOTSTRAP_AMARU_DATABASES="${BOOTSTRAP_AMARU_DATABASES:-auto}"
 # Matches the node's own default. Retaining every historical snapshot costs about 2 GB per epoch on
 # mainnet, twice over, because each node gets its own copy of the databases.
-AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS="${AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS:-0}"
+AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS="${AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS:-0}"
 CARDANO_NODE_RELEASE_VERSION="${CARDANO_NODE_RELEASE_VERSION:-11.0.1}"
 DEFAULT_CARDANO_NODE_HOME="$LOGDIR/cardano-node-$CARDANO_NODE_RELEASE_VERSION"
 CARDANO_NODE_HOME_WAS_SET=false
@@ -92,7 +92,7 @@ default_tx_query_source() {
 TX_QUERY_SOURCE="${TX_QUERY_SOURCE:-$(default_tx_query_source)}"
 TELEMETRY_GRAFANA_URL="${TELEMETRY_GRAFANA_URL:-http://localhost}"
 export AMARU_RELAY_LOGDIR="$LOGDIR"
-export AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS
+export AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS
 # The shared monitoring stack (monitoring/docker-compose.yml) is started and stopped
 # independently of the demo; the nodes only export to it. All three exporters speak OTLP over
 # gRPC, so both endpoints point at the collector's 4317 receiver.
@@ -221,12 +221,12 @@ amaru_middle_peer_address() {
 
 run_amaru_middle() {
   run_amaru_node MIDDLE "$(amaru_middle_peer_address)" "0.0.0.0:$LISTEN_PORT" \
-    --submit-api-address "$MIDDLE_SUBMIT_API_ADDRESS"
+    --submit-api-listen-on "$MIDDLE_SUBMIT_API_ADDRESS"
 }
 
 run_amaru_downstream() {
   run_amaru_node DOWNSTREAM "127.0.0.1:$LISTEN_PORT" "0.0.0.0:$DOWNSTREAM_LISTEN_PORT" \
-    --submit-api-address "$DOWNSTREAM_SUBMIT_API_ADDRESS"
+    --submit-api-listen-on "$DOWNSTREAM_SUBMIT_API_ADDRESS"
 }
 
 ready_amaru_middle() {
