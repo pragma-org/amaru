@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HeaderBody, KesPeriod, KesPeriodError, KesSignature, OperationalCert, VerificationKey};
+use amaru_kernel::{
+    Hasher, HeaderBody, KesPeriod, KesPeriodError, KesSignature, OperationalCert, PoolId, VerificationKey,
+    size::POOL_COLD_KEY,
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error, serde::Serialize, serde::Deserialize)]
@@ -36,7 +39,16 @@ pub trait ForgingCredentials: Send + Sync {
     /// Cold verification key; `HeaderBody::issuer_verification_key`.
     fn issuer_verification_key(&self) -> VerificationKey;
 
+    /// Pool id: blake2b-224 of the cold verification key.
+    fn pool_id(&self) -> PoolId {
+        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.issuer_verification_key()[..])
+    }
+
     fn vrf_verification_key(&self) -> VerificationKey;
+
+    /// 32-byte VRF signing seed. The leader-schedule effect turns this into proofs;
+    /// the seed does not enter stage state.
+    fn vrf_secret_bytes(&self) -> [u8; 32];
 
     /// Operational certificate delegating from the cold key to the current KES key.
     fn operational_cert(&self) -> OperationalCert;
