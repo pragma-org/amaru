@@ -299,9 +299,6 @@ impl ProposalsForest {
         &mut self,
         protocol_parameters: &'_ ProtocolParameters,
     ) -> Option<(Rc<ProposalId>, (&ProposalEnum, &ProposalPointer))> {
-        use ConstitutionalCommitteeUpdate::*;
-        use OrphanProposal::*;
-
         // NOTE(RATIFICATION_INTERRUPTION):
         //
         // == TL; DR;
@@ -325,12 +322,29 @@ impl ProposalsForest {
             return None;
         }
 
-        let id = self.sequence.pop_front()?;
-        self.seen.push(id.clone());
+        while let Some(id) = self.sequence.pop_front() {
+            self.seen.push(id.clone());
 
-        let WithContext { proposed_in, proposal, pointer, .. } = self.proposals.get(&id).unwrap_or_else(|| {
-            unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
-        });
+            let proposal = self.proposals.get(&id).unwrap_or_else(|| {
+                unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
+            });
+
+            if let Some(step) = self.step(id, proposal, protocol_parameters) {
+                return Some(step);
+            }
+        }
+
+        None
+    }
+
+    fn step<'a>(
+        &self,
+        id: Rc<ProposalId>,
+        WithContext { proposed_in, pointer, proposal, .. }: &'a WithContext<ProposalEnum>,
+        protocol_parameters: &'_ ProtocolParameters,
+    ) -> Option<(Rc<ProposalId>, (&'a ProposalEnum, &'a ProposalPointer))> {
+        use ConstitutionalCommitteeUpdate::*;
+        use OrphanProposal::*;
 
         // NOTE: Skip just-submitted governance proposals
         //
