@@ -45,6 +45,8 @@ pub mod submit_api;
 pub mod system_metrics;
 pub mod telemetry;
 
+use std::time::Duration;
+
 pub use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, Point, Transaction, TransactionRef,
 };
@@ -77,28 +79,35 @@ pub fn default_chain_dir(network: NetworkName) -> String {
     format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
-/// Default listen address for inbound peer connections.
-pub const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
+/// Default address for inbound peer connections.
+pub const DEFAULT_PEERS_LISTEN_ON: &str = "0.0.0.0:3000";
 
 /// Default public bootstrap peer for mainnet.
-pub const MAINNET_DEFAULT_PEER_ADDRESS: &str = "backbone.cardano.iog.io:3001";
+pub const DEFAULT_MAINNET_PEER_ADDRESS: &str = "backbone.cardano.iog.io:3001";
 
 /// Default public bootstrap peer for preprod.
-pub const PREPROD_DEFAULT_PEER_ADDRESS: &str = "preprod-node.play.dev.cardano.org:3001";
+pub const DEFAULT_PREPROD_PEER_ADDRESS: &str = "preprod-node.play.dev.cardano.org:3001";
 
 /// Default public bootstrap peer for preview.
-pub const PREVIEW_DEFAULT_PEER_ADDRESS: &str = "preview-node.play.dev.cardano.org:3001";
+pub const DEFAULT_PREVIEW_PEER_ADDRESS: &str = "preview-node.play.dev.cardano.org:3001";
 
 /// Default peer when no network-specific default applies (custom testnets).
-pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:3001";
+pub const DEFAULT_LOCAL_PEER_ADDRESS: &str = "127.0.0.1:3001";
+
+/// Default cooldown after removing a misbehaving peer.
+pub const DEFAULT_PEER_REMOVAL_COOLDOWN: Duration = Duration::from_secs(600);
+
+pub const DEFAULT_PEERS_MAX_UPSTREAM: usize = 3;
+
+pub const DEFAULT_PEERS_MAX_DOWNSTREAM: usize = 10;
 
 /// Get the default peer address for a given network.
 pub fn default_peer_for_network(network: NetworkName) -> &'static str {
     match network {
-        NetworkName::Mainnet => MAINNET_DEFAULT_PEER_ADDRESS,
-        NetworkName::Preprod => PREPROD_DEFAULT_PEER_ADDRESS,
-        NetworkName::Preview => PREVIEW_DEFAULT_PEER_ADDRESS,
-        NetworkName::Testnet(_) => DEFAULT_PEER_ADDRESS,
+        NetworkName::Mainnet => DEFAULT_MAINNET_PEER_ADDRESS,
+        NetworkName::Preprod => DEFAULT_PREPROD_PEER_ADDRESS,
+        NetworkName::Preview => DEFAULT_PREVIEW_PEER_ADDRESS,
+        NetworkName::Testnet(_) => DEFAULT_LOCAL_PEER_ADDRESS,
     }
 }
 
@@ -117,7 +126,3 @@ pub mod observability {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;
-
-pub const DEFAULT_PEER_REMOVAL_COOLDOWN_SECS: u64 = 600; // 10 minutes
-pub const DEFAULT_UPSTREAM_PEERS: usize = 3;
-pub const DEFAULT_DOWNSTREAM_PEERS: usize = 10;

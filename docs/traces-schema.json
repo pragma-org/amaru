@@ -967,83 +967,30 @@
       "description": "Run db-analyser to produce a ledger snapshot",
       "public": true
     },
-    "amaru::cli::dev::RUN": {
+    "amaru::cli::dev::chain::ANCESTORS": {
       "type": "object",
       "properties": {
-        "command": {
+        "chain_db": {
           "type": "string"
         },
         "network": {
           "type": "string"
         },
-        "chain_dir": {
-          "type": "string"
-        },
-        "ledger_dir": {
-          "type": "string"
-        },
-        "headers_dir": {
-          "type": "string"
-        },
-        "input": {
-          "type": "string"
-        },
         "start": {
-          "type": "string"
-        },
-        "block": {
-          "type": "string"
-        },
-        "parent": {
-          "type": "string"
-        },
-        "peer_address": {
-          "type": "string"
-        },
-        "epoch": {
-          "type": "string"
-        },
-        "count": {
-          "type": "integer"
-        },
-        "from_point": {
-          "type": "string"
-        },
-        "only_blocks": {
-          "type": "boolean"
-        },
-        "only_validation_results": {
-          "type": "boolean"
-        },
-        "hint": {
           "type": "string"
         }
       },
       "required": [
-        "command",
-        "network"
+        "chain_db",
+        "network",
+        "start"
       ],
-      "optional": [
-        "chain_dir",
-        "ledger_dir",
-        "headers_dir",
-        "input",
-        "start",
-        "block",
-        "parent",
-        "peer_address",
-        "epoch",
-        "count",
-        "from_point",
-        "only_blocks",
-        "only_validation_results",
-        "hint"
-      ],
+      "optional": [],
       "additionalProperties": false,
-      "name": "run",
+      "name": "ancestors",
       "level": "TRACE",
-      "target": "amaru::cli::dev",
-      "description": "A developer command started, with the arguments it resolved. Command names the subcommand, e.g. \"dev chain prune\".",
+      "target": "amaru::cli::dev::chain",
+      "description": "Walk back from a given point showing block height, presence, validation status and best chain flag.",
       "public": true
     },
     "amaru::cli::dev::chain::ANCHOR_UPDATED": {
@@ -1065,6 +1012,154 @@
       "level": "TRACE",
       "target": "amaru::cli::dev::chain",
       "description": "The chain store anchor was moved to a new hash",
+      "public": true
+    },
+    "amaru::cli::dev::chain::BEST_CHAIN": {
+      "type": "object",
+      "properties": {
+        "chain_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "best_chain",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Show the best chain tip and computed best tip candidate.",
+      "public": true
+    },
+    "amaru::cli::dev::chain::CHILDREN": {
+      "type": "object",
+      "properties": {
+        "chain_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_db",
+        "network",
+        "start"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "children",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Walk forward from a point and show its children.",
+      "public": true
+    },
+    "amaru::cli::dev::chain::CLEAR_INVALID": {
+      "type": "object",
+      "properties": {
+        "blocks": {
+          "type": "string"
+        },
+        "chain_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "blocks",
+        "chain_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "clear_invalid",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Clear the validation status for selected blocks.",
+      "public": true
+    },
+    "amaru::cli::dev::chain::DUMP": {
+      "type": "object",
+      "properties": {
+        "chain_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dump",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Dump selected chain database tables.",
+      "public": true
+    },
+    "amaru::cli::dev::chain::FETCH": {
+      "type": "object",
+      "properties": {
+        "headers": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "headers",
+        "network",
+        "parent",
+        "peer"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Fetch chain headers from a peer.",
+      "public": true
+    },
+    "amaru::cli::dev::chain::MIGRATE": {
+      "type": "object",
+      "properties": {
+        "chain_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "migrate",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Migrate the chain database to the current format.",
       "public": true
     },
     "amaru::cli::dev::chain::MIGRATION_NOT_NEEDED": {
@@ -1193,6 +1288,32 @@
       "description": "A point is being removed from the chain store",
       "public": true
     },
+    "amaru::cli::dev::chain::PRUNE": {
+      "type": "object",
+      "properties": {
+        "chain_db": {
+          "type": "string"
+        },
+        "ledger_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_db",
+        "ledger_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "prune",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Prune chain data that precedes the oldest ledger snapshot.",
+      "public": true
+    },
     "amaru::cli::dev::chain::PRUNE_BOUNDARY": {
       "type": "object",
       "properties": {
@@ -1213,6 +1334,40 @@
       "level": "TRACE",
       "target": "amaru::cli::dev::chain",
       "description": "The pruning boundary derived from the oldest ledger snapshot",
+      "public": true
+    },
+    "amaru::cli::dev::chain::REMOVE": {
+      "type": "object",
+      "properties": {
+        "chain_db": {
+          "type": "string"
+        },
+        "from_point": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "only_blocks": {
+          "type": "boolean"
+        },
+        "only_validation_results": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "chain_db",
+        "from_point",
+        "network",
+        "only_blocks",
+        "only_validation_results"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "Remove data after a chain point.",
       "public": true
     },
     "amaru::cli::dev::chain::VALIDATION_CLEARED": {
@@ -1236,6 +1391,61 @@
       "description": "The stored validation status of a block is being cleared",
       "public": true
     },
+    "amaru::cli::dev::ledger::CONVERT": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string"
+        },
+        "ledger_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "ledger_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "convert",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger",
+      "description": "Convert a cardano-node snapshot into an Amaru ledger database.",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::RESET": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "ledger_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epoch",
+        "ledger_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reset",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger",
+      "description": "Reset an Amaru ledger database to a snapshot epoch.",
+      "public": true
+    },
     "amaru::cli::dev::ledger::SNAPSHOT_NOT_FOUND": {
       "type": "object",
       "properties": {
@@ -1251,7 +1461,7 @@
       "name": "snapshot_not_found",
       "level": "TRACE",
       "target": "amaru::cli::dev::ledger",
-      "description": "A ledger snapshot to remove does not exist",
+      "description": "A ledger snapshot to remove does not exist.",
       "public": true
     },
     "amaru::cli::dev::ledger::SNAPSHOT_REMOVED": {
@@ -1269,7 +1479,129 @@
       "name": "snapshot_removed",
       "level": "TRACE",
       "target": "amaru::cli::dev::ledger",
-      "description": "A ledger snapshot was removed",
+      "description": "A ledger snapshot was removed.",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::nonces::GET": {
+      "type": "object",
+      "properties": {
+        "block": {
+          "type": "string"
+        },
+        "chain_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "block",
+        "chain_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "get",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger::nonces",
+      "description": "Look up the nonces associated with a block.",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::nonces::SET": {
+      "type": "object",
+      "properties": {
+        "block": {
+          "type": "string"
+        },
+        "chain_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "block",
+        "chain_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "set",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger::nonces",
+      "description": "Set the nonces associated with a block.",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::state::IMPORT": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "ledger_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "count",
+        "ledger_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "import",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger::state",
+      "description": "Import ledger state snapshots.",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::state::LIST": {
+      "type": "object",
+      "properties": {
+        "ledger_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ledger_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "list",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger::state",
+      "description": "List ledger state snapshots.",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::state::REMOVE": {
+      "type": "object",
+      "properties": {
+        "ledger_db": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ledger_db",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger::state",
+      "description": "Removing ledger state",
       "public": true
     },
     "amaru::cli::last_block::RESOLVE": {
@@ -1476,10 +1808,10 @@
     "amaru::cli::node::BOOTSTRAP": {
       "type": "object",
       "properties": {
-        "chain_dir": {
+        "chain_db": {
           "type": "string"
         },
-        "ledger_dir": {
+        "ledger_db": {
           "type": "string"
         },
         "network": {
@@ -1493,8 +1825,8 @@
         }
       },
       "required": [
-        "chain_dir",
-        "ledger_dir",
+        "chain_db",
+        "ledger_db",
         "network"
       ],
       "optional": [
@@ -1510,10 +1842,10 @@
     "amaru::cli::node::RM": {
       "type": "object",
       "properties": {
-        "chain_dir": {
+        "chain_db": {
           "type": "string"
         },
-        "ledger_dir": {
+        "ledger_db": {
           "type": "string"
         },
         "network": {
@@ -1521,8 +1853,8 @@
         }
       },
       "required": [
-        "chain_dir",
-        "ledger_dir",
+        "chain_db",
+        "ledger_db",
         "network"
       ],
       "optional": [],
@@ -1536,16 +1868,22 @@
     "amaru::cli::node::ROLLBACK": {
       "type": "object",
       "properties": {
-        "chain_dir": {
+        "chain_db": {
           "type": "string"
         },
-        "ledger_dir": {
+        "ledger_db": {
+          "type": "string"
+        },
+        "mode": {
           "type": "string"
         },
         "network": {
           "type": "string"
         },
-        "mode": {
+        "anchor": {
+          "type": "string"
+        },
+        "best_chain": {
           "type": "string"
         },
         "epoch": {
@@ -1553,25 +1891,19 @@
         },
         "ledger_tip": {
           "type": "string"
-        },
-        "best_chain": {
-          "type": "string"
-        },
-        "anchor": {
-          "type": "string"
         }
       },
       "required": [
-        "chain_dir",
-        "ledger_dir",
-        "network",
-        "mode"
+        "chain_db",
+        "ledger_db",
+        "mode",
+        "network"
       ],
       "optional": [
-        "epoch",
-        "ledger_tip",
+        "anchor",
         "best_chain",
-        "anchor"
+        "epoch",
+        "ledger_tip"
       ],
       "additionalProperties": false,
       "name": "rollback",
@@ -1583,16 +1915,16 @@
     "amaru::cli::node::RUN": {
       "type": "object",
       "properties": {
-        "chain_dir": {
+        "chain_db": {
           "type": "string"
         },
-        "ledger_dir": {
+        "ledger_db": {
           "type": "string"
         },
-        "listen_address": {
+        "ledger_max_extra_snapshots": {
           "type": "string"
         },
-        "max_extra_ledger_snapshots": {
+        "mempool_max_bytes": {
           "type": "string"
         },
         "migrate_chain_db": {
@@ -1601,38 +1933,47 @@
         "network": {
           "type": "string"
         },
-        "peer_address": {
+        "no_tui": {
+          "type": "boolean"
+        },
+        "peer": {
           "type": "string"
         },
-        "peer_snapshot": {
+        "peer_mix": {
           "type": "string"
         },
-        "peer_snapshot_relays": {
+        "peer_removal_cooldown_ms": {
+          "type": "integer"
+        },
+        "peers_listen_on": {
+          "type": "string"
+        },
+        "peers_max_downstream": {
+          "type": "integer"
+        },
+        "peers_max_upstream": {
+          "type": "integer"
+        },
+        "peers_snapshot": {
+          "type": "string"
+        },
+        "peers_snapshot_relays": {
           "type": "integer"
         },
         "pid_file": {
           "type": "string"
         },
-        "submit_api_address": {
+        "submit_api_listen_on": {
           "type": "string"
         },
-        "trace_buffer_min_entries": {
-          "type": "integer"
-        },
-        "trace_buffer_max_size": {
-          "type": "integer"
-        },
-        "trace_dump_path": {
+        "trace_buffer": {
           "type": "string"
         },
-        "peer_removal_cooldown_secs": {
-          "type": "integer"
-        },
-        "mempool_max_bytes": {
+        "trace_buffer_dump": {
           "type": "string"
         },
-        "tx_submission_max_window": {
-          "type": "integer"
+        "tui_log_retention": {
+          "type": "string"
         },
         "tx_submission_fetch_batch_bytes": {
           "type": "integer"
@@ -1643,6 +1984,9 @@
         "tx_submission_insert_timeout_ms": {
           "type": "integer"
         },
+        "tx_submission_max_window": {
+          "type": "integer"
+        },
         "era_history": {
           "type": "string"
         },
@@ -1651,26 +1995,30 @@
         }
       },
       "required": [
-        "chain_dir",
-        "ledger_dir",
-        "listen_address",
-        "max_extra_ledger_snapshots",
+        "chain_db",
+        "ledger_db",
+        "ledger_max_extra_snapshots",
+        "mempool_max_bytes",
         "migrate_chain_db",
         "network",
-        "peer_address",
-        "peer_snapshot",
-        "peer_snapshot_relays",
+        "no_tui",
+        "peer",
+        "peer_mix",
+        "peer_removal_cooldown_ms",
+        "peers_listen_on",
+        "peers_max_downstream",
+        "peers_max_upstream",
+        "peers_snapshot",
+        "peers_snapshot_relays",
         "pid_file",
-        "submit_api_address",
-        "trace_buffer_min_entries",
-        "trace_buffer_max_size",
-        "trace_dump_path",
-        "peer_removal_cooldown_secs",
-        "mempool_max_bytes",
-        "tx_submission_max_window",
+        "submit_api_listen_on",
+        "trace_buffer",
+        "trace_buffer_dump",
+        "tui_log_retention",
         "tx_submission_fetch_batch_bytes",
         "tx_submission_inflight_timeout_ms",
-        "tx_submission_insert_timeout_ms"
+        "tx_submission_insert_timeout_ms",
+        "tx_submission_max_window"
       ],
       "optional": [
         "era_history",
@@ -1709,19 +2057,19 @@
     "amaru::cli::snapshot::CREATE": {
       "type": "object",
       "properties": {
-        "network": {
-          "type": "string"
-        },
-        "snapshot_output_dir": {
-          "type": "string"
-        },
-        "config_dir": {
-          "type": "string"
-        },
         "cardano_node_db": {
           "type": "string"
         },
-        "dist_dir": {
+        "config": {
+          "type": "string"
+        },
+        "dist": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "to": {
           "type": "string"
         },
         "epoch": {
@@ -1735,11 +2083,11 @@
         }
       },
       "required": [
-        "network",
-        "snapshot_output_dir",
-        "config_dir",
         "cardano_node_db",
-        "dist_dir"
+        "config",
+        "dist",
+        "network",
+        "to"
       ],
       "optional": [
         "epoch",

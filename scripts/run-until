@@ -52,7 +52,7 @@ case "$target_kind" in
     ;;
   --epochs)
     network="${AMARU_NETWORK:-preprod}"
-    ledger_dir="${AMARU_LEDGER_DIR:-ledger.${network}.db}"
+    ledger_dir="${AMARU_LEDGER_DB:-ledger.${network}.db}"
     start_epoch="$(infer_ledger_start_epoch "$ledger_dir")"
     target_epoch="$(epoch_after "$start_epoch" "$target_value")"
     status "      \033[1;32mStart\033[00m epoch $start_epoch + $target_value epoch(s)"
@@ -73,17 +73,17 @@ run_until_args=(--epoch "$target_epoch")
 if [ -n "${AMARU_NETWORK:-}" ]; then
   run_until_args+=(--network "$AMARU_NETWORK")
 fi
-if [ -n "${AMARU_LEDGER_DIR:-}" ]; then
-  run_until_args+=(--ledger-dir "$AMARU_LEDGER_DIR")
+if [ -n "${AMARU_LEDGER_DB:-}" ]; then
+  run_until_args+=(--ledger-db "$AMARU_LEDGER_DB")
 fi
-if [ -n "${AMARU_CHAIN_DIR:-}" ]; then
-  run_until_args+=(--chain-dir "$AMARU_CHAIN_DIR")
+if [ -n "${AMARU_CHAIN_DB:-}" ]; then
+  run_until_args+=(--chain-db "$AMARU_CHAIN_DB")
 fi
-if [ -n "${AMARU_PEER_ADDRESS:-}" ]; then
-  run_until_args+=(--peer-address "$AMARU_PEER_ADDRESS")
+if [ -n "${AMARU_PEER:-}" ]; then
+  run_until_args+=(--peer "$AMARU_PEER")
 fi
-if [ -n "${AMARU_UPSTREAM_PEERS:-}" ]; then
-  run_until_args+=(--upstream-peers "$AMARU_UPSTREAM_PEERS")
+if [ -n "${AMARU_PEERS_MAX_UPSTREAM:-}" ]; then
+  run_until_args+=(--peers-max-upstream "$AMARU_PEERS_MAX_UPSTREAM")
 fi
 
 cargo run --profile "$build_profile" --locked -p amaru-node --example run_until -- \

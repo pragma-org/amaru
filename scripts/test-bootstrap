@@ -139,8 +139,8 @@ for epoch in $(seq "$start_epoch" "$end_epoch"); do
         "$amaru_bin" node bootstrap \
         --network "$network" \
         --epoch "$epoch" \
-        --ledger-dir "$ledger_dir" \
-        --chain-dir "$chain_dir"; then
+        --ledger-db "$ledger_dir" \
+        --chain-db "$chain_dir"; then
       bootstrap_success=true
     else
       bootstrap_error="$(tail -n 40 "$bootstrap_log")"

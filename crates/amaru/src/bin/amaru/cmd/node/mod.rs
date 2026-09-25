@@ -23,7 +23,6 @@ pub(crate) mod run;
 #[derive(Debug, Subcommand)]
 pub(crate) enum NodeCommand {
     /// Run the node in all its glory.
-    #[command(alias = "daemon")]
     Run(run::Args),
 
     /// Bootstrap the node with needed data.

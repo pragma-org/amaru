@@ -1,5 +1,5 @@
 export AMARU_NETWORK ?= preprod
-export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
+export AMARU_PEER ?= 127.0.0.1:3001
 AWS_DEFAULT_REGION ?= auto
 BUCKET_NAME ?=
 ENDPOINT ?=
@@ -176,8 +176,8 @@ generate-debian-env: ## &dist Generate Debian and RPM environment configuration
 		exit 1; \
 	fi
 	@"$(AMARU_BIN)" dev env generate \
-		--override AMARU_CHAIN_DIR=/var/lib/amaru/chain.mainnet.db \
-		--override AMARU_LEDGER_DIR=/var/lib/amaru/ledger.mainnet.db \
+		--override AMARU_CHAIN_DB=/var/lib/amaru/chain.mainnet.db \
+		--override AMARU_LEDGER_DB=/var/lib/amaru/ledger.mainnet.db \
 		--override AMARU_MIGRATE_CHAIN_DB=true \
 		--override AMARU_NETWORK=mainnet \
 		--override AMARU_PID_FILE=/run/amaru/amaru.pid \

@@ -55,17 +55,17 @@ amaru_node_var() {
   echo "${!var}"
 }
 
-# Runs one Amaru node: run_amaru_node <NAME> <peer-addresses> <listen-address> [extra args...].
+# Runs one Amaru node: run_amaru_node <NAME> <peers> <peers-listen-on> [extra args...].
 #
 # The peer addresses are a whitespace-separated list, so a node can be given several upstreams; each
-# becomes its own --peer-address, which is what the node expects for more than one.
+# becomes its own --peer, which is what the node expects for more than one.
 run_amaru_node() {
   local name="$1" peer_address="$2" listen_address="$3"
   shift 3
   local log_file data_dir with_otel log_filter trace_filter otel_service_name otel_instance_id trace_arg="" peer
   local -a peer_args=()
   for peer in $peer_address; do
-    peer_args+=(--peer-address "$peer")
+    peer_args+=(--peer "$peer")
   done
   [[ ${#peer_args[@]} -gt 0 ]] || die "run_amaru_node: no peer address given for $name"
   log_file="$(amaru_node_var "$name" LOG_FILE)"
@@ -112,9 +112,9 @@ run_amaru_node() {
     --migrate-chain-db \
     --network "$NETWORK" \
     "${peer_args[@]}" \
-    --listen-address "$listen_address" \
-    --chain-dir "$data_dir/chain.$NETWORK.db" \
-    --ledger-dir "$data_dir/ledger.$NETWORK.db" \
+    --peers-listen-on "$listen_address" \
+    --chain-db "$data_dir/chain.$NETWORK.db" \
+    --ledger-db "$data_dir/ledger.$NETWORK.db" \
     "$@" \
     2>&1 | tee "$log_file"
 }

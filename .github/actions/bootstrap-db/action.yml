@@ -39,8 +39,8 @@ runs:
       shell: bash
       env:
         AMARU_NETWORK: ${{ inputs.network }}
-        AMARU_LEDGER_DIR: ./ledger.${{ inputs.network }}.db
-        AMARU_CHAIN_DIR: ./chain.${{ inputs.network }}.db
+        AMARU_LEDGER_DB: ./ledger.${{ inputs.network }}.db
+        AMARU_CHAIN_DB: ./chain.${{ inputs.network }}.db
         AMARU_EPOCH: ${{ inputs.epoch }}
       run: |
         if [[ -z "${AMARU_EPOCH}" ]]; then

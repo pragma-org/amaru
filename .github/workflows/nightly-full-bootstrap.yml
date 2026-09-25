@@ -46,8 +46,8 @@ jobs:
           set -Eeuo pipefail
 
           state_dir="$RUNNER_TEMP/amaru-nightly-full-bootstrap-$AMARU_NETWORK"
-          export AMARU_LEDGER_DIR="$state_dir/ledger.db"
-          export AMARU_CHAIN_DIR="$state_dir/chain.db"
+          export AMARU_LEDGER_DB="$state_dir/ledger.db"
+          export AMARU_CHAIN_DB="$state_dir/chain.db"
           mkdir -p "$state_dir"
 
           target_slot="$(

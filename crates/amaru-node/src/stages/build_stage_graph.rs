@@ -69,7 +69,7 @@ pub fn build_stage_graph(
             manager.sender(),
             config.target_upstream_peers,
             config.target_downstream_peers,
-            config.peer_removal_cooldown_secs,
+            config.peer_removal_cooldown,
         )
         .with_share_request_delays(config.share_request_initial_delay, config.share_request_interval),
     );

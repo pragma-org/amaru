@@ -35,9 +35,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
+        env = amaru::env_vars::CHAIN_DB,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
     ///
@@ -45,9 +46,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
+        env = amaru::env_vars::LEDGER_DB,
+        alias = "ledger-dir",
     )]
-    ledger_dir: Option<PathBuf>,
+    ledger_db: Option<PathBuf>,
 
     /// The target bootstrap epoch; this is the epoch Amaru will start from.
     ///
@@ -132,33 +134,33 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
+    let ledger_db = args.ledger_db.unwrap_or_else(|| default_ledger_dir(network).into());
 
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    let chain_db = args.chain_db.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
         cli::node::BOOTSTRAP,
-        chain_dir = relative_path(&chain_dir)?.display().to_string(),
-        ledger_dir = relative_path(&ledger_dir)?.display().to_string(),
+        chain_db = relative_path(&chain_db)?.display().to_string(),
+        ledger_db = relative_path(&ledger_db)?.display().to_string(),
         network,
         epoch = @args.epoch.map(|e| e.to_string()),
     );
 
-    let ledger_dir_populated = is_populated(&ledger_dir)?;
-    let chain_dir_populated = is_populated(&chain_dir)?;
+    let ledger_db_populated = is_populated(&ledger_db)?;
+    let chain_db_populated = is_populated(&chain_db)?;
 
-    if ledger_dir_populated || chain_dir_populated {
+    if ledger_db_populated || chain_db_populated {
         let mut messages = Vec::new();
 
-        if ledger_dir_populated {
-            let dir = relative_path(&ledger_dir)?.display().to_string();
+        if ledger_db_populated {
+            let dir = relative_path(&ledger_db)?.display().to_string();
             let hint = "ledger directory already exists: use another location or remove it manually";
             warn!(cli::ledger_db::EXIST, dir, hint);
             messages.push(format!("{hint} ({dir})"));
         }
 
-        if chain_dir_populated {
-            let dir = relative_path(&chain_dir)?.display().to_string();
+        if chain_db_populated {
+            let dir = relative_path(&chain_db)?.display().to_string();
             let hint = "chain directory already exists: use another location or remove it manually";
             warn!(cli::chain_db::EXIST, dir, hint);
             messages.push(format!("{hint} ({dir})"));
@@ -170,8 +172,8 @@ async fn run(args: Args) -> anyhow::Result<()> {
     bootstrap(
         network,
         &global_parameters,
-        ledger_dir,
-        chain_dir,
+        ledger_db,
+        chain_db,
         default_snapshots_dir(network).into(),
         args.epoch,
         S3Config {

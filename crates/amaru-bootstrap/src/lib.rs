@@ -75,7 +75,7 @@
 //! |------------------------------|---------|
 //! | `--network` | `NetworkName` |
 //! | `--epoch` | `target_epoch: Option<Epoch>` — epoch Amaru should **start from**; needs three prior consecutive snapshots |
-//! | `--ledger-dir` / `--chain-dir` | `ledger_dir` / `chain_dir` |
+//! | `--ledger-db` / `--chain-db` | `ledger_dir` / `chain_dir` |
 //! | (CWD) `snapshots/<network>/` | `snapshots_dir` — [`default_snapshots_dir`] |
 //! | `--s3-bucket`, `--s3-endpoint`, `--s3-region`, `--s3-public-url` | [`S3Config`] |
 //!

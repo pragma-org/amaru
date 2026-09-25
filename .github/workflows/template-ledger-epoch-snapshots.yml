@@ -47,8 +47,8 @@ jobs:
         cardano_node_version: [11.0.1]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
-      AMARU_PEER_ADDRESS: 127.0.0.1:3001
-      AMARU_UPSTREAM_PEERS: 1
+      AMARU_PEER: 127.0.0.1:3001
+      AMARU_PEERS_MAX_UPSTREAM: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

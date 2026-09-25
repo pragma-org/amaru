@@ -310,7 +310,7 @@ mod tests {
         let variables = collect_environment_variables(&cli::command("test")).expect("command tree is valid");
 
         assert_eq!(variables["AMARU_WITH_JSON_TRACES"].meta_type, "BOOL");
-        assert_eq!(variables["AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS"].meta_type, "UINT|all");
+        assert_eq!(variables["AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS"].meta_type, "UINT|all");
         assert!(variables.contains_key("AMARU_S3_BUCKET"));
         assert!(!variables.contains_key("AMARU_GLOBAL_SYSTEM_START"));
         assert!(!variables.contains_key("AMARU_SNAPSHOTS_DIR"));

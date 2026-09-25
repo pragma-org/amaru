@@ -54,8 +54,8 @@ Please refer to #Monitoring section to learn how to retrieve logs and metrics wh
 
 ```bash title="/etc/default/amaru"
 AMARU_NETWORK=mainnet
-AMARU_CHAIN_DIR=/var/lib/amaru/chain.mainnet.db
-AMARU_LEDGER_DIR=/var/lib/amaru/ledger.mainnet.db
+AMARU_CHAIN_DB=/var/lib/amaru/chain.mainnet.db
+AMARU_LEDGER_DB=/var/lib/amaru/ledger.mainnet.db
 AMARU_MIGRATE_CHAIN_DB=true
 AMARU_PID_FILE=/run/amaru/amaru.pid
 AMARU_WITH_JSON_TRACES=true
@@ -114,9 +114,9 @@ Every `amaru node run` [flag](01-amaru-fast-forward.md#4-running-the-node) has a
 
 ```bash title="/etc/default/amaru"
 [...]
-AMARU_PEER_ADDRESS=my-own-peer.example.com:3001
-AMARU_LISTEN_ADDRESS=0.0.0.0:3001
-AMARU_UPSTREAM_PEERS=10
+AMARU_PEER=my-own-peer.example.com:3001
+AMARU_PEERS_LISTEN_ON=0.0.0.0:3001
+AMARU_PEERS_MAX_UPSTREAM=10
 AMARU_WITH_OPEN_TELEMETRY=true
 OTEL_METRIC_EXPORT_INTERVAL=1000
 ```
@@ -137,13 +137,13 @@ You can get the full config list with the TUI under the config menu (press `ESC`
 │┌─ Essential ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐┌─ Protocol Parameters · Network ─────────────────────────────────────────────────────────────┐│
 ││Option                       Env                                    Value                                                                       ││Parameter                    Value                                                           ││
 ││--network                    AMARU_NETWORK                          mainnet                                                                     ││max block body size          90112                                                           ││
-││--chain-dir                  AMARU_CHAIN_DIR                        ./chain.mainnet.db                                                          ││max transaction size         16384                                                           ││
+││--chain-db                  AMARU_CHAIN_DB                        ./chain.mainnet.db                                                          ││max transaction size         16384                                                           ││
 ││--migrate-chain-db           AMARU_MIGRATE_CHAIN_DB                 false                                                                       ││max block header size        1100                                                            ││
-││--ledger-dir                 AMARU_LEDGER_DIR                       ./ledger.mainnet.db                                                         ││max tx ex units              {mem=16500000, cpu=10000000000}                                 ││
-││--listen-address             AMARU_LISTEN_ADDRESS                   0.0.0.0:3000                                                                ││max block ex units           {mem=72000000, cpu=20000000000}                                 ││
-││--submit-api-address         AMARU_SUBMIT_API_ADDRESS               disabled                                                                    ││max value size               5000                                                            ││
-││--peer-address               AMARU_PEER_ADDRESS                     backbone.cardano.iog.io:3001                                                ││max collateral inputs        3                                                               ││
-││--peer-snapshot              AMARU_PEER_SNAPSHOT                    none                                                                        │└─────────────────────────────────────────────────────────────────────────────────────────────┘│
+││--ledger-db                 AMARU_LEDGER_DB                       ./ledger.mainnet.db                                                         ││max tx ex units              {mem=16500000, cpu=10000000000}                                 ││
+││--peers-listen-on             AMARU_PEERS_LISTEN_ON                   0.0.0.0:3000                                                                ││max block ex units           {mem=72000000, cpu=20000000000}                                 ││
+││--submit-api-listen-on         AMARU_SUBMIT_API_LISTEN_ON               disabled                                                                    ││max value size               5000                                                            ││
+││--peer               AMARU_PEER                     backbone.cardano.iog.io:3001                                                ││max collateral inputs        3                                                               ││
+││--peers-snapshot             AMARU_PEERS_SNAPSHOT                   none                                                                        │└─────────────────────────────────────────────────────────────────────────────────────────────┘│
 │└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘┌─ Protocol Parameters · Economic ────────────────────────────────────────────────────────────┐│
 │┌─ TUI ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│Parameter                    Value                                                           ││
 ││Option                       Env                                    Value                                                                       ││min fee a                    44                                                              ││
@@ -151,14 +151,14 @@ You can get the full config list with the TUI under the config menu (press `ESC`
 │└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│stake credential deposit     2000000                                                         ││
 │┌─ Advanced Options ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│stake pool deposit           500000000                                                       ││
 ││Option                       Env                                    Value                                                                       ││monetary expansion           3/1000                                                          ││
-││--upstream-peers             AMARU_UPSTREAM_PEERS                   3                                                                           ││treasury expansion           2/10                                                            ││
-││--downstream-peers           AMARU_DOWNSTREAM_PEERS                 10                                                                          ││min pool cost                170000000                                                       ││
-││--max-extra-ledger-snapshots AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS       0                                                                           ││lovelace per UTxO byte       4310                                                            ││
-││--peer-removal-cooldown-secs AMARU_PEER_REMOVAL_COOLDOWN_SECS       600                                                                         ││prices                       {mem=577/10000, cpu=721/10000000}                               ││
+││--peers-max-upstream             AMARU_PEERS_MAX_UPSTREAM                   3                                                                           ││treasury expansion           2/10                                                            ││
+││--peers-max-downstream           AMARU_PEERS_MAX_DOWNSTREAM                 10                                                                          ││min pool cost                170000000                                                       ││
+││--ledger-max-extra-snapshots AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS       0                                                                           ││lovelace per UTxO byte       4310                                                            ││
+││--peer-removal-cooldown AMARU_PEER_REMOVAL_COOLDOWN       10min                                                                       ││prices                       {mem=577/10000, cpu=721/10000000}                               ││
 ││--peer-mix                   AMARU_PEER_MIX                         static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h                         ││collateral percentage        150                                                             ││
 ││--pid-file                   AMARU_PID_FILE                         disabled                                                                    ││ref script fee per byte      15/1                                                            ││
 ││--trace-buffer               AMARU_TRACE_BUFFER                     disabled                                                                    ││max ref script size per tx   204800                                                          ││
-││--dump-trace-buffer          AMARU_DUMP_TRACE_BUFFER                disabled                                                                    ││max ref script size per bloc 1048576                                                         ││
+││--trace-buffer-dump          AMARU_TRACE_BUFFER_DUMP                disabled                                                                    ││max ref script size per bloc 1048576                                                         ││
 │└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│ref script stride            25600                                                           ││
 │┌─ Network Global Parameters Overrides ──────────────────────────────────────────────────────────────────────────────────────────────────────────┐│ref script multiplier        12/10                                                           ││
 ││Option                       Env                                    Value                                                                       │└─────────────────────────────────────────────────────────────────────────────────────────────┘│
@@ -310,7 +310,7 @@ cardano_node_metrics_slotInEpoch_int  153412
 
 ### Submitting a transaction
 
-Start the node with `--submit-api-address` or `AMARU_SUBMIT_API_ADDRESS`, then `POST` the CBOR-encoded transaction:
+Start the node with `--submit-api-listen-on` or `AMARU_SUBMIT_API_LISTEN_ON`, then `POST` the CBOR-encoded transaction:
 
 ```bash
 curl -X POST \
@@ -334,10 +334,9 @@ run `systemctl restart amaru.service` afterwards.
 
 :::note
 The packaged systemd service sets `AMARU_MIGRATE_CHAIN_DB=true` (`/etc/default/amaru`) so Amaru migrates the on-disk chain database schema forward automatically on upgrade rather than requiring a manual wipe and re-bootstrap.
-Best practice is to back up `--chain-dir`/`--ledger-dir` before upgrading across a version that mentions ledger or chain database format changes in its release notes, so you can roll back if needed.
+Best practice is to back up `--chain-db`/`--ledger-db` before upgrading across a version that mentions ledger or chain database format changes in its release notes, so you can roll back if needed.
 :::
 
 :::warning
 When using the CLI directly, `AMARU_MIGRATE_CHAIN_DB` defaults to `false`, so if a db migration is needed, Amaru won't start and will ask to use `--migrate-chain-db` in order to perform the upgrade.
 :::
-

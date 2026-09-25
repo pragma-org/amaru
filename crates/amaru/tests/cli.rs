@@ -35,6 +35,7 @@ fn run_under_low_fd_limit(color: &str) -> anyhow::Result<Output> {
         .arg(amaru)
         .arg("--color")
         .arg(color)
+        .arg("node")
         .arg("run")
         .arg("--peer-address")
         .arg("127.0.0.1:65532")
@@ -128,11 +129,11 @@ fn top_level_help_shows_visible_commands() -> anyhow::Result<()> {
 fn mithril_sync_help_shows_all_options() -> anyhow::Result<()> {
     let help = amaru_help(&["mithril", "sync"])?;
     assert!(help.contains("--network"), "mithril sync should accept --network");
-    assert!(help.contains("--ledger-dir"), "mithril sync should accept --ledger-dir");
-    assert!(help.contains("--chain-dir"), "mithril sync should accept --chain-dir");
-    assert!(help.contains("--snapshots-dir"), "mithril sync should accept --snapshots-dir");
-    assert!(help.contains("--ingest-until-slot"), "mithril sync should accept --ingest-until-slot");
-    assert!(help.contains("--ingest-maximum-blocks"), "mithril sync should accept --ingest-maximum-blocks");
+    assert!(help.contains("--ledger-db"), "mithril sync should accept --ledger-db");
+    assert!(help.contains("--chain-db"), "mithril sync should accept --chain-db");
+    assert!(help.contains("--snapshots"), "mithril sync should accept --snapshots");
+    assert!(help.contains("--until-slot"), "mithril sync should accept --until-slot");
+    assert!(help.contains("--max-blocks"), "mithril sync should accept --max-blocks");
     Ok(())
 }
 
@@ -162,8 +163,8 @@ fn node_rollback_help_shows_targets() -> anyhow::Result<()> {
     assert!(help.contains("--immutable-tip"), "rollback should accept --immutable-tip");
     assert!(help.contains("--epoch"), "rollback should accept --epoch");
     assert!(help.contains("--network"), "rollback should accept --network");
-    assert!(help.contains("--chain-dir"), "rollback should accept --chain-dir");
-    assert!(help.contains("--ledger-dir"), "rollback should accept --ledger-dir");
+    assert!(help.contains("--chain-db"), "rollback should accept --chain-db");
+    assert!(help.contains("--ledger-db"), "rollback should accept --ledger-db");
     Ok(())
 }
 
@@ -203,54 +204,70 @@ fn dev_traces_help_shows_subcommands() -> anyhow::Result<()> {
 }
 
 #[test]
-fn legacy_run_alias_works() -> anyhow::Result<()> {
-    let help = amaru_help(&["run"])?;
-    assert!(help.contains("--network"), "legacy 'run' should accept --network");
-    assert!(help.contains("--listen-address"), "legacy 'run' should accept --listen-address");
-    Ok(())
-}
-
-#[test]
-fn legacy_bootstrap_alias_works() -> anyhow::Result<()> {
-    let help = amaru_help(&["bootstrap"])?;
-    assert!(help.contains("--network"), "legacy 'bootstrap' should accept --network");
-    Ok(())
-}
-
-#[test]
-fn legacy_reset_to_epoch_alias_works() -> anyhow::Result<()> {
-    let help = amaru_help(&["reset-to-epoch"])?;
-    assert!(help.contains("--network"), "legacy 'reset-to-epoch' should accept --network");
-    Ok(())
-}
-
-#[test]
-fn legacy_create_snapshots_alias_works() -> anyhow::Result<()> {
-    let help = amaru_help(&["create-snapshots"])?;
-    assert!(help.contains("--network"), "legacy 'create-snapshots' should accept --network");
-    Ok(())
-}
-
-#[test]
-fn legacy_dump_chain_db_alias_works() -> anyhow::Result<()> {
-    let help = amaru_help(&["dump-chain-db"])?;
-    assert!(help.contains("--network"), "legacy 'dump-chain-db' should accept --network");
-    Ok(())
-}
-
-#[test]
-fn legacy_migrate_chain_db_alias_works() -> anyhow::Result<()> {
-    let help = amaru_help(&["migrate-chain-db"])?;
-    assert!(help.contains("--network"), "legacy 'migrate-chain-db' should accept --network");
-    Ok(())
-}
-
-#[test]
-fn node_run_help_matches_legacy_run() -> anyhow::Result<()> {
+fn node_run_help_uses_canonical_option_names() -> anyhow::Result<()> {
     let node_run_help = amaru_help(&["node", "run"])?;
     assert!(node_run_help.contains("--network"), "node run should accept --network");
-    assert!(node_run_help.contains("--listen-address"), "node run should accept --listen-address");
-    assert!(node_run_help.contains("--peer-address"), "node run should accept --peer-address");
+    assert!(node_run_help.contains("--peers-listen-on"), "node run should accept --peers-listen-on");
+    assert!(node_run_help.contains("--peer"), "node run should accept --peer");
+    assert!(node_run_help.contains("--peers-snapshot"), "node run should accept --peers-snapshot");
+    assert!(node_run_help.contains("AMARU_PEERS_SNAPSHOT"), "node run should show AMARU_PEERS_SNAPSHOT");
+    assert!(!node_run_help.contains("--listen-address"), "node run help should hide deprecated aliases");
+    assert!(!node_run_help.contains("--peer-address"), "node run help should hide deprecated aliases");
+    assert!(!node_run_help.contains("--peer-snapshot"), "node run help should hide deprecated aliases");
+    Ok(())
+}
+
+#[test]
+fn removed_legacy_commands_are_rejected() -> anyhow::Result<()> {
+    let amaru = cargo_bin("amaru");
+    for command in [
+        "run",
+        "daemon",
+        "bootstrap",
+        "reset-to-epoch",
+        "create-snapshots",
+        "dump-chain-db",
+        "remove-validation-status",
+        "fetch-chain-headers",
+        "migrate-chain-db",
+        "remove-chain",
+        "dump-traces-schema",
+    ] {
+        let output = Command::new(&amaru).args([command, "--help"]).output()?;
+        assert!(!output.status.success(), "legacy `{command}` command should be rejected");
+    }
+    Ok(())
+}
+
+#[test]
+fn renamed_environment_variables_are_mapped_without_overriding_canonical_values() -> anyhow::Result<()> {
+    let amaru = cargo_bin("amaru");
+    let legacy_ledger = "/tmp/amaru-legacy-ledger";
+    let canonical_ledger = "/tmp/amaru-canonical-ledger";
+
+    let output = Command::new(&amaru)
+        .args(["node", "run"])
+        .env("AMARU_NETWORK", "preprod")
+        .env("AMARU_LEDGER_DIR", legacy_ledger)
+        .env_remove("AMARU_LEDGER_DB")
+        .output()?;
+    let rendered_bytes = combined_output(&output);
+    let rendered = String::from_utf8_lossy(&rendered_bytes);
+    assert!(!output.status.success());
+    assert!(rendered.contains(legacy_ledger), "legacy environment variable was not mapped: {rendered}");
+
+    let output = Command::new(&amaru)
+        .args(["node", "run"])
+        .env("AMARU_NETWORK", "preprod")
+        .env("AMARU_LEDGER_DIR", legacy_ledger)
+        .env("AMARU_LEDGER_DB", canonical_ledger)
+        .output()?;
+    let rendered_bytes = combined_output(&output);
+    let rendered = String::from_utf8_lossy(&rendered_bytes);
+    assert!(!output.status.success());
+    assert!(rendered.contains(canonical_ledger), "canonical environment variable did not win: {rendered}");
+    assert!(!rendered.contains(legacy_ledger), "legacy environment variable unexpectedly won: {rendered}");
+
     Ok(())
 }
 

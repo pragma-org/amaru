@@ -90,22 +90,21 @@ Note that, we follow the following conventions:
 
 - One field per arg / option
 - Ordered alphabetically
-- A single `_command` field confirms the command name
+- A dedicated trace target under `amaru::cli` identifies the command
 - An additional log message may follow.
 
 ```rust
 info!(
-    _command="run",
-    chain_dir=%chain_dir.to_string_lossy(),
-    ledger_dir=%ledger_dir.to_string_lossy(),
-    listen_address=args.listen_address,
-    max_downstream_peers = args.max_downstream_peers,
-    max_extra_ledger_snapshots = %args.max_extra_ledger_snapshots,
+    cli::node::RUN,
+    chain_db=%chain_db.to_string_lossy(),
+    ledger_db=%ledger_db.to_string_lossy(),
+    ledger_max_extra_snapshots = %args.ledger_max_extra_snapshots,
     migrate_chain_db = args.migrate_chain_db,
     network=%args.network,
-    peer_address=%args.peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+    peer=%args.peer.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+    peers_listen_on=args.peers_listen_on,
+    peers_max_downstream = args.peers_max_downstream,
     pid_file=%args.pid_file.unwrap_or_default().to_string_lossy(),
-    "running"
 );
 ```
 </details>

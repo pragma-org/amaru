@@ -50,9 +50,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
+        env = amaru::env_vars::CHAIN_DB,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
     ///
@@ -60,9 +61,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
+        env = amaru::env_vars::LEDGER_DB,
+        alias = "ledger-dir",
     )]
-    ledger_dir: Option<PathBuf>,
+    ledger_db: Option<PathBuf>,
 
     /// Network whose node databases should be rolled back.
     #[arg(
@@ -79,43 +81,33 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 /// Full recovery to the start of `epoch`: ledger snapshot reset + chain realign.
 ///
-/// Used by `amaru node rollback --epoch` and the legacy `reset-to-epoch` alias.
-pub(crate) fn runnable_epoch(
-    network: NetworkName,
-    epoch: Epoch,
-    ledger_dir: Option<PathBuf>,
-    chain_dir: Option<PathBuf>,
-) -> Runnable {
-    runnable(Args { immutable_tip: false, epoch: Some(epoch), chain_dir, ledger_dir, network })
-}
-
 async fn run(args: Args) -> anyhow::Result<()> {
     let network = args.network;
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
+    let chain_db = args.chain_db.unwrap_or_else(|| default_chain_dir(network).into());
+    let ledger_db = args.ledger_db.unwrap_or_else(|| default_ledger_dir(network).into());
 
     let mode = if args.immutable_tip { "immutable_tip" } else { "epoch" };
 
     if let Some(epoch) = args.epoch {
-        reset_ledger_to_epoch(&ledger_dir, epoch)?;
+        reset_ledger_to_epoch(&ledger_db, epoch)?;
     }
 
-    let ledger = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.clone()))?;
+    let ledger = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_db.clone()))?;
     let tip = ledger.tip()?;
 
-    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir.clone()))?;
+    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_db.clone()))?;
     realign_chain_store_to(&chain_store, tip, ClearValidity::All)?;
 
     info!(
         cli::node::ROLLBACK,
-        chain_dir = chain_dir.display().to_string(),
-        ledger_dir = ledger_dir.display().to_string(),
-        network,
+        chain_db = chain_db.display().to_string(),
+        ledger_db = ledger_db.display().to_string(),
         mode,
+        network,
+        anchor = @Some(chain_store.get_anchor_hash().to_string()),
+        best_chain = @Some(chain_store.get_best_chain_hash().to_string()),
         epoch = @args.epoch.map(|e| e.as_u64()),
         ledger_tip = @Some(tip.to_string()),
-        best_chain = @Some(chain_store.get_best_chain_hash().to_string()),
-        anchor = @Some(chain_store.get_anchor_hash().to_string()),
     );
 
     Ok(())

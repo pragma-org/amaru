@@ -24,16 +24,16 @@ use std::{
 };
 
 use amaru::{
-    DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
+    DEFAULT_PEERS_LISTEN_ON, default_chain_dir, default_ledger_dir,
     lifecycle::{Runnable, RuntimeKind, ShutdownHandle},
     metrics::track_system_metrics,
     version,
 };
-use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
+use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, utils::duration};
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
 use amaru_node::{
-    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
+    DEFAULT_PEERS_MAX_DOWNSTREAM, DEFAULT_PEERS_MAX_UPSTREAM,
     peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
     stages::{
         build_node::build_and_run_node,
@@ -71,10 +71,11 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
+        env = amaru::env_vars::CHAIN_DB,
         display_order = 0,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// Flag to automatically migrate the chain database if needed.
     ///
@@ -94,20 +95,22 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
+        env = amaru::env_vars::LEDGER_DB,
         display_order = 0,
+        alias = "ledger-dir",
     )]
-    ledger_dir: Option<PathBuf>,
+    ledger_db: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
     #[arg(
         long,
         value_name = amaru::value_names::ENDPOINT,
-        env = amaru::env_vars::LISTEN_ADDRESS,
-        default_value = DEFAULT_LISTEN_ADDRESS,
+        env = amaru::env_vars::PEERS_LISTEN_ON,
+        default_value = DEFAULT_PEERS_LISTEN_ON,
         display_order = 0,
+        alias = "listen-address",
     )]
-    listen_address: String,
+    peers_listen_on: String,
 
     /// Address for the HTTP transaction submit API.
     ///
@@ -115,10 +118,11 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::ENDPOINT,
-        env = amaru::env_vars::SUBMIT_API_ADDRESS,
+        env = amaru::env_vars::SUBMIT_API_LISTEN_ON,
         display_order = 0,
+        alias = "submit-api-address"
     )]
-    submit_api_address: Option<String>,
+    submit_api_listen_on: Option<String>,
 
     /// Disable the embedded terminal dashboard, even in an interactive terminal.
     #[arg(
@@ -139,7 +143,7 @@ pub struct Args {
     #[arg(
         long,
         env = amaru::env_vars::TUI_LOG_RETENTION,
-        value_name = amaru::value_names::SIZE,
+        value_name = amaru::value_names::BYTE_SIZE,
         default_value = "100MiB",
         help_heading = "TUI",
     )]
@@ -153,18 +157,19 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::ENDPOINT,
-        env = amaru::env_vars::PEER_ADDRESS,
+        env = amaru::env_vars::PEER,
         action = ArgAction::Append,
         value_delimiter = ',',
         num_args(0..),
         display_order = 0,
+        alias = "peer-address",
     )]
-    peer_address: Vec<String>,
+    peer: Vec<String>,
 
     /// Path to a Cardano ledger peer snapshot JSON file (`bigLedgerPools`).
     ///
     /// Supplies stake-weighted big-ledger relays for peer selection at cold start,
-    /// complementary to `--peer-address`. Compatible with cardano-node's
+    /// complementary to `--peer`. Compatible with cardano-node's
     /// `mainnet-peer-snapshot.json` (and similar per-network files).
     ///
     /// When omitted, Amaru uses the snapshot embedded at build time for known networks
@@ -172,32 +177,35 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::PEER_SNAPSHOT,
+        env = amaru::env_vars::PEERS_SNAPSHOT,
         display_order = 0,
+        alias = "peer-snapshot"
     )]
-    peer_snapshot: Option<PathBuf>,
+    peers_snapshot: Option<PathBuf>,
 
-    /// The number of upstream peers to connect to.
+    /// The maximum number of upstream peers to connect to.
     #[arg(
         long,
         value_name = amaru::value_names::UINT,
-        env = amaru::env_vars::UPSTREAM_PEERS,
-        default_value_t = DEFAULT_UPSTREAM_PEERS,
+        env = amaru::env_vars::PEERS_MAX_UPSTREAM,
+        default_value_t = DEFAULT_PEERS_MAX_UPSTREAM,
         display_order = 0,
         help_heading = "Advanced Options",
+        alias = "upstream-peers",
     )]
-    upstream_peers: usize,
+    peers_max_upstream: usize,
 
     /// The maximum number of downstream peers allowed to connect.
     #[arg(
         long,
         value_name = amaru::value_names::UINT,
-        env = amaru::env_vars::DOWNSTREAM_PEERS,
-        default_value_t = DEFAULT_DOWNSTREAM_PEERS,
+        env = amaru::env_vars::PEERS_MAX_DOWNSTREAM,
+        default_value_t = DEFAULT_PEERS_MAX_DOWNSTREAM,
         display_order = 0,
         help_heading = "Advanced Options",
+        alias = "downstream-peers",
     )]
-    downstream_peers: usize,
+    peers_max_downstream: usize,
 
     /// The maximum number of additional ledger snapshots to keep around.
     ///
@@ -208,23 +216,28 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::UINT_ALL,
-        env = amaru::env_vars::MAX_EXTRA_LEDGER_SNAPSHOTS,
+        env = amaru::env_vars::LEDGER_MAX_EXTRA_SNAPSHOTS,
         default_value_t = MaxExtraLedgerSnapshots::default(),
         display_order = 0,
         help_heading = "Advanced Options",
+        alias = "max-extra-ledger-snapshots",
     )]
-    max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+    ledger_max_extra_snapshots: MaxExtraLedgerSnapshots,
 
-    /// After removing a misbehaving upstream peer, wait this many seconds before allowing it to be re-added.
+    /// After removing a misbehaving upstream peer, wait this long before allowing it to be re-added.
+    ///
+    /// Provided as duration with units (e.g. 30s, 2min, ...)
     #[arg(
         long,
-        value_name = amaru::value_names::UINT,
-        env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-        default_value_t = DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+        value_name = amaru::value_names::DURATION,
+        value_parser = duration::parse,
+        env = amaru::env_vars::PEER_REMOVAL_COOLDOWN,
+        default_value = "10min",
         display_order = 0,
         help_heading = "Advanced Options",
+        alias = "peer-removal-cooldown-secs",
     )]
-    peer_removal_cooldown_secs: u64,
+    peer_removal_cooldown: Duration,
 
     /// Using-slot mix formula (floors `!n`, weights `~n`, optional malus half-lives `@Nd`).
     ///
@@ -258,7 +271,7 @@ pub struct Args {
     /// Omit or use `0,0` to disable recording (default).
     #[arg(
         long,
-        value_name = "MIN_ENTRIES,MAX_SIZE",
+        value_name = "MIN_ENTRIES,MAX_BYTE_SIZE",
         env = amaru::env_vars::TRACE_BUFFER,
         display_order = 0,
         help_heading = "Advanced Options",
@@ -271,11 +284,12 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::DUMP_TRACE_BUFFER,
+        env = amaru::env_vars::TRACE_BUFFER_DUMP,
         display_order = 0,
         help_heading = "Advanced Options",
+        alias = "dump-trace-buffer"
     )]
-    dump_trace_buffer: Option<PathBuf>,
+    trace_buffer_dump: Option<PathBuf>,
 
     /// Path to a JSON era history file overriding the network default.
     ///
@@ -302,8 +316,8 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn listen_address(&self) -> &str {
-        &self.listen_address
+    pub fn peers_listen_on(&self) -> &str {
+        &self.peers_listen_on
     }
 
     pub fn tui_settings(&self) -> tui::Settings {
@@ -340,29 +354,29 @@ impl tui::RuntimeSettingsSource for Args {
 
         match id {
             "network" => Some(self.network.to_string()),
-            "chain_dir" => Some(
-                self.chain_dir
+            "chain_db" => Some(
+                self.chain_db
                     .as_deref()
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| default_chain_dir(self.network)),
             ),
             "migrate_chain_db" => Some(self.migrate_chain_db.to_string()),
-            "ledger_dir" => Some(
-                self.ledger_dir
+            "ledger_db" => Some(
+                self.ledger_db
                     .as_deref()
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| default_ledger_dir(self.network)),
             ),
-            "listen_address" => Some(self.listen_address.clone()),
-            "submit_api_address" => Some(self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string())),
+            "peers_listen_on" => Some(self.peers_listen_on.clone()),
+            "submit_api_listen_on" => Some(self.submit_api_listen_on.clone().unwrap_or_else(|| "disabled".to_string())),
             "no_tui" => Some(self.no_tui.to_string()),
             "tui_log_retention" => Some(self.tui_log_retention.to_string()),
-            "peer_address" => Some(peer_addresses_value(self)),
-            "peer_snapshot" => Some(peer_snapshot_value(self)),
-            "upstream_peers" => Some(self.upstream_peers.to_string()),
-            "downstream_peers" => Some(self.downstream_peers.to_string()),
-            "max_extra_ledger_snapshots" => Some(self.max_extra_ledger_snapshots.to_string()),
-            "peer_removal_cooldown_secs" => Some(self.peer_removal_cooldown_secs.to_string()),
+            "peer" => Some(self.peer.join(", ")),
+            "peers_snapshot" => Some(peers_snapshot_value(self)),
+            "peers_max_upstream" => Some(self.peers_max_upstream.to_string()),
+            "peers_max_downstream" => Some(self.peers_max_downstream.to_string()),
+            "ledger_max_extra_snapshots" => Some(self.ledger_max_extra_snapshots.to_string()),
+            "peer_removal_cooldown" => Some(duration::format(&self.peer_removal_cooldown)),
             "peer_mix" => Some(self.peer_mix.clone()),
             "pid_file" => Some(
                 self.pid_file
@@ -371,8 +385,8 @@ impl tui::RuntimeSettingsSource for Args {
                     .unwrap_or_else(|| "disabled".to_string()),
             ),
             "trace_buffer" => Some(self.trace_buffer.clone().unwrap_or_else(|| "disabled".to_string())),
-            "dump_trace_buffer" => Some(
-                self.dump_trace_buffer
+            "trace_buffer_dump" => Some(
+                self.trace_buffer_dump
                     .as_deref()
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| "disabled".to_string()),
@@ -395,16 +409,8 @@ impl tui::RuntimeSettingsSource for Args {
     }
 }
 
-fn peer_addresses_value(args: &Args) -> String {
-    if args.peer_address.is_empty() {
-        default_peer_for_network(args.network).to_string()
-    } else {
-        args.peer_address.join(", ")
-    }
-}
-
-fn peer_snapshot_value(args: &Args) -> String {
-    if let Some(path) = args.peer_snapshot.as_deref() {
+fn peers_snapshot_value(args: &Args) -> String {
+    if let Some(path) = args.peers_snapshot.as_deref() {
         return path.display().to_string();
     }
 
@@ -568,37 +574,30 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
-    if !std::fs::metadata(&ledger_dir)
-        .with_context(|| format!("failed to stat ledger_dir `{}`", ledger_dir.display()))?
+    let ledger_db = args.ledger_db.unwrap_or_else(|| default_ledger_dir(network).into());
+    if !std::fs::metadata(&ledger_db)
+        .with_context(|| format!("failed to stat ledger_db `{}`", ledger_db.display()))?
         .is_dir()
     {
         anyhow::bail!(
-            "ledger_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
-            ledger_dir.display()
+            "ledger_db `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            ledger_db.display()
         );
     }
 
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
-    if !std::fs::metadata(&chain_dir)
-        .with_context(|| format!("failed to stat chain_dir `{}`", chain_dir.display()))?
+    let chain_db = args.chain_db.unwrap_or_else(|| default_chain_dir(network).into());
+    if !std::fs::metadata(&chain_db)
+        .with_context(|| format!("failed to stat chain_db `{}`", chain_db.display()))?
         .is_dir()
     {
         anyhow::bail!(
-            "chain_dir `{}` is not a directory, you need to run `amaru node bootstrap` first",
-            chain_dir.display()
+            "chain_db `{}` is not a directory, you need to run `amaru node bootstrap` first",
+            chain_db.display()
         );
     }
-
-    // Use network-specific default peer if no peer-address was provided
-    let peer_address = if args.peer_address.is_empty() {
-        vec![default_peer_for_network(network).to_string()]
-    } else {
-        args.peer_address
-    };
 
     let network_magic = args.network.to_network_magic();
-    let (peer_snapshot_peers, peer_snapshot_unresolved) = match args.peer_snapshot.as_deref() {
+    let (peers_snapshot_peers, peers_snapshot_unresolved) = match args.peers_snapshot.as_deref() {
         Some(path) => {
             let snapshot = load_peer_snapshot(path, network_magic)?;
             log_loaded_snapshot(Some(path), &snapshot);
@@ -623,8 +622,6 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         Some(s) => parse_trace_buffer_limits(s)?,
     };
 
-    let trace_dump_path = args.dump_trace_buffer;
-
     let mempool = MempoolConfig::default();
     let tx_submission_params = ResponderParams::default();
 
@@ -634,34 +631,41 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 
     let _span = info_span!(
         cli::node::RUN,
-        chain_dir = chain_dir.to_string_lossy(),
-        ledger_dir = ledger_dir.to_string_lossy(),
-        listen_address = &args.listen_address,
-        max_extra_ledger_snapshots = args.max_extra_ledger_snapshots.to_string(),
+        chain_db = chain_db.to_string_lossy(),
+        ledger_db = ledger_db.to_string_lossy(),
+        ledger_max_extra_snapshots = args.ledger_max_extra_snapshots.to_string(),
+        mempool_max_bytes = &ByteSize::from_bytes(mempool.max_bytes).display_iec().to_string(),
         migrate_chain_db = args.migrate_chain_db,
         network = args.network,
-        peer_address = peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
-        peer_snapshot = args.peer_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| {
-            if peer_snapshot_peers.is_empty() && peer_snapshot_unresolved.is_empty() {
+        no_tui = args.no_tui,
+        peer = args.peer.join(", "),
+        peer_mix = &args.peer_mix,
+        peer_removal_cooldown_ms = args.peer_removal_cooldown.as_millis() as u64,
+        peers_listen_on = &args.peers_listen_on,
+        peers_max_downstream = args.peers_max_downstream,
+        peers_max_upstream = args.peers_max_upstream,
+        peers_snapshot = args.peers_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| {
+            if peers_snapshot_peers.is_empty() && peers_snapshot_unresolved.is_empty() {
                 "none".to_string()
             } else {
                 format!("embedded{}", embedded_configs_commit().map(|sha| format!("@{sha}")).unwrap_or_default())
             }
         }),
-        peer_snapshot_relays = peer_snapshot_peers.len() + peer_snapshot_unresolved.len(),
+        peers_snapshot_relays = peers_snapshot_peers.len() + peers_snapshot_unresolved.len(),
         pid_file = args.pid_file.clone().unwrap_or_default().display().to_string(),
-        submit_api_address = args.submit_api_address.as_deref().unwrap_or("disabled"),
-        trace_buffer_min_entries,
-        trace_buffer_max_size,
-        trace_dump_path =
-            trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
-        peer_removal_cooldown_secs = args.peer_removal_cooldown_secs,
-        mempool_max_bytes = &ByteSize::from_bytes(mempool.max_bytes).display_iec().to_string(),
-        tx_submission_max_window = tx_submission_params.max_window.get(),
+        submit_api_listen_on = args.submit_api_listen_on.as_deref().unwrap_or("disabled"),
+        trace_buffer = args.trace_buffer.as_deref().unwrap_or("disabled"),
+        trace_buffer_dump = args
+            .trace_buffer_dump
+            .as_deref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "disabled".to_string()),
+        tui_log_retention = args.tui_log_retention.to_string(),
         tx_submission_fetch_batch_bytes = tx_submission_params.fetch_batch_bytes.get(),
         tx_submission_inflight_timeout_ms =
             tx_submission_params.inflight_fetch_timeout.as_duration().as_millis() as u64,
         tx_submission_insert_timeout_ms = tx_submission_params.mempool_insert_timeout.as_duration().as_millis() as u64,
+        tx_submission_max_window = tx_submission_params.max_window.get(),
     )
     .entered();
     if let Some(era_history) = era_history_path.as_deref() {
@@ -673,28 +677,28 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 
     Ok(Config {
         ledger_config: LedgerConfig {
-            ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+            ledger_store: RocksDbConfig::new(ledger_db).with_shared_env(),
             network: args.network,
             global_parameters,
             era_history,
-            max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+            max_extra_ledger_snapshots: args.ledger_max_extra_snapshots,
             emit_initial_stake_distribution_progress_ticks: !args.no_tui && std::io::stdout().is_terminal(),
             ..LedgerConfig::default()
         },
-        chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
-        upstream_peers: peer_address,
-        peer_snapshot_peers,
-        peer_snapshot_unresolved,
-        target_upstream_peers: args.upstream_peers,
-        target_downstream_peers: args.downstream_peers,
+        chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_db).with_shared_env()),
+        upstream_peers: args.peer,
+        peer_snapshot_peers: peers_snapshot_peers,
+        peer_snapshot_unresolved: peers_snapshot_unresolved,
+        target_upstream_peers: args.peers_max_upstream,
+        target_downstream_peers: args.peers_max_downstream,
         network_magic: args.network.to_network_magic(),
-        listen_address: args.listen_address,
+        listen_address: args.peers_listen_on,
         migrate_chain_db: args.migrate_chain_db,
-        submit_api_address: args.submit_api_address,
+        submit_api_address: args.submit_api_listen_on,
         trace_buffer_min_entries,
         trace_buffer_max_size,
-        trace_dump_path,
-        peer_removal_cooldown_secs: args.peer_removal_cooldown_secs,
+        trace_dump_path: args.trace_buffer_dump,
+        peer_removal_cooldown: args.peer_removal_cooldown,
         peer_mix: args.peer_mix.parse().context("invalid --peer-mix")?,
         mempool,
         tx_submission_responder_params: tx_submission_params,
