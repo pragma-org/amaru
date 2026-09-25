@@ -586,7 +586,7 @@ define_schemas! {
             }
             forge {
                 /// A led slot was not forged.
-                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led}.
+                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late}.
                 public MISSED_SLOT {
                     required slot: amaru_kernel::Slot
                     required reason: String
@@ -598,10 +598,12 @@ define_schemas! {
                     required step: String
                     required error: String
                 }
-                /// Leader schedule for an epoch, with how many of k blocks since freeze have been adopted.
+                /// Leader schedules still held, with how many led slots remain in each epoch
+                /// and how many of k blocks since freeze have been adopted.
+                /// `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
                 public SCHEDULE {
-                    required epoch: amaru_kernel::Epoch
-                    required n_slots: usize
+                    required slots: std::collections::BTreeMap<amaru_kernel::Epoch, usize>
+                    optional next_slot: String
                     required freeze_depth: u64
                     required settled: bool
                 }

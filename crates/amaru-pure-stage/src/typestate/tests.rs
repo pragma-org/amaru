@@ -776,22 +776,31 @@ mod selectable {
         }
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct Lead;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct Tick;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct Go;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct Kick;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct Stop;
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct RepeatStop;
 
     make_states!(Live { Idle; Done });
     const _: Option<Live> = None;
 
-    on_receive!(Idle, Tick => Clock => Done);
-    on_receive!(Idle, Go => External<SomeEffect> => Done);
-    on_receive!(Idle, Kick => Detach<SomeEffect> => Done);
-    on_receive!(Idle, Lead => Schedule<Lead> => Done);
-    on_receive!(Idle, Stop => CancelSchedule => Done);
-    on_receive!(Idle, RepeatStop => Repeat<CancelSchedule> => Done);
+    on_receive!(Idle as IdleIn {
+        Tick => { Clock => Done }
+        Go => { External<SomeEffect> => Done }
+        Kick => { Detach<SomeEffect> => Done }
+        Lead => { Schedule<Lead> => Done }
+        Stop => { CancelSchedule => Done }
+        RepeatStop => { Repeat<CancelSchedule> => Done }
+    });
+    on_receive!(Done as DoneIn {});
 
     #[test]
     fn describe_clock_remainder() {

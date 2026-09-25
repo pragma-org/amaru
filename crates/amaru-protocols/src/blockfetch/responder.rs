@@ -238,7 +238,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             }
             Ok(ServerIdleIn::ClientDone(done)) => {
                 // Remainder dest is spec Done; live token restarts Idle on this mux registration.
-                let _: Done = idle.receive(done, eff).send(&mux, WantNext).await.finish();
+                let _: Done = idle.receive(&done, eff).send(&mux, WantNext).await.finish();
                 initial_state::<Idle>().into()
             }
             Err(Inputs::Internal(Internal::Timeout)) => idle.into(),

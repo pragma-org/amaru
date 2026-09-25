@@ -4164,40 +4164,44 @@
       "name": "missed_slot",
       "level": "TRACE",
       "target": "amaru::consensus::forge",
-      "description": "A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led}.",
+      "description": "A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late}.",
       "public": true
     },
     "amaru::consensus::forge::SCHEDULE": {
       "type": "object",
       "properties": {
-        "epoch": {
-          "title": "uint64",
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        },
-        "n_slots": {
-          "type": "integer"
+        "slots": {
+          "title": "Map_of_uint",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
         },
         "freeze_depth": {
           "type": "integer"
         },
         "settled": {
           "type": "boolean"
+        },
+        "next_slot": {
+          "type": "string"
         }
       },
       "required": [
-        "epoch",
-        "n_slots",
+        "slots",
         "freeze_depth",
         "settled"
       ],
-      "optional": [],
+      "optional": [
+        "next_slot"
+      ],
       "additionalProperties": false,
       "name": "schedule",
       "level": "TRACE",
       "target": "amaru::consensus::forge",
-      "description": "Leader schedule for an epoch, with how many of k blocks since freeze have been adopted.",
+      "description": "Leader schedules still held, with how many led slots remain in each epoch and how many of k blocks since freeze have been adopted. `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.",
       "public": true
     },
     "amaru::consensus::perf::fork::SWITCH": {

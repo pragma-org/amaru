@@ -286,7 +286,11 @@ impl AssertLeaderStakeError {
 }
 
 /// Praos leadership test over the raw VRF output of a slot, before the `Leader` tag is applied.
-pub fn is_leader(active_slot_coeff: &FixedDecimal, leader_relative_stake: &FixedDecimal, vrf_output: &[u8]) -> bool {
+pub(crate) fn is_leader(
+    active_slot_coeff: &FixedDecimal,
+    leader_relative_stake: &FixedDecimal,
+    vrf_output: &[u8],
+) -> bool {
     let certified = FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(vrf_output).as_slice());
     meets_leader_threshold(active_slot_coeff, leader_relative_stake, &certified)
 }

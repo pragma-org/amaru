@@ -1007,6 +1007,7 @@ impl Projector<'_> {
             | EffectAst::Schedule { .. }
             | EffectAst::CancelSchedule
             | EffectAst::External { .. }
+            | EffectAst::Detach { .. }
             | EffectAst::AddStage => Ok(true),
             EffectAst::Send { role, payload } | EffectAst::Call { role, payload } => {
                 if *role == self.cfg.peer_role {
@@ -1101,6 +1102,7 @@ impl Projector<'_> {
                 | EffectAst::Schedule { .. }
                 | EffectAst::CancelSchedule
                 | EffectAst::External { .. }
+                | EffectAst::Detach { .. }
                 | EffectAst::AddStage => {
                     panic!("expand_seq: expected Call, Send, or Repeat after hide; got {e:?} at {state}")
                 }
@@ -1153,6 +1155,7 @@ impl Projector<'_> {
             | EffectAst::Schedule { .. }
             | EffectAst::CancelSchedule
             | EffectAst::External { .. }
+            | EffectAst::Detach { .. }
             | EffectAst::AddStage => None,
         }
     }
@@ -1403,6 +1406,7 @@ fn scan_timers(effects: &[EffectAst], set: &mut bool, clear: &mut bool) {
             | EffectAst::Schedule { .. }
             | EffectAst::CancelSchedule
             | EffectAst::External { .. }
+            | EffectAst::Detach { .. }
             | EffectAst::AddStage => {}
         }
     }
@@ -1513,6 +1517,7 @@ fn seq_holds_peer(effects: &[EffectAst], peer: RoleName) -> bool {
         | EffectAst::Schedule { .. }
         | EffectAst::CancelSchedule
         | EffectAst::External { .. }
+        | EffectAst::Detach { .. }
         | EffectAst::AddStage => false,
     })
 }

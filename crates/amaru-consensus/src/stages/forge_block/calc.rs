@@ -15,12 +15,13 @@
 //! Pure decisions used by [`super::stage`]. Kept free of effects so they can be
 //! unit-tested without a simulation.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use amaru_kernel::{BlockHeight, Epoch, Point, Slot};
 use amaru_pure_stage::Instant;
 
-/// How far before slot onset `LeadSlot` is armed so forging can finish in time.
+/// Forging starts this long before slot onset, so the block can diffuse as the slot begins.
+/// A wake in the last `FORGE_LEAD_OFFSET` of a slot is too late to forge.
 pub(super) const FORGE_LEAD_OFFSET: Duration = Duration::from_millis(50);
 
 /// Parent of the block we are about to forge, given the adopted tip's slot.
@@ -50,6 +51,8 @@ pub(super) enum MissedSlotReason {
     TipAhead,
     /// Woken for a slot the current schedule does not lead.
     NotLed,
+    /// Woken too late to forge: in the last [`FORGE_LEAD_OFFSET`] of the slot, or after it.
+    WokeLate,
 }
 
 impl MissedSlotReason {
@@ -59,6 +62,7 @@ impl MissedSlotReason {
             Self::OcertExpired => "ocert_expired",
             Self::TipAhead => "tip_ahead",
             Self::NotLed => "not_led",
+            Self::WokeLate => "woke_late",
         }
     }
 }
@@ -180,7 +184,30 @@ pub(super) fn decide_freeze(
     }
 }
 
-/// Instant at which `LeadSlot` should fire: `offset` before onset, but not in the past.
+/// Where `now` sits relative to the interval in which forging may start: from
+/// [`FORGE_LEAD_OFFSET`] before `onset` until [`FORGE_LEAD_OFFSET`] before `end`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ForgeWindow {
+    /// Earlier than the window. Wait this long before forging.
+    Wait(Duration),
+    Open,
+    /// In the last [`FORGE_LEAD_OFFSET`] of the slot, or later.
+    Late,
+}
+
+pub(super) fn forge_window(now: Instant, onset: Instant, end: Instant) -> ForgeWindow {
+    let open_at = onset - FORGE_LEAD_OFFSET;
+    let close_at = end - FORGE_LEAD_OFFSET;
+    if now < open_at {
+        ForgeWindow::Wait(open_at.checked_since(now).unwrap_or(Duration::ZERO))
+    } else if now < close_at {
+        ForgeWindow::Open
+    } else {
+        ForgeWindow::Late
+    }
+}
+
+/// Instant at which `DueLead` should fire: `offset` before onset, but not in the past.
 pub(super) fn lead_fire_at(onset: Instant, now: Instant, offset: Duration) -> Instant {
     let early = onset - offset;
     if early > now { early } else { now }
@@ -197,8 +224,54 @@ pub(super) fn instant_for_relative(now: Instant, relative: Duration) -> Instant 
     if relative >= elapsed { now + (relative - elapsed) } else { now - (elapsed - relative) }
 }
 
+/// UTC civil time, `YYYY-MM-DDTHH:MM:SS.ffffffZ`, matching the log envelope's timestamp.
+pub(super) fn format_utc_timestamp(time: SystemTime) -> Option<String> {
+    let duration = time.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+    let secs = duration.as_secs();
+    let days = secs / 86_400;
+    let tod = secs % 86_400;
+    let hours = tod / 3_600;
+    let minutes = (tod % 3_600) / 60;
+    let seconds = tod % 60;
+    let (year, month, day) = days_to_ymd(days);
+    Some(format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z"))
+}
+
+fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+    let mut year = 1970u64;
+    let mut remaining = days;
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining < days_in_year {
+            break;
+        }
+        remaining -= days_in_year;
+        year += 1;
+    }
+    let month_lengths: [u64; 12] = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month = 0u64;
+    for days_in_month in month_lengths {
+        if remaining < days_in_month {
+            break;
+        }
+        remaining -= days_in_month;
+        month += 1;
+    }
+    (year, month + 1, remaining + 1)
+}
+
+fn is_leap_year(year: u64) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::SystemTime;
+
     use amaru_kernel::{BlockHeight, Epoch, HeaderHash};
 
     use super::*;
@@ -342,6 +415,21 @@ mod tests {
     }
 
     #[test]
+    fn forge_window_opens_at_the_lead_offset_and_closes_one_offset_before_the_end() {
+        let onset = instant(10);
+        let end = instant(11);
+        assert_eq!(
+            forge_window(onset - FORGE_LEAD_OFFSET - Duration::from_millis(30), onset, end),
+            ForgeWindow::Wait(Duration::from_millis(30))
+        );
+        assert_eq!(forge_window(onset - FORGE_LEAD_OFFSET, onset, end), ForgeWindow::Open);
+        assert_eq!(forge_window(onset, onset, end), ForgeWindow::Open);
+        assert_eq!(forge_window(end - FORGE_LEAD_OFFSET - Duration::from_millis(1), onset, end), ForgeWindow::Open);
+        assert_eq!(forge_window(end - FORGE_LEAD_OFFSET, onset, end), ForgeWindow::Late);
+        assert_eq!(forge_window(end, onset, end), ForgeWindow::Late);
+    }
+
+    #[test]
     fn lead_fire_at_is_offset_before_onset_unless_that_is_past() {
         let onset = instant(10);
         assert_eq!(lead_fire_at(onset, instant(1), Duration::from_secs(2)), instant(8));
@@ -353,6 +441,17 @@ mod tests {
         assert_eq!(wait_until_onset(instant(10), instant(8)), Some(Duration::from_secs(2)));
         assert_eq!(wait_until_onset(instant(10), instant(10)), None);
         assert_eq!(wait_until_onset(instant(10), instant(11)), None);
+    }
+
+    #[test]
+    fn utc_timestamp_matches_known_ouroboros_starts() {
+        assert_eq!(format_utc_timestamp(SystemTime::UNIX_EPOCH).unwrap(), "1970-01-01T00:00:00Z");
+        let mainnet = SystemTime::UNIX_EPOCH + Duration::from_millis(1_506_203_091_000);
+        assert_eq!(format_utc_timestamp(mainnet).unwrap(), "2017-09-23T21:44:51Z");
+        let preprod = SystemTime::UNIX_EPOCH + Duration::from_millis(1_654_041_600_000);
+        assert_eq!(format_utc_timestamp(preprod).unwrap(), "2022-06-01T00:00:00Z");
+        let with_fraction = SystemTime::UNIX_EPOCH + Duration::from_micros(1_500_000);
+        assert_eq!(format_utc_timestamp(with_fraction).unwrap(), "1970-01-01T00:00:01Z");
     }
 
     #[test]

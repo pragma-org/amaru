@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    ops::Range,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use amaru_kernel::{
     Epoch, Header, IsHeader, Nonce, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Slot, make_header,
@@ -25,19 +29,19 @@ use amaru_pure_stage::simulation::Run;
 
 use super::{
     ForgeBlockMsg, FreezeWatch,
-    protocol::{AdoptedTip, LeadSlot},
+    protocol::{AdoptedTip, DueLead},
     schedule::{EpochSchedule, Schedule},
-    test_setup::{setup, test_prep},
+    test_setup::{setup, setup_until_sleeping, test_prep},
 };
 use crate::stages::test_utils::start_in_era;
 
-fn ready_schedule(epoch: Epoch, slot: Slot) -> Schedule {
+fn ready_schedule(epoch: Epoch, slots: Range<Slot>) -> Schedule {
     let nonce = Nonce::from([0u8; 32]);
     let always = FixedDecimal::one();
     let vrf = vrf::SecretKey::from(&[7u8; vrf::SecretKey::SIZE]);
     let mut schedule = Schedule::default();
     schedule.request(epoch, nonce);
-    schedule.install(EpochSchedule::compute(epoch, nonce, slot..slot + 1, always, always, &vrf));
+    schedule.install(EpochSchedule::compute(epoch, nonce, slots, always, always, &vrf));
     schedule
 }
 
@@ -55,12 +59,19 @@ fn adopted_origin_records_the_tip_and_does_not_schedule() {
     assert_eq!(state.schedule.slots(), 0);
 }
 
+fn simulation_slot() -> Slot {
+    let start = start_in_era();
+    // The harness clock is this far after `start_in_era`, on a slot boundary.
+    PREPROD_ERA_HISTORY.relative_time_to_slot(start.relative_time + Duration::from_secs(10)).unwrap()
+}
+
 #[test]
 fn lead_slot_before_certificate_start_is_a_miss() {
     let mut prep = test_prep();
     prep.state.data.ocert_start_period = 1_000_000;
-    prep.state.data.adopted_tip = Point::Specific(Slot::from(10), amaru_kernel::ORIGIN_HASH, 1.into());
-    let msg = ForgeBlockMsg::from(LeadSlot { slot: Slot::from(11), generation: 0 });
+    let slot = simulation_slot();
+    prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
     let (running, _guards, mut logs, stage) = setup(&prep, msg);
 
     logs.assert_and_remove(Level::WARN, &["ocert_not_yet_valid"]).assert_no_remaining_at([
@@ -78,9 +89,9 @@ fn stale_lead_slot_does_not_forge() {
     let mut prep = test_prep();
     let slot = Slot::from(11);
     prep.state.data.schedule_generation = 2;
-    prep.state.data.schedule = ready_schedule(Epoch::from(0), slot);
+    prep.state.data.schedule = ready_schedule(Epoch::from(0), slot..slot + 1);
     prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
-    let msg = ForgeBlockMsg::from(LeadSlot { slot, generation: 1 });
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 1 });
     let (running, _guards, mut logs, stage) = setup(&prep, msg);
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -89,6 +100,64 @@ fn stale_lead_slot_does_not_forge() {
     // The stale handler does not reschedule, so the generation stays put.
     assert_eq!(state.schedule_generation, 2);
     assert!(state.next_lead.is_none());
+}
+
+#[test]
+fn an_accepted_lead_arms_the_following_slot() {
+    let mut prep = test_prep();
+    prep.state.data.ocert_start_period = 1_000_000;
+    // Inside the open forge window, so the miss is the certificate rather than a late wake.
+    let slot = simulation_slot();
+    prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 2);
+    prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
+    let (running, _guards, mut logs, stage) = setup_until_sleeping(&prep, msg);
+
+    let onset =
+        prep.state.data.consensus_parameters.era_history().slot_to_relative_time_unchecked_horizon(slot + 1).unwrap();
+    let wall = SystemTime::UNIX_EPOCH + Duration::from_millis(prep.state.data.system_start_unix_ms) + onset;
+    let timestamp = super::calc::format_utc_timestamp(wall).unwrap();
+    logs.assert_and_remove(Level::WARN, &["ocert_not_yet_valid"])
+        .assert_and_remove(Level::INFO, &[timestamp.as_str()])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+
+    let state = running.get_state(&stage).cloned().unwrap().data;
+    assert!(state.schedule.lead_at(slot).is_none());
+    assert!(state.schedule.lead_at(slot + 1).is_some());
+    assert!(state.next_lead.is_some());
+    assert_eq!(state.schedule_generation, 1);
+}
+
+#[test]
+fn a_late_due_lead_is_not_forged() {
+    let mut prep = test_prep();
+    let slot = Slot::from(u64::from(simulation_slot()).saturating_sub(5));
+    prep.state.data.schedule = ready_schedule(Epoch::from(0), slot..slot + 1);
+    prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
+    let (running, _guards, mut logs, stage) = setup(&prep, msg);
+
+    logs.assert_and_remove(Level::WARN, &["woke_late"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+
+    let state = running.get_state(&stage).cloned().unwrap().data;
+    assert!(state.schedule.lead_at(slot).is_none());
+    assert!(state.next_lead.is_none());
+}
+
+#[test]
+fn an_early_due_lead_waits_for_the_forge_window() {
+    let mut prep = test_prep();
+    prep.state.data.ocert_start_period = 1_000_000;
+    let slot = simulation_slot() + 100;
+    prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
+    let (_running, _guards, mut logs, _stage) = setup_until_sleeping(&prep, msg);
+
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 fn current_era_epochs() -> (Epoch, Slot, Slot) {

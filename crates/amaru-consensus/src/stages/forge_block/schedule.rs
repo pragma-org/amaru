@@ -1,7 +1,24 @@
-use std::{
-    collections::BTreeMap,
-    ops::{Bound, Range},
-};
+// Copyright 2026 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Leader schedules for the epochs this stage is forging.
+//!
+//! An epoch is pending from the moment its nonce is requested until a result
+//! with that same nonce is installed. A mismatched result was computed from a
+//! nonce a rollback has already replaced, and is dropped.
+
+use std::{collections::BTreeMap, ops::Range};
 
 use amaru_kernel::{Epoch, Nonce, Slot, VrfCert, maths::FixedDecimal};
 use amaru_ouroboros::{
@@ -64,22 +81,8 @@ impl EpochSchedule {
         self.epoch
     }
 
-    pub fn next_after<'a>(&'a self, slot: Slot) -> Option<LeadSlot<'a>> {
-        let (found, cert) = self.slots.range((Bound::Excluded(slot), Bound::Unbounded)).next()?;
-
-        Some(LeadSlot { slot: *found, cert })
-    }
-
-    pub fn at<'a>(&'a self, slot: Slot) -> Option<LeadSlot<'a>> {
-        self.slots.get(&slot).map(|cert| LeadSlot { cert, slot })
-    }
-
-    pub fn len(&self) -> usize {
-        self.slots.len()
-    }
-
-    pub fn has_slots(&self) -> bool {
-        !self.slots.is_empty()
+    fn at(&self, slot: Slot) -> Option<LeadSlot<'_>> {
+        self.slots.get(&slot).map(|cert| LeadSlot { slot, cert })
     }
 }
 
@@ -109,7 +112,19 @@ impl Schedule {
         self.epochs.remove(&epoch);
     }
 
-    pub fn prune(&mut self, keep_from: Epoch) {
+    /// Remove every led slot at or before `slot`.
+    ///
+    /// A lead is armed about 50ms before onset, so the slot just handled is still
+    /// ahead of the clock and would otherwise be selected again.
+    pub fn drop_through(&mut self, slot: Slot) {
+        for state in self.epochs.values_mut() {
+            if let ScheduleState::Ready(schedule) = state {
+                schedule.slots.retain(|&scheduled, _| scheduled > slot);
+            }
+        }
+    }
+
+    pub fn prune_before(&mut self, keep_from: Epoch) {
         self.epochs.retain(|&epoch, _| epoch >= keep_from);
     }
 
@@ -117,16 +132,28 @@ impl Schedule {
         self.epochs.contains_key(&epoch)
     }
 
-    pub fn next_lead(&self, after: Slot) -> Option<LeadSlot<'_>> {
-        self.ready().find_map(|schedule| schedule.next_after(after))
+    /// Led slots in time order, across every ready epoch.
+    pub fn leads(&self) -> impl Iterator<Item = LeadSlot<'_>> {
+        self.ready().flat_map(|schedule| schedule.slots.iter().map(|(&slot, cert)| LeadSlot { slot, cert }))
     }
 
     pub fn lead_at(&self, slot: Slot) -> Option<LeadSlot<'_>> {
         self.ready().find_map(|schedule| schedule.at(slot))
     }
 
+    /// Led slots still held in each ready epoch. Pending epochs are omitted.
+    pub fn led_counts(&self) -> BTreeMap<Epoch, usize> {
+        self.epochs
+            .iter()
+            .filter_map(|(&epoch, state)| match state {
+                ScheduleState::Ready(schedule) => Some((epoch, schedule.slots.len())),
+                ScheduleState::Pending(_) => None,
+            })
+            .collect()
+    }
+
     pub fn slots(&self) -> usize {
-        self.ready().map(EpochSchedule::len).sum()
+        self.ready().map(|schedule| schedule.slots.len()).sum()
     }
 
     fn ready(&self) -> impl Iterator<Item = &EpochSchedule> {

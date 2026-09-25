@@ -772,6 +772,7 @@ pub enum EffectAst {
     Schedule { payload: PayloadName },
     CancelSchedule,
     External { effect: PayloadName },
+    Detach { effect: PayloadName },
     AddStage,
 }
 
@@ -944,6 +945,12 @@ impl DescribeEffect for super::effect::CancelSchedule {
 impl<E: crate::ExternalEffect> DescribeEffect for super::effect::External<E> {
     fn describe_effect() -> EffectAst {
         EffectAst::External { effect: type_last_segment::<E>() }
+    }
+}
+
+impl<E: crate::ExternalEffect> DescribeEffect for super::effect::Detach<E> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Detach { effect: type_last_segment::<E>() }
     }
 }
 

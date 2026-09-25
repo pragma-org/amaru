@@ -14,8 +14,8 @@
 
 //! Block production stage. Not wired into the consensus graph.
 //!
-//! The typestate remainder in [`protocol`] is the audit surface for messages,
-//! timers, and forging effects. Internal decisions live in [`calc`].
+//! The typestate remainder in `protocol` is the audit surface for messages,
+//! timers, and forging effects. Internal decisions live in `calc`.
 
 mod calc;
 mod effects;
@@ -26,7 +26,7 @@ use amaru_kernel::{ConsensusParameters, Point, PoolId};
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
 pub use calc::FreezeWatch;
 pub use effects::{ForgeEffectError, ForgeHeaderEffect, ForgedBody, LeaderScheduleEffect, TakeForForgeEffect};
-pub use protocol::{AdoptedTip, ForgeBlockMsg, LeadSlot, LeaderSchedule, Live, SelectChainOut, stage};
+pub use protocol::{AdoptedTip, DueLead, ForgeBlockMsg, LeaderSchedule, Live, SelectChainOut, stage};
 use schedule::Schedule;
 
 use crate::stages::select_chain::SelectChainMsg;
@@ -51,11 +51,13 @@ pub struct ForgeData {
     pub k: u64,
     pub pool: PoolId,
     pub ocert_start_period: u64,
+    /// Ouroboros system start, as Unix time in milliseconds.
+    pub system_start_unix_ms: u64,
     pub adopted_tip: Point,
     pub adopted_parent: Point,
     pub schedule: Schedule,
     pub next_lead: Option<ScheduleId>,
-    /// Identifies the latest scheduling decision. A `LeadSlot` queued under an older
+    /// Identifies the latest scheduling decision. A `DueLead` queued under an older
     /// value is ignored, including one whose timer `cancel_schedule` could not stop.
     pub schedule_generation: u64,
     pub freeze: Option<FreezeWatch>,
@@ -65,6 +67,7 @@ impl ForgeBlock {
     pub fn new(
         select_chain: StageRef<SelectChainMsg>,
         consensus_parameters: ConsensusParameters,
+        system_start_unix_ms: u64,
         k: u64,
         pool: PoolId,
         ocert_start_period: u64,
@@ -77,6 +80,7 @@ impl ForgeBlock {
                 k,
                 pool,
                 ocert_start_period,
+                system_start_unix_ms,
                 adopted_tip: Point::Origin,
                 adopted_parent: Point::Origin,
                 schedule: Default::default(),

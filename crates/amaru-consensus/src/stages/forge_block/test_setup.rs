@@ -31,7 +31,7 @@ use crate::{
     effects::ValidateHeaderEffect,
     stages::{
         select_chain::SelectChainMsg,
-        test_utils::{Logs, run_simulation},
+        test_utils::{Logs, SimulationRunMode, run_simulation_with},
     },
 };
 
@@ -50,6 +50,7 @@ pub fn test_prep() -> TestPrep {
         state: ForgeBlock::new(
             select_chain,
             consensus_parameters,
+            PREPROD_GLOBAL_PARAMETERS.system_start,
             PREPROD_GLOBAL_PARAMETERS.consensus_security_param,
             NULL_HASH28,
             0,
@@ -84,15 +85,31 @@ pub fn setup(
     setup_msgs(prep, [msg])
 }
 
+/// Drive `msg` until the stage next sleeps on a timer, without firing that timer.
+pub fn setup_until_sleeping(
+    prep: &TestPrep,
+    msg: ForgeBlockMsg,
+) -> (SimulationRunning, DeserializerGuards, Logs, StageStateRef<ForgeBlockMsg, ForgeBlock>) {
+    setup_with(prep, [msg], SimulationRunMode::UntilSleeping)
+}
+
 pub fn setup_msgs(
     prep: &TestPrep,
     msgs: impl IntoIterator<Item = ForgeBlockMsg>,
+) -> (SimulationRunning, DeserializerGuards, Logs, StageStateRef<ForgeBlockMsg, ForgeBlock>) {
+    setup_with(prep, msgs, SimulationRunMode::UntilBlocked)
+}
+
+fn setup_with(
+    prep: &TestPrep,
+    msgs: impl IntoIterator<Item = ForgeBlockMsg>,
+    mode: SimulationRunMode,
 ) -> (SimulationRunning, DeserializerGuards, Logs, StageStateRef<ForgeBlockMsg, ForgeBlock>) {
     let guards = register_guards();
     let state = prep.state.clone();
     let msgs: Vec<_> = msgs.into_iter().collect();
     let wired_slot: Mutex<Option<StageStateRef<ForgeBlockMsg, ForgeBlock>>> = Mutex::new(None);
-    let (running, guards, logs) = run_simulation(
+    let (running, guards, logs) = run_simulation_with(
         prep.rt.handle(),
         guards,
         |mut network| {
@@ -110,6 +127,7 @@ pub fn setup_msgs(
                 OverrideResult::handled(EpochSchedule::empty(effect.epoch, effect.nonce))
             });
         },
+        mode,
     );
     let wired = wired_slot.lock().expect("wired slot").take().expect("stage was wired");
     (running, guards, logs, wired)
