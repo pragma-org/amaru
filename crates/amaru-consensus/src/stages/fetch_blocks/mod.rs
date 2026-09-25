@@ -21,6 +21,8 @@ use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
 
 use crate::{
+    consensus_mode::ConsensusMode,
+    effects::QueryConsensusModeEffect,
     performance::{Performance, SelectPeersParams},
     stages::{block_source::BlockSourceMsg, peer_selection::PeerSelectionMsg, select_chain::SelectChainMsg},
 };
@@ -477,7 +479,7 @@ impl FetchBlocks {
         }
     }
 
-    pub async fn peers_asked(&mut self, req_id: u64, peers: Vec<Peer>, _eff: Effects<FetchBlocksMsg>) {
+    pub async fn peers_asked(&mut self, req_id: u64, peers: Vec<Peer>, eff: Effects<FetchBlocksMsg>) {
         if req_id != self.req_id || self.missing.is_none() {
             return;
         }
@@ -489,7 +491,11 @@ impl FetchBlocks {
             .map(|missing| missing.missing_points().into_iter().map(|point| point.hash()).collect())
             .unwrap_or_default();
         let asked: Vec<Peer> = self.fetch_peers.iter().copied().collect();
-        crate::performance::emit_blocks_requested(&hashes, &asked);
+        if asked.is_empty() || hashes.is_empty() {
+            return;
+        }
+        let live = eff.external(QueryConsensusModeEffect).await == ConsensusMode::Live;
+        crate::performance::emit_blocks_requested(&hashes, &asked, live);
     }
 
     pub async fn no_blocks(&mut self, req_id: u64, peer: Peer, eff: Effects<FetchBlocksMsg>) {

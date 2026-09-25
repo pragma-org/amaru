@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
-use amaru_observability::debug;
+use amaru_observability::{debug, info};
 use amaru_pure_stage::Instant;
 
 /// How many distinct announcing peers are logged for one header hash.
@@ -196,7 +196,7 @@ impl HeaderTelemetry {
     ///
     /// Safe to call where OTel/export layers may drop or lag; must not run on the performance
     /// worker thread.
-    pub fn emit(&self, meter: Option<&Meter>) {
+    pub fn emit(&self, meter: Option<&Meter>, live: bool) {
         match self {
             Self::Lifecycle {
                 hash,
@@ -262,24 +262,42 @@ impl HeaderTelemetry {
                 );
             }
             Self::Announced { hash, peer, rank } => {
-                debug!(blockperf::header::ANNOUNCED, peer, header_hash = hash, rank = *rank);
+                if live {
+                    info!(blockperf::header::ANNOUNCED, peer, header_hash = hash, rank = *rank);
+                } else {
+                    debug!(blockperf::header::ANNOUNCED, peer, header_hash = hash, rank = *rank);
+                }
             }
             Self::Received { hash, peer, rank } => {
-                debug!(blockperf::block::RECEIVED, peer, header_hash = hash, rank = *rank);
+                if live {
+                    info!(blockperf::block::RECEIVED, peer, header_hash = hash, rank = *rank);
+                } else {
+                    debug!(blockperf::block::RECEIVED, peer, header_hash = hash, rank = *rank);
+                }
             }
             Self::Adopted { hash, peer: Some(peer) } => {
-                debug!(blockperf::block::ADOPTED, header_hash = hash, peer);
+                if live {
+                    info!(blockperf::block::ADOPTED, header_hash = hash, peer);
+                } else {
+                    debug!(blockperf::block::ADOPTED, header_hash = hash, peer);
+                }
             }
             Self::Adopted { hash, peer: None } => {
-                debug!(blockperf::block::ADOPTED, header_hash = hash);
+                if live {
+                    info!(blockperf::block::ADOPTED, header_hash = hash);
+                } else {
+                    debug!(blockperf::block::ADOPTED, header_hash = hash);
+                }
             }
         }
     }
 
     /// Emit a batch of telemetry events.
-    pub fn emit_all(events: &[Self], meter: Option<&Meter>) {
+    ///
+    /// `live` prints block-propagation events at info; sync keeps them at debug.
+    pub fn emit_all(events: &[Self], meter: Option<&Meter>, live: bool) {
         for event in events {
-            event.emit(meter);
+            event.emit(meter, live);
         }
     }
 

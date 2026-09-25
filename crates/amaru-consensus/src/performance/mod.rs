@@ -46,7 +46,7 @@ use std::{
 };
 
 use amaru_kernel::{HeaderHash, Peer, PeerCandidate};
-use amaru_observability::{debug, error, warn};
+use amaru_observability::{debug, error, info, warn};
 use amaru_pure_stage::Instant;
 pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
@@ -442,7 +442,7 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
 /// Log which peers were asked for each block in a fetch batch (`block.requested`).
 ///
 /// Addresses are sorted so the line is stable. An empty peer set logs nothing.
-pub(crate) fn emit_blocks_requested(hashes: &[HeaderHash], peers: &[Peer]) {
+pub(crate) fn emit_blocks_requested(hashes: &[HeaderHash], peers: &[Peer], live: bool) {
     if peers.is_empty() || hashes.is_empty() {
         return;
     }
@@ -451,7 +451,11 @@ pub(crate) fn emit_blocks_requested(hashes: &[HeaderHash], peers: &[Peer]) {
     ordered.dedup();
     let peers_field = ordered.iter().map(|peer| peer.to_string()).collect::<Vec<_>>().join(",");
     for hash in hashes {
-        debug!(blockperf::block::REQUESTED, header_hash = hash, peers = peers_field.as_str());
+        if live {
+            info!(blockperf::block::REQUESTED, header_hash = hash, peers = peers_field.as_str());
+        } else {
+            debug!(blockperf::block::REQUESTED, header_hash = hash, peers = peers_field.as_str());
+        }
     }
 }
 

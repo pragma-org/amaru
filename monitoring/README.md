@@ -66,6 +66,8 @@ AMARU_LOG=info,amaru::blockperf=debug
 
 `AMARU_LOG=off,amaru::blockperf=debug` prints only those events. `header.announced` is emitted for the first three distinct peers of a header hash, with `rank` 1, 2, or 3. `block.requested` lists the peers asked for that body. `block.received` names each delivering peer with its arrival rank. `block.adopted` records local adoption and, when known, the first peer that delivered the body.
 
+While the adopted chain is more than 60 seconds from the wall clock these lines are debug, and `tip.adopt` is limited to one info line per second. Once the adopted tip is within 60 seconds they are info, and every adoption is printed. A change between sync and live is logged at info as `tip.mode`. A header that is itself within 60 seconds of the wall clock, while the adopted chain is still behind, is logged at most once a minute as `chainsync.chain_lagging`.
+
 ### By tag
 
 Spans can carry functional tags, declared with `tags: <name>, ...` in the schema definitions (see `crates/amaru-observability/src/schemas.rs`). Each tag is recorded on the span as a boolean `amaru.tag.<name>` attribute. The tags currently in use are `cpu`, `setup`, `bootstrap`, and `io`.

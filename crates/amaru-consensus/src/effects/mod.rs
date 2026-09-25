@@ -26,3 +26,5 @@ pub use ledger_effects::{
 pub use random_effects::GenerateRandomSeed;
 pub use resolve::{ResolvePeerCandidate, ResolvePeerCandidateResult};
 pub use store_effects::{FindBestCandidate, find_best_candidate};
+
+pub use crate::consensus_mode::{ConsensusMode, QueryConsensusModeEffect, UpdateConsensusModeEffect};

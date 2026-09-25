@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_consensus::{
     effects::{
-        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
+        ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
         ResourcePoolSummaries, ResourceTxValidation, ValidateHeaderEffect,
     },
     stages::test_utils::start_in_era,
@@ -224,6 +224,7 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     let cp = Arc::new(ConsensusParameters::new(global, era));
     stage_graph.resources().put::<ResourceConsensusParameters>(cp);
     stage_graph.resources().put::<ResourceEraHistory>(era.clone());
+    stage_graph.resources().put(ConsensusMode::Sync);
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());

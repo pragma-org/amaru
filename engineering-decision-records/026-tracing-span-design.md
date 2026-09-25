@@ -111,6 +111,8 @@ Operators also need these points as individual log lines they can turn on with `
 
 `AMARU_LOG=info,amaru::blockperf=debug` adds them to the usual info log. `AMARU_LOG=off,amaru::blockperf=debug` prints only them. The terminal `perf.header.lifecycle` event still carries the intervals between the points for the TUI.
 
+`adopt_chain` stores a consensus mode from the adopted tip's slot onset and the wall clock. A lag strictly under 60 seconds is live. A change of mode is logged at info as `tip.mode`. While syncing, the four events are debug and `tip.adopt` is limited to one info line per second. While live, the four events and every adoption are info. `track_peers` logs `chainsync.chain_lagging` at most once a minute when a header within 60 seconds of the wall clock arrives while the stored mode is still sync.
+
 Switching to a different fork will then open a span with NAME `perf.fork.switch` for all blocks on the target fork.
 
 #### Consensus

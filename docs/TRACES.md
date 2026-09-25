@@ -1337,6 +1337,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `chain_lagging` | `TRACE` | public | A header near the wall clock arrived while the adopted chain is still behind it. The node is likely stuck. Emitted at most once a minute. | peer, header_hash, header_slot |  |
 | `initialized` | `TRACE` | public | A chainsync session with an upstream peer was initialized | peer, conn_id |  |
 | `intersect_found` | `TRACE` | public | An intersection with the peer's chain was found | peer, conn_id, current, highest |  |
 | `intersect_not_found` | `TRACE` | public | No intersection with the peer's chain was found, so chainsync with it stops | peer, highest |  |
@@ -1345,6 +1346,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `roll_backward_failed` | `TRACE` | public | A rollback requested by a peer could not be applied; the peer is adversarial | peer, error |  |
 | `terminated` | `TRACE` | public | A chainsync session terminated and its connection state was purged | peer, conn_id |  |
 | `unknown_intersection_point` | `TRACE` | public | The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike \`INTERSECT_NOT_FOUND\` this points at local state, not at the peer. | peer, current, highest |  |
+
+<details><summary>span: `chain_lagging`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `header_slot` | `integer` | ✓ |
+
+</details>
 
 <details><summary>span: `initialized`</summary>
 
@@ -1546,6 +1557,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `adopt` | `TRACE` | public | Adopt a tip as the next tip in the best chain | slot, header_hash, block_height, max_block_height, suppressed |  |
+| `mode` | `TRACE` | public | The node switched between catching up and live. \`mode\` and \`previous\` ∈ {sync, live}. | mode, previous, slot |  |
 
 <details><summary>span: `adopt`</summary>
 
@@ -1556,6 +1568,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `block_height` | `integer` | ✓ |
 | `max_block_height` | `integer` | ✓ |
 | `suppressed` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `mode`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `mode` | `string` | ✓ |
+| `previous` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
 
 </details>
 

@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru**: block propagation can be followed on its own. `AMARU_LOG=info,amaru::blockperf=debug` prints, for each block, the first three peers that announced the header (`header.announced`, with rank), the peers asked for the body (`block.requested`), each peer that delivered the body in arrival order (`block.received`), and local adoption (`block.adopted`). Further announcements of that header are not logged. `AMARU_LOG=off,amaru::blockperf=debug` prints only those events. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
+- **amaru**: block propagation can be followed on its own. `AMARU_LOG=off,amaru::blockperf=info` prints, for each block, the first three peers that announced the header (`header.announced`, with rank), the peers asked for the body (`block.requested`), each peer that delivered the body in arrival order (`block.received`), and local adoption (`block.adopted`). The logging is at DEBUG level while syncing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
 
 ## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
