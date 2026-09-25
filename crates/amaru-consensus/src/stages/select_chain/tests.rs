@@ -463,6 +463,10 @@ fn test_block_validation_result_valid() {
         Level::DEBUG,
         &["chain.select_from_block_validation", "chain.block_validated", "advanced=1"],
     )
+    .assert_and_remove(
+        Level::DEBUG,
+        &["amaru::blockperf", "block.adopted", &format!(r#"header_hash="{}""#, tip.hash())],
+    )
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -952,6 +956,10 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
         .assert_and_remove(
             Level::DEBUG,
             &["chain.select_from_block_validation", "advanced=1", "syncing=false", "valid=true"],
+        )
+        .assert_and_remove(
+            Level::DEBUG,
+            &["amaru::blockperf", "block.adopted", &format!(r#"header_hash="{}""#, prep.headers.h2.hash())],
         )
         .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search"])
         .assert_and_remove(Level::DEBUG, &["best_tip_candidate.search", "visited=4", "visited=4"])

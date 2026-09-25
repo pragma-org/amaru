@@ -742,13 +742,6 @@ impl TrackPeers {
                     slot_start_to_header_micros,
                 ))
                 .await;
-                debug!(
-                    consensus::perf::header::LIFECYCLE,
-                    peer,
-                    header_hash = current.hash(),
-                    outcome = HeaderLifecycleOutcome::DuplicateHeader.as_str()
-                );
-                record_header_rejected(eff, HeaderLifecycleOutcome::DuplicateHeader).await;
             }
             Some((parent, nonces)) => {
                 // the header and its nonces are stored atomically, so that stored nonces always
