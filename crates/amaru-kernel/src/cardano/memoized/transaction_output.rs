@@ -287,7 +287,8 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                     ));
                 }
 
-                let policy_id: Hash<CREDENTIAL> = Hash::from(policy_id.as_slice());
+                let policy_id = Hash::<CREDENTIAL>::try_from(policy_id.as_slice())
+                    .map_err(|e| serde::de::Error::custom(format!("invalid policy id: {e}")))?;
 
                 let pairs = NonEmptyKeyValuePairs::try_from(converted_assets)
                     .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?;

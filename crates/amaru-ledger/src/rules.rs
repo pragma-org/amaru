@@ -262,11 +262,11 @@ pub(crate) mod tests {
         let dev_key = hash!("93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8");
         let proposal_key = hash!("22222222222222222222222222222222222222222222222222222222");
 
-        let pool = Hash::from(hex::decode("11".repeat(28)).unwrap().as_slice());
-        let drep = Hash::from(hex::decode("22".repeat(28)).unwrap().as_slice());
-        let cc_cold = Hash::from(hex::decode("33".repeat(28)).unwrap().as_slice());
-        let cc_hot = Hash::from(hex::decode("55".repeat(28)).unwrap().as_slice());
-        let voting_pool = Hash::from(hex::decode("66".repeat(28)).unwrap().as_slice());
+        let pool = Hash::try_from(hex::decode("11".repeat(28)).unwrap().as_slice()).unwrap();
+        let drep = Hash::try_from(hex::decode("22".repeat(28)).unwrap().as_slice()).unwrap();
+        let cc_cold = Hash::try_from(hex::decode("33".repeat(28)).unwrap().as_slice()).unwrap();
+        let cc_hot = Hash::try_from(hex::decode("55".repeat(28)).unwrap().as_slice()).unwrap();
+        let voting_pool = Hash::try_from(hex::decode("66".repeat(28)).unwrap().as_slice()).unwrap();
 
         // spent, collateral and reference inputs all have to be resolvable
         assert_eq!(
