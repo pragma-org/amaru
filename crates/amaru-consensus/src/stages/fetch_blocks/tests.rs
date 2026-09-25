@@ -75,6 +75,7 @@ fn test_new_tip_no_blocks_to_fetch() {
     prep.store_block(&prep.headers.h1);
     prep.store_block(&prep.headers.h2);
     prep.set_anchor(prep.headers.h0.hash());
+    prep.set_validity(prep.headers.h2.hash(), true);
 
     let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
@@ -87,6 +88,7 @@ fn test_new_tip_no_blocks_to_fetch() {
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
             te_find_missing_blocks("fb-1", tip.hash(), 25),
+            te_load_header("fb-1", tip.hash(), true),
             te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(tip)),
             te_state("fb-1", &prep.state_with_block_height(3)),
         ],
@@ -97,6 +99,40 @@ fn test_new_tip_no_blocks_to_fetch() {
         Level::WARN,
         Level::ERROR,
     ]);
+}
+
+/// A forged block is stored before `select_chain` announces it. The body is local, so there is
+/// nothing to download, and the block still has to reach validation.
+#[test]
+fn test_new_tip_forwards_stored_unvalidated_block() {
+    let prep = test_prep();
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
+    prep.store_block(&prep.headers.h0);
+    prep.store_block(&prep.headers.h1);
+    prep.store_block(&prep.headers.h2);
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_validity(prep.headers.h0.hash(), true);
+    prep.set_validity(prep.headers.h1.hash(), true);
+
+    let tip = prep.headers.h2.point();
+    let parent = prep.headers.h1.point();
+    let msg = FetchBlocksMsg::new_tip(tip, parent);
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_find_missing_blocks("fb-1", tip.hash(), 25),
+            te_load_header("fb-1", tip.hash(), true),
+            te_has_block("fb-1", tip.hash()),
+            te_send("fb-1", "downstream", DownloadedBlock::new(tip, parent, BlockHeight::from(3))),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(tip)),
+            te_state("fb-1", &prep.state_with_block_height(3)),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
