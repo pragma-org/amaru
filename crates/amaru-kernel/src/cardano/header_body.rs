@@ -36,7 +36,7 @@ pub struct HeaderBody {
     pub vrf_result: VrfCert,
 
     #[n(6)]
-    pub block_body_size: u64,
+    pub block_body_size: u32,
 
     #[n(7)]
     pub block_body_hash: Hash<32>,
