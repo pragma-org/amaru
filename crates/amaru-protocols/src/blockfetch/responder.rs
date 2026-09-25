@@ -106,8 +106,11 @@ impl PointsRange {
         if from == through {
             return if let Some(block) = store.load_block(&from.hash()).await? {
                 match block.decode_header() {
-                    Ok(header) => Ok(Some(PointsRange::singleton(header.point()))),
+                    Ok(header) if NetworkPoint::from(header.point()) == from => {
+                        Ok(Some(PointsRange::singleton(header.point())))
+                    }
                     Err(_) => Ok(None),
+                    Ok(_) => Ok(None),
                 }
             } else {
                 Ok(None)
@@ -386,6 +389,15 @@ pub mod tests {
         let (store, chain) = make_store_with_chain(3);
         let result = request_range(store, chain[1].header.point(), chain[1].header.point());
         assert_eq!(result, None, "should return None when from == through but block doesn't exist");
+    }
+
+    #[test]
+    fn test_request_range_single_point_wrong_slot() {
+        let (store, chain) = make_store_with_chain(3);
+        store_blocks(store.clone(), &chain[1..2]);
+        let point = NetworkPoint::Specific(chain[1].header.slot() + 1, chain[1].header.hash());
+
+        assert_eq!(request_range(store, point, point), None);
     }
 
     #[test]
