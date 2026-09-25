@@ -175,7 +175,7 @@ fn run_terminal(
         let due = now >= next_draw_at;
         if immediate_draw || (due && !model.is_copy_mode()) {
             model.sync_logs();
-            terminal.terminal().draw(|frame| ui::render(frame, &model, &mut views, now))?;
+            terminal.draw(|frame| ui::render(frame, &model, &mut views, now))?;
             immediate_draw = false;
         }
         if due {
@@ -227,7 +227,7 @@ fn run_terminal(
 }
 
 fn enter_copy_mode(terminal: &mut TerminalGuard, model: &Model, views: &mut Views, now: Instant) -> io::Result<()> {
-    terminal.terminal().draw(|frame| ui::render(frame, model, views, now))?;
+    terminal.draw(|frame| ui::render(frame, model, views, now))?;
     // Log pages keep mouse capture so left-click/drag can mark a time range.
     // The Config page still releases it for native terminal selection.
     if model.page == Page::Config {

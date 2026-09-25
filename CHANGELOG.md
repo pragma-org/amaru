@@ -35,6 +35,12 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
+
+### Fixed
+
+- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
+
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
 ### Added
