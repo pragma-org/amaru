@@ -802,7 +802,7 @@ impl Write for MemWriter {
 
 /// Drive the same effect path the stages use: four announcers, a fetch request, two deliveries,
 /// adoption, plus ordinary consensus logs that must stay selectable apart from block propagation.
-fn capture_blockperf(filter: &str) -> String {
+fn capture_blockperf(filter: &str, live: bool) -> String {
     let buf = Arc::new(Mutex::new(Vec::new()));
     let writer = MemWriter(Arc::clone(&buf));
     let layer = tracing_subscriber::fmt::layer()
@@ -816,6 +816,9 @@ fn capture_blockperf(filter: &str) -> String {
     amaru_observability::tracing::subscriber::with_default(subscriber, || {
         let resources = Resources::default();
         resources.put::<ResourcePerformance>(Arc::new(Performance::new()));
+        if live {
+            resources.put(crate::consensus_mode::ConsensusMode::Live);
+        }
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
         let body = hash(9);
         let point = tip(9, 4);
@@ -824,7 +827,7 @@ fn capture_blockperf(filter: &str) -> String {
             let effect = Performance::record_header_announcement(*peer, point, None, t(1), 0);
             rt.block_on(Box::new(effect).run(resources.clone()));
         }
-        super::emit_blocks_requested(&[body], &peers[..2]);
+        super::emit_blocks_requested(&[body], &peers[..2], live);
         for peer in [peers[1], peers[0]] {
             let effect = Performance::record_block_delivery(
                 peer,
@@ -848,7 +851,7 @@ fn capture_blockperf(filter: &str) -> String {
 
 #[test]
 fn env_filter_selects_exactly_the_four_blockperf_events() {
-    let only = capture_blockperf("off,amaru::blockperf=debug");
+    let only = capture_blockperf("off,amaru::blockperf=debug", false);
     let lines: Vec<_> = only.lines().filter(|line| !line.is_empty()).collect();
     assert!(lines.iter().all(|line| line.contains("amaru::blockperf")), "unexpected lines:\n{only}");
     for name in ["header.announced", "block.requested", "block.received", "block.adopted"] {
@@ -883,14 +886,20 @@ fn env_filter_selects_exactly_the_four_blockperf_events() {
     assert!(!only.contains("perf.header.lifecycle"), "{only}");
 
     // The span-name syntax does not select these events: a bracketed name matches the current span.
-    let legacy = capture_blockperf("info,amaru::consensus[perf.header.lifecycle{peer}]");
+    let legacy = capture_blockperf("info,amaru::consensus[perf.header.lifecycle{peer}]", false);
     assert!(!legacy.contains("header.announced"), "{legacy}");
     assert!(!legacy.contains("block.requested"), "{legacy}");
     assert!(!legacy.contains("block.received"), "{legacy}");
     assert!(!legacy.contains("block.adopted"), "{legacy}");
     assert!(legacy.contains("blocks.paused"), "{legacy}");
 
-    let with_info = capture_blockperf("info,amaru::blockperf=debug");
+    let with_info = capture_blockperf("info,amaru::blockperf=debug", false);
+    assert!(with_info.lines().any(|line| line.contains(" DEBUG ") && line.contains("header.announced")), "{with_info}");
+
+    let live = capture_blockperf("info,amaru::blockperf=info", true);
+    assert!(live.lines().any(|line| line.contains(" INFO ") && line.contains("header.announced")), "{live}");
+    assert!(live.lines().any(|line| line.contains(" INFO ") && line.contains("block.adopted")), "{live}");
+    assert!(!live.lines().any(|line| line.contains(" DEBUG ") && line.contains("amaru::blockperf")), "{live}");
     assert!(with_info.contains("blocks.paused"), "{with_info}");
     assert!(!with_info.contains("blocks.timeout"), "{with_info}");
     assert!(with_info.contains("header.announced") && with_info.contains("block.adopted"), "{with_info}");

@@ -3806,6 +3806,38 @@
       "description": "A database migration relies on an assumption that may not hold; see the reason",
       "public": true
     },
+    "amaru::consensus::chainsync::CHAIN_LAGGING": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "header_slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "peer",
+        "header_hash",
+        "header_slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "chain_lagging",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A header near the wall clock arrived while the adopted chain is still behind it. The node is likely stuck. Emitted at most once a minute.",
+      "public": true
+    },
     "amaru::consensus::chainsync::INITIALIZED": {
       "type": "object",
       "properties": {
@@ -4488,6 +4520,35 @@
       "level": "TRACE",
       "target": "amaru::consensus::tip",
       "description": "Adopt a tip as the next tip in the best chain",
+      "public": true
+    },
+    "amaru::consensus::tip::MODE": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "previous": {
+          "type": "string"
+        },
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "mode",
+        "previous",
+        "slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mode",
+      "level": "TRACE",
+      "target": "amaru::consensus::tip",
+      "description": "The node switched between catching up and live. `mode` and `previous` ∈ {sync, live}.",
       "public": true
     },
     "amaru::ledger::account::PAY_OR_REFUND": {

@@ -22,6 +22,8 @@ use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 
 use crate::{
+    consensus_mode::ConsensusMode,
+    effects::UpdateConsensusModeEffect,
     performance::Performance,
     stages::{block_source::BlockSourceMsg, select_chain::cmp_tip},
 };
@@ -45,7 +47,8 @@ use crate::{
 ///   `consensus_security_param` ("k") blocks behind the new tip; the height
 ///   walk uses a consistent snapshot effect; only the write is separate;
 ///   never moves backward; may be a no-op if no suitable anchor found).
-/// - Then (after logging with 1s suppression for catch-up): three `eff.send`s
+/// - Then (after logging; while syncing, identical lines inside one second are debug and counted
+///   in `suppressed`; while live, every adoption is info): three `eff.send`s
 ///   (in this exact order):
 ///   1. `MempoolMsg::NewTip(tip)` — to the mempool (to flush invalidated txs
 ///      and adjust to the new tip).
@@ -229,8 +232,9 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             })
             .await;
 
-        // do not print every single block while catching up
-        if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
+        let mode = eff.external(UpdateConsensusModeEffect { slot: msg.slot(), now }).await;
+        // While syncing, print at most one adoption per second. While live, print every one.
+        if mode == ConsensusMode::Live || now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
             info!(
                 consensus::tip::ADOPT,
                 slot = msg.slot(),

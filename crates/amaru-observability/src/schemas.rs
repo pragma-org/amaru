@@ -439,6 +439,14 @@ define_schemas! {
                     required peer: %amaru_kernel::Peer
                     required error: String
                 }
+                /// A header near the wall clock arrived while the adopted chain is still behind it.
+                /// The node is likely stuck. Emitted at most once a minute.
+                public CHAIN_LAGGING {
+                    required peer: %amaru_kernel::Peer
+                    required live_slot: amaru_kernel::Slot
+                    required our_slot: amaru_kernel::Slot
+                    required lag: i64
+                }
                 /// A header's validation is held back until what blocks it resolves.
                 /// Reason ∈ {ledger_height, stake_distribution, clock_skew, follow_up}; the height
                 /// fields are present for `ledger_height`, where they say how far behind we are.
@@ -575,6 +583,13 @@ define_schemas! {
                 }
             }
             tip {
+                /// The node switched between catching up and live.
+                /// `mode` and `previous` ∈ {sync, live}.
+                public MODE {
+                    required mode: String
+                    required previous: String
+                    required slot: amaru_kernel::Slot
+                }
                 /// Adopt a tip as the next tip in the best chain
                 public ADOPT {
                     required slot: amaru_kernel::Slot

@@ -27,13 +27,14 @@ use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
-    store_effects::Store,
+    store_effects::{GetBestChainTipEffect, Store},
 };
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
 
 use super::peer_selection::PeerSelectionMsg;
 use crate::{
-    effects::{Ledger, LedgerOps, VolatileTipEffect},
+    consensus_mode::{CHAIN_LAG_LOG_INTERVAL, ConsensusMode, classify},
+    effects::{Ledger, LedgerOps, QueryConsensusModeEffect, VolatileTipEffect},
     errors::{ConsensusError, HeaderSlotTooFarInFuture, InvalidHeaderParentData, InvalidHeaderPoint},
     performance::{HeaderLifecycleOutcome, Performance},
 };
@@ -145,6 +146,8 @@ pub struct TrackPeers {
     deferred: Vec<DeferredHeader>,
     /// Single outstanding self-schedule for height/clock deferred rechecks.
     recheck_timer: Option<ScheduleId>,
+    /// Last time a live header was checked against a still-syncing adopted chain.
+    last_chain_lag_check: Option<Instant>,
 }
 
 /// Per-connection tip tracking for a chainsync session.
@@ -355,6 +358,7 @@ impl TrackPeers {
             ledger_last_checked_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
             max_epoch,
             recheck_timer: None,
+            last_chain_lag_check: None,
         }
     }
 
@@ -388,6 +392,26 @@ impl TrackPeers {
             trace_context: TraceContext::default(),
             received_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
         });
+    }
+
+    /// A header whose slot is within [`crate::consensus_mode::LIVE_TIP_LAG`] of the wall clock,
+    /// while the adopted chain is still syncing, means headers are arriving and the chain is not.
+    /// That is logged at most once per [`CHAIN_LAG_LOG_INTERVAL`].
+    async fn note_chain_lag(&mut self, eff: &Effects<TrackPeersMsg>, peer: Peer, header: &Header, now: Instant) {
+        if self.last_chain_lag_check.is_some_and(|at| now.saturating_since(at) < CHAIN_LAG_LOG_INTERVAL) {
+            return;
+        }
+        if classify(header.slot(), now, &self.era_history) != ConsensusMode::Live {
+            return;
+        }
+        self.last_chain_lag_check = Some(now);
+        if eff.external(QueryConsensusModeEffect).await == ConsensusMode::Sync {
+            let tip = eff.external(GetBestChainTipEffect).await;
+            let live_slot = header.slot();
+            let our_slot = tip.slot();
+            let lag = live_slot - our_slot;
+            error!(consensus::chainsync::CHAIN_LAGGING, peer, live_slot, our_slot, lag);
+        }
     }
 
     /// Microseconds from the virtual start of `slot` to `received_at`, for header lifecycle metrics.
@@ -867,6 +891,7 @@ impl TrackPeers {
                     debug_record!(consensus::roll_forward::PROCESS, header_hash = header.hash());
 
                     let now = eff.clock().await;
+                    self.note_chain_lag(&eff, peer, &header, now).await;
 
                     if self.is_deferred(conn_id) {
                         self.defer(DeferredHeader {
