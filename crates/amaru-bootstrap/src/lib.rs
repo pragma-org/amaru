@@ -64,7 +64,7 @@
 //! )
 //! .await?;
 //!
-//! // Then: NodeBuilder::new(network)?.ledger_dir(...).chain_dir(...).build_and_run(rt.handle())?
+//! // Then: NodeBuilder::new(network)?.ledger_dir(...).chain_dir(...).start(rt.handle()).await?
 //! # Ok(())
 //! # }
 //! ```

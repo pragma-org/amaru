@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use amaru_consensus::{
     block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
@@ -44,17 +44,20 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{
     BoxFuture, Name, Sender, StageGraph, StageGraphRunning,
+    drop_guard::DropGuard,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
 };
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore};
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::runtime::Handle;
 
 use crate::{
-    ClearValidity, ensure_store_consistency, realign_chain_store_to,
+    ClearValidity,
+    chain_realign::ensure_store_consistency,
+    realign_chain_store_to,
     stages::{
         build_stage_graph::{NodeStages, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
@@ -64,13 +67,27 @@ use crate::{
 const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A startup failure that an embedding host can handle without inspecting error text.
-///
-/// Listener binding happens after construction; this result does not establish network readiness.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum NodeStartError {
     #[error("invalid configuration: {reason}")]
     InvalidConfiguration { reason: String },
+    #[error("listener address {address} is already in use")]
+    AddressInUse { address: SocketAddr },
+    #[error("failed to bind listener at {address}: {source}")]
+    ListenerBind {
+        address: SocketAddr,
+        #[source]
+        source: Arc<std::io::Error>,
+    },
+    #[error("node components terminated before readiness: {failures:?}")]
+    Terminated { failures: Vec<ComponentFailure> },
+    #[error("{source}; startup cleanup failed: {cleanup}")]
+    CleanupFailed {
+        #[source]
+        source: Box<NodeStartError>,
+        cleanup: ShutdownError,
+    },
     #[error("store at '{}' is already in use", path.display())]
     StoreInUse { path: PathBuf },
     #[error("incompatible store at '{}': {source}", path.display())]
@@ -81,9 +98,8 @@ pub enum NodeStartError {
     },
     #[error(
         "the chain database is inconsistent with the ledger: its best chain, ending at \
-         {best_chain}, does not contain the ledger tip {ledger_tip}. This happens when \
-         a ledger snapshot is imported on top of a chain database built for another chain. \
-         Remove the chain database so that it can be rebuilt from the ledger tip."
+         {best_chain}, does not contain the ledger tip {ledger_tip}. Run `amaru mithril sync` \
+         to recover the stores, or rebootstrap the node if recovery is not possible."
     )]
     StorePairMismatch { ledger_tip: Point, best_chain: HeaderHash },
     #[error("{source}")]
@@ -156,12 +172,23 @@ pub enum ShutdownError {
 ///
 /// For the common embedding path prefer [`crate::NodeBuilder`].
 ///
-/// Success starts the tasks but does not establish network readiness. Listener binding
-/// failures terminate the graph; await [`NodeRunning::termination`] and inspect
-/// [`NodeRunning::shutdown`] for unexpected stage exits.
+/// Success means the stores are open and the node-to-node listener is bound. It does
+/// not imply peer connectivity or chain synchronization. The separately managed submit
+/// API is outside this readiness boundary. Failures after readiness are reported by
+/// [`NodeRunning::termination`] and [`NodeRunning::shutdown`].
+///
+/// Startup failures await cleanup before returning. If this future is cancelled, cleanup
+/// continues on `runtime`; keep that runtime alive to allow resources to be released.
 ///
 /// Incompatible ledger and chain tips return [`NodeStartError::StorePairMismatch`].
-pub fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+pub async fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+    await_readiness(launch_node(config, runtime)?, runtime).await
+}
+
+fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+    let listen_address = config
+        .listen_address()
+        .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
     init_resolver().map_err(NodeStartError::other)?;
     let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
@@ -173,17 +200,72 @@ pub fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunnin
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle })
+    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, listen_address })
+}
+
+async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+    let mut running = DropGuard::new(running, |running: NodeRunning| {
+        running.request_abort();
+        runtime.spawn(running.shutdown());
+    });
+    let readiness = tokio::select! {
+        biased;
+        result = running.lifecycle.connections.wait_for_listener() => {
+            result.map_err(|source| {
+                let address = running.listen_address;
+                if source.kind() == std::io::ErrorKind::AddrInUse {
+                    NodeStartError::AddressInUse { address }
+                } else {
+                    NodeStartError::ListenerBind { address, source }
+                }
+            })
+        }
+        () = running.termination() => Err(NodeStartError::Terminated { failures: Vec::new() }),
+    };
+    let mut error = match readiness {
+        Ok(address) if !running.tokio_running.is_terminated() => {
+            running.listen_address = address;
+            return Ok(DropGuard::into_inner(running));
+        }
+        Ok(_) => NodeStartError::Terminated { failures: Vec::new() },
+        Err(error) => error,
+    };
+
+    let running = DropGuard::into_inner(running);
+    running.request_abort();
+    let cleanup = runtime
+        .spawn(running.shutdown())
+        .await
+        .unwrap_or_else(|error| Err(ShutdownError::JoinTask { reason: error.to_string() }));
+    match cleanup {
+        Ok(report) => {
+            if let NodeStartError::Terminated { failures } = &mut error {
+                *failures = report.unexpected_exits;
+            }
+            Err(error)
+        }
+        Err(cleanup) => Err(NodeStartError::CleanupFailed { source: Box::new(error), cleanup }),
+    }
 }
 
 /// Unique owner of a running node and its final shutdown result.
+///
+/// Dropping this handle does not wait for cleanup. Call [`Self::shutdown`] and await
+/// its result before reopening the stores.
+#[must_use = "call shutdown().await to release all node resources deterministically"]
 pub struct NodeRunning {
     tokio_running: TokioRunning,
     mempool_sender: Sender<MempoolMsg>,
     lifecycle: NodeLifecycle,
+    listen_address: SocketAddr,
 }
 
 impl NodeRunning {
+    /// Bound node-to-node address, including the assigned port when configured with port zero.
+    pub fn listen_address(&self) -> SocketAddr {
+        self.listen_address
+    }
+
     pub fn mempool_sender(&self) -> Sender<MempoolMsg> {
         self.mempool_sender.clone()
     }
@@ -196,7 +278,9 @@ impl NodeRunning {
         self.tokio_running.termination()
     }
 
-    /// Abort all stage tasks without consuming this handle (safe from any thread).
+    /// Request cancellation of all stage tasks without consuming this handle (safe from any thread).
+    ///
+    /// This does not wait for cleanup; call [`Self::shutdown`] to finalize the node.
     pub fn request_abort(&self) {
         self.tokio_running.request_abort();
     }
@@ -213,7 +297,7 @@ impl NodeRunning {
     /// Cancelling this future does not stop worker joins already running on the blocking pool
     /// and does not establish that cleanup completed.
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
-        let Self { tokio_running, mempool_sender, lifecycle } = self;
+        let Self { tokio_running, mempool_sender, lifecycle, listen_address: _ } = self;
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
 
         tokio_running.request_abort();
@@ -242,10 +326,6 @@ impl NodeRunning {
 
         unexpected_exits.extend([ledger, performance].into_iter().flatten());
         Ok(ShutdownReport { unexpected_exits })
-    }
-
-    pub fn abort(self) {
-        self.tokio_running.abort();
     }
 }
 
@@ -279,20 +359,17 @@ pub fn build_node(
     let ledger_tip = state.tip().into_owned();
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
-    ensure_store_consistency(chain_store.as_ref(), ledger_tip).map_err(|error| NodeStartError::StorePairMismatch {
-        ledger_tip: error.ledger_tip,
-        best_chain: error.chain_tip.hash(),
-    })?;
+    let pool_summaries = state.pool_summaries();
+    let max_epoch = pool_summaries.max_epoch();
 
     // Production restarts drop the volatile ledger, so the chain store can be ahead of the
     // persisted ledger tip. Rewind the best-chain pointer to that tip.
     if config.realign_chain_store {
         initialize_chain_store(chain_store.clone(), ledger_tip)?;
+    } else {
+        ensure_store_consistency(chain_store.as_ref(), ledger_tip)?;
     }
     let ledger_tip = chain_store.load_point(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
-
-    let pool_summaries = state.pool_summaries();
-    let max_epoch = pool_summaries.max_epoch();
 
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.
@@ -420,20 +497,24 @@ fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
     let chain_store: Arc<dyn ChainStore> = match config.chain_store {
         StoreType::InMem(ref chain_store) => chain_store.clone(),
         StoreType::RocksDb(ref rocks_db_config) => {
-            let open = if config.migrate_chain_db { RocksDBStore::open_and_migrate } else { RocksDBStore::open };
-            Arc::new(open(rocks_db_config).map_err(|error| match error {
-                ChainStoreError::Locked { path } => NodeStartError::StoreInUse { path },
-                error @ ChainStoreError::IncompatibleChainStoreVersions { .. } => {
-                    NodeStartError::IncompatibleStore { path: rocks_db_config.dir.clone(), source: Box::new(error) }
-                }
-                error @ (ChainStoreError::WriteError { .. }
-                | ChainStoreError::ReadError { .. }
-                | ChainStoreError::OpenError { .. }) => NodeStartError::other(error),
-            })?)
+            Arc::new(open_chain_store(rocks_db_config, config.migrate_chain_db)?)
         }
     };
 
     Ok(chain_store)
+}
+
+pub(crate) fn open_chain_store(config: &RocksDbConfig, migrate: bool) -> Result<RocksDBStore, NodeStartError> {
+    let open = if migrate { RocksDBStore::open_and_migrate } else { RocksDBStore::open };
+    open(config).map_err(|error| match error {
+        ChainStoreError::Locked { path } => NodeStartError::StoreInUse { path },
+        error @ ChainStoreError::IncompatibleChainStoreVersions { .. } => {
+            NodeStartError::IncompatibleStore { path: config.dir.clone(), source: Box::new(error) }
+        }
+        error @ (ChainStoreError::WriteError { .. }
+        | ChainStoreError::ReadError { .. }
+        | ChainStoreError::OpenError { .. }) => NodeStartError::other(error),
+    })
 }
 
 pub fn make_block_validator(
@@ -453,14 +534,7 @@ pub fn make_state(
     on_startup: Option<StartupHook<RocksDB>>,
     chain_store: Arc<dyn BaseReadChainStore>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
-    let store = RocksDB::new(&config.ledger_store).map_err(|error| match error {
-        LedgerStoreError::Open(OpenErrorKind::Locked { file, .. }) => NodeStartError::StoreInUse { path: file },
-        error @ (LedgerStoreError::Internal(_)
-        | LedgerStoreError::Undecodable(_)
-        | LedgerStoreError::Send
-        | LedgerStoreError::Open(_)
-        | LedgerStoreError::Missing(..)) => NodeStartError::other(error),
-    })?;
+    let store = RocksDB::new(&config.ledger_store).map_err(ledger_store_error)?;
     store.set_chain_store(chain_store);
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
     Ok(State::new(
@@ -472,6 +546,17 @@ pub fn make_state(
         config.emit_initial_stake_distribution_progress_ticks,
         on_startup,
     )?)
+}
+
+pub(crate) fn ledger_store_error(error: LedgerStoreError) -> NodeStartError {
+    match error {
+        LedgerStoreError::Open(OpenErrorKind::Locked { file, .. }) => NodeStartError::StoreInUse { path: file },
+        error @ (LedgerStoreError::Internal(_)
+        | LedgerStoreError::Undecodable(_)
+        | LedgerStoreError::Send
+        | LedgerStoreError::Open(_)
+        | LedgerStoreError::Missing(..)) => NodeStartError::other(error),
+    }
 }
 
 fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {
@@ -496,24 +581,87 @@ mod tests {
     use crate::tests::configuration::NodeTestConfig;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn listener_bind_failure_is_an_unclean_shutdown() -> anyhow::Result<()> {
+    async fn listener_bind_failure_is_a_startup_error() -> anyhow::Result<()> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
-        let test_config = lifecycle_test_config(NetworkName::Preprod, listener.local_addr()?)?;
+        let address = listener.local_addr()?;
+        let test_config = lifecycle_test_config(NetworkName::Preprod, address)?;
         let config = test_config.make_node_configuration()?;
         let ledger_config = config.ledger_config.ledger_store.clone();
-        let running = build_and_run_node(config, &Handle::current())?;
+        let error = timeout(Duration::from_secs(15), build_and_run_node(config, &Handle::current()))
+            .await?
+            .err()
+            .expect("occupied listener must fail startup");
 
-        timeout(Duration::from_secs(5), running.termination()).await?;
-        let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
+        assert!(matches!(error, NodeStartError::AddressInUse { address: failed } if failed == address), "{error:?}");
+        drop(RocksDB::new(&ledger_config)?);
+        drop(listener);
 
-        assert!(!report.is_clean());
+        let config = test_config.make_node_configuration()?;
+        let running = build_and_run_node(config, &Handle::current()).await?;
+        assert_eq!(running.listen_address(), address);
+        drop(TcpStream::connect(address).await?);
+        assert!(running.shutdown().await?.is_clean());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_listener_is_a_configuration_error() {
+        let config = Config { listen_address: "invalid address".into(), ..Config::default() };
+        let error = build_and_run_node(config, &Handle::current()).await.err().expect("invalid configuration");
+        assert!(matches!(error, NodeStartError::InvalidConfiguration { .. }), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn listener_failure_preserves_io_cause() -> anyhow::Result<()> {
+        let address = "192.0.2.1:0".parse()?;
+        let test_config = lifecycle_test_config(NetworkName::Preprod, address)?;
+        let config = test_config.make_node_configuration()?;
+        let ledger_config = config.ledger_config.ledger_store.clone();
+        let error = build_and_run_node(config, &Handle::current()).await.err().expect("nonlocal listener");
         assert!(
-            report.unexpected_exits.iter().any(|exit| {
-                matches!(exit, ComponentFailure::StageExited { stage } if stage.as_str().starts_with("manager-"))
-            }),
-            "{report:?}"
+            matches!(error, NodeStartError::ListenerBind { address: failed, ref source }
+            if failed == address && source.kind() == std::io::ErrorKind::AddrNotAvailable),
+            "{error:?}"
         );
         drop(RocksDB::new(&ledger_config)?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn termination_before_binding_is_a_startup_error() -> anyhow::Result<()> {
+        let test_config = lifecycle_test_config(NetworkName::Preprod, "127.0.0.1:0".parse()?)?;
+        let config = test_config.make_node_configuration()?;
+        let ledger_config = config.ledger_config.ledger_store.clone();
+        let running = launch_node(config, &Handle::current())?;
+        running.request_abort();
+        let error = timeout(Duration::from_secs(15), await_readiness(running, &Handle::current()))
+            .await?
+            .err()
+            .expect("terminated before binding");
+        assert!(matches!(error, NodeStartError::Terminated { .. }), "{error:?}");
+        drop(RocksDB::new(&ledger_config)?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancelling_startup_releases_stores() -> anyhow::Result<()> {
+        let test_config = lifecycle_test_config(NetworkName::Preprod, "127.0.0.1:0".parse()?)?;
+        let config = test_config.make_node_configuration()?;
+        let ledger_config = config.ledger_config.ledger_store.clone();
+        let runtime = Handle::current();
+        let mut startup = Box::pin(build_and_run_node(config, &runtime));
+        assert!(futures_util::poll!(&mut startup).is_pending());
+        drop(startup);
+
+        timeout(Duration::from_secs(15), async {
+            loop {
+                if RocksDB::new(&ledger_config).is_ok() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
         Ok(())
     }
 
@@ -549,9 +697,10 @@ mod tests {
             let ledger_config = config.ledger_config.ledger_store.clone();
             let chain_config = RocksDbConfig::new(stores.path().join(network.to_string()));
 
-            let running = build_and_run_node(config, &Handle::current())?;
+            let running = build_and_run_node(config, &Handle::current()).await?;
             retained.push((running.abort_callback(), running.mempool_sender()));
-            wait_for_listener(listen_address).await?;
+            assert_eq!(running.listen_address(), listen_address);
+            drop(TcpStream::connect(listen_address).await?);
             let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
             assert!(report.is_clean(), "{report:?}");
 
@@ -577,18 +726,5 @@ mod tests {
         config.chain_store.roll_forward_chain(&header.point())?;
         config.chain_store.set_anchor_point(&header.point())?;
         Ok(config)
-    }
-
-    async fn wait_for_listener(address: SocketAddr) -> anyhow::Result<()> {
-        timeout(Duration::from_secs(1), async {
-            loop {
-                if TcpStream::connect(address).await.is_ok() {
-                    return;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await?;
-        Ok(())
     }
 }

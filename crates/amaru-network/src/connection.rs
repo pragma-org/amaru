@@ -19,7 +19,7 @@ use amaru_observability::{Instrument, debug, debug_span, info};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
-use futures_util::future::join_all;
+use futures_util::{FutureExt, future::join_all};
 use parking_lot::Mutex;
 use socket2::{Domain, Socket, Type};
 use thiserror::Error;
@@ -29,7 +29,7 @@ use tokio::{
         TcpListener, TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
-    sync::{Mutex as AsyncMutex, mpsc},
+    sync::{Mutex as AsyncMutex, mpsc, watch},
     task::{JoinError, JoinHandle},
 };
 use tokio_util::sync::CancellationToken;
@@ -107,6 +107,7 @@ struct Inner {
     incoming_rx: AsyncMutex<mpsc::Receiver<PendingAccept>>,
     shutdown: CancellationToken,
     tasks: AsyncMutex<BTreeMap<SocketAddr, JoinHandle<std::io::Result<()>>>>,
+    first_listener: watch::Sender<Option<Result<SocketAddr, Arc<std::io::Error>>>>,
 }
 
 impl Drop for Inner {
@@ -127,8 +128,23 @@ impl TokioConnections {
             incoming_rx: AsyncMutex::new(incoming_rx),
             shutdown: CancellationToken::new(),
             tasks: AsyncMutex::new(BTreeMap::new()),
+            first_listener: watch::channel(None).0,
         });
         Self { inner }
+    }
+
+    /// Wait for the first listen attempt to finish, retaining its address or original I/O error.
+    ///
+    /// Later listener restarts do not change this result. If no listen attempt completes,
+    /// the caller must cancel this wait when its network manager terminates.
+    pub async fn wait_for_listener(&self) -> Result<SocketAddr, Arc<std::io::Error>> {
+        let mut receiver = self.inner.first_listener.subscribe();
+        loop {
+            if let Some(result) = receiver.borrow_and_update().clone() {
+                return result;
+            }
+            receiver.changed().await.map_err(|error| Arc::new(std::io::Error::other(error)))?;
+        }
     }
 
     /// Cancel pending accepts, stop and join all listener tasks, then close every active connection.
@@ -173,6 +189,7 @@ async fn connect(peer: Peer, resource: Arc<Inner>, timeout: Duration) -> std::io
 impl ConnectionProvider for TokioConnections {
     fn listen(&self, address: SocketAddr) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
         let inner = self.inner.clone();
+        let first_listener = inner.first_listener.clone();
 
         Box::pin(
             async move {
@@ -224,6 +241,17 @@ impl ConnectionProvider for TokioConnections {
 
                 Ok(local)
             }
+            .map(move |result| {
+                let result = result.map_err(Arc::new);
+                first_listener.send_if_modified(|first| {
+                    if first.is_some() {
+                        return false;
+                    }
+                    *first = Some(result.clone());
+                    true
+                });
+                result.map_err(|error| std::io::Error::new(error.kind(), error))
+            })
             .instrument(debug_span!(network::connection::LISTEN,)),
         )
     }

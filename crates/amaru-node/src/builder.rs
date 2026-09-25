@@ -44,7 +44,7 @@ use crate::{
 /// let running = NodeBuilder::new(NetworkName::Preprod)?
 ///     .peer(default_peer_for_network(NetworkName::Preprod))
 ///     .observers(LedgerObservers::new().on_adopted_block(|_| {}))
-///     .build_and_run(&runtime.handle())?;
+///     .start(runtime.handle()).await?;
 /// ```
 #[derive(Clone)]
 pub struct NodeBuilder {
@@ -253,16 +253,24 @@ impl NodeBuilder {
         Ok(config)
     }
 
-    /// Build the config and start the node on the given Tokio runtime handle.
+    /// Build the config and wait until stores are open and the node-to-node listener is bound.
     ///
     /// The runtime is **not** taken from ambient context: pass an explicit
     /// [`Handle`] (for example `runtime.handle()` or `Handle::current()` when
     /// you are already inside that runtime).
     ///
     /// Incompatible ledger and chain tips return [`NodeStartError::StorePairMismatch`].
-    pub fn build_and_run(self, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+    /// Listener port conflicts return [`NodeStartError::AddressInUse`]. Peer connectivity,
+    /// synchronization, and the separately managed submit API are outside this readiness boundary.
+    /// Cancelling startup schedules cleanup on `runtime`, which must remain alive until it completes.
+    pub async fn start(self, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
         let config = self.build()?;
-        build_and_run_node(config, runtime)
+        build_and_run_node(config, runtime).await
+    }
+
+    /// Alias for [`Self::start`], with the same readiness and cleanup guarantees.
+    pub async fn build_and_run(self, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+        self.start(runtime).await
     }
 }
 
