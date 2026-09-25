@@ -491,7 +491,7 @@ pub async fn download_from_mithril_for_range_with_observer(
             Some(resume_chunk),
             requested_through_chunk,
             observer.clone(),
-            cached_download_state(&immutable_dir)?,
+            cached_download_state(&immutable_dir, Some(from_chunk))?,
         )
         .await
         {
@@ -528,7 +528,7 @@ fn reuse_immutable_cache(
         MithrilDownloadError::InvalidCache { source: source.context("immutable cache validation failed") }
     })?;
     validate_immutable_resume_point(&immutable_dir, network, resume_point).map_err(|_| inapplicable)?;
-    let (downloaded_bytes, completed_files) = cached_download_state(&immutable_dir)?;
+    let (downloaded_bytes, completed_files) = cached_download_state(&immutable_dir, None)?;
     observer.on_progress(MithrilDownloadProgress::Downloaded {
         downloaded_bytes,
         completed_files,
@@ -538,7 +538,8 @@ fn reuse_immutable_cache(
     Ok(MithrilDownloadReport { immutable_dir, snapshot_hash: None })
 }
 
-fn cached_download_state(immutable_dir: &Path) -> anyhow::Result<(u64, u64)> {
+/// Count cache files below the download boundary, or the entire cache when no download is needed.
+fn cached_download_state(immutable_dir: &Path, before_chunk: Option<u64>) -> anyhow::Result<(u64, u64)> {
     let mut entries = match fs::read_dir(immutable_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok((0, 0)),
@@ -549,7 +550,17 @@ fn cached_download_state(immutable_dir: &Path) -> anyhow::Result<(u64, u64)> {
         if !entry.file_type()?.is_file() {
             return Ok((bytes, chunks));
         }
-        let is_chunk = entry.path().extension().and_then(|extension| extension.to_str()) == Some("chunk");
+        let path = entry.path();
+        let is_cached = before_chunk.is_none_or(|before_chunk| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| stem.parse::<u64>().ok())
+                .is_some_and(|chunk| chunk < before_chunk)
+        });
+        if !is_cached {
+            return Ok((bytes, chunks));
+        }
+        let is_chunk = path.extension().and_then(|extension| extension.to_str()) == Some("chunk");
         Ok((bytes.saturating_add(entry.metadata()?.len()), chunks.saturating_add(u64::from(is_chunk))))
     })
 }
@@ -593,7 +604,7 @@ mod tests {
     fn inapplicable_snapshot_reuses_a_verified_cache() {
         let (dir, blocks) = immutable_store();
         let observer = RecordingObserver::default();
-        let (downloaded_bytes, completed_files) = cached_download_state(dir.path()).unwrap();
+        let (downloaded_bytes, completed_files) = cached_download_state(dir.path(), None).unwrap();
 
         let report = reuse_immutable_cache(
             dir.path().to_path_buf(),

@@ -979,7 +979,7 @@ async fn import_node_snapshot_source(
         .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
     })?;
 
-    let (db, epoch, chain_state) = await_import_thread(import_thread).await?;
+    let (db, epoch, chain_state) = await_import_thread(import_thread, cancellation).await?;
 
     db.next_snapshot(epoch).map_err(anyhow::Error::from)?;
 
@@ -991,11 +991,14 @@ async fn import_node_snapshot_source(
 
 async fn await_import_thread<T: Send + 'static>(
     import_thread: std::thread::JoinHandle<Result<T, BootstrapError>>,
+    cancellation: &BootstrapCancellation,
 ) -> Result<T, BootstrapError> {
     let joined = tokio::task::spawn_blocking(move || import_thread.join())
         .await
         .map_err(|error| BootstrapError::Operation(anyhow!("bootstrap import join task failed: {error}")))?;
-    joined.map_err(|_| BootstrapError::Operation(anyhow!("bootstrap import task panicked")))?
+    let result = joined.map_err(|_| BootstrapError::Operation(anyhow!("bootstrap import task panicked")))?;
+    checkpoint(cancellation)?;
+    result
 }
 
 fn import_node_snapshot_archive_data(
@@ -1250,7 +1253,7 @@ mod tests {
         cancellation.cancel();
         importer_continue.wait();
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let error = runtime.block_on(await_import_thread(import_thread)).unwrap_err();
+        let error = runtime.block_on(await_import_thread(import_thread, &cancellation)).unwrap_err();
 
         assert!(matches!(error, BootstrapError::Cancelled));
         assert!(released.load(Ordering::SeqCst));
