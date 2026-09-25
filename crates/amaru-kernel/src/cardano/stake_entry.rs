@@ -41,7 +41,7 @@ fn decode_modern<C: HasProtocolVersion>(
     d: &mut cbor::Decoder<'_>,
     ctx: &mut C,
 ) -> Result<StakeEntry, cbor::decode::Error> {
-    let (credential, lovelace) = cbor::heterogeneous_map(
+    let (credential, lovelace) = cbor::heterogeneous_map_unique_keys(
         d,
         (None, None),
         |d| d.u8(),

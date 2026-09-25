@@ -199,7 +199,7 @@ impl AuxiliaryData {
 
         let mut st = Self::empty();
 
-        cbor::heterogeneous_map(
+        cbor::heterogeneous_map_unique_keys(
             d,
             &mut st,
             |d| d.u64(),

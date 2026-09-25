@@ -39,7 +39,7 @@ pub struct CostModels {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for CostModels {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_map_with(
+        cbor::heterogeneous_map_with_unique_keys(
             d,
             ctx,
             CostModels::default(),
@@ -107,5 +107,24 @@ impl fmt::Display for CostModels {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+    use crate::protocol_version::PROTOCOL_VERSION_10;
+
+    /// From protocol version 9 the ledger assembles cost models with `decodeMap`, which refuses a
+    /// map that repeats a key, whether the language is a known one or not.
+    #[test_case(&[0xa1, 0x00, 0x81, 0x01]                         => matches Ok(_)  ; "one known language")]
+    #[test_case(&[0xa2, 0x00, 0x81, 0x01, 0x01, 0x81, 0x02]       => matches Ok(_)  ; "two distinct languages")]
+    #[test_case(&[0xa2, 0x00, 0x81, 0x01, 0x00, 0x81, 0x02]       => matches Err(_) ; "a known language twice")]
+    #[test_case(&[0xa2, 0x18, 0x63, 0x80, 0x18, 0x63, 0x80]       => matches Err(_) ; "an unknown language twice")]
+    fn decode_rejects_duplicate_languages(bytes: &[u8]) -> Result<CostModels, cbor::decode::Error> {
+        let mut version = PROTOCOL_VERSION_10;
+        cbor::from_cbor_no_leftovers_with(bytes, &mut version)
     }
 }
