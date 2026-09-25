@@ -483,6 +483,13 @@ impl FetchBlocks {
         }
         // Contacted set from the manager; exclude peers already settled (e.g. NoBlocks raced ahead).
         self.fetch_peers = peers.into_iter().filter(|p| !self.fetch_settled.contains(p)).collect();
+        let hashes: Vec<HeaderHash> = self
+            .missing
+            .as_ref()
+            .map(|missing| missing.missing_points().into_iter().map(|point| point.hash()).collect())
+            .unwrap_or_default();
+        let asked: Vec<Peer> = self.fetch_peers.iter().copied().collect();
+        crate::performance::emit_blocks_requested(&hashes, &asked);
     }
 
     pub async fn no_blocks(&mut self, req_id: u64, peer: Peer, eff: Effects<FetchBlocksMsg>) {

@@ -102,6 +102,15 @@ We support this by opening a span with NAME `perf.header.forward` upon successfu
 
 Points 2 and 3 are recorded by opening a span with NAME `perf.blocks.fetch` in `fetch_blocks` when requesting a range containing that block and closing that range when the block has been received.
 
+Operators also need these points as individual log lines they can turn on with `EnvFilter`. `EnvFilter` matches a bracketed name against the current span, so an event whose metadata name is `perf.header.lifecycle` is not selected by `amaru::consensus[perf.header.lifecycle{peer}]`. The four points are therefore emitted as debug events on target `amaru::blockperf`:
+
+- `header.announced` — the first three distinct peers to announce a header hash, with `rank` 1, 2, or 3
+- `block.requested` — the peers asked for that block body
+- `block.received` — each distinct peer that delivers the body, with `rank` in arrival order
+- `block.adopted` — local adoption; `peer` is the first peer that delivered the body when one did
+
+`AMARU_LOG=info,amaru::blockperf=debug` adds them to the usual info log. `AMARU_LOG=off,amaru::blockperf=debug` prints only them. The terminal `perf.header.lifecycle` event still carries the intervals between the points for the TUI.
+
 Switching to a different fork will then open a span with NAME `perf.fork.switch` for all blocks on the target fork.
 
 #### Consensus

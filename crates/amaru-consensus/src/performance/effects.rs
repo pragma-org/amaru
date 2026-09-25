@@ -281,9 +281,14 @@ impl ExternalEffectAPI for RecordHeaderAnnouncementEffect {
     type Response = ();
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
-            let perf = require_perf(&resources);
-            enqueue(&perf, PerformanceOp::RecordHeaderAnnouncement { effect: self.as_ref().clone() });
+        let perf = require_perf(&resources);
+        let meter = optional_meter(&resources);
+        self.wrap(|this| async move {
+            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordHeaderAnnouncement {
+                effect: this,
+                reply,
+            })
+            .await
         })
     }
 }
@@ -320,9 +325,11 @@ impl ExternalEffectAPI for RecordBlockDeliveryEffect {
     type Response = ();
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
-            let perf = require_perf(&resources);
-            enqueue(&perf, PerformanceOp::RecordBlockDelivery { effect: self.as_ref().clone() });
+        let perf = require_perf(&resources);
+        let meter = optional_meter(&resources);
+        self.wrap(|this| async move {
+            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordBlockDelivery { effect: this, reply })
+                .await
         })
     }
 }

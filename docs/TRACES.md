@@ -5,6 +5,58 @@ This document lists all available spans in Amaru, auto-generated from the code.
 For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
 
 
+## target: `amaru::blockperf::block`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `adopted` | `TRACE` | public | The block was adopted locally. \`peer\` is the first peer that delivered the body, when a delivery was recorded. | header_hash | peer |
+| `received` | `TRACE` | public | A distinct peer delivered this block body. \`rank\` is 1 for the first delivery, then 2, 3, … in arrival order. | peer, header_hash, rank |  |
+| `requested` | `TRACE` | public | Peers asked to fetch this block body. \`peers\` is a comma-separated list of socket addresses, sorted. | header_hash, peers |  |
+
+<details><summary>span: `adopted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+| `peer` | `string` |  |
+
+</details>
+
+<details><summary>span: `received`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `rank` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `requested`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+| `peers` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::blockperf::header`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `announced` | `TRACE` | public | One of the first three distinct peers to announce this header. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. | peer, header_hash, rank |  |
+
+<details><summary>span: `announced`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `rank` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::bootstrap`
 
 | name | level | public | description | required fields | optional fields |
@@ -1439,7 +1491,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. The four network-health points themselves are the \`amaru::blockperf\` events (\`header.announced\`, \`block.requested\`, \`block.received\`, \`block.adopted\`). This event carries the intervals between those points once the header reaches a terminal state. \`outcome\` describes that state (including headers rejected on reception, which carry no durations). The optional durations are: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros |
 
 <details><summary>span: `lifecycle`</summary>
 

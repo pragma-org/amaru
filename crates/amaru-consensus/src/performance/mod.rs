@@ -45,8 +45,8 @@ use std::{
     time::Duration,
 };
 
-use amaru_kernel::{Peer, PeerCandidate};
-use amaru_observability::{error, warn};
+use amaru_kernel::{HeaderHash, Peer, PeerCandidate};
+use amaru_observability::{debug, error, warn};
 use amaru_pure_stage::Instant;
 pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
@@ -149,9 +149,9 @@ impl fmt::Debug for Performance {
 /// Ops that close header/fork state reply with [`HeaderTelemetry`] for emission off this thread.
 pub(crate) enum PerformanceOp {
     RecordIntersection { effect: RecordIntersectionEffect },
-    RecordHeaderAnnouncement { effect: RecordHeaderAnnouncementEffect },
+    RecordHeaderAnnouncement { effect: RecordHeaderAnnouncementEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordBlocksRequested { effect: RecordBlocksRequestedEffect },
-    RecordBlockDelivery { effect: RecordBlockDeliveryEffect },
+    RecordBlockDelivery { effect: RecordBlockDeliveryEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordFetchFailure { effect: RecordFetchFailureEffect },
     RecordKeepaliveRtt { effect: RecordKeepaliveRttEffect },
     RecordAdvertisability { effect: RecordAdvertisabilityEffect },
@@ -302,14 +302,20 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
         PerformanceOp::RecordIntersection { effect } => {
             peers.apply_intersection(effect.peer, effect.current, effect.parent, effect.at);
         }
-        PerformanceOp::RecordHeaderAnnouncement { effect } => {
+        PerformanceOp::RecordHeaderAnnouncement { effect, reply } => {
             peers.apply_header_announcement(effect.peer, effect.header, effect.parent, effect.at);
-            headers.apply_header_received(effect.peer, effect.header, effect.at, effect.slot_start_to_header_micros);
+            let telemetry = headers.apply_header_received(
+                effect.peer,
+                effect.header,
+                effect.at,
+                effect.slot_start_to_header_micros,
+            );
+            let _ = reply.send(telemetry);
         }
         PerformanceOp::RecordBlocksRequested { effect } => {
             headers.apply_blocks_requested(&effect.hashes, effect.requested_at);
         }
-        PerformanceOp::RecordBlockDelivery { effect } => {
+        PerformanceOp::RecordBlockDelivery { effect, reply } => {
             peers.apply_block_delivery(
                 effect.peer,
                 effect.hash,
@@ -319,7 +325,8 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
                 effect.response,
                 effect.bytes,
             );
-            headers.apply_block_downloaded(&effect.hash, effect.at);
+            let telemetry = headers.apply_block_downloaded(effect.peer, &effect.hash, effect.height, effect.at);
+            let _ = reply.send(telemetry);
         }
         PerformanceOp::RecordFetchFailure { effect } => {
             peers.apply_fetch_failure(&effect.peers, effect.at);
@@ -429,6 +436,22 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             let telemetry = headers.apply_block_pruned(&effect.hash, effect.invalid, effect.now, effect.syncing);
             let _ = reply.send(telemetry);
         }
+    }
+}
+
+/// Log which peers were asked for each block in a fetch batch (`block.requested`).
+///
+/// Addresses are sorted so the line is stable. An empty peer set logs nothing.
+pub(crate) fn emit_blocks_requested(hashes: &[HeaderHash], peers: &[Peer]) {
+    if peers.is_empty() || hashes.is_empty() {
+        return;
+    }
+    let mut ordered: Vec<&Peer> = peers.iter().collect();
+    ordered.sort();
+    ordered.dedup();
+    let peers_field = ordered.iter().map(|peer| peer.to_string()).collect::<Vec<_>>().join(",");
+    for hash in hashes {
+        debug!(blockperf::block::REQUESTED, header_hash = hash, peers = peers_field.as_str());
     }
 }
 
