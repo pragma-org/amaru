@@ -50,7 +50,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for ProposalId {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ProposalId {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
+        cbor::heterogeneous_array_v12_indefinite(d, ctx, 2, |d, ctx| {
             Ok(Self { transaction_id: d.decode_with(ctx)?, proposal_index: d.decode_with(ctx)? })
         })
     }

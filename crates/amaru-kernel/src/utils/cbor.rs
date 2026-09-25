@@ -23,7 +23,7 @@ pub use serialised_as_pico::SerialisedAsPico;
 pub use serialised_as_set::SerialisedAsSet;
 pub use skip::Skip;
 pub use versioned::{
-    HasProtocolVersion, decode_bytes_v12_indefinite, decode_string_v12_indefinite, record_v12_indefinite,
+    HasProtocolVersion, decode_bytes_v12_indefinite, decode_string_v12_indefinite, heterogeneous_array_v12_indefinite,
 };
 
 mod serialised_as_array;

@@ -25,7 +25,7 @@ pub struct Anchor {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Anchor {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
+        cbor::heterogeneous_array_v12_indefinite(d, ctx, 2, |d, ctx| {
             Ok(Self { url: d.decode_with(ctx)?, content_hash: d.decode_with(ctx)? })
         })
     }
