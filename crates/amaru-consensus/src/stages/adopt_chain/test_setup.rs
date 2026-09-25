@@ -141,6 +141,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PruneBelowEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::UpdateConsensusModeEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordSyncAdoptionEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::effects::ConsensusMode>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<(Point, NonEmptyVec<Point>)>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
@@ -149,6 +150,13 @@ pub fn register_guards() -> DeserializerGuards {
 
 pub fn te_update_consensus_mode(at_stage: &str, slot: Slot, now: amaru_pure_stage::Instant) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::effects::UpdateConsensusModeEffect { slot, now })))
+}
+
+pub fn te_record_sync_adoption(at_stage: &str, at: amaru_pure_stage::Instant, live: bool) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_sync_adoption(at, live)),
+    ))
 }
 
 pub fn te_prune_below(at_stage: &str, min_height: BlockHeight, now: amaru_pure_stage::Instant) -> TraceEntry {

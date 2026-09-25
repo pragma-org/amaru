@@ -26,8 +26,27 @@ use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendDat
 /// Adopted tip is live when its slot onset is strictly within this of the wall clock.
 pub const LIVE_TIP_LAG: Duration = Duration::from_secs(60);
 
-/// How often to report that live headers are arriving while the adopted chain is still behind.
+/// How often to compare a near-now header with the adopted tip.
 pub const CHAIN_LAG_LOG_INTERVAL: Duration = Duration::from_secs(60);
+
+/// One observation that the adopted tip was behind the wall clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChainLagSample {
+    pub at: Instant,
+    /// `wall clock − tip slot onset`. Larger means further behind.
+    pub lateness: Duration,
+}
+
+/// What to do with a near-now header once the previous sample, if any, is old enough to judge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChainLagWatch {
+    /// Adopted tip is within [`LIVE_TIP_LAG`].
+    CaughtUp,
+    /// Behind, and either this is the first sample, the tip got closer, or sync is still fast.
+    Quiet(ChainLagSample),
+    /// Behind for a full interval and not catching up.
+    Lagging(ChainLagSample),
+}
 
 /// Sync while catching up; live once the adopted tip is within [`LIVE_TIP_LAG`] of the wall clock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -67,6 +86,37 @@ pub fn stored_mode(resources: &Resources) -> ConsensusMode {
 
 pub fn is_live(resources: &Resources) -> bool {
     stored_mode(resources).is_live()
+}
+
+/// How far `slot`'s onset sits behind `now`. A tip slightly in the future has lateness zero.
+/// `None` when the slot cannot be placed in the era history.
+pub fn tip_lateness(slot: Slot, now: Instant, era: &EraHistory) -> Option<Duration> {
+    let onset = era.slot_to_relative_time_unchecked_horizon(slot).ok()?;
+    Some(now.duration_since_global_epoch().saturating_sub(onset))
+}
+
+/// Decide whether a near-now header means the node has fallen behind.
+///
+/// The caller invokes this at most once per [`CHAIN_LAG_LOG_INTERVAL`]. `catching_up_fast` is the
+/// sync adoption pace: true while adoptions are still arriving faster than 10 per second and the
+/// next one is not overdue. The first sample while behind is quiet, so the end of sync does not
+/// raise an error before the tip has had a minute to move.
+pub fn judge_chain_lag(
+    previous: Option<ChainLagSample>,
+    now: Instant,
+    lateness: Duration,
+    catching_up_fast: bool,
+) -> ChainLagWatch {
+    if lateness < LIVE_TIP_LAG {
+        return ChainLagWatch::CaughtUp;
+    }
+    let sample = ChainLagSample { at: now, lateness };
+    match previous {
+        None => ChainLagWatch::Quiet(sample),
+        Some(prev) if lateness < prev.lateness => ChainLagWatch::Quiet(sample),
+        Some(_) if catching_up_fast => ChainLagWatch::Quiet(sample),
+        Some(_) => ChainLagWatch::Lagging(sample),
+    }
 }
 
 /// Recompute the mode from an adopted slot and store it. Returns the mode that was stored.
@@ -152,5 +202,34 @@ mod tests {
             .assert_and_remove(Level::INFO, &["tip.mode", r#"mode="live""#, r#"previous="sync""#])
             .assert_and_remove(Level::INFO, &["tip.mode", r#"mode="sync""#, r#"previous="live""#])
             .assert_no_remaining_at([Level::INFO, Level::DEBUG, Level::WARN, Level::ERROR]);
+    }
+
+    fn at(secs: u64) -> Instant {
+        Instant::at_offset(Duration::from_secs(secs), Duration::ZERO)
+    }
+
+    #[test]
+    fn first_behind_sample_is_quiet_and_a_closer_tip_stays_quiet() {
+        let first = judge_chain_lag(None, at(0), Duration::from_secs(90), false);
+        let ChainLagWatch::Quiet(sample) = first else { panic!("first sample must not log") };
+        let closer = judge_chain_lag(Some(sample), at(60), Duration::from_secs(70), false);
+        assert!(matches!(closer, ChainLagWatch::Quiet(_)));
+        assert!(matches!(
+            judge_chain_lag(Some(sample), at(60), Duration::from_secs(30), false),
+            ChainLagWatch::CaughtUp
+        ));
+    }
+
+    #[test]
+    fn unchanged_lateness_logs_unless_sync_is_still_fast() {
+        let sample = ChainLagSample { at: at(0), lateness: Duration::from_secs(90) };
+        assert!(matches!(
+            judge_chain_lag(Some(sample), at(60), Duration::from_secs(90), false),
+            ChainLagWatch::Lagging(_)
+        ));
+        assert!(matches!(
+            judge_chain_lag(Some(sample), at(60), Duration::from_secs(120), true),
+            ChainLagWatch::Quiet(_)
+        ));
     }
 }

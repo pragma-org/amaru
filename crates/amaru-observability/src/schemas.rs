@@ -439,8 +439,9 @@ define_schemas! {
                     required peer: %amaru_kernel::Peer
                     required error: String
                 }
-                /// A header near the wall clock arrived while the adopted chain is still behind it.
-                /// The node is likely stuck. Emitted at most once a minute.
+                /// Near-now headers have been arriving for a minute and the adopted tip is not
+                /// getting closer to the wall clock. Sync that is still adopting faster than 10
+                /// blocks per second does not raise this. Emitted at most once a minute.
                 public CHAIN_LAGGING {
                     required peer: %amaru_kernel::Peer
                     required live_slot: amaru_kernel::Slot
@@ -671,7 +672,9 @@ define_schemas! {
         }
         blockperf {
             header {
-                /// One of the first three distinct peers to announce this header.
+                /// One of the first three distinct peers to announce this header while it is still
+                /// being collected. A header that is already stored does not start a new line, and
+                /// a header that has been adopted is not announced again.
                 /// `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.
                 public ANNOUNCED {
                     required peer: %amaru_kernel::Peer

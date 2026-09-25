@@ -199,6 +199,7 @@ pub fn te_record_header_announcement(
     parent: Option<HeaderHash>,
     at: Instant,
     slot_start_to_header_micros: u64,
+    already_stored: bool,
 ) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
@@ -208,6 +209,7 @@ pub fn te_record_header_announcement(
             parent,
             at,
             slot_start_to_header_micros,
+            already_stored,
         )),
     ))
 }
@@ -269,6 +271,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetBestChainTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::QueryConsensusModeEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SyncAdoptionPaceEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderAnnouncementEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderRejectedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordIntersectionEffect>().boxed(),
@@ -279,8 +282,11 @@ fn register_guards() -> DeserializerGuards {
     ]
 }
 
-pub fn te_query_consensus_mode(at_stage: &str) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::effects::QueryConsensusModeEffect)))
+pub fn te_sync_adoption_is_fast(at_stage: &str, now: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::sync_adoption_is_fast(now)),
+    ))
 }
 
 pub fn te_get_best_chain_tip(at_stage: &str) -> TraceEntry {

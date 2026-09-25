@@ -45,7 +45,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `announced` | `TRACE` | public | One of the first three distinct peers to announce this header. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. | peer, header_hash, rank |  |
+| `announced` | `TRACE` | public | One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. | peer, header_hash, rank |  |
 
 <details><summary>span: `announced`</summary>
 
@@ -1337,7 +1337,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `chain_lagging` | `TRACE` | public | A header near the wall clock arrived while the adopted chain is still behind it. The node is likely stuck. Emitted at most once a minute. | peer, header_hash, header_slot |  |
+| `chain_lagging` | `TRACE` | public | Near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. Sync that is still adopting faster than 10 blocks per second does not raise this. Emitted at most once a minute. | peer, live_slot, our_slot, lag |  |
 | `initialized` | `TRACE` | public | A chainsync session with an upstream peer was initialized | peer, conn_id |  |
 | `intersect_found` | `TRACE` | public | An intersection with the peer's chain was found | peer, conn_id, current, highest |  |
 | `intersect_not_found` | `TRACE` | public | No intersection with the peer's chain was found, so chainsync with it stops | peer, highest |  |
@@ -1352,8 +1352,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `header_hash` | `string` | ✓ |
-| `header_slot` | `integer` | ✓ |
+| `live_slot` | `integer` | ✓ |
+| `our_slot` | `integer` | ✓ |
+| `lag` | `integer` | ✓ |
 
 </details>
 

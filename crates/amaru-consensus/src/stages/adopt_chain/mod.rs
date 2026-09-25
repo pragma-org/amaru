@@ -233,6 +233,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             .await;
 
         let mode = eff.external(UpdateConsensusModeEffect { slot: msg.slot(), now }).await;
+        eff.external(Performance::record_sync_adoption(now, mode.is_live())).await;
         // While syncing, print at most one adoption per second. While live, print every one.
         if mode == ConsensusMode::Live || now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
             info!(
