@@ -50,8 +50,9 @@ on_receive!(Idle as ServerIdleIn {
         Call<ToInitiator, StartBatch>, Repeat<Call<ToInitiator, Block>>, Call<ToInitiator, BatchDone>, Send<ToMux, WantNext> => Idle
         | Call<ToInitiator, NoBlocks>, Send<ToMux, WantNext> => Idle
     }
-    ClientDone => { Send<ToMux, WantNext> => Idle }
+    ClientDone => { Send<ToMux, WantNext> => Done }
 });
+on_receive!(Done as DoneIn {});
 
 /// Range of points to fetch, newest first, at least one point.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
@@ -235,7 +236,11 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                     Err(err) => return invalid(peer, idle.name(), err, eff).await,
                 }
             }
-            Ok(ServerIdleIn::ClientDone(done)) => idle.receive(done, eff).send(&mux, WantNext).await.finish().into(),
+            Ok(ServerIdleIn::ClientDone(done)) => {
+                // Remainder dest is spec Done; live token restarts Idle on this mux registration.
+                let _: Done = idle.receive(done, eff).send(&mux, WantNext).await.finish();
+                initial_state::<Idle>().into()
+            }
             Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
             Err(mail) => return invalid(peer, idle.name(), mail, eff).await,
         },
@@ -344,7 +349,12 @@ pub mod tests {
                 send_desc::<ToMux, WantNext>()
             )
         );
-        assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Idle", send_desc::<ToMux, WantNext>()));
+        assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Done", send_desc::<ToMux, WantNext>()));
+    }
+
+    #[test]
+    fn responder_does_not_pipeline() {
+        assert!(super::Proto::type_graph().occupancy.is_empty());
     }
 
     #[test]
@@ -628,6 +638,7 @@ pub mod tests {
         let log = running.get_state(&mux).cloned().unwrap();
         assert!(log.sends.is_empty());
         assert_eq!(log.wants, 2);
+        assert_eq!(remaining::<Idle, ClientDone>(), format!("{} => Done", send_desc::<ToMux, WantNext>()));
         assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
     }
 

@@ -22,6 +22,94 @@ use std::{any::type_name, fmt, marker::PhantomData};
 
 use crate::ExternalEffect;
 
+/// Last outermost path segment of `type_name::<T>()` (generic args preserved).
+///
+/// Path types lose their module prefix (`foo::Bar` → `Bar`,
+/// `foo::Bar<baz::Qux>` → `Bar<baz::Qux>`). Tuples, arrays, slices, references,
+/// pointers, and function types are returned whole: a `::` inside them is not a
+/// prefix of the outer type, and stripping it can invent a payload name
+/// (`fn(...) -> baz::Qux` → `Qux`).
+pub(super) const fn type_last_segment<T>() -> &'static str {
+    last_segment(type_name::<T>())
+}
+
+/// Last `::` at angle-bracket depth 0 of a path type.
+///
+/// `Option<foo::Bar>` is `"Option<foo::Bar>"`, not `"Bar>"`. A type that is not
+/// a path is returned unchanged.
+const fn last_segment(name: &'static str) -> &'static str {
+    let bytes = name.as_bytes();
+    if !is_path_type(bytes) {
+        return name;
+    }
+    let mut i = bytes.len();
+    let mut depth = 0usize;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'>' => depth += 1,
+            b'<' => depth = depth.saturating_sub(1),
+            b':' if depth == 0 => return name.split_at(i + 1).1,
+            _ => {}
+        }
+    }
+    name
+}
+
+const fn is_ident_start(b: u8) -> bool {
+    matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'_')
+}
+
+const fn is_ident_continue(b: u8) -> bool {
+    matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_')
+}
+
+/// Index just past the identifier starting at `at`, if there is one.
+const fn ident_end(bytes: &[u8], at: usize) -> Option<usize> {
+    if at >= bytes.len() || !is_ident_start(bytes[at]) {
+        return None;
+    }
+    let mut i = at + 1;
+    while i < bytes.len() && is_ident_continue(bytes[i]) {
+        i += 1;
+    }
+    Some(i)
+}
+
+/// `foo::Bar` or `foo::Bar<...>`, and nothing outside the angle brackets.
+const fn is_path_type(bytes: &[u8]) -> bool {
+    let Some(mut i) = ident_end(bytes, 0) else {
+        return false;
+    };
+    while i + 1 < bytes.len() && bytes[i] == b':' && bytes[i + 1] == b':' {
+        let Some(next) = ident_end(bytes, i + 2) else {
+            return false;
+        };
+        i = next;
+    }
+    if i == bytes.len() {
+        return true;
+    }
+    if bytes[i] != b'<' {
+        return false;
+    }
+    let mut depth = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'<' => depth += 1,
+            b'>' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return i + 1 == bytes.len();
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 /// A type-level tag for an effect that can appear in a session remainder.
 pub trait Effect {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result;
@@ -140,5 +228,67 @@ pub struct AddStage;
 impl Effect for AddStage {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "AddStage")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::last_segment;
+
+    #[test]
+    fn last_segment_skips_colons_inside_generic_args() {
+        assert_eq!(last_segment("core::option::Option<foo::Bar>"), "Option<foo::Bar>");
+        assert_ne!(last_segment("core::option::Option<foo::Bar>"), "Bar>");
+    }
+
+    #[test]
+    fn last_segment_plain_path_and_nested_generics() {
+        assert_eq!(last_segment("u8"), "u8");
+        assert_eq!(last_segment("foo::Bar"), "Bar");
+        assert_eq!(last_segment("foo::Bar<baz::Qux>"), "Bar<baz::Qux>");
+        assert_eq!(last_segment("core::result::Result<foo::Bar, baz::Qux>"), "Result<foo::Bar, baz::Qux>");
+        assert_eq!(
+            last_segment("core::option::Option<alloc::boxed::Box<foo::Bar>>"),
+            "Option<alloc::boxed::Box<foo::Bar>>"
+        );
+    }
+
+    #[test]
+    fn last_segment_keeps_composite_types_whole() {
+        assert_eq!(last_segment("(foo::Bar, u8)"), "(foo::Bar, u8)");
+        assert_eq!(last_segment("[foo::Bar; 4]"), "[foo::Bar; 4]");
+        assert_eq!(last_segment("fn(foo::Bar) -> baz::Qux"), "fn(foo::Bar) -> baz::Qux");
+        assert_eq!(last_segment("&foo::Bar"), "&foo::Bar");
+        assert_eq!(last_segment("&mut foo::Bar"), "&mut foo::Bar");
+        assert_eq!(last_segment("*const foo::Bar"), "*const foo::Bar");
+        assert_eq!(last_segment("*mut foo::Bar"), "*mut foo::Bar");
+    }
+
+    mod foo {
+        pub struct Bar;
+    }
+    mod baz {
+        pub struct Qux;
+    }
+
+    #[test]
+    fn type_last_segment_of_real_composites_does_not_invent_a_label() {
+        let tuple = super::type_last_segment::<(foo::Bar, u8)>();
+        assert!(tuple.starts_with('('), "{tuple}");
+        assert!(tuple.contains("foo::Bar"), "{tuple}");
+        assert_ne!(tuple, "Bar, u8)");
+
+        let array = super::type_last_segment::<[foo::Bar; 4]>();
+        assert!(array.starts_with('['), "{array}");
+        assert!(array.contains("foo::Bar"), "{array}");
+        assert_ne!(array, "Bar; 4]");
+
+        let function = super::type_last_segment::<fn(foo::Bar) -> baz::Qux>();
+        assert!(function.starts_with("fn("), "{function}");
+        assert!(function.contains("baz::Qux"), "{function}");
+        assert_ne!(function, "Qux");
+
+        assert_eq!(super::type_last_segment::<foo::Bar>(), "Bar");
+        assert!(super::type_last_segment::<&foo::Bar>().starts_with('&'));
     }
 }

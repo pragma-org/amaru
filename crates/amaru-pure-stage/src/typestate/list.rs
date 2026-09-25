@@ -43,7 +43,7 @@ use std::{fmt, marker::PhantomData};
 
 use super::{
     Effect, State,
-    effect::{Repeat, SendAny},
+    effect::{Repeat, SendAny, type_last_segment},
 };
 
 /// Exclusive choice of [`Then`] alternatives. `C` is a tuple, at most 10 long.
@@ -712,4 +712,229 @@ pub fn describe<R: FmtPar>() -> String {
         }
     }
     D::<R>(PhantomData).to_string()
+}
+
+/// [`State::NAME`] of a remainder destination.
+pub type StateName = &'static str;
+/// Last outermost path segment of a role `type_name`.
+pub type RoleName = &'static str;
+/// Last outermost path segment of a payload `type_name` (generic args preserved).
+pub type PayloadName = &'static str;
+/// Receive-arm identifier (`stringify!($in)` from `on_receive!`).
+pub type InputName = &'static str;
+
+/// Exclusive choice of remainder alternatives (`A => S | B => T`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemainderAst {
+    pub alternatives: Vec<ThenAst>,
+}
+
+/// Parallel sequences then a next state (`A | B => S`).
+///
+/// Empty `parallel` is `Then<Par<()>, S>` (hidable-only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThenAst {
+    pub parallel: Vec<Vec<EffectAst>>,
+    pub next: StateName,
+}
+
+/// One effect in a remainder sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectAst {
+    Send { role: RoleName, payload: PayloadName },
+    Call { role: RoleName, payload: PayloadName },
+    SendAny { role: RoleName },
+    Repeat(Vec<EffectAst>),
+    SetTimeout,
+    ClearTimeout,
+    Wait,
+    Terminate,
+    Clock,
+    Schedule { payload: PayloadName },
+    CancelSchedule,
+    External { effect: PayloadName },
+    AddStage,
+}
+
+/// Value-level remainder (exclusive choice of [`ThenAst`]).
+pub trait DescribeAst {
+    fn describe_ast() -> RemainderAst;
+}
+
+/// Parallel sequences inside a [`Then`].
+trait DescribePar {
+    fn describe_par() -> Vec<Vec<EffectAst>>;
+}
+
+/// Ordered effects in one parallel branch.
+trait DescribeSeq {
+    fn describe_seq() -> Vec<EffectAst>;
+}
+
+/// A single remainder effect, including [`Repeat`].
+trait DescribeEffect {
+    fn describe_effect() -> EffectAst;
+}
+
+impl DescribePar for Par<()> {
+    fn describe_par() -> Vec<Vec<EffectAst>> {
+        Vec::new()
+    }
+}
+
+impl<P, S: State> DescribeAst for Then<Par<P>, S>
+where
+    Par<P>: DescribePar,
+{
+    fn describe_ast() -> RemainderAst {
+        RemainderAst { alternatives: vec![ThenAst { parallel: <Par<P>>::describe_par(), next: S::NAME }] }
+    }
+}
+
+macro_rules! impl_describe_seq {
+    ($H:ident) => {
+        impl<$H: DescribeEffect> DescribeSeq for ($H,) {
+            fn describe_seq() -> Vec<EffectAst> {
+                vec![$H::describe_effect()]
+            }
+        }
+        impl<$H: DescribeEffect> DescribeEffect for Repeat<($H,)> {
+            fn describe_effect() -> EffectAst {
+                EffectAst::Repeat(vec![$H::describe_effect()])
+            }
+        }
+    };
+    ($H:ident, $($T:ident),+) => {
+        impl<$H: DescribeEffect, $($T: DescribeEffect),+> DescribeSeq for ($H, $($T,)+) {
+            fn describe_seq() -> Vec<EffectAst> {
+                let mut seq = vec![$H::describe_effect()];
+                seq.extend(<($($T,)+) as DescribeSeq>::describe_seq());
+                seq
+            }
+        }
+        impl<$H: DescribeEffect, $($T: DescribeEffect),+> DescribeEffect for Repeat<($H, $($T,)+)> {
+            fn describe_effect() -> EffectAst {
+                EffectAst::Repeat(<($H, $($T,)+) as DescribeSeq>::describe_seq())
+            }
+        }
+        impl_describe_seq!($($T),+);
+    };
+}
+
+macro_rules! impl_describe_par {
+    ($H:ident) => {
+        impl<$H: DescribeSeq> DescribePar for Par<($H,)> {
+            fn describe_par() -> Vec<Vec<EffectAst>> {
+                vec![$H::describe_seq()]
+            }
+        }
+        impl<$H: DescribeAst> DescribeAst for Choice<($H,)> {
+            fn describe_ast() -> RemainderAst {
+                $H::describe_ast()
+            }
+        }
+    };
+    ($H:ident, $($T:ident),+) => {
+        impl<$H: DescribeSeq, $($T: DescribeSeq),+> DescribePar for Par<($H, $($T,)+)> {
+            fn describe_par() -> Vec<Vec<EffectAst>> {
+                let mut parallel = vec![$H::describe_seq()];
+                parallel.extend(<Par<($($T,)+)> as DescribePar>::describe_par());
+                parallel
+            }
+        }
+        impl<$H: DescribeAst, $($T: DescribeAst),+> DescribeAst for Choice<($H, $($T,)+)> {
+            fn describe_ast() -> RemainderAst {
+                let mut ast = $H::describe_ast();
+                ast.alternatives.extend(<Choice<($($T,)+)> as DescribeAst>::describe_ast().alternatives);
+                ast
+            }
+        }
+        impl_describe_par!($($T),+);
+    };
+}
+
+impl_describe_seq!(E0, E1, E2, E3, E4, E5, E6, E7, E8, E9);
+impl_describe_par!(B0, B1, B2, B3, B4, B5, B6, B7, B8, B9);
+
+impl<R, T> DescribeEffect for super::effect::Send<R, T> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Send { role: type_last_segment::<R>(), payload: type_last_segment::<T>() }
+    }
+}
+
+impl<R, T> DescribeEffect for super::effect::Call<R, T> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Call { role: type_last_segment::<R>(), payload: type_last_segment::<T>() }
+    }
+}
+
+impl<R> DescribeEffect for SendAny<R> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::SendAny { role: type_last_segment::<R>() }
+    }
+}
+
+impl<E: DescribeEffect> DescribeEffect for Repeat<E> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Repeat(vec![E::describe_effect()])
+    }
+}
+
+impl DescribeEffect for super::effect::SetTimeout {
+    fn describe_effect() -> EffectAst {
+        EffectAst::SetTimeout
+    }
+}
+
+impl DescribeEffect for super::effect::ClearTimeout {
+    fn describe_effect() -> EffectAst {
+        EffectAst::ClearTimeout
+    }
+}
+
+impl DescribeEffect for super::effect::Wait {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Wait
+    }
+}
+
+impl DescribeEffect for super::effect::Terminate {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Terminate
+    }
+}
+
+impl DescribeEffect for super::effect::Clock {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Clock
+    }
+}
+
+impl<T> DescribeEffect for super::effect::Schedule<T> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::Schedule { payload: type_last_segment::<T>() }
+    }
+}
+
+impl DescribeEffect for super::effect::CancelSchedule {
+    fn describe_effect() -> EffectAst {
+        EffectAst::CancelSchedule
+    }
+}
+
+impl<E: crate::ExternalEffect> DescribeEffect for super::effect::External<E> {
+    fn describe_effect() -> EffectAst {
+        EffectAst::External { effect: type_last_segment::<E>() }
+    }
+}
+
+impl DescribeEffect for super::effect::AddStage {
+    fn describe_effect() -> EffectAst {
+        EffectAst::AddStage
+    }
+}
+
+/// Extract a remainder AST without constructing a [`super::Session`].
+pub fn describe_ast<R: DescribeAst>() -> RemainderAst {
+    R::describe_ast()
 }
