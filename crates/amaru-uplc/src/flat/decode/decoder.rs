@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ProtocolVersion, protocol_version::PROTOCOL_VERSION_10};
+use amaru_kernel::{
+    ProtocolVersion,
+    protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
+};
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use super::FlatDecodeError;
@@ -49,6 +52,22 @@ impl<'a> Ctx<'a> {
     /// plutus_version / protocol_version combination.
     pub fn is_builtin_available(&self, func: DefaultFunction) -> bool {
         func.is_available_in(self.protocol_version)
+    }
+
+    /// Largest number of fields a `constr` term may carry.
+    ///
+    /// Mirrors `maxBoundsByPV` in plutus-ledger-api, which leaves both bounds unlimited below
+    /// protocol version 11 and caps them from there on.
+    pub fn max_constr_fields(&self) -> usize {
+        if self.protocol_version >= PROTOCOL_VERSION_11 { 1024 } else { usize::MAX }
+    }
+
+    /// Largest number of type tags a constant's type header may span.
+    ///
+    /// This is `defaultUniSize` in plutus-core: one per type constructor plus one per application,
+    /// which is exactly the number of tags the flat encoding spells out.
+    pub fn max_type_header_tags(&self) -> usize {
+        if self.protocol_version >= PROTOCOL_VERSION_11 { 32 } else { usize::MAX }
     }
 }
 
