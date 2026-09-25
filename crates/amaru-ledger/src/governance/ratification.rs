@@ -456,8 +456,9 @@ mod tests {
             )
         }
 
+        #[expect(clippy::unwrap_used)]
         fn ratification_context(distribution: &StakeDistribution) -> RatificationContext<'_> {
-            let zero = RationalNumber { numerator: 0, denominator: 1 };
+            let zero = RationalNumber::new(0, 1).unwrap();
             let mut protocol_parameters = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
             protocol_parameters.min_committee_size = 0;
             protocol_parameters.pool_voting_thresholds.hard_fork_initiation = zero;
@@ -482,8 +483,7 @@ mod tests {
             let distribution = StakeDistribution::default();
             let mut ctx = ratification_context(&distribution);
             let lowered_thresholds = ctx.protocol_parameters.drep_voting_thresholds.clone();
-            ctx.protocol_parameters.drep_voting_thresholds.hard_fork_initiation =
-                RationalNumber { numerator: 1, denominator: 1 };
+            ctx.protocol_parameters.drep_voting_thresholds.hard_fork_initiation = RationalNumber::new(1, 1).unwrap();
 
             let (roots, pruned_proposals) = ctx
                 .ratify_proposals(
