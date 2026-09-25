@@ -12,36 +12,64 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{array::TryFromSliceError, ops::Deref};
+use std::{array::TryFromSliceError, fs, mem::ManuallyDrop, ops::Deref, path::Path};
 
+use amaru_kernel::{KesEvolution, cbor};
 use kes_summed_ed25519::{
     self as kes,
     kes::{Sum6Kes, Sum6KesSig},
     traits::{KesSig, KesSk},
 };
+use serde::{Deserialize, Deserializer, de};
 use thiserror::Error;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 // ------------------------------------------------------------------- SecretKey
 
-/// KES secret key
-pub struct SecretKey<'a>(Sum6Kes<'a>);
+/// Sum6 KES signing key. Owns its secret bytes and wipes them on drop.
+///
+/// Evolution is destructive: once evolved to period `p`, the key can only sign for periods `>= p`.
+pub struct SecretKey {
+    bytes: Zeroizing<Box<[u8]>>,
+}
 
-impl SecretKey<'_> {
-    /// Create a new KES secret key
-    pub fn from_bytes(sk_bytes: &mut Vec<u8>) -> Result<SecretKey<'_>, Error> {
-        // NOTE: we need to ensure that there is enough capacity to append the period (4 bytes) to the secret key bytes.
-        // Just using `.extend()` to add the period bytes may cause a re-allocation of the `Vec<u8>`, which would leave
-        // the original memory containing the secret key without being wiped.
-        if sk_bytes.capacity() - sk_bytes.len() < 4 {
-            let stash = Zeroizing::new(sk_bytes.as_slice().to_vec());
-            sk_bytes.zeroize();
-            sk_bytes.reserve(4);
-            sk_bytes.copy_from_slice(&stash);
+impl SecretKey {
+    /// Size of the raw key in bytes. Excludes the period.
+    pub const SIZE: usize = Sum6Kes::SIZE;
+
+    /// `type` field of the cardano-cli envelope that wraps a KES signing key.
+    const ENVELOPE_TYPE: &str = "KesSigningKey_ed25519_kes_2^6";
+
+    /// Take ownership of raw key bytes at period 0.
+    pub fn from_bytes(sk_bytes: Vec<u8>) -> Result<Self, KesError> {
+        let sk_bytes = Zeroizing::new(sk_bytes);
+
+        if sk_bytes.len() != Self::SIZE {
+            return Err(kes::errors::Error::InvalidSecretKeySize(sk_bytes.len()).into());
         }
-        sk_bytes.extend([0u8; 4]); // default to period = 0
-        let sum_6_kes = Sum6Kes::from_bytes(sk_bytes.as_mut_slice())?;
-        Ok(SecretKey(sum_6_kes))
+        let mut bytes = Zeroizing::new(vec![0u8; Self::SIZE + 4].into_boxed_slice());
+        bytes[..Self::SIZE].copy_from_slice(&sk_bytes);
+        let mut sk = SecretKey { bytes };
+        Sum6Kes::from_bytes(&mut sk.bytes).map(ManuallyDrop::new)?;
+        Ok(sk)
+    }
+
+    /// Load a key from an envelope file written by cardano-cli
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, KesError> {
+        let envelope = Zeroizing::new(fs::read(path)?);
+        Ok(serde_json::from_slice(&envelope)?)
+    }
+
+    /// Borrow the key as the `Sum6Kes` type.
+    ///
+    /// The view must never be dropped: `Sum6Kes` zeroizes the buffer it borrows on drop, which would erase
+    /// the key. The buffer is wiped by `self` instead.
+    fn view(&mut self) -> ManuallyDrop<Sum6Kes<'_>> {
+        ManuallyDrop::new(
+            Sum6Kes::from_bytes(&mut self.bytes).unwrap_or_else(|e| {
+                unreachable!("Impossible! KES secret key buffer size is fixed at construction: {e:?}")
+            }),
+        )
     }
 
     /// Get the internal representation of the KES secret key at the current period
@@ -53,17 +81,61 @@ impl SecretKey<'_> {
     /// However there are reasons that may be valid to _leak_ the private
     /// key: to encrypt it and store securely.
     pub unsafe fn leak_into_bytes(&self) -> &[u8] {
-        self.0.as_bytes()
+        &self.bytes
     }
 
     /// Get the current period of the KES secret key
-    pub fn get_period(&self) -> u32 {
-        self.0.get_period()
+    pub fn period(&mut self) -> KesEvolution {
+        KesEvolution::from(self.view().get_period())
     }
 
     /// Update the KES secret key to the next period
-    pub fn update(&mut self) -> Result<(), Error> {
-        Ok(self.0.update()?)
+    pub fn update(&mut self) -> Result<(), KesError> {
+        Ok(self.view().update()?)
+    }
+
+    /// Evolve the key forward to `target`, one period at a time. Fails if `target` is behind the current period.
+    pub fn evolve_to(&mut self, target: KesEvolution) -> Result<(), KesError> {
+        let current = self.period();
+        if target < current {
+            return Err(KesError::CannotEvolveBackwards { current, target });
+        }
+        for _ in u32::from(current)..u32::from(target) {
+            self.update()?;
+        }
+        Ok(())
+    }
+
+    /// Sign `msg` for the key's current period.
+    pub fn sign(&mut self, msg: &[u8]) -> Signature {
+        Signature(self.view().sign(msg))
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretKey {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Envelope {
+            r#type: String,
+            cbor_hex: Zeroizing<String>,
+        }
+
+        let Envelope { r#type, cbor_hex } = Envelope::deserialize(deserializer)?;
+        if r#type != SecretKey::ENVELOPE_TYPE {
+            return Err(de::Error::custom(KesError::UnexpectedEnvelopeType {
+                expected: SecretKey::ENVELOPE_TYPE,
+                found: r#type,
+            }));
+        }
+        let mut payload = Zeroizing::new(vec![0u8; cbor_hex.len() / 2]);
+        hex::decode_to_slice(cbor_hex.as_bytes(), &mut payload).map_err(de::Error::custom)?;
+        let mut decoder = cbor::Decoder::new(&payload);
+        let sk_bytes = cbor::decode_bytes(&mut decoder).map_err(de::Error::custom)?.into_owned();
+        if decoder.position() != payload.len() {
+            return Err(de::Error::custom(KesError::TrailingEnvelopeBytes(payload.len() - decoder.position())));
+        }
+        SecretKey::from_bytes(sk_bytes).map_err(de::Error::custom)
     }
 }
 
@@ -96,9 +168,9 @@ impl Deref for PublicKey {
     }
 }
 
-impl From<&SecretKey<'_>> for PublicKey {
-    fn from(sk: &SecretKey<'_>) -> Self {
-        PublicKey(sk.0.to_pk())
+impl From<&mut SecretKey> for PublicKey {
+    fn from(sk: &mut SecretKey) -> Self {
+        PublicKey(sk.view().to_pk())
     }
 }
 
@@ -131,8 +203,8 @@ impl Signature {
     pub const SIZE: usize = Sum6KesSig::SIZE;
 
     /// Verify the KES signature
-    pub fn verify(&self, kes_period: u32, kes_pk: &PublicKey, msg: &[u8]) -> Result<(), Error> {
-        Ok(self.0.verify(kes_period, &kes_pk.0, msg)?)
+    pub fn verify(&self, evolution: KesEvolution, kes_pk: &PublicKey, msg: &[u8]) -> Result<(), KesError> {
+        Ok(self.0.verify(u32::from(evolution), &kes_pk.0, msg)?)
     }
 }
 
@@ -161,60 +233,156 @@ impl From<&Signature> for [u8; 448] {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
+impl SecretKey {
+    #[allow(clippy::expect_used)]
+    pub fn for_tests() -> Self {
+        Self::from_bytes(hex::decode(KES_SK_HEX).expect("valid hex")).expect("valid KES key")
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+const KES_SK_HEX: &str = "68b77b6e61925be0499d1445fd9210cec5bdfd5dd92662802eb2720ff70bc68fd89\
+     64580ff18bd2b232eb716dfbbeef82e2844b466ddd5dacaad9f15d3c753b3483541\
+     41e973d039b1147c48e71e5b7cadc6deb28c86e4ae4fc26e8bbe1695c3374d4eb10\
+     94a7a698722894301546466c750947778b18ac3270397efd2eced4d25ced55d2bd2\
+     c09e7c0fa7b849d41787ca11defc91609d930a9870881a56a587bff20b2c5c59f63\
+     ccb008be495917da3fcae536d05401b6771bb1f9356f031b3ddadbffbc426a9a23e\
+     34274b187f7e93892e990644f6273772a02d3e38bee7459ed6a9bb5760fe012e47a\
+     2e75880125e7fb072b2b7a626a5375e2039d8d748cb8ad4dd02697250d3155eee39\
+     308ecc2925405a8c15e1cbe556cc4315d43ee5101003639bcb33bd6e27da3885888\
+     d7cca20b05cadbaa53941ef5282cde8f377c3bd0bf732cfac6b5d4d5597a1f72d81\
+     bc0d8af634a4c760b309fe8959bbde666ff10310377b313860bd52d56fd7cb14963\
+     3beb1eb2e0076111df61e570a042f7cebae74a8de298a6f114938946230db42651e\
+     a4eddf5df2d7d2f3016464073da8a9dc715817b43586a61874e576da7b47a2bb6c2\
+     e19d4cbd5b1b39a24427e89b812cce6d30e0506e207f1eaab313c45a236068ea319\
+     958474237a5ffe02736e1c51c02a05999816c9253a557f09375c83acf5d7250f3bb\
+     c638e10c58fb274e2002eed841ecef6a9cbc57c3157a7c3cf47e66b1741e8173b66\
+     76ac973bc9715027a3225087cabad45407b891416330485891dc9a3875488a26428\
+     d20d581b629a8f4f42e3aa00cbcaae6c8e2b8f3fe033b874d1de6a3f8c321c92b77\
+     643f00d28e";
+
 // ----------------------------------------------------------------------- Error
 
 /// KES error
 #[derive(Error, Debug)]
-pub enum Error {
+pub enum KesError {
     #[error("KES error: {0}")]
     Kes(#[from] kes_summed_ed25519::errors::Error),
+    #[error("KES key is at period {current} and cannot be evolved back to period {target}")]
+    CannotEvolveBackwards { current: KesEvolution, target: KesEvolution },
+    #[error("unexpected KES key envelope type: expected {expected}, found {found}")]
+    UnexpectedEnvelopeType { expected: &'static str, found: String },
+    #[error("KES key envelope payload has {0} trailing bytes")]
+    TrailingEnvelopeBytes(usize),
+    #[error("failed to read KES key file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("malformed KES key envelope: {0}")]
+    Envelope(#[from] serde_json::Error),
 }
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
+
+    const KES_PK_HEX: &str = "2e5823037de29647e495b97d9dd7bf739f7ebc11d3701c8d0720f55618e1b292";
+
+    fn envelope(r#type: &str, cbor_hex: &str) -> String {
+        format!(r#"{{"type":"{type}","description":"KES Signing Key","cborHex":"{cbor_hex}"}}"#)
+    }
 
     #[test]
     fn kes_key_evolution() {
-        let mut kes_sk_bytes = hex::decode(
-            "68b77b6e61925be0499d1445fd9210cec5bdfd5dd92662802eb2720ff70bc68fd89\
-             64580ff18bd2b232eb716dfbbeef82e2844b466ddd5dacaad9f15d3c753b3483541\
-             41e973d039b1147c48e71e5b7cadc6deb28c86e4ae4fc26e8bbe1695c3374d4eb10\
-             94a7a698722894301546466c750947778b18ac3270397efd2eced4d25ced55d2bd2\
-             c09e7c0fa7b849d41787ca11defc91609d930a9870881a56a587bff20b2c5c59f63\
-             ccb008be495917da3fcae536d05401b6771bb1f9356f031b3ddadbffbc426a9a23e\
-             34274b187f7e93892e990644f6273772a02d3e38bee7459ed6a9bb5760fe012e47a\
-             2e75880125e7fb072b2b7a626a5375e2039d8d748cb8ad4dd02697250d3155eee39\
-             308ecc2925405a8c15e1cbe556cc4315d43ee5101003639bcb33bd6e27da3885888\
-             d7cca20b05cadbaa53941ef5282cde8f377c3bd0bf732cfac6b5d4d5597a1f72d81\
-             bc0d8af634a4c760b309fe8959bbde666ff10310377b313860bd52d56fd7cb14963\
-             3beb1eb2e0076111df61e570a042f7cebae74a8de298a6f114938946230db42651e\
-             a4eddf5df2d7d2f3016464073da8a9dc715817b43586a61874e576da7b47a2bb6c2\
-             e19d4cbd5b1b39a24427e89b812cce6d30e0506e207f1eaab313c45a236068ea319\
-             958474237a5ffe02736e1c51c02a05999816c9253a557f09375c83acf5d7250f3bb\
-             c638e10c58fb274e2002eed841ecef6a9cbc57c3157a7c3cf47e66b1741e8173b66\
-             76ac973bc9715027a3225087cabad45407b891416330485891dc9a3875488a26428\
-             d20d581b629a8f4f42e3aa00cbcaae6c8e2b8f3fe033b874d1de6a3f8c321c92b77\
-             643f00d28e",
-        )
-        .unwrap();
+        let mut kes_sk = SecretKey::for_tests();
+        assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
 
-        let mut kes_sk = SecretKey::from_bytes(&mut kes_sk_bytes).unwrap();
-        assert_eq!(
-            hex::encode(PublicKey::from(&kes_sk)),
-            "2e5823037de29647e495b97d9dd7bf739f7ebc11d3701c8d0720f55618e1b292"
-        );
-
-        assert_eq!(kes_sk.get_period(), 0);
+        assert_eq!(kes_sk.period(), KesEvolution::from(0));
         insta::assert_snapshot!(hex::encode(unsafe { kes_sk.leak_into_bytes() }));
 
         kes_sk.update().unwrap();
-        assert_eq!(kes_sk.get_period(), 1);
+        assert_eq!(kes_sk.period(), KesEvolution::from(1));
         insta::assert_snapshot!(hex::encode(unsafe { kes_sk.leak_into_bytes() }));
 
         kes_sk.update().unwrap();
-        assert_eq!(kes_sk.get_period(), 2);
+        assert_eq!(kes_sk.period(), KesEvolution::from(2));
         insta::assert_snapshot!(hex::encode(unsafe { kes_sk.leak_into_bytes() }));
+    }
+
+    // TODO(conformance-test): Test against Haskell
+    //
+    // We should have a conformance test that verifies these signatures with the `verifyKES` from the Haskell to prove that
+    // we conform with the Haskell node here.
+
+    #[test_case(0)]
+    #[test_case(5)]
+    #[test_case(63)]
+    fn sign_then_verify_at_period(period: u32) {
+        let mut kes_sk = SecretKey::for_tests();
+        kes_sk.evolve_to(KesEvolution::from(period)).unwrap();
+        let kes_pk = PublicKey::from(&mut kes_sk);
+        let msg = b"header body";
+        let signature = kes_sk.sign(msg);
+        assert!(signature.verify(KesEvolution::from(period), &kes_pk, msg).is_ok());
+        assert!(signature.verify(KesEvolution::from(period.wrapping_sub(1)), &kes_pk, msg).is_err());
+    }
+
+    #[test]
+    fn evolve_to_refuses_to_go_backwards() {
+        let mut kes_sk = SecretKey::for_tests();
+        kes_sk.evolve_to(KesEvolution::from(3)).unwrap();
+        assert!(matches!(
+            kes_sk.evolve_to(KesEvolution::from(2)),
+            Err(KesError::CannotEvolveBackwards { current, target }) if current == KesEvolution::from(3) && target == KesEvolution::from(2)
+        ));
+        assert_eq!(kes_sk.period(), KesEvolution::from(3));
+    }
+
+    #[test]
+    fn evolve_past_last_period_fails() {
+        let mut kes_sk = SecretKey::for_tests();
+        assert!(kes_sk.evolve_to(KesEvolution::from(64)).is_err());
+    }
+
+    #[test]
+    fn from_bytes_rejects_wrong_size() {
+        assert!(SecretKey::from_bytes(vec![0u8; SecretKey::SIZE - 1]).is_err());
+    }
+
+    #[test]
+    fn deserializes_from_cardano_cli_kes_skey() {
+        let json = envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}"));
+        let mut kes_sk: SecretKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(kes_sk.period(), KesEvolution::from(0));
+        assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
+    }
+
+    #[test]
+    fn loads_from_kes_skey_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kes.skey");
+        std::fs::write(&path, envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}"))).unwrap();
+        let mut kes_sk = SecretKey::from_file(&path).unwrap();
+        assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
+    }
+
+    #[test]
+    fn from_file_reports_missing_file() {
+        let err = SecretKey::from_file("/nonexistent/kes.skey").map(|_| ()).unwrap_err();
+        assert!(matches!(err, KesError::Io(_)), "{err}");
+    }
+
+    #[test_case(&envelope("KesVerificationKey_ed25519_kes_2^6", &format!("590260{KES_SK_HEX}")), "unexpected KES key envelope type"; "wrong type")]
+    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}a")), "Odd number of digits"; "odd hex length")]
+    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}00")), "1 trailing bytes"; "trailing bytes")]
+    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, "820102"), "unexpected type"; "payload is not a byte string")]
+    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, &format!("5820{}", "00".repeat(32))), "secret key size"; "payload has the wrong key size")]
+    #[test_case(r#"{"cborHex":"00"}"#, "missing field `type`"; "missing type")]
+    #[test_case(r#"{"type":"KesSigningKey_ed25519_kes_2^6"}"#, "missing field `cborHex`"; "missing cborHex")]
+    fn deserialize_rejects(json: &str, expected_error: &str) {
+        let err = serde_json::from_str::<SecretKey>(json).map(|_| ()).unwrap_err().to_string();
+        assert!(err.contains(expected_error), "{err}");
     }
 
     #[test]
@@ -239,7 +407,7 @@ mod tests {
         )
         .unwrap();
         let kes_signature = Signature::try_from(&kes_signature_bytes[..]).unwrap();
-        let kes_period = 36u32;
+        let kes_period = KesEvolution::from(36);
         let kes_msg = hex::decode(
             "8a1a00a50f121a0802d24458203deea82abe788d260b8987a522aadec86c9f098e8\
              8a57d7cfcdb24f474a7afb65820cad3c900ca6baee9e65bf61073d900bfbca458ee\

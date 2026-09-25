@@ -17,7 +17,7 @@ categories.workspace = true
 [features]
 default = ["test-utils"]
 profiling = ["dep:pprof"]
-test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions"]
+test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions", "amaru-ouroboros/test-utils"]
 
 [dependencies]
 async-trait.workspace = true
@@ -32,6 +32,7 @@ rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "time"] }
+tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
 
 amaru-kernel.workspace = true
@@ -59,6 +60,7 @@ tracing-subscriber.workspace = true
 
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-mempool.workspace = true
+amaru-ouroboros = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(unix)'.dependencies]

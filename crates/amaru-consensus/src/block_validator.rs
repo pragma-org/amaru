@@ -141,11 +141,16 @@ impl BlockValidator {
         HS: HistoricalStores + Send + 'static,
     {
         let (sender, mut receiver) = mpsc::channel(REQUEST_QUEUE_BOUND);
+        // The ledger thread does not inherit a thread-local subscriber. Keep the dispatch that
+        // was current when the node was built, so each simulated node keeps its own log.
+        let dispatch = tracing::dispatcher::get_default(|dispatch| dispatch.clone());
         let join = thread::Builder::new().name("ledger".into()).spawn(move || {
-            let mut ledger = LedgerThread { state, vm_eval_pool };
-            while let Some(request) = receiver.blocking_recv() {
-                ledger.handle(request);
-            }
+            tracing::dispatcher::with_default(&dispatch, || {
+                let mut ledger = LedgerThread { state, vm_eval_pool };
+                while let Some(request) = receiver.blocking_recv() {
+                    ledger.handle(request);
+                }
+            });
         })?;
         Ok(Self { sender, chain_store, stop: LedgerThreadStop { join: Arc::new(Mutex::new(Some(join))) } })
     }

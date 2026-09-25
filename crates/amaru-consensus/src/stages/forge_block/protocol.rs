@@ -30,8 +30,8 @@ use super::{
     ForgeBlock, ForgeData, FreezeWatch,
     calc::{
         FORGE_LEAD_OFFSET, ForgeWindow, MissedSlotReason, ParentChoice, choose_parent, decide_freeze, forge_window,
-        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, missed_slot, ocert_covers,
-        schedule_settled, wait_until_onset,
+        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, missed_slot, schedule_settled,
+        wait_until_onset,
     },
     effects::{ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect},
     schedule::{EpochSchedule, Schedule as Schedules},
@@ -292,7 +292,8 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     }
 
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
-    let coverage = ocert_covers(kes_period, state.ocert_start_period, state.consensus_parameters.max_kes_evolutions());
+    let coverage =
+        kes_period.evolutions_since(state.ocert_start_period, state.consensus_parameters.max_kes_evolutions());
     let parent_choice = choose_parent(state.adopted_tip.slot(), slot);
     if let Some(reason) = missed_slot(coverage, parent_choice) {
         warn!(consensus::forge::MISSED_SLOT, slot, reason = reason.as_str());
@@ -317,8 +318,9 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let block_number = u64::from(parent_point.block_height()) + 1;
 
     let (body, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
-    let (header, session) =
-        session.external(ForgeHeaderEffect::new(slot, parent_hash, block_number, &body, cert)).await;
+    let forge_header =
+        ForgeHeaderEffect::new(slot, kes_period, parent_hash, block_number, &body, cert, state.protocol_version);
+    let (header, session) = session.external(forge_header).await;
     let header = match header {
         Ok(header) => header,
         Err(error) => {
@@ -340,6 +342,13 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
 
     let header_hash = header.hash();
     let header_point = header.point();
+    let block = match body.seal(&header, state.consensus_parameters.era_history()) {
+        Ok(block) => block,
+        Err(error) => {
+            error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
+            return eff.terminate().await;
+        }
+    };
     let (stored, session) = session.external(StoreValidatedHeaderEffect::new(header, nonces)).await;
     if let Err(error) = stored {
         error!(consensus::forge::FORGE_FAILED, slot, step = "store_header", error = error.to_string());
@@ -347,7 +356,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         return eff.terminate().await;
     }
 
-    let (stored, session) = session.external(StoreBlockEffect::new(&header_hash, body.block)).await;
+    let (stored, session) = session.external(StoreBlockEffect::new(&header_hash, block)).await;
     if let Err(error) = stored {
         error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
         return eff.terminate().await;

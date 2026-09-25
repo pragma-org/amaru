@@ -256,8 +256,14 @@ Chain *data* comes in two kinds, kept in separate modules:
    are real. These tests are few, fixture-bound, and are the gate that
    generated suites are not lying about adoption.
 
+3. **Minted** (`tests/world/minting.rs`). The nodes under test produce the
+   chain. Five pools share one synthesized stake distribution. The production
+   graph forges, validates, and forwards. No injector and no stubbed
+   validation. These runs are the check for chain growth and slot battles.
+
 Rule: if the chain is generated, stub validation and shrink; if the chain
-came off the network, replace only the wire.
+came off the network, replace only the wire; if the nodes mint it, leave
+validation and forging in place.
 
 (The world loop and connection-provider tests are neither kind: they exercise
 the discrete-event engine with no chain data.)
@@ -272,9 +278,8 @@ chain that has propagated to it" without checking any time-bounds.
 
 Recorded-data world tests add production header validation on a real fragment.
 Generated world tests can assert time-bounded catch-up (P-join on a quiescent
-network) without claiming Praos Δ, common prefix, chain growth, or live
-minting. Those paper time properties need honest block production, which the
-single-injector setup does not represent.
+network) without claiming Praos Δ, common prefix, or chain growth. Minted
+world tests are the ones that produce blocks and check chain growth.
 
 The history of the test execution that the simulator produces includes the
 times of each message sent into and out of the system under test, which would

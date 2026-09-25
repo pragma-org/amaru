@@ -18,13 +18,14 @@ use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
     block_source::{self, BlockSource},
     fetch_blocks::{self, DownloadedBlock, FetchBlocks, FetchBlocksMsg},
+    forge_block::{self, AdoptedTip, ForgeBlock, ForgeBlockMsg},
     mempool::{self, MempoolStageState},
     peer_selection::{self, PeerSelection, PeerSelectionMsg},
     select_chain::{self, SelectChain, SelectChainMsg},
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Point};
+use amaru_kernel::{ConsensusParameters, Epoch, EraHistory, GlobalParameters, HeaderHash, Point, ProtocolVersion};
 use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
@@ -46,15 +47,24 @@ use crate::stages::config::Config;
 ///
 /// We terminate the node in case of a failure, while we just log errors.
 ///
+pub struct OpenedLedger {
+    pub tip: Point,
+    pub parent: Point,
+    pub protocol_version: ProtocolVersion,
+}
+
 pub fn build_stage_graph(
     config: &Config,
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
-    ledger_tip: Point,
+    opened: &OpenedLedger,
     recovery_best_hash: HeaderHash,
     max_epoch: Epoch,
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
+    let ledger_tip = opened.tip;
+    let ledger_parent = opened.parent;
+    let protocol_version = opened.protocol_version;
     let span = debug_span!(consensus::node::INITIALIZE);
     let trace_context = (&span).into();
     let manager = stage_graph.stage("manager", manager::stage);
@@ -117,10 +127,39 @@ pub fn build_stage_graph(
         BlockSource::new(ledger_tip, config.block_source_max_tip_distance, peer_selection_ref.clone()),
     );
 
-    let adopt_chain = stage_graph.wire_up(
-        adopt_chain,
-        AdoptChain::new(manager.sender(), block_source_sender.clone(), mempool_stage.clone(), k, ledger_tip),
-    );
+    let forge = config.forging_credentials.as_ref().map(|credentials| {
+        let forge = stage_graph.stage("forge_block", forge_block::stage);
+        let sender = forge.sender();
+        (forge, sender, credentials)
+    });
+
+    let mut adopt =
+        AdoptChain::new(manager.sender(), block_source_sender.clone(), mempool_stage.clone(), k, ledger_tip);
+    if let Some((_, sender, _)) = &forge {
+        adopt = adopt.with_forge(sender.clone());
+    }
+    let adopt_chain = stage_graph.wire_up(adopt_chain, adopt);
+
+    if let Some((forge, _, credentials)) = forge {
+        let forge = stage_graph.wire_up(
+            forge,
+            ForgeBlock::new(
+                select_chain.sender(),
+                ConsensusParameters::new(global_parameters.clone(), era_history),
+                global_parameters.system_start,
+                k,
+                credentials.pool_id(),
+                credentials.operational_cert().operational_cert_kes_period,
+                protocol_version,
+            ),
+        );
+        if ledger_tip != Point::Origin {
+            #[expect(clippy::expect_used)]
+            stage_graph
+                .preload(&forge, [ForgeBlockMsg::from(AdoptedTip { tip: ledger_tip, parent: ledger_parent })])
+                .expect("forge tip must be preloaded");
+        }
+    }
 
     let validate_block = stage_graph.wire_up(
         validate_block,

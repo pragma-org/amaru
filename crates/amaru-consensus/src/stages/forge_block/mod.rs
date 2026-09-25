@@ -12,20 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Block production stage. Not wired into the consensus graph.
+//! Block production stage.
+//!
+//! Wired from `build_node` when forging credentials are installed on the node.
+//! The product binary leaves that resource empty, so the stage is not in the graph.
 //!
 //! The typestate remainder in `protocol` is the audit surface for messages,
 //! timers, and forging effects. Internal decisions live in `calc`.
 
 mod calc;
+#[cfg(any(test, feature = "test-utils"))]
+mod credentials;
 mod effects;
 mod protocol;
 mod schedule;
 
-use amaru_kernel::{ConsensusParameters, Point, PoolId};
+use amaru_kernel::{ConsensusParameters, KesPeriod, Point, PoolId, ProtocolVersion};
+pub use amaru_ouroboros_traits::ForgingCredentials;
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
 pub use calc::FreezeWatch;
-pub use effects::{ForgeEffectError, ForgeHeaderEffect, ForgedBody, LeaderScheduleEffect, TakeForForgeEffect};
+#[cfg(any(test, feature = "test-utils"))]
+pub use credentials::{TEST_COLD_KEY, TEST_VRF_SEED, TestCredentials, test_vrf_key};
+pub use effects::{
+    ForgeEffectError, ForgeHeaderEffect, ForgedBody, LeaderScheduleEffect, ResourceForgingCredentials,
+    TakeForForgeEffect,
+};
 pub use protocol::{AdoptedTip, DueLead, ForgeBlockMsg, LeaderSchedule, Live, SelectChainOut, stage};
 use schedule::Schedule;
 
@@ -50,9 +61,10 @@ pub struct ForgeData {
     pub consensus_parameters: ConsensusParameters,
     pub k: u64,
     pub pool: PoolId,
-    pub ocert_start_period: u64,
+    pub ocert_start_period: KesPeriod,
     /// Ouroboros system start, as Unix time in milliseconds.
     pub system_start_unix_ms: u64,
+    pub protocol_version: ProtocolVersion,
     pub adopted_tip: Point,
     pub adopted_parent: Point,
     pub schedule: Schedule,
@@ -70,7 +82,8 @@ impl ForgeBlock {
         system_start_unix_ms: u64,
         k: u64,
         pool: PoolId,
-        ocert_start_period: u64,
+        ocert_start_period: KesPeriod,
+        protocol_version: ProtocolVersion,
     ) -> Self {
         Self {
             live: initial_state::<protocol::Idle>().into(),
@@ -81,6 +94,7 @@ impl ForgeBlock {
                 pool,
                 ocert_start_period,
                 system_start_unix_ms,
+                protocol_version,
                 adopted_tip: Point::Origin,
                 adopted_parent: Point::Origin,
                 schedule: Default::default(),

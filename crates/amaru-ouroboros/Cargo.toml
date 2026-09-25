@@ -14,15 +14,20 @@ rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+test-utils = []
+
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 getrandom = { workspace = true, features = ["wasm_js"] }
 hex.workspace = true
 kes-summed-ed25519.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 vrf_dalek.workspace = true
-zeroize.workspace = true
+zeroize = { workspace = true, features = ["serde"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
@@ -43,7 +48,8 @@ proptest.workspace = true
 rand.workspace = true
 rayon.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+tempfile.workspace = true
+test-case.workspace = true
 tracing-subscriber.workspace = true
 
 [target.'cfg(not(std))'.dependencies]

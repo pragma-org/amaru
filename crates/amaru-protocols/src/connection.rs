@@ -28,10 +28,13 @@ use crate::{
     keepalive::{self, register_keepalive},
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, MuxMessage},
-    peer_sharing::{PeerSharingMessage, ShareResult, register_peer_sharing_initiator, register_peer_sharing_responder},
+    peer_sharing::{
+        MAX_MESSAGE_BYTES, PeerSharingMessage, ShareResult, register_peer_sharing_initiator,
+        register_peer_sharing_responder,
+    },
     protocol::{
-        Inputs, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE,
-        PROTO_N2N_PEER_SHARE, PROTO_N2N_TX_SUB, Role,
+        Erased, Inputs, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE,
+        PROTO_N2N_PEER_SHARE, PROTO_N2N_TX_SUB, ProtocolId, Role,
     },
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
@@ -346,14 +349,42 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
     .await;
 }
 
+/// Protocols whose bytes the mux holds until `Register` installs the handler.
+///
+/// A responder always serves. An initiator serves when it advertises full duplex, which is
+/// the case for every connection this node opens. Peer sharing is included when this side
+/// advertises it. The limits match the `max_buffer` each responder's `Register` installs.
+/// Any protocol id absent from this list still fails the connection.
+fn initial_mux_buffers(role: Role, initiator_only: bool, advertisable: bool) -> Vec<(ProtocolId<Erased>, usize)> {
+    let mut buffers = Vec::with_capacity(6);
+    buffers.push((PROTO_HANDSHAKE.erase(), 5760));
+    if role == Role::Responder || !initiator_only {
+        buffers.extend([
+            (PROTO_N2N_CHAIN_SYNC.responder().erase(), 5760),
+            (PROTO_N2N_BLOCK_FETCH.responder().erase(), 2_500_000),
+            (PROTO_N2N_TX_SUB.responder().erase(), 2_500_000),
+            (PROTO_N2N_KEEP_ALIVE.responder().erase(), 65535),
+        ]);
+        if advertisable {
+            buffers.push((PROTO_N2N_PEER_SHARE.responder().erase(), MAX_MESSAGE_BYTES));
+        }
+    }
+    buffers
+}
+
 async fn do_initialize(
     Params { conn_id, role, magic, peer, config, .. }: &Params,
     eff: Effects<ConnectionMessage>,
 ) -> State {
     let peer = *peer;
+    // Same flags as the version table below. A responder always serves; an initiator serves
+    // when it advertises full duplex. Those are the protocols the mux may hold before `Register`.
+    let initiator_only = false;
+    let advertisable = true;
+    let mux_buffers = initial_mux_buffers(*role, initiator_only, advertisable);
     let muxer = eff.stage("mux", mux::stage).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
-    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role, peer)).await;
+    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &mux_buffers, *role, peer)).await;
 
     let handshake_result = eff.me_ref().contramap(ConnectionMessage::Handshake);
 
@@ -366,7 +397,7 @@ async fn do_initialize(
                 handshake::HandshakeInitiator::new(
                     muxer.clone(),
                     handshake_result,
-                    VersionTable::v11_through(config.max_n2n_version, *magic, false, true),
+                    VersionTable::v11_through(config.max_n2n_version, *magic, initiator_only, advertisable),
                 ),
             )
             .await
@@ -379,9 +410,7 @@ async fn do_initialize(
                 handshake::HandshakeResponder::new(
                     muxer.clone(),
                     handshake_result,
-                    // Use initiator_only_diffusion_mode = false so downstream peers
-                    // know we can serve as chainsync/blockfetch server
-                    VersionTable::v11_through(config.max_n2n_version, *magic, false, true),
+                    VersionTable::v11_through(config.max_n2n_version, *magic, initiator_only, advertisable),
                 ),
             )
             .await
@@ -832,6 +861,28 @@ mod tests {
         // Verify state remains the same
         let state = running.get_state(&connection_stage).unwrap();
         assert_eq!(state.state, connection_state);
+    }
+
+    #[test]
+    fn initial_mux_buffers_follow_the_advertised_responders() {
+        let advertised = initial_mux_buffers(Role::Initiator, false, true);
+        assert_eq!(
+            advertised,
+            vec![
+                (PROTO_HANDSHAKE.erase(), 5760),
+                (PROTO_N2N_CHAIN_SYNC.responder().erase(), 5760),
+                (PROTO_N2N_BLOCK_FETCH.responder().erase(), 2_500_000),
+                (PROTO_N2N_TX_SUB.responder().erase(), 2_500_000),
+                (PROTO_N2N_KEEP_ALIVE.responder().erase(), 65535),
+                (PROTO_N2N_PEER_SHARE.responder().erase(), MAX_MESSAGE_BYTES),
+            ]
+        );
+        // Responder still serves when the advertisement is initiator-only. The initiator does not.
+        assert_eq!(initial_mux_buffers(Role::Initiator, true, true), vec![(PROTO_HANDSHAKE.erase(), 5760)]);
+        let responder = initial_mux_buffers(Role::Responder, true, false);
+        assert_eq!(responder.len(), 5);
+        assert!(responder.iter().all(|(id, _)| *id != PROTO_N2N_PEER_SHARE.responder().erase()));
+        assert!(responder.iter().any(|(id, _)| *id == PROTO_N2N_CHAIN_SYNC.responder().erase()));
     }
 
     // HELPERS

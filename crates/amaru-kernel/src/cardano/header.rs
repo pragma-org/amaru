@@ -117,7 +117,6 @@ impl IsHeader for Header {
 
 impl Header {
     /// Create a new Header from its constituant, recomputing the hash.
-    #[cfg(any(test, feature = "test-utils"))]
     pub fn new(body: HeaderBody, signature: KesSignature) -> Self {
         use crate::{hash::ORIGIN_HASH, to_cbor};
 
@@ -220,7 +219,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        Bytes, Hash, Header, OperationalCert, Point, ProtocolVersion, VrfCert,
+        Bytes, Hash, Header, KesPeriod, OperationalCert, Point, ProtocolVersion, VrfCert,
         cardano::{
             fixed_bytes::FixedBytes,
             network_block::{EncodedTestBlock, make_block},
@@ -264,7 +263,7 @@ mod tests {
                 operational_cert: OperationalCert {
                     operational_cert_hot_verification_key: FixedBytes::zeroes(),
                     operational_cert_sequence_number: op_cert_seq,
-                    operational_cert_kes_period: 0,
+                    operational_cert_kes_period: KesPeriod::from(0),
                     operational_cert_sigma: FixedBytes::zeroes(),
                 },
                 protocol_version: ProtocolVersion::new(1, 2),

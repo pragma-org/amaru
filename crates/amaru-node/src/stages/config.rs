@@ -24,7 +24,10 @@ use std::{
 
 use amaru_consensus::{
     performance::PeerMix,
-    stages::peer_selection::{SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
+    stages::{
+        forge_block::ForgingCredentials,
+        peer_selection::{SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
+    },
 };
 use amaru_kernel::{
     ConsensusParameters, EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
@@ -101,6 +104,10 @@ pub struct Config {
     /// When true (production default), rewind the chain store's best-chain pointer to the
     /// persisted ledger tip on startup.
     pub realign_chain_store: bool,
+
+    /// Block-producer secrets. `None` on a follower, which is the product binary.
+    /// When `Some`, `build_node` wires the forge stage and registers this resource.
+    pub forging_credentials: Option<Arc<dyn ForgingCredentials>>,
 }
 
 impl Config {
@@ -174,6 +181,7 @@ impl Default for Config {
             observers: amaru_ledger::LedgerObservers::default(),
             meter: None,
             realign_chain_store: true,
+            forging_credentials: None,
         }
     }
 }

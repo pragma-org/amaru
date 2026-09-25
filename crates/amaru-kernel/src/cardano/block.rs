@@ -51,9 +51,91 @@ pub struct Block {
 /// There can only be a maximum of 65535 transactions in a block, so this is a `u16`.
 pub type TransactionIndex = u16;
 
+/// The block body as the four CBOR items the header commits to, encoded once.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BodyParts {
+    encoded: [Vec<u8>; 4],
+    hash: Hash<BLOCK_BODY>,
+    size: u64,
+}
+
+impl BodyParts {
+    /// Split `transactions` into bodies, witnesses, auxiliary data, and the invalid set, and encode those four items.
+    pub fn from_transactions(transactions: impl IntoIterator<Item = Transaction>) -> Result<Self, cbor::decode::Error> {
+        let mut bodies = Vec::new();
+        let mut witnesses = Vec::new();
+        let mut auxiliary = BTreeMap::new();
+        let mut invalid = BTreeSet::new();
+        for (index, transaction) in transactions.into_iter().enumerate() {
+            let index = TransactionIndex::try_from(index)
+                .map_err(|_| cbor::decode::Error::message("a block cannot contain more than 65535 transactions"))?;
+            bodies.push(transaction.body);
+            witnesses.push(transaction.witnesses);
+            if let Some(auxiliary_data) = transaction.auxiliary_data {
+                auxiliary.insert(index, auxiliary_data);
+            }
+            if !transaction.is_expected_valid {
+                invalid.insert(index);
+            }
+        }
+        let invalid = Some(invalid);
+        let encoded = [
+            amaru_minicbor_extra::to_cbor(&bodies),
+            amaru_minicbor_extra::to_cbor(&witnesses),
+            amaru_minicbor_extra::to_cbor(&auxiliary),
+            amaru_minicbor_extra::to_cbor(&invalid),
+        ];
+        let size = encoded.iter().map(|part| part.len() as u64).sum();
+        let hash = Block::hash_body_cbor([&encoded[0], &encoded[1], &encoded[2], &encoded[3]]);
+        Ok(Self { encoded, hash, size })
+    }
+
+    /// Body hash and serialised size of these already-encoded parts.
+    pub fn commitment(&self) -> (Hash<BLOCK_BODY>, u64) {
+        (self.hash, self.size)
+    }
+
+    /// CBOR block term `[header, bodies, witnesses, auxiliary data, invalid transactions]`.
+    ///
+    /// The body items are the bytes from [`Self::from_transactions`], not a second encoding.
+    pub fn encode_block(&self, header: &Header) -> Vec<u8> {
+        let header_bytes = amaru_minicbor_extra::to_cbor(header);
+        let mut out = Vec::with_capacity(1 + header_bytes.len() + self.size as usize);
+        out.push(0x85);
+        out.extend_from_slice(&header_bytes);
+        for part in &self.encoded {
+            out.extend_from_slice(part);
+        }
+        out
+    }
+
+    fn into_block(self, header: Header) -> Result<Block, cbor::decode::Error> {
+        cbor::decode(self.encode_block(&header).as_slice())
+    }
+}
+
 impl Block {
     /// Number of top-level CBOR fields in a serialized block.
     pub const CBOR_FIELD_COUNT: u64 = 5;
+
+    /// Body hash and serialised size of the block body for `transactions`.
+    ///
+    /// Independent of the header. A forged header commits to this pair before the block is assembled.
+    /// An empty slice is a block with no transactions.
+    pub fn body_commitment(transactions: &[Transaction]) -> Result<(Hash<BLOCK_BODY>, u64), cbor::decode::Error> {
+        Ok(BodyParts::from_transactions(transactions.iter().cloned())?.commitment())
+    }
+
+    /// A block whose transactions are `transactions` and whose header is `header`.
+    ///
+    /// The header's `block_body_hash` and `block_body_size` must be [`BodyParts::commitment`] for
+    /// these transactions. The body bytes are encoded once, inside [`BodyParts`].
+    pub fn from_transactions(
+        header: Header,
+        transactions: impl IntoIterator<Item = Transaction>,
+    ) -> Result<Self, cbor::decode::Error> {
+        BodyParts::from_transactions(transactions)?.into_block(header)
+    }
 
     /// Get the hash of the block's body
     pub fn body_hash(&self) -> Hash<BLOCK_BODY> {
@@ -300,5 +382,49 @@ mod tests {
                 assert_eq!(block.header.slot().as_u64(), slot);
             }
         }
+    }
+
+    fn stand_in_header() -> Header {
+        use crate::{
+            Bytes, Ed25519Signature, HeaderBody, KesPeriod, KesSignature, OperationalCert, ProtocolVersion,
+            VerificationKey, VrfCert,
+            cardano::{fixed_bytes::FixedBytes, vrf_cert::VRF_PROOF},
+        };
+        Header::new(
+            HeaderBody {
+                block_number: 0,
+                slot: 0,
+                prev_hash: None,
+                issuer_verification_key: VerificationKey::zeroes(),
+                vrf_verification_key: VerificationKey::zeroes(),
+                vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::<VRF_PROOF>::zeroes() },
+                block_body_size: 0,
+                block_body_hash: Hash::new([0u8; BLOCK_BODY]),
+                operational_cert: OperationalCert {
+                    operational_cert_hot_verification_key: VerificationKey::zeroes(),
+                    operational_cert_sequence_number: 0,
+                    operational_cert_kes_period: KesPeriod::from(0),
+                    operational_cert_sigma: Ed25519Signature::zeroes(),
+                },
+                protocol_version: ProtocolVersion::new(1, 0),
+            },
+            KesSignature::zeroes(),
+        )
+    }
+
+    #[test]
+    fn body_commitment_of_no_transactions_matches_the_assembled_block() {
+        let parts = BodyParts::from_transactions(std::iter::empty()).expect("empty list");
+        let (hash, size) = parts.commitment();
+        assert_eq!(Block::body_commitment(&[]).expect("empty list"), (hash, size));
+        let mut header = stand_in_header();
+        header.body_mut().block_body_hash = hash;
+        header.body_mut().block_body_size = size;
+        let bytes = parts.encode_block(&header);
+        let block: Block = cbor::decode(bytes.as_slice()).expect("spliced block");
+        assert_eq!(amaru_minicbor_extra::to_cbor(&block), bytes);
+        assert_eq!(block.body_hash(), hash);
+        assert_eq!(block.body_len(), size);
+        assert!(block.transaction_bodies.is_empty());
     }
 }
