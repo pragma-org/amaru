@@ -286,7 +286,8 @@ async fn run_until_target_epoch(primed: &Path, meta: &FragmentMeta, meter: Arc<M
                 );
             }
         }))
-        .build_and_run(&tokio::runtime::Handle::current())?;
+        .start(&tokio::runtime::Handle::current())
+        .await?;
 
     loop {
         if done.load(Ordering::SeqCst) {

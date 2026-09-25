@@ -15,27 +15,16 @@
 use amaru_kernel::{ORIGIN_HASH, Point};
 use amaru_observability::{debug, info, info_record};
 use amaru_ouroboros::ChainStore;
-use thiserror::Error;
 
 use crate::NodeStartError;
 
-/// The ledger and adopted chain describe incompatible tips and require explicit recovery.
-#[derive(Debug, Error)]
-#[error(
-    "ledger tip {ledger_tip} is not on the adopted chain ending at {chain_tip}; run `amaru mithril sync` to recover the stores, or rebootstrap the node if recovery is not possible"
-)]
-pub struct StoreRecoveryRequired {
-    pub ledger_tip: Point,
-    pub chain_tip: Point,
-}
-
-/// Reject store combinations that normal startup cannot safely reconcile.
-pub fn ensure_store_consistency(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<(), StoreRecoveryRequired> {
-    let chain_tip = chain_store.get_best_chain_tip();
-    if chain_tip == Point::Origin || chain_store.is_on_best_chain(ledger_tip.into()) {
+/// Reject store combinations that normal startup cannot safely reconcile, before any mutation.
+pub(crate) fn ensure_store_consistency(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<(), NodeStartError> {
+    let best_chain = chain_store.get_best_chain_hash();
+    if best_chain == ORIGIN_HASH || chain_store.is_on_best_chain(ledger_tip.into()) {
         Ok(())
     } else {
-        Err(StoreRecoveryRequired { ledger_tip, chain_tip })
+        Err(NodeStartError::StorePairMismatch { ledger_tip, best_chain })
     }
 }
 
@@ -61,13 +50,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
     let best_chain_hash = chain_store.get_best_chain_hash();
     let has_best_chain = best_chain_hash != ORIGIN_HASH;
 
-    // Every fork branches at or after the immutable tip, which cannot be rolled back, so the
-    // ledger tip is always on the recorded best chain. When it is not, the two databases describe
-    // different chains and truncating the best chain would silently discard headers. This is
-    // checked before any mutation so that a rejected chain database is left untouched.
-    if has_best_chain && !chain_store.is_on_best_chain(tip.into()) {
-        return Err(NodeStartError::StorePairMismatch { ledger_tip: tip, best_chain: best_chain_hash }.into());
-    }
+    ensure_store_consistency(chain_store, tip)?;
 
     chain_store.set_anchor_point(&tip)?;
     chain_store.set_block_valid(&tip.hash(), true)?;
@@ -267,8 +250,8 @@ mod tests {
         chain_store.set_anchor_point(&h0.point()).unwrap();
 
         let error = ensure_store_consistency(chain_store.as_ref(), h1a.point()).unwrap_err();
-        assert_eq!(error.ledger_tip, h1a.point());
-        assert_eq!(error.chain_tip, h1.point());
+        assert!(matches!(error, NodeStartError::StorePairMismatch { ledger_tip, best_chain }
+            if ledger_tip == h1a.point() && best_chain == h1.hash()));
 
         let error = NodeStartError::from(
             realign_chain_store_to(chain_store.as_ref(), h1a.point(), ClearValidity::All).unwrap_err(),

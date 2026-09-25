@@ -435,7 +435,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     let metrics = track_system_metrics(meter.clone())?;
     config.meter = Some(meter);
     // Explicit handle: node stages must run on this process's Tokio runtime.
-    let running = build_and_run_node(config, &tokio::runtime::Handle::current())?;
+    let running = build_and_run_node(config, &tokio::runtime::Handle::current()).await?;
 
     // Main-thread signal path can abort stages without scheduling this future.
     shutdown.register_abort(running.abort_callback());

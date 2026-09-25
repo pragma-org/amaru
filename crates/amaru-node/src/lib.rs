@@ -23,10 +23,10 @@
 //! use amaru_node::{LedgerObservers, NetworkName, NodeBuilder};
 //!
 //! let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-//! let running = NodeBuilder::new(NetworkName::Preprod)?
+//! let running = rt.block_on(NodeBuilder::new(NetworkName::Preprod)?
 //!     .listen_ephemeral_localhost()
 //!     .observers(LedgerObservers::new().on_adopted_block(|_block| { /* ... */ }))
-//!     .build_and_run(rt.handle())?;
+//!     .start(rt.handle()))?;
 //! // Stop from outside and wait for stages and stores to close with running.shutdown().await.
 //! ```
 //!
@@ -56,11 +56,12 @@ pub use amaru_ledger::{
 pub use amaru_metrics::{METRICS_METER_NAME, Meter};
 pub use amaru_observability::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
 pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
-pub use chain_realign::{ClearValidity, StoreRecoveryRequired, ensure_store_consistency, realign_chain_store_to};
+pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
 pub use mithril::{
     DefaultMithrilObserver, MithrilCancellation, MithrilObserver, MithrilProgress, MithrilStage, MithrilSyncError,
-    MithrilSyncReport, MithrilSynchronizer, RebootstrapRequired,
+    MithrilSyncReport, MithrilSynchronizer, RebootstrapRequired, StoreRecoveryOutcome, reconcile_mithril_stores,
+    recover_store_pair,
 };
 pub use stages::{
     build_node::{

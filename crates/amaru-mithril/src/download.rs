@@ -21,7 +21,7 @@ use std::{
 
 use amaru_kernel::{NetworkName, Point, Slot};
 use amaru_observability::{info, warn};
-use amaru_progress_bar::{NoProgressBar, ProgressBar};
+use amaru_progress_bar::ProgressBar;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use mithril_client::{
@@ -36,10 +36,23 @@ use crate::immutable::{chunk_for_slot, validate_immutable_resume_point, validate
 
 type ProgressFactory = Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>;
 
+/// A phase of snapshot download and verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MithrilDownloadStage {
+    FetchingSnapshot,
+    ValidatingCertificate,
+    Downloading { files: u64 },
+    VerifyingDatabase { from_chunk: u64, through_chunk: u64, files: u64 },
+    DatabaseVerified,
+}
+
 /// Renderer-independent progress produced by a Mithril database download.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MithrilDownloadProgress {
+    StageChanged { stage: MithrilDownloadStage },
+    CertificateValidated,
     SnapshotSelected { hash: String, through_chunk: u64 },
     Downloaded { downloaded_bytes: u64, completed_files: u64, total_files: u64, total_bytes: Option<u64> },
 }
@@ -104,7 +117,9 @@ impl MonotonicDownloadObserver {
 impl MithrilDownloadObserver for MonotonicDownloadObserver {
     fn on_progress(&self, progress: MithrilDownloadProgress) {
         let progress = match progress {
-            selected @ MithrilDownloadProgress::SnapshotSelected { .. } => selected,
+            other @ (MithrilDownloadProgress::SnapshotSelected { .. }
+            | MithrilDownloadProgress::StageChanged { .. }
+            | MithrilDownloadProgress::CertificateValidated) => other,
             MithrilDownloadProgress::Downloaded { downloaded_bytes, completed_files, total_files, total_bytes } => {
                 let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 state.downloaded_bytes = state.downloaded_bytes.max(downloaded_bytes);
@@ -128,10 +143,72 @@ struct AggregatorDetails {
     verification_key: &'static str,
 }
 
-struct MithrilFeedbackReceiver {
+struct ProgressBarObserver {
     with_progress: ProgressFactory,
-    cardano_database_pb: Mutex<Option<Box<dyn ProgressBar + Send + Sync>>>,
-    certificate_validation_pb: Mutex<Option<Box<dyn ProgressBar + Send + Sync>>>,
+    state: StdMutex<ProgressBarState>,
+}
+
+#[derive(Default)]
+struct ProgressBarState {
+    progress: Option<Box<dyn ProgressBar>>,
+    completed_files: u64,
+}
+
+impl Drop for ProgressBarState {
+    fn drop(&mut self) {
+        if let Some(progress) = self.progress.take() {
+            progress.clear();
+        }
+    }
+}
+
+impl MithrilDownloadObserver for ProgressBarObserver {
+    fn on_progress(&self, progress: MithrilDownloadProgress) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match progress {
+            MithrilDownloadProgress::StageChanged { stage } => {
+                if let Some(progress) = state.progress.take() {
+                    progress.clear();
+                }
+                let (length, template) = match stage {
+                    MithrilDownloadStage::FetchingSnapshot => {
+                        (0, "{spinner:.green} {elapsed_precise} fetching Mithril snapshot metadata".to_string())
+                    }
+                    MithrilDownloadStage::ValidatingCertificate => (
+                        0,
+                        "{spinner:.green} {elapsed_precise} validating Mithril certificate chain ({pos} certificates)"
+                            .to_string(),
+                    ),
+                    MithrilDownloadStage::Downloading { files } => {
+                        state.completed_files = 0;
+                        (files, "{spinner:.green} Downloading Mithril files {bytes_per_sec:>10} {bar:40.green} [{pos}/{len}] ({eta} remaining)".to_string())
+                    }
+                    MithrilDownloadStage::VerifyingDatabase { from_chunk, through_chunk, files } => (
+                        0,
+                        format!(
+                            "{{spinner:.green}} {{elapsed_precise}} verifying immutable chunks {from_chunk}..={through_chunk} ({files} files)"
+                        ),
+                    ),
+                    MithrilDownloadStage::DatabaseVerified => return,
+                };
+                state.progress = Some((self.with_progress)(usize::try_from(length).unwrap_or(usize::MAX), &template));
+            }
+            MithrilDownloadProgress::CertificateValidated => {
+                if let Some(progress) = &state.progress {
+                    progress.increment();
+                }
+            }
+            MithrilDownloadProgress::Downloaded { completed_files, .. } => {
+                if let Some(progress) = &state.progress {
+                    progress.tick(
+                        usize::try_from(completed_files.saturating_sub(state.completed_files)).unwrap_or(usize::MAX),
+                    );
+                }
+                state.completed_files = completed_files;
+            }
+            MithrilDownloadProgress::SnapshotSelected { .. } => {}
+        }
+    }
 }
 
 #[derive(Default)]
@@ -182,13 +259,21 @@ impl CanonicalFeedbackReceiver {
 #[allow(clippy::wildcard_enum_match_arm)]
 impl FeedbackReceiver for CanonicalFeedbackReceiver {
     async fn handle_event(&self, event: MithrilEvent) {
-        let MithrilEvent::CardanoDatabase(event) = event else {
-            return;
+        let event = match event {
+            MithrilEvent::CardanoDatabase(event) => event,
+            MithrilEvent::CertificateValidated { .. } | MithrilEvent::CertificateFetchedFromCache { .. } => {
+                self.observer.on_progress(MithrilDownloadProgress::CertificateValidated);
+                return;
+            }
+            _ => return,
         };
         let mut state = self.state.lock().await;
         match event {
             MithrilEventCardanoDatabase::Started { total_immutable_files, include_ancillary, .. } => {
                 state.requested_files = total_immutable_files + u64::from(include_ancillary);
+                self.observer.on_progress(MithrilDownloadProgress::StageChanged {
+                    stage: MithrilDownloadStage::Downloading { files: state.cached_files + state.requested_files },
+                });
             }
             MithrilEventCardanoDatabase::ImmutableDownloadStarted { immutable_file_number, size, .. } => {
                 state.files.insert(immutable_file_number.to_string(), (size, 0, false));
@@ -225,64 +310,6 @@ impl FeedbackReceiver for CanonicalFeedbackReceiver {
     }
 }
 
-impl MithrilFeedbackReceiver {
-    fn new(with_progress: ProgressFactory) -> Self {
-        Self { with_progress, cardano_database_pb: Mutex::new(None), certificate_validation_pb: Mutex::new(None) }
-    }
-}
-
-#[async_trait]
-#[allow(clippy::wildcard_enum_match_arm)]
-impl FeedbackReceiver for MithrilFeedbackReceiver {
-    async fn handle_event(&self, event: MithrilEvent) {
-        match event {
-            MithrilEvent::CardanoDatabase(cardano_database_event) => match cardano_database_event {
-                MithrilEventCardanoDatabase::Started { download_id: _, total_immutable_files, include_ancillary } => {
-                    let size = match include_ancillary {
-                        true => 1 + total_immutable_files,
-                        false => total_immutable_files,
-                    };
-                    let pb = (self.with_progress)(
-                        size as usize,
-                        "{spinner:.green} Downloading Mithril files {bytes_per_sec:>10} {bar:40.green} [{pos}/{len}] ({eta} remaining)",
-                    );
-                    *self.cardano_database_pb.lock().await = Some(pb);
-                }
-                MithrilEventCardanoDatabase::Completed { .. } => {
-                    if let Some(pb) = self.cardano_database_pb.lock().await.take() {
-                        pb.clear();
-                    }
-                }
-                MithrilEventCardanoDatabase::ImmutableDownloadCompleted { .. }
-                | MithrilEventCardanoDatabase::AncillaryDownloadCompleted { .. } => {
-                    if let Some(pb) = self.cardano_database_pb.lock().await.as_ref() {
-                        pb.increment();
-                    }
-                }
-                _ => {}
-            },
-            MithrilEvent::CertificateChainValidationStarted { .. } => {
-                let pb = (self.with_progress)(
-                    0,
-                    "{spinner:.green} {elapsed_precise} validating Mithril certificate chain ({pos} certificates)",
-                );
-                *self.certificate_validation_pb.lock().await = Some(pb);
-            }
-            MithrilEvent::CertificateValidated { .. } | MithrilEvent::CertificateFetchedFromCache { .. } => {
-                if let Some(pb) = self.certificate_validation_pb.lock().await.as_ref() {
-                    pb.increment();
-                }
-            }
-            MithrilEvent::CertificateChainValidated { .. } => {
-                if let Some(pb) = self.certificate_validation_pb.lock().await.take() {
-                    pb.clear();
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 fn aggregator_details(network: NetworkName) -> anyhow::Result<AggregatorDetails> {
     match network {
         NetworkName::Mainnet => Ok(AggregatorDetails {
@@ -307,34 +334,27 @@ pub async fn download_from_mithril(
     from_chunk: u64,
     with_progress: ProgressFactory,
 ) -> Result<(), MithrilDownloadError> {
-    download_from_mithril_with_chunk_range(network, target_dir, from_chunk, None, None, with_progress, None, (0, 0))
+    let observer = Arc::new(ProgressBarObserver { with_progress, state: StdMutex::default() });
+    download_from_mithril_with_chunk_range(network, target_dir, from_chunk, None, None, observer, (0, 0))
         .await
         .map(|_| ())
 }
 
-#[expect(clippy::too_many_arguments)]
 async fn download_from_mithril_with_chunk_range(
     network: NetworkName,
     target_dir: PathBuf,
     from_chunk: u64,
     resume_chunk: Option<u64>,
     requested_through_chunk: Option<u64>,
-    with_progress: ProgressFactory,
-    observer: Option<Arc<dyn MithrilDownloadObserver>>,
+    observer: Arc<dyn MithrilDownloadObserver>,
     cached: (u64, u64),
 ) -> Result<String, MithrilDownloadError> {
     let AggregatorDetails { endpoint, verification_key } = aggregator_details(network)?;
-    let mut client_builder = ClientBuilder::new(mithril_client::AggregatorDiscoveryType::Url(endpoint.to_string()))
+    let client = ClientBuilder::new(mithril_client::AggregatorDiscoveryType::Url(endpoint.to_string()))
         .set_genesis_verification_key(GenesisVerificationKey::JsonHex(verification_key.into()))
-        .with_origin_tag(Some("AMARU".to_string()));
-    if let Some(observer) = observer.clone() {
-        client_builder = client_builder
-            .add_feedback_receiver(Arc::new(CanonicalFeedbackReceiver::new(observer, cached.0, cached.1)));
-    } else {
-        client_builder =
-            client_builder.add_feedback_receiver(Arc::new(MithrilFeedbackReceiver::new(with_progress.clone())));
-    }
-    let client = client_builder.build()?;
+        .with_origin_tag(Some("AMARU".to_string()))
+        .add_feedback_receiver(Arc::new(CanonicalFeedbackReceiver::new(observer.clone(), cached.0, cached.1)))
+        .build()?;
     let database_client = client.cardano_database_v2();
     let snapshots = database_client.list().await.map_err(|source| MithrilDownloadError::Unavailable { source })?;
     let snapshot_list_item =
@@ -344,23 +364,22 @@ async fn download_from_mithril_with_chunk_range(
 
     info!(mithril::snapshot::FETCH, hash = snapshot_list_item.hash, from_chunk);
 
-    let fetch_progress = with_progress(0, "{spinner:.green} {elapsed_precise} fetching Mithril snapshot metadata");
-    let snapshot = database_client.get(&snapshot_list_item.hash).await;
-    fetch_progress.clear();
-    let snapshot = snapshot.map_err(|source| MithrilDownloadError::Unavailable { source })?.ok_or_else(|| {
-        MithrilDownloadError::Unavailable {
-            source: anyhow::anyhow!("Mithril snapshot not found: {}", snapshot_list_item.hash),
-        }
-    })?;
+    observer.on_progress(MithrilDownloadProgress::StageChanged { stage: MithrilDownloadStage::FetchingSnapshot });
+    let snapshot = database_client
+        .get(&snapshot_list_item.hash)
+        .await
+        .map_err(|source| MithrilDownloadError::Unavailable { source })?
+        .ok_or_else(|| MithrilDownloadError::Unavailable {
+            source: anyhow!("Mithril snapshot not found: {}", snapshot_list_item.hash),
+        })?;
     let snapshot_through_chunk = snapshot.beacon.immutable_file_number;
     validate_snapshot_range(from_chunk, resume_chunk, requested_through_chunk, snapshot_through_chunk)?;
     let through_chunk = requested_through_chunk.unwrap_or(snapshot_through_chunk);
-    if let Some(observer) = observer.as_ref() {
-        observer.on_progress(MithrilDownloadProgress::SnapshotSelected {
-            hash: snapshot_list_item.hash.clone(),
-            through_chunk: snapshot_through_chunk,
-        });
-    }
+    observer.on_progress(MithrilDownloadProgress::SnapshotSelected {
+        hash: snapshot_list_item.hash.clone(),
+        through_chunk: snapshot_through_chunk,
+    });
+    observer.on_progress(MithrilDownloadProgress::StageChanged { stage: MithrilDownloadStage::ValidatingCertificate });
     let certificate = client
         .certificate()
         .verify_chain(&snapshot.certificate_hash)
@@ -374,26 +393,22 @@ async fn download_from_mithril_with_chunk_range(
     database_client
         .download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options)
         .await
-        .map_err(|source| MithrilDownloadError::Unavailable { source })?;
+        .map_err(MithrilDownloadError::Download)?;
 
+    let immutable_file_count = immutable_file_range.length(through_chunk) * 3;
+    observer.on_progress(MithrilDownloadProgress::StageChanged {
+        stage: MithrilDownloadStage::VerifyingDatabase { from_chunk, through_chunk, files: immutable_file_count },
+    });
     info!(mithril::snapshot::VERIFY_DIGESTS, target_dir = target_dir.display().to_string());
-    let verified_digests = client
-        .cardano_database_v2()
+    let verified_digests = database_client
         .download_and_verify_digests(&certificate, &snapshot)
         .await
         .map_err(|source| MithrilDownloadError::Validation { source })?;
-    let immutable_file_count = immutable_file_range.length(through_chunk) * 3;
     info!(mithril::snapshot::VERIFY_DATABASE, target_dir = target_dir.display().to_string());
-    let verification_template = format!(
-        "{{spinner:.green}} {{elapsed_precise}} verifying immutable chunks {from_chunk}..={through_chunk} ({immutable_file_count} files)"
-    );
-    let verification_progress = with_progress(0, &verification_template);
-    let merkle_proof = client
-        .cardano_database_v2()
+    let merkle_proof = database_client
         .verify_cardano_database(&certificate, &snapshot, &immutable_file_range, false, &target_dir, &verified_digests)
-        .await;
-    verification_progress.clear();
-    let merkle_proof = merkle_proof.map_err(|source| MithrilDownloadError::Validation { source: source.into() })?;
+        .await
+        .map_err(|source| MithrilDownloadError::Validation { source: source.into() })?;
     let message = MessageBuilder::new()
         .compute_cardano_database_message(&certificate, &merkle_proof)
         .await
@@ -405,6 +420,7 @@ async fn download_from_mithril_with_chunk_range(
         });
     }
 
+    observer.on_progress(MithrilDownloadProgress::StageChanged { stage: MithrilDownloadStage::DatabaseVerified });
     info!(mithril::snapshot::READY, target_dir = target_dir.display().to_string());
 
     Ok(snapshot_list_item.hash)
@@ -421,10 +437,7 @@ fn requested_through_chunk(
     resume_chunk: u64,
     until_slot: Option<Slot>,
 ) -> anyhow::Result<Option<u64>> {
-    until_slot
-        .map(|slot| chunk_for_slot(network, slot))
-        .transpose()
-        .map(|through_chunk| through_chunk.map(|through_chunk| through_chunk.max(resume_chunk)))
+    until_slot.map(|slot| chunk_for_slot(network, slot).map(|chunk| chunk.max(resume_chunk))).transpose()
 }
 
 fn validate_snapshot_range(
@@ -440,31 +453,6 @@ fn validate_snapshot_range(
     Ok(())
 }
 
-/// Downloads a Mithril snapshot for resuming from `resume_point`.
-///
-/// The selected range is bounded by both the validated cache tail and the resume point. If local
-/// immutable validation fails, only the disposable `immutable` directory is rebuilt, at most once.
-pub async fn download_from_mithril_for_resume_point(
-    network: NetworkName,
-    target_dir: PathBuf,
-    resume_point: Point,
-    with_progress: ProgressFactory,
-) -> Result<PathBuf, MithrilDownloadError> {
-    download_from_mithril_for_resume_point_inner(network, target_dir, resume_point, None, with_progress, None)
-        .await
-        .map(|report| report.immutable_dir)
-}
-
-/// Downloads a verified Mithril database while reporting renderer-independent progress.
-pub async fn download_from_mithril_for_resume_point_with_observer(
-    network: NetworkName,
-    target_dir: PathBuf,
-    resume_point: Point,
-    observer: Arc<dyn MithrilDownloadObserver>,
-) -> Result<MithrilDownloadReport, MithrilDownloadError> {
-    download_from_mithril_for_range_with_observer(network, target_dir, resume_point, None, observer).await
-}
-
 /// Downloads a verified Mithril database from `resume_point` through the immutable chunk containing `until_slot`.
 ///
 /// When `until_slot` is `None`, the download continues through the selected snapshot's latest immutable chunk.
@@ -475,30 +463,10 @@ pub async fn download_from_mithril_for_range_with_observer(
     until_slot: Option<Slot>,
     observer: Arc<dyn MithrilDownloadObserver>,
 ) -> Result<MithrilDownloadReport, MithrilDownloadError> {
-    download_from_mithril_for_resume_point_inner(
-        network,
-        target_dir,
-        resume_point,
-        until_slot,
-        Arc::new(|_, _| Box::new(NoProgressBar {})),
-        Some(observer),
-    )
-    .await
-}
-
-async fn download_from_mithril_for_resume_point_inner(
-    network: NetworkName,
-    target_dir: PathBuf,
-    resume_point: Point,
-    until_slot: Option<Slot>,
-    with_progress: ProgressFactory,
-    observer: Option<Arc<dyn MithrilDownloadObserver>>,
-) -> Result<MithrilDownloadReport, MithrilDownloadError> {
     let immutable_dir = target_dir.join("immutable");
     let resume_chunk = chunk_for_slot(network, resume_point.slot_or_default())?;
     let requested_through_chunk = requested_through_chunk(network, resume_chunk, until_slot)?;
-    let observer =
-        observer.map(|observer| Arc::new(MonotonicDownloadObserver::new(observer)) as Arc<dyn MithrilDownloadObserver>);
+    let observer = Arc::new(MonotonicDownloadObserver::new(observer));
     let mut rebuilt = false;
 
     loop {
@@ -522,7 +490,6 @@ async fn download_from_mithril_for_resume_point_inner(
             from_chunk,
             Some(resume_chunk),
             requested_through_chunk,
-            with_progress.clone(),
             observer.clone(),
             cached_download_state(&immutable_dir)?,
         )
@@ -530,7 +497,7 @@ async fn download_from_mithril_for_resume_point_inner(
         {
             Ok(snapshot_hash) => snapshot_hash,
             Err(source @ MithrilDownloadError::Inapplicable { .. }) => {
-                return reuse_immutable_cache(immutable_dir, network, resume_point, observer.as_deref(), source);
+                return reuse_immutable_cache(immutable_dir, network, resume_point, observer.as_ref(), source);
             }
             Err(source) => return Err(source),
         };
@@ -554,7 +521,7 @@ fn reuse_immutable_cache(
     immutable_dir: PathBuf,
     network: NetworkName,
     resume_point: Point,
-    observer: Option<&dyn MithrilDownloadObserver>,
+    observer: &dyn MithrilDownloadObserver,
     inapplicable: MithrilDownloadError,
 ) -> Result<MithrilDownloadReport, MithrilDownloadError> {
     validated_download_boundary(&immutable_dir, network, resume_point).map_err(|source| {
@@ -562,14 +529,12 @@ fn reuse_immutable_cache(
     })?;
     validate_immutable_resume_point(&immutable_dir, network, resume_point).map_err(|_| inapplicable)?;
     let (downloaded_bytes, completed_files) = cached_download_state(&immutable_dir)?;
-    if let Some(observer) = observer {
-        observer.on_progress(MithrilDownloadProgress::Downloaded {
-            downloaded_bytes,
-            completed_files,
-            total_files: completed_files,
-            total_bytes: Some(downloaded_bytes),
-        });
-    }
+    observer.on_progress(MithrilDownloadProgress::Downloaded {
+        downloaded_bytes,
+        completed_files,
+        total_files: completed_files,
+        total_bytes: Some(downloaded_bytes),
+    });
     Ok(MithrilDownloadReport { immutable_dir, snapshot_hash: None })
 }
 
@@ -634,7 +599,7 @@ mod tests {
             dir.path().to_path_buf(),
             NetworkName::Preprod,
             blocks[1].0,
-            Some(&observer),
+            &observer,
             inapplicable(),
         )
         .unwrap();
@@ -658,7 +623,13 @@ mod tests {
         let resume_point = Point::Specific(blocks[1].0.slot_or_default(), [0; 32].into(), blocks[1].0.block_height());
 
         assert!(matches!(
-            reuse_immutable_cache(dir.path().to_path_buf(), NetworkName::Preprod, resume_point, None, inapplicable()),
+            reuse_immutable_cache(
+                dir.path().to_path_buf(),
+                NetworkName::Preprod,
+                resume_point,
+                &RecordingObserver::default(),
+                inapplicable()
+            ),
             Err(MithrilDownloadError::Inapplicable { .. })
         ));
     }
@@ -669,7 +640,13 @@ mod tests {
         fs::remove_file(dir.path().join("00001.primary")).unwrap();
 
         assert!(matches!(
-            reuse_immutable_cache(dir.path().to_path_buf(), NetworkName::Preprod, blocks[1].0, None, inapplicable()),
+            reuse_immutable_cache(
+                dir.path().to_path_buf(),
+                NetworkName::Preprod,
+                blocks[1].0,
+                &RecordingObserver::default(),
+                inapplicable()
+            ),
             Err(MithrilDownloadError::InvalidCache { .. })
         ));
     }

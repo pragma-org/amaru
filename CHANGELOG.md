@@ -48,6 +48,26 @@ Other guiding principles:
 - **amaru**: `chainsync.chain_lagging` is logged when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, including while sync is finishing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
+## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
+### Fixed
+
+- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
+
+## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
+
+### Added
+
+- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
+- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
+
+### Fixed
+
+- **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
+- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
+
+## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
 
 ### Added
 
