@@ -739,10 +739,10 @@ mod tests {
     use amaru_kernel::{
         Anchor, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
         MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal,
-        ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, RewardAccount,
-        Slot, TransactionPointer, any_constitution, any_constitutional_committee_update, any_gov_action,
-        any_proposal_enum, any_proposal_id, any_proposal_pointer, any_protocol_params_update, any_protocol_version,
-        any_reward_account,
+        ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RatificationStatus,
+        RationalNumber, RewardAccount, Slot, TransactionPointer, any_constitution, any_constitutional_committee_update,
+        any_gov_action, any_proposal_enum, any_proposal_id, any_proposal_pointer, any_protocol_params_update,
+        any_protocol_version, any_reward_account,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -847,6 +847,55 @@ mod tests {
         assert_eq!(id, ratifiable);
         assert!(matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)));
         assert!(forest.next(&PROTOCOL_PARAMETERS).is_none());
+    }
+
+    #[test]
+    fn end_prunes_valid_children_of_expired_parents_regardless_of_priority() {
+        let mut forest = make_forest();
+        let parent = Rc::new(make_id(1));
+        let child = Rc::new(make_id(2));
+
+        forest
+            .insert(
+                &ERA_HISTORY,
+                parent.clone(),
+                current_epoch(),
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::UpdateCommittee(
+                    None,
+                    vec![],
+                    KeyValuePairs::default(),
+                    RationalNumber { numerator: 0, denominator: 1 },
+                ),
+            )
+            .unwrap();
+
+        // NoConfidence action have a higher priority than update committee actions; so if we
+        // blindly traverse proposals in ratification order, we may end up keeping a child whose
+        // parent has expired.
+        forest
+            .insert(
+                &ERA_HISTORY,
+                child.clone(),
+                current_epoch() + 1,
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(1), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::NoConfidence(Some(*parent)),
+            )
+            .unwrap();
+
+        let sequence: Vec<_> = forest.sequence.iter().cloned().collect();
+        assert_eq!(sequence, vec![child.clone(), parent.clone()]);
+
+        assert_eq!(
+            forest.end(),
+            BTreeMap::from([(parent, RatificationStatus::NotRatified), (child, RatificationStatus::NotRatified)])
+        );
     }
 
     proptest! {
