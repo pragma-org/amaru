@@ -66,6 +66,11 @@ Other guiding principles:
 - **amaru-node**: startup fails when the chain store is missing the ledger tip header. A bootstrap snapshot stores that tip without its parent block. Forging in the snapshot tip's own slot is skipped when that parent header is absent.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
+### Changed
+
+- **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type. Empty values are treated as unset, so operators can enable only the settings they need.
+
+## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added
 
