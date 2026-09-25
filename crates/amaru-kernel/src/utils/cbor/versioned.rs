@@ -83,7 +83,15 @@ pub fn decode_string_v12_indefinite<'b, C: HasProtocolVersion>(
     }
 }
 
-pub fn record_v12_indefinite<'b, C: HasProtocolVersion, A>(
+/// Decode a heterogeneous CBOR array of exactly `len` elements:
+///
+///  - Definite-length only below protocol version 12
+///  - Definite- or indefinite-length from version 12 onwards.
+///
+/// This mirrors the `Decode`/`RecD` combinator the Haskell Cardano node applies below version 12,
+/// which checks for the closing break before reading any field and so rejects the indefinite form,
+/// against `decodeRecordNamed` from version 12, which accepts both.
+pub fn heterogeneous_array_v12_indefinite<'b, C: HasProtocolVersion, A>(
     d: &mut cbor::Decoder<'b>,
     ctx: &mut C,
     len: u64,
@@ -95,7 +103,7 @@ pub fn record_v12_indefinite<'b, C: HasProtocolVersion, A>(
             elems(d, ctx)
         })
     } else {
-        amaru_minicbor_extra::record(d, len, |d| elems(d, ctx))
+        amaru_minicbor_extra::heterogeneous_array_definite(d, len, |d| elems(d, ctx))
     }
 }
 
