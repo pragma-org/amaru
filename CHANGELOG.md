@@ -37,13 +37,6 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
-## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
-### Fixed
-
-- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
-
-## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
-
 ### Added
 
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
@@ -56,8 +49,9 @@ Other guiding principles:
 - **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
 - **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
+- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
 
-## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
+## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added
 
