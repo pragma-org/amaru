@@ -14,7 +14,7 @@
 
 use crate::{Bytes, ChainCode, Ed25519Signature, VerificationKey, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct BootstrapWitness {
     #[n(0)]
@@ -30,12 +30,26 @@ pub struct BootstrapWitness {
     pub attributes: Bytes,
 }
 
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for BootstrapWitness {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(4)?;
+            Ok(Self {
+                public_key: d.decode_with(ctx)?,
+                signature: d.decode_with(ctx)?,
+                chain_code: d.decode_with(ctx)?,
+                attributes: d.decode_with(ctx)?,
+            })
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::{ByronAddress, Hash, hash, include_cbor};
+    use crate::{ByronAddress, Hash, from_cbor_no_leftovers, hash, include_cbor, to_cbor};
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -50,5 +64,18 @@ mod tests {
     #[test_case(fixture!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"))]
     fn to_root_key_hash((bootstrap_witness, root): (BootstrapWitness, Hash<28>)) {
         assert_eq!(ByronAddress::root(&bootstrap_witness), root)
+    }
+
+    #[test]
+    fn rejects_an_array_with_more_than_four_elements() {
+        let (witness, _): (BootstrapWitness, Hash<28>) =
+            fixture!("232b6238656c07529e08b152f669507e58e2cb7491d0b586d9dbe425");
+
+        let mut bytes = to_cbor(&witness);
+        assert_eq!(bytes[0], 0x84, "the witness encodes as a four-element array");
+        bytes[0] = 0x85;
+        bytes.push(0x00);
+
+        assert!(from_cbor_no_leftovers::<BootstrapWitness>(&bytes).is_err(), "a fifth element must be rejected");
     }
 }

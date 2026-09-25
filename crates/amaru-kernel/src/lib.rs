@@ -59,7 +59,7 @@ pub mod cbor {
         collect_array_item_bytes, collect_map_value_bytes, count_bytes, decode_break, decode_bytes, decode_string,
         encode_bytestring, encode_variable_length_map, expect_tag, from_cbor, from_cbor_no_leftovers,
         from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, heterogeneous_map_with, lazy,
-        missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
+        missing_field, record, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
