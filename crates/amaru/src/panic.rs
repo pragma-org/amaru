@@ -19,9 +19,7 @@ use std::{io::Write, process::exit};
 pub fn panic_handler() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        // The process exits below, so TerminalGuard::drop will not run. Restore the primary
-        // screen before writing diagnostics so the panic remains visible to the operator.
-        amaru_tui::emergency_restore_terminal();
+        let restore_input = amaru_tui::emergency_restore_terminal();
 
         // We present the user with a helpful and welcoming error message;
         // Block producing nodes should be considered mission critical software, and so
@@ -45,7 +43,9 @@ pub fn panic_handler() {
             info = node_info(),
             fatal = "amaru::fatal::error",
         };
-        eprintln!("\n{}", indent(&error_message, 3));
+        let _ = write!(std::io::stderr().lock(), "\r\n{}\r\n", indent(&error_message, 3).replace('\n', "\r\n"));
+        std::io::stderr().flush().ok();
+        drop(restore_input);
         prev(info);
         // Exit with a non-zero code to indicate that the process crashed
         // otherwise it will just sit there and wait for ctrl-c without saying so.
@@ -91,4 +91,33 @@ pub fn node_version(include_commit_hash: bool) -> String {
         "".to_string()
     };
     format!("v{version}{suffix}")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{env, time::Duration};
+
+    #[test]
+    fn panic_report_includes_error_and_exits() {
+        if env::var_os("AMARU_PANIC_TEST_CHILD").is_some() {
+            super::panic_handler();
+            panic!("panic report regression test");
+        }
+
+        let output = assert_cmd::Command::new(env::current_exe().unwrap())
+            .args(["--exact", "panic::tests::panic_report_includes_error_and_exits", "--nocapture"])
+            .env("AMARU_PANIC_TEST_CHILD", "1")
+            .timeout(Duration::from_secs(10))
+            .assert()
+            .code(1)
+            .get_output()
+            .clone();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("amaru::fatal::error"), "{stderr}");
+        let error = stderr.find("panic report regression test").unwrap();
+        let report = stderr.find("amaru::fatal::error").unwrap();
+        assert!(report < error, "{stderr}");
+        assert!(stderr.contains("Operating System:"), "{stderr}");
+        assert!(!stderr.contains('\x1b'), "{stderr}");
+    }
 }

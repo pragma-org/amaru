@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use std::{
-    cell::Cell,
-    io::{self, Stdout},
-    sync::ReentrantLock,
+    io::{self, Write},
+    sync::atomic::{AtomicU8, Ordering},
 };
 
 use crossterm::{
@@ -24,9 +23,10 @@ use crossterm::{
 };
 use ratatui::{Frame, Terminal, backend::CrosstermBackend};
 
-static TERMINAL_STATE: ReentrantLock<Cell<TerminalState>> = ReentrantLock::new(Cell::new(TerminalState::Inactive));
+static TERMINAL_STATE: AtomicU8 = AtomicU8::new(TerminalState::Inactive as u8);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
 enum TerminalState {
     Inactive,
     Active,
@@ -34,32 +34,38 @@ enum TerminalState {
 }
 
 pub struct TerminalGuard {
-    terminal: Terminal<CrosstermBackend<Stdout>>,
+    terminal: Terminal<CrosstermBackend<TerminalOutput>>,
     mouse_capture_enabled: bool,
 }
 
 impl TerminalGuard {
     pub fn enter() -> io::Result<Self> {
-        let state = TERMINAL_STATE.lock();
-        match state.get() {
-            TerminalState::Active => {
+        match TERMINAL_STATE.compare_exchange(
+            TerminalState::Inactive as u8,
+            TerminalState::Active as u8,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => {}
+            Err(state) if state == TerminalState::Active as u8 => {
                 return Err(io::Error::new(io::ErrorKind::AlreadyExists, "a terminal guard is already active"));
             }
-            TerminalState::Shutdown => return Err(terminal_shutdown_error()),
-            TerminalState::Inactive => {}
+            Err(_) => return Err(terminal_shutdown_error()),
         }
 
-        state.set(TerminalState::Active);
         let setup = || {
             enable_raw_mode()?;
-            let mut stdout = std::io::stdout();
-            execute!(stdout, EnterAlternateScreen, event::EnableMouseCapture)?;
-            let backend = CrosstermBackend::new(stdout);
+            let mut output = TerminalOutput::default();
+            execute!(output, EnterAlternateScreen, event::EnableMouseCapture)?;
+            let backend = CrosstermBackend::new(output);
             let terminal = Terminal::new(backend)?;
             Ok(Self { terminal, mouse_capture_enabled: true })
         };
         match setup() {
-            Ok(_) if state.get() == TerminalState::Shutdown => Err(terminal_shutdown_error()),
+            Ok(_) if TERMINAL_STATE.load(Ordering::SeqCst) == TerminalState::Shutdown as u8 => {
+                let _ = disable_raw_mode();
+                Err(terminal_shutdown_error())
+            }
             Ok(terminal) => Ok(terminal),
             Err(error) => {
                 restore_if_active();
@@ -96,37 +102,83 @@ impl Drop for TerminalGuard {
     }
 }
 
-pub fn emergency_restore_terminal() {
-    let state = TERMINAL_STATE.lock();
-    if state.replace(TerminalState::Shutdown) == TerminalState::Active {
-        restore_terminal();
+/// Stops dashboard output and restores the primary screen before panic diagnostics are printed.
+/// Keep the returned guard until diagnostics have been flushed: dropping it restores terminal input,
+/// which may wait for terminal initialization on another thread.
+#[must_use = "keep this guard alive until panic diagnostics have been flushed"]
+pub fn emergency_restore_terminal() -> impl Drop {
+    let mut stdout = io::stdout().lock();
+    let was_active =
+        TERMINAL_STATE.swap(TerminalState::Shutdown as u8, Ordering::SeqCst) == TerminalState::Active as u8;
+    if was_active {
+        restore_screen(&mut stdout);
     }
+    RestoreTerminalInput
 }
 
 fn with_active<T>(operation: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
-    let state = TERMINAL_STATE.lock();
-    match state.get() {
-        TerminalState::Active => operation(),
-        TerminalState::Inactive | TerminalState::Shutdown => Err(terminal_shutdown_error()),
+    if TERMINAL_STATE.load(Ordering::SeqCst) == TerminalState::Active as u8 {
+        operation()
+    } else {
+        Err(terminal_shutdown_error())
     }
 }
 
 fn restore_if_active() {
-    let state = TERMINAL_STATE.lock();
-    if state.get() == TerminalState::Active {
-        restore_terminal();
-        if state.get() != TerminalState::Shutdown {
-            state.set(TerminalState::Inactive);
+    {
+        let mut stdout = io::stdout().lock();
+        if TERMINAL_STATE.load(Ordering::SeqCst) != TerminalState::Active as u8 {
+            return;
         }
+        restore_screen(&mut stdout);
     }
+    let _ = disable_raw_mode();
+    let _ = TERMINAL_STATE.compare_exchange(
+        TerminalState::Active as u8,
+        TerminalState::Inactive as u8,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
 }
 
-fn restore_terminal() {
-    let _ = disable_raw_mode();
-    let mut stdout = std::io::stdout();
+fn restore_screen(stdout: &mut impl Write) {
     let _ = execute!(stdout, event::DisableMouseCapture);
     let _ = execute!(stdout, LeaveAlternateScreen);
     let _ = execute!(stdout, cursor::Show);
+}
+
+struct RestoreTerminalInput;
+
+impl Drop for RestoreTerminalInput {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+    }
+}
+
+/// Buffers complete terminal commands so shutdown cannot interrupt an escape sequence.
+/// Only flushing takes the stdout lock; rendering never holds it. After shutdown, buffered
+/// output is discarded, including cursor restoration performed by Ratatui's destructor.
+#[derive(Default)]
+struct TerminalOutput {
+    buffer: Vec<u8>,
+}
+
+impl Write for TerminalOutput {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let mut stdout = io::stdout().lock();
+        let result = if TERMINAL_STATE.load(Ordering::SeqCst) == TerminalState::Active as u8 {
+            stdout.write_all(&self.buffer).and_then(|()| stdout.flush())
+        } else {
+            Ok(())
+        };
+        self.buffer.clear();
+        result
+    }
 }
 
 fn terminal_shutdown_error() -> io::Error {
