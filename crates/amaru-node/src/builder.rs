@@ -260,8 +260,9 @@ impl NodeBuilder {
     /// you are already inside that runtime).
     ///
     /// Incompatible ledger and chain tips return [`NodeStartError::StorePairMismatch`].
-    /// Listener port conflicts return [`NodeStartError::AddressInUse`]. Peer connectivity,
-    /// synchronization, and the separately managed submit API are outside this readiness boundary.
+    /// Listener port conflicts return [`NodeStartError::AddressInUse`], or
+    /// [`NodeStartError::ListenerBind`] if Windows reports access denied for an occupied port.
+    /// Peer connectivity, synchronization, and the separately managed submit API are outside this readiness boundary.
     /// Cancelling startup schedules cleanup on `runtime`, which must remain alive until it completes.
     pub async fn start(self, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
         let config = self.build()?;

@@ -592,7 +592,16 @@ mod tests {
             .err()
             .expect("occupied listener must fail startup");
 
-        assert!(matches!(error, NodeStartError::AddressInUse { address: failed } if failed == address), "{error:?}");
+        let occupied_address = match &error {
+            NodeStartError::AddressInUse { address: failed } => *failed == address,
+            #[cfg(windows)]
+            NodeStartError::ListenerBind { address: failed, source } => {
+                // Windows can report WSAEACCES for a second bind to an occupied port.
+                *failed == address && source.raw_os_error() == Some(10013)
+            }
+            _ => false,
+        };
+        assert!(occupied_address, "{error:?}");
         drop(RocksDB::new(&ledger_config)?);
         drop(listener);
 
