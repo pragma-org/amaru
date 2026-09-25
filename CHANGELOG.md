@@ -51,6 +51,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
 - **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
 - **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
 - **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
