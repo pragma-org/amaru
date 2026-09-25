@@ -19,7 +19,7 @@ use std::{io::Write, process::exit};
 pub fn panic_handler() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let restore_input = amaru_tui::emergency_restore_terminal();
+        amaru_tui::emergency_restore_terminal();
 
         // We present the user with a helpful and welcoming error message;
         // Block producing nodes should be considered mission critical software, and so
@@ -43,9 +43,7 @@ pub fn panic_handler() {
             info = node_info(),
             fatal = "amaru::fatal::error",
         };
-        let _ = write!(std::io::stderr().lock(), "\r\n{}\r\n", indent(&error_message, 3).replace('\n', "\r\n"));
-        std::io::stderr().flush().ok();
-        drop(restore_input);
+        eprintln!("\n{}", indent(&error_message, 3));
         prev(info);
         // Exit with a non-zero code to indicate that the process crashed
         // otherwise it will just sit there and wait for ctrl-c without saying so.
@@ -118,6 +116,7 @@ mod tests {
         let report = stderr.find("amaru::fatal::error").unwrap();
         assert!(report < error, "{stderr}");
         assert!(stderr.contains("Operating System:"), "{stderr}");
+        assert!(!stderr[..error].contains('\r'), "{stderr}");
         assert!(!stderr.contains('\x1b'), "{stderr}");
     }
 }

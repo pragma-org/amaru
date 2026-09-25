@@ -102,18 +102,20 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Stops dashboard output and restores the primary screen before panic diagnostics are printed.
-/// Keep the returned guard until diagnostics have been flushed: dropping it restores terminal input,
-/// which may wait for terminal initialization on another thread.
-#[must_use = "keep this guard alive until panic diagnostics have been flushed"]
-pub fn emergency_restore_terminal() -> impl Drop {
-    let mut stdout = io::stdout().lock();
-    let was_active =
-        TERMINAL_STATE.swap(TerminalState::Shutdown as u8, Ordering::SeqCst) == TerminalState::Active as u8;
+/// Stops dashboard output and restores the primary screen and terminal input before panic diagnostics are printed.
+pub fn emergency_restore_terminal() {
+    let was_active = {
+        let mut stdout = io::stdout().lock();
+        let was_active =
+            TERMINAL_STATE.swap(TerminalState::Shutdown as u8, Ordering::SeqCst) == TerminalState::Active as u8;
+        if was_active {
+            restore_screen(&mut stdout);
+        }
+        was_active
+    };
     if was_active {
-        restore_screen(&mut stdout);
+        let _ = disable_raw_mode();
     }
-    RestoreTerminalInput
 }
 
 fn with_active<T>(operation: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
@@ -145,14 +147,6 @@ fn restore_screen(stdout: &mut impl Write) {
     let _ = execute!(stdout, event::DisableMouseCapture);
     let _ = execute!(stdout, LeaveAlternateScreen);
     let _ = execute!(stdout, cursor::Show);
-}
-
-struct RestoreTerminalInput;
-
-impl Drop for RestoreTerminalInput {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-    }
 }
 
 /// Buffers complete terminal commands so shutdown cannot interrupt an escape sequence.
