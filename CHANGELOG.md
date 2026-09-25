@@ -42,6 +42,9 @@ Other guiding principles:
 - **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
 
 ## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
+## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
+
+## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added
 
@@ -58,10 +61,6 @@ Other guiding principles:
 - **amaru**: completed terminal progress bars remain on their own line instead of merging with later logs.
 - **amaru-network**: shutting down an idle listener no longer hangs while an accept call is waiting for a connection.
 - **amaru-consensus**: performance worker panic logs now include the panic message when it is a string.
-- **amaru-ledger**: expired governance proposals now prune their descendants, preventing synchronization from stopping at the following epoch boundary. ([#1381](https://github.com/pragma-org/amaru/issues/1381))
-
-### Fixed
-
 - **amaru-ledger**: expired governance proposals now prune their descendants, preventing synchronization from stopping at the following epoch boundary. ([#1381](https://github.com/pragma-org/amaru/issues/1381))
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
