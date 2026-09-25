@@ -8,15 +8,6 @@ on:
         type: string
         required: false
         default: ""
-    secrets:
-      R2_ACCESS_KEY_ID:
-        required: true
-      R2_SECRET_ACCESS_KEY:
-        required: true
-      S3_ENDPOINT:
-        required: true
-      CARDANO_NODE_BUCKET_NAME:
-        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -38,31 +29,27 @@ jobs:
         network:
           - name: preprod
             magic: 1
+            peer: preprod-node.play.dev.cardano.org:3001
             start_epoch: 270
             target_epoch: 280
           - name: preview
             magic: 2
+            peer: preview-node.play.dev.cardano.org:3001
             start_epoch: 1119
             target_epoch: 1180
         cardano_node_version: [11.0.1]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
-      AMARU_PEER_ADDRESS: 127.0.0.1:3001
+      AMARU_PEER_ADDRESS: ${{ matrix.network.peer }}
       AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
       TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
       AMARU_WITH_OPEN_TELEMETRY: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
       OTEL_METRIC_EXPORT_INTERVAL: 1000
       RUST_BACKTRACE: 1
-      CARDANO_NODE_IMAGE: ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}@sha256:007da778998d0bdb043fb834c62b9da1c95e33610f31f6f9cccab29a945e2b99
 
     steps:
       - name: Support longpaths
@@ -73,72 +60,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Configure runner paths
-        shell: bash
-        run: |
-          {
-            echo "CARDANO_NODE_DB=$RUNNER_TEMP/db-${{ matrix.network.name }}"
-            echo "CARDANO_NODE_SOCKET_FILE=$RUNNER_TEMP/ipc/node.socket"
-          } >> "$GITHUB_ENV"
-
       - name: Reclaim Disk Space
         run: |
           chmod +x ./scripts/cleanup-runner.sh
           ./scripts/cleanup-runner.sh
-
-      - name: Download (Haskell) cardano-node's db
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$CARDANO_NODE_DB" "$(dirname "$CARDANO_NODE_SOCKET_FILE")"
-          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "$CARDANO_NODE_DB"
-          touch "$CARDANO_NODE_DB/clean"
-
-      - name: Spawn Haskell Node
-        id: spawn-cardano-node
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
-        shell: bash
-        env:
-          CONFIG_DIR: cardano-node-config/${{ matrix.network.name }}
-        run: |
-          set -euo pipefail
-          docker pull "$CARDANO_NODE_IMAGE"
-          make download-haskell-config
-          jq '
-            .UseTraceDispatcher = true
-            | .TraceOptionMetricsPrefix = "cardano.node.metrics."
-            | .TraceOptionResourceFrequency = 1000
-            | .TraceOptions = (.TraceOptions // {})
-            | .TraceOptions[""] = ((.TraceOptions[""] // {}) + {
-                "backends": [
-                  "EKGBackend",
-                  "PrometheusSimple suffix 0.0.0.0 12798",
-                  "Stdout HumanFormatUncoloured"
-                ],
-                "detail": "DNormal",
-                "severity": "Notice"
-              })
-            | .TraceOptions.ChainDB = ((.TraceOptions.ChainDB // {}) + {"severity": "Info"})
-            | .TraceOptions.Resources = ((.TraceOptions.Resources // {}) + {"severity": "Silence"})
-          ' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
-          mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
-          jq 'del(.bootstrapPeers) | del(.peerSnapshotFile) | .useLedgerAfterSlot = -1' "./$CONFIG_DIR/topology.json" > "$CONFIG_DIR/topology.patched.json"
-          mv "$CONFIG_DIR/topology.patched.json" "$CONFIG_DIR/topology.json"
-          jq '.hasPrometheus = ["0.0.0.0", 12798]' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
-          mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
-          docker run -d --name cardano-node \
-            -v "$CARDANO_NODE_DB:/db" \
-            -v "$(dirname "$CARDANO_NODE_SOCKET_FILE"):/ipc" \
-            -v "./$CONFIG_DIR:/config" \
-            -v "./$CONFIG_DIR:/genesis" \
-            -p 3001:3001 \
-            -p 127.0.0.1:12798:12798 \
-            "$CARDANO_NODE_IMAGE" run \
-              --config /config/config.json \
-              --database-path /db \
-              --socket-path /ipc/node.socket \
-              --topology /config/topology.json
 
       - uses: ./.github/actions/stage-peer-snapshots
         if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
