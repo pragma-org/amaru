@@ -794,6 +794,47 @@ mod tests {
         assert_eq!(sequenced_proposals, vec![proposal_id_1.as_ref(), proposal_id_2.as_ref()]);
     }
 
+    #[test]
+    fn next_skips_too_fresh_proposals_and_keeps_searching() {
+        let mut forest = make_forest();
+        let too_fresh = Rc::new(make_id(1));
+        let ratifiable = Rc::new(make_id(2));
+        let epoch_size = u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1);
+
+        forest
+            .insert(
+                &ERA_HISTORY,
+                too_fresh,
+                current_epoch() + 1,
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(epoch_size * 2), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::NoConfidence(None),
+            )
+            .unwrap();
+
+        forest
+            .insert(
+                &ERA_HISTORY,
+                ratifiable.clone(),
+                current_epoch() + 1,
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::Information,
+            )
+            .unwrap();
+
+        let (id, (proposal, _)) =
+            forest.next(&PROTOCOL_PARAMETERS).expect("ratification must continue after skipping a proposal");
+
+        assert_eq!(id, ratifiable);
+        assert!(matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)));
+        assert!(forest.next(&PROTOCOL_PARAMETERS).is_none());
+    }
+
     proptest! {
         #[test]
         fn prop_insert_increase_sizes_by_one(
