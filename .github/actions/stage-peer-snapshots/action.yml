@@ -1,7 +1,7 @@
 name: Stage peer snapshots
 description: >
-  Fetches Cardano peer snapshots without authentication for amaru-node build
-  embedding.
+  Stages Cardano peer snapshots for amaru-node build embedding using Git,
+  without GitHub API requests or a token.
 
 runs:
   using: composite
