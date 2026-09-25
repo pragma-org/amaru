@@ -24,9 +24,12 @@ use amaru_kernel::{
     cardano::network_block::NetworkBlock,
 };
 use amaru_mithril::read_blocks_after_point;
-use amaru_node::stages::{
-    build_node::{make_block_validator, make_state},
-    config::LedgerConfig,
+use amaru_node::{
+    ClearValidity, realign_chain_store_to,
+    stages::{
+        build_node::{make_block_validator, make_state},
+        config::LedgerConfig,
+    },
 };
 use amaru_observability::info;
 use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
@@ -50,10 +53,16 @@ fn ensure_tips_aligned(ledger_tip: Point, chain_tip: Point) -> anyhow::Result<()
     Ok(())
 }
 
+/// Makes the best chain end at the ledger tip, so that ingestion continues from there.
+///
+/// A chain store without a best chain (as left by a bootstrap) adopts the ledger tip. A best chain
+/// that runs past the ledger tip (the ledger only persists blocks that are `k` deep) is truncated
+/// to it; the blocks after it are ingested again. A ledger tip exactly one block ahead of the best
+/// chain is adopted when that block was fully stored. Any other mismatch is an error.
 fn recover_chain_tip(chain_store: &dyn ChainStore, ledger_tip: Point) -> anyhow::Result<()> {
     let chain_tip = chain_store.get_best_chain_tip();
-    if ledger_tip == chain_tip {
-        return Ok(());
+    if chain_tip == Point::Origin || chain_store.is_on_best_chain(ledger_tip.into()) {
+        return realign_chain_store_to(chain_store, ledger_tip, ClearValidity::All);
     }
 
     let Some((header, validity)) = chain_store.load_header_with_validity(&ledger_tip.hash()) else {
@@ -148,8 +157,13 @@ pub(super) async fn run(
     let chain_store: Arc<dyn ChainStore> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
     let praos_chain_store = create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
 
-    let ledger_config =
-        LedgerConfig { ledger_store: RocksDbConfig::new(ledger_dir), network, ..LedgerConfig::default() };
+    let ledger_config = LedgerConfig {
+        ledger_store: RocksDbConfig::new(ledger_dir),
+        network,
+        era_history: era_history.clone(),
+        global_parameters: global_parameters.clone(),
+        ..LedgerConfig::default()
+    };
     let state = make_state(&ledger_config, None, chain_store.clone())?;
     let tip = state.tip().into_owned();
     recover_chain_tip(chain_store.as_ref(), tip)?;
@@ -206,4 +220,51 @@ pub(super) async fn run(
     info!(cli::mithril::INGEST_COMPLETED, processed = processed as u64, duration_seconds, processed_per_seconds);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{Header, make_header};
+    use amaru_ouroboros::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+
+    use super::*;
+
+    fn header(block_height: u64, slot: u64, parent: Option<&Header>) -> Header {
+        make_header(block_height, slot, parent.map(Header::hash))
+    }
+
+    fn chain_store_with(headers: &[&Header], best_chain: &[&Header]) -> InMemoryChainStore {
+        let chain_store = InMemoryChainStore::new();
+        for header in headers {
+            chain_store.store_header(header).unwrap();
+        }
+        for header in best_chain {
+            chain_store.set_block_valid(&header.hash(), true).unwrap();
+            chain_store.roll_forward_chain(&header.point()).unwrap();
+        }
+        chain_store
+    }
+
+    #[test]
+    fn adopts_the_ledger_tip_when_there_is_no_best_chain() {
+        let h0 = header(1, 10, None);
+        let chain_store = chain_store_with(&[&h0], &[]);
+
+        recover_chain_tip(&chain_store, h0.point()).unwrap();
+
+        assert_eq!(chain_store.get_best_chain_tip(), h0.point());
+    }
+
+    #[test]
+    fn truncates_a_best_chain_that_runs_past_the_ledger_tip() {
+        let h0 = header(1, 10, None);
+        let h1 = header(2, 20, Some(&h0));
+        let h2 = header(3, 30, Some(&h1));
+        let chain_store = chain_store_with(&[&h0, &h1, &h2], &[&h0, &h1, &h2]);
+
+        recover_chain_tip(&chain_store, h0.point()).unwrap();
+
+        assert_eq!(chain_store.get_best_chain_tip(), h0.point());
+        assert!(chain_store.load_header(&h2.hash()).is_some(), "headers after the ledger tip are kept");
+    }
 }

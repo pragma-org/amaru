@@ -21,7 +21,7 @@ use std::{
     vec::IntoIter,
 };
 
-use amaru_kernel::{GlobalParameters, Hasher, HeaderHash, NetworkName, Point, extract_block_header_cbor};
+use amaru_kernel::{GlobalParameters, Hasher, HeaderHash, NetworkName, NetworkPoint, Point, extract_block_header_cbor};
 
 use crate::parse_header_slot_and_hash;
 
@@ -209,24 +209,24 @@ fn immutable_chunk_number(path: &Path) -> Option<u64> {
 }
 
 fn consume_through_point(blocks: &mut ImmutableRawBlocksIter, point: Point, target_slot: u64) -> ImmutableResult<()> {
+    let target = NetworkPoint::from(point);
     let reached = blocks
         .by_ref()
         .map(|block| {
             let block = block?;
             let parsed = parse_header_slot_and_hash(&block)?;
-            let block_point =
-                Point::Specific(parsed.slot.into(), parsed.header_hash.into(), parsed.block_height.into());
+            let block_point = NetworkPoint::Specific(parsed.slot.into(), parsed.header_hash.into());
             Ok((block_point, parsed.slot))
         })
-        .find(|candidate: &ImmutableResult<(Point, u64)>| match candidate {
-            Ok((block_point, slot)) => *block_point == point || *slot > target_slot,
+        .find(|candidate: &ImmutableResult<(NetworkPoint, u64)>| match candidate {
+            Ok((block_point, slot)) => *block_point == target || *slot > target_slot,
             Err(_) => true,
         })
         .transpose()?;
 
     match reached {
-        Some((block_point, _)) if block_point == point => Ok(()),
-        _ => Err(anyhow::anyhow!("cannot find block in immutable storage: {point}")),
+        Some((block_point, _)) if block_point == target => Ok(()),
+        _ => Err(anyhow::anyhow!("cannot find block in immutable storage: {target}")),
     }
 }
 
@@ -433,7 +433,7 @@ fn decode_immutable_block(raw_block: Vec<u8>) -> Option<ImmutableBlock> {
 mod tests {
     use std::{fs, path::Path};
 
-    use amaru_kernel::{Hasher, NetworkName, Point, cbor};
+    use amaru_kernel::{Hasher, NetworkName, NetworkPoint, Point, cbor};
     use tempfile::TempDir;
 
     use super::{
@@ -554,6 +554,21 @@ mod tests {
         let point = Point::Specific(blocks[1].0.slot_or_default(), [0; 32].into(), blocks[1].0.block_height());
 
         assert!(read_stable_blocks_after_point(dir.path(), NetworkName::Preprod, point).is_err());
+    }
+
+    #[test]
+    fn finds_a_point_whose_block_height_is_unknown() {
+        let (dir, blocks) = immutable_store();
+        let point = NetworkPoint::from(blocks[3].0).with_height(0.into());
+        assert_ne!(point, blocks[3].0);
+
+        let actual = read_blocks_after_point(dir.path(), NetworkName::Preprod, point)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(actual, vec![blocks[4].1.clone()]);
+        validate_immutable_resume_point(dir.path(), NetworkName::Preprod, point).unwrap();
     }
 
     #[test]

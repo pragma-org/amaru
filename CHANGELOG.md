@@ -57,6 +57,15 @@ Other guiding principles:
 - **amaru-network**: shutting down an idle listener no longer hangs while an accept call is waiting for a connection.
 - **amaru-uplc**: deeply nested UPLC programs and constants no longer crash the node with a stack overflow during FLAT encoding, FLAT decoding, or result reconstruction.
 
+### Changed
+
+- **amaru**: `amaru mithril sync --ingest-until-slot` no longer downloads immutable files past the requested slot.
+
+### Fixed
+
+- **amaru**: `amaru mithril sync` now continues from a store created by `amaru node bootstrap`, and from a store left by an earlier sync. It previously stopped with `cannot find block in immutable storage` or `ledger tip ... does not match adopted chain tip`.
+- **amaru**: `amaru mithril sync` applies the era history and protocol parameters of the selected network to the ledger. It used preprod's on every network, so on preview and mainnet epoch boundaries were computed at the wrong slots. Ledger stores built with `amaru mithril sync` on those networks should be recreated.
+
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
 ### Added
