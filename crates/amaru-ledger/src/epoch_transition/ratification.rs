@@ -157,7 +157,7 @@ impl GovernanceUpdates {
 
         info_span!(ledger::epoch_transition::NEW_GOVERNANCE_UPDATES, proposals_count = proposals.len() as u64).in_scope(
             || {
-                let roots = ctx
+                let (roots, pruned_proposals) = ctx
                     .ratify_proposals(
                         era_history,
                         // Get all proposals to ratify / enact. Note that, even though the ratification happens
@@ -180,13 +180,10 @@ impl GovernanceUpdates {
                 let mut deposit_refunds = BTreeMap::new();
                 for (id, proposal) in proposals_metadata.into_iter() {
                     let expired = ctx.epoch == proposal.valid_until;
-                    let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
+                    let ratified_or_evicted = pruned_proposals.contains_key(&id);
 
-                    if expired || ratified_or_evicted {
+                    if ratified_or_evicted {
                         info!(ledger::proposal::DROP, id = id.to_string(), expired, ratified_or_evicted);
-                        // Expired proposals aren't in the pruned set yet; ratified or evicted ones
-                        // already are, and must keep the status recorded during ratification.
-                        ctx.pruned_proposals.entry(id).or_insert(RatificationStatus::NotRatified);
                         let return_account = proposal.return_account;
                         let deposit = proposal.deposit;
                         deposit_refunds
@@ -196,6 +193,8 @@ impl GovernanceUpdates {
                             })
                             .or_insert_with(|| deposit);
                     } else {
+                        assert!(!expired, "expired proposal {id} was not pruned from the proposal forest");
+
                         // NOTE: dormant epochs
                         //
                         // An epoch is said to be 'dormant' if there's no active proposals at the beginning of
@@ -225,8 +224,7 @@ impl GovernanceUpdates {
                 // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
                 // clean transfer of ownership without clone.
                 let mut pruned_proposals_str = String::new();
-                let pruned_proposals: BTreeMap<ProposalId, RatificationStatus> = ctx
-                    .pruned_proposals
+                let pruned_proposals: BTreeMap<ProposalId, RatificationStatus> = pruned_proposals
                     .into_iter()
                     .map(|(id, status)| {
                         let id = Rc::unwrap_or_clone(id);
@@ -411,11 +409,18 @@ fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, any_proposal_id};
+    use amaru_kernel::{
+        Ballot, CertificatePointer, DRep, GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
+        RewardAccount, Vote, Voter, any_hash28, any_proposal_id, any_reward_account, safe_ratio,
+    };
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
 
     use super::*;
-    use crate::{store::columns::proposals, summary::stake_distribution::StakeDistribution};
+    use crate::{
+        governance::ratification::ConstitutionalCommittee,
+        store::columns::proposals,
+        summary::{governance::DRepState, stake_distribution::StakeDistribution},
+    };
 
     fn empty_stake_distribution(epoch: Epoch) -> StakeDistribution {
         StakeDistribution {
@@ -429,6 +434,18 @@ mod tests {
             dreps: BTreeMap::new(),
             cc_update: None,
         }
+    }
+
+    fn any_withdrawal_proposal(
+        runner: &mut TestRunner,
+        valid_until: Epoch,
+        withdrawals: BTreeMap<RewardAccount, Lovelace>,
+    ) -> Proposal {
+        let mut row = proposals::tests::any_row(1_000).new_tree(runner).unwrap().current();
+        row.valid_until = valid_until;
+        row.proposal.deposit = 100_000;
+        row.proposal.gov_action = GovernanceAction::TreasuryWithdrawals(withdrawals.into(), None);
+        row
     }
 
     fn any_information_proposal(runner: &mut TestRunner, valid_until: Epoch) -> Proposal {
@@ -447,23 +464,38 @@ mod tests {
         let ratified_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
         let expired_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
 
-        let ratified = any_information_proposal(&mut runner, epoch + 5);
+        let account = any_reward_account().new_tree(&mut runner).unwrap().current();
+
+        let ratified = any_withdrawal_proposal(&mut runner, epoch + 5, BTreeMap::from([(account, 70_000)]));
         let expired = any_information_proposal(&mut runner, epoch);
 
-        let withdrawal_account = ratified.proposal.reward_account.credential();
+        let drep = any_hash28().new_tree(&mut runner).unwrap().current();
+        let mut distribution = empty_stake_distribution(epoch);
+        distribution.dreps_voting_stake = 1_000_000_000_000;
+        distribution.dreps = BTreeMap::from([(
+            DRep::Key(drep),
+            DRepState {
+                valid_until: Some(Epoch::new(99)),
+                metadata: None,
+                voting_stake: distribution.dreps_voting_stake,
+                registered_at: CertificatePointer::default(),
+            },
+        )]);
+        let votes = BTreeMap::from([(ratified_id, vec![(Voter::DRepKey(drep), Ballot::new(Vote::Yes, None))])]);
 
-        let distribution = empty_stake_distribution(epoch);
         let ctx = RatificationContext {
             epoch,
-            treasury: 1_000_000_000,
+            treasury: u64::MAX,
             stake_distribution: &distribution,
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::from([(Rc::new(ratified_id), RatificationStatus::Ratified)]),
-            withdrawals: BTreeMap::from([(withdrawal_account, 70_000)]),
-            constitutional_committee: None,
+            protocol_parameters: ProtocolParameters {
+                min_committee_size: 0,
+                ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
+            },
+            withdrawals: Default::default(),
+            constitutional_committee: Some(ConstitutionalCommittee::new(safe_ratio(0, 1), Default::default())),
             constitutional_committee_update: None,
             new_constitution: None,
-            votes: BTreeMap::new(),
+            votes,
         };
 
         let updates = GovernanceUpdates::new(

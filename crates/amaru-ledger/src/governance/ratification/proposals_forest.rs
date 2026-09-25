@@ -25,6 +25,7 @@ use amaru_kernel::{
     ProtocolVersion, RatificationStatus, display_protocol_parameters_update, utils::string::display_collection,
 };
 use amaru_observability::{debug, info};
+use itertools::Itertools;
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 use super::proposals_tree::{ProposalsTree, Sibling};
@@ -35,7 +36,10 @@ pub struct ProposalsForest {
     /// We keep a map of id -> ProposalEnum. This serves as a lookup table to retrieve proposals
     /// from the forest in a timely manner while the relationships between all proposals is
     /// maintained independently.
-    proposals: BTreeMap<Rc<ProposalId>, ProposedIn<ProposalEnum>>,
+    proposals: BTreeMap<Rc<ProposalId>, WithContext<ProposalEnum>>,
+
+    /// Proposals that have been pruned (due to being enacted, expired or removed due to either).
+    pruned: BTreeMap<Rc<ProposalId>, RatificationStatus>,
 
     /// The order in which proposals are inserted matters. The forest is an insertion-preserving
     /// structure. Iterating on the forest will yield the proposals in the order they were
@@ -72,6 +76,7 @@ impl ProposalsForest {
             current_epoch,
             is_interrupted: false,
 
+            pruned: BTreeMap::new(),
             proposals: BTreeMap::new(),
             sequence: VecDeque::new(),
 
@@ -83,9 +88,45 @@ impl ProposalsForest {
         }
     }
 
-    /// Returns an iterator over the forest's proposal.
-    pub fn new_compass(&self) -> ProposalsForestCompass {
-        ProposalsForestCompass::new(self)
+    /// Drop the forest and returns all the pruned proposals, including any proposal that expires
+    /// after this epoch round.
+    pub fn end(mut self) -> BTreeMap<Rc<ProposalId>, RatificationStatus> {
+        // Expire any proposals left whose validity is now over. Note that `self.current_epoch`
+        // describes the epoch for which the ratification is done; which is typically the *previous
+        // epoch* that the local node is terminating -> ratification happens with one epoch of
+        // delay.
+        //
+        // The sort is *necessary* and *sufficient* to ensure we correctly capture all expired
+        // proposals:
+        //
+        // - *necessary* because: we cannot rely on `self.sequence` since the ratification order
+        // enforced by `priority_insert` may re-order proposals in ways that put parents before
+        // children (e.g. NoConfidence proposals have higher priority than UpdateCommittee, yet all
+        // share the same root chain).
+        //
+        // - *sufficient* because: the proposals are proposed in a valid order; this is not only
+        // enforced by ledger rules (one cannot submit a proposal with no valid parent) but it is
+        // ALSO double-checked by the forest when it is constructed; `ProposalsTree::insert` fails
+        // when trying to insert a proposal with no valid parent.
+        //
+        // Hence, by processing proposals in submission order, we guarantee to see parents before
+        // children, and can resolve in one pass all now-expired or obsolete proposals.
+        for (id, WithContext { valid_until, proposal, .. }) in
+            self.proposals.into_iter().sorted_unstable_by_key(|(_, ctx)| ctx.proposed_in)
+        {
+            // Remove now expired proposals
+            if valid_until == self.current_epoch {
+                self.pruned.insert(id.clone(), RatificationStatus::NotRatified);
+            } else if let Some(parent) = proposal.parent()
+                // And remove any proposal that depends on an expired or evicted parent. Those that
+                // depend on a ratified proposal must stay.
+                && self.pruned.get(parent).is_some_and(|status| matches!(status, RatificationStatus::NotRatified))
+            {
+                self.pruned.insert(id, RatificationStatus::NotRatified);
+            }
+        }
+
+        self.pruned
     }
 
     /// Returns what's left from the initial treasury
@@ -118,7 +159,7 @@ impl ProposalsForest {
                 row.valid_until,
             );
 
-            forest.insert(era_history, id, row.proposed_in, row.governance_action)?;
+            forest.insert(era_history, id, row.valid_until, row.proposed_in, row.governance_action)?;
 
             Ok(forest)
         })?;
@@ -141,6 +182,7 @@ impl ProposalsForest {
         &mut self,
         era_history: &'_ EraHistory,
         id: Rc<ProposalId>,
+        valid_until: Epoch,
         proposed_in: ProposalPointer,
         proposal: GovernanceAction,
     ) -> Result<(), ProposalsInsertError<ProposalId>> {
@@ -166,7 +208,8 @@ impl ProposalsForest {
             .slot_to_epoch(slot, slot)
             .map_err(|e| ProposalsInsertError::InternalSlotToEpochError(slot, e))?;
 
-        self.proposals.insert(id.clone(), ProposedIn { epoch, pointer: proposed_in, proposal });
+        self.proposals
+            .insert(id.clone(), WithContext { proposed_in: epoch, valid_until, pointer: proposed_in, proposal });
 
         Ok(())
     }
@@ -205,8 +248,7 @@ impl ProposalsForest {
         &mut self,
         id: Rc<ProposalId>,
         proposal: &ProposalEnum,
-        compass: &mut ProposalsForestCompass,
-    ) -> Result<BTreeMap<Rc<ProposalId>, RatificationStatus>, ProposalsEnactError<ProposalId>> {
+    ) -> Result<(), ProposalsEnactError<ProposalId>> {
         // Promote to new root & remember delaying cases
         let (id, pruned) = match proposal {
             ProposalEnum::HardFork(..) => {
@@ -247,76 +289,23 @@ impl ProposalsForest {
             );
         }
 
-        let mut pruned: BTreeMap<Rc<ProposalId>, RatificationStatus> =
-            pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
-
-        pruned.insert(id, RatificationStatus::Ratified);
-
-        // Clean up the lookup table.
-        self.proposals.retain(|pid, _| !pruned.contains_key(pid.as_ref()));
-
-        // Clean up sequence, while preserving its order.
-        self.sequence.retain(|sid| !pruned.contains_key(sid.as_ref()));
-
-        // Force replacement of the compass; since any previous one is now obsolete.
-        *compass = self.new_compass();
-
-        Ok(pruned)
-    }
-
-    /// Check whether a given proposal's parent matches the current forest root. Orphans proposals
-    /// have no parents, hence they are always considering matching.
-    fn matching_root(&self, proposal: &ProposalEnum) -> bool {
-        match proposal {
-            ProposalEnum::Orphan(..) => true,
-
-            ProposalEnum::ProtocolParameters(_, parent) => parent.as_deref() == self.protocol_parameters.as_root(),
-
-            ProposalEnum::HardFork(_, parent) => parent.as_deref() == self.hard_fork.as_root(),
-
-            ProposalEnum::ConstitutionalCommittee(_, parent) => {
-                parent.as_deref() == self.constitutional_committee.as_root()
-            }
-
-            ProposalEnum::Constitution(_, parent) => parent.as_deref() == self.constitution.as_root(),
+        for id in pruned {
+            self.pruned.insert(id, RatificationStatus::NotRatified);
         }
-    }
-}
 
-/// A mutable cursor to navigate the forest. This allows to iterate over the forest elements
-/// without holding a mutable reference on the forest. The mutation is being seggregated in the
-/// compass.
-///
-/// This enables a consumer to walk the forest, and perform short-lived mutations on it (prune
-/// trees by enacting proposals). Following any mutation, a new compass needs to be acquired.
-/// Re-using an old compass will create a panic.
-#[derive(Debug)]
-pub struct ProposalsForestCompass {
-    cursor: usize,
-    original_len: usize,
-}
+        self.pruned.insert(id, RatificationStatus::Ratified);
 
-impl ProposalsForestCompass {
-    pub fn new(forest: &ProposalsForest) -> Self {
-        Self { cursor: 0, original_len: forest.sequence.len() }
+        self.proposals.retain(|id, _| !self.pruned.contains_key(id));
+
+        self.sequence.retain(|id| !self.pruned.contains_key(id));
+
+        Ok(())
     }
 
-    /// Get the next proposal in line for ratification. This relies on a few invariant from the
-    /// ProposalsForest, such that:
-    ///
-    /// - the `sequence` ultimately defines the order
-    /// - any id present in the sequence also exists in the `proposals` lookup table.
-    /// - a cursor isn't reused following an enactment.
-    pub fn next<'forest>(
+    pub fn next(
         &mut self,
-        forest: &'forest ProposalsForest,
         protocol_parameters: &'_ ProtocolParameters,
-    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
-        assert!(
-            forest.sequence.len() == self.original_len,
-            "compass re-used on a forest that has changed; you should have created a new compass."
-        );
-
+    ) -> Option<(Rc<ProposalId>, (&ProposalEnum, &ProposalPointer))> {
         // NOTE(RATIFICATION_INTERRUPTION):
         //
         // == TL; DR;
@@ -336,32 +325,31 @@ impl ProposalsForestCompass {
         //   Said differently, there can be many treasury withdrawals, protocol parameters changes
         //   or nice polls; but as soon as one of the other is encountered; EVERYTHING (including
         //   treasury withdrawals and parameters changes) is postponed until the next epoch.
-        if forest.is_interrupted {
+        if self.is_interrupted {
             return None;
         }
 
-        loop {
-            let step = self.step(forest, protocol_parameters);
-            self.cursor += 1;
-            if step.is_some() || self.cursor >= self.original_len {
-                return step;
+        while let Some(id) = self.sequence.pop_front() {
+            let proposal = self.proposals.get(&id).unwrap_or_else(|| {
+                unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
+            });
+
+            if let Some(step) = self.step(id, proposal, protocol_parameters) {
+                return Some(step);
             }
         }
+
+        None
     }
 
-    fn step<'forest>(
+    fn step<'a>(
         &self,
-        forest: &'forest ProposalsForest,
+        id: Rc<ProposalId>,
+        WithContext { proposed_in, pointer, proposal, .. }: &'a WithContext<ProposalEnum>,
         protocol_parameters: &'_ ProtocolParameters,
-    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
+    ) -> Option<(Rc<ProposalId>, (&'a ProposalEnum, &'a ProposalPointer))> {
         use ConstitutionalCommitteeUpdate::*;
         use OrphanProposal::*;
-
-        let id = forest.sequence.get(self.cursor)?.clone();
-
-        let ProposedIn { epoch: proposed_in, proposal, pointer } = forest.proposals.get(&id).unwrap_or_else(|| {
-            unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
-        });
 
         // NOTE: Skip just-submitted governance proposals
         //
@@ -376,12 +364,12 @@ impl ProposalsForestCompass {
         // - `forest.current_epoch` contains the minimum epoch for which we might consider
         // for ratification. If a proposal was submitted in the epoch that just ended, we
         // skip it.
-        if proposed_in > &forest.current_epoch {
+        if proposed_in > &self.current_epoch {
             debug!(
                 ledger::proposal::SKIP,
                 id = id.as_ref(),
                 proposed_in,
-                ratifying_epoch = forest.current_epoch,
+                ratifying_epoch = self.current_epoch,
                 reason = "too fresh; ratification will begin next epoch",
             );
             return None;
@@ -395,12 +383,12 @@ impl ProposalsForestCompass {
         // the treasury.
         if let ProposalEnum::Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
             let total_withdrawn = withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n));
-            if total_withdrawn > forest.treasury() {
+            if total_withdrawn > self.treasury() {
                 debug!(
                     ledger::proposal::SKIP,
                     id = id.as_ref(),
                     withdrawal = total_withdrawn,
-                    treasury = forest.treasury(),
+                    treasury = self.treasury(),
                     reason = "impossible withdrawal; treasury is depleted",
                 );
                 return None;
@@ -422,7 +410,7 @@ impl ProposalsForestCompass {
         // This is NOT confusing at all. <insert sobbing emoji>.
         if let ProposalEnum::ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
             let max_term_length = protocol_parameters.max_committee_term_length;
-            let is_now_invalid = |valid_until| valid_until > &(forest.current_epoch + 1 + max_term_length);
+            let is_now_invalid = |valid_until| valid_until > &(self.current_epoch + 1 + max_term_length);
             if added.values().any(is_now_invalid) {
                 let invalid_members =
                     added.iter().filter(|(_, v)| is_now_invalid(v)).map(|(k, _)| k.as_hash()).collect::<Vec<_>>();
@@ -447,7 +435,7 @@ impl ProposalsForestCompass {
         // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
         // The order is given by their point of submission; and thus, proposals submitted later may
         // points to totally different (and active) roots. So we just skip those proposals.
-        if forest.matching_root(proposal) {
+        if self.matching_root(proposal) {
             Some((id, (proposal, pointer)))
         } else {
             debug!(
@@ -456,6 +444,20 @@ impl ProposalsForestCompass {
                 reason = "non-matching root; proposal will be pruned later"
             );
             None
+        }
+    }
+
+    /// Check whether a given proposal's parent matches the current forest root. Orphans proposals
+    /// have no parents, hence they are always considering matching.
+    fn matching_root(&self, proposal: &ProposalEnum) -> bool {
+        match proposal {
+            ProposalEnum::Orphan(..) => true,
+            ProposalEnum::ProtocolParameters(_, parent) => parent.as_deref() == self.protocol_parameters.as_root(),
+            ProposalEnum::HardFork(_, parent) => parent.as_deref() == self.hard_fork.as_root(),
+            ProposalEnum::ConstitutionalCommittee(_, parent) => {
+                parent.as_deref() == self.constitutional_committee.as_root()
+            }
+            ProposalEnum::Constitution(_, parent) => parent.as_deref() == self.constitution.as_root(),
         }
     }
 }
@@ -677,10 +679,11 @@ impl From<proposals::Row> for CandidateProposal {
 // Helpers
 // ----------------------------------------------------------------------------
 
-/// A type akin to a (Epoch, T), but with field name for readability.
+/// A proposal with its submission time and final valid epoch.
 #[derive(Debug, Clone)]
-pub struct ProposedIn<T> {
-    pub epoch: Epoch,
+pub struct WithContext<T> {
+    pub proposed_in: Epoch,
+    pub valid_until: Epoch,
     pub pointer: ProposalPointer,
     pub proposal: T,
 }
@@ -691,12 +694,12 @@ fn priority_insert(
     seq: &mut VecDeque<Rc<ProposalId>>,
     new_id: Rc<ProposalId>,
     (new_pointer, new_proposal): (&ProposalPointer, &ProposalEnum),
-    proposals: &BTreeMap<Rc<ProposalId>, ProposedIn<ProposalEnum>>,
+    proposals: &BTreeMap<Rc<ProposalId>, WithContext<ProposalEnum>>,
 ) {
     let mut insertion_ix = 0;
 
     for id in seq.iter() {
-        if let Some(ProposedIn { proposal, pointer, .. }) = proposals.get(id) {
+        if let Some(WithContext { proposal, pointer, .. }) = proposals.get(id) {
             match proposal.cmp_priority(new_proposal) {
                 // Next proposal has a lower priority;
                 // -> we must insert before it.
@@ -741,10 +744,10 @@ mod tests {
     use amaru_kernel::{
         Anchor, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
         MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal,
-        ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, RewardAccount,
-        Slot, TransactionPointer, any_constitution, any_constitutional_committee_update, any_gov_action,
-        any_proposal_enum, any_proposal_id, any_proposal_pointer, any_protocol_params_update, any_protocol_version,
-        any_reward_account,
+        ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RatificationStatus,
+        RationalNumber, RewardAccount, Slot, TransactionPointer, any_constitution, any_constitutional_committee_update,
+        any_gov_action, any_proposal_enum, any_proposal_id, any_proposal_pointer, any_protocol_params_update,
+        any_protocol_version, any_reward_account,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -810,6 +813,96 @@ mod tests {
         assert_eq!(sequenced_proposals, vec![proposal_id_1.as_ref(), proposal_id_2.as_ref()]);
     }
 
+    #[test]
+    fn next_skips_too_fresh_proposals_and_keeps_searching() {
+        let mut forest = make_forest();
+        let too_fresh = Rc::new(make_id(1));
+        let ratifiable = Rc::new(make_id(2));
+        let epoch_size = u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1);
+
+        forest
+            .insert(
+                &ERA_HISTORY,
+                too_fresh,
+                current_epoch() + 1,
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(epoch_size * 2), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::NoConfidence(None),
+            )
+            .unwrap();
+
+        forest
+            .insert(
+                &ERA_HISTORY,
+                ratifiable.clone(),
+                current_epoch() + 1,
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::Information,
+            )
+            .unwrap();
+
+        let (id, (proposal, _)) =
+            forest.next(&PROTOCOL_PARAMETERS).expect("ratification must continue after skipping a proposal");
+
+        assert_eq!(id, ratifiable);
+        assert!(matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)));
+        assert!(forest.next(&PROTOCOL_PARAMETERS).is_none());
+    }
+
+    #[test]
+    fn end_prunes_valid_children_of_expired_parents_regardless_of_priority() {
+        let mut forest = make_forest();
+        let parent = Rc::new(make_id(1));
+        let child = Rc::new(make_id(2));
+
+        forest
+            .insert(
+                &ERA_HISTORY,
+                parent.clone(),
+                current_epoch(),
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::UpdateCommittee(
+                    None,
+                    vec![],
+                    KeyValuePairs::default(),
+                    RationalNumber { numerator: 0, denominator: 1 },
+                ),
+            )
+            .unwrap();
+
+        // NoConfidence action have a higher priority than update committee actions; so if we
+        // blindly traverse proposals in ratification order, we may end up keeping a child whose
+        // parent has expired.
+        forest
+            .insert(
+                &ERA_HISTORY,
+                child.clone(),
+                current_epoch() + 1,
+                ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(1), transaction_index: 0 },
+                    proposal_index: 0,
+                },
+                GovernanceAction::NoConfidence(Some(*parent)),
+            )
+            .unwrap();
+
+        let sequence: Vec<_> = forest.sequence.iter().cloned().collect();
+        assert_eq!(sequence, vec![child.clone(), parent.clone()]);
+
+        assert_eq!(
+            forest.end(),
+            BTreeMap::from([(parent, RatificationStatus::NotRatified), (child, RatificationStatus::NotRatified)])
+        );
+    }
+
     proptest! {
         #[test]
         fn prop_insert_increase_sizes_by_one(
@@ -826,7 +919,7 @@ mod tests {
                 action = set_parent(action, select(&parents, parent));
             }
 
-            forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action).unwrap();
+            forest.insert(&ERA_HISTORY, Rc::new(id), forest.current_epoch + 1, pointer, action).unwrap();
 
             let size_after = check_invariants(&forest);
 
@@ -835,13 +928,12 @@ mod tests {
     }
 
     #[test]
-    fn prop_compass_sometimes_yield_constitutional_committee() {
+    fn prop_forest_sometimes_yield_constitutional_committee() {
         assert_strategy_sometimes_fails(
             any_proposals_forest(),
             ProptestConfig { rng_seed: RngSeed::Fixed(14), ..ProptestConfig::default() },
-            |DebugAsDisplay(forest)| {
-                let mut compass = forest.new_compass();
-                while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+            |DebugAsDisplay(mut forest)| {
+                while let Some((_, (proposal, _))) = forest.next(&PROTOCOL_PARAMETERS) {
                     prop_assert!(!proposal.is_committee_member_update())
                 }
                 Ok(())
@@ -850,13 +942,12 @@ mod tests {
     }
 
     #[test]
-    fn prop_compass_sometimes_yield_treasury_withdrawals() {
+    fn prop_forest_sometimes_yield_treasury_withdrawals() {
         assert_strategy_sometimes_fails(
             any_proposals_forest(),
             ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
-            |DebugAsDisplay(forest)| {
-                let mut compass = forest.new_compass();
-                while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+            |DebugAsDisplay(mut forest)| {
+                while let Some((_, (proposal, _))) = forest.next(&PROTOCOL_PARAMETERS) {
                     prop_assert!(!matches!(proposal, ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(..))));
                 }
                 Ok(())
@@ -865,13 +956,12 @@ mod tests {
     }
 
     #[test]
-    fn prop_compass_sometimes_yield_parameter_changes() {
+    fn prop_forest_sometimes_yield_parameter_changes() {
         assert_strategy_sometimes_fails(
             any_proposals_forest(),
             ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
-            |DebugAsDisplay(forest)| {
-                let mut compass = forest.new_compass();
-                while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+            |DebugAsDisplay(mut forest)| {
+                while let Some((_, (proposal, _))) = forest.next(&PROTOCOL_PARAMETERS) {
                     prop_assert!(!matches!(proposal, ProposalEnum::ProtocolParameters(..)));
                 }
                 Ok(())
@@ -881,12 +971,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_max_cc_term_length_influence_compass_next(
+        fn prop_max_cc_term_length_influence_forest_next(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
         ) {
-            let mut compass = forest.new_compass();
             let mut cc_update = None;
-            while let Some((id, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+            let mut scout = forest.clone();
+            while let Some((id, (proposal, _))) = scout.next(&PROTOCOL_PARAMETERS) {
                 if let ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { added, .. }, _) = proposal
                     && let Some(max_valid_until) = added.values().max()
                     && max_valid_until.as_u64() > 2 {
@@ -902,9 +992,9 @@ mod tests {
 
             if let Some((target_proposal, max_valid_until)) = cc_update {
                 // Does not yield cc proposals that contains invalid members.
-                forest.current_epoch = max_valid_until - 2;
-                compass = forest.new_compass();
-                while let Some((id, (_, _))) = compass.next(&forest, &protocol_parameters) {
+                let mut forest_old = forest.clone();
+                forest_old.current_epoch = max_valid_until - 2;
+                while let Some((id, (_, _))) = forest_old.next(&protocol_parameters) {
                     prop_assert!(
                         id != target_proposal,
                         "yielded constitutional committee update ({id}) despite now-invalid committee"
@@ -913,8 +1003,7 @@ mod tests {
 
                 // Yield cc proposals that contains barely valid members
                 forest.current_epoch = max_valid_until - 1;
-                compass = forest.new_compass();
-                while let Some((id, (_, _))) = compass.next(&forest, &protocol_parameters) {
+                while let Some((id, (_, _))) = forest.next(&protocol_parameters) {
                     if id == target_proposal {
                         return Ok(());
                     }
@@ -931,16 +1020,18 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_compass_traverse_whole_forest_and_eventually_yield_none(
-            DebugAsDisplay(forest) in any_proposals_forest(),
+        fn prop_traverse_whole_forest_and_eventually_yield_none(
+            DebugAsDisplay(mut forest) in any_proposals_forest(),
         ) {
             let mut previous_proposal = None;
-            let mut compass = forest.new_compass();
 
-            while let Some((id, (proposal, pointer))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+            while let Some((id, (proposal, pointer))) = forest.next(&PROTOCOL_PARAMETERS) {
+                let proposal = proposal.clone();
+                let pointer = *pointer;
+
                 // Controls that the yielded proposal always has a matching root.
                 let roots = forest.roots();
-                match proposal {
+                match &proposal {
                     ProposalEnum::ProtocolParameters(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.protocol_parameters.as_ref(),
@@ -982,7 +1073,7 @@ mod tests {
                     "yielded proposal too early for ratification",
                 );
 
-                if let Some((previous_proposal, previous_pointer)) = previous_proposal {
+                if let Some((previous_proposal, previous_pointer)) = &previous_proposal {
                     // Controls that any yielded proposal comes with a lower priority than any
                     // previously yielded one.
                     let relative_priority = proposal.cmp_priority(previous_proposal);
@@ -1013,8 +1104,7 @@ mod tests {
             proposal_id in any_proposal_id(),
             proposal in any_proposal_enum(),
         ) {
-            let mut compass = forest.new_compass();
-            prop_assert!(forest.enact(Rc::new(proposal_id), &proposal, &mut compass).is_err());
+            prop_assert!(forest.enact(Rc::new(proposal_id), &proposal).is_err());
         }
     }
 
@@ -1024,7 +1114,7 @@ mod tests {
             (any_grown_proposals_forest(), any_gov_action(), any_proposal_pointer(u64::MAX)),
             ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
             |((DebugAsDisplay(mut forest), root), action, proposed_in)| {
-                let _ = forest.insert(&ERA_HISTORY, Rc::new(root), proposed_in, action);
+                let _ = forest.insert(&ERA_HISTORY, Rc::new(root), forest.current_epoch + 1, proposed_in, action);
             },
         );
     }
@@ -1032,11 +1122,10 @@ mod tests {
     proptest! {
         #[test]
         fn prop_can_enact_any_of_the_yielded_proposal(
-            DebugAsDisplay(forest) in any_non_empty_proposals_forest()
+            DebugAsDisplay(mut forest) in any_non_empty_proposals_forest()
         ) {
-            let mut compass = forest.new_compass();
             let mut to_enact = Vec::new();
-            while let Some((id, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+            while let Some((id, (proposal, _))) = forest.next(&PROTOCOL_PARAMETERS) {
                 to_enact.push((id, proposal.clone()));
             }
 
@@ -1045,20 +1134,18 @@ mod tests {
                 // proposals.
                 let mut forest = forest.clone();
 
-                let mut compass = forest.new_compass();
-
-                let pruned = forest.enact(id.clone(), &proposal, &mut compass).unwrap();
+                forest.enact(id.clone(), &proposal).unwrap();
 
                 // Control that
-                // (1) the compass still work;
+                // (1) the forest still work;
                 // (2) we never yield a pruned proposal;
                 // (3) no proposal are yielded after enacting a high-impact one;
                 let mut yielded_another = false;
-                while let Some((id, _)) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
+                while let Some((id, _)) = forest.next(&PROTOCOL_PARAMETERS) {
                     yielded_another = true;
                     prop_assert!(
-                        !pruned.contains_key(&id),
-                        "compass yielded a pruned proposal!",
+                        !forest.pruned.contains_key(&id),
+                        "forest yielded a pruned proposal!",
                     );
                 }
 
@@ -1092,7 +1179,7 @@ mod tests {
     // proposals but don't yield them won't be generated by this.
     fn any_non_empty_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
         any_proposals_forest().prop_filter("forest is not empty", |DebugAsDisplay(forest)| {
-            forest.new_compass().next(forest, &PROTOCOL_PARAMETERS).is_some()
+            forest.clone().next(&PROTOCOL_PARAMETERS).is_some()
         })
     }
 
@@ -1199,7 +1286,15 @@ mod tests {
                             std::iter::empty().chain(protocol_parameters.1).chain(orphan).for_each(
                                 |(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action.clone()).unwrap();
+                                    forest
+                                        .insert(
+                                            &ERA_HISTORY,
+                                            Rc::new(id),
+                                            forest.current_epoch + 1,
+                                            pointer,
+                                            action.clone(),
+                                        )
+                                        .unwrap();
                                 },
                             );
                         } else {
@@ -1211,7 +1306,15 @@ mod tests {
                                 .chain(orphan)
                                 .for_each(|(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action.clone()).unwrap();
+                                    forest
+                                        .insert(
+                                            &ERA_HISTORY,
+                                            Rc::new(id),
+                                            forest.current_epoch + 1,
+                                            pointer,
+                                            action.clone(),
+                                        )
+                                        .unwrap();
                                 });
                         }
 

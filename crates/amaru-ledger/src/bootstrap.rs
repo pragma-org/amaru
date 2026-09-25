@@ -918,19 +918,23 @@ fn import_recently_pruned_proposals(
         let mut forest = ProposalsForest::new(epoch - 1, &ProposalsRootsRc::from(roots.clone()), 0)
             .drain(era_history, candidates)
             .map_err(|err| anyhow!("replay enacted proposals: {err}"))?;
-        let mut compass = forest.new_compass();
 
+        // FIXME: Enact in order when bootstrapping
+        //
+        // There's no guarantee that the 'enacted' list here is _in order_. In case where multiple
+        // dependent proposals are enacted in the same epoch boundary, we must enact them *in
+        // order* since enacting proposals prunes conflicting proposals and requires matching roots.
         for enacted_state in enacted {
             let id = Rc::new(enacted_state.id);
             let proposal = forest
                 .get(&id)
                 .cloned()
                 .ok_or_else(|| anyhow!("enacted proposal {id} not found in the imported proposals"))?;
-            for (pruned_id, status) in
-                forest.enact(id, &proposal, &mut compass).map_err(|err| anyhow!("replay enacted proposals: {err}"))?
-            {
-                pruned.insert(*pruned_id, status);
-            }
+            forest.enact(id, &proposal).map_err(|err| anyhow!("replay enacted proposals: {err}"))?;
+        }
+
+        for (pruned_id, status) in forest.end() {
+            pruned.insert(*pruned_id, status);
         }
     }
 
