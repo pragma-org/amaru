@@ -105,8 +105,6 @@ jobs:
   snapshots:
     name: Compare ledger epoch snapshots
     uses: ./.github/workflows/template-ledger-epoch-snapshots.yml
-    with:
-      CARDANO_NODE_DB_URL: ${{ vars.CARDANO_NODE_DB_URL }}
 
   benches:
     name: Bench
