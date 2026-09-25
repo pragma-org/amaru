@@ -77,7 +77,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Value {
                 Ok(Value::Coin(d.decode_with(ctx)?))
             }
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
-                cbor::record_v12_indefinite(d, ctx, 2, |d, ctx| {
+                cbor::heterogeneous_array_v12_indefinite(d, ctx, 2, |d, ctx| {
                     let coin = d.decode_with(ctx)?;
                     let multiasset: Multiasset<PositiveCoin> = d.decode_with(ctx)?;
                     // In the Haskell code this normalization of a bare coin only occurs in the

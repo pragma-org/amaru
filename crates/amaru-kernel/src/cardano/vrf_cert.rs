@@ -29,7 +29,9 @@ pub struct VrfCert {
 /// length outright. An indefinite-length encoding is rejected at every protocol version.
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for VrfCert {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::record(d, 2, |d| Ok(Self { output: d.decode_with(ctx)?, proof: d.decode_with(ctx)? }))
+        cbor::heterogeneous_array_definite(d, 2, |d| {
+            Ok(Self { output: d.decode_with(ctx)?, proof: d.decode_with(ctx)? })
+        })
     }
 }
 
