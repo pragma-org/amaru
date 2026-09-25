@@ -56,6 +56,10 @@ pub enum FlatDecodeError {
     ConstantTypeNotAvailable(u8, &'static str),
     #[error("Term {1} (tag {0}) is not available before UPLC version 1.1.0")]
     TermNotAvailable(u8, &'static str),
+    #[error("Constructor with {0} fields exceeds the maximum of {1} for this protocol version")]
+    ConstructorTooWide(usize, usize),
+    #[error("Constant type header of {0} tags exceeds the maximum of {1} for this protocol version")]
+    TypeHeaderTooLong(usize, usize),
     #[error("Word value overflow: LEB128 value exceeds machine word size")]
     WordOverflow,
 }
