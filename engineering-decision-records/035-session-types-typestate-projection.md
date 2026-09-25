@@ -33,7 +33,7 @@ State progression along the program source code has been expressed in Rust for a
 
 The main ingredient for making this safe and effective is using Rust’s _affine types_, meaning that we can consume a value to make it unusable — this way, a function can consume a builder of a given type and return a new builder with a modified type.
 
-The idea in this EDR is to apply this principle to the execution of effects in pure-stage, only there are whole lists of effects to be run, and those lists depend on which mini-protocol handler we are looking at. The main abstraction we use here is called a “typestate remainder”, which is a type-level object that we perform type-level computations one.
+The idea in this EDR is to apply this principle to the execution of effects in pure-stage, only there are whole lists of effects to be run, and those lists depend on which mini-protocol handler we are looking at. The main abstraction we use here is called a “typestate remainder”, which is a type-level object on which we perform type-level computations.
 
 ### Typestate remainders
 
@@ -129,8 +129,8 @@ The overall verification relation we want is refinement: the handler’s behavio
 | `project` | Peer sends and receives; plumbing, timers, and local roles removed | The spec has no edges for those |
 | `assert_structurally_eq` | Labels, direction, agency, terminals of the reachable machine. Names ignored. An extra edge, or a redundant state, fails | The wire conversation is Table 3.7 |
 | `dual` | Send and receive swapped, agency copied | One diagram, two roles |
-| `check_timeouts` | `SetTimeout` / `ClearTimeout` present or absent on the remainder, by the spec’s agency notes | A timed state must arm a timer. The `Duration` argument is not read |
-| `check_want_next` | `WantNext` and `Pull` on the unprojected graph | Back-pressure, including the pipelined case |
+| `check_timeouts` | `SetTimeout` / `ClearTimeout` present or absent on the remainder, by the spec’s agency notes | A timed state must arm a timer. When a local input leaves the switch for a timed remote state, that state must have a `Pull` arm: the entry itself is not allowed to arm the timer. The `Duration` argument is not read |
+| `check_want_next` | `WantNext` and `Pull` on the unprojected graph | Back-pressure. `Pull` is required on the driven state entered from the switch. The pipeliner does not inject it again while the instance stays remote, so a later state such as `Streaming` arms `WantNext` on its wire arms |
 | `assert_wire_inputs_cover_receives` | Every receive arm is plumbing, local, or wire, and every wire label occurs in the spec | A forgotten arm does not skip the comparison |
 
 `SessionSpec::assert_refines` is a separate helper for two undirected tables. It is equality after a name map. It does not compare timeouts, and it is not the inclusion check the name suggests. `ProtoSpec::assert_refines` is the same idea on the old tables.
@@ -140,6 +140,12 @@ The overall verification relation we want is refinement: the handler’s behavio
 The typestate syntax can describe machines this CFSM cannot draw. The test fails instead of dropping the edge.
 
 `Repeat` of two different wire messages (`star!(RequestRange, ClientDone)`) is the obvious case. A star in the projected machine is a self-loop of one label, left by a later different label (`Block*`, then `BatchDone`). A star of a sequence has no single label to loop on. Two wire stars with no wire message between them (`Repeat<A>, Repeat<B>`) are the same problem one step later: both loops would sit on one vertex, and `B` then `A` would be allowed. A trailing wire star whose next state is a different vertex (`Repeat<A> => Done`, or `Call<A>, Repeat<B> => Idle` once `A` has already moved the vertex) has no message to label the exit.
+
+A star followed by a send that comes back to the same vertex is rejected for the same reason. The drawing would be two self-loops, so either message could be sent at any time. That is a larger language than “the star, then that send”.
+
+A `Pull` arm is not a wire event. If it sends a peer message, or finishes in another state, projection rejects it. Dropping the arm would hide that edge.
+
+Every state in the spec must be reachable from `[*]`. An orientation that would leave a state’s outgoing edges unreachable is rejected too: that happens when `sim_open` is the only way into a state and the agency holder omits that edge. The handler side has the same rule. A wire edge in a state the projection cannot reach from the initial state is an error, not something the comparison skips.
 
 When a protocol actually needs one of those shapes, the projection has to grow an edge for it. Rewriting the handler so the star is one wire message with a visible exit is the path BlockFetch already uses. Encoding the same check in the type system, so that “it compiles” would be enough, was tried; Rust would not carry it. The test is that second checker.
 

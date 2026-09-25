@@ -29,7 +29,9 @@ use std::{
     time::Duration,
 };
 
-use crate::typestate::{EffectAst, InputName, Occupancy, PayloadName, RoleName, StateName, ThenAst, TypeGraph};
+use crate::typestate::{
+    EffectAst, InputName, Occupancy, PayloadName, RemainderAst, RoleName, StateName, ThenAst, TypeGraph,
+};
 
 /// Who may send in a binary session (network-spec Client / Server).
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
@@ -139,11 +141,13 @@ impl PartialEq for Cfsm {
 impl Eq for Cfsm {}
 
 impl Cfsm {
-    /// Panic unless the reachable fragments are isomorphic.
+    /// Panic unless the two machines are the same deterministic automaton.
     ///
     /// Edge labels, agency, and terminal-ness must match. State names are not
     /// compared. This is not language inclusion: an extra edge on either side
     /// fails, and two machines that differ only by a redundant state fail too.
+    /// A state that has edges and is not reachable from the initial vertex
+    /// fails as well; those edges are not dropped.
     #[track_caller]
     pub fn assert_structurally_eq(&self, other: &Cfsm) {
         if let Err(reason) = self.structural_eq(other) {
@@ -156,6 +160,12 @@ impl Cfsm {
     }
 
     fn structural_eq(&self, other: &Cfsm) -> Result<(), String> {
+        if let Some(reason) = self.unreachable_edges() {
+            return Err(reason);
+        }
+        if let Some(reason) = other.unreachable_edges() {
+            return Err(reason);
+        }
         let a = self.reachable_fragment();
         let b = other.reachable_fragment();
         let mut fwd = BTreeMap::new();
@@ -268,6 +278,22 @@ impl Cfsm {
             }
         }
         seen
+    }
+
+    /// `None` when every vertex that has an edge is reachable from [`Self::initial`].
+    ///
+    /// Edgeless vertices are ignored here. Callers that compare machines must
+    /// not treat an unreachable edge as absent: that would make a wrong
+    /// component compare equal.
+    fn unreachable_edges(&self) -> Option<String> {
+        let reach = self.reachable();
+        let bad: Vec<String> = self
+            .transitions
+            .iter()
+            .filter(|(v, edges)| !edges.is_empty() && !reach.contains(v))
+            .map(|(v, _)| self.fmt_vertex(*v))
+            .collect();
+        if bad.is_empty() { None } else { Some(format!("unreachable edges at {bad:?}")) }
     }
 
     fn reachable_fragment(&self) -> Cfsm {
@@ -397,14 +423,20 @@ impl SessionSpec {
 
     /// Orient: from a state where `role == agency`, outgoing labels are Send; otherwise Recv.
     /// `sim_open` edges are Recv of the aliased message for the waiting role.
+    ///
+    /// Panics if a state mentioned in the table is not reachable from the start,
+    /// or if this orientation would leave a state that still has outgoing edges
+    /// unreachable (a `sim_open` edge is the only way in, and this role omits it).
+    /// Those edges would otherwise disappear from the comparison.
     pub fn project(&self, role: Agency) -> Cfsm {
         let Some(initial) = self.initial else {
             panic!("SessionSpec::project on empty spec");
         };
+        self.panic_if_undirected_unreachable(initial);
         let mut alloc = Alloc::default();
         let initial_v = alloc.named(initial);
 
-        let mut states = BTreeSet::new();
+        let mut states = BTreeSet::from([initial_v]);
         let mut transitions: BTreeMap<Vertex, BTreeMap<Label, Vertex>> = BTreeMap::new();
         let mut agency = BTreeMap::new();
 
@@ -435,8 +467,60 @@ impl SessionSpec {
 
         let mut cfsm =
             Cfsm { states, initial: initial_v, terminal: BTreeSet::new(), agency, transitions, names: alloc.names };
+        if let Some(reason) = cfsm.unreachable_edges() {
+            panic!("SessionSpec::project: {reason} (outgoing edges not reachable from the start)");
+        }
         cfsm.recompute_terminal();
         cfsm
+    }
+
+    /// Every state that appears as a source or a target can be reached from `initial`
+    /// by following edges in either direction. `sim_open` counts: the undirected
+    /// table is the diagram, before a role omits that edge.
+    fn panic_if_undirected_unreachable(&self, initial: StateName) {
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![initial];
+        while let Some(state) = stack.pop() {
+            if !seen.insert(state) {
+                continue;
+            }
+            if let Some(per) = self.transitions.get(state) {
+                stack.extend(per.transitions.values().map(|edge| edge.to));
+            }
+        }
+        let mut mentioned = BTreeSet::new();
+        for (from, per) in &self.transitions {
+            mentioned.insert(*from);
+            mentioned.extend(per.transitions.values().map(|edge| edge.to));
+        }
+        let unreachable: Vec<StateName> = mentioned.difference(&seen).copied().collect();
+        if !unreachable.is_empty() {
+            panic!("SessionSpec states not reachable from {initial}: {unreachable:?}");
+        }
+    }
+
+    /// The mermaid notes are the agency of each state that has edges.
+    ///
+    /// A second note for the same state is rejected. A note that disagrees with
+    /// the edges is rejected, including a `sim_open` state whose note does not
+    /// say `Responder`. A state with edges and no note is rejected.
+    pub fn assert_agency_notes(&self, notes: &[(&'static str, Agency)]) {
+        let mut seen = BTreeSet::new();
+        for &(state, noted) in notes {
+            if !seen.insert(state) {
+                panic!("session_spec!: duplicate note on {state}");
+            }
+            if let Some(per) = self.transitions.get(state)
+                && per.agency != noted
+            {
+                panic!("session_spec!: note on {state} says {noted:?} but the edges are {:?}", per.agency);
+            }
+        }
+        for state in self.transitions.keys() {
+            if !seen.contains(state) {
+                panic!("session_spec!: missing `note left of {state}: Initiator` or `Responder`");
+            }
+        }
     }
 }
 
@@ -499,22 +583,79 @@ pub struct ProjectionConfig {
 /// Why mux projection of a remainder graph failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProjectError {
-    ParallelWire { state: StateName, input: InputName },
-    NoWireFromLocal { state: StateName, input: InputName },
-    MixedHidableWireChoice { state: StateName, input: InputName },
-    EmptyWireAlternatives { state: StateName, input: InputName },
-    OverlappingInput { input: InputName },
-    Nondeterministic { state: Vertex, label: String },
-    MixedAgency { state: Vertex },
-    AmbiguousRepeat { origin: Vertex },
-    RepeatStarTooWide { origin: Vertex },
-    SequencedRepeat { origin: Vertex },
-    TrailingRepeat { origin: Vertex },
-    PeerSendAny { role: RoleName },
-    UnknownPeerPayload { payload: PayloadName },
-    UnknownRole { role: RoleName },
-    OccupancyDisagree { state: StateName },
-    UnknownInput { state: StateName, input: InputName },
+    ParallelWire {
+        state: StateName,
+        input: InputName,
+    },
+    NoWireFromLocal {
+        state: StateName,
+        input: InputName,
+    },
+    MixedHidableWireChoice {
+        state: StateName,
+        input: InputName,
+    },
+    EmptyWireAlternatives {
+        state: StateName,
+        input: InputName,
+    },
+    OverlappingInput {
+        input: InputName,
+    },
+    Nondeterministic {
+        state: Vertex,
+        label: String,
+    },
+    MixedAgency {
+        state: Vertex,
+    },
+    AmbiguousRepeat {
+        origin: Vertex,
+    },
+    RepeatStarTooWide {
+        origin: Vertex,
+    },
+    SequencedRepeat {
+        origin: Vertex,
+    },
+    TrailingRepeat {
+        origin: Vertex,
+    },
+    /// A star and a later send both stay on the same vertex. Two self-loops are
+    /// a larger language than “the star, then that send”.
+    RepeatExitStays {
+        origin: Vertex,
+    },
+    /// A plumbing arm contains a peer wire effect. Dropping the arm would hide it.
+    PlumbingHasWire {
+        state: StateName,
+        input: InputName,
+    },
+    /// A plumbing arm finishes in a different state. That is a silent transition.
+    PlumbingChangesState {
+        state: StateName,
+        input: InputName,
+    },
+    /// `state` has wire edges and cannot be reached from the graph’s initial state.
+    Unreachable {
+        state: StateName,
+    },
+    PeerSendAny {
+        role: RoleName,
+    },
+    UnknownPeerPayload {
+        payload: PayloadName,
+    },
+    UnknownRole {
+        role: RoleName,
+    },
+    OccupancyDisagree {
+        state: StateName,
+    },
+    UnknownInput {
+        state: StateName,
+        input: InputName,
+    },
 }
 
 impl Display for ProjectError {
@@ -551,6 +692,18 @@ impl Display for ProjectError {
             ProjectError::TrailingRepeat { origin } => {
                 write!(f, "trailing wire repeat at {origin} moves to a different state")
             }
+            ProjectError::RepeatExitStays { origin } => {
+                write!(f, "repeat at {origin} is followed by a send that stays in the same state")
+            }
+            ProjectError::PlumbingHasWire { state, input } => {
+                write!(f, "plumbing input {input} at {state} has a peer wire effect")
+            }
+            ProjectError::PlumbingChangesState { state, input } => {
+                write!(f, "plumbing input {input} at {state} finishes in a different state")
+            }
+            ProjectError::Unreachable { state } => {
+                write!(f, "state {state} has wire edges but is not reachable from the initial state")
+            }
             ProjectError::PeerSendAny { role } => write!(f, "SendAny to peer role {role}"),
             ProjectError::UnknownPeerPayload { payload } => {
                 write!(f, "peer Call/Send payload {payload} is not in wire_payload")
@@ -568,7 +721,12 @@ impl Display for ProjectError {
 
 impl std::error::Error for ProjectError {}
 
-/// Project a remainder graph onto the mux participant.
+/// Project a remainder graph onto the peer channel.
+///
+/// Plumbing inputs are not wire events. An arm that still contains a peer
+/// message, or that finishes in another state, is an error: dropping the arm
+/// would hide that edge. A wire edge in a state that cannot be reached from
+/// the initial state is an error rather than something the comparison skips.
 pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, ProjectError> {
     if let Some(input) = overlapping_input(cfg) {
         return Err(ProjectError::OverlappingInput { input });
@@ -584,6 +742,7 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
     for (state, inputs) in &graph.receives {
         for (input, rem) in inputs {
             if cfg.plumbing_inputs.contains(input) {
+                proj.reject_plumbing(state, input, rem)?;
                 continue;
             }
 
@@ -702,9 +861,28 @@ pub fn project(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<Cfsm, Projec
         transitions: proj.transitions,
         names: proj.alloc.names,
     };
+    cfsm.states.insert(initial);
+    if let Some(state) = unreachable_named_state(&cfsm) {
+        return Err(ProjectError::Unreachable { state });
+    }
+    if let Some(reason) = cfsm.unreachable_edges() {
+        panic!("project: {reason}");
+    }
     drop_unreachable(&mut cfsm);
     cfsm.recompute_terminal();
     Ok(cfsm)
+}
+
+/// First named state that has an edge and is not reachable from the initial vertex.
+///
+/// Synthetic vertices are skipped so the named source, which is allocated
+/// first, is the one reported. A synthetic with no named source is left for
+/// [`Cfsm::unreachable_edges`].
+fn unreachable_named_state(cfsm: &Cfsm) -> Option<StateName> {
+    let reach = cfsm.reachable();
+    cfsm.transitions.iter().find_map(|(vertex, edges)| {
+        if edges.is_empty() || reach.contains(vertex) { None } else { cfsm.names.get(vertex).copied() }
+    })
 }
 
 /// Project `graph` with `cfg` and check it against `spec`.
@@ -771,6 +949,21 @@ struct Projector<'a> {
 }
 
 impl Projector<'_> {
+    /// Plumbing is invisible on the peer channel, so the arm must not change
+    /// that channel: no remaining peer effect, and the next state is this state.
+    fn reject_plumbing(&self, state: StateName, input: InputName, rem: &RemainderAst) -> Result<(), ProjectError> {
+        for alt in &rem.alternatives {
+            let seq = self.hide_parallel(state, input, alt)?;
+            if !seq.is_empty() {
+                return Err(ProjectError::PlumbingHasWire { state, input });
+            }
+            if alt.next != state {
+                return Err(ProjectError::PlumbingChangesState { state, input });
+            }
+        }
+        Ok(())
+    }
+
     fn hide_parallel<'b>(
         &self,
         state: StateName,
@@ -851,9 +1044,12 @@ impl Projector<'_> {
     /// `seq` is already hide-filtered (`Call` / `Send` / non-hidable `Repeat` only).
     ///
     /// One wire `Repeat` is a self-loop on the vertex it is expanded from. The
-    /// exit is a later wire label, or the successor already being that vertex.
-    /// Another wire `Repeat` on that same vertex, or a trailing star whose
-    /// successor is a different vertex, has no edge in this machine.
+    /// exit is a later wire label that leaves that vertex, or the successor
+    /// already being that vertex when the star is the whole sequence.
+    /// Another wire `Repeat` on that same vertex, a trailing star whose
+    /// successor is a different vertex, or a following send that stays on the
+    /// star's vertex, has no edge in this machine. Two self-loops would be
+    /// either message at any time, which is larger than “the star, then the send”.
     fn expand_seq(&mut self, origin: Vertex, seq: &[&EffectAst], named_next: StateName) -> Result<(), ProjectError> {
         assert!(!seq.is_empty(), "expand_seq on hide-filtered empty seq at {origin}");
         let mut state = origin;
@@ -886,6 +1082,9 @@ impl Projector<'_> {
                     let m = *payload;
                     if i + 1 == seq.len() {
                         let to = self.alloc.named(named_next);
+                        if repeated_at == Some(state) && to == state {
+                            return Err(ProjectError::RepeatExitStays { origin: state });
+                        }
                         self.emit(state, Label::send(m), to)?;
                         return Ok(());
                     }
@@ -977,6 +1176,7 @@ impl Projector<'_> {
 }
 
 fn drop_unreachable(cfsm: &mut Cfsm) {
+    cfsm.states.insert(cfsm.initial);
     let reach = cfsm.reachable();
     cfsm.states.retain(|s| reach.contains(s));
     cfsm.transitions.retain(|s, _| reach.contains(s));
@@ -1004,12 +1204,35 @@ fn overlapping_input(cfg: &ProjectionConfig) -> Option<InputName> {
 /// Why [`check_timeouts`] rejected a remainder graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TimeoutError {
-    SetTimeoutForbidden { state: StateName, input: InputName },
-    SetTimeoutMissing { state: StateName, input: InputName },
-    ClearTimeoutMissing { state: StateName, input: InputName },
-    MissingOccupancy { state: StateName },
-    UnlistedOccupancy { state: StateName, input: InputName },
-    UnknownInput { state: StateName, input: InputName },
+    SetTimeoutForbidden {
+        state: StateName,
+        input: InputName,
+    },
+    SetTimeoutMissing {
+        state: StateName,
+        input: InputName,
+    },
+    ClearTimeoutMissing {
+        state: StateName,
+        input: InputName,
+    },
+    /// A local input leaves the switch for a timed remote state that has no
+    /// plumbing arm. That entry is not allowed to arm the timer, and `drive`
+    /// injects `Pull` on the destination, so the timer would never be required.
+    TimedStateWithoutPull {
+        state: StateName,
+    },
+    MissingOccupancy {
+        state: StateName,
+    },
+    UnlistedOccupancy {
+        state: StateName,
+        input: InputName,
+    },
+    UnknownInput {
+        state: StateName,
+        input: InputName,
+    },
 }
 
 impl Display for TimeoutError {
@@ -1023,6 +1246,9 @@ impl Display for TimeoutError {
             }
             TimeoutError::ClearTimeoutMissing { state, input } => {
                 write!(f, "ClearTimeout required at {state} + {input}")
+            }
+            TimeoutError::TimedStateWithoutPull { state } => {
+                write!(f, "timed remote state {state} has no plumbing arm to arm the timer")
             }
             TimeoutError::MissingOccupancy { state } => {
                 write!(f, "driven graph is missing occupancy for {state}")
@@ -1075,7 +1301,36 @@ pub fn check_timeouts(graph: &TypeGraph, cfg: &ProjectionConfig, spec: &SessionS
             }
         }
     }
+
+    // A local arm from the switch into a timed remote state must not itself arm
+    // the timer (`SetTimeout` is forbidden there). `drive` injects `Pull` on
+    // that destination. If the arm is missing, nothing is required to call
+    // `SetTimeout`. Later remote states arm on their own wire arms.
+    if cfg.driven {
+        for (state, inputs) in &graph.receives {
+            if occupancy_of(graph, state) != Some(Occupancy::Switch) {
+                continue;
+            }
+            for (input, rem) in inputs {
+                if !matches!(input_kind(cfg, input), InputKind::Local) {
+                    continue;
+                }
+                for alt in &rem.alternatives {
+                    if occupancy_of(graph, alt.next) == Some(Occupancy::Remote)
+                        && spec.timeout(alt.next).is_some()
+                        && !has_plumbing_arm(graph, cfg, alt.next)
+                    {
+                        return Err(TimeoutError::TimedStateWithoutPull { state: alt.next });
+                    }
+                }
+            }
+        }
+    }
     Ok(())
+}
+
+fn has_plumbing_arm(graph: &TypeGraph, cfg: &ProjectionConfig, state: StateName) -> bool {
+    graph.receives.get(state).is_some_and(|inputs| inputs.keys().any(|input| cfg.plumbing_inputs.contains(input)))
 }
 
 fn input_kind(cfg: &ProjectionConfig, input: InputName) -> InputKind {
@@ -1862,6 +2117,87 @@ Done agency=None terminal=true
                 cfg: cfg_initiator(),
                 check: |e| matches!(e, ProjectError::UnknownInput { state: "Idle", input: "NotListed" }),
             },
+            Case {
+                name: "PlumbingHasWire",
+                graph: {
+                    let mut g = initiator_graph();
+                    g.receives.get_mut("Busy").unwrap().insert(
+                        "Pull",
+                        seq(
+                            vec![send("ToMux", "WantNext"), call("ToResponder", "ClientDone"), EffectAst::SetTimeout],
+                            "Busy",
+                        ),
+                    );
+                    g
+                },
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::PlumbingHasWire { state: "Busy", input: "Pull" }),
+            },
+            Case {
+                name: "PlumbingChangesState",
+                graph: {
+                    let mut g = initiator_graph();
+                    g.receives
+                        .get_mut("Busy")
+                        .unwrap()
+                        .insert("Pull", seq(vec![send("ToMux", "WantNext"), EffectAst::SetTimeout], "Idle"));
+                    g
+                },
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::PlumbingChangesState { state: "Busy", input: "Pull" }),
+            },
+            Case {
+                name: "RepeatExitStays",
+                graph: idle_graph(BTreeMap::from([(
+                    "Fetch",
+                    seq(
+                        vec![repeat(vec![call("ToResponder", "RequestRange")]), call("ToResponder", "ClientDone")],
+                        "Idle",
+                    ),
+                )])),
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::RepeatExitStays { .. }),
+            },
+            Case {
+                name: "Unreachable",
+                graph: TypeGraph {
+                    states: BTreeSet::from(["Idle", "Extra", "Done"]),
+                    initial: "Idle",
+                    occupancy: BTreeMap::new(),
+                    receives: BTreeMap::from([
+                        ("Idle", BTreeMap::from([("Pull", seq(vec![send("ToMux", "WantNext")], "Idle"))])),
+                        (
+                            "Extra",
+                            BTreeMap::from([(
+                                "RequestRange",
+                                seq(vec![call("ToInitiator", "StartBatch"), send("ToMux", "WantNext")], "Idle"),
+                            )]),
+                        ),
+                    ]),
+                },
+                cfg: cfg_responder(),
+                check: |e| matches!(e, ProjectError::Unreachable { state: "Extra" }),
+            },
+            Case {
+                name: "OccupancyTerminalHasEdge",
+                graph: {
+                    let mut g = initiator_graph();
+                    g.occupancy.insert("Busy", Occupancy::Terminal);
+                    g
+                },
+                cfg: cfg_initiator(),
+                check: |e| matches!(e, ProjectError::OccupancyDisagree { state: "Busy" }),
+            },
+            Case {
+                name: "OverlappingPlumbing",
+                graph: idle_graph(BTreeMap::from([("Fetch", seq(vec![call("ToResponder", "RequestRange")], "Busy"))])),
+                cfg: {
+                    let mut cfg = cfg_initiator();
+                    cfg.plumbing_inputs.insert("Fetch");
+                    cfg
+                },
+                check: |e| matches!(e, ProjectError::OverlappingInput { input: "Fetch" }),
+            },
         ];
 
         for case in cases {
@@ -1871,26 +2207,111 @@ Done agency=None terminal=true
     }
 
     #[test]
-    fn unreachable_named_transitions_do_not_keep_dropped_synthetics() {
-        let graph = TypeGraph {
-            states: BTreeSet::from(["Idle", "Extra", "Done"]),
-            initial: "Idle",
-            occupancy: BTreeMap::new(),
-            receives: BTreeMap::from([
-                ("Idle", BTreeMap::from([("Pull", seq(vec![send("ToMux", "WantNext")], "Idle"))])),
-                (
-                    "Extra",
-                    BTreeMap::from([(
-                        "RequestRange",
-                        seq(vec![call("ToInitiator", "StartBatch"), send("ToMux", "WantNext")], "Idle"),
-                    )]),
-                ),
-            ]),
-        };
-        let got = project(&graph, &cfg_responder()).unwrap();
-        assert_eq!(got.states.len(), 1);
+    fn projected_edges_stay_inside_the_state_set() {
+        let got = project(&initiator_graph(), &cfg_initiator()).unwrap();
         assert!(got.states.contains(&got.initial));
+        assert!(got.transitions.keys().all(|from| got.states.contains(from)));
         assert!(got.transitions.values().all(|edges| edges.values().all(|to| got.states.contains(to))));
+    }
+
+    #[test]
+    #[should_panic(expected = "not reachable from")]
+    fn spec_orphan_state_is_rejected() {
+        let mut spec = SessionSpec::default();
+        spec.start("Idle");
+        spec.init("Idle", "Hello", "Mid");
+        spec.init("Orphan", "Hello", "Done");
+        let _ = spec.project(Agency::Initiator);
+    }
+
+    #[test]
+    #[should_panic(expected = "not reachable from")]
+    fn spec_start_that_misses_the_diagram_is_rejected() {
+        let mut spec = SessionSpec::default();
+        spec.start("Done");
+        spec.init("Idle", "Hello", "Mid");
+        let _ = spec.project(Agency::Initiator);
+    }
+
+    #[test]
+    fn sim_open_entry_is_visible_to_the_waiting_role() {
+        let spec = sim_open_secret();
+        let waiting = spec.project(Agency::Initiator);
+        let mid = waiting.dest(waiting.initial, "Hello");
+        let secret = waiting.dest(mid, "Hello");
+        assert_ne!(secret, mid);
+        let done = waiting.dest(secret, "Accept");
+        assert!(waiting.terminal.contains(&done));
+    }
+
+    #[test]
+    #[should_panic(expected = "outgoing edges not reachable")]
+    fn sim_open_cannot_be_the_only_way_into_a_state_that_sends() {
+        let _ = sim_open_secret().project(Agency::Responder);
+    }
+
+    fn sim_open_secret() -> SessionSpec {
+        let mut spec = SessionSpec::default();
+        spec.init("Idle", "Hello", "Mid");
+        spec.sim_open("Mid", "Hello", "Secret");
+        spec.resp("Secret", "Accept", "Done");
+        spec
+    }
+
+    #[test]
+    fn structural_eq_ignores_state_names() {
+        let mut named = SessionSpec::default();
+        named.init("Idle", "Ping", "Done");
+        let mut renamed = SessionSpec::default();
+        renamed.init("Start", "Ping", "End");
+        named.project(Agency::Initiator).assert_structurally_eq(&renamed.project(Agency::Initiator));
+    }
+
+    #[test]
+    #[should_panic(expected = "labels")]
+    fn structural_eq_rejects_an_extra_edge() {
+        let mut slim = SessionSpec::default();
+        slim.init("Idle", "Ping", "Done");
+        let mut extra = SessionSpec::default();
+        extra.init("Idle", "Ping", "Done");
+        extra.init("Idle", "Pong", "Done");
+        slim.project(Agency::Initiator).assert_structurally_eq(&extra.project(Agency::Initiator));
+    }
+
+    #[test]
+    #[should_panic(expected = "agency")]
+    fn structural_eq_rejects_agency_mismatch() {
+        let mut send = SessionSpec::default();
+        send.init("Idle", "Ping", "Done");
+        let mut recv = SessionSpec::default();
+        recv.resp("Idle", "Ping", "Done");
+        send.project(Agency::Initiator).assert_structurally_eq(&recv.project(Agency::Initiator));
+    }
+
+    #[test]
+    #[should_panic(expected = "terminal=")]
+    fn structural_eq_rejects_a_redundant_intermediate_state() {
+        let mut direct = SessionSpec::default();
+        direct.init("Idle", "Ping", "Done");
+        let mut via = SessionSpec::default();
+        via.init("Idle", "Ping", "Mid");
+        via.init("Mid", "Pong", "Done");
+        direct.project(Agency::Initiator).assert_structurally_eq(&via.project(Agency::Initiator));
+    }
+
+    #[test]
+    #[should_panic(expected = "disagrees")]
+    fn structural_eq_rejects_a_crossed_destination() {
+        let mut left = SessionSpec::default();
+        left.init("Idle", "A", "X");
+        left.init("Idle", "B", "Y");
+        left.init("X", "C", "Y");
+        left.init("Y", "C", "X");
+        let mut right = SessionSpec::default();
+        right.init("Idle", "A", "X");
+        right.init("Idle", "B", "X");
+        right.init("X", "C", "X");
+        left.project(Agency::Initiator).assert_structurally_eq(&right.project(Agency::Initiator));
     }
 
     #[test]
@@ -2030,6 +2451,14 @@ Done agency=None terminal=true
     }
 
     #[test]
+    fn driven_timed_remote_without_pull_is_error() {
+        let mut g = initiator_graph();
+        g.receives.get_mut("Busy").unwrap().remove("Pull");
+        let err = check_timeouts(&g, &cfg_initiator(), &table_37()).unwrap_err();
+        assert!(matches!(err, TimeoutError::TimedStateWithoutPull { state: "Busy" }), "{err:?}");
+    }
+
+    #[test]
     fn clear_timeout_inside_repeat_does_not_count() {
         let mut g = initiator_graph();
         g.receives
@@ -2085,6 +2514,45 @@ mod unused_messages {
             Wait --> End: Accept
             note left of Start: Initiator
             note left of Wait: Responder
+        };
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate note on Wait")]
+    fn duplicate_note_is_rejected() {
+        let _ = crate::session_spec! {
+            Hs unused [QueryReply];
+            [*] --> Start
+            Start --> Wait: Propose
+            Wait --> End: Accept
+            note left of Start: Initiator
+            note left of Wait: Responder
+            note right of Wait: Responder
+        };
+    }
+
+    #[test]
+    #[should_panic(expected = "note on Wait says Initiator but the edges are Responder")]
+    fn sim_open_note_must_match_stored_agency() {
+        let _ = crate::session_spec! {
+            Hs unused [Accept, QueryReply];
+            [*] --> Start
+            Start --> Wait: Propose
+            Wait --> End: Propose [sim_open]
+            note left of Start: Initiator
+            note left of Wait: Initiator
+        };
+    }
+
+    #[test]
+    #[should_panic(expected = "missing `note left of Wait: Initiator` or `Responder`")]
+    fn sim_open_state_without_a_note_is_rejected() {
+        let _ = crate::session_spec! {
+            Hs unused [Accept, QueryReply];
+            [*] --> Start
+            Start --> Wait: Propose
+            Wait --> End: Propose [sim_open]
+            note left of Start: Initiator
         };
     }
 

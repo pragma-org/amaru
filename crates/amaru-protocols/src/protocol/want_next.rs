@@ -103,6 +103,12 @@ enum Presence {
 ///
 /// `WantNext` is `Send<ToMux, WantNext>`, at most once per alternative, never
 /// inside `Repeat`. Driven vs undriven tables follow occupancy / waiting states.
+///
+/// `Pull` is required on a driven state entered from the switch by a local
+/// input. `drive` and the pipeliner inject it on that transition into remote
+/// agency, and they do not inject it again while the instance stays remote
+/// (`recv_armed`). A later remote state, such as BlockFetch `Streaming`, arms
+/// `WantNext` on its wire arms instead.
 pub fn check_want_next(graph: &TypeGraph, cfg: &ProjectionConfig) -> Result<(), WantNextError> {
     if cfg.driven
         && let Err(state) = check_driven_occupancy(graph)
@@ -336,6 +342,8 @@ fn driven_want_next_rule(
     }
     match (src, dst, kind) {
         (Occupancy::Switch, Occupancy::Remote, InputKind::Local) => {
+            // `drive` / `arm_recv` inject Pull on this edge, then leave
+            // `recv_armed` set until the instance returns to the switch.
             need_pull.insert(next);
             Ok((Presence::Forbidden, false))
         }
@@ -583,6 +591,14 @@ mod tests {
         );
         let err = check_want_next(&g, &cfg_initiator()).unwrap_err();
         assert!(matches!(err, WantNextError::WantNextForbidden { state: "Idle", input: "Close" }), "{err:?}");
+    }
+
+    #[test]
+    fn driven_streaming_does_not_need_its_own_pull() {
+        // Streaming is entered from Busy, which is already remote, so the
+        // pipeliner does not inject Pull there. The hand-built graph has none.
+        assert!(!initiator_graph().receives["Streaming"].contains_key("Pull"));
+        check_want_next(&initiator_graph(), &cfg_initiator()).unwrap();
     }
 
     #[test]

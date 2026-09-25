@@ -155,6 +155,15 @@ macro_rules! __session_spec_emit {
             spec.set_timeout(<$ts as $crate::typestate::State>::NAME, $dur);
         )*
 
+        spec.assert_agency_notes(&[
+            $(
+                (
+                    <$note_s as $crate::typestate::State>::NAME,
+                    $crate::session::Agency::$note_role,
+                ),
+            )*
+        ]);
+
         $crate::typestate::assert_message_alphabet_covered::<$enum>(
             spec.edge_labels(),
             &[$(stringify!($unused)),*],

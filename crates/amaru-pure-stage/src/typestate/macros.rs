@@ -48,9 +48,12 @@
 /// is generated only when `switch` is present.
 /// [`DescribeStates`](crate::typestate::DescribeStates) is always generated;
 /// its occupancy map is empty without `switch`.
-/// [`type_graph`](crate::typestate::TypeGraph) is generated on the live enum;
-/// calling it requires grouped [`on_receive`](crate::on_receive) on every
-/// variant (use `on_receive!(Done as DoneIn {})` for unused terminals).
+/// [`type_graph`](crate::typestate::TypeGraph) is generated on the live enum.
+/// That function is not generic, so its
+/// [`DescribeReceives`](crate::typestate::DescribeReceives) bounds are checked
+/// for every variant when the caller is compiled, whether or not `type_graph()`
+/// is called. Unused terminals need an empty grouped
+/// [`on_receive`](crate::on_receive): `on_receive!(Done as DoneIn {})`.
 #[macro_export]
 macro_rules! make_states {
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
@@ -102,8 +105,10 @@ macro_rules! typestate_type_graph {
         impl $enum {
             /// Remainder graph for every state in this live enum.
             ///
-            /// Each state must have a grouped [`on_receive`](crate::on_receive),
-            /// including empty `on_receive!(Done as DoneIn {})` for unused terminals.
+            /// This function is not generic, so the bounds below are checked when
+            /// the caller is compiled, whether or not anything calls it. Each state
+            /// must have a grouped [`on_receive`](crate::on_receive), including empty
+            /// `on_receive!(Done as DoneIn {})` for unused terminals.
             #[allow(dead_code)]
             pub fn type_graph() -> $crate::typestate::TypeGraph
             where
@@ -297,7 +302,7 @@ macro_rules! impl_label {
         }
 
         impl $name {
-            /// [`MessageLabel`]($crate::typestate::MessageLabel) without constructing a value.
+            /// `MessageLabel` for this type without constructing a value.
             #[allow(dead_code)]
             pub const LABEL: &'static dyn $crate::typestate::MessageLabel = {
                 struct __Label;
