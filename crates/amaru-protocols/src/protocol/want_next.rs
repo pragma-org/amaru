@@ -242,6 +242,7 @@ fn reject_peer_wire_send_seq(
             | EffectAst::Schedule { .. }
             | EffectAst::CancelSchedule
             | EffectAst::External { .. }
+            | EffectAst::Detach { .. }
             | EffectAst::AddStage => {}
         }
     }
@@ -279,6 +280,7 @@ fn scan_want_next(effects: &[EffectAst], mux: RoleName, in_star: bool, scan: &mu
             | EffectAst::Schedule { .. }
             | EffectAst::CancelSchedule
             | EffectAst::External { .. }
+            | EffectAst::Detach { .. }
             | EffectAst::AddStage => {}
         }
     }

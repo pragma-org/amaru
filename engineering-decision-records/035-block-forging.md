@@ -92,11 +92,11 @@ The candidate nonce freezes at slot `NextEpoch - 4k/f`. On the first `NewTip` wh
 
 1. Computes the next epoch's nonce with `Nonces::next_active` from the tip's stored nonces (candidate plus previous-epoch tail hash). Before the freeze this candidate can still change, so it is not used until the window has opened.
 2. Asks the credentials resource for the slots we lead in that epoch, given the nonce and our stake share from `PoolSummaries`. This is detached (`Effects::detach`): 432,000 VRF evaluations on mainnet must not occupy the stage. The result comes back as a message. The TUI can show this schedule immediately as tentative.
-3. From the returned slots, keeps those still in the future and arms **only the next** `LeadSlot(slot)` with `Effects::schedule_at`. Pure-stage wants a single outstanding self-schedule, not one timer per led slot. After that slot is handled (or cancelled), the stage arms the following one.
+3. From the returned slots, keeps those still in the future and arms **only the next** `DueLead(slot)` with `Effects::schedule_at`. Pure-stage wants a single outstanding self-schedule, not one timer per led slot. After that slot is handled (or cancelled), the stage arms the following one.
 
-Each `LeadSlot` is scheduled a few tens of milliseconds before slot onset so forging can finish before the slot starts. The exact offset is a named constant at implementation. If the block is ready early, the stage waits until onset before sending `NewTip` to `select_chain`, so we do not publish a future header. If forging overruns the offset, the tip is sent immediately.
+Each `DueLead` is scheduled 50 ms before slot onset, and forging starts then, so the block can diffuse as the slot begins. The handler reads the clock when the timer arrives, because wake-up can be earlier or later than that schedule. An earlier wake waits until 50 ms before onset. A wake in the last 50 ms of the slot, or after the slot, is a missed slot (`woke_late`) and is not forged. A wake that is merely later than the timer, but still before that deadline, forges immediately. The block is not sent to `select_chain` until slot onset, so we do not publish a future header. If forging overruns onset, the tip is sent immediately.
 
-The last block that contributed to the candidate is not yet `k` deep when the window opens, so the schedule is not settled until `k` blocks have been adopted past the freeze. The stage reports how many of those `k` blocks have been adopted (a confidence / chain-depth mark) with the schedule. Until then a rollback that reaches back before the window can change the candidate, and if one does, the stage cancels the outstanding `LeadSlot` with `Effects::cancel_schedule` and repeats the steps above from the new tip. A rollback that stays inside the window does not touch the candidate and needs no action. Once `k` blocks have passed, the schedule can no longer change.
+The last block that contributed to the candidate is not yet `k` deep when the window opens, so the schedule is not settled until `k` blocks have been adopted past the freeze. The stage reports how many of those `k` blocks have been adopted (a confidence / chain-depth mark) with the schedule. Until then a rollback that reaches back before the window can change the candidate, and if one does, the stage cancels the outstanding `DueLead` with `Effects::cancel_schedule` and repeats the steps above from the new tip. A rollback that stays inside the window does not touch the candidate and needs no action. Once `k` blocks have passed, the schedule can no longer change.
 
 If the epoch boundary arrives before `k` blocks have been adopted, nothing changes. We keep using the schedule we have. The remaining risk is a rollback into the previous epoch that reaches past the window, and in a healthy network that does not happen.
 
@@ -104,7 +104,7 @@ On startup the stage is preloaded with the current adopted tip and the same step
 
 ### Once per led slot
 
-When `LeadSlot(slot)` fires:
+When `DueLead(slot)` fires:
 
 1. Check that the operational certificate covers the slot's KES period. If not, log a warning and stop.
 2. Pick the parent from the adopted tip:
@@ -114,7 +114,7 @@ When `LeadSlot(slot)` fires:
 3. Ask the mempool for a sequence of transactions that is valid on the parent's state as of our slot and fits in a block. That sequence is the block body as-is; the stage does not validate it and does not consult the ledger. If the mempool is empty — including when a same-slot competitor already consumed the interesting transactions — still forge. An empty block collects fees and keeps the chain moving; skipping the slot would give that up.
 4. Ask the credentials resource to forge the header: VRF proof for the slot, block body hash, KES signature for the period. KES evolution to `slot_to_kes_period(slot) - operational_cert_kes_period` happens inside that signing procedure. Praos does not require persisting the evolved key.
 5. Run the header through the same `validate_header` every peer header passes. In theory we only need the `evolve_nonces` effect; the full `validate_header` function costs us almost nothing.
-6. Store the header and the block, send the new tip to `select_chain`, then arm the next remaining `LeadSlot` if any.
+6. Store the header and the block, send the new tip to `select_chain`, then arm the next remaining `DueLead` if any.
 
 Parent selection happens at the start of this handler. The rest of the work is one message transition: if `adopt_chain` sends a `NewTip` while we are forging, that message waits in the mailbox until we finish. We do not abort, restart, or change parent mid-forge.
 
@@ -123,11 +123,11 @@ Parent selection happens at the start of this handler. The rest of the work is o
 ### Rules
 
 - **Secrets never enter stage state.** Stage state is serialised into the trace buffer on every message. The VRF and KES keys live in a resource and answer two effects, `leader_schedule` and `forge_header`. The stage keeps only public facts: the led slots, the certificate's start period and evolution limit.
-- **Compute the schedule once per epoch.** Every input to the leader check is fixed once the candidate freezes, so the stage computes the schedule when the window opens and recomputes only if a rollback reaches past the window. There is no per-slot VRF loop. Only the next `LeadSlot` is armed at a time.
-- **Do not abort an in-flight forge.** Parent selection is the first step of `LeadSlot`. A `NewTip` that arrives while that handler runs waits in the mailbox; the forged block keeps the parent it already picked.
+- **Compute the schedule once per epoch.** Every input to the leader check is fixed once the candidate freezes, so the stage computes the schedule when the window opens and recomputes only if a rollback reaches past the window. There is no per-slot VRF loop. Only the next `DueLead` is armed at a time.
+- **Do not abort an in-flight forge.** Parent selection is the first step of `DueLead`. A `NewTip` that arrives while that handler runs waits in the mailbox; the forged block keeps the parent it already picked.
 - **Enter the pipeline at `select_chain`, not `adopt_chain`.** `adopt_chain` assumes the ledger has applied the block and that `validate_block` and `select_chain` have moved their tip. Skipping them leaves `validate_block` believing the old tip is current, so the next upstream sibling of our block would be applied as an extension and fail. Entering at `select_chain` keeps every stage's bookkeeping right. Our block is validated once, on that path, like any other.
 - **The ledger plays no part in forging.** The mempool hands us a body that is valid on the parent, and the stage builds a header over it. The ledger first sees the block when `validate_block` applies it.
-- **Everything is simulatable.** Time comes from `schedule_at`, keys from a resource, the mempool from a resource. Leader-schedule computation is detached so the stage can still handle `NewTip` and `LeadSlot` while VRFs run. A pure-stage test can drive an epoch boundary and a led slot with a mocked credentials resource and assert the resulting state.
+- **Everything is simulatable.** Time comes from `schedule_at`, keys from a resource, the mempool from a resource. Leader-schedule computation is detached so the stage can still handle `NewTip` and `DueLead` while VRFs run. A pure-stage test can drive an epoch boundary and a led slot with a mocked credentials resource and assert the resulting state.
 - **The header identifies Amaru as the forger.** The header's protocol version carries a major and a minor. The Haskell node's `chainChecks` rejects a header only when the major exceeds the ledger's current version, and it fills the minor from node configuration, zero on mainnet. Amaru's `validate_header` does not read the field. We set the minor to a 64-bit value that names Amaru and the git commit it was built from, so anyone reading the chain can tell which node produced a block and which build. The exact encoding is decided when it is implemented.
 
 ## Consequences

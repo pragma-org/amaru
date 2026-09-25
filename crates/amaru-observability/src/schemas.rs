@@ -584,6 +584,36 @@ define_schemas! {
                     required suppressed: u32
                 }
             }
+            forge {
+                /// A led slot was not forged.
+                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late}.
+                public MISSED_SLOT {
+                    required slot: amaru_kernel::Slot
+                    required reason: String
+                }
+                /// Forging the header or storing it failed. The node shuts down.
+                /// Step ∈ {sign_header, validate_header, store_header, store_block}.
+                public FORGE_FAILED {
+                    required slot: amaru_kernel::Slot
+                    required step: String
+                    required error: String
+                }
+                /// Leader schedules still held, with how many led slots remain in each epoch
+                /// and how many of k blocks since freeze have been adopted.
+                /// `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
+                public SCHEDULE {
+                    required slots: std::collections::BTreeMap<amaru_kernel::Epoch, usize>
+                    optional next_slot: String
+                    required freeze_depth: u64
+                    required settled: bool
+                }
+                /// A block was forged and stored, and its tip sent to chain selection.
+                public FORGED {
+                    required slot: amaru_kernel::Slot
+                    required header_hash: amaru_kernel::HeaderHash
+                    required parent: amaru_kernel::HeaderHash
+                }
+            }
             peer {
                 tags: cpu
                 /// A peer behaves like an adversary, ban it

@@ -277,18 +277,40 @@ impl AssertLeaderStakeError {
         leader_relative_stake: &FixedDecimal,
         certified_leader_vrf: &FixedDecimal,
     ) -> Result<(), Self> {
-        if active_slot_coeff >= FixedDecimal::one() {
-            return Ok(());
+        if meets_leader_threshold(active_slot_coeff, leader_relative_stake, certified_leader_vrf) {
+            Ok(())
+        } else {
+            Err(Self::InsufficientLeaderStake)
         }
-        let denominator = CERTIFIED_NATURAL_MAX.deref() - certified_leader_vrf;
-        let recip_q = CERTIFIED_NATURAL_MAX.deref() / &denominator;
-        let c = (FixedDecimal::one() - active_slot_coeff).ln();
-        let x = (leader_relative_stake * &c).neg();
-        let ordering = x.exp_cmp(1000, 3, &recip_q);
-        match ordering.estimation {
-            ExpOrdering::LT => Ok(()),
-            ExpOrdering::GT | ExpOrdering::UNKNOWN => Err(Self::InsufficientLeaderStake),
-        }
+    }
+}
+
+/// Praos leadership test over the raw VRF output of a slot, before the `Leader` tag is applied.
+pub(crate) fn is_leader(
+    active_slot_coeff: &FixedDecimal,
+    leader_relative_stake: &FixedDecimal,
+    vrf_output: &[u8],
+) -> bool {
+    let certified = FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(vrf_output).as_slice());
+    meets_leader_threshold(active_slot_coeff, leader_relative_stake, &certified)
+}
+
+fn meets_leader_threshold(
+    active_slot_coeff: &FixedDecimal,
+    leader_relative_stake: &FixedDecimal,
+    certified_leader_vrf: &FixedDecimal,
+) -> bool {
+    if active_slot_coeff >= FixedDecimal::one() {
+        return true;
+    }
+    let denominator = CERTIFIED_NATURAL_MAX.deref() - certified_leader_vrf;
+    let recip_q = CERTIFIED_NATURAL_MAX.deref() / &denominator;
+    let c = (FixedDecimal::one() - active_slot_coeff).ln();
+    let x = (leader_relative_stake * &c).neg();
+    let ordering = x.exp_cmp(1000, 3, &recip_q);
+    match ordering.estimation {
+        ExpOrdering::LT => true,
+        ExpOrdering::GT | ExpOrdering::UNKNOWN => false,
     }
 }
 

@@ -1,3 +1,9 @@
+error[E0308]: mismatched types
+ --> tests/ui/discard_repeat_without_star.rs:24:23
+  = expected `&u8`, found `u8`
+  = note: method defined here
+  = help: consider borrowing here
+   --> tests/ui/discard_repeat_without_star.rs:24:23
 error[E0599]: no method named `discard_repeat` found for struct `Session<M, Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>>` in the current scope
  --> tests/ui/discard_repeat_without_star.rs:24:33
   = method cannot be called due to unsatisfied trait bounds

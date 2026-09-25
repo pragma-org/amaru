@@ -1,3 +1,9 @@
+error[E0308]: mismatched types
+ --> tests/ui/send_any_missing.rs:24:23
+  = expected `&u8`, found `u8`
+  = note: method defined here
+  = help: consider borrowing here
+   --> tests/ui/send_any_missing.rs:24:23
 error[E0277]: `SendAnyOp<M, Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>, ToPeer, _>` is not a future
  --> tests/ui/send_any_missing.rs:24:63
   = `SendAnyOp<M, Choice<(Then<Par<((amaru_pure_stage::typestate::Send<ToPeer, String>,),)>, harness::Done>,)>, ToPeer, _>` is not a future

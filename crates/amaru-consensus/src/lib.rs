@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(exhaustive_patterns)]
 #![deny(clippy::future_not_send)]
 
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]

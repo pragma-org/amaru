@@ -16,7 +16,10 @@
 //!
 //! [`State::receive`] opens a [`Session`]. [`send`](SessionOps::send) / [`send_any`](Session::send_any)
 //! / [`call`](SessionOps::call) / [`wait`](SessionOps::wait) / [`set_timeout`](SessionOps::set_timeout) /
-//! [`clear_timeout`](SessionOps::clear_timeout) require [`Select`](super::Select) of that effect
+//! [`clear_timeout`](SessionOps::clear_timeout) / [`clock`](Session::clock) /
+//! [`external`](Session::external) / [`detach`](Session::detach) /
+//! [`schedule_at`](Session::schedule_at) / [`cancel_schedule`](Session::cancel_schedule)
+//! require [`Take`](super::Take) of that effect
 //! ([`IntoRoleMail`](super::IntoRoleMail) at the send call site,
 //! [`IntoRoleCall`](super::IntoRoleCall) at the call site);
 //! [`finish`](SessionOps::finish) requires [`CanFinish`](super::CanFinish).
@@ -33,10 +36,13 @@ use std::{
 
 use super::{
     DescribeAst, FmtPar, IntoRoleCall, IntoRoleMail, Occupancy, RemainderAst, RoleTag, Take,
-    effect::{Call as CallEff, ClearTimeout, Send as SendEff, SendAny, SetTimeout, Terminate, Wait},
+    effect::{
+        Call as CallEff, CancelSchedule, ClearTimeout, Clock, Detach, External as ExternalEff, Schedule,
+        Send as SendEff, SendAny, SetTimeout, Terminate, Wait,
+    },
     list::{self, FinishIn, InputName, StateName},
 };
-use crate::{Effects, ExternalEffectAPI, Instant, SendData, StageRef};
+use crate::{Effects, ExternalEffectAPI, Instant, ScheduleId, SendData, StageRef};
 
 /// Witness that only [`initial_state`] and [`SessionOps::finish`] may construct a protocol state.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -58,9 +64,10 @@ pub trait State: Sized + Send + 'static {
 
     /// Consume the receive allowance for `input` and return the remaining effects.
     ///
-    /// `input` need not be the stage mailbox type. It is typically one variant
-    /// (or a newtype of a variant) so different messages select different
-    /// [`OnReceive`] impls and therefore different remainders.
+    /// `input` is a type witness only (not stored). It need not be the stage
+    /// mailbox type. It is typically one variant (or a newtype of a variant) so
+    /// different messages select different [`OnReceive`] impls and therefore
+    /// different remainders.
     ///
     /// ```compile_fail
     /// use amaru_pure_stage::typestate::prelude::*;
@@ -68,10 +75,10 @@ pub trait State: Sized + Send + 'static {
     /// define_role_tag!(ToPeer);
     /// on_receive!(Idle, u8 => Send<ToPeer, String> => Done);
     /// fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>) {
-    ///     let _ = s.receive(true, eff);
+    ///     let _ = s.receive(&true, eff);
     /// }
     /// ```
-    fn receive<In, M>(self, input: In, eff: Effects<M>) -> Session<M, <Self as OnReceive<In>>::Then>
+    fn receive<In, M>(self, input: &In, eff: Effects<M>) -> Session<M, <Self as OnReceive<In>>::Then>
     where
         Self: OnReceive<In>,
     {
@@ -84,6 +91,11 @@ pub trait State: Sized + Send + 'static {
     /// (`Idle as IdleIn { ... }`). Matching `Ok` is exhaustive over legal
     /// inputs; `Err` is the dedicated inadmissible case and yields the original
     /// mailbox value. The state token is not consumed.
+    ///
+    /// [`make_states`](crate::make_states) (`Live as LiveIn { Idle(IdleIn); ... }`)
+    /// generates a separate method on the live enum. That one takes `self` and
+    /// returns the token together with the input, or the token and the message
+    /// on `Err`. The input enum's name is the one written after `as`.
     ///
     /// ```compile_fail
     /// use amaru_pure_stage::typestate::prelude::*;
@@ -129,6 +141,12 @@ pub trait ExtractInput<M>: Sized {
     fn extract(msg: M) -> Result<Self, M>;
 }
 
+impl<M> ExtractInput<M> for ! {
+    fn extract(msg: M) -> Result<Self, M> {
+        Err(msg)
+    }
+}
+
 /// The remainder after [`State::receive`] of `In`.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot receive `{In}`",
@@ -137,7 +155,7 @@ pub trait ExtractInput<M>: Sized {
 pub trait OnReceive<In>: State {
     type Then;
 
-    fn open<M>(self, input: In, eff: Effects<M>) -> Session<M, Self::Then> {
+    fn open<M>(self, input: &In, eff: Effects<M>) -> Session<M, Self::Then> {
         let _ = (self, input);
         Session::new(eff)
     }
@@ -220,8 +238,10 @@ pub struct To<S: State>(PhantomData<S>);
 ///
 /// Protocol [`send`](SessionOps::send), [`send_any`](Session::send_any), [`call`](SessionOps::call),
 /// [`wait`](SessionOps::wait), [`set_timeout`](SessionOps::set_timeout),
-/// [`clear_timeout`](SessionOps::clear_timeout), and [`terminate`](SessionOps::terminate)
-/// consume from `Rem` ([`SessionOps`], in the prelude). Local helpers (`clock`, `external`) do not.
+/// [`clear_timeout`](SessionOps::clear_timeout), [`clock`](Self::clock),
+/// [`external`](Self::external), [`detach`](Self::detach),
+/// [`schedule_at`](Self::schedule_at), [`cancel_schedule`](Self::cancel_schedule),
+/// and [`terminate`](SessionOps::terminate) consume from `Rem`.
 pub struct Session<M, Rem> {
     effects: Effects<M>,
     _rem: PhantomData<fn() -> Rem>,
@@ -285,12 +305,184 @@ impl<M, Rem> Session<M, Rem> {
         self.effects.me()
     }
 
-    pub fn clock(&self) -> crate::BoxFuture<'static, Instant> {
-        self.effects.clock()
+    /// Read the current time. Consumes a [`Clock`](super::Clock) allowance.
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// make_states!(Live { Idle; Done });
+    /// on_receive!(Idle, u8 => Wait => Done);
+    /// async fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>)
+    /// where
+    ///     M: Send,
+    /// {
+    ///     let _ = s.receive(&1u8, eff).clock().await;
+    /// }
+    /// ```
+    pub fn clock<I>(self) -> impl Future<Output = (Instant, Session<M, <Rem as Take<Clock, I>>::Rest>)> + Send
+    where
+        Rem: Take<Clock, I>,
+        M: Send,
+    {
+        let clock = self.effects.clock();
+        async move {
+            let now = clock.await;
+            (now, Session::new(self.effects))
+        }
     }
 
-    pub fn external<T: ExternalEffectAPI>(&self, effect: T) -> crate::BoxFuture<'static, T::Response> {
-        self.effects.external(effect)
+    /// Run an external effect. Consumes an [`External<T>`](super::External) allowance.
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Resources, SendData};
+    /// make_states!(Live { Idle; Done });
+    /// #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    /// struct Wanted;
+    /// impl ExternalEffectAPI for Wanted {
+    ///     type Response = ();
+    ///     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+    ///         self.wrap_sync(())
+    ///     }
+    /// }
+    /// #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    /// struct Other;
+    /// impl ExternalEffectAPI for Other {
+    ///     type Response = ();
+    ///     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+    ///         self.wrap_sync(())
+    ///     }
+    /// }
+    /// on_receive!(Idle, u8 => External<Wanted> => Done);
+    /// async fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>)
+    /// where
+    ///     M: Send,
+    /// {
+    ///     let _ = s.receive(&1u8, eff).external(Other).await;
+    /// }
+    /// ```
+    pub fn external<T, I>(
+        self,
+        effect: T,
+    ) -> impl Future<Output = (T::Response, Session<M, <Rem as Take<ExternalEff<T>, I>>::Rest>)> + Send
+    where
+        T: ExternalEffectAPI,
+        Rem: Take<ExternalEff<T>, I>,
+        M: Send,
+    {
+        let ext = self.effects.external(effect);
+        async move {
+            let resp = ext.await;
+            (resp, Session::new(self.effects))
+        }
+    }
+
+    /// Start an external effect without occupying the airlock. Consumes a
+    /// [`Detach<T>`](super::Detach) allowance.
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Resources, SendData};
+    /// make_states!(Live { Idle; Done });
+    /// #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    /// struct Wanted;
+    /// impl ExternalEffectAPI for Wanted {
+    ///     type Response = ();
+    ///     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+    ///         self.wrap_sync(())
+    ///     }
+    /// }
+    /// #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    /// struct Other;
+    /// impl ExternalEffectAPI for Other {
+    ///     type Response = ();
+    ///     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+    ///         self.wrap_sync(())
+    ///     }
+    /// }
+    /// on_receive!(Idle, u8 => Detach<Wanted> => Done);
+    /// async fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>)
+    /// where
+    ///     M: SendData,
+    /// {
+    ///     let _ = s.receive(&1u8, eff).detach(Other, |()| unreachable!()).await;
+    /// }
+    /// ```
+    pub fn detach<T, F, I>(
+        self,
+        effect: T,
+        inject: F,
+    ) -> impl Future<Output = Session<M, <Rem as Take<Detach<T>, I>>::Rest>> + Send
+    where
+        T: ExternalEffectAPI,
+        F: FnOnce(T::Response) -> M + Send + 'static,
+        M: SendData,
+        Rem: Take<Detach<T>, I>,
+    {
+        let detach = self.effects.detach(effect, inject);
+        async move {
+            detach.await;
+            Session::new(self.effects)
+        }
+    }
+
+    /// Schedule a mailbox message at `when`. Consumes a [`Schedule<T>`](super::Schedule) allowance.
+    ///
+    /// ```compile_fail
+    /// use std::time::Duration;
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// use amaru_pure_stage::{Instant, SendData};
+    /// make_states!(Live { Idle; Done });
+    /// on_receive!(Idle, u8 => Schedule<String> => Done);
+    /// async fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>)
+    /// where
+    ///     M: From<u32> + SendData,
+    /// {
+    ///     let _ = s.receive(&1u8, eff).schedule_at(0u32, Instant::at_offset(Duration::ZERO, Duration::ZERO)).await;
+    /// }
+    /// ```
+    pub fn schedule_at<T, I>(
+        self,
+        msg: T,
+        when: Instant,
+    ) -> impl Future<Output = (ScheduleId, Session<M, <Rem as Take<Schedule<T>, I>>::Rest>)> + Send
+    where
+        M: From<T> + SendData,
+        Rem: Take<Schedule<T>, I>,
+    {
+        let schedule = self.effects.schedule_at(M::from(msg), when);
+        async move {
+            let id = schedule.await;
+            (id, Session::new(self.effects))
+        }
+    }
+
+    /// Cancel a previously scheduled message. Consumes a
+    /// [`CancelSchedule`](super::CancelSchedule) allowance.
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// make_states!(Live { Idle; Done });
+    /// on_receive!(Idle, u8 => CancelSchedule => Done);
+    /// fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>) -> Done
+    /// where
+    ///     M: amaru_pure_stage::SendData,
+    /// {
+    ///     s.receive(&1u8, eff).finish()
+    /// }
+    /// ```
+    pub fn cancel_schedule<I>(
+        self,
+        id: ScheduleId,
+    ) -> impl Future<Output = (bool, Session<M, <Rem as Take<CancelSchedule, I>>::Rest>)> + Send
+    where
+        Rem: Take<CancelSchedule, I>,
+        M: Send,
+    {
+        let cancel = self.effects.cancel_schedule(id);
+        async move {
+            let cancelled = cancel.await;
+            (cancelled, Session::new(self.effects))
+        }
     }
 
     /// Send any mailbox message to `target`. Consumes a [`SendAny<Tag>`]
@@ -359,7 +551,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// where
     ///     M: Send,
     /// {
-    ///     let _ = s.receive(1u8, eff).send(target, 0u32).await;
+    ///     let _ = s.receive(&1u8, eff).send(target, 0u32).await;
     /// }
     /// ```
     ///
@@ -386,7 +578,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// ) where
     ///     M: Send,
     /// {
-    ///     let s = s.receive(Go, eff).send(a, 1u8).await;
+    ///     let s = s.receive(&Go, eff).send(a, 1u8).await;
     ///     let _ = s.send(d, 1u8).await;
     /// }
     /// ```
@@ -412,7 +604,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// ) where
     ///     M: Send,
     /// {
-    ///     let s = s.receive(Go, eff).send(c, 1u8).await;
+    ///     let s = s.receive(&Go, eff).send(c, 1u8).await;
     ///     let _ = s.send(b, 1u8).await;
     /// }
     /// ```
@@ -444,7 +636,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// where
     ///     M: Send,
     /// {
-    ///     let _ = s.receive(1u8, eff).call(target, 0u32).await;
+    ///     let _ = s.receive(&1u8, eff).call(target, 0u32).await;
     /// }
     /// ```
     fn call<Tag, T, Dest, I>(
@@ -481,7 +673,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// where
     ///     M: amaru_pure_stage::SendData,
     /// {
-    ///     s.receive(1u8, eff).finish()
+    ///     s.receive(&1u8, eff).finish()
     /// }
     /// ```
     fn set_timeout<I>(
@@ -535,7 +727,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// where
     ///     M: amaru_pure_stage::SendData,
     /// {
-    ///     let _ = s.receive(1u8, eff).discard_repeat();
+    ///     let _ = s.receive(&1u8, eff).discard_repeat();
     /// }
     /// ```
     fn discard_repeat(self) -> Session<M, <Rem as super::DiscardRepeat>::Out>
@@ -556,7 +748,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// define_role_tag!(ToPeer);
     /// on_receive!(Idle, u8 => Send<ToPeer, String> => Done);
     /// fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>) -> Done {
-    ///     s.receive(1u8, eff).finish()
+    ///     s.receive(&1u8, eff).finish()
     /// }
     /// ```
     ///
@@ -569,7 +761,7 @@ pub trait SessionOps<M, Rem>: Sized {
     /// define_role_tag!(ToPeer);
     /// on_receive!(Idle, u8 => Repeat<SendAny<ToPeer>>, Send<ToPeer, String> => Done);
     /// fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>) -> Done {
-    ///     s.receive(1u8, eff).finish()
+    ///     s.receive(&1u8, eff).finish()
     /// }
     /// ```
     fn finish<S: State, I>(self) -> S

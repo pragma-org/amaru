@@ -62,6 +62,14 @@ impl Sub<u64> for BlockHeight {
     }
 }
 
+impl Sub for BlockHeight {
+    type Output = u64;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.0.saturating_sub(rhs.0)
+    }
+}
+
 impl BlockHeight {
     pub const fn new(value: u64) -> Self {
         Self(value)

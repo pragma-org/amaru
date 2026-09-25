@@ -1370,6 +1370,55 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::forge`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `forge_failed` | `TRACE` | public | Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}. | slot, step, error |  |
+| `forged` | `TRACE` | public | A block was forged and stored, and its tip sent to chain selection. | slot, header_hash, parent |  |
+| `missed_slot` | `TRACE` | public | A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late}. | slot, reason |  |
+| `schedule` | `TRACE` | public | Leader schedules still held, with how many led slots remain in each epoch and how many of k blocks since freeze have been adopted. \`next_slot\` is the UTC onset of the next armed led slot, \`YYYY-MM-DDTHH:MM:SS.ffffffZ\`. | slots, freeze_depth, settled | next_slot |
+
+<details><summary>span: `forge_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `integer` | ✓ |
+| `step` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `forged`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `integer` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `missed_slot`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `schedule`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slots` | `object` | ✓ |
+| `freeze_depth` | `integer` | ✓ |
+| `settled` | `boolean` | ✓ |
+| `next_slot` | `string` |  |
+
+</details>
+
 ## target: `amaru::consensus::perf::fork`
 
 | name | level | public | description | required fields | optional fields |

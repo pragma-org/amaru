@@ -17,7 +17,7 @@
 
 use super::{
     Choice, EffectAst, FmtPar, Here, OnReceive, Par, RemainderAst, Select, Session, Then, ThenAst,
-    effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout},
+    effect::{Call, ClearTimeout, Repeat, Send, SendAny, SetTimeout, Terminate},
     list::{CanFinish, ConsIfPresent, DiscardRepeat, describe, describe_ast},
     session::describe_receive,
 };
@@ -310,6 +310,17 @@ fn using_star_keeps_the_star() {
 }
 
 #[test]
+fn parallel_star_survives_selecting_the_other_branch() {
+    type Rem = Choice<(Then<Par<((Repeat<Terminate>,), (Send<toy::Peer, u8>,))>, toy::Idle>,)>;
+    type AfterSend = Choice<(Then<Par<((Repeat<Terminate>,),)>, toy::Idle>,)>;
+    assert_after::<Rem, Send<toy::Peer, u8>, AfterSend, _>();
+    fn assert_still_terminates<R: Select<Terminate, I>, I>() {}
+    assert_still_terminates::<AfterSend, _>();
+    fn assert_finish<R: CanFinish<toy::Idle, Here>>() {}
+    assert_finish::<AfterSend>();
+}
+
+#[test]
 fn parallel_star_is_usable_beside_a_required_send() {
     type Rem = Choice<(Then<Par<((Send<toy::Peer, u8>,), (Repeat<SendAny<toy::Peer>>,))>, toy::Idle>,)>;
     fn assert_send<R: Select<Send<toy::Peer, u8>, I>, I>() {}
@@ -542,6 +553,44 @@ mod convert {
 }
 
 #[allow(dead_code)]
+mod live_convert {
+    use crate::typestate::prelude::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Ping(u8);
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Pong(u16);
+
+    define_mailbox!(Mail { Ping(Ping), Pong(Pong) });
+    make_states!(Live as LiveIn { Idle(IdleIn); Signed(!) });
+    on_receive!(Idle as IdleIn { Ping => { Idle } });
+
+    #[test]
+    fn ok_pairs_the_idle_token_with_the_input() {
+        let live = Live::from(initial_state::<Idle>());
+        match live.convert_input(Mail::Ping(Ping(1))) {
+            Ok(LiveIn::Idle(idle, IdleIn::Ping(ping))) => {
+                assert_eq!(ping, Ping(1));
+                assert_eq!(idle.name(), "Idle");
+            }
+            Ok(LiveIn::Signed(_, void)) => match void {},
+            Err((_, msg)) => panic!("Ping is admissible, got {msg:?}"),
+        }
+    }
+
+    #[test]
+    fn err_returns_the_token_and_the_message() {
+        let live = Live::from(initial_state::<Idle>());
+        match live.convert_input(Mail::Pong(Pong(9))) {
+            Ok(LiveIn::Idle(_, _)) => panic!("Pong is not admissible in Idle"),
+            Ok(LiveIn::Signed(_, void)) => match void {},
+            Err((Live::Idle(idle), Mail::Pong(Pong(9)))) => assert_eq!(idle.name(), "Idle"),
+            Err((_, other)) => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+#[allow(dead_code)]
 mod messages_macro {
     use crate::typestate::prelude::*;
 
@@ -708,5 +757,124 @@ mod two_initial {
         assert!(g.receives[Beta::NAME].is_empty());
         assert!(g.receives[Done::NAME].is_empty());
         assert!(g.occupancy.is_empty());
+    }
+}
+
+mod selectable {
+
+    use super::*;
+    use crate::{BoxFuture, ExternalEffectAPI, Resources, SendData, typestate::prelude::*};
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct SomeEffect;
+
+    impl ExternalEffectAPI for SomeEffect {
+        type Response = ();
+
+        fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+            self.wrap_sync(())
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Lead;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Tick;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Go;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Kick;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Stop;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct RepeatStop;
+
+    make_states!(Live { Idle; Done });
+    const _: Option<Live> = None;
+
+    on_receive!(Idle as IdleIn {
+        Tick => { Clock => Done }
+        Go => { External<SomeEffect> => Done }
+        Kick => { Detach<SomeEffect> => Done }
+        Lead => { Schedule<Lead> => Done }
+        Stop => { CancelSchedule => Done }
+        RepeatStop => { Repeat<CancelSchedule> => Done }
+    });
+    on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn describe_clock_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Tick>(),
+            format!("Idle + Receive<{}> → Clock => Done", std::any::type_name::<Tick>())
+        );
+    }
+
+    #[test]
+    fn describe_external_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Go>(),
+            format!(
+                "Idle + Receive<{}> → External<{}> => Done",
+                std::any::type_name::<Go>(),
+                std::any::type_name::<SomeEffect>()
+            )
+        );
+    }
+
+    #[test]
+    fn describe_detach_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Kick>(),
+            format!(
+                "Idle + Receive<{}> → Detach<{}> => Done",
+                std::any::type_name::<Kick>(),
+                std::any::type_name::<SomeEffect>()
+            )
+        );
+    }
+
+    #[test]
+    fn describe_schedule_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Lead>(),
+            format!(
+                "Idle + Receive<{}> → Schedule<{}> => Done",
+                std::any::type_name::<Lead>(),
+                std::any::type_name::<Lead>()
+            )
+        );
+    }
+
+    #[test]
+    fn describe_cancel_schedule_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, Stop>(),
+            format!("Idle + Receive<{}> → CancelSchedule => Done", std::any::type_name::<Stop>())
+        );
+    }
+
+    #[test]
+    fn describe_repeat_cancel_schedule_remainder() {
+        assert_eq!(
+            describe_receive::<Idle, RepeatStop>(),
+            format!("Idle + Receive<{}> → Repeat<CancelSchedule> => Done", std::any::type_name::<RepeatStop>())
+        );
+    }
+
+    #[test]
+    fn clock_is_required_before_finish() {
+        type Rem = Choice<(Then<Par<((Clock,),)>, Idle>,)>;
+        fn assert_selects<R: Select<Clock, I>, I>() {}
+        assert_selects::<Rem, _>();
+        assert_eq!(describe::<Rem>(), "Clock => Idle");
+    }
+
+    #[test]
+    fn cancel_schedule_is_required_before_finish() {
+        type Rem = Choice<(Then<Par<((CancelSchedule,),)>, Idle>,)>;
+        fn assert_selects<R: Select<CancelSchedule, I>, I>() {}
+        assert_selects::<Rem, _>();
+        assert_eq!(describe::<Rem>(), "CancelSchedule => Idle");
     }
 }

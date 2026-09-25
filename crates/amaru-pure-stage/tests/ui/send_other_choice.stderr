@@ -1,3 +1,9 @@
+error[E0308]: mismatched types
+ --> tests/ui/send_other_choice.rs:69:23
+  = expected `&Go`, found `Go`
+  = note: method defined here
+  = help: consider borrowing here
+   --> tests/ui/send_other_choice.rs:69:23
 error[E0271]: type mismatch resolving `impl Future<Output = Session<M, _>> + Send == impl Future<Output = Session<M, _>> + Send`
  --> tests/ui/send_other_choice.rs:70:15
   = types differ

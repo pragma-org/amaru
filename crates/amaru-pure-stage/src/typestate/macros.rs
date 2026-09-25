@@ -38,6 +38,12 @@
 /// // Live::from(initial_state::<Idle>())
 /// // Live::from(session.finish())
 ///
+/// make_states!(Live as LiveIn { Idle(IdleIn); Signed(!) });
+/// // The input enum is named by the caller, as in `on_receive!(Idle as IdleIn { ... })`.
+/// // Live::convert_input(self, msg) -> Result<LiveIn, (Live, M)>
+/// // LiveIn::Idle(Idle, IdleIn) keeps the token. Signed's input is uninhabited,
+/// // so that Ok arm cannot occur; Err gives the Live back.
+///
 /// make_states!(Live { Idle; Busy, Done } switch Idle, terminal Done);
 /// // OccupancyOf: Idle is Switch, Done is Terminal, Busy is Remote
 /// ```
@@ -56,6 +62,16 @@
 /// [`on_receive`](crate::on_receive): `on_receive!(Done as DoneIn {})`.
 #[macro_export]
 macro_rules! make_states {
+    ($vis:vis $enum:ident as $inputs:ident { $($init:ident ($init_in:ty)),+ $(,)?; $($other:ident ($other_in:ty)),+ $(,)? }) => {
+        $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
+        $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
+        $crate::typestate_live_input!($vis $inputs $enum { $($init ($init_in)),+, $($other ($other_in)),+ });
+    };
+    ($vis:vis $enum:ident as $inputs:ident { $($init:ident ($init_in:ty)),+ $(,)? }) => {
+        $crate::typestate_state_structs!($vis $($init),+);
+        $crate::typestate_live_enum!($vis $enum { $($init),+ });
+        $crate::typestate_live_input!($vis $inputs $enum { $($init ($init_in)),+ });
+    };
     ($vis:vis $enum:ident { $($init:ident),+ $(,)?; $($other:ident),+ $(,)? } switch $switch:ident, terminal $term:ident) => {
         $crate::typestate_state_structs!($vis $($init),+ ; $($other),+);
         $crate::typestate_live_enum!($vis $enum { $($init),+, $($other),+ });
@@ -232,7 +248,7 @@ macro_rules! typestate_occupancy_map {
 macro_rules! typestate_state_structs {
     ($vis:vis $($init:ident),+ ; $($other:ident),+) => {
         $(
-            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $init($crate::typestate::Marker);
             impl $crate::typestate::State for $init {
                 const NAME: &'static str = stringify!($init);
@@ -243,7 +259,7 @@ macro_rules! typestate_state_structs {
             }
         )*
         $(
-            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $other($crate::typestate::Marker);
             impl $crate::typestate::State for $other {
                 const NAME: &'static str = stringify!($other);
@@ -256,7 +272,7 @@ macro_rules! typestate_state_structs {
     };
     ($vis:vis $($init:ident),+) => {
         $(
-            #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+            #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
             $vis struct $init($crate::typestate::Marker);
             impl $crate::typestate::State for $init {
                 const NAME: &'static str = stringify!($init);
@@ -273,7 +289,7 @@ macro_rules! typestate_state_structs {
 #[doc(hidden)]
 macro_rules! typestate_live_enum {
     ($vis:vis $name:ident { $($state:ident),+ $(,)? }) => {
-        #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         $vis enum $name {
             $($state($state),)+
         }
@@ -285,6 +301,54 @@ macro_rules! typestate_live_enum {
                 }
             }
         )+
+    };
+}
+
+/// `Live::convert_input` and the enum that pairs each state token with its message.
+///
+/// `State(!)` is an internal state: that `Ok` variant is uninhabited, and a
+/// mailbox message is returned with the token.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_live_input {
+    ($vis:vis $inputs:ident $enum:ident { $($spec:tt)* }) => {
+        $crate::typestate_live_input!(@go $vis $inputs $enum [] $($spec)*);
+    };
+    (@go $vis:vis $inputs:ident $enum:ident [$($state:ident $input:ty)*] $next:ident (!) $(, $($rest:tt)*)?) => {
+        $crate::typestate_live_input!(@go $vis $inputs $enum [$($state $input)* $next !] $($($rest)*)?);
+    };
+    (@go $vis:vis $inputs:ident $enum:ident [$($state:ident $input:ty)*] $next:ident ($ty:ty) $(, $($rest:tt)*)?) => {
+        $crate::typestate_live_input!(@go $vis $inputs $enum [$($state $input)* $next $ty] $($($rest)*)?);
+    };
+    (@go $vis:vis $inputs:ident $enum:ident [$($state:ident $input:ty)*]) => {
+        $vis enum $inputs {
+            $($state($state, $input),)*
+        }
+
+        impl $enum {
+            /// Consume this live state and classify `msg`.
+            ///
+            /// `Ok` is the same state token paired with an admissible input.
+            /// `Err` is that token and the original message: the input is not
+            /// admissible here, or this state is internal (`!`).
+            pub fn convert_input<M>(self, msg: M) -> ::core::result::Result<$inputs, (Self, M)>
+            where
+                $($input: $crate::typestate::ExtractInput<M>,)*
+            {
+                // `!` is uninhabited, so the `Ok` arm of an internal state never runs.
+                #[allow(unreachable_code)]
+                match self {
+                    $(
+                        Self::$state(state) => {
+                            match <$input as $crate::typestate::ExtractInput<M>>::extract(msg) {
+                                Ok(input) => Ok($inputs::$state(state, input)),
+                                Err(msg) => Err((Self::$state(state), msg)),
+                            }
+                        }
+                    )*
+                }
+            }
+        }
     };
 }
 
