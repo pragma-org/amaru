@@ -26,8 +26,8 @@ use test_setup::{
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_find_anchor_at_height, te_prune_below, te_roll_forward_chain, te_send, te_set_anchor_point,
-        te_switch_to_fork, te_update_consensus_mode,
+        te_clock, te_find_anchor_at_height, te_prune_below, te_record_sync_adoption, te_roll_forward_chain, te_send,
+        te_set_anchor_point, te_switch_to_fork, te_update_consensus_mode,
     },
     test_utils::{te_input, te_state},
 };
@@ -139,6 +139,7 @@ fn test_extension_adopts_and_sends() {
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_update_consensus_mode("ac-1", tip.slot(), sim_clock()),
+            te_record_sync_adoption("ac-1", sim_clock(), true),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
@@ -198,6 +199,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_update_consensus_mode("ac-1", tip.slot(), sim_clock()),
+            te_record_sync_adoption("ac-1", sim_clock(), true),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
@@ -250,6 +252,7 @@ fn test_fork_switch_opcert_hacked() {
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_update_consensus_mode("ac-1", tip.slot(), sim_clock()),
+            te_record_sync_adoption("ac-1", sim_clock(), true),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),

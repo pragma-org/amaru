@@ -90,14 +90,19 @@ impl Performance {
         RecordIntersectionEffect { peer, current, parent, at }
     }
 
+    /// Record that `peer` announced `header`.
+    ///
+    /// `already_stored` is set when the chain store already holds the header. That announcement
+    /// can extend an open list (ranks 2 and 3) but does not start a new rank-1 line or lifecycle.
     pub fn record_header_announcement(
         peer: Peer,
         header: Point,
         parent: Option<HeaderHash>,
         at: Instant,
         slot_start_to_header_micros: u64,
+        already_stored: bool,
     ) -> RecordHeaderAnnouncementEffect {
-        RecordHeaderAnnouncementEffect { peer, header, parent, at, slot_start_to_header_micros }
+        RecordHeaderAnnouncementEffect { peer, header, parent, at, slot_start_to_header_micros, already_stored }
     }
 
     pub fn record_blocks_requested(hashes: Vec<HeaderHash>, requested_at: Instant) -> RecordBlocksRequestedEffect {
@@ -244,6 +249,16 @@ impl Performance {
     ) -> RecordBlockPrunedEffect {
         RecordBlockPrunedEffect { hash, invalid, now, syncing }
     }
+
+    /// Record one chain adoption. `live` clears the sync pace; sync adoptions update it.
+    pub fn record_sync_adoption(at: Instant, live: bool) -> RecordSyncAdoptionEffect {
+        RecordSyncAdoptionEffect { at, live }
+    }
+
+    /// Whether sync adoptions are still arriving faster than 10 per second and are not overdue.
+    pub fn sync_adoption_is_fast(now: Instant) -> SyncAdoptionPaceEffect {
+        SyncAdoptionPaceEffect { now }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +292,8 @@ pub struct RecordHeaderAnnouncementEffect {
     pub(crate) at: Instant,
     /// Stage-computed interval from virtual slot start to header reception.
     pub(crate) slot_start_to_header_micros: u64,
+    /// The chain store already held this header. Used to avoid a fresh rank-1 announcement.
+    pub(crate) already_stored: bool,
 }
 
 impl ExternalEffectAPI for RecordHeaderAnnouncementEffect {
@@ -864,6 +881,39 @@ impl ExternalEffectAPI for RecordBlockPrunedEffect {
                 reply,
             })
             .await
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RecordSyncAdoptionEffect {
+    pub(crate) at: Instant,
+    pub(crate) live: bool,
+}
+
+impl ExternalEffectAPI for RecordSyncAdoptionEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordSyncAdoption { effect: self.as_ref().clone() });
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SyncAdoptionPaceEffect {
+    pub(crate) now: Instant,
+}
+
+impl ExternalEffectAPI for SyncAdoptionPaceEffect {
+    type Response = bool;
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        self.wrap(|this| async move {
+            enqueue_query(&perf, |reply| PerformanceOp::SyncAdoptionPace { effect: this, reply }).await
         })
     }
 }

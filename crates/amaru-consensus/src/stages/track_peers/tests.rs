@@ -27,6 +27,7 @@ use amaru_pure_stage::{
 };
 
 use crate::{
+    consensus_mode::{ChainLagSample, tip_lateness},
     effects::{ValidateHeaderEffect, VolatileTipEffect},
     errors::ConsensusError,
     stages::{
@@ -39,9 +40,9 @@ use crate::{
                 height_recheck_schedule_id, make_block_header, new_tip, schedule_id_at, setup, setup_base,
                 setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clear_peer_availability,
                 te_clock, te_clock_suspend, te_get_best_chain_tip, te_get_nonces, te_header_rejected, te_load_header,
-                te_load_point, te_query_consensus_mode, te_record_header_announcement, te_record_rollback, te_schedule,
-                te_store_validated_header, te_validate_header, test_prep, test_prep_with_max_peer_lead,
-                tm_volatile_tip,
+                te_load_point, te_record_header_announcement, te_record_rollback, te_schedule,
+                te_store_validated_header, te_sync_adoption_is_fast, te_validate_header, test_prep,
+                test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
     },
@@ -464,6 +465,7 @@ fn test_roll_forward_known_peer_header_already_stored() {
                 header.parent_hash(),
                 received_at,
                 slot_start_to_header_micros(&header.point(), received_at),
+                true,
             )
             .into(),
             te_state("tp-1", &expected).into(),
@@ -471,21 +473,13 @@ fn test_roll_forward_known_peer_header_already_stored() {
     );
     logs.assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="already_stored""#])
         .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
-        .assert_and_remove(
-            Level::DEBUG,
-            &[
-                "amaru::blockperf",
-                "header.announced",
-                r#"peer="127.0.0.1:3001""#,
-                "rank=1",
-                &format!(r#"header_hash="{}""#, header.hash()),
-            ],
-        )
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// The first three distinct peers to announce one header hash are logged, in arrival order.
-/// A fourth announcer is recorded for peer selection and produces no further propagation line.
+/// The first peer stores the header. Later peers find it already stored and still fill ranks 2
+/// and 3 while that list is open. A fourth announcer is recorded for peer selection and produces
+/// no further propagation line.
 #[test]
 fn test_header_announcement_logs_the_first_three_peers_for_a_hash() {
     let prep = test_prep();
@@ -510,8 +504,11 @@ fn test_header_announcement_logs_the_first_three_peers_for_a_hash() {
         })
     });
 
-    let (_running, _guards, mut logs) =
-        setup_base(&prep.rt_handle(), state, msgs, build_store_with_nonces(slice::from_ref(header)), |_| {});
+    let (_running, _guards, mut logs) = setup_base(&prep.rt_handle(), state, msgs, build_store(&[]), |running| {
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+            OverrideResult::handled(Ok(Nonces::for_tests()))
+        });
+    });
     let hash = format!(r#"header_hash="{}""#, header.hash());
     logs.assert_and_remove(Level::DEBUG, &["header.announced", &hash, r#"peer="127.0.0.1:3001""#, "rank=1"])
         .assert_and_remove(Level::DEBUG, &["header.announced", &hash, r#"peer="127.0.0.1:3002""#, "rank=2"])
@@ -566,6 +563,7 @@ fn test_roll_forward_stored_header_missing_nonces_revalidates() {
                 header.parent_hash(),
                 received_at,
                 slot_start_to_header_micros(&header.point(), received_at),
+                false,
             )
             .into(),
             te_send("tp-1", "downstream", new_tip(header.point(), parent.point())).into(),
@@ -625,6 +623,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
                 header.parent_hash(),
                 received_at,
                 slot_start_to_header_micros(&header.point(), received_at),
+                false,
             )
             .into(),
             te_send("tp-1", "downstream", new_tip(header.point(), parent.point())).into(),
@@ -930,9 +929,13 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
     });
 
+    let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let mut expected = prep.state.clone();
-    expected.last_chain_lag_check =
-        Some(Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time));
+    expected.last_chain_lag_check = Some(now);
+    expected.chain_lag = Some(ChainLagSample {
+        at: now,
+        lateness: tip_lateness(Point::Origin.slot(), now, &EraHistory::default()).expect("origin slot"),
+    });
     let mut state = prep.state.clone();
     state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
@@ -941,7 +944,6 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
     logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "ahead of local time"])
-        .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_match(
         &running,
@@ -949,8 +951,8 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
-            te_query_consensus_mode("tp-1").into(),
             te_get_best_chain_tip("tp-1").into(),
+            te_sync_adoption_is_fast("tp-1", now).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
@@ -1027,7 +1029,6 @@ fn test_roll_forward_header_slot_near_future_defers() {
             Level::DEBUG,
             &["header.announced", r#"peer="127.0.0.1:3001""#, "rank=1", &format!(r#"header_hash="{}""#, header.hash())],
         )
-        .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // Clock-skew defers, then sim advances and RecheckLedgerHeight processes the header.
     assert_trace_contains(
@@ -1445,7 +1446,6 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
         .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["header.announced", &format!(r#"header_hash="{h1_hash}""#), "rank=1"])
         .assert_and_remove(Level::DEBUG, &["header.announced", &format!(r#"header_hash="{h2_hash}""#), "rank=1"])
-        .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
     // First header clock-skew defers; second is FollowUp; recheck may drain both before run ends.
     assert_trace_contains(

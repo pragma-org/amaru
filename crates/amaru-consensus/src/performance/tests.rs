@@ -605,7 +605,7 @@ fn header_received_and_peer_claim_are_independent_maps() {
     let alice = peer("alice");
 
     peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000, false);
 
     assert_eq!(headers.lifecycle_count(), 1);
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
@@ -618,9 +618,9 @@ fn first_header_announcer_peer_is_retained() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 1_000, false);
     // Later announcer must not overwrite the first peer or slot interval.
-    headers.apply_header_received(bob, tip(1, 1), t(2), 9_999);
+    headers.apply_header_received(bob, tip(1, 1), t(2), 9_999, false);
 
     assert_eq!(headers.first_announcer(&hash(1)), Some(alice));
     assert_eq!(headers.slot_start_to_header_micros(&hash(1)), Some(1_000));
@@ -630,7 +630,7 @@ fn first_header_announcer_peer_is_retained() {
 fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     let mut headers = HeaderPerformance::new();
     let alice = peer("alice");
-    headers.apply_header_received(alice, tip(1, 1), t(1), 500);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 500, false);
     headers.apply_blocks_requested(&[hash(1)], t(2));
     let received = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), t(3));
     assert!(matches!(
@@ -664,7 +664,7 @@ fn header_rejected_does_not_require_lifecycle_entry() {
 #[test]
 fn fork_started_and_closed_on_valid_block() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0, false);
     assert!(headers.apply_fork_started(tip(1, 1), t(1)).is_empty());
     assert!(headers.has_fork_switch(&hash(1)));
     let telemetry = headers.apply_block_valid(&hash(1), t(2), false);
@@ -675,7 +675,7 @@ fn fork_started_and_closed_on_valid_block() {
 #[test]
 fn slot_start_metric_omitted_while_syncing() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000);
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000, false);
     let telemetry = headers.apply_block_valid(&hash(1), t(2), true);
     assert_eq!(headers.lifecycle_count(), 0);
     assert!(matches!(
@@ -693,11 +693,11 @@ fn announcement_logs_three_peers_and_deliveries_keep_arrival_order() {
     let mut headers = HeaderPerformance::new();
     let peers: Vec<Peer> = (1..=4).map(|port| Peer::for_test(3000 + port)).collect();
     let announced: Vec<_> =
-        peers.iter().flat_map(|peer| headers.apply_header_received(*peer, tip(1, 1), t(1), 0)).collect();
+        peers.iter().flat_map(|peer| headers.apply_header_received(*peer, tip(1, 1), t(1), 0, false)).collect();
     assert_eq!(announced.len(), 3);
     assert!(matches!(&announced[0], super::HeaderTelemetry::Announced { rank: 1, peer, .. } if *peer == peers[0]));
     assert!(matches!(&announced[2], super::HeaderTelemetry::Announced { rank: 3, peer, .. } if *peer == peers[2]));
-    assert!(headers.apply_header_received(peers[0], tip(1, 1), t(2), 0).is_empty());
+    assert!(headers.apply_header_received(peers[0], tip(1, 1), t(2), 0, false).is_empty());
 
     let first = headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), t(3));
     assert!(headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), t(4)).is_empty());
@@ -712,10 +712,40 @@ fn announcement_logs_three_peers_and_deliveries_keep_arrival_order() {
 }
 
 #[test]
+fn already_stored_header_does_not_open_a_rank_one_announcement() {
+    let mut headers = HeaderPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+
+    let first = headers.apply_header_received(alice, tip(1, 1), t(1), 1_000, false);
+    assert!(matches!(&first[..], [super::HeaderTelemetry::Announced { rank: 1, .. }]));
+
+    // A later peer extends the open list and leaves the first announcer's interval in place.
+    let second = headers.apply_header_received(bob, tip(1, 1), t(2), 9_000, true);
+    assert!(matches!(&second[..], [super::HeaderTelemetry::Announced { rank: 2, peer, .. }] if *peer == bob));
+    assert_eq!(headers.first_announcer(&hash(1)), Some(alice));
+    assert_eq!(headers.slot_start_to_header_micros(&hash(1)), Some(1_000));
+
+    headers.apply_block_valid(&hash(1), t(3), false);
+    assert!(
+        headers.apply_header_received(peer("carol"), tip(1, 1), t(4), 1, true).is_empty(),
+        "an adopted header is not announced again"
+    );
+    assert!(headers.apply_header_received(peer("dave"), tip(1, 1), t(4), 1, false).is_empty());
+    headers.apply_prune_below(BlockHeight::from(2), t(5));
+    assert!(headers.apply_header_received(peer("carol"), tip(1, 1), t(5), 1, true).is_empty());
+    assert_eq!(headers.lifecycle_count(), 0);
+
+    // A stored header this node never collected announcers for stays silent.
+    assert!(headers.apply_header_received(alice, tip(9, 9), t(6), 1, true).is_empty());
+    assert_eq!(headers.lifecycle_count(), 0);
+}
+
+#[test]
 fn prune_below_closes_open_lifecycles_as_pruned() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
-    headers.apply_header_received(peer("alice"), tip(5, 5), t(2), 0);
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0, false);
+    headers.apply_header_received(peer("alice"), tip(5, 5), t(2), 0, false);
     assert_eq!(headers.lifecycle_count(), 2);
     let pruned = headers.apply_prune_below(BlockHeight::from(5), t(3));
     assert_eq!(headers.lifecycle_count(), 1);
@@ -824,7 +854,7 @@ fn capture_blockperf(filter: &str, live: bool) -> String {
         let point = tip(9, 4);
         let peers: Vec<Peer> = (1..=4).map(|port| Peer::for_test(3000 + port)).collect();
         for peer in &peers {
-            let effect = Performance::record_header_announcement(*peer, point, None, t(1), 0);
+            let effect = Performance::record_header_announcement(*peer, point, None, t(1), 0, false);
             rt.block_on(Box::new(effect).run(resources.clone()));
         }
         super::emit_blocks_requested(&[body], &peers[..2], live);

@@ -64,9 +64,9 @@ Header announcement, block request, block delivery, and local adoption are event
 AMARU_LOG=info,amaru::blockperf=debug
 ```
 
-`AMARU_LOG=off,amaru::blockperf=debug` prints only those events. `header.announced` is emitted for the first three distinct peers of a header hash, with `rank` 1, 2, or 3. `block.requested` lists the peers asked for that body. `block.received` names each delivering peer with its arrival rank. `block.adopted` records local adoption and, when known, the first peer that delivered the body.
+`AMARU_LOG=off,amaru::blockperf=debug` prints only those events. `header.announced` is emitted for the first three distinct peers of a header hash, with `rank` 1, 2, or 3. A header that is already stored does not start a new rank-1 line; a later peer is logged only while that header is still within those three announcements and has not yet been adopted. `block.requested` lists the peers asked for that body. `block.received` names each delivering peer with its arrival rank. `block.adopted` records local adoption and, when known, the first peer that delivered the body.
 
-While the adopted chain is more than 60 seconds from the wall clock these lines are debug, and `tip.adopt` is limited to one info line per second. Once the adopted tip is within 60 seconds they are info, and every adoption is printed. A change between sync and live is logged at info as `tip.mode`. A header that is itself within 60 seconds of the wall clock, while the adopted chain is still behind, is logged at most once a minute as `chainsync.chain_lagging`.
+While the adopted chain is more than 60 seconds from the wall clock these lines are debug, and `tip.adopt` is limited to one info line per second. Once the adopted tip is within 60 seconds they are info, and every adoption is printed. A change between sync and live is logged at info as `tip.mode`. `chainsync.chain_lagging` is logged when near-now headers keep arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, and during the minute in which sync is finishing.
 
 ### By tag
 

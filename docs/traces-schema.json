@@ -110,7 +110,7 @@
       "name": "announced",
       "level": "TRACE",
       "target": "amaru::blockperf::header",
-      "description": "One of the first three distinct peers to announce this header. `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.",
+      "description": "One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.",
       "public": true
     },
     "amaru::bootstrap::COMPLETE": {
@@ -3812,30 +3812,34 @@
         "peer": {
           "type": "string"
         },
-        "header_hash": {
-          "title": "Hash<32>",
-          "description": "hex-encoded hash",
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "header_slot": {
+        "live_slot": {
           "title": "uint64",
           "type": "integer",
           "format": "uint64",
           "minimum": 0.0
+        },
+        "our_slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "lag": {
+          "type": "integer"
         }
       },
       "required": [
         "peer",
-        "header_hash",
-        "header_slot"
+        "live_slot",
+        "our_slot",
+        "lag"
       ],
       "optional": [],
       "additionalProperties": false,
       "name": "chain_lagging",
       "level": "TRACE",
       "target": "amaru::consensus::chainsync",
-      "description": "A header near the wall clock arrived while the adopted chain is still behind it. The node is likely stuck. Emitted at most once a minute.",
+      "description": "Near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. Sync that is still adopting faster than 10 blocks per second does not raise this. Emitted at most once a minute.",
       "public": true
     },
     "amaru::consensus::chainsync::INITIALIZED": {

@@ -56,7 +56,9 @@ pub struct HeaderPerformance {
     /// The lifecycle timestamps of each header whose block has not yet reached a terminal state.
     lifecycles: BTreeMap<HeaderHash, HeaderLifecycle>,
     /// Announcing and delivering peers kept until the header falls behind the immutable horizon.
-    /// Announcements are logged only for the first `LOGGED_ANNOUNCEMENTS` distinct peers.
+    /// Announcements are logged only for the first `LOGGED_ANNOUNCEMENTS` distinct peers, and only
+    /// while this map still holds the hash. An already-stored header does not open a new entry.
+    /// Once the header has been adopted, further announcements are not logged.
     audience: BTreeMap<HeaderHash, HeaderAudience>,
     /// An in-progress fork switch, if any.
     fork_switch: Option<ForkSwitch>,
@@ -68,6 +70,8 @@ struct HeaderAudience {
     height: BlockHeight,
     announced: Vec<Peer>,
     delivered: Vec<Peer>,
+    /// The block was adopted. Later peers do not emit `header.announced`.
+    adopted: bool,
 }
 
 /// The processing timestamps accumulated for a header until its block reaches a terminal state.
@@ -327,16 +331,25 @@ impl HeaderPerformance {
     /// Returns `header.announced` telemetry for a peer that is among the first three
     /// distinct announcers of this hash.
     ///
+    /// When `already_stored` is true, the announcement is logged only if this hash is still
+    /// collecting announcers. It does not open a rank-1 line or a new lifecycle: a slow peer
+    /// repeating headers that are already in the store stays quiet.
+    ///
     /// `slot_start_to_header_micros` is computed by the caller (using era history) so this type
-    /// stays free of consensus calendar knowledge.
+    /// stays free of consensus calendar knowledge. It is recorded only for a header that is not
+    /// already stored.
     pub fn apply_header_received(
         &mut self,
         peer: Peer,
         tip: Point,
         received_at: Instant,
         slot_start_to_header_micros: u64,
+        already_stored: bool,
     ) -> Vec<HeaderTelemetry> {
         let hash = tip.hash();
+        if already_stored {
+            return self.extend_announcement(peer, hash).into_iter().collect();
+        }
         self.lifecycles.entry(hash).or_insert_with(|| {
             HeaderLifecycle::new(peer, slot_start_to_header_micros, tip.block_height(), received_at)
         });
@@ -411,6 +424,9 @@ impl HeaderPerformance {
     /// catching up far behind the network tip).
     pub fn apply_block_valid(&mut self, hash: &HeaderHash, now: Instant, syncing: bool) -> Vec<HeaderTelemetry> {
         let delivered_by = self.audience.get(hash).and_then(|audience| audience.delivered.first().copied());
+        if let Some(audience) = self.audience.get_mut(hash) {
+            audience.adopted = true;
+        }
         let mut out = self.close_lifecycle(hash, HeaderLifecycleOutcome::ValidBlock, now, syncing);
         out.push(HeaderTelemetry::Adopted { hash: *hash, peer: delivered_by });
         out.extend(self.close_fork(hash, ForkSwitchOutcome::ValidBlock, now));
@@ -464,7 +480,20 @@ impl HeaderPerformance {
 impl HeaderPerformance {
     fn note_announcement(&mut self, peer: Peer, hash: HeaderHash, height: BlockHeight) -> Option<HeaderTelemetry> {
         let audience = self.audience_mut(hash, height);
-        if audience.announced.contains(&peer) || audience.announced.len() >= LOGGED_ANNOUNCEMENTS {
+        Self::push_announcer(audience, peer, hash)
+    }
+
+    /// Rank 2 or 3 for a header whose announcement list is still open.
+    ///
+    /// Missing audience means the header was already stored before we started collecting, or it
+    /// has since fallen off the horizon. Either way there is no rank-1 line to emit.
+    fn extend_announcement(&mut self, peer: Peer, hash: HeaderHash) -> Option<HeaderTelemetry> {
+        let audience = self.audience.get_mut(&hash)?;
+        Self::push_announcer(audience, peer, hash)
+    }
+
+    fn push_announcer(audience: &mut HeaderAudience, peer: Peer, hash: HeaderHash) -> Option<HeaderTelemetry> {
+        if audience.adopted || audience.announced.contains(&peer) || audience.announced.len() >= LOGGED_ANNOUNCEMENTS {
             return None;
         }
         audience.announced.push(peer);
@@ -487,6 +516,7 @@ impl HeaderPerformance {
             height,
             announced: Vec::new(),
             delivered: Vec::new(),
+            adopted: false,
         })
     }
 }

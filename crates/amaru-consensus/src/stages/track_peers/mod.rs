@@ -33,8 +33,11 @@ use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
 
 use super::peer_selection::PeerSelectionMsg;
 use crate::{
-    consensus_mode::{CHAIN_LAG_LOG_INTERVAL, ConsensusMode, classify},
-    effects::{Ledger, LedgerOps, QueryConsensusModeEffect, VolatileTipEffect},
+    consensus_mode::{
+        CHAIN_LAG_LOG_INTERVAL, ChainLagSample, ChainLagWatch, ConsensusMode, LIVE_TIP_LAG, classify, judge_chain_lag,
+        tip_lateness,
+    },
+    effects::{Ledger, LedgerOps, VolatileTipEffect},
     errors::{ConsensusError, HeaderSlotTooFarInFuture, InvalidHeaderParentData, InvalidHeaderPoint},
     performance::{HeaderLifecycleOutcome, Performance},
 };
@@ -146,8 +149,10 @@ pub struct TrackPeers {
     deferred: Vec<DeferredHeader>,
     /// Single outstanding self-schedule for height/clock deferred rechecks.
     recheck_timer: Option<ScheduleId>,
-    /// Last time a live header was checked against a still-syncing adopted chain.
+    /// Last time a near-now header was compared with the adopted tip.
     last_chain_lag_check: Option<Instant>,
+    /// Lateness of the adopted tip at that check, while the tip was still behind.
+    chain_lag: Option<ChainLagSample>,
 }
 
 /// Per-connection tip tracking for a chainsync session.
@@ -359,6 +364,7 @@ impl TrackPeers {
             max_epoch,
             recheck_timer: None,
             last_chain_lag_check: None,
+            chain_lag: None,
         }
     }
 
@@ -394,9 +400,12 @@ impl TrackPeers {
         });
     }
 
-    /// A header whose slot is within [`crate::consensus_mode::LIVE_TIP_LAG`] of the wall clock,
-    /// while the adopted chain is still syncing, means headers are arriving and the chain is not.
-    /// That is logged at most once per [`CHAIN_LAG_LOG_INTERVAL`].
+    /// A header near the wall clock is compared with the adopted tip at most once a minute.
+    ///
+    /// The first time the tip is behind, the sample is stored and nothing is logged. Finishing
+    /// sync sees that header before the adoption that makes the tip live. A later sample logs
+    /// when the tip did not get closer and sync adoptions are no longer arriving faster than
+    /// 10 per second.
     async fn note_chain_lag(&mut self, eff: &Effects<TrackPeersMsg>, peer: Peer, header: &Header, now: Instant) {
         if self.last_chain_lag_check.is_some_and(|at| now.saturating_since(at) < CHAIN_LAG_LOG_INTERVAL) {
             return;
@@ -405,12 +414,25 @@ impl TrackPeers {
             return;
         }
         self.last_chain_lag_check = Some(now);
-        if eff.external(QueryConsensusModeEffect).await == ConsensusMode::Sync {
-            let tip = eff.external(GetBestChainTipEffect).await;
-            let live_slot = header.slot();
-            let our_slot = tip.slot();
-            let lag = live_slot - our_slot;
-            error!(consensus::chainsync::CHAIN_LAGGING, peer, live_slot, our_slot, lag);
+        let tip = eff.external(GetBestChainTipEffect).await;
+        let Some(lateness) = tip_lateness(tip.slot(), now, &self.era_history) else {
+            return;
+        };
+        if lateness < LIVE_TIP_LAG {
+            self.chain_lag = None;
+            return;
+        }
+        let catching_up_fast = eff.external(Performance::sync_adoption_is_fast(now)).await;
+        match judge_chain_lag(self.chain_lag, now, lateness, catching_up_fast) {
+            ChainLagWatch::CaughtUp => self.chain_lag = None,
+            ChainLagWatch::Quiet(sample) => self.chain_lag = Some(sample),
+            ChainLagWatch::Lagging(sample) => {
+                self.chain_lag = Some(sample);
+                let live_slot = header.slot();
+                let our_slot = tip.slot();
+                let lag = live_slot - our_slot;
+                error!(consensus::chainsync::CHAIN_LAGGING, peer, live_slot, our_slot, lag);
+            }
         }
     }
 
@@ -758,12 +780,14 @@ impl TrackPeers {
                     outcome = "already_stored"
                 );
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
+                let already_stored = true;
                 eff.external(Performance::record_header_announcement(
                     peer,
                     header_tip,
                     header_parent,
                     received_at,
                     slot_start_to_header_micros,
+                    already_stored,
                 ))
                 .await;
             }
@@ -785,12 +809,14 @@ impl TrackPeers {
                     })
                     .await;
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
+                let already_stored = false;
                 eff.external(Performance::record_header_announcement(
                     peer,
                     header_tip,
                     header_parent,
                     received_at,
                     slot_start_to_header_micros,
+                    already_stored,
                 ))
                 .await;
                 debug!(consensus::chainsync::ROLL_FORWARD_DONE, peer, current, highest = tip, outcome = "stored");
