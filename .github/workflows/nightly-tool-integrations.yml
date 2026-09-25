@@ -114,7 +114,7 @@ jobs:
                 https://github.com/txpipe/oura/releases/latest/download/oura-installer.sh | sh
             test: |
               set +e
-              timeout "$TOOL_TEST_TIMEOUT" oura watch 127.0.0.1:3000 --bearer tcp --magic preprod 2>&1 | tee tool-output.txt
+              timeout "$TOOL_TEST_TIMEOUT" oura watch 127.0.0.1:3000 --bearer tcp --magic pre-prod 2>&1 | tee tool-output.txt
               set -e
               grep -q 'BLOCK:' tool-output.txt
 
