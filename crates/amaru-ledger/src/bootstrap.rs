@@ -919,8 +919,6 @@ fn import_recently_pruned_proposals(
             .drain(era_history, candidates)
             .map_err(|err| anyhow!("replay enacted proposals: {err}"))?;
 
-        let mut compass = forest.new_compass();
-
         // FIXME: Enact in order when bootstrapping
         //
         // There's no guarantee that the 'enacted' list here is _in order_. In case where multiple
@@ -932,7 +930,7 @@ fn import_recently_pruned_proposals(
                 .get(&id)
                 .cloned()
                 .ok_or_else(|| anyhow!("enacted proposal {id} not found in the imported proposals"))?;
-            forest.enact(id, &proposal, &mut compass).map_err(|err| anyhow!("replay enacted proposals: {err}"))?;
+            forest.enact(id, &proposal).map_err(|err| anyhow!("replay enacted proposals: {err}"))?;
         }
 
         for (pruned_id, status) in forest.end() {

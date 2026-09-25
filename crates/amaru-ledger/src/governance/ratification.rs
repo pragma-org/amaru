@@ -147,15 +147,7 @@ impl<'distr> RatificationContext<'distr> {
             // pruned.
             let mut forest = ProposalsForest::new(self.epoch, &roots, self.treasury).drain(era_history, proposals)?;
 
-            // A mutable compass to navigate the forest. This compass holds the tiny bit of mutable
-            // state we need to iterate over the forest; but without introducing a mutable borrow on
-            // the forest. This allows to interleave updates on the forest when needed.
-            //
-            // Any update on the forest invalidate the compass, which must be replaced to continue
-            // iterating.
-            let mut compass = forest.new_compass();
-
-            while let Some((id, (proposal, _))) = compass.next(&forest, &self.protocol_parameters) {
+            while let Some((id, (proposal, _))) = forest.next(&self.protocol_parameters) {
                 let ratified = Self::new_ratify_span(&id, proposal).in_scope(|| {
                     if self.is_accepted_by_everyone(&id, proposal, self.stake_distribution) {
                         Some((id.clone(), proposal.clone()))
@@ -165,7 +157,11 @@ impl<'distr> RatificationContext<'distr> {
                 });
 
                 if let Some((id, proposal)) = ratified {
-                    self.enact_proposal(id, proposal, &mut forest, &mut compass)?;
+                    Self::new_enact_span(&id, &proposal).in_scope(|| -> Result<(), RatificationInternalError> {
+                        forest.enact(id, &proposal)?;
+                        self.enact_proposal(proposal);
+                        Ok(())
+                    })?;
                 }
             }
 
@@ -179,65 +175,51 @@ impl<'distr> RatificationContext<'distr> {
     /// the persistent store. Note that updates to the store are actually happening *after*, once
     /// the ratification procedure is fully done. So we only stash updates, in order (as some
     /// updates may override some previous update in the same ratification).
-    fn enact_proposal(
-        &mut self,
-        id: Rc<ProposalId>,
-        proposal: ProposalEnum,
-        forest: &mut ProposalsForest,
-        compass: &mut ProposalsForestCompass,
-    ) -> Result<(), RatificationInternalError> {
-        Self::new_enact_span(&id, &proposal).in_scope(|| -> Result<(), RatificationInternalError> {
-            forest.enact(id, &proposal, compass)?;
+    fn enact_proposal(&mut self, proposal: ProposalEnum) {
+        match proposal {
+            ProposalEnum::ProtocolParameters(params_update, _parent) => {
+                self.protocol_parameters.update(*params_update);
+            }
 
-            match proposal {
-                ProposalEnum::ProtocolParameters(params_update, _parent) => {
-                    self.protocol_parameters.update(*params_update);
-                }
+            ProposalEnum::HardFork(protocol_version, _parent) => {
+                self.protocol_parameters.protocol_version = protocol_version;
+            }
 
-                ProposalEnum::HardFork(protocol_version, _parent) => {
-                    self.protocol_parameters.protocol_version = protocol_version;
-                }
+            ProposalEnum::ConstitutionalCommittee(update, _parent) => {
+                match update.clone() {
+                    ConstitutionalCommitteeUpdate::NoConfidence => {
+                        self.constitutional_committee = None;
+                    }
+                    ConstitutionalCommitteeUpdate::ChangeMembers { removed, added, threshold } => {
+                        let added_as_inactive =
+                            added.iter().map(|(cold_cred, valid_until)| (*cold_cred, (None, *valid_until))).collect();
 
-                ProposalEnum::ConstitutionalCommittee(update, _parent) => {
-                    match update.clone() {
-                        ConstitutionalCommitteeUpdate::NoConfidence => {
-                            self.constitutional_committee = None;
-                        }
-                        ConstitutionalCommitteeUpdate::ChangeMembers { removed, added, threshold } => {
-                            let added_as_inactive = added
-                                .iter()
-                                .map(|(cold_cred, valid_until)| (*cold_cred, (None, *valid_until)))
-                                .collect();
-
-                            if let Some(committee) = &mut self.constitutional_committee {
-                                committee.update(threshold, added_as_inactive, removed.iter().collect());
-                            } else {
-                                self.constitutional_committee =
-                                    Some(ConstitutionalCommittee::new(threshold, added_as_inactive));
-                            }
+                        if let Some(committee) = &mut self.constitutional_committee {
+                            committee.update(threshold, added_as_inactive, removed.iter().collect());
+                        } else {
+                            self.constitutional_committee =
+                                Some(ConstitutionalCommittee::new(threshold, added_as_inactive));
                         }
                     }
-
-                    self.constitutional_committee_update = Some(update);
                 }
 
-                ProposalEnum::Constitution(constitution, _parent) => {
-                    self.new_constitution = Some(constitution);
-                }
+                self.constitutional_committee_update = Some(update);
+            }
 
-                ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
-                    for (credential, amount) in withdrawals.into_iter() {
-                        self.withdrawals.entry(credential).and_modify(|balance| *balance += amount).or_insert(amount);
-                    }
-                }
+            ProposalEnum::Constitution(constitution, _parent) => {
+                self.new_constitution = Some(constitution);
+            }
 
-                ProposalEnum::Orphan(OrphanProposal::NicePoll) => {
-                    unreachable!("enacted an un-enactable proposal kind ?!")
+            ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
+                for (credential, amount) in withdrawals.into_iter() {
+                    self.withdrawals.entry(credential).and_modify(|balance| *balance += amount).or_insert(amount);
                 }
             }
 
-            Ok(())
-        })
+            ProposalEnum::Orphan(OrphanProposal::NicePoll) => {
+                unreachable!("enacted an un-enactable proposal kind ?!")
+            }
+        }
     }
 
     fn new_enact_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
@@ -496,7 +478,7 @@ mod tests {
         }
 
         #[test]
-        fn expired_parent_cannot_be_revived_by_a_later_threshold_change() {
+        fn earlier_proposal_cannot_be_revived_by_a_later_enactment() {
             let distribution = StakeDistribution::default();
             let mut ctx = ratification_context(&distribution);
             let lowered_thresholds = ctx.protocol_parameters.drep_voting_thresholds.clone();
@@ -507,11 +489,14 @@ mod tests {
                 .ratify_proposals(
                     &ERA_HISTORY,
                     vec![
+                        // Not enacted initially due to a too high drep_voting_thresholds.
+                        // Eventually dropped due to expiry.
                         candidate(1, 1, hard_fork(None, 12)),
-                        candidate(2, 5, hard_fork(Some(1), 13)),
-                        candidate(3, 5, hard_fork(None, 12)),
+                        // Not enacted initially due to a too high drep_voting_thresholds.
+                        candidate(2, 5, hard_fork(None, 12)),
+                        // Enacted, lowering the threshold;
                         candidate(
-                            4,
+                            3,
                             5,
                             GovernanceAction::ParameterChange(
                                 None,
@@ -527,14 +512,15 @@ mod tests {
                 )
                 .unwrap();
 
-            assert_eq!(roots.hard_fork, Some(proposal_id(3)));
+            assert_eq!(
+                roots.hard_fork, None,
+                "hard fork proposal should not be re-evaluated and should remain non-enacted"
+            );
             assert_eq!(
                 pruned_proposals,
                 BTreeMap::from([
                     (proposal_id(1), RatificationStatus::NotRatified),
-                    (proposal_id(2), RatificationStatus::NotRatified),
                     (proposal_id(3), RatificationStatus::Ratified),
-                    (proposal_id(4), RatificationStatus::Ratified),
                 ])
             );
         }

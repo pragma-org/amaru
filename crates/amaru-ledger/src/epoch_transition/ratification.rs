@@ -409,11 +409,18 @@ fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, any_proposal_id};
+    use amaru_kernel::{
+        Ballot, CertificatePointer, DRep, GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
+        RewardAccount, Vote, Voter, any_hash28, any_proposal_id, any_reward_account, safe_ratio,
+    };
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
 
     use super::*;
-    use crate::{store::columns::proposals, summary::stake_distribution::StakeDistribution};
+    use crate::{
+        governance::ratification::ConstitutionalCommittee,
+        store::columns::proposals,
+        summary::{governance::DRepState, stake_distribution::StakeDistribution},
+    };
 
     fn empty_stake_distribution(epoch: Epoch) -> StakeDistribution {
         StakeDistribution {
@@ -427,6 +434,18 @@ mod tests {
             dreps: BTreeMap::new(),
             cc_update: None,
         }
+    }
+
+    fn any_withdrawal_proposal(
+        runner: &mut TestRunner,
+        valid_until: Epoch,
+        withdrawals: BTreeMap<RewardAccount, Lovelace>,
+    ) -> Proposal {
+        let mut row = proposals::tests::any_row(1_000).new_tree(runner).unwrap().current();
+        row.valid_until = valid_until;
+        row.proposal.deposit = 100_000;
+        row.proposal.gov_action = GovernanceAction::TreasuryWithdrawals(withdrawals.into(), None);
+        row
     }
 
     fn any_information_proposal(runner: &mut TestRunner, valid_until: Epoch) -> Proposal {
@@ -445,22 +464,38 @@ mod tests {
         let ratified_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
         let expired_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
 
-        let ratified = any_information_proposal(&mut runner, epoch + 5);
+        let account = any_reward_account().new_tree(&mut runner).unwrap().current();
+
+        let ratified = any_withdrawal_proposal(&mut runner, epoch + 5, BTreeMap::from([(account, 70_000)]));
         let expired = any_information_proposal(&mut runner, epoch);
 
-        let withdrawal_account = ratified.proposal.reward_account.credential();
+        let drep = any_hash28().new_tree(&mut runner).unwrap().current();
+        let mut distribution = empty_stake_distribution(epoch);
+        distribution.dreps_voting_stake = 1_000_000_000_000;
+        distribution.dreps = BTreeMap::from([(
+            DRep::Key(drep),
+            DRepState {
+                valid_until: Some(Epoch::new(99)),
+                metadata: None,
+                voting_stake: distribution.dreps_voting_stake,
+                registered_at: CertificatePointer::default(),
+            },
+        )]);
+        let votes = BTreeMap::from([(ratified_id, vec![(Voter::DRepKey(drep), Ballot::new(Vote::Yes, None))])]);
 
-        let distribution = empty_stake_distribution(epoch);
         let ctx = RatificationContext {
             epoch,
-            treasury: 1_000_000_000,
+            treasury: u64::MAX,
             stake_distribution: &distribution,
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            withdrawals: BTreeMap::from([(withdrawal_account, 70_000)]),
-            constitutional_committee: None,
+            protocol_parameters: ProtocolParameters {
+                min_committee_size: 0,
+                ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
+            },
+            withdrawals: Default::default(),
+            constitutional_committee: Some(ConstitutionalCommittee::new(safe_ratio(0, 1), Default::default())),
             constitutional_committee_update: None,
             new_constitution: None,
-            votes: BTreeMap::new(),
+            votes,
         };
 
         let updates = GovernanceUpdates::new(
