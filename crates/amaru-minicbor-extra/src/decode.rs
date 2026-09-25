@@ -276,6 +276,42 @@ pub fn heterogeneous_map_with<C, K, S>(
     Ok(state)
 }
 
+/// Like [`heterogeneous_map`], but rejects a map that repeats a key.
+///
+/// Every CBOR map decoder in the Haskell ledger refuses duplicate keys from protocol version 9
+/// onwards: `decodeSparseKeyed` tracks the tags it has seen and fails with `duplicateKey`, and
+/// `decodeMapByKey` compares the size of the assembled map against the number of decoded pairs.
+/// Accepting a repeated key here would mean taking the last one where the node takes none.
+pub fn heterogeneous_map_unique_keys<K: Eq + Clone, S>(
+    d: &mut cbor::Decoder<'_>,
+    state: S,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>) -> Result<K, cbor::decode::Error>,
+    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut S, K) -> Result<(), cbor::decode::Error>,
+) -> Result<S, cbor::decode::Error> {
+    heterogeneous_map_with_unique_keys(d, &mut (), state, |d, _| decode_key(d), |d, _, st, k| decode_value(d, st, k))
+}
+
+/// Like [`heterogeneous_map_with`], but rejects a map that repeats a key.
+///
+/// See [`heterogeneous_map_unique_keys`] for why duplicates are an error.
+pub fn heterogeneous_map_with_unique_keys<C, K: Eq + Clone, S>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+    state: S,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>, &mut C) -> Result<K, cbor::decode::Error>,
+    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut C, &mut S, K) -> Result<(), cbor::decode::Error>,
+) -> Result<S, cbor::decode::Error> {
+    let mut seen: Vec<K> = Vec::new();
+
+    heterogeneous_map_with(d, ctx, state, decode_key, |d, ctx, st, k| {
+        if seen.contains(&k) {
+            return Err(cbor::decode::Error::message("duplicate key in CBOR map"));
+        }
+        seen.push(k.clone());
+        decode_value(d, ctx, st, k)
+    })
+}
+
 /// Collect the raw CBOR bytes of each value in a map, together with decoded keys.
 pub fn collect_map_value_bytes<K: Ord>(
     decoder: &mut cbor::Decoder<'_>,

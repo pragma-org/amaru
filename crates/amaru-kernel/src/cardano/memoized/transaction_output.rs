@@ -156,7 +156,7 @@ fn decode_modern_output<C: cbor::HasProtocolVersion>(
     d: &mut cbor::Decoder<'_>,
     ctx: &mut C,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
-    let (address, value, datum, script) = cbor::heterogeneous_map(
+    let (address, value, datum, script) = cbor::heterogeneous_map_unique_keys(
         d,
         (None, None, MemoizedDatum::None, None),
         |d| d.u8(),
@@ -448,5 +448,20 @@ pub mod tests {
             prop_assert_eq!(decoded.original_size(), bytes.len());
             prop_assert_eq!(decoded.original_size(), output.original_size());
         }
+    }
+
+    /// The ledger reads a Babbage output with `decodeSparseKeyed` (and, below protocol version 12,
+    /// with `SparseKeyed`), which refuses a key it does not know and a key it has already seen, so
+    /// a field cannot be overridden by repeating it.
+    ///
+    /// Both cases are detected before the required fields are looked for, so these inputs need no
+    /// valid address.
+    #[cfg(test)]
+    #[test_case::test_case(&[0xa2, 0x01, 0x00, 0x01, 0x01] ; "the value key twice")]
+    #[test_case::test_case(&[0xa1, 0x04, 0x00]             ; "a key beyond the last one")]
+    fn decode_rejects_unknown_and_duplicate_keys(input: &[u8]) {
+        let mut version = crate::protocol_version::PROTOCOL_VERSION_10;
+        let decoded: Result<MemoizedTransactionOutput, _> = cbor::from_cbor_no_leftovers_with(input, &mut version);
+        assert!(decoded.is_err(), "expected a decoding failure, got {decoded:?}");
     }
 }
