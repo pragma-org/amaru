@@ -14,13 +14,20 @@
 
 use crate::{RedeemerTag, cbor};
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct RedeemerKey {
     #[n(0)]
     pub tag: RedeemerTag,
     #[n(1)]
     pub index: u32,
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for RedeemerKey {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(Self { tag: d.decode_with(ctx)?, index: d.decode_with(ctx)? })
+        })
+    }
 }

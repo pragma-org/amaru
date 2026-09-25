@@ -14,7 +14,7 @@
 
 use crate::{Hash, OperationalCert, ProtocolVersion, VerificationKey, VrfCert, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct HeaderBody {
     #[n(0)]
@@ -46,4 +46,24 @@ pub struct HeaderBody {
 
     #[n(9)]
     pub protocol_version: ProtocolVersion,
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for HeaderBody {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(10)?;
+            Ok(Self {
+                block_number: d.decode_with(ctx)?,
+                slot: d.decode_with(ctx)?,
+                prev_hash: d.decode_with(ctx)?,
+                issuer_verification_key: d.decode_with(ctx)?,
+                vrf_verification_key: d.decode_with(ctx)?,
+                vrf_result: d.decode_with(ctx)?,
+                block_body_size: d.decode_with(ctx)?,
+                block_body_hash: d.decode_with(ctx)?,
+                operational_cert: d.decode_with(ctx)?,
+                protocol_version: d.decode_with(ctx)?,
+            })
+        })
+    }
 }
