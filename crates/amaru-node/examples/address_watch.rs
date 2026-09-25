@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
         builder = builder.peers(args.peer_address);
     }
 
-    let running = builder.build_and_run(rt.handle())?;
+    let running = rt.block_on(builder.start(rt.handle()))?;
     let termination = running.termination();
     rt.spawn(async move {
         termination.await;

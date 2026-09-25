@@ -37,12 +37,28 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
+### Added
+
+- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
+- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
+
+### Fixed
+
+- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
+- **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
+- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
+- **amaru**: panics restore the terminal dashboard and stop further dashboard rendering before printing diagnostics, so the crash remains visible even during dashboard startup or shutdown.
+
 ## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added
 
 - **amaru-node**: embedders can await node shutdown, inspect component failures, and restart on another network after stores and listeners close.
 - **amaru-node**: startup reports typed errors for invalid configuration, stores already in use, incompatible chain-store versions, and detected ledger/chain-store mismatches.
+- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
+- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 
 ### Changed
 
@@ -56,6 +72,10 @@ Other guiding principles:
 - **amaru-ledger**: expired governance proposals now prune their descendants, preventing synchronization from stopping at the following epoch boundary. ([#1381](https://github.com/pragma-org/amaru/issues/1381))
 - **amaru-network**: shutting down an idle listener no longer hangs while an accept call is waiting for a connection.
 - **amaru-uplc**: deeply nested UPLC programs and constants no longer crash the node with a stack overflow during FLAT encoding, FLAT decoding, or result reconstruction.
+- **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
+- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
+- **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
 ## [v10.11.20260918](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260918)
 
@@ -87,7 +107,7 @@ Other guiding principles:
 - **amaru-protocols**: a deeply nested CBOR mini-protocol message no longer crashes the node with a stack overflow while mux is splitting frames.
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
-## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
+## v10.11.20260910 _[unreleased]_
 
 ### Added
 

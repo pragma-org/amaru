@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
             builder = builder.peers(args.peer_address);
         }
 
-        let running = builder.build_and_run(&tokio::runtime::Handle::current())?;
+        let running = builder.start(&tokio::runtime::Handle::current()).await?;
 
         loop {
             if done.load(Ordering::SeqCst) {

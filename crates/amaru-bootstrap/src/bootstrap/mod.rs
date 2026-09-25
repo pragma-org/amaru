@@ -45,7 +45,9 @@ use chain_sync_client::{ChainSyncClient, from_pallas_point, from_pallas_tip};
 use crate::{
     aws::{AnonymousS3Client, S3Config},
     cardano_node::tvar::{import_state_from_tvar, import_utxo_from_tvar},
-    progress::BootstrapProgressFactory,
+    progress::{
+        BootstrapObserver, BootstrapProgress, BootstrapProgressFactory, BootstrapStage, DefaultBootstrapObserver,
+    },
 };
 
 /// S3-backed snapshot descriptor used during bootstrap.
@@ -62,6 +64,7 @@ impl Snapshot {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum BootstrapError {
     #[error("bootstrap cancelled")]
     Cancelled,
@@ -81,8 +84,14 @@ pub enum BootstrapError {
     #[error("Invalid snapshot archive {0}: {1}")]
     InvalidSnapshotArchive(PathBuf, String),
 
+    #[error("Invalid bootstrap snapshot point {point}: {reason}")]
+    InvalidSnapshotPoint { point: String, reason: String },
+
     #[error("No bootstrap snapshots found in S3 bucket for this network")]
     NoBootstrapSnapshots,
+
+    #[error("target epoch is too young: {target_epoch}; bootstrap needs at least 3 past epochs")]
+    TargetEpochTooYoung { target_epoch: Epoch },
 
     #[error(
         "requested {target_epoch}, but {} available for bootstrap on this network.",
@@ -96,6 +105,16 @@ pub enum BootstrapError {
         display_collection(required_epochs)
     )]
     SnapshotSelectionLatestEpoch { latest_epoch: Epoch, required_epochs: [Epoch; 3], available_epochs: Vec<Epoch> },
+
+    #[error("bootstrap operation failed: {0}")]
+    Operation(#[from] anyhow::Error),
+}
+
+/// Successful bootstrap summary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BootstrapReport {
+    pub epoch: Epoch,
+    pub point: NetworkPoint,
 }
 
 pub(crate) fn checkpoint(cancellation: &BootstrapCancellation) -> Result<(), BootstrapError> {
@@ -106,6 +125,7 @@ pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
 const PACKAGED_BLOCKS_FILE_NAME: &str = "bootstrap.blocks.json";
 const SNAPSHOT_STATE_FILE_NAME: &str = "state";
 const SNAPSHOT_UTXO_FILE_NAME: &str = "tables/tvar";
+const SNAPSHOT_SIZE_LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn snapshot_archive_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
     snapshots_dir.join(format!("{}{}", snapshot.point, Snapshot::ARCHIVE_SUFFIX))
@@ -116,11 +136,19 @@ fn resolve_snapshot_path(snapshots_dir: &Path, snapshot: &Snapshot) -> Option<Pa
     is_snapshot_archive_file(&archive).then_some(archive)
 }
 
-fn snapshot_hash(snapshot: &Snapshot) -> anyhow::Result<HeaderHash> {
-    match NetworkPoint::try_from(snapshot.point.as_str()).map_err(anyhow::Error::msg)? {
+fn snapshot_hash(snapshot: &Snapshot) -> Result<HeaderHash, BootstrapError> {
+    match parse_snapshot_point(&snapshot.point)? {
         NetworkPoint::Specific(_, hash) => Ok(hash),
-        NetworkPoint::Origin => Err(anyhow!("bootstrap snapshots must not use origin")),
+        NetworkPoint::Origin => Err(BootstrapError::InvalidSnapshotPoint {
+            point: snapshot.point.clone(),
+            reason: "bootstrap snapshots must not use origin".to_string(),
+        }),
     }
+}
+
+fn parse_snapshot_point(point: &str) -> Result<NetworkPoint, BootstrapError> {
+    NetworkPoint::try_from(point)
+        .map_err(|reason| BootstrapError::InvalidSnapshotPoint { point: point.to_string(), reason })
 }
 
 /// List S3 objects under `<network>/`, derive epoch from slot via era history, return `Vec<Snapshot>`.
@@ -191,14 +219,15 @@ fn format_available_epochs(epochs: &[Epoch]) -> String {
     }
 }
 
-fn select_bootstrap_snapshots(snapshots: &[Snapshot], target_epoch: Option<Epoch>) -> anyhow::Result<[&Snapshot; 3]> {
+fn select_bootstrap_snapshots(
+    snapshots: &[Snapshot],
+    target_epoch: Option<Epoch>,
+) -> Result<[&Snapshot; 3], BootstrapError> {
     let snapshots_by_epoch: BTreeMap<Epoch, &Snapshot> = snapshots.iter().map(|s| (s.epoch, s)).collect();
     let latest_epoch = snapshots_by_epoch.keys().next_back().copied().ok_or(BootstrapError::NoBootstrapSnapshots)?;
     let first_epoch = target_epoch
         .map(|target| {
-            target
-                .checked_sub(Epoch::THREE)
-                .ok_or_else(|| anyhow!("target epoch is too young; Amaru needs at least 3 past epochs to bootstrap."))
+            target.checked_sub(Epoch::THREE).ok_or(BootstrapError::TargetEpochTooYoung { target_epoch: target })
         })
         .transpose()?
         .unwrap_or_else(|| latest_epoch.saturating_sub(2));
@@ -230,14 +259,13 @@ fn select_bootstrap_snapshots(snapshots: &[Snapshot], target_epoch: Option<Epoch
 
             match target_epoch {
                 Some(target_epoch) => {
-                    Err(BootstrapError::SnapshotSelectionRequestedEpoch { target_epoch, available_epochs }.into())
+                    Err(BootstrapError::SnapshotSelectionRequestedEpoch { target_epoch, available_epochs })
                 }
                 None => Err(BootstrapError::SnapshotSelectionLatestEpoch {
                     latest_epoch,
                     required_epochs,
                     available_epochs,
-                }
-                .into()),
+                }),
             }
         }
     }
@@ -310,35 +338,33 @@ async fn fetch_headers_from_point(
     Ok(headers)
 }
 
-fn should_download_snapshot(snapshots_dir: &Path, snapshot: &Snapshot) -> bool {
-    resolve_snapshot_path(snapshots_dir, snapshot).is_none()
-}
-
 async fn download_snapshots(
     snapshots: &[&Snapshot],
     snapshots_dir: &Path,
     s3: &AnonymousS3Client,
     cancellation: &BootstrapCancellation,
+    observer: &dyn BootstrapObserver,
 ) -> Result<(), BootstrapError> {
     async_fs::create_dir_all(snapshots_dir)
         .await
         .map_err(|err| BootstrapError::CreateSnapshotsDir(snapshots_dir.to_path_buf(), err))?;
 
+    let mut progress = DownloadProgress::new(observer);
+
     for snapshot in snapshots {
         checkpoint(cancellation)?;
         let archive_path = snapshot_archive_path(snapshots_dir, snapshot);
 
-        if !should_download_snapshot(snapshots_dir, snapshot) {
-            validate_snapshot_archive(&archive_path)
-                .map_err(|err| BootstrapError::InvalidSnapshotArchive(archive_path.clone(), err.to_string()))?;
-            let snapshot_path = resolve_snapshot_path(snapshots_dir, snapshot).unwrap_or_else(|| archive_path.clone());
+        if let Some(snapshot_path) = resolve_snapshot_path(snapshots_dir, snapshot) {
+            validate_snapshot_archive(&snapshot_path)
+                .map_err(|err| BootstrapError::InvalidSnapshotArchive(snapshot_path.clone(), err.to_string()))?;
             info!(bootstrap::snapshot::SKIP_DOWNLOAD, snapshot = snapshot_path.display().to_string());
+            progress.complete_snapshot(snapshot_path.metadata()?.len());
             continue;
         }
-
         if archive_path.exists() {
             return Err(BootstrapError::InvalidSnapshotArchive(
-                archive_path.clone(),
+                archive_path,
                 format!("snapshot archive path exists but is not a regular `{}` file", Snapshot::ARCHIVE_SUFFIX),
             ));
         }
@@ -349,7 +375,9 @@ async fn download_snapshots(
 
         tokio::select! {
             biased;
-            result = s3.download_object(&snapshot.key, &partial_archive_path) => {
+            result = s3.download_object_with_progress(&snapshot.key, &partial_archive_path, |bytes| {
+                progress.advance(bytes);
+            }) => {
                 result.map_err(|error| BootstrapError::DownloadError(snapshot.key.clone(), error.to_string()))?;
             }
             () = cancellation.cancelled() => return Err(BootstrapError::Cancelled),
@@ -359,9 +387,74 @@ async fn download_snapshots(
             .map_err(|err| BootstrapError::InvalidSnapshotArchive(partial_archive_path.clone(), err.to_string()))?;
 
         async_fs::rename(partial_archive_path, archive_path).await?;
+        progress.complete_snapshot(0);
     }
 
     Ok(())
+}
+
+struct DownloadProgress<'observer> {
+    observer: &'observer dyn BootstrapObserver,
+    downloaded_bytes: u64,
+    completed_snapshots: usize,
+}
+
+impl<'observer> DownloadProgress<'observer> {
+    fn new(observer: &'observer dyn BootstrapObserver) -> Self {
+        Self { observer, downloaded_bytes: 0, completed_snapshots: 0 }
+    }
+
+    fn advance(&mut self, bytes: u64) {
+        self.downloaded_bytes = self.downloaded_bytes.saturating_add(bytes);
+        self.emit();
+    }
+
+    fn complete_snapshot(&mut self, bytes: u64) {
+        self.downloaded_bytes = self.downloaded_bytes.saturating_add(bytes);
+        self.completed_snapshots = self.completed_snapshots.saturating_add(1);
+        self.emit();
+    }
+
+    fn emit(&self) {
+        self.observer.on_progress(BootstrapProgress::DownloadProgress {
+            downloaded_bytes: self.downloaded_bytes,
+            completed_snapshots: self.completed_snapshots,
+        });
+    }
+}
+
+async fn selected_snapshot_size(
+    snapshots: &[&Snapshot],
+    snapshots_dir: &Path,
+    s3: &AnonymousS3Client,
+    cancellation: &BootstrapCancellation,
+) -> Result<Option<u64>, BootstrapError> {
+    let lookups = snapshots.iter().map(|snapshot| async move {
+        match resolve_snapshot_path(snapshots_dir, snapshot).and_then(|path| path.metadata().ok().map(|m| m.len())) {
+            Some(size) => Some(size),
+            None => s3.object_size(&snapshot.key).await.ok().flatten(),
+        }
+    });
+    tokio::select! {
+        result = timeout(SNAPSHOT_SIZE_LOOKUP_TIMEOUT, futures_util::future::join_all(lookups)) => {
+            Ok(result.ok().and_then(|sizes| aggregate_snapshot_size(&sizes)))
+        }
+        () = cancellation.cancelled() => Err(BootstrapError::Cancelled),
+    }
+}
+
+fn aggregate_snapshot_size(sizes: &[Option<u64>]) -> Option<u64> {
+    sizes.iter().try_fold(0_u64, |total, size| total.checked_add((*size)?))
+}
+
+fn report_bootstrap_completion(
+    observer: &dyn BootstrapObserver,
+    epoch: Epoch,
+    point: &str,
+) -> Result<BootstrapReport, BootstrapError> {
+    let report = BootstrapReport { epoch, point: parse_snapshot_point(point)? };
+    observer.on_progress(BootstrapProgress::Completed { epoch: report.epoch, point: report.point });
+    Ok(report)
 }
 
 fn snapshot_archive_root(archive_path: &Path) -> anyhow::Result<PathBuf> {
@@ -452,12 +545,13 @@ fn snapshot_archive_entry_root(path: &Path, expected: &Path) -> Option<PathBuf> 
 /// Bootstrap with cooperative cancellation at decoder and database work-unit boundaries.
 ///
 /// To stop bootstrap, call [`BootstrapCancellation::cancel`] on a cloned handle and continue
-/// awaiting this function until it returns an error containing [`BootstrapError::Cancelled`]. Do not
+/// awaiting this function until it returns [`BootstrapError::Cancelled`]. Do not
 /// drop the bootstrap future after requesting cancellation. The cancellation result is returned only
 /// after the importer has stopped and released its store handles. During snapshot import,
 /// cancellation latency is bounded by the decoder read/sequence chunk or RocksDB batch currently in
 /// progress; snapshot downloads are interrupted immediately. Cancellation can leave partial bootstrap
 /// stores, which must be removed and bootstrapped again rather than opened as node stores.
+/// On success, returns the epoch and point installed in both stores.
 #[expect(clippy::too_many_arguments)]
 pub async fn bootstrap(
     network: NetworkName,
@@ -468,7 +562,40 @@ pub async fn bootstrap(
     target_epoch: Option<Epoch>,
     s3_config: S3Config,
     cancellation: BootstrapCancellation,
-) -> anyhow::Result<()> {
+) -> Result<BootstrapReport, BootstrapError> {
+    let observer = DefaultBootstrapObserver::new();
+    bootstrap_with_observer(
+        network,
+        global_parameters,
+        ledger_dir,
+        chain_dir,
+        snapshots_dir,
+        target_epoch,
+        s3_config,
+        cancellation,
+        &observer,
+    )
+    .await
+}
+
+/// Bootstrap with canonical progress delivered to `observer`.
+///
+/// The observer is passive and receives the same state regardless of whether the process has an
+/// interactive terminal. [`bootstrap`] installs Amaru's terminal-or-telemetry observer for callers
+/// that do not need custom reporting. The returned report contains the same final epoch and point as
+/// [`BootstrapProgress::Completed`].
+#[expect(clippy::too_many_arguments)]
+pub async fn bootstrap_with_observer(
+    network: NetworkName,
+    global_parameters: &GlobalParameters,
+    ledger_dir: PathBuf,
+    chain_dir: PathBuf,
+    snapshots_dir: PathBuf,
+    target_epoch: Option<Epoch>,
+    s3_config: S3Config,
+    cancellation: BootstrapCancellation,
+    observer: &dyn BootstrapObserver,
+) -> Result<BootstrapReport, BootstrapError> {
     let cancel_on_drop = cancellation.clone().drop_guard();
     let result = bootstrap_inner(
         network,
@@ -479,6 +606,7 @@ pub async fn bootstrap(
         target_epoch,
         s3_config,
         cancellation,
+        observer,
     )
     .await;
     cancel_on_drop.disarm();
@@ -495,14 +623,24 @@ async fn bootstrap_inner(
     target_epoch: Option<Epoch>,
     s3_config: S3Config,
     cancellation: BootstrapCancellation,
-) -> anyhow::Result<()> {
+    observer: &dyn BootstrapObserver,
+) -> Result<BootstrapReport, BootstrapError> {
     let started_at = Instant::now();
     checkpoint(&cancellation)?;
+    observer.on_progress(BootstrapProgress::StageChanged { stage: BootstrapStage::DiscoveringSnapshots });
     let s3 = AnonymousS3Client::new(s3_config);
     let snapshots = bootstrap_snapshots(network, &s3, &snapshots_dir).await?;
+    checkpoint(&cancellation)?;
+    observer.on_progress(BootstrapProgress::StageChanged { stage: BootstrapStage::SelectingSnapshots });
     let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, target_epoch)?;
+    let selected_snapshots = [first_snapshot, second_snapshot, third_snapshot];
+    let total_bytes = selected_snapshot_size(&selected_snapshots, &snapshots_dir, &s3, &cancellation).await?;
+    observer
+        .on_progress(BootstrapProgress::SnapshotsSelected { snapshot_count: selected_snapshots.len(), total_bytes });
 
-    download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir, &s3, &cancellation).await?;
+    checkpoint(&cancellation)?;
+    observer.on_progress(BootstrapProgress::StageChanged { stage: BootstrapStage::DownloadingSnapshots });
+    download_snapshots(&selected_snapshots, &snapshots_dir, &s3, &cancellation, observer).await?;
     checkpoint(&cancellation)?;
 
     let first_snapshot_path = resolve_snapshot_path(&snapshots_dir, first_snapshot)
@@ -512,6 +650,7 @@ async fn bootstrap_inner(
     let third_snapshot_path = resolve_snapshot_path(&snapshots_dir, third_snapshot)
         .ok_or_else(|| BootstrapError::MissingSnapshot(snapshot_archive_path(&snapshots_dir, third_snapshot)))?;
 
+    observer.on_progress(BootstrapProgress::StageChanged { stage: BootstrapStage::ImportingSnapshots });
     import_snapshot_with_optional_nonces(
         network,
         global_parameters,
@@ -548,6 +687,7 @@ async fn bootstrap_inner(
     .await?;
 
     checkpoint(&cancellation)?;
+    observer.on_progress(BootstrapProgress::StageChanged { stage: BootstrapStage::InitializingChainStore });
     let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone())).map_err(anyhow::Error::from)?;
     let second_chain_state = imported_second_snapshot
         .chain_state
@@ -574,8 +714,7 @@ async fn bootstrap_inner(
         epoch = imported_third_snapshot.epoch,
         point = third_snapshot.point.clone(),
     );
-
-    Ok(())
+    report_bootstrap_completion(observer, imported_third_snapshot.epoch, &third_snapshot.point)
 }
 
 pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> anyhow::Result<()> {
@@ -768,7 +907,7 @@ async fn import_snapshot_with_optional_nonces(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
     cancellation: &BootstrapCancellation,
-) -> anyhow::Result<ImportedSnapshot> {
+) -> Result<ImportedSnapshot, BootstrapError> {
     if snapshot.is_file() && has_snapshot_archive_extension(snapshot) {
         return import_node_snapshot_archive(
             network,
@@ -781,7 +920,7 @@ async fn import_snapshot_with_optional_nonces(
         .await;
     }
 
-    Err(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf()).into())
+    Err(BootstrapError::Operation(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf()).into()))
 }
 
 async fn import_node_snapshot_archive(
@@ -791,7 +930,7 @@ async fn import_node_snapshot_archive(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
     cancellation: &BootstrapCancellation,
-) -> anyhow::Result<ImportedSnapshot> {
+) -> Result<ImportedSnapshot, BootstrapError> {
     info!(bootstrap::snapshot::IMPORT_ARCHIVE, path = snapshot_archive.display().to_string());
     import_node_snapshot_source(network, global_parameters, snapshot_archive, ledger_dir, nonce_tail, cancellation)
         .await
@@ -804,7 +943,7 @@ async fn import_node_snapshot_source(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
     cancellation: &BootstrapCancellation,
-) -> anyhow::Result<ImportedSnapshot> {
+) -> Result<ImportedSnapshot, BootstrapError> {
     fs::create_dir_all(ledger_dir)?;
 
     let previous_accounts = if fs::exists(ledger_dir.join("live"))? {
@@ -840,7 +979,7 @@ async fn import_node_snapshot_source(
         .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
     })?;
 
-    let (db, epoch, chain_state) = await_import_thread(import_thread).await?;
+    let (db, epoch, chain_state) = await_import_thread(import_thread, cancellation).await?;
 
     db.next_snapshot(epoch).map_err(anyhow::Error::from)?;
 
@@ -851,12 +990,15 @@ async fn import_node_snapshot_source(
 }
 
 async fn await_import_thread<T: Send + 'static>(
-    import_thread: std::thread::JoinHandle<anyhow::Result<T>>,
-) -> anyhow::Result<T> {
+    import_thread: std::thread::JoinHandle<Result<T, BootstrapError>>,
+    cancellation: &BootstrapCancellation,
+) -> Result<T, BootstrapError> {
     let joined = tokio::task::spawn_blocking(move || import_thread.join())
         .await
-        .map_err(|error| anyhow!("bootstrap import join task failed: {error}"))?;
-    joined.map_err(|_| anyhow!("bootstrap import task panicked"))?
+        .map_err(|error| BootstrapError::Operation(anyhow!("bootstrap import join task failed: {error}")))?;
+    let result = joined.map_err(|_| BootstrapError::Operation(anyhow!("bootstrap import task panicked")))?;
+    checkpoint(cancellation)?;
+    result
 }
 
 fn import_node_snapshot_archive_data(
@@ -867,7 +1009,7 @@ fn import_node_snapshot_archive_data(
     nonce_tail: Option<HeaderHash>,
     previous_accounts: BTreeSet<Credential>,
     cancellation: &BootstrapCancellation,
-) -> anyhow::Result<(Epoch, Point, Option<ChainState>)> {
+) -> Result<(Epoch, Point, Option<ChainState>), BootstrapError> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
 
@@ -917,7 +1059,10 @@ fn import_node_snapshot_archive_data(
         }
     }
 
-    Err(anyhow!("snapshot archive {} does not contain {SNAPSHOT_UTXO_FILE_NAME}", archive_path.display()))
+    Err(BootstrapError::Operation(anyhow!(
+        "snapshot archive {} does not contain {SNAPSHOT_UTXO_FILE_NAME}",
+        archive_path.display()
+    )))
 }
 
 #[cfg(test)]
@@ -925,6 +1070,7 @@ mod tests {
     use std::{
         fs,
         io::Cursor,
+        net::TcpListener,
         path::{Path, PathBuf},
         sync::{
             Arc, Barrier,
@@ -933,16 +1079,37 @@ mod tests {
         time::Duration,
     };
 
-    use amaru_kernel::{BlockHeight, Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Slot};
+    use amaru_kernel::{
+        BlockHeight, Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, NetworkName, Slot,
+    };
     use tar::{Builder, Header};
     use tempfile::tempdir;
 
     use super::{
-        BootstrapCancellation, BootstrapError, Snapshot, await_import_thread, checkpoint, read_snapshot_archive_entry,
-        select_bootstrap_snapshots, should_download_snapshot, snapshot_archive_entry_matches, sort_snapshots_by_slot,
+        BootstrapCancellation, BootstrapError, BootstrapReport, DownloadProgress, Snapshot, aggregate_snapshot_size,
+        await_import_thread, checkpoint, download_snapshots, read_snapshot_archive_entry, report_bootstrap_completion,
+        resolve_snapshot_path, select_bootstrap_snapshots, snapshot_archive_entry_matches, sort_snapshots_by_slot,
         validate_publishable_snapshot_archive, validate_snapshot_archive,
     };
-    use crate::cardano_node::ParsedStateSnapshot;
+    use crate::{
+        cardano_node::ParsedStateSnapshot,
+        progress::{BootstrapObserver, BootstrapProgress},
+    };
+
+    #[derive(Default)]
+    struct RecordingObserver(std::sync::Mutex<Vec<BootstrapProgress>>);
+
+    impl BootstrapObserver for RecordingObserver {
+        fn on_progress(&self, progress: BootstrapProgress) {
+            self.0.lock().unwrap().push(progress);
+        }
+    }
+
+    impl RecordingObserver {
+        fn events(&self) -> Vec<BootstrapProgress> {
+            self.0.lock().unwrap().clone()
+        }
+    }
 
     fn test_snapshot(epoch: u64, point: &str, network: &str) -> Snapshot {
         Snapshot {
@@ -984,6 +1151,77 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_bootstrap_never_reports_successful_completion() {
+        let temp_dir = tempdir().unwrap();
+        let cancellation = BootstrapCancellation::new();
+        cancellation.cancel();
+        let observer = RecordingObserver::default();
+        let network = NetworkName::Preprod;
+        let global_parameters = network.as_global_parameters().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+
+        let error = runtime
+            .block_on(super::bootstrap_with_observer(
+                network,
+                global_parameters,
+                temp_dir.path().join("ledger"),
+                temp_dir.path().join("chain"),
+                temp_dir.path().join("snapshots"),
+                None,
+                crate::S3Config::default(),
+                cancellation,
+                &observer,
+            ))
+            .unwrap_err();
+
+        assert!(matches!(error, BootstrapError::Cancelled));
+        assert!(!observer.events().iter().any(|event| matches!(event, BootstrapProgress::Completed { .. })));
+    }
+
+    #[test]
+    fn successful_completion_reports_the_imported_epoch_and_point() {
+        let observer = RecordingObserver::default();
+        let point = format!("42.{}", "00".repeat(32));
+
+        let report = report_bootstrap_completion(&observer, Epoch::from(165), &point).unwrap();
+
+        assert_eq!(report, BootstrapReport { epoch: Epoch::from(165), point: point.parse().unwrap() });
+        assert_eq!(
+            observer.events(),
+            vec![BootstrapProgress::Completed { epoch: Epoch::from(165), point: point.parse().unwrap() }]
+        );
+    }
+
+    #[test]
+    fn failed_bootstrap_never_reports_successful_completion() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let unavailable_address = listener.local_addr().unwrap();
+        drop(listener);
+        let temp_dir = tempdir().unwrap();
+        let observer = RecordingObserver::default();
+        let network = NetworkName::Preprod;
+        let global_parameters = network.as_global_parameters().unwrap();
+        let s3_config =
+            crate::S3Config { public_url: format!("http://{unavailable_address}"), ..crate::S3Config::default() };
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+
+        let result = runtime.block_on(super::bootstrap_with_observer(
+            network,
+            global_parameters,
+            temp_dir.path().join("ledger"),
+            temp_dir.path().join("chain"),
+            temp_dir.path().join("snapshots"),
+            None,
+            s3_config,
+            BootstrapCancellation::new(),
+            &observer,
+        ));
+
+        assert!(result.is_err());
+        assert!(!observer.events().iter().any(|event| matches!(event, BootstrapProgress::Completed { .. })));
+    }
+
+    #[test]
     fn cancellation_waits_for_the_import_thread_to_release_its_resources() {
         struct Released(Arc<AtomicBool>);
 
@@ -1002,7 +1240,7 @@ mod tests {
             let importer_ready = Arc::clone(&importer_ready);
             let importer_continue = Arc::clone(&importer_continue);
             let released = Arc::clone(&released);
-            std::thread::spawn(move || -> anyhow::Result<()> {
+            std::thread::spawn(move || -> Result<(), BootstrapError> {
                 let _released = Released(released);
                 importer_ready.wait();
                 importer_continue.wait();
@@ -1015,9 +1253,9 @@ mod tests {
         cancellation.cancel();
         importer_continue.wait();
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let error = runtime.block_on(await_import_thread(import_thread)).unwrap_err();
+        let error = runtime.block_on(await_import_thread(import_thread, &cancellation)).unwrap_err();
 
-        assert!(matches!(error.downcast_ref(), Some(BootstrapError::Cancelled)));
+        assert!(matches!(error, BootstrapError::Cancelled));
         assert!(released.load(Ordering::SeqCst));
     }
 
@@ -1061,7 +1299,7 @@ mod tests {
     }
 
     #[test]
-    fn should_not_download_existing_snapshot_archive() {
+    fn resolves_existing_snapshot_archive() {
         let temp_dir = tempdir().unwrap();
         let snapshot = test_snapshot(163, "69206375.hash", "preprod");
         let archive_path = temp_dir.path().join("69206375.hash.tar.zst");
@@ -1072,7 +1310,64 @@ mod tests {
 
         validate_snapshot_archive(&archive_path).unwrap();
         assert_eq!(read_snapshot_archive_entry(&archive_path, Path::new("state")).unwrap(), b"state");
-        assert!(!should_download_snapshot(temp_dir.path(), &snapshot));
+        assert_eq!(resolve_snapshot_path(temp_dir.path(), &snapshot), Some(archive_path));
+    }
+
+    #[test]
+    fn cached_snapshot_is_counted_without_a_download() {
+        let temp_dir = tempdir().unwrap();
+        let snapshot = test_snapshot(163, "69206375.hash", "preprod");
+        let archive_path = temp_dir.path().join("69206375.hash.tar.zst");
+        write_snapshot_archive(
+            &archive_path,
+            &[("69206375.hash/state", b"state"), ("69206375.hash/tables/tvar", b"utxo")],
+        );
+        let archive_size = archive_path.metadata().unwrap().len();
+        let observer = RecordingObserver::default();
+        let client = crate::AnonymousS3Client::new(crate::S3Config::default());
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+
+        runtime
+            .block_on(download_snapshots(
+                &[&snapshot],
+                temp_dir.path(),
+                &client,
+                &BootstrapCancellation::new(),
+                &observer,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            observer.events().last(),
+            Some(&BootstrapProgress::DownloadProgress { downloaded_bytes: archive_size, completed_snapshots: 1 })
+        );
+    }
+
+    #[test]
+    fn download_progress_is_absolute_and_monotonic() {
+        let observer = RecordingObserver::default();
+        let mut progress = DownloadProgress::new(&observer);
+
+        progress.complete_snapshot(100);
+        progress.advance(40);
+        progress.advance(40);
+        progress.complete_snapshot(0);
+
+        assert_eq!(
+            observer.events(),
+            vec![
+                BootstrapProgress::DownloadProgress { downloaded_bytes: 100, completed_snapshots: 1 },
+                BootstrapProgress::DownloadProgress { downloaded_bytes: 140, completed_snapshots: 1 },
+                BootstrapProgress::DownloadProgress { downloaded_bytes: 180, completed_snapshots: 1 },
+                BootstrapProgress::DownloadProgress { downloaded_bytes: 180, completed_snapshots: 2 },
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_snapshot_size_makes_the_aggregate_unknown() {
+        assert_eq!(aggregate_snapshot_size(&[Some(10), Some(20), Some(30)]), Some(60));
+        assert_eq!(aggregate_snapshot_size(&[Some(10), None, Some(30)]), None);
     }
 
     #[test]

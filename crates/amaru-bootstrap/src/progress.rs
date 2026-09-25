@@ -15,210 +15,186 @@
 use std::{
     io::{self, IsTerminal},
     sync::Mutex,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
+use amaru_kernel::{Epoch, NetworkPoint};
 use amaru_observability::info;
-use amaru_progress_bar::{ProgressBar, ProgressBarFactory, TerminalProgressBar};
-use tokio::time::Instant;
+use amaru_progress_bar::{NoProgressBar, ProgressBar, ProgressBarFactory, TerminalProgressBar};
 
-const LOG_INTERVAL: Duration = Duration::from_secs(5);
+const STRUCTURED_DOWNLOAD_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Selects an interactive progress bar or structured progress events for bootstrap work.
+/// A high-level stage in the bootstrap process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum BootstrapStage {
+    /// Discover the snapshots available for the selected network.
+    DiscoveringSnapshots,
+    /// Choose and inspect the three-snapshot bootstrap window.
+    SelectingSnapshots,
+    /// Download or reuse the selected snapshot archives.
+    DownloadingSnapshots,
+    /// Import the selected snapshots into the ledger store.
+    ImportingSnapshots,
+    /// Seed the chain store from the imported snapshot state.
+    InitializingChainStore,
+}
+
+impl BootstrapStage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::DiscoveringSnapshots => "discovering_snapshots",
+            Self::SelectingSnapshots => "selecting_snapshots",
+            Self::DownloadingSnapshots => "downloading_snapshots",
+            Self::ImportingSnapshots => "importing_snapshots",
+            Self::InitializingChainStore => "initializing_chain_store",
+        }
+    }
+}
+
+/// Canonical progress reported by a bootstrap operation.
+///
+/// Download counters are absolute across all selected snapshots and include archives reused from
+/// the cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum BootstrapProgress {
+    /// Bootstrap moved to a new high-level stage.
+    StageChanged { stage: BootstrapStage },
+    /// The bootstrap snapshot window was selected.
+    SnapshotsSelected {
+        snapshot_count: usize,
+        /// Sum of compressed archive sizes when every selected size is known.
+        total_bytes: Option<u64>,
+    },
+    /// Absolute download state across the selected snapshot window.
+    DownloadProgress { downloaded_bytes: u64, completed_snapshots: usize },
+    /// Bootstrap completed successfully.
+    Completed { epoch: Epoch, point: NetworkPoint },
+}
+
+/// Receives canonical bootstrap progress.
+///
+/// Observers are passive: return values cannot influence snapshot selection, downloads, imports,
+/// cancellation, or completion.
+pub trait BootstrapObserver: Send + Sync {
+    fn on_progress(&self, progress: BootstrapProgress);
+}
+
+/// The standard bootstrap observer used by [`crate::bootstrap`].
+///
+/// It renders an aggregate download bar on an interactive terminal and emits structured telemetry
+/// otherwise. Renderer selection does not affect the events produced by bootstrap.
+pub(crate) struct DefaultBootstrapObserver {
+    renderer: Mutex<DefaultRenderer>,
+}
+
+impl DefaultBootstrapObserver {
+    pub(crate) fn new() -> Self {
+        let renderer = if io::stderr().is_terminal() {
+            DefaultRenderer::Terminal(TerminalRenderer::default())
+        } else {
+            DefaultRenderer::Structured(StructuredRenderer::default())
+        };
+        Self { renderer: Mutex::new(renderer) }
+    }
+}
+
+impl BootstrapObserver for DefaultBootstrapObserver {
+    fn on_progress(&self, progress: BootstrapProgress) {
+        match &mut *self.renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            DefaultRenderer::Terminal(renderer) => renderer.render(progress),
+            DefaultRenderer::Structured(renderer) => renderer.render(progress),
+        }
+    }
+}
+
+enum DefaultRenderer {
+    Terminal(TerminalRenderer),
+    Structured(StructuredRenderer),
+}
+
+#[derive(Default)]
+struct TerminalRenderer {
+    total_bytes: Option<u64>,
+    downloaded_bytes: u64,
+    download_progress: Option<Box<dyn ProgressBar>>,
+}
+
+impl TerminalRenderer {
+    fn render(&mut self, progress: BootstrapProgress) {
+        match progress {
+            BootstrapProgress::SnapshotsSelected { total_bytes, .. } => self.total_bytes = total_bytes,
+            BootstrapProgress::StageChanged { stage: BootstrapStage::DownloadingSnapshots } => {
+                self.download_progress = Some(
+                    TerminalProgressBar::new(
+                        self.total_bytes.unwrap_or(0),
+                        "{spinner:.green} Downloading snapshots {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
+                    )
+                    .boxed(),
+                );
+            }
+            BootstrapProgress::DownloadProgress { downloaded_bytes, .. } => {
+                let delta = downloaded_bytes.saturating_sub(self.downloaded_bytes);
+                self.downloaded_bytes = downloaded_bytes;
+                if let Some(progress) = self.download_progress.as_ref() {
+                    progress.tick(usize::try_from(delta).unwrap_or(usize::MAX));
+                }
+            }
+            BootstrapProgress::StageChanged { .. } | BootstrapProgress::Completed { .. } => {
+                if let Some(progress) = self.download_progress.take() {
+                    progress.finish();
+                }
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct StructuredRenderer {
+    last_download_at: Option<Instant>,
+    completed_snapshots: usize,
+}
+
+impl StructuredRenderer {
+    fn render(&mut self, progress: BootstrapProgress) {
+        match progress {
+            BootstrapProgress::StageChanged { stage } => {
+                info!(bootstrap::progress::STAGE, stage = stage.as_str().to_owned());
+            }
+            BootstrapProgress::SnapshotsSelected { snapshot_count, total_bytes } => {
+                info!(bootstrap::progress::SNAPSHOTS_SELECTED, snapshot_count, total_bytes = @total_bytes);
+            }
+            BootstrapProgress::DownloadProgress { downloaded_bytes, completed_snapshots } => {
+                let now = Instant::now();
+                let snapshot_completed = completed_snapshots > self.completed_snapshots;
+                let interval_elapsed = self.last_download_at.is_none_or(|last_download_at| {
+                    now.duration_since(last_download_at) >= STRUCTURED_DOWNLOAD_INTERVAL
+                });
+                self.completed_snapshots = completed_snapshots;
+                if snapshot_completed || interval_elapsed {
+                    self.last_download_at = Some(now);
+                    info!(bootstrap::progress::DOWNLOAD, downloaded_bytes, completed_snapshots);
+                }
+            }
+            BootstrapProgress::Completed { epoch, point } => {
+                info!(bootstrap::progress::COMPLETE, epoch, point = point.to_string());
+            }
+        }
+    }
+}
+
+/// Keeps detailed import progress terminal-only. Canonical bootstrap state is reported through
+/// [`BootstrapObserver`], independently from this lower-level decoder progress.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BootstrapProgressFactory;
 
 impl ProgressBarFactory for BootstrapProgressFactory {
-    fn create_for(&self, phase: &'static str, length: usize, template: &str) -> Box<dyn ProgressBar> {
+    fn create_for(&self, _phase: &'static str, length: usize, template: &str) -> Box<dyn ProgressBar> {
         if io::stderr().is_terminal() {
             TerminalProgressBar::new(length as u64, template).boxed()
         } else {
-            Box::new(StructuredProgressBar::new(phase, (length > 0).then_some(length)))
+            Box::new(NoProgressBar {})
         }
-    }
-}
-
-struct StructuredProgressBar {
-    phase: &'static str,
-    total: Option<usize>,
-    started_at: Instant,
-    state: Mutex<ProgressState>,
-}
-
-impl StructuredProgressBar {
-    fn new(phase: &'static str, total: Option<usize>) -> Self {
-        let started_at = Instant::now();
-        info!(bootstrap::progress::START, phase = phase.to_owned(), total = @total);
-        Self { phase, total, started_at, state: Mutex::new(ProgressState::new()) }
-    }
-
-    fn state(&self) -> std::sync::MutexGuard<'_, ProgressState> {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    fn emit_update(&self, current: usize) {
-        info!(
-            bootstrap::progress::UPDATE,
-            phase = self.phase.to_owned(),
-            current,
-            total = @self.total,
-            elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
-        );
-    }
-
-    fn cancel(&self) {
-        let current = self.state().cancel();
-        if let Some(current) = current {
-            info!(
-                bootstrap::progress::CANCEL,
-                phase = self.phase.to_owned(),
-                current,
-                total = @self.total,
-                elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
-            );
-        }
-    }
-}
-
-impl Drop for StructuredProgressBar {
-    fn drop(&mut self) {
-        self.cancel();
-    }
-}
-
-impl ProgressBar for StructuredProgressBar {
-    fn tick(&self, size: usize) {
-        let current = self.state().advance(size, self.started_at.elapsed());
-        if let Some(current) = current {
-            self.emit_update(current);
-        }
-    }
-
-    fn clear(self: Box<Self>) {
-        self.cancel();
-    }
-
-    fn finish(self: Box<Self>) {
-        let current = self.state().finish();
-        if let Some(current) = current {
-            info!(
-                bootstrap::progress::COMPLETE,
-                phase = self.phase.to_owned(),
-                current,
-                total = @self.total,
-                elapsed_seconds = self.started_at.elapsed().as_secs_f64(),
-            );
-        }
-    }
-}
-
-struct ProgressState {
-    current: usize,
-    finished: bool,
-    last_emitted_at: Duration,
-}
-
-impl ProgressState {
-    fn new() -> Self {
-        Self { current: 0, finished: false, last_emitted_at: Duration::ZERO }
-    }
-
-    fn advance(&mut self, size: usize, elapsed: Duration) -> Option<usize> {
-        if self.finished {
-            return None;
-        }
-
-        self.current = self.current.saturating_add(size);
-        if size == 0 || elapsed.saturating_sub(self.last_emitted_at) < LOG_INTERVAL {
-            return None;
-        }
-
-        self.last_emitted_at = elapsed;
-        Some(self.current)
-    }
-
-    fn cancel(&mut self) -> Option<usize> {
-        if self.finished {
-            return None;
-        }
-
-        self.finished = true;
-        Some(self.current)
-    }
-
-    fn finish(&mut self) -> Option<usize> {
-        if self.finished {
-            return None;
-        }
-
-        self.finished = true;
-        Some(self.current)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::mpsc::sync_channel;
-
-    use amaru_observability::{TelemetryCaptureLayer, tracing, tracing_subscriber};
-    use tracing_subscriber::prelude::*;
-
-    use super::*;
-
-    fn capture_progress_events(run: impl FnOnce()) -> Vec<String> {
-        let (tx, rx) = sync_channel(8);
-        let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
-
-        tracing::subscriber::with_default(subscriber, run);
-
-        rx.try_iter().map(|record| record.name).collect()
-    }
-
-    #[test]
-    fn tracks_updates_and_always_reports_final_position() {
-        let mut state = ProgressState::new();
-
-        assert_eq!(state.advance(10, Duration::ZERO), None);
-        assert_eq!(state.advance(5, LOG_INTERVAL - Duration::from_millis(1)), None);
-        assert_eq!(state.advance(7, LOG_INTERVAL), Some(22));
-        assert_eq!(state.advance(3, LOG_INTERVAL + Duration::from_secs(1)), None);
-        assert_eq!(state.advance(4, LOG_INTERVAL + LOG_INTERVAL), Some(29));
-
-        assert_eq!(state.finish(), Some(29));
-        assert_eq!(state.finish(), None);
-        assert_eq!(state.advance(1, LOG_INTERVAL + LOG_INTERVAL + LOG_INTERVAL), None);
-    }
-
-    #[test]
-    fn cancellation_does_not_report_completion() {
-        let mut state = ProgressState::new();
-
-        state.advance(10, Duration::ZERO);
-        state.cancel();
-
-        assert_eq!(state.finish(), None);
-    }
-
-    #[test]
-    fn dropping_an_unfinished_progress_bar_cancels_it() {
-        let events = capture_progress_events(|| {
-            let progress = StructuredProgressBar::new("test", Some(10));
-            progress.tick(3);
-        });
-
-        assert_eq!(events, ["progress.start", "progress.cancel"]);
-    }
-
-    #[test]
-    fn terminal_calls_do_not_emit_an_additional_cancel_on_drop() {
-        let cleared = capture_progress_events(|| {
-            Box::new(StructuredProgressBar::new("test", Some(10))).clear();
-        });
-        assert_eq!(cleared, ["progress.start", "progress.cancel"]);
-
-        let finished = capture_progress_events(|| {
-            Box::new(StructuredProgressBar::new("test", Some(10))).finish();
-        });
-        assert_eq!(finished, ["progress.start", "progress.complete"]);
     }
 }

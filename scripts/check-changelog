@@ -40,7 +40,8 @@ SECTION_INDEX = {name: idx for idx, name in enumerate(SECTION_ORDER)}
 BYPASS_LINES = {"no-changelog", "skip-changelog"}
 RELEASE_HEADER_RE = re.compile(r"^## \[(v\d+\.\d+\.\d{8})\]\(([^)]+)\)$")
 UNRELEASED_HEADER_RE = re.compile(
-    r"^##\s+(v\d+\.\d+\.\d{8})(?:\s+.*?(?P<planned_date>\d{4}-\d{2}-\d{2}).*)?\s*$"
+    r"^##\s+(v\d+\.\d+\.\d{8})"
+    r"\s+_\[unreleased(?:;\s+planned for (?P<planned_date>\d{4}-\d{2}-\d{2}))?\]_\s*$"
 )
 SECTION_RE = re.compile(r"^### (Added|Changed|Deprecated|Removed|Fixed|Security)$")
 ENTRY_RE = re.compile(
@@ -604,10 +605,17 @@ def validate_target_release(
         line = lines[idx]
         if line.startswith("### ") and not SECTION_RE.match(line):
             heading = line.removeprefix("### ").strip()
-            message = (
-                f"Invalid changelog section '{heading}'. "
-                "Use one of: Added, Changed, Deprecated, Removed, Fixed, Security."
-            )
+            if heading in SECTION_INDEX:
+                message = (
+                    f"Invalid whitespace in changelog section heading {line!r}. "
+                    f"Use exactly '### {heading}', with one space after '###' "
+                    "and no trailing whitespace."
+                )
+            else:
+                message = (
+                    f"Invalid changelog section heading {line!r}. "
+                    "Use one of: Added, Changed, Deprecated, Removed, Fixed, Security."
+                )
             record_failure(failures, message, line=idx + 1, title="Invalid section")
 
     previous_index = -1

@@ -21,7 +21,7 @@ use std::{
     vec::IntoIter,
 };
 
-use amaru_kernel::{GlobalParameters, Hasher, HeaderHash, NetworkName, Point, extract_block_header_cbor};
+use amaru_kernel::{GlobalParameters, Hasher, HeaderHash, NetworkName, Point, Slot, extract_block_header_cbor};
 
 use crate::parse_header_slot_and_hash;
 
@@ -174,7 +174,7 @@ fn read_blocks_after_point_from_chunks(
 ) -> ImmutableResult<impl Iterator<Item = ImmutableResult<Vec<u8>>>> {
     let first_chunk = match point {
         Point::Origin => None,
-        Point::Specific(slot, _, _) => Some(chunk_for_slot(network, slot.as_u64())?),
+        Point::Specific(slot, _, _) => Some(chunk_for_slot(network, slot)?),
     };
     let chunks =
         chunks.into_iter().skip_while(|chunk| first_chunk.is_some_and(|first_chunk| *chunk < first_chunk)).collect();
@@ -360,12 +360,12 @@ fn immutable_file_path(immutable_dir: &Path, chunk: u64, extension: &str) -> Pat
 /// Returns the immutable chunk containing `slot` for `network`.
 ///
 /// Returns an error when global parameters are unavailable for the requested network.
-pub fn chunk_for_slot(network: NetworkName, slot: u64) -> anyhow::Result<u64> {
+pub fn chunk_for_slot(network: NetworkName, slot: Slot) -> anyhow::Result<u64> {
     let global_parameters: &GlobalParameters = network
         .as_global_parameters()
         .ok_or_else(|| anyhow::anyhow!("GlobalParameters not known for network name `{}`", network))?;
     let slots_per_chunk = 10 * global_parameters.consensus_security_param;
-    Ok(slot / slots_per_chunk)
+    Ok(slot.as_u64() / slots_per_chunk)
 }
 
 /// Selects the first immutable chunk to download when resuming block packaging.
@@ -378,7 +378,7 @@ pub fn from_chunk_for_resume_point(
     latest_chunk: Option<u64>,
     resume_point: Point,
 ) -> anyhow::Result<u64> {
-    let resume_boundary = chunk_for_slot(network, resume_point.slot_or_default().into())?.saturating_sub(1);
+    let resume_boundary = chunk_for_slot(network, resume_point.slot_or_default())?.saturating_sub(1);
     Ok(latest_chunk.map_or(resume_boundary, |latest_chunk| latest_chunk.min(resume_boundary)))
 }
 
@@ -430,7 +430,7 @@ fn decode_immutable_block(raw_block: Vec<u8>) -> Option<ImmutableBlock> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::{fs, path::Path};
 
     use amaru_kernel::{Hasher, NetworkName, Point, cbor};
@@ -471,7 +471,7 @@ mod tests {
         fs::write(immutable_file_path(immutable_dir, chunk_number, "secondary"), secondary).unwrap();
     }
 
-    fn immutable_store() -> (TempDir, Vec<(Point, Vec<u8>)>) {
+    pub(crate) fn immutable_store() -> (TempDir, Vec<(Point, Vec<u8>)>) {
         let dir = TempDir::new().unwrap();
         let blocks = [1, 2, 43_201, 43_202, 64_801].into_iter().map(block).collect::<Vec<_>>();
         write_chunk(dir.path(), 0, &[blocks[0].1.clone(), blocks[1].1.clone()]);
