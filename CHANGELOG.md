@@ -37,14 +37,11 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
-## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
-## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
-
 ### Fixed
 
 - **amaru-protocols**: BlockFetch rejects singleton requests whose slot does not match the requested block hash.
 
-## v10.11.20260924 _[unreleased; planned for 2026-09-24]_
+## v10.11.20260925
 
 ### Added
 
