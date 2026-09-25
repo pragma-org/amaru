@@ -82,8 +82,8 @@ jobs:
           fi
           mkdir -p "$CACHE_ROOT/$AMARU_NETWORK"
           echo "CACHE_ROOT=$CACHE_ROOT" >> "$GITHUB_ENV"
-          echo "AMARU_DIST_DIR=$CACHE_ROOT/$AMARU_NETWORK/dist" >> "$GITHUB_ENV"
-          echo "AMARU_SNAPSHOTS_DIR=$CACHE_ROOT/$AMARU_NETWORK/snapshots" >> "$GITHUB_ENV"
+          echo "AMARU_DIST=$CACHE_ROOT/$AMARU_NETWORK/dist" >> "$GITHUB_ENV"
+          echo "AMARU_SNAPSHOTS=$CACHE_ROOT/$AMARU_NETWORK/snapshots" >> "$GITHUB_ENV"
 
       - name: Install db-analyser
         shell: bash
@@ -150,8 +150,8 @@ jobs:
           cd "$SCRATCH"
           "$GITHUB_WORKSPACE/target/release/amaru" node bootstrap \
             --network "$AMARU_NETWORK" \
-            --ledger-dir "$SCRATCH/ledger.db" \
-            --chain-dir "$SCRATCH/chain.db" \
+            --ledger-db "$SCRATCH/ledger.db" \
+            --chain-db "$SCRATCH/chain.db" \
             ${INPUT_EPOCH:+--epoch "$INPUT_EPOCH"}
           test -d "$SCRATCH/ledger.db"
           test -d "$SCRATCH/chain.db"

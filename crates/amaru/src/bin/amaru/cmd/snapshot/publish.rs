@@ -46,9 +46,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::SNAPSHOTS_DIR,
+        env = amaru::env_vars::SNAPSHOTS,
+        alias = "snapshot-dir"
     )]
-    snapshot_dir: Option<PathBuf>,
+    snapshots: Option<PathBuf>,
 
     /// S3-compatible bucket name.
     #[arg(
@@ -92,12 +93,12 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { network, snapshot_dir, s3_bucket, s3_endpoint, s3_region, s3_public_url } = args;
+    let Args { network, snapshots, s3_bucket, s3_endpoint, s3_region, s3_public_url } = args;
 
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
     let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;
 
-    let snapshot_root = match snapshot_dir {
+    let snapshot_root = match snapshots {
         Some(path) => path,
         None => default_snapshot_output_dir(network)?,
     };

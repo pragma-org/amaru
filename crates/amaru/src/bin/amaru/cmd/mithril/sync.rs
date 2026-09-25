@@ -33,40 +33,41 @@ pub(crate) struct Args {
     /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
-        value_name = "NETWORK_NAME",
-        env = "AMARU_NETWORK",
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
         default_value_t = NetworkName::Preprod,
         verbatim_doc_comment
     )]
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", env = "AMARU_LEDGER_DIR")]
-    ledger_dir: Option<PathBuf>,
+    #[arg(long, value_name = amaru::value_names::DIRECTORY, env = amaru::env_vars::LEDGER_DB, alias = "ledger-dir")]
+    ledger_db: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", env = "AMARU_CHAIN_DIR")]
-    chain_dir: Option<PathBuf>,
+    #[arg(long, value_name = amaru::value_names::DIRECTORY, env = amaru::env_vars::CHAIN_DB, alias = "chain-dir")]
+    chain_db: Option<PathBuf>,
 
     /// Path of the Mithril snapshots on-disk storage.
     #[arg(
         long,
-        value_name = "DIR",
+        value_name = amaru::value_names::DIRECTORY,
         default_value = "mithril-snapshots",
-        env = "AMARU_MITHRIL_SNAPSHOTS_DIR",
+        env = amaru::env_vars::MITHRIL_SNAPSHOTS,
+        alias = "snapshots-dir",
         verbatim_doc_comment
     )]
-    snapshots_dir: PathBuf,
+    snapshots: PathBuf,
 
     /// Ingest blocks until (and including) the given slot.
     /// If not provided, will ingest all available blocks.
-    #[arg(long, value_name = "SLOT", env = "AMARU_INGEST_UNTIL_SLOT")]
-    ingest_until_slot: Option<u64>,
+    #[arg(long, value_name = amaru::value_names::UINT, env = amaru::env_vars::MITHRIL_UNTIL_SLOT, alias = "ingest-until-slot")]
+    until_slot: Option<u64>,
 
     /// Ingest at most the given number of blocks.
     /// If not provided, will ingest all available blocks.
-    #[arg(long, value_name = "INT", env = "AMARU_INGEST_MAXIMUM_BLOCKS")]
-    ingest_maximum_blocks: Option<usize>,
+    #[arg(long, value_name = amaru::value_names::UINT, env = amaru::env_vars::MITHRIL_MAX_BLOCKS, alias = "ingest-maximum-blocks")]
+    max_blocks: Option<usize>,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -86,11 +87,11 @@ fn acquire_sync_lock(snapshots_dir: &Path, network: NetworkName) -> anyhow::Resu
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { network, ledger_dir, chain_dir, snapshots_dir, ingest_until_slot, ingest_maximum_blocks } = args;
-    let ledger_dir = ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
-    let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
-    let _sync_lock = acquire_sync_lock(&snapshots_dir, network)?;
+    let Args { network, ledger_db, chain_db, snapshots, until_slot, max_blocks } = args;
+    let ledger_db = ledger_db.unwrap_or_else(|| default_ledger_dir(network).into());
+    let chain_db = chain_db.unwrap_or_else(|| default_chain_dir(network).into());
+    let _sync_lock = acquire_sync_lock(&snapshots, network)?;
 
-    let immutable_dir = download::run(network, &ledger_dir, &snapshots_dir).await?;
-    ingest::run(network, ledger_dir, chain_dir, immutable_dir, ingest_until_slot, ingest_maximum_blocks).await
+    let immutable_dir = download::run(network, &ledger_db, &snapshots).await?;
+    ingest::run(network, ledger_db, chain_db, immutable_dir, until_slot, max_blocks).await
 }

@@ -36,17 +36,19 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
+        env = amaru::env_vars::CHAIN_DB,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
+        env = amaru::env_vars::LEDGER_DB,
+        alias = "ledger-dir",
     )]
-    ledger_dir: Option<PathBuf>,
+    ledger_db: Option<PathBuf>,
 
     /// Network whose node databases should be removed.
     #[arg(
@@ -62,23 +64,23 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { wipe_all_dbs, chain_dir, ledger_dir, network } = args;
+    let Args { wipe_all_dbs, chain_db, ledger_db, network } = args;
     if !wipe_all_dbs {
         anyhow::bail!("refusing to remove node databases without --wipe-all-dbs");
     }
 
-    let ledger_dir = ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
-    let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    let ledger_db = ledger_db.unwrap_or_else(|| default_ledger_dir(network).into());
+    let chain_db = chain_db.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
         cli::node::RM,
-        chain_dir = chain_dir.display().to_string(),
-        ledger_dir = ledger_dir.display().to_string(),
+        chain_db = chain_db.display().to_string(),
+        ledger_db = ledger_db.display().to_string(),
         network,
     );
 
-    remove_database(&ledger_dir)?;
-    remove_database(&chain_dir)?;
+    remove_database(&ledger_db)?;
+    remove_database(&chain_db)?;
 
     Ok(())
 }

@@ -136,8 +136,8 @@ mod tests {
             "Runtime",
             vec![ConfigEntry::new(
                 "peer removal cooldown",
-                Some("--peer-removal-cooldown-secs"),
-                Some("AMARU_PEER_REMOVAL_COOLDOWN_SECS"),
+                Some("--peer-removal-cooldown"),
+                Some("AMARU_PEER_REMOVAL_COOLDOWN"),
                 "/var/lib/amaru/peer-removal-cooldown-seconds",
             )],
         )];

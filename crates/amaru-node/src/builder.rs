@@ -30,7 +30,7 @@ use anyhow::Context;
 use tokio::runtime::Handle;
 
 use crate::{
-    DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
+    DEFAULT_PEERS_LISTEN_ON, default_chain_dir, default_ledger_dir, default_peer_for_network,
     peer_snapshot::load_embedded_peer_snapshot,
     stages::{
         build_node::{NodeRunning, NodeStartError, build_and_run_node},
@@ -82,7 +82,7 @@ impl NodeBuilder {
             load_embedded_peer_snapshot: true,
             target_upstream_peers: None,
             target_downstream_peers: None,
-            listen_address: DEFAULT_LISTEN_ADDRESS.to_string(),
+            listen_address: DEFAULT_PEERS_LISTEN_ON.to_string(),
             submit_api_address: None,
             migrate_chain_db: false,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),

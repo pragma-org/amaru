@@ -33,9 +33,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR
+        env = amaru::env_vars::CHAIN_DB,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// Network for which we are importing headers.
     #[arg(
@@ -78,11 +79,11 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
+    let chain_db = args.chain_db.unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    info!(cli::dev::RUN, command = "dev chain dump", network = args.network, chain_dir = chain_dir.to_string_lossy());
+    info!(cli::dev::chain::DUMP, chain_db = chain_db.to_string_lossy(), network = args.network);
 
-    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
+    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_db))?;
 
     if args.headers {
         print_iterator(

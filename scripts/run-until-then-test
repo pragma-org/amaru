@@ -151,8 +151,8 @@ start_fixture_download() {
 
 bootstrap_node() {
   AMARU_NETWORK="$network" \
-  AMARU_LEDGER_DIR="$ledger_dir" \
-  AMARU_CHAIN_DIR="$chain_dir" \
+  AMARU_LEDGER_DB="$ledger_dir" \
+  AMARU_CHAIN_DB="$chain_dir" \
   cargo run --profile "$build_profile" --locked --bin amaru -- node bootstrap "$@"
 }
 
@@ -214,9 +214,9 @@ fi
 
 echo "==> Running $network until epoch $target_epoch to retain snapshots through epoch $last_test_epoch"
 AMARU_NETWORK="$network" \
-AMARU_LEDGER_DIR="$ledger_dir" \
-AMARU_CHAIN_DIR="$chain_dir" \
-AMARU_UPSTREAM_PEERS="${AMARU_UPSTREAM_PEERS:-1}" \
+AMARU_LEDGER_DB="$ledger_dir" \
+AMARU_CHAIN_DB="$chain_dir" \
+AMARU_PEERS_MAX_UPSTREAM="${AMARU_PEERS_MAX_UPSTREAM:-1}" \
 AMARU_TRACE="${AMARU_TRACE:-amaru=info}" \
 "$script_dir/run-until" "$build_profile" "${run_until_target[@]}"
 

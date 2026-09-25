@@ -124,21 +124,21 @@ impl Args {
                     let v = args.next().ok_or_else(|| anyhow::anyhow!("--epoch needs a value"))?;
                     target_epoch = Some(v.parse()?);
                 }
-                "--ledger-dir" => {
+                "--ledger-db" => {
                     ledger_dir = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!("missing path"))?));
                 }
-                "--chain-dir" => {
+                "--chain-db" => {
                     chain_dir = Some(PathBuf::from(args.next().ok_or_else(|| anyhow::anyhow!("missing path"))?));
                 }
-                "--peer-address" => {
+                "--peer" => {
                     peer_address.push(args.next().ok_or_else(|| anyhow::anyhow!("missing peer"))?);
                 }
-                "--upstream-peers" => {
+                "--peers-max-upstream" => {
                     upstream_peers = args.next().ok_or_else(|| anyhow::anyhow!("missing count"))?.parse()?;
                 }
                 "-h" | "--help" => {
                     eprintln!(
-                        "Usage: run_until --epoch <N> [--network preprod|mainnet|preview] [--ledger-dir DIR] [--chain-dir DIR]"
+                        "Usage: run_until --epoch <N> [--network preprod|mainnet|preview] [--ledger-db DIR] [--chain-db DIR]"
                     );
                     std::process::exit(0);
                 }

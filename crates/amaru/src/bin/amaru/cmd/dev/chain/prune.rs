@@ -31,17 +31,19 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
+        env = amaru::env_vars::CHAIN_DB,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// The path to the ledger database (used to determine safe pruning boundary).
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
+        env = amaru::env_vars::LEDGER_DB,
+        alias = "ledger-dir",
     )]
-    ledger_dir: Option<PathBuf>,
+    ledger_db: Option<PathBuf>,
 
     /// Network of the underlying databases.
     #[arg(
@@ -58,15 +60,14 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let chain_db = args.chain_db.unwrap_or_else(|| default_chain_dir(args.network).into());
+    let ledger_db = args.ledger_db.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain prune",
+        cli::dev::chain::PRUNE,
+        chain_db = chain_db.to_string_lossy(),
+        ledger_db = ledger_db.to_string_lossy(),
         network = args.network,
-        chain_dir = chain_dir.to_string_lossy(),
-        ledger_dir = ledger_dir.to_string_lossy()
     );
 
     let era_history = args
@@ -74,7 +75,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .as_era_history()
         .ok_or_else(|| anyhow!("no era history available for network {}", args.network))?;
 
-    let snapshots = RocksDB::snapshots(&ledger_dir)?;
+    let snapshots = RocksDB::snapshots(&ledger_db)?;
     if snapshots.is_empty() {
         anyhow::bail!("no ledger snapshots found; cannot determine safe pruning boundary");
     }
@@ -89,7 +90,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         boundary_slot = u64::from(boundary_slot)
     );
 
-    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
+    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_db))?;
     let anchor_hash = chain_store.get_anchor_hash();
 
     let tip_hash = chain_store.get_best_chain_hash();

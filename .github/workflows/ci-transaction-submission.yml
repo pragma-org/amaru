@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 60
     env:
       AMARU_NETWORK: preprod
-      AMARU_PEER_ADDRESS: 127.0.0.1:3001
-      AMARU_UPSTREAM_PEERS: 1
+      AMARU_PEER: 127.0.0.1:3001
+      AMARU_PEERS_MAX_UPSTREAM: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output

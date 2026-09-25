@@ -82,7 +82,7 @@ fn validate_explicit_config_dir_usage(network: NetworkName) -> anyhow::Result<()
         return Ok(());
     }
 
-    Err(anyhow!("--cardano-node-config-dir is only supported for custom testnet networks; omit it for {network}"))
+    Err(anyhow!("--cardano-node-config is only supported for custom testnet networks; omit it for {network}"))
 }
 
 fn cached_config_dir(work_dir: &Path, network: NetworkName) -> PathBuf {
@@ -95,7 +95,7 @@ fn official_config_base_url(network: NetworkName) -> anyhow::Result<String> {
         NetworkName::Preprod => Ok(format!("{OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL}/preprod")),
         NetworkName::Preview => Ok(format!("{OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL}/preview")),
         NetworkName::Testnet(_) => Err(anyhow!(
-            "automatic cardano-node config download is only supported on mainnet, preprod and preview; use --cardano-node-config-dir for custom testnet networks"
+            "automatic cardano-node config download is only supported on mainnet, preprod and preview; use --cardano-node-config for custom testnet networks"
         )),
     }
 }

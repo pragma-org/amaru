@@ -24,15 +24,15 @@ pub mod observability;
 pub mod panic;
 pub mod version;
 
-// Re-export bootstrap for CLI and legacy callers; new code should depend on `amaru-bootstrap`.
+// Re-export bootstrap for CLI callers; new code should depend on `amaru-bootstrap`.
 pub use amaru_bootstrap as bootstrap;
 pub use amaru_bootstrap::{
     AnonymousS3Client, DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config,
     S3Snapshot, aws, cardano_node, default_snapshots_dir,
 };
 pub use amaru_node::{
-    DEFAULT_LISTEN_ADDRESS, DEFAULT_PEER_ADDRESS, MAINNET_DEFAULT_PEER_ADDRESS, PREPROD_DEFAULT_PEER_ADDRESS,
-    PREVIEW_DEFAULT_PEER_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
+    DEFAULT_LOCAL_PEER_ADDRESS, DEFAULT_MAINNET_PEER_ADDRESS, DEFAULT_PEERS_LISTEN_ON, DEFAULT_PREPROD_PEER_ADDRESS,
+    DEFAULT_PREVIEW_PEER_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
 };
 
 pub const SNAPSHOTS_DIR: &str = amaru_bootstrap::SNAPSHOTS_PATH;
@@ -53,8 +53,14 @@ pub mod value_names {
     /// For S3-compatible bucket names.
     pub const BUCKET_NAME: &str = "BUCKET_NAME";
 
+    /// A byte size, either a raw count or a unit such as `100MiB` or `10kB`.
+    pub const BYTE_SIZE: &str = "BYTE_SIZE";
+
     /// For directories / folders on the filesystem.
     pub const DIRECTORY: &str = "DIR";
+
+    /// A positive duration, with common units for milliseconds, seconds, minutes, or hours.
+    pub const DURATION: &str = "UINT[ms|s|min|h]";
 
     /// For network addresses made of an hostname and an option port number. Also known as an
     /// _authority_.
@@ -81,9 +87,6 @@ pub mod value_names {
     /// For S3-compatible regions, including Cloudflare R2's `auto` region.
     pub const S3_REGION: &str = "auto|REGION";
 
-    /// A byte size, either a raw count or a unit such as `100MiB` or `10kB`.
-    pub const SIZE: &str = "SIZE";
-
     /// A key/value string pair.
     pub const STR_KEY_VALUE: &str = "KEY=value";
 
@@ -99,93 +102,34 @@ pub mod value_names {
 
 /// Environment variables used across command-line options.
 pub mod env_vars {
-    /// --cardano-node-config-dir
-    pub const CARDANO_NODE_CONFIG_DIR: &str = "AMARU_CARDANO_NODE_CONFIG_DIR";
-
-    /// --cardano-node-db
+    pub const CARDANO_NODE_CONFIG: &str = "AMARU_CARDANO_NODE_CONFIG";
     pub const CARDANO_NODE_DB: &str = "AMARU_CARDANO_NODE_DB";
-
-    /// --chain-dir
-    pub const CHAIN_DIR: &str = "AMARU_CHAIN_DIR";
-
-    /// --dist-dir
-    pub const DIST_DIR: &str = "AMARU_DIST_DIR";
-
-    /// --epoch
+    pub const CHAIN_DB: &str = "AMARU_CHAIN_DB";
+    pub const DIST: &str = "AMARU_DIST";
     pub const EPOCH: &str = "AMARU_EPOCH";
-
-    /// --header-file
-    pub const HEADER_FILE: &str = "AMARU_HEADER_FILE";
-
-    /// --headers-dir
-    pub const HEADERS_DIR: &str = "AMARU_HEADERS_DIR";
-
-    /// --ledger-dir
-    pub const LEDGER_DIR: &str = "AMARU_LEDGER_DIR";
-
-    /// --era-history
     pub const ERA_HISTORY: &str = "AMARU_ERA_HISTORY";
-
-    /// --listen-address
-    pub const LISTEN_ADDRESS: &str = "AMARU_LISTEN_ADDRESS";
-
-    /// --downstream-peers
-    pub const DOWNSTREAM_PEERS: &str = "AMARU_DOWNSTREAM_PEERS";
-
-    /// --upstream-peers
-    pub const UPSTREAM_PEERS: &str = "AMARU_UPSTREAM_PEERS";
-
-    /// --max-extra-ledger-snapshots
-    pub const MAX_EXTRA_LEDGER_SNAPSHOTS: &str = "AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS";
-
-    /// --migrate-chain-db
+    pub const HEADERS: &str = "AMARU_HEADERS";
+    pub const LEDGER_DB: &str = "AMARU_LEDGER_DB";
+    pub const LEDGER_MAX_EXTRA_SNAPSHOTS: &str = "AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS";
     pub const MIGRATE_CHAIN_DB: &str = "AMARU_MIGRATE_CHAIN_DB";
-
-    /// --network
+    pub const MITHRIL_MAX_BLOCKS: &str = "AMARU_MITHRIL_MAX_BLOCKS";
+    pub const MITHRIL_SNAPSHOTS: &str = "AMARU_MITHRIL_SNAPSHOTS";
+    pub const MITHRIL_UNTIL_SLOT: &str = "AMARU_MITHRIL_UNTIL_SLOT";
     pub const NETWORK: &str = "AMARU_NETWORK";
-
-    /// --no-tui
     pub const NO_TUI: &str = "AMARU_NO_TUI";
-
-    /// --tui-log-retention
-    pub const TUI_LOG_RETENTION: &str = "AMARU_TUI_LOG_RETENTION";
-
-    /// --nonces-file
-    pub const NONCES_FILE: &str = "AMARU_NONCES_FILE";
-
-    /// --parent
     pub const PARENT: &str = "AMARU_PARENT";
-
-    /// --peer-address
-    pub const PEER_ADDRESS: &str = "AMARU_PEER_ADDRESS";
-
-    /// --peer-snapshot
-    pub const PEER_SNAPSHOT: &str = "AMARU_PEER_SNAPSHOT";
-
-    /// --peer-removal-cooldown-secs
-    pub const PEER_REMOVAL_COOLDOWN_SECS: &str = "AMARU_PEER_REMOVAL_COOLDOWN_SECS";
-
-    /// --peer-mix
+    pub const PEER: &str = "AMARU_PEER";
+    pub const PEERS_LISTEN_ON: &str = "AMARU_PEERS_LISTEN_ON";
+    pub const PEERS_MAX_DOWNSTREAM: &str = "AMARU_PEERS_MAX_DOWNSTREAM";
+    pub const PEERS_MAX_UPSTREAM: &str = "AMARU_PEERS_MAX_UPSTREAM";
     pub const PEER_MIX: &str = "AMARU_PEER_MIX";
-
-    /// --pid-file
+    pub const PEER_REMOVAL_COOLDOWN: &str = "AMARU_PEER_REMOVAL_COOLDOWN";
+    pub const PEERS_SNAPSHOT: &str = "AMARU_PEERS_SNAPSHOT";
     pub const PID_FILE: &str = "AMARU_PID_FILE";
-
-    /// --snapshot
     pub const SNAPSHOT: &str = "AMARU_SNAPSHOT";
-
-    /// --snapshots-dir
-    pub const SNAPSHOTS_DIR: &str = "AMARU_SNAPSHOTS_DIR";
-
-    /// --submit-api-address
-    pub const SUBMIT_API_ADDRESS: &str = "AMARU_SUBMIT_API_ADDRESS";
-
-    /// --trace-buffer
+    pub const SNAPSHOTS: &str = "AMARU_SNAPSHOTS";
+    pub const SUBMIT_API_LISTEN_ON: &str = "AMARU_SUBMIT_API_LISTEN_ON";
     pub const TRACE_BUFFER: &str = "AMARU_TRACE_BUFFER";
-
-    /// --dump-trace-buffer
-    pub const DUMP_TRACE_BUFFER: &str = "AMARU_DUMP_TRACE_BUFFER";
-
-    /// --target-dir
-    pub const TARGET_DIR: &str = "AMARU_TARGET_DIR";
+    pub const TRACE_BUFFER_DUMP: &str = "AMARU_TRACE_BUFFER_DUMP";
+    pub const TUI_LOG_RETENTION: &str = "AMARU_TUI_LOG_RETENTION";
 }

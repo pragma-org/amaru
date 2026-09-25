@@ -19,11 +19,11 @@ PEER_ADDRESS=$2
 for i in $(seq 1 "$NUM_NODES"); do
     NODE_ID=amaru-$i
     echo "$(date -Iseconds) : bootstrapping $NODE_ID"
-    amaru bootstrap --ledger-dir "${NODE_ID}/ledger.db" --chain-dir "${NODE_ID}/chain.db" --network preview > "$NODE_ID.log" 2>&1
-    amaru daemon --peer-address "${PEER_ADDRESS}" \
-          --listen-address localhost:$(( 4000 + i)) \
-          --ledger-dir "${NODE_ID}/ledger.db" \
-          --chain-dir "${NODE_ID}/chain.db" \
+    amaru node bootstrap --ledger-db "${NODE_ID}/ledger.db" --chain-db "${NODE_ID}/chain.db" --network preview > "$NODE_ID.log" 2>&1
+    amaru node run --peer "${PEER_ADDRESS}" \
+          --peers-listen-on localhost:$(( 4000 + i)) \
+          --ledger-db "${NODE_ID}/ledger.db" \
+          --chain-db "${NODE_ID}/chain.db" \
           --network preview >> "$NODE_ID.log" 2>&1 &
     PID=$!
     echo "$(date -Iseconds) : launched $NODE_ID (pid=$PID)"

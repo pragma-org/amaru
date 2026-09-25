@@ -39,13 +39,13 @@ e2e_success() { printf '%s[e2e] %s%s\n' "$E2E_COLOR_SUCCESS" "$*" "$E2E_COLOR_RE
 e2e_warning() { printf '%s[e2e] %s%s\n' "$E2E_COLOR_WARNING" "$*" "$E2E_COLOR_RESET"; }
 self_test_success() { printf '%s[self-test] %s%s\n' "$E2E_COLOR_SUCCESS" "$*" "$E2E_COLOR_RESET"; }
 
-AMARU_CHAIN_DIR="${AMARU_CHAIN_DIR:-$RUNDIR/amaru/chain.$NETWORK.db}"
-AMARU_LEDGER_DIR="${AMARU_LEDGER_DIR:-$RUNDIR/amaru/ledger.$NETWORK.db}"
+AMARU_CHAIN_DB="${AMARU_CHAIN_DB:-$RUNDIR/amaru/chain.$NETWORK.db}"
+AMARU_LEDGER_DB="${AMARU_LEDGER_DB:-$RUNDIR/amaru/ledger.$NETWORK.db}"
 AMARU_LOG_FILE="${AMARU_LOG_FILE:-$LOGDIR/amaru.log}"
-AMARU_LISTEN_ADDRESS="${AMARU_LISTEN_ADDRESS:-127.0.0.1:4001}"
-AMARU_SUBMIT_API_ADDRESS="${AMARU_SUBMIT_API_ADDRESS:-127.0.0.1:8090}"
-AMARU_PEER_ADDRESS="${AMARU_PEER_ADDRESS:-127.0.0.1:3001}"
-AMARU_UPSTREAM_PEERS="${AMARU_UPSTREAM_PEERS:-1}"
+AMARU_PEERS_LISTEN_ON="${AMARU_PEERS_LISTEN_ON:-127.0.0.1:4001}"
+AMARU_SUBMIT_API_LISTEN_ON="${AMARU_SUBMIT_API_LISTEN_ON:-127.0.0.1:8090}"
+AMARU_PEER="${AMARU_PEER:-127.0.0.1:3001}"
+AMARU_PEERS_MAX_UPSTREAM="${AMARU_PEERS_MAX_UPSTREAM:-1}"
 AMARU_MANAGED="${E2E_TX_MANAGE_AMARU:-true}"
 
 CARDANO_NODE_RELEASE_VERSION="${CARDANO_NODE_RELEASE_VERSION:-11.0.1}"
@@ -86,7 +86,7 @@ TX_WALLET_SKEY="${TX_WALLET_SKEY:-$TX_WALLET_DIR/payment.skey}"
 TX_WALLET_VKEY="${TX_WALLET_VKEY:-$TX_WALLET_DIR/payment.vkey}"
 TX_WALLET_ADDRESS_FILE="${TX_WALLET_ADDRESS_FILE:-$TX_WALLET_DIR/payment.addr}"
 TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-$TX_WALLET_SKEY}"
-TX_SUBMIT_API_ADDRESS="$AMARU_SUBMIT_API_ADDRESS"
+TX_SUBMIT_API_ADDRESS="$AMARU_SUBMIT_API_LISTEN_ON"
 TX_QUERY_SOURCE=local
 TX_METADATA_MESSAGE="${TX_METADATA_MESSAGE:-amaru e2e $RUN_ID}"
 TX_SYNC_TIMEOUT_SECONDS="${TX_SYNC_TIMEOUT_SECONDS:-3600}"
@@ -170,22 +170,22 @@ ensure_amaru_binary() {
 }
 
 amaru_databases_ready() {
-  [[ -d "$AMARU_CHAIN_DIR" && -d "$AMARU_LEDGER_DIR" ]]
+  [[ -d "$AMARU_CHAIN_DB" && -d "$AMARU_LEDGER_DB" ]]
 }
 
 ensure_amaru_databases() {
   if amaru_databases_ready; then
-    setup_log "using Amaru databases $AMARU_CHAIN_DIR and $AMARU_LEDGER_DIR"
+    setup_log "using Amaru databases $AMARU_CHAIN_DB and $AMARU_LEDGER_DB"
     return
   fi
-  if [[ -e "$AMARU_CHAIN_DIR" || -e "$AMARU_LEDGER_DIR" ]]; then
-    die "only one Amaru database exists; provide a matching AMARU_CHAIN_DIR and AMARU_LEDGER_DIR or remove the incomplete E2E database"
+  if [[ -e "$AMARU_CHAIN_DB" || -e "$AMARU_LEDGER_DB" ]]; then
+    die "only one Amaru database exists; provide a matching AMARU_CHAIN_DB and AMARU_LEDGER_DB or remove the incomplete E2E database"
   fi
   setup_log "bootstrapping Amaru databases for $NETWORK"
   "$(amaru_binary)" node bootstrap \
     --network "$NETWORK" \
-    --chain-dir "$AMARU_CHAIN_DIR" \
-    --ledger-dir "$AMARU_LEDGER_DIR"
+    --chain-db "$AMARU_CHAIN_DB" \
+    --ledger-db "$AMARU_LEDGER_DB"
 }
 
 ensure_cardano_node_tools() {
@@ -428,12 +428,12 @@ wait_for_cardano_node() {
 
 start_amaru() {
   if ! truthy "$AMARU_MANAGED"; then
-    e2e_log "using externally managed Amaru Submit API at $AMARU_SUBMIT_API_ADDRESS"
+    e2e_log "using externally managed Amaru Submit API at $AMARU_SUBMIT_API_LISTEN_ON"
     return
   fi
   mkdir -p "$LOGDIR"
   : >"$AMARU_LOG_FILE"
-  e2e_log "starting Amaru from current source; upstream=$AMARU_PEER_ADDRESS submit_api=$AMARU_SUBMIT_API_ADDRESS"
+  e2e_log "starting Amaru from current source; upstream=$AMARU_PEER submit_api=$AMARU_SUBMIT_API_LISTEN_ON"
   AMARU_WITH_OPEN_TELEMETRY=false \
     AMARU_COLOR=never \
     AMARU_LOG="${AMARU_LOG:-info}" \
@@ -442,12 +442,12 @@ start_amaru() {
       --migrate-chain-db \
       --no-tui \
       --network "$NETWORK" \
-      --peer-address "$AMARU_PEER_ADDRESS" \
-      --upstream-peers "$AMARU_UPSTREAM_PEERS" \
-      --listen-address "$AMARU_LISTEN_ADDRESS" \
-      --submit-api-address "$AMARU_SUBMIT_API_ADDRESS" \
-      --chain-dir "$AMARU_CHAIN_DIR" \
-      --ledger-dir "$AMARU_LEDGER_DIR" \
+      --peer "$AMARU_PEER" \
+      --peers-max-upstream "$AMARU_PEERS_MAX_UPSTREAM" \
+      --peers-listen-on "$AMARU_PEERS_LISTEN_ON" \
+      --submit-api-listen-on "$AMARU_SUBMIT_API_LISTEN_ON" \
+      --chain-db "$AMARU_CHAIN_DB" \
+      --ledger-db "$AMARU_LEDGER_DB" \
       >"$AMARU_LOG_FILE" 2>&1 &
   AMARU_PID=$!
 }
@@ -455,7 +455,7 @@ start_amaru() {
 wait_for_amaru_submit_api() {
   local timeout="${AMARU_SUBMIT_API_TIMEOUT_SECONDS:-300}" elapsed
   for ((elapsed = 0; elapsed < timeout; elapsed++)); do
-    if curl --max-time 2 -s -o /dev/null "http://$AMARU_SUBMIT_API_ADDRESS/"; then
+    if curl --max-time 2 -s -o /dev/null "http://$AMARU_SUBMIT_API_LISTEN_ON/"; then
       e2e_log "Amaru Submit API is ready"
       return
     fi

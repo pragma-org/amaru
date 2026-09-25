@@ -29,7 +29,7 @@ File format: [peer-snapshot.schema.json](./peer-snapshot.schema.json)
 When you cannot download real snapshots (air-gapped build, rate limits, etc.), create
 minimal valid JSON files so the crate still builds. Empty `bigLedgerPools` is fine:
 the binary simply starts without embedded big-ledger peers (you can still pass
-`--peer-snapshot` at runtime).
+`--peers-snapshot` at runtime).
 
 Example for **preprod** (`NetworkMagic` is `1`):
 

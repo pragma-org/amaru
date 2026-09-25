@@ -41,9 +41,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
+        env = amaru::env_vars::LEDGER_DB,
+        alias = "ledger-dir",
     )]
-    pub ledger_dir: Option<PathBuf>,
+    pub ledger_db: Option<PathBuf>,
 
     /// Network of the underlying chain database.
     #[arg(
@@ -59,17 +60,10 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let ledger_db = args.ledger_db.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
-    info!(
-        cli::dev::RUN,
-        command = "dev ledger reset",
-        network = args.network,
-        epoch = args.epoch.to_string(),
-        ledger_dir = ledger_dir.to_string_lossy(),
-        hint = "prefer `amaru node rollback --epoch` which also realigns the chain store"
-    );
+    info!(cli::dev::ledger::RESET, epoch = args.epoch, ledger_db = ledger_db.to_string_lossy(), network = args.network,);
 
-    reset_ledger_to_epoch(&ledger_dir, args.epoch)?;
+    reset_ledger_to_epoch(&ledger_db, args.epoch)?;
     Ok(())
 }

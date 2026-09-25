@@ -40,6 +40,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type. Empty values are treated as unset, so operators can enable only the settings they need.
+- **amaru**: standardised node option and `AMARU_*` variable names. Deprecated option and environment-variable spellings remain accepted during migration; legacy top-level commands are no longer accepted.
 
 ## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 

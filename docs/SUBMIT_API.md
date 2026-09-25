@@ -4,13 +4,13 @@ The Submit API provides an HTTP endpoint for submitting transactions to Amaru's 
 
 ## Enabling
 
-Use the `--submit-api-address` CLI flag or the `AMARU_SUBMIT_API_ADDRESS` environment variable.
+Use the `--submit-api-listen-on` CLI flag or the `AMARU_SUBMIT_API_LISTEN_ON` environment variable.
 
 Minimal working example (assuming the default preprod network and default peer at `127.0.0.1:3001`):
 
 ```bash
-amaru bootstrap
-amaru run --submit-api-address 127.0.0.1:8090
+amaru node bootstrap
+amaru node run --submit-api-listen-on 127.0.0.1:8090
 ```
 
 ## API Reference

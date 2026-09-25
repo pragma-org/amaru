@@ -47,9 +47,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
+        env = amaru::env_vars::CHAIN_DB,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// Network of the underlying chain database.
     #[arg(
@@ -65,24 +66,23 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { from_point, only_blocks, only_validation_results, chain_dir, network } = args;
-    let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
+    let Args { from_point, only_blocks, only_validation_results, chain_db, network } = args;
+    let chain_db = chain_db.unwrap_or_else(|| default_chain_dir(network).into());
 
     if only_blocks && only_validation_results {
         anyhow::bail!("cannot combine both --only-blocks and --only-validation-results");
     }
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain remove",
-        network,
-        chain_dir = chain_dir.to_string_lossy(),
+        cli::dev::chain::REMOVE,
+        chain_db = chain_db.to_string_lossy(),
         from_point = from_point.to_string(),
+        network,
         only_blocks,
         only_validation_results
     );
 
-    let rocks_db = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
+    let rocks_db = RocksDBStore::open(&RocksDbConfig::new(chain_db))?;
     let chain_store: &dyn ChainStore = &rocks_db;
 
     let points = chain_store.child_tips(&from_point.hash(), ChildTipsMode::All);

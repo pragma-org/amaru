@@ -35,9 +35,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
+        env = amaru::env_vars::LEDGER_DB,
+        alias = "ledger-dir"
     )]
-    ledger_dir: Option<PathBuf>,
+    ledger_db: Option<PathBuf>,
 
     /// Network of the underlying ledger database.
     #[arg(
@@ -54,16 +55,11 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let ledger_db = args.ledger_db.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
-    info!(
-        cli::dev::RUN,
-        command = "dev ledger states remove",
-        network = args.network,
-        ledger_dir = ledger_dir.to_string_lossy()
-    );
+    info!(cli::dev::ledger::state::REMOVE, ledger_db = ledger_db.to_string_lossy(), network = args.network);
 
-    let existing = RocksDB::snapshots(&ledger_dir)?;
+    let existing = RocksDB::snapshots(&ledger_db)?;
     let remaining_after = existing.iter().filter(|e| !args.epochs.contains(e)).count();
 
     if remaining_after < MIN_LEDGER_SNAPSHOTS as usize {
@@ -76,7 +72,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     let mut removed = 0u64;
     for epoch in &args.epochs {
-        let epoch_dir = ledger_dir.join(format!("{epoch}"));
+        let epoch_dir = ledger_db.join(format!("{epoch}"));
         if epoch_dir.exists() {
             fs::remove_dir_all(&epoch_dir).with_context(|| format!("failed to remove {}", epoch_dir.display()))?;
             info!(cli::dev::ledger::SNAPSHOT_REMOVED, epoch = u64::from(*epoch));

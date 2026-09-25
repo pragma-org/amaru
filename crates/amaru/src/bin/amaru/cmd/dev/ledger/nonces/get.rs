@@ -36,9 +36,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
+        env = amaru::env_vars::CHAIN_DB,
+        alias = "chain-dir",
     )]
-    chain_dir: Option<PathBuf>,
+    chain_db: Option<PathBuf>,
 
     /// Network of the underlying chain database.
     #[arg(
@@ -55,17 +56,16 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
+    let chain_db = args.chain_db.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
-        cli::dev::RUN,
-        command = "dev ledger nonces get",
+        cli::dev::ledger::nonces::GET,
+        block = args.block.to_string(),
+        chain_db = chain_db.to_string_lossy(),
         network = args.network,
-        chain_dir = chain_dir.to_string_lossy(),
-        block = args.block.to_string()
     );
 
-    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
+    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_db))?;
 
     match db.get_nonces(&args.block) {
         Some(nonces) => {

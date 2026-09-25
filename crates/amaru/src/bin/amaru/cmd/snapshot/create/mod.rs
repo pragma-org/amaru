@@ -76,11 +76,12 @@ pub struct Args {
     ///
     /// Defaults to data/<NETWORK>/epoch-snapshots/ beside the `amaru` executable.
     #[arg(
-        long = "dist-dir",
+        long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::DIST_DIR,
+        env = amaru::env_vars::DIST,
+        alias = "dist-dir",
     )]
-    dist_dir: Option<PathBuf>,
+    dist: Option<PathBuf>,
 
     /// Directory where snapshot archives and materialized snapshot directories are written.
     ///
@@ -88,9 +89,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::SNAPSHOTS_DIR,
+        env = amaru::env_vars::SNAPSHOTS,
+        alias = "snapshot-dir",
     )]
-    snapshot_dir: Option<PathBuf>,
+    snapshots: Option<PathBuf>,
 
     /// Directory containing the cardano-node config.json and genesis files.
     ///
@@ -99,9 +101,10 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CARDANO_NODE_CONFIG_DIR,
+        env = amaru::env_vars::CARDANO_NODE_CONFIG,
+        alias = "cardano-node-config-dir",
     )]
-    cardano_node_config_dir: Option<PathBuf>,
+    cardano_node_config: Option<PathBuf>,
 
     /// Use an existing local cardano-node database instead of downloading via Mithril.
     ///
@@ -221,22 +224,15 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args {
-        network,
-        epoch,
-        dist_dir,
-        snapshot_dir,
-        cardano_node_config_dir,
-        cardano_node_db,
-        snapshot: snapshot_points,
-    } = args;
+    let Args { network, epoch, dist, snapshots, cardano_node_config, cardano_node_db, snapshot: snapshot_points } =
+        args;
 
     let client = reqwest::Client::new();
-    let dist_dir = match dist_dir {
+    let dist_dir = match dist {
         Some(path) => path,
         None => default_dist_dir(network)?,
     };
-    let snapshot_output_dir = match snapshot_dir {
+    let snapshot_output_dir = match snapshots {
         Some(path) => path,
         None => default_snapshot_output_dir(network)?,
     };
@@ -250,7 +246,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     create_directory(&immutable_dir, "cardano-node immutable data")?;
     create_directory(&ledger_snapshot_dir, "ledger snapshot")?;
 
-    let config_dir = resolve_config_dir(&client, cardano_node_config_dir, network, &work_dir).await?;
+    let config_dir = resolve_config_dir(&client, cardano_node_config, network, &work_dir).await?;
 
     // Resolve the epoch targets: from an explicit targets file (Koios bypass, for custom
     // testnets) or from Koios (public networks).
@@ -285,11 +281,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     info!(
         cli::snapshot::CREATE,
-        snapshot_output_dir = relative_path(&snapshot_output_dir)?.display().to_string(),
-        config_dir = relative_path(&config_dir)?.display().to_string(),
         cardano_node_db = relative_path(&cardano_node_db)?.display().to_string(),
+        config = relative_path(&config_dir)?.display().to_string(),
+        dist = relative_path(&dist_dir)?.display().to_string(),
         network,
-        dist_dir = relative_path(&dist_dir)?.display().to_string(),
+        to = relative_path(&snapshot_output_dir)?.display().to_string(),
         epoch = @epoch.map(|e| e.to_string()),
         snapshots = @(!snapshots_str.is_empty()).then_some(snapshots_str),
     );

@@ -7,9 +7,9 @@ AMARU_DIR="${AMARU_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 NETWORK="${AMARU_NETWORK:-preprod}"
 BUILD_PROFILE="${BUILD_PROFILE:-dev}"
 STAGING_DIR="${STAGING_DIR:-$AMARU_DIR/run/mithril-refresh}"
-SNAPSHOTS_DIR="${AMARU_MITHRIL_SNAPSHOTS_DIR:-$AMARU_DIR/mithril-snapshots}"
-TARGET_CHAIN_DIR="${AMARU_CHAIN_DIR:-$AMARU_DIR/chain.$NETWORK.db}"
-TARGET_LEDGER_DIR="${AMARU_LEDGER_DIR:-$AMARU_DIR/ledger.$NETWORK.db}"
+SNAPSHOTS_DIR="${AMARU_MITHRIL_SNAPSHOTS:-$AMARU_DIR/mithril-snapshots}"
+TARGET_CHAIN_DIR="${AMARU_CHAIN_DB:-$AMARU_DIR/chain.$NETWORK.db}"
+TARGET_LEDGER_DIR="${AMARU_LEDGER_DB:-$AMARU_DIR/ledger.$NETWORK.db}"
 INSTALL="${INSTALL:-false}"
 REPLACE_EXISTING="${REPLACE_EXISTING:-false}"
 FORCE_REFRESH="${FORCE_REFRESH:-false}"
@@ -145,8 +145,8 @@ bootstrap_refresh() {
   echo "[mithril-refresh] bootstrapping $NETWORK into $root_dir"
   AMARU_BOOTSTRAP_CONFIG_DIR="$BOOTSTRAP_CONFIG_DIR" cargo run --profile "$BUILD_PROFILE" -- node bootstrap \
     --network "$NETWORK" \
-    --chain-dir "$chain_dir" \
-    --ledger-dir "$ledger_dir" \
+    --chain-db "$chain_dir" \
+    --ledger-db "$ledger_dir" \
     --epoch "$((BOOTSTRAP_START_EPOCH + 3))"
 }
 
@@ -200,9 +200,9 @@ sync_refresh() {
   echo "[mithril-refresh] downloading Mithril blocks and syncing Amaru stores"
   cargo run --profile "$BUILD_PROFILE" --bin amaru -- mithril sync \
     --network "$NETWORK" \
-    --ledger-dir "$ledger_dir" \
-    --chain-dir "$chain_dir" \
-    --snapshots-dir "$SNAPSHOTS_DIR"
+    --ledger-db "$ledger_dir" \
+    --chain-db "$chain_dir" \
+    --snapshots "$SNAPSHOTS_DIR"
 }
 
 cd "$AMARU_DIR" || exit
