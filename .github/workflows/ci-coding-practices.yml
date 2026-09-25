@@ -104,6 +104,22 @@ jobs:
         id: validate
         continue-on-error: true
         run: python3 scripts/check-changelog --report-file changelog-check-report.md
+      - name: Prepare changelog report artifact
+        if: always()
+        run: |
+          mkdir -p changelog-check-artifact
+          printf '%s\n' '${{ github.event.pull_request.number }}' > changelog-check-artifact/pr_number
+          printf '%s\n' '${{ steps.validate.outcome }}' > changelog-check-artifact/outcome
+          if [ -f changelog-check-report.md ]; then
+            cp changelog-check-report.md changelog-check-artifact/report.md
+          fi
+      - name: Upload changelog report artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: changelog-check-report
+          path: changelog-check-artifact
+          if-no-files-found: error
       - name: Fail on changelog validation errors
         if: steps.validate.outcome != 'success'
         run: |
