@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::ProtocolVersion;
+use amaru_kernel::{PlutusVersion, ProtocolVersion};
 use chumsky::{extra::SimpleState, input, prelude::*};
 
 use crate::{arena::Arena, flat::Ctx, machine::MachineVersion};
@@ -34,8 +34,15 @@ impl<'a> State<'a> {
     }
 
     pub fn is_constr_case_available(&self) -> bool {
-        Ctx { arena: self.arena, machine_version: self.machine_version, protocol_version: self.protocol_version }
-            .is_constr_case_available()
+        Ctx {
+            arena: self.arena,
+            machine_version: self.machine_version,
+            protocol_version: self.protocol_version,
+            // Only the term availability is consulted here, which does not depend on the Plutus
+            // language; this parser reads textual UPLC rather than an on-chain script.
+            plutus_version: PlutusVersion::V3,
+        }
+        .is_constr_case_available()
     }
 }
 
