@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets generate-debian-env dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -170,7 +170,21 @@ clean-dist:
 		fi; \
 	done
 
-cli-assets: clean-dist  ## &dist Generate clap-derived man page and shell completions into $(DIST_DIR)
+generate-debian-env: ## &dist Generate Debian and RPM environment configuration
+	@if [ ! -f "$(AMARU_BIN)" ]; then \
+		printf 'Error: expected Amaru binary at %s; build it first or set AMARU_BIN\n' "$(abspath $(AMARU_BIN))" >&2; \
+		exit 1; \
+	fi
+	@"$(AMARU_BIN)" dev env generate \
+		--override AMARU_CHAIN_DIR=/var/lib/amaru/chain.mainnet.db \
+		--override AMARU_LEDGER_DIR=/var/lib/amaru/ledger.mainnet.db \
+		--override AMARU_MIGRATE_CHAIN_DB=true \
+		--override AMARU_NETWORK=mainnet \
+		--override AMARU_PID_FILE=/run/amaru/amaru.pid \
+		--override AMARU_WITH_JSON_TRACES=true \
+		> .github/debian/amaru.env
+
+cli-assets: clean-dist ## &dist Generate clap-derived man page and shell completions into $(DIST_DIR)
 	@printf 'Generating command-line assets under %s\n' "$(abspath $(DIST_DIR))"
 	@if [ ! -f "$(AMARU_BIN)" ]; then \
 		printf 'Error: expected Amaru binary at %s; build it first or set AMARU_BIN\n' "$(abspath $(AMARU_BIN))" >&2; \
@@ -273,6 +287,7 @@ check-cargo-deb:
 	fi
 
 deb: dist check-cargo-deb ## &dist Build a .deb package from $(DIST_DIR)
+	@$(MAKE) generate-debian-env
 	if [ -z "$(AMARU_VERSION)" ]; then \
 		echo "Error: AMARU_VERSION must not be empty when building a .deb package." >&2; \
 		exit 1; \
@@ -287,6 +302,7 @@ check-cargo-generate-rpm:
 	fi
 
 rpm: dist check-cargo-generate-rpm ## &dist Build an .rpm package from $(DIST_DIR)
+	@$(MAKE) generate-debian-env
 	if [ -z "$(AMARU_VERSION)" ]; then \
 		echo "Error: AMARU_VERSION must not be empty when building an .rpm package." >&2; \
 		exit 1; \

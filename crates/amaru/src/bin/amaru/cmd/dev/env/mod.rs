@@ -15,37 +15,18 @@
 use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
-pub(crate) mod chain;
-pub(crate) mod env;
-pub(crate) mod ledger;
-pub(crate) mod traces;
+mod generate;
 
+/// Environment configuration tools.
 #[derive(Debug, Subcommand)]
-pub(crate) enum DevCommand {
-    /// Environment configuration tools.
-    #[command(subcommand)]
-    Env(env::EnvCommand),
-
-    /// Chain store operations.
-    #[command(subcommand)]
-    Chain(chain::ChainCommand),
-
-    /// Ledger store operations.
-    #[command(subcommand)]
-    Ledger(ledger::LedgerCommand),
-
-    /// Observability and trace operations.
-    #[command(subcommand)]
-    Traces(traces::TracesCommand),
+pub(crate) enum EnvCommand {
+    Generate(generate::Args),
 }
 
-impl DevCommand {
+impl EnvCommand {
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
-            Self::Chain(cmd) => cmd.into_runnable(),
-            Self::Env(cmd) => cmd.into_runnable(),
-            Self::Ledger(cmd) => cmd.into_runnable(),
-            Self::Traces(cmd) => cmd.into_runnable(),
+            Self::Generate(args) => generate::runnable(args),
         }
     }
 }

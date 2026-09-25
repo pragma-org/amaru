@@ -178,6 +178,7 @@ fn snapshot_help_shows_subcommands() -> anyhow::Result<()> {
 fn dev_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["dev"])?;
     assert!(help.contains("chain"), "dev help should show 'chain'");
+    assert!(help.contains("env"), "dev help should show 'env'");
     assert!(help.contains("ledger"), "dev help should show 'ledger'");
     assert!(help.contains("traces"), "dev help should show 'traces'");
     Ok(())

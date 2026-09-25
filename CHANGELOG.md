@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
+### Changed
+
+- **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type. Empty values are treated as unset, so operators can enable only the settings they need.
+
 ## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added
