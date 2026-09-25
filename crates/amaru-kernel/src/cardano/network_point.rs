@@ -164,11 +164,8 @@ impl<'b> cbor::decode::Decode<'b, ()> for NetworkPoint {
                 // `decodeByteArray`, which rejects indefinite-length byte strings, so we reject
                 // them too.
                 #[allow(clippy::disallowed_methods)]
-                let hash = d.bytes()?;
-                if hash.len() != HEADER {
-                    return Err(cbor::decode::Error::message("header hash must be 32 bytes"));
-                }
-                Ok(NetworkPoint::Specific(slot, Hash::from(hash)))
+                let hash = Hash::try_from(d.bytes()?).map_err(|e| cbor::decode::Error::message(e.to_string()))?;
+                Ok(NetworkPoint::Specific(slot, hash))
             }
             _ => Err(cbor::decode::Error::message("can't decode NetworkPoint from array of size")),
         }

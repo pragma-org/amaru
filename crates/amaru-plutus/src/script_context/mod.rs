@@ -163,7 +163,8 @@ pub mod test_vectors {
                 while let Some(entry) = seq.next_element::<UtxoEntryHelper>()? {
                     let tx_id_bytes = hex::decode(&entry.transaction.id).map_err(serde::de::Error::custom)?;
 
-                    let input = TransactionInput { transaction_id: tx_id_bytes.as_slice().into(), index: entry.index };
+                    let transaction_id = tx_id_bytes.as_slice().try_into().map_err(serde::de::Error::custom)?;
+                    let input = TransactionInput { transaction_id, index: entry.index };
 
                     utxo_map.insert(input, entry.output.0);
                 }
@@ -259,7 +260,9 @@ pub mod test_vectors {
                                 assert_only_datum_or_hash(&datum).map_err(serde::de::Error::custom)?;
                                 let string: String = map.next_value()?;
                                 let bytes: Vec<u8> = hex::decode(string).map_err(serde::de::Error::custom)?;
-                                datum = MemoizedDatum::from(Hash::<DATUM>::from(bytes.as_slice()))
+                                datum = MemoizedDatum::from(
+                                    Hash::<DATUM>::try_from(bytes.as_slice()).map_err(serde::de::Error::custom)?,
+                                )
                             }
                             Field::Script => {
                                 unimplemented!("script in UTxO not yet supported");

@@ -44,11 +44,11 @@ pub fn drep_registration(rng: &mut impl Rng) -> DRepRegistration {
 }
 
 pub fn hash28(rng: &mut impl Rng) -> Hash<28> {
-    Hash::from(random_bytes_with_rng(rng, 28).as_slice())
+    Hash::try_from(random_bytes_with_rng(rng, 28).as_slice()).unwrap()
 }
 
 pub fn hash32(rng: &mut impl Rng) -> Hash<32> {
-    Hash::from(random_bytes_with_rng(rng, 32).as_slice())
+    Hash::try_from(random_bytes_with_rng(rng, 32).as_slice()).unwrap()
 }
 
 pub fn input(rng: &mut impl Rng) -> TransactionInput {
