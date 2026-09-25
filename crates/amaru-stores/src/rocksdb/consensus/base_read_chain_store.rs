@@ -235,7 +235,10 @@ pub(crate) fn decode_opcert_key(key: &[u8]) -> Result<(Slot, HeaderHash), StoreE
         .get(hash_start..)
         .filter(|h| h.len() == HEADER)
         .ok_or_else(|| StoreError::ReadError { error: "malformed opcert key".into() })?;
-    Ok((Slot::from(u64::from_be_bytes(slot_bytes)), Hash::from(hash)))
+    Ok((
+        Slot::from(u64::from_be_bytes(slot_bytes)),
+        Hash::try_from(hash).map_err(|e| StoreError::ReadError { error: e.to_string() })?,
+    ))
 }
 
 pub(crate) fn opcert_key(header: &Header) -> Vec<u8> {

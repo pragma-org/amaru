@@ -69,7 +69,7 @@ pub mod bytes {
 
         fn from_slice(slice: &[u8]) -> Result<Self, String> {
             let arr: [u8; N] = slice.try_into().map_err(|_| format!("expected {} bytes, got {}", N, slice.len()))?;
-            Ok(Box::new(Hash::from(&arr[..])))
+            Ok(Box::new(Hash::from(arr)))
         }
     }
 }

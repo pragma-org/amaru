@@ -109,10 +109,8 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let raw = cbor::decode_bytes_v12_indefinite(d, ctx)?;
-        if raw.len() != 32 {
-            return Err(cbor::decode::Error::message(format!("expected datum hash of length 32, got {}", raw.len())));
-        }
-        Ok(Legacy(MemoizedDatum::from(Hash::<DATUM>::from(&raw[..]))))
+        let hash = Hash::<DATUM>::try_from(&raw[..]).map_err(|e| cbor::decode::Error::message(e.to_string()))?;
+        Ok(Legacy(MemoizedDatum::from(hash)))
     }
 }
 

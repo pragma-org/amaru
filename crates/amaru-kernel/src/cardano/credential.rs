@@ -16,7 +16,7 @@ use std::fmt;
 
 use crate::{
     AddressType, Hash, cbor,
-    size::{CREDENTIAL, KEY, SCRIPT},
+    size::{KEY, SCRIPT},
 };
 
 // NOTE: Credential variant order
@@ -44,10 +44,8 @@ impl Credential {
     pub fn from_raw_address(bytes: &[u8]) -> Option<Self> {
         use AddressType::*;
         match AddressType::try_from_header_byte(*bytes.first()?)? {
-            Type0 | Type1 => (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::KeyHash(Hash::from(&bytes[KEY + 1..]))),
-            Type2 | Type3 => {
-                (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::ScriptHash(Hash::from(&bytes[SCRIPT + 1..])))
-            }
+            Type0 | Type1 => bytes.get(KEY + 1..).and_then(|h| Hash::try_from(h).ok()).map(Self::KeyHash),
+            Type2 | Type3 => bytes.get(SCRIPT + 1..).and_then(|h| Hash::try_from(h).ok()).map(Self::ScriptHash),
             Type4 | Type5 | Type6 | Type7 | Type8 | Type14 | Type15 => None,
         }
     }

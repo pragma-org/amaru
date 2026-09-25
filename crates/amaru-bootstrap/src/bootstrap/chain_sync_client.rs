@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, NetworkPoint, Point, Slot};
+use amaru_kernel::{BlockHeight, HeaderHash, NetworkPoint, Point, Slot};
 use amaru_observability::{Instrument, debug_span, error};
 use pallas_network::miniprotocols::{
     Point as PallasPoint,
@@ -30,7 +30,10 @@ fn to_pallas_point(point: NetworkPoint) -> PallasPoint {
 pub(crate) fn from_pallas_point(point: &PallasPoint) -> NetworkPoint {
     match point {
         PallasPoint::Origin => NetworkPoint::Origin,
-        PallasPoint::Specific(slot, hash) => NetworkPoint::Specific(Slot::from(*slot), From::from(hash.as_slice())),
+        PallasPoint::Specific(slot, hash) => NetworkPoint::Specific(
+            Slot::from(*slot),
+            HeaderHash::try_from(hash.as_slice()).unwrap_or_else(|e| unreachable!("pallas point hash: {e}")),
+        ),
     }
 }
 

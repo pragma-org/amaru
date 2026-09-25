@@ -128,7 +128,10 @@ mod tests {
     fn multiassets_of(n: u16) -> Multiasset<PositiveCoin> {
         let assets =
             NonEmptyKeyValuePairs::try_from(vec![(AssetName::empty(), PositiveCoin::try_from(1).unwrap())]).unwrap();
-        (0..n).map(|_| (Hash::from(random_bytes(28).as_slice()), assets.clone())).collect::<BTreeMap<_, _>>().into()
+        (0..n)
+            .map(|_| (Hash::try_from(random_bytes(28).as_slice()).unwrap(), assets.clone()))
+            .collect::<BTreeMap<_, _>>()
+            .into()
     }
 
     fn output_with(value: Value) -> MemoizedTransactionOutput {

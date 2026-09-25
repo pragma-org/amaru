@@ -262,7 +262,7 @@ mod tests {
     macro_rules! fixture {
         ($id:expr) => {{
             (
-                Hash::from(&hex::decode($id).unwrap()[..]),
+                Hash::try_from(&hex::decode($id).unwrap()[..]).unwrap(),
                 $crate::try_include_cbor!(concat!("cbor.decode/block/", $id, "/sample.cbor")),
             )
         }};

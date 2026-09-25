@@ -431,7 +431,9 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> anyhow::Result<Multi
 
         let quantity: PositiveCoin =
             quantity.try_into().map_err(|_| anyhow!("invalid non-positive asset quantity {quantity}"))?;
-        bundles.entry(Hash::from(&rep[policy_offset..policy_end])).or_default().push((
+        let policy_id = Hash::try_from(&rep[policy_offset..policy_end])
+            .map_err(|e| anyhow!("invalid policy id in multiasset representation: {e}"))?;
+        bundles.entry(policy_id).or_default().push((
             AssetName::try_from(&rep[asset_offset..asset_end])
                 .map_err(|_| anyhow!("invalid asset name for offset {asset_offset} and end {asset_end}"))?,
             quantity,

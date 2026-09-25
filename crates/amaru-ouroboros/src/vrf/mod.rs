@@ -149,7 +149,7 @@ impl Deref for Input {
 
 impl From<&[u8; Self::SIZE]> for Input {
     fn from(slice: &[u8; Self::SIZE]) -> Self {
-        Input(Hash::<{ Self::SIZE }>::from(&slice[..]))
+        Input(Hash::<{ Self::SIZE }>::from(*slice))
     }
 }
 
