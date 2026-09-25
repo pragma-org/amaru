@@ -444,7 +444,7 @@ mod tests {
         let mut row = proposals::tests::any_row(1_000).new_tree(runner).unwrap().current();
         row.valid_until = valid_until;
         row.proposal.deposit = 100_000;
-        row.proposal.gov_action = GovernanceAction::TreasuryWithdrawals(withdrawals.into(), None);
+        row.proposal.gov_action = GovernanceAction::TreasuryWithdrawals(withdrawals, None);
         row
     }
 

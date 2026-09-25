@@ -873,7 +873,7 @@ mod tests {
                     None,
                     vec![],
                     KeyValuePairs::default(),
-                    RationalNumber { numerator: 0, denominator: 1 },
+                    RationalNumber::new(0, 1).unwrap(),
                 ),
             )
             .unwrap();
