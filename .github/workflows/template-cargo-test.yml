@@ -2,7 +2,6 @@ name: Template Cargo Test
 
 permissions:
   contents: read
-  actions: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -60,11 +59,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install llvm --yes --no-progress
+          choco install llvm --version 22.1.7 --yes --no-progress
           Add-Content -Path $env:GITHUB_ENV -Value 'LIBCLANG_PATH=C:\Program Files\LLVM\bin'
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
+          persist-credentials: false
           submodules: true
 
       - uses: ./.github/actions/stage-peer-snapshots
@@ -75,12 +75,15 @@ jobs:
 
       - name: Build and Test
         shell: bash
+        env:
+          SETUP_COMMAND: ${{ inputs.setup }}
         run: |
           set -e
 
-          if [[ -n "${{ inputs.setup }}" ]]; then
-            echo "Running setup command: ${{ inputs.setup }}"
-            ${{ inputs.setup }}
+          if [[ -n "$SETUP_COMMAND" ]]; then
+            printf 'Running setup command:\n%s\n' "$SETUP_COMMAND"
+            # shellcheck disable=SC2294
+            eval "$SETUP_COMMAND"
           fi
 
           COMMAND="${{ inputs.command }}"

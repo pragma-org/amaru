@@ -28,6 +28,7 @@ jobs:
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
       RUST_BACKTRACE: 1
+      CARDANO_NODE_IMAGE: ghcr.io/intersectmbo/cardano-node:11.0.1@sha256:007da778998d0bdb043fb834c62b9da1c95e33610f31f6f9cccab29a945e2b99
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
@@ -83,7 +84,7 @@ jobs:
           CONFIG_DIR: cardano-node-config/preprod
         run: |
           set -euo pipefail
-          docker pull ghcr.io/intersectmbo/cardano-node:11.0.1
+          docker pull "$CARDANO_NODE_IMAGE"
           make download-haskell-config
           jq '
             .UseTraceDispatcher = true
@@ -118,7 +119,7 @@ jobs:
             -v "./$CONFIG_DIR:/genesis" \
             -p 3001:3001 \
             -p 127.0.0.1:12798:12798 \
-            ghcr.io/intersectmbo/cardano-node:11.0.1 run \
+            "$CARDANO_NODE_IMAGE" run \
               --config /config/config.json \
               --database-path /db \
               --socket-path /ipc/node.socket \

@@ -1,4 +1,4 @@
-FROM docker.io/debian:stable-slim
+FROM docker.io/debian:stable-slim@sha256:04634311a8d5fc442b6eb06d792293c4f3e2268652ca7634e00ce8ef5cc0a28a
 
 # Metadata
 LABEL org.opencontainers.image.source="https://github.com/pragma-org/amaru" \

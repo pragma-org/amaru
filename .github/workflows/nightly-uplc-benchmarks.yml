@@ -8,6 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   BENCHMARK_URL: https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.xz
+  BENCHMARK_SHA256: fffe2e959fb8bdb47ee4834008dcceb89fcde53afb659a454beca26cf95507cc
   BENCHMARK_CACHE_KEY: turbo-benchmarks-v1
 
 permissions:
@@ -20,6 +21,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/cache
 
@@ -32,7 +35,10 @@ jobs:
 
       - name: Download benchmark data
         if: steps.cache-benchmarks.outputs.cache-hit != 'true'
-        run: curl -L -o  uplc-benchmarks-turbo.tar.xz "$BENCHMARK_URL"
+        run: curl --fail --show-error --location --retry 3 -o uplc-benchmarks-turbo.tar.xz "$BENCHMARK_URL"
+
+      - name: Verify benchmark data
+        run: echo "$BENCHMARK_SHA256  uplc-benchmarks-turbo.tar.xz" | sha256sum --check --strict
 
       - name: Extract benchmark data
         run: |

@@ -50,6 +50,8 @@ jobs:
       amaru_version: ${{ steps.resolve.outputs.amaru_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Resolve the amaru version
         id: resolve
@@ -83,6 +85,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install flox
         shell: bash

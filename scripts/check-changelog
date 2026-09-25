@@ -592,7 +592,6 @@ def validate_target_release(
     head_block: ReleaseBlock,
     base_lines: list[str] | None,
     base_blocks: list[ReleaseBlock],
-    require_new_entry: bool,
     relevant_commits: list[str],
     failures: list[Failure],
 ) -> None:
@@ -678,9 +677,6 @@ def validate_target_release(
                         line=entry.start_line,
                         title="Missing link definition",
                     )
-
-    if not require_new_entry:
-        return
 
     if len(failures) > failure_count_before:
         return
@@ -786,7 +782,6 @@ def validate_changelog_contents(
 ) -> int:
     base_sha = context.base_sha
     relevant_commits = context.relevant_commits
-    override_requested = context.override_requested
     pr_number = context.pr_number
     pr_repository_full_name = context.pr_repository_full_name
     server_url = context.server_url
@@ -853,7 +848,6 @@ def validate_changelog_contents(
             target_block,
             base_lines,
             base_blocks,
-            not override_requested,
             relevant_commits,
             failures,
         )
@@ -905,6 +899,10 @@ def check_changelog(
     )
 
     if context is None:
+        return 0
+
+    if context.override_requested:
+        print("Skipping CHANGELOG.md validation (Skip-Changelog override).")
         return 0
 
     return validate_changelog_contents(
