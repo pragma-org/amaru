@@ -25,6 +25,7 @@ use amaru_kernel::{
     ProtocolVersion, RatificationStatus, display_protocol_parameters_update, utils::string::display_collection,
 };
 use amaru_observability::{debug, info};
+use itertools::Itertools;
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 use super::proposals_tree::{ProposalsTree, Sibling};
@@ -44,9 +45,6 @@ pub struct ProposalsForest {
     /// structure. Iterating on the forest will yield the proposals in the order they were
     /// inserted.
     sequence: VecDeque<Rc<ProposalId>>,
-
-    /// Proposal that have been processed but not ratified; preserving the 'sequence' order.
-    seen: Vec<Rc<ProposalId>>,
 
     /// A flag indicating whether the ratification is now interrupted due to a
     /// high-priority/high-impact proposal (i.e. hard-fork, constitutional committee or
@@ -81,7 +79,6 @@ impl ProposalsForest {
             pruned: BTreeMap::new(),
             proposals: BTreeMap::new(),
             sequence: VecDeque::new(),
-            seen: Vec::new(),
 
             // NOTE: clones are cheap, roots are `Rc`.
             protocol_parameters: ProposalsTree::new(roots.protocol_parameters.clone()),
@@ -98,17 +95,27 @@ impl ProposalsForest {
         // describes the epoch for which the ratification is done; which is typically the *previous
         // epoch* that the local node is terminating -> ratification happens with one epoch of
         // delay.
-        for id in self.seen.into_iter().chain(self.sequence) {
-            let Some(WithContext { proposal, valid_until, .. }) = self.proposals.get(&id) else {
-                // The seen + sequence set contains ALL proposals; some of which may have been
-                // ratified or dropped after ratification. So they may now be missing from
-                // self.proposals; This means that we only expire proposals that are left (as
-                // intended).
-                continue;
-            };
-
+        //
+        // The sort is *necessary* and *sufficient* to ensure we correctly capture all expired
+        // proposals:
+        //
+        // - *necessary* because: we cannot rely on `self.sequence` since the ratification order
+        // enforced by `priority_insert` may re-order proposals in ways that put parents before
+        // children (e.g. NoConfidence proposals have higher priority than UpdateCommittee, yet all
+        // share the same root chain).
+        //
+        // - *sufficient* because: the proposals are proposed in a valid order; this is not only
+        // enforced by ledger rules (one cannot submit a proposal with no valid parent) but it is
+        // ALSO double-checked by the forest when it is constructed; `ProposalsTree::insert` fails
+        // when trying to insert a proposal with no valid parent.
+        //
+        // Hence, by processing proposals in submission order, we guarantee to see parents before
+        // children, and can resolve in one pass all now-expired or obsolete proposals.
+        for (id, WithContext { valid_until, proposal, .. }) in
+            self.proposals.into_iter().sorted_unstable_by_key(|(_, ctx)| ctx.proposed_in)
+        {
             // Remove now expired proposals
-            if *valid_until == self.current_epoch {
+            if valid_until == self.current_epoch {
                 self.pruned.insert(id.clone(), RatificationStatus::NotRatified);
             } else if let Some(parent) = proposal.parent()
                 // And remove any proposal that depends on an expired or evicted parent. Those that
@@ -323,8 +330,6 @@ impl ProposalsForest {
         }
 
         while let Some(id) = self.sequence.pop_front() {
-            self.seen.push(id.clone());
-
             let proposal = self.proposals.get(&id).unwrap_or_else(|| {
                 unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
             });
