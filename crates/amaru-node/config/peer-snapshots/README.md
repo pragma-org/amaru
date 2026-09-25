@@ -91,7 +91,7 @@ for another reason (clean build, staged-file change, build-script source change,
 GitHub Actions that compile Amaru use the composite action
 [`.github/actions/stage-peer-snapshots`](../../../../.github/actions/stage-peer-snapshots)
 (wrapping [`scripts/stage-peer-snapshots`](../../../../scripts/stage-peer-snapshots)):
-unauthenticated curl fetch first, then cargo with `AMARU_SKIP_PEER_SNAPSHOT_FETCH=1`
+Git fetch first, then cargo with `AMARU_SKIP_PEER_SNAPSHOT_FETCH=1`
 and blank `GITHUB_TOKEN` / `GH_TOKEN` so build scripts never see credentials.
 
 You can run the same script locally:
