@@ -237,7 +237,7 @@ pub fn empty_block(header: Header) -> Block {
     // to recompute them over the stripped body, announce them in the header, then round-trip again
     // so the header hash follows.
     let mut block: Block = cbor::decode(to_cbor(&block).as_slice()).expect("stripped block should round-trip");
-    block.header.body_mut().block_body_size = block.body_len();
+    block.header.body_mut().block_body_size = block.body_len() as u32;
     block.header.body_mut().block_body_hash = block.body_hash();
     cbor::decode(to_cbor(&block).as_slice()).expect("stripped block should round-trip")
 }
@@ -271,7 +271,7 @@ pub fn epoch_of(slot: u64) -> Epoch {
 #[expect(clippy::expect_used)]
 pub fn invalid_block_at(slot: u64) -> Block {
     let mut block = empty_block_at(slot);
-    block.header.body_mut().block_body_size = block.body_len().wrapping_add(1);
+    block.header.body_mut().block_body_size = (block.body_len() as u32).wrapping_add(1);
     let block: Block = cbor::decode(to_cbor(&block).as_slice()).expect("tampered block should round-trip");
     block
 }

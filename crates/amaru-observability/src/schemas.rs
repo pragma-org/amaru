@@ -815,7 +815,7 @@ define_schemas! {
                 public CREATE {
                     required block_id: amaru_kernel::HeaderHash
                     required block_number: u64
-                    required block_body_size: u64
+                    required block_body_size: u32
                     optional total_inputs: u64
                 }
             }
