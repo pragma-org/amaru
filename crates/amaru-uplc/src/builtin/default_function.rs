@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ProtocolVersion, protocol_version};
+use amaru_kernel::{PlutusVersion, ProtocolVersion, protocol_version};
 
 #[repr(u8)]
 #[allow(non_camel_case_types)]
@@ -476,31 +476,149 @@ impl DefaultFunction {
     ///
     /// Follows the Haskell's `builtinsIntroducedIn` mapping from plutus-ledger-api:
     /// <https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/Common/Versions.hs>
-    pub fn is_available_in(&self, protocol_version: ProtocolVersion) -> bool {
+    pub fn is_available_in(&self, language: PlutusVersion, protocol_version: ProtocolVersion) -> bool {
+        // Batch 1 is available to every language from the protocol version that introduced the
+        // language itself, all of which are below the minimum this node supports.
+        if self.batch() == Batch::One {
+            return true;
+        }
+
+        let from_van_rossem = protocol_version >= protocol_version::PROTOCOL_VERSION_11;
+
+        match language {
+            // Plutus V1 was frozen at batch 1 until van Rossem opened everything up.
+            PlutusVersion::V1 => from_van_rossem,
+            // Plutus V2 gained serialiseData with itself, the Secp256k1 builtins at Valentine and
+            // the integer/bytestring conversions at Plomin; the rest waited for van Rossem.
+            PlutusVersion::V2 => match self.batch() {
+                Batch::Two | Batch::Three | Batch::FourB => true,
+                Batch::One | Batch::FourA | Batch::Five | Batch::Six => from_van_rossem,
+            },
+            // Plutus V3 started at Chang with batches 1 to 4 and gained batch 5 at Plomin.
+            PlutusVersion::V3 => match self.batch() {
+                Batch::Six => from_van_rossem,
+                Batch::One | Batch::Two | Batch::Three | Batch::FourA | Batch::FourB | Batch::Five => true,
+            },
+        }
+    }
+}
+
+/// The batches in which Plutus released its builtins.
+///
+/// Availability is a function of *both* the Plutus language version and the major protocol
+/// version: `builtinsIntroducedIn` in plutus-ledger-api is keyed by language first, so the same
+/// builtin can be legal in one language and rejected in another at the same protocol version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Batch {
+    One,
+    Two,
+    Three,
+    FourA,
+    FourB,
+    Five,
+    Six,
+}
+
+impl DefaultFunction {
+    /// The release batch this builtin belongs to.
+    ///
+    /// Enumerated rather than defaulted, so that a new builtin has to be placed in a batch instead
+    /// of silently inheriting the oldest one.
+    fn batch(&self) -> Batch {
         use DefaultFunction::*;
 
-        if protocol_version >= protocol_version::PROTOCOL_VERSION_11 {
-            true
-        } else if protocol_version >= protocol_version::PROTOCOL_VERSION_10 {
-            !matches!(
-                self,
-                ExpModInteger
-                    | DropList
-                    | LengthOfArray
-                    | ListToArray
-                    | IndexArray
-                    | Bls12_381_G1_MultiScalarMul
-                    | Bls12_381_G2_MultiScalarMul
-                    | InsertCoin
-                    | LookupCoin
-                    | UnionValue
-                    | ValueContains
-                    | ValueData
-                    | UnValueData
-                    | ScaleValue
-            )
-        } else {
-            unreachable!("unsupported protocol version: {protocol_version:?}")
+        match self {
+            AddInteger
+            | SubtractInteger
+            | MultiplyInteger
+            | DivideInteger
+            | QuotientInteger
+            | RemainderInteger
+            | ModInteger
+            | EqualsInteger
+            | LessThanInteger
+            | LessThanEqualsInteger
+            | AppendByteString
+            | ConsByteString
+            | SliceByteString
+            | LengthOfByteString
+            | IndexByteString
+            | EqualsByteString
+            | LessThanByteString
+            | LessThanEqualsByteString
+            | Sha2_256
+            | Sha3_256
+            | Blake2b_256
+            | VerifyEd25519Signature
+            | AppendString
+            | EqualsString
+            | EncodeUtf8
+            | DecodeUtf8
+            | IfThenElse
+            | ChooseUnit
+            | Trace
+            | FstPair
+            | SndPair
+            | ChooseList
+            | MkCons
+            | HeadList
+            | TailList
+            | NullList
+            | ChooseData
+            | ConstrData
+            | MapData
+            | ListData
+            | IData
+            | BData
+            | UnConstrData
+            | UnMapData
+            | UnListData
+            | UnIData
+            | UnBData
+            | EqualsData
+            | MkPairData
+            | MkNilData
+            | MkNilPairData => Batch::One,
+            SerialiseData => Batch::Two,
+            VerifyEcdsaSecp256k1Signature | VerifySchnorrSecp256k1Signature => Batch::Three,
+            Bls12_381_G1_Add
+            | Bls12_381_G1_Neg
+            | Bls12_381_G1_ScalarMul
+            | Bls12_381_G1_Equal
+            | Bls12_381_G1_HashToGroup
+            | Bls12_381_G1_Compress
+            | Bls12_381_G1_Uncompress
+            | Bls12_381_G2_Add
+            | Bls12_381_G2_Neg
+            | Bls12_381_G2_ScalarMul
+            | Bls12_381_G2_Equal
+            | Bls12_381_G2_HashToGroup
+            | Bls12_381_G2_Compress
+            | Bls12_381_G2_Uncompress
+            | Bls12_381_MillerLoop
+            | Bls12_381_MulMlResult
+            | Bls12_381_FinalVerify
+            | Keccak_256
+            | Blake2b_224 => Batch::FourA,
+            IntegerToByteString | ByteStringToInteger => Batch::FourB,
+            AndByteString | OrByteString | XorByteString | ComplementByteString | ReadBit | WriteBits
+            | ReplicateByte | ShiftByteString | RotateByteString | CountSetBits | FindFirstSetBit | Ripemd_160 => {
+                Batch::Five
+            }
+            ExpModInteger
+            | DropList
+            | LengthOfArray
+            | ListToArray
+            | IndexArray
+            | Bls12_381_G1_MultiScalarMul
+            | Bls12_381_G2_MultiScalarMul
+            | InsertCoin
+            | LookupCoin
+            | UnionValue
+            | ValueContains
+            | ValueData
+            | UnValueData
+            | ScaleValue => Batch::Six,
         }
     }
 }

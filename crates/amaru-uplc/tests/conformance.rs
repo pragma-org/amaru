@@ -14,7 +14,7 @@
 
 #![expect(clippy::panic, clippy::unwrap_used)]
 
-use amaru_kernel::protocol_version;
+use amaru_kernel::{PlutusVersion, protocol_version};
 use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, flat::FlatEncodeError, syn::parse_program};
 
 const EVALUATION_FAILURE: &str = "evaluation failure";
@@ -50,6 +50,7 @@ fn run_conformance(
         &arena,
         &hex::decode(program_flat.trim())
             .unwrap_or_else(|e| panic!("flat program ({program_flat}) isn't hex-encoded? {e}")),
+        PlutusVersion::V3,
         protocol_version::DEFAULT,
     ) {
         Ok((program_flat, _)) => Some(program_flat),
@@ -95,6 +96,7 @@ fn run_conformance(
             &arena,
             &hex::decode(expected_output_flat.trim())
                 .unwrap_or_else(|e| panic!("flat expected output ({expected_output_flat}) isn't hex-encoded? {e}")),
+            PlutusVersion::V3,
             protocol_version::DEFAULT,
         ) {
             Ok((expected_flat, _)) => pretty_assertions::assert_eq!(expected_flat.term, term),

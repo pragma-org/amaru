@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    ProtocolVersion,
+    PlutusVersion, ProtocolVersion,
     protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
 };
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
@@ -35,6 +35,7 @@ pub struct Ctx<'a> {
     pub arena: &'a Arena,
     pub machine_version: MachineVersion,
     pub protocol_version: ProtocolVersion,
+    pub plutus_version: PlutusVersion,
 }
 
 impl<'a> Ctx<'a> {
@@ -51,7 +52,7 @@ impl<'a> Ctx<'a> {
     /// Returns true if the given builtin is NOT available under the current
     /// plutus_version / protocol_version combination.
     pub fn is_builtin_available(&self, func: DefaultFunction) -> bool {
-        func.is_available_in(self.protocol_version)
+        func.is_available_in(self.plutus_version, self.protocol_version)
     }
 
     /// Largest number of fields a `constr` term may carry.
