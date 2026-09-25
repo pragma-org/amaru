@@ -58,7 +58,7 @@ pub fn decode_plutus_script<'a, const V: usize>(
     let plutus_version = reify_plutus_version::<V>()
         .ok_or_else(|| FlatDecodeError::Message(format!("unable to reify type-level Plutus version '{V:#?}' ??!")))?;
 
-    let (program, remainder) = decode(arena, bytes, protocol_version)?;
+    let (program, remainder) = decode(arena, bytes, plutus_version, protocol_version)?;
 
     if plutus_version >= PlutusVersion::V3 && remainder > 0 {
         return Err(FlatDecodeError::TrailingBytes(remainder));
@@ -74,6 +74,7 @@ pub fn decode_plutus_script<'a, const V: usize>(
 pub fn decode<'a, V>(
     arena: &'a Arena,
     bytes: &[u8],
+    plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
 ) -> Result<(&'a Program<'a, V>, usize), FlatDecodeError>
 where
@@ -86,7 +87,7 @@ where
     let patch = decoder.word()?;
     let machine_version = MachineVersion::new(major, minor, patch);
 
-    let mut ctx = Ctx { arena, machine_version, protocol_version };
+    let mut ctx = Ctx { arena, machine_version, protocol_version, plutus_version };
 
     let term = decode_term(&mut ctx, &mut decoder)?;
 
@@ -417,7 +418,8 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370090011aab9d375498109d8668218809f0001ff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> =
+            decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
@@ -451,7 +453,8 @@ mod tests {
         let bytes =
             hex::decode("0101003370090011bad357426aae78dd526112d8799fc24c033b2e3c9fd0803ce7ffffffff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> =
+            decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
@@ -487,7 +490,8 @@ mod tests {
         //   ])
         let bytes = hex::decode("0101003370490021bad357426ae88dd62601049f070eff0001").unwrap();
         let arena = Arena::new();
-        let program: Result<(&Program<'_, DeBruijn>, _), _> = decode(&arena, &bytes, PROTOCOL_VERSION_10);
+        let program: Result<(&Program<'_, DeBruijn>, _), _> =
+            decode(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_10);
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
@@ -518,6 +522,34 @@ mod tests {
         let bytes = crate::flat::encode::encode(program).expect("the program encodes");
 
         let decoded = Arena::new();
-        decode::<DeBruijn>(&decoded, &bytes, protocol_version).map(|_| ())
+        decode::<DeBruijn>(&decoded, &bytes, PlutusVersion::V3, protocol_version).map(|_| ())
+    }
+
+    /// `builtinsIntroducedIn` is keyed by ledger language *and* protocol version, so the same
+    /// builtin can be legal in one language and rejected in another at the same protocol version.
+    ///
+    /// `serialiseData` is batch 2: it shipped with Plutus V2 at Vasil and with V3 at Chang, but
+    /// reaches V1 only at van Rossem. `expModInteger` is batch 6, which no language has before
+    /// van Rossem.
+    #[test_case::test_case(DefaultFunction::SerialiseData,  PlutusVersion::V1, PROTOCOL_VERSION_10 => matches Err(_) ; "serialiseData in V1 before v11")]
+    #[test_case::test_case(DefaultFunction::SerialiseData,  PlutusVersion::V1, PROTOCOL_VERSION_11 => matches Ok(_)  ; "serialiseData in V1 at v11")]
+    #[test_case::test_case(DefaultFunction::SerialiseData,  PlutusVersion::V2, PROTOCOL_VERSION_10 => matches Ok(_)  ; "serialiseData in V2 before v11")]
+    #[test_case::test_case(DefaultFunction::SerialiseData,  PlutusVersion::V3, PROTOCOL_VERSION_10 => matches Ok(_)  ; "serialiseData in V3 before v11")]
+    #[test_case::test_case(DefaultFunction::ExpModInteger,  PlutusVersion::V3, PROTOCOL_VERSION_10 => matches Err(_) ; "expModInteger in V3 before v11")]
+    #[test_case::test_case(DefaultFunction::ExpModInteger,  PlutusVersion::V3, PROTOCOL_VERSION_11 => matches Ok(_)  ; "expModInteger in V3 at v11")]
+    #[test_case::test_case(DefaultFunction::AddInteger,     PlutusVersion::V1, PROTOCOL_VERSION_10 => matches Ok(_)  ; "batch 1 is available everywhere")]
+    fn builtin_availability_depends_on_the_language(
+        builtin: DefaultFunction,
+        plutus_version: PlutusVersion,
+        protocol_version: amaru_kernel::ProtocolVersion,
+    ) -> Result<(), FlatDecodeError> {
+        let arena = Arena::new();
+        let term = Term::<DeBruijn>::builtin(&arena, builtin);
+        let program = Program::new(&arena, crate::machine::MachineVersion::V1_1_0, term);
+
+        let bytes = crate::flat::encode::encode(program).expect("the program encodes");
+
+        let decoded = Arena::new();
+        decode::<DeBruijn>(&decoded, &bytes, plutus_version, protocol_version).map(|_| ())
     }
 }

@@ -115,7 +115,8 @@ fn collect_scripts(files: &[PathBuf]) -> Vec<(String, Vec<u8>, PlutusVersion)> {
 fn analyze_turbo(arena: &mut Arena, flat: Vec<u8>, plutus_version: PlutusVersion) -> (Duration, Duration, Duration) {
     let instant = Instant::now();
 
-    let (program, _) = flat::decode::<DeBruijn>(arena, &flat, PROTOCOL_VERSION_10).expect("Failed to decode");
+    let (program, _) =
+        flat::decode::<DeBruijn>(arena, &flat, PlutusVersion::V3, PROTOCOL_VERSION_10).expect("Failed to decode");
     let elapsed_unflat = instant.elapsed();
 
     let result = program.eval_version_budget(arena, plutus_version, ExBudget::max());
@@ -178,7 +179,8 @@ fn turbo_decode_eval(bencher: Bencher<'_, '_>) {
     let mut scripts = collect_scripts(&SAMPLES);
     bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, plutus_version)| {
         arena.reset();
-        let (program, _) = flat::decode::<DeBruijn>(&arena, &flat, PROTOCOL_VERSION).expect("Failed to decode");
+        let (program, _) =
+            flat::decode::<DeBruijn>(&arena, &flat, PlutusVersion::V3, PROTOCOL_VERSION).expect("Failed to decode");
         let result = program.eval_version_budget(&arena, plutus_version, ExBudget::max());
         let _term = result.term.expect("Failed to evaluate");
     });
@@ -190,7 +192,7 @@ fn turbo_decode_only(bencher: Bencher<'_, '_>) {
     let mut scripts = collect_scripts(&SAMPLES);
     bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, _)| {
         arena.reset();
-        flat::decode::<DeBruijn>(&arena, &flat, PROTOCOL_VERSION).expect("Failed to decode");
+        flat::decode::<DeBruijn>(&arena, &flat, PlutusVersion::V3, PROTOCOL_VERSION).expect("Failed to decode");
     });
 }
 
