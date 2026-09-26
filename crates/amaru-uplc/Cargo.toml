@@ -26,8 +26,9 @@ cryptoxide = { workspace = true, features = ["ripemd160"] }
 hamming.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["std"] }
+malachite-base = { version = "0.12.0", default-features = false, features = ["std"] }
+malachite-nz = { version = "0.12.0", default-features = false, features = ["std"] }
 num-bigint.workspace = true
-num.workspace = true
 once_cell.workspace = true
 secp256k1.workspace = true
 stacksafe.workspace = true

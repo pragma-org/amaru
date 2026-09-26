@@ -17,7 +17,11 @@ use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
 use stacksafe::stacksafe;
 
-use crate::{data::PlutusData, flat::SimpleCtx};
+use crate::{
+    constant::{integer_from_num_bigint, integer_to_num_bigint},
+    data::PlutusData,
+    flat::SimpleCtx,
+};
 
 impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> {
     #[stacksafe]
@@ -101,7 +105,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 
                 match tag.try_into() {
                     Ok(IanaTag::PosBignum | IanaTag::NegBignum) => {
-                        let integer = ctx.arena.alloc_integer(decode_bigint(decoder)?);
+                        let integer = ctx.arena.alloc_integer(integer_from_num_bigint(decode_bigint(decoder)?));
 
                         Ok(PlutusData::integer(ctx.arena, integer))
                     }
@@ -159,7 +163,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
             | minicbor::data::Type::I32
             | minicbor::data::Type::I64
             | minicbor::data::Type::Int => {
-                let integer = ctx.arena.alloc_integer(decode_bigint(decoder)?);
+                let integer = ctx.arena.alloc_integer(integer_from_num_bigint(decode_bigint(decoder)?));
 
                 Ok(PlutusData::integer(ctx.arena, integer))
             }
@@ -233,7 +237,8 @@ impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
                 }
             }
             PlutusData::Integer(n) => {
-                encode_bigint(e, n)?;
+                let n = integer_to_num_bigint(n);
+                encode_bigint(e, &n)?;
             }
             // we match the haskell implementation by encoding bytestrings longer than 64
             // bytes as indefinite lists of bytes
@@ -260,7 +265,10 @@ impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arena::Arena;
+    use crate::{
+        arena::Arena,
+        constant::{Integer, integer_from_bytes},
+    };
 
     #[test]
     fn encode_empty_record() {
@@ -282,8 +290,8 @@ mod tests {
 
     #[test]
     fn encode_record_integer() {
-        let zero = num::BigInt::from(0);
-        let one = num::BigInt::from(1);
+        let zero = Integer::from(0);
+        let one = Integer::from(1);
         let d = PlutusData::Constr { tag: 128, fields: &[&PlutusData::Integer(&zero), &PlutusData::Integer(&one)] };
         let mut v = vec![];
         minicbor::encode(d, &mut v).expect("invalid PlutusData");
@@ -292,7 +300,7 @@ mod tests {
 
     #[test]
     fn encode_cbor_data_bigint() {
-        let big = num::BigInt::from_bytes_be(num_bigint::Sign::Plus, &hex::decode("033b2e3c9fd0803ce7ffffff").unwrap());
+        let big = integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true);
         let d = PlutusData::Constr { tag: 0, fields: &[&PlutusData::Integer(&big)] };
         let mut v = vec![];
         minicbor::encode(d, &mut v).expect("invalid PlutusData");
@@ -301,8 +309,7 @@ mod tests {
 
     #[test]
     fn encode_cbor_data_negative_bigint() {
-        let n = -num::BigInt::from_bytes_be(num_bigint::Sign::Plus, &hex::decode("033b2e3c9fd0803ce7ffffff").unwrap())
-            - num::BigInt::from(1);
+        let n = -integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true) - Integer::from(1);
         let d = PlutusData::Constr { tag: 0, fields: &[&PlutusData::Integer(&n)] };
         let mut v = vec![];
         minicbor::encode(d, &mut v).expect("invalid PlutusData");
@@ -314,16 +321,13 @@ mod tests {
         let cbor = hex::decode("c34c033b2e3c9fd0803ce7ffffff").unwrap();
         let arena = Arena::new();
         let decoded = PlutusData::from_cbor(&arena, &cbor).expect("failed to decode negative bigint");
-        let expected =
-            -num::BigInt::from_bytes_be(num_bigint::Sign::Plus, &hex::decode("033b2e3c9fd0803ce7ffffff").unwrap())
-                - num::BigInt::from(1);
+        let expected = -integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true) - Integer::from(1);
         assert_eq!(decoded, &PlutusData::Integer(&expected));
     }
 
     #[test]
     fn roundtrip_cbor_data_negative_bigint() {
-        let n = -num::BigInt::from_bytes_be(num_bigint::Sign::Plus, &hex::decode("033b2e3c9fd0803ce7ffffff").unwrap())
-            - num::BigInt::from(1);
+        let n = -integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true) - Integer::from(1);
         let encoded = minicbor::to_vec(PlutusData::Integer(&n)).expect("encode failed");
         let arena = Arena::new();
         let decoded = PlutusData::from_cbor(&arena, &encoded).expect("decode failed");
@@ -333,9 +337,9 @@ mod tests {
     /// Test that the encoding is correct at both 2^64 - 1 and -2^64
     #[test]
     fn encode_integer_word_boundaries() {
-        let one = num::BigInt::from(1);
-        let two_64: num::BigInt = num::BigInt::from(1) << 64;
-        let two_64_minus_one: num::BigInt = &two_64 - &one;
+        let one = Integer::from(1);
+        let two_64: Integer = Integer::from(1) << 64;
+        let two_64_minus_one: Integer = &two_64 - &one;
 
         // Largest values still encoded as native CBOR integers.
         assert_eq!(encode_integer_hex(&two_64_minus_one), "1bffffffffffffffff");
@@ -351,7 +355,7 @@ mod tests {
 
     #[test]
     fn roundtrip_integer_min_native() {
-        let two_64: num::BigInt = num::BigInt::from(1) << 64;
+        let two_64: Integer = Integer::from(1) << 64;
         let n = -two_64;
         let encoded = minicbor::to_vec(PlutusData::Integer(&n)).expect("encode failed");
         let arena = Arena::new();
@@ -361,8 +365,8 @@ mod tests {
 
     #[test]
     fn encode_cbor_data_list() {
-        let zero = num::BigInt::from(0);
-        let one = num::BigInt::from(1);
+        let zero = Integer::from(0);
+        let one = Integer::from(1);
         let list = [&PlutusData::Integer(&zero), &PlutusData::Integer(&one)];
         let d = PlutusData::Constr { tag: 0, fields: &[&PlutusData::List(&list)] };
         let mut v = vec![];
@@ -372,8 +376,8 @@ mod tests {
 
     // HELPERS
 
-    /// Encode a BigInt as hex-encoded CBOR
-    fn encode_integer_hex(n: &num::BigInt) -> String {
+    /// Encode an Integer as hex-encoded CBOR.
+    fn encode_integer_hex(n: &Integer) -> String {
         let mut v = vec![];
         minicbor::encode(PlutusData::Integer(n), &mut v).expect("invalid PlutusData");
         hex::encode(v)
