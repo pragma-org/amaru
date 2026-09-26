@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
+### Fixed
+
+- **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
+
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
 ### Added

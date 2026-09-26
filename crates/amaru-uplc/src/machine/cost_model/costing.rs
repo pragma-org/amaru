@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::cost_argument::{CostArgument, FixedSize};
+
 pub trait Cost<const N: usize> {
-    fn cost(&self, args: [i64; N]) -> i64;
+    fn cost(&self, args: &[CostArgument<'_>]) -> i64;
 }
 
 // Struct using the trait
@@ -40,16 +42,19 @@ pub enum OneArgument {
 }
 
 impl Cost<1> for OneArgument {
-    fn cost(&self, args: [i64; 1]) -> i64 {
-        let x = args[0];
-
+    fn cost(&self, args: &[CostArgument<'_>]) -> i64 {
         match self {
             OneArgument::Constant(c) => *c,
-            OneArgument::LinearInX(m) => m.slope.saturating_mul(x).saturating_add(m.intercept),
-            OneArgument::Quadratic(q) => q
-                .coeff_0
-                .saturating_add(q.coeff_1.saturating_mul(x))
-                .saturating_add(q.coeff_2.saturating_mul(x).saturating_mul(x)),
+            OneArgument::LinearInX(m) => {
+                let x = args[0].size();
+                m.slope.saturating_mul(x).saturating_add(m.intercept)
+            }
+            OneArgument::Quadratic(q) => {
+                let x = args[0].size();
+                q.coeff_0
+                    .saturating_add(q.coeff_1.saturating_mul(x))
+                    .saturating_add(q.coeff_2.saturating_mul(x).saturating_mul(x))
+            }
         }
     }
 }
@@ -78,56 +83,92 @@ pub enum TwoArguments {
 pub type TwoArgumentsCosting = Costing<2, TwoArguments>;
 
 impl Cost<2> for TwoArguments {
-    fn cost(&self, args: [i64; 2]) -> i64 {
-        let x = args[0];
-        let y = args[1];
-
+    fn cost(&self, args: &[CostArgument<'_>]) -> i64 {
         match self {
             TwoArguments::Constant(c) => *c,
-            TwoArguments::LinearInX(l) => l.slope.saturating_mul(x).saturating_add(l.intercept),
-            TwoArguments::LinearInY(l) => l.slope.saturating_mul(y).saturating_add(l.intercept),
+            TwoArguments::LinearInX(l) => {
+                let x = args[0].size();
+                l.slope.saturating_mul(x).saturating_add(l.intercept)
+            }
+            TwoArguments::LinearInY(l) => {
+                let y = args[1].size();
+                l.slope.saturating_mul(y).saturating_add(l.intercept)
+            }
             TwoArguments::LinearInXAndY(l) => {
+                let x = args[0].size();
+                let y = args[1].size();
                 l.slope1.saturating_mul(x).saturating_add(l.slope2.saturating_mul(y)).saturating_add(l.intercept)
             }
-            TwoArguments::AddedSizes(s) => s.slope.saturating_mul(x.saturating_add(y)).saturating_add(s.intercept),
+            TwoArguments::AddedSizes(s) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                s.slope.saturating_mul(x.saturating_add(y)).saturating_add(s.intercept)
+            }
             TwoArguments::SubtractedSizes(s) => {
+                let x = args[0].size();
+                let y = args[1].size();
                 s.slope.saturating_mul(s.minimum.max(x.saturating_sub(y))).saturating_add(s.intercept)
             }
-            TwoArguments::MultipliedSizes(s) => s.slope.saturating_mul(x.saturating_mul(y)).saturating_add(s.intercept),
-            TwoArguments::MinSize(s) => s.slope.saturating_mul(x.min(y)).saturating_add(s.intercept),
-            TwoArguments::MaxSize(s) => s.slope.saturating_mul(x.max(y)).saturating_add(s.intercept),
+            TwoArguments::MultipliedSizes(s) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                s.slope.saturating_mul(x.saturating_mul(y)).saturating_add(s.intercept)
+            }
+            TwoArguments::MinSize(s) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                s.slope.saturating_mul(x.min(y)).saturating_add(s.intercept)
+            }
+            TwoArguments::MaxSize(s) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                s.slope.saturating_mul(x.max(y)).saturating_add(s.intercept)
+            }
             TwoArguments::LinearOnDiagonal(l) => {
-                if x == y {
-                    x.saturating_mul(l.slope).saturating_add(l.intercept)
-                } else {
-                    l.constant
-                }
+                let x = args[0].size();
+                let y = args[1].size();
+                if x == y { x.saturating_mul(l.slope).saturating_add(l.intercept) } else { l.constant }
             }
-            TwoArguments::QuadraticInY(q) => q
-                .coeff_0
-                .saturating_add(q.coeff_1.saturating_mul(y))
-                .saturating_add(q.coeff_2.saturating_mul(y).saturating_mul(y)),
-            TwoArguments::QuadraticInXAndY(q) => q.minimum.max(
-                q.coeff_00
-                    .saturating_add(q.coeff_10.saturating_mul(x))
-                    .saturating_add(q.coeff_01.saturating_mul(y))
-                    .saturating_add(q.coeff_20.saturating_mul(x).saturating_mul(x))
-                    .saturating_add(q.coeff_11.saturating_mul(x).saturating_mul(y))
-                    .saturating_add(q.coeff_02.saturating_mul(y).saturating_mul(y)),
-            ),
+            TwoArguments::QuadraticInY(q) => {
+                let y = args[1].size();
+                q.coeff_0
+                    .saturating_add(q.coeff_1.saturating_mul(y))
+                    .saturating_add(q.coeff_2.saturating_mul(y).saturating_mul(y))
+            }
+            TwoArguments::QuadraticInXAndY(q) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                q.minimum.max(
+                    q.coeff_00
+                        .saturating_add(q.coeff_10.saturating_mul(x))
+                        .saturating_add(q.coeff_01.saturating_mul(y))
+                        .saturating_add(q.coeff_20.saturating_mul(x).saturating_mul(x))
+                        .saturating_add(q.coeff_11.saturating_mul(x).saturating_mul(y))
+                        .saturating_add(q.coeff_02.saturating_mul(y).saturating_mul(y)),
+                )
+            }
             TwoArguments::ConstAboveDiagonal(constant, q) => {
-                if x < y {
-                    *constant
-                } else {
-                    q.cost(args)
+                let x = args[0].size();
+                let y = args[1].size();
+                if x < y { *constant } else { q.cost(args) }
+            }
+            TwoArguments::AboveAndBelowDiagonal(q) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                {
+                    let maximum = FixedSize(x.max(y));
+                    let minimum = FixedSize(x.min(y));
+                    q.cost(&[(&maximum).into(), (&minimum).into()])
                 }
             }
-            TwoArguments::AboveAndBelowDiagonal(q) => q.cost([x.max(y), x.min(y)]),
-            TwoArguments::WithInteraction(w) => w
-                .coeff_00
-                .saturating_add(w.coeff_10.saturating_mul(x))
-                .saturating_add(w.coeff_01.saturating_mul(y))
-                .saturating_add(w.coeff_11.saturating_mul(x).saturating_mul(y)),
+            TwoArguments::WithInteraction(w) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                w.coeff_00
+                    .saturating_add(w.coeff_10.saturating_mul(x))
+                    .saturating_add(w.coeff_01.saturating_mul(y))
+                    .saturating_add(w.coeff_11.saturating_mul(x).saturating_mul(y))
+            }
         }
     }
 }
@@ -148,32 +189,50 @@ pub enum ThreeArguments {
 pub type ThreeArgumentsCosting = Costing<3, ThreeArguments>;
 
 impl Cost<3> for ThreeArguments {
-    fn cost(&self, args: [i64; 3]) -> i64 {
-        let x = args[0];
-        let y = args[1];
-        let z = args[2];
-
+    fn cost(&self, args: &[CostArgument<'_>]) -> i64 {
         match self {
             ThreeArguments::Constant(c) => *c,
-            ThreeArguments::LinearInX(l) => x.saturating_mul(l.slope).saturating_add(l.intercept),
-            ThreeArguments::LinearInY(l) => y.saturating_mul(l.slope).saturating_add(l.intercept),
-            ThreeArguments::LinearInZ(l) => z.saturating_mul(l.slope).saturating_add(l.intercept),
-            ThreeArguments::QuadraticInZ(q) => q
-                .coeff_0
-                .saturating_add(q.coeff_1.saturating_mul(z))
-                .saturating_add(q.coeff_2.saturating_mul(z).saturating_mul(z)),
+            ThreeArguments::LinearInX(l) => {
+                let x = args[0].size();
+                x.saturating_mul(l.slope).saturating_add(l.intercept)
+            }
+            ThreeArguments::LinearInY(l) => {
+                let y = args[1].size();
+                y.saturating_mul(l.slope).saturating_add(l.intercept)
+            }
+            ThreeArguments::LinearInZ(l) => {
+                let z = args[2].size();
+                z.saturating_mul(l.slope).saturating_add(l.intercept)
+            }
+            ThreeArguments::QuadraticInZ(q) => {
+                let z = args[2].size();
+                q.coeff_0
+                    .saturating_add(q.coeff_1.saturating_mul(z))
+                    .saturating_add(q.coeff_2.saturating_mul(z).saturating_mul(z))
+            }
             ThreeArguments::LiteralInYorLinearInZ(l) => {
+                let y = args[1].size();
                 if y == 0 {
+                    let z = args[2].size();
                     l.slope.saturating_mul(z).saturating_add(l.intercept)
                 } else {
                     y
                 }
             }
             ThreeArguments::LinearInYAndZ(l) => {
+                let y = args[1].size();
+                let z = args[2].size();
                 y.saturating_mul(l.slope1).saturating_add(z.saturating_mul(l.slope2)).saturating_add(l.intercept)
             }
-            ThreeArguments::LinearInMaxYZ(l) => y.max(z).saturating_mul(l.slope).saturating_add(l.intercept),
+            ThreeArguments::LinearInMaxYZ(l) => {
+                let y = args[1].size();
+                let z = args[2].size();
+                y.max(z).saturating_mul(l.slope).saturating_add(l.intercept)
+            }
             ThreeArguments::ExpModCost(c) => {
+                let x = args[0].size();
+                let y = args[1].size();
+                let z = args[2].size();
                 let cost = c
                     .coeff_00
                     .saturating_add(c.coeff_11.saturating_mul(y).saturating_mul(z))
@@ -193,12 +252,13 @@ pub enum FourArguments {
 pub type FourArgumentsCosting = Costing<4, FourArguments>;
 
 impl Cost<4> for FourArguments {
-    fn cost(&self, args: [i64; 4]) -> i64 {
-        let u = args[3];
-
+    fn cost(&self, args: &[CostArgument<'_>]) -> i64 {
         match self {
             FourArguments::Constant(c) => *c,
-            FourArguments::LinearInU(l) => u * l.slope + l.intercept,
+            FourArguments::LinearInU(l) => {
+                let u = args[3].size();
+                u * l.slope + l.intercept
+            }
         }
     }
 }
@@ -211,7 +271,7 @@ pub enum SixArguments {
 pub type SixArgumentsCosting = Costing<6, SixArguments>;
 
 impl Cost<6> for SixArguments {
-    fn cost(&self, _args: [i64; 6]) -> i64 {
+    fn cost(&self, _args: &[CostArgument<'_>]) -> i64 {
         match self {
             SixArguments::Constant(c) => *c,
         }
@@ -300,4 +360,51 @@ pub struct ExpModCost {
     pub coeff_00: i64,
     pub coeff_11: i64,
     pub coeff_12: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::{Cost, LinearSize, ThreeArguments};
+    use crate::machine::cost_model::cost_argument::{CostArgument, IntoMachineSize};
+
+    struct CountedMachineSize<'a> {
+        calls: &'a Cell<u8>,
+        value: i64,
+    }
+
+    impl IntoMachineSize for CountedMachineSize<'_> {
+        fn size(&self) -> i64 {
+            self.calls.set(self.calls.get() + 1);
+            self.value
+        }
+    }
+
+    #[test]
+    fn constant_cost_does_not_measure_arguments() {
+        let calls = Cell::new(0);
+        let value = CountedMachineSize { calls: &calls, value: 10 };
+        let args = [CostArgument::from(&value), CostArgument::from(&value), CostArgument::from(&value)];
+
+        assert_eq!(ThreeArguments::Constant(42).cost(args.as_slice()), 42);
+        assert_eq!(calls.get(), 0);
+    }
+
+    #[test]
+    fn cost_models_measure_only_the_arguments_they_use() {
+        let x_calls = Cell::new(0);
+        let y_calls = Cell::new(0);
+        let z_calls = Cell::new(0);
+        let x = CountedMachineSize { calls: &x_calls, value: 2 };
+        let y = CountedMachineSize { calls: &y_calls, value: 3 };
+        let z = CountedMachineSize { calls: &z_calls, value: 4 };
+        let args = [CostArgument::from(&x), CostArgument::from(&y), CostArgument::from(&z)];
+        assert_eq!(ThreeArguments::LinearInX(LinearSize { intercept: 1, slope: 2 }).cost(args.as_slice()), 5);
+        assert_eq!(ThreeArguments::LinearInY(LinearSize { intercept: 1, slope: 2 }).cost(args.as_slice()), 7);
+        assert_eq!(ThreeArguments::LinearInY(LinearSize { intercept: 1, slope: 2 }).cost(args.as_slice()), 7);
+        assert_eq!(x_calls.get(), 1);
+        assert_eq!(y_calls.get(), 1);
+        assert_eq!(z_calls.get(), 0);
+    }
 }
