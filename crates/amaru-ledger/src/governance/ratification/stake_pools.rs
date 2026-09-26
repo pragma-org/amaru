@@ -40,23 +40,23 @@ pub fn voting_threshold(
     match proposal {
         ProposalEnum::ProtocolParameters(params_update, _) => {
             if params_update.any_in_security_group() {
-                Some(into_safe_ratio(&voting_thresholds.security_voting_threshold))
+                Some(into_safe_ratio(voting_thresholds.security_voting_threshold.as_ratio()))
             } else {
                 Some(SafeRatio::zero())
             }
         }
 
-        ProposalEnum::HardFork(..) => Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation)),
+        ProposalEnum::HardFork(..) => Some(into_safe_ratio(voting_thresholds.hard_fork_initiation.as_ratio())),
 
         ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::NoConfidence, _) => {
-            Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
+            Some(into_safe_ratio(voting_thresholds.motion_no_confidence.as_ratio()))
         }
 
         ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { .. }, _) => {
             Some(if is_state_of_no_confidence {
-                into_safe_ratio(&voting_thresholds.committee_no_confidence)
+                into_safe_ratio(voting_thresholds.committee_no_confidence.as_ratio())
             } else {
-                into_safe_ratio(&voting_thresholds.committee_normal)
+                into_safe_ratio(voting_thresholds.committee_normal.as_ratio())
             })
         }
 

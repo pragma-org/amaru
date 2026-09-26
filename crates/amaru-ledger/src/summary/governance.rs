@@ -140,7 +140,7 @@ impl GovernanceSummary {
                             cc_update = Some(ConstitutionalCommitteeUpdate::ChangeMembers {
                                 removed: removed.into_iter().collect(),
                                 added: added.into_iter().collect(),
-                                threshold: into_safe_ratio(&threshold),
+                                threshold: into_safe_ratio(threshold.as_ratio()),
                             })
                         }
 

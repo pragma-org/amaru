@@ -484,6 +484,7 @@ mod tests {
             let mut ctx = ratification_context(&distribution);
             let lowered_thresholds = ctx.protocol_parameters.drep_voting_thresholds.clone();
             ctx.protocol_parameters.drep_voting_thresholds.hard_fork_initiation = RationalNumber::new(1, 1).unwrap();
+            let badSpelling = 1;
 
             let (roots, pruned_proposals) = ctx
                 .ratify_proposals(

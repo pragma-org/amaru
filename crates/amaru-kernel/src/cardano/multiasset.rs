@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
-use crate::{AssetName, Hash, NonEmptyKeyValuePairs, cbor, protocol_version::PROTOCOL_VERSION_12, size::SCRIPT};
+use crate::{cbor, protocol_version::PROTOCOL_VERSION_12, size::SCRIPT, AssetName, Hash, KeyValuePairs, NonEmptyKeyValuePairs};
 
 /// The Haskell node bounds the size of the values it processes, in order to make them
 /// addressable in a memory region with a u16 offset, so the region
@@ -41,16 +41,16 @@ const BYTES_PER_POLICY: usize = 28;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub struct Multiasset<A>(BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>);
+pub struct Multiasset<A>(KeyValuePairs<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>);
 
 impl<A> From<BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>> for Multiasset<A> {
-    fn from(map: BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>) -> Self {
-        Self(map)
+    fn from(map: KeyValuePairs<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>) -> Self {
+        Self(map.into())
     }
 }
 
 impl<A> Deref for Multiasset<A> {
-    type Target = BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>;
+    type Target = KeyValuePairs<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -58,7 +58,7 @@ impl<A> Deref for Multiasset<A> {
 
 impl<'d, C: cbor::HasProtocolVersion, A: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d, C> for Multiasset<A> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let assets: BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>> = d.decode_with(ctx)?;
+        let assets: KeyValuePairs<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>> = d.decode_with(ctx)?;
 
         // From protocol version 12 the ledger requires the policy map itself to be non-empty, not
         // just the asset map of each policy. The check belongs here rather than in a caller: it

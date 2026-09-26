@@ -571,16 +571,16 @@ mod tests {
 
     prop_compose! {
         pub fn any_drep_voting_thresholds()(
-            motion_no_confidence in any_rational_number(),
-            committee_normal in any_rational_number(),
-            committee_no_confidence in any_rational_number(),
-            update_constitution in any_rational_number(),
-            hard_fork_initiation in any_rational_number(),
-            pp_network_group in any_rational_number(),
-            pp_economic_group in any_rational_number(),
-            pp_technical_group in any_rational_number(),
-            pp_governance_group in any_rational_number(),
-            treasury_withdrawal in any_rational_number(),
+            motion_no_confidence in any_unit_rational_number(),
+            committee_normal in any_unit_rational_number(),
+            committee_no_confidence in any_unit_rational_number(),
+            update_constitution in any_unit_rational_number(),
+            hard_fork_initiation in any_unit_rational_number(),
+            pp_network_group in any_unit_rational_number(),
+            pp_economic_group in any_unit_rational_number(),
+            pp_technical_group in any_unit_rational_number(),
+            pp_governance_group in any_unit_rational_number(),
+            treasury_withdrawal in any_unit_rational_number(),
         ) -> DRepVotingThresholds {
             DRepVotingThresholds {
                 motion_no_confidence,
@@ -599,11 +599,11 @@ mod tests {
 
     prop_compose! {
         pub fn any_pool_voting_thresholds()(
-            motion_no_confidence in any_rational_number(),
-            committee_normal in any_rational_number(),
-            committee_no_confidence in any_rational_number(),
-            hard_fork_initiation in any_rational_number(),
-            security_voting_threshold in any_rational_number(),
+            motion_no_confidence in any_unit_rational_number(),
+            committee_normal in any_unit_rational_number(),
+            committee_no_confidence in any_unit_rational_number(),
+            hard_fork_initiation in any_unit_rational_number(),
+            security_voting_threshold in any_unit_rational_number(),
         ) -> PoolVotingThresholds {
             PoolVotingThresholds {
                 motion_no_confidence,
@@ -791,7 +791,7 @@ mod tests {
                 parent_proposal_id in any_parent_proposal_id(),
                 to_remove in collection::btree_set(any_credential(), 0..3),
                 to_add in collection::vec(any_committee_registration(), 0..3),
-                quorum in any_rational_number(),
+                quorum in any_unit_rational_number(),
             ) -> GovernanceAction {
                 GovernanceAction::UpdateCommittee(
                     parent_proposal_id,

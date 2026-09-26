@@ -233,7 +233,7 @@ impl ToPlutusData<3> for GovernanceAction {
                 constr_v3!(3, [previous_action])
             }
             GovernanceAction::UpdateCommittee(previous_action, removed, added, quorum) => {
-                let quorum = governance_action_ratio(quorum)?;
+                let quorum = governance_action_ratio(quorum.as_ratio())?;
                 constr_v3!(4, [previous_action, removed, added, quorum])
             }
             GovernanceAction::NewConstitution(previous_action, constitution) => {
@@ -426,11 +426,11 @@ impl ToPlutusData<3> for ExUnitPrices {
 impl ToPlutusData<3> for PoolVotingThresholds {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![
-            protocol_parameter_ratio(&self.motion_no_confidence)?,
-            protocol_parameter_ratio(&self.committee_normal)?,
-            protocol_parameter_ratio(&self.committee_no_confidence)?,
-            protocol_parameter_ratio(&self.hard_fork_initiation)?,
-            protocol_parameter_ratio(&self.security_voting_threshold)?,
+            protocol_parameter_ratio(self.motion_no_confidence.as_ratio())?,
+            protocol_parameter_ratio(self.committee_normal.as_ratio())?,
+            protocol_parameter_ratio(self.committee_no_confidence.as_ratio())?,
+            protocol_parameter_ratio(self.hard_fork_initiation.as_ratio())?,
+            protocol_parameter_ratio(self.security_voting_threshold.as_ratio())?,
         ])
     }
 }
@@ -438,16 +438,16 @@ impl ToPlutusData<3> for PoolVotingThresholds {
 impl ToPlutusData<3> for DRepVotingThresholds {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![
-            protocol_parameter_ratio(&self.motion_no_confidence)?,
-            protocol_parameter_ratio(&self.committee_normal)?,
-            protocol_parameter_ratio(&self.committee_no_confidence)?,
-            protocol_parameter_ratio(&self.update_constitution)?,
-            protocol_parameter_ratio(&self.hard_fork_initiation)?,
-            protocol_parameter_ratio(&self.pp_network_group)?,
-            protocol_parameter_ratio(&self.pp_economic_group)?,
-            protocol_parameter_ratio(&self.pp_technical_group)?,
-            protocol_parameter_ratio(&self.pp_governance_group)?,
-            protocol_parameter_ratio(&self.treasury_withdrawal)?,
+            protocol_parameter_ratio(self.motion_no_confidence.as_ratio())?,
+            protocol_parameter_ratio(self.committee_normal.as_ratio())?,
+            protocol_parameter_ratio(self.committee_no_confidence.as_ratio())?,
+            protocol_parameter_ratio(self.update_constitution.as_ratio())?,
+            protocol_parameter_ratio(self.hard_fork_initiation.as_ratio())?,
+            protocol_parameter_ratio(self.pp_network_group.as_ratio())?,
+            protocol_parameter_ratio(self.pp_economic_group.as_ratio())?,
+            protocol_parameter_ratio(self.pp_technical_group.as_ratio())?,
+            protocol_parameter_ratio(self.pp_governance_group.as_ratio())?,
+            protocol_parameter_ratio(self.treasury_withdrawal.as_ratio())?,
         ])
     }
 }
@@ -571,7 +571,7 @@ mod tests {
             None,
             vec![],
             KeyValuePairs::default(),
-            RationalNumber::new(2, 4).expect("valid ratio"),
+            UnitRationalNumber::new(2, 4).expect("valid ratio"),
         );
 
         let data = action.to_plutus_data().expect("governance action should encode");

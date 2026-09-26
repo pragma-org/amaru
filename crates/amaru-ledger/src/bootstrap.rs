@@ -1098,7 +1098,7 @@ fn import_constitutional_committee(
 
             cc_members = members;
 
-            amaru_kernel::ConstitutionalCommitteeStatus::Trusted { threshold }
+            amaru_kernel::ConstitutionalCommitteeStatus::Trusted { threshold: threshold.into() }
         }
     };
 
