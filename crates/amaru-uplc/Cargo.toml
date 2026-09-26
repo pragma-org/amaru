@@ -23,6 +23,7 @@ blst.workspace = true
 bumpalo = { workspace = true, features = ["collections"] }
 chumsky = { workspace = true, features = ["pratt"] }
 cryptoxide = { workspace = true, features = ["ripemd160"] }
+ed25519-dalek.workspace = true
 hamming.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["std"] }
