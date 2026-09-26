@@ -753,6 +753,7 @@ dependencies = [
  "criterion",
  "cryptoxide 0.6.2",
  "divan",
+ "ed25519-dalek 3.0.0",
  "hamming",
  "hex",
  "indoc",

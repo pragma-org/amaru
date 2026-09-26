@@ -194,6 +194,54 @@ mod tests {
     }
 
     #[test]
+    fn verify_ed25519_signature_rejects_identity_key_and_signature() {
+        let arena = Arena::new();
+
+        let mut public_key = [0; 32];
+        public_key[0] = 1;
+
+        let mut signature = [0; 64];
+        signature[0] = 1;
+
+        let term = Term::verify_ed25519_signature(&arena)
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(public_key)))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(*b"any message")))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(signature)));
+
+        let result = Program::<DeBruijn>::new(&arena, MachineVersion::V1_1_0, term).eval_default(&arena);
+
+        assert_eq!(result.term.unwrap(), Term::bool(&arena, false));
+    }
+
+    #[test]
+    fn verify_ecdsa_secp256k1_signature_rejects_uncompressed_key() {
+        use secp256k1::PublicKey;
+
+        let arena = Arena::new();
+
+        let public_key = PublicKey::from_slice(
+            &hex::decode("032e433589dce61863199171f4d1e3fa946a5832621fcd29559940a0950f96fb6f").unwrap(),
+        )
+        .unwrap()
+        .serialize_uncompressed();
+
+        let message = hex::decode("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap();
+        let signature = hex::decode(
+            "4941155e2303988a1be97a021fbaf9fe6064d05ea694bc5e89328f297154e5c63a2f3e7b5f509294a4c2e22feb697a16b792fabfebe9d0f38403b1c929836b5a",
+        )
+        .unwrap();
+
+        let term = Term::verify_ecdsa_secp256k1_signature(&arena)
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(public_key)))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(message)))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(signature)));
+
+        let result = Program::<DeBruijn>::new(&arena, MachineVersion::V1_1_0, term).eval_default(&arena);
+
+        assert!(result.term.is_err());
+    }
+
+    #[test]
     fn fibonacci() {
         let arena = &Arena::new();
 

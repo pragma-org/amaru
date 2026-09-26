@@ -71,6 +71,10 @@ Other guiding principles:
 - **amaru**: report errors on stderr when tracing isn't available on specific commands.
 - **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
 
+### Security
+
+- **amaru-uplc**: reject weak Ed25519 identity tuples and uncompressed secp256k1 public keys in Plutus signature builtins.
+
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
 ### Added

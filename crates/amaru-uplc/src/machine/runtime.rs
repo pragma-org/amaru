@@ -1079,7 +1079,7 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::VerifyEcdsaSecp256k1Signature => {
-                use secp256k1::{Message, PublicKey, Secp256k1, ecdsa::Signature};
+                use secp256k1::{Error, Message, PublicKey, Secp256k1, ecdsa::Signature};
 
                 let public_key = runtime.args[0].unwrap_byte_string()?;
                 let message = runtime.args[1].unwrap_byte_string()?;
@@ -1091,6 +1091,10 @@ impl<'a> Machine<'a> {
                 );
 
                 self.spend_budget(budget)?;
+
+                if public_key.len() != 33 {
+                    return Err(MachineError::secp256k1(Error::InvalidPublicKey));
+                }
 
                 let secp = Secp256k1::verification_only();
 
@@ -1107,7 +1111,7 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::VerifyEd25519Signature => {
-                use cryptoxide::ed25519;
+                use ed25519_dalek::{Signature, VerifyingKey};
 
                 let public_key = runtime.args[0].unwrap_byte_string()?;
                 let message = runtime.args[1].unwrap_byte_string()?;
@@ -1128,7 +1132,9 @@ impl<'a> Machine<'a> {
                     .try_into()
                     .map_err(|e: TryFromSliceError| MachineError::unexpected_ed25519_signature_length(e))?;
 
-                let valid = ed25519::verify(message, &public_key, &signature);
+                let signature = Signature::from_bytes(&signature);
+                let valid = VerifyingKey::from_bytes(&public_key)
+                    .is_ok_and(|public_key| public_key.verify_strict(message, &signature).is_ok());
 
                 let value = Value::bool(self.arena, valid);
 
