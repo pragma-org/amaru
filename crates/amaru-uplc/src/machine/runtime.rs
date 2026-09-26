@@ -18,7 +18,11 @@ use core::str;
 use std::array::TryFromSliceError;
 
 use bumpalo::collections::{CollectIn, String as BumpString, Vec as BumpVec};
-use num::{Integer as NumInteger, Signed, Zero};
+use malachite_base::num::{
+    arithmetic::traits::{DivMod, DivRem, ExtendedGcd, Mod, ModPow, UnsignedAbs},
+    basic::traits::Zero,
+};
+use malachite_nz::natural::Natural;
 
 use super::{Machine, MachineError, RuntimeError, value::Value};
 use crate::{
@@ -26,7 +30,9 @@ use crate::{
     binder::Eval,
     bls::{Compressable, SCALAR_PERIOD},
     builtin::DefaultFunction,
-    constant::{self, Constant, Integer},
+    constant::{
+        self, Constant, Integer, IntegerExt, integer_from_bytes, integer_to_u8, integer_to_usize, natural_to_u64,
+    },
     data::PlutusData,
     ledger_value::{self, LedgerValue, ValueError},
     machine::cost_model::cost_argument::{DataNodeCount, DataSize, FixedSize, integer_log2},
@@ -53,20 +59,17 @@ fn check_multi_scalar_range(int: &Integer) -> Result<(), RuntimeError<'_>> {
         return Err(RuntimeError::MultiScalarMulScalarOutOfBounds);
     }
 
-    let magnitude = int.magnitude();
+    let magnitude = int.clone().unsigned_abs();
+    let two_pow_4095 = Natural::from(1u8) << 4095u64;
 
-    use num::One;
-
-    let two_pow_4095 = num::BigUint::one() << 4095;
-
-    if *magnitude == two_pow_4095 { Ok(()) } else { Err(RuntimeError::MultiScalarMulScalarOutOfBounds) }
+    if magnitude == two_pow_4095 { Ok(()) } else { Err(RuntimeError::MultiScalarMulScalarOutOfBounds) }
 }
 
 /// Reduce scalar mod SCALAR_PERIOD, convert to LE bytes, and append to the output buffer.
 /// Caller must validate the scalar range first via `check_multi_scalar_range`.
 fn prepare_msm_scalar(si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_bytes: &mut Vec<u8>) {
-    let si = si.mod_floor(&SCALAR_PERIOD);
-    let (_, be_bytes) = si.to_bytes_be();
+    let si = si.mod_op(&*SCALAR_PERIOD);
+    let be_bytes = constant::integer_to_bytes(&si, true);
 
     // Zero-padded big-endian scalar on the stack (always 32 bytes).
     const SIZE: usize = size_of::<blst::blst_scalar>();
@@ -285,13 +288,13 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let byte: u8 = if self.costs.semantics.cons_byte_string_range_checks() {
-                    if *arg1 > Integer::from(255) || *arg1 < Integer::from(0) {
+                    if *arg1 > 255u8 || *arg1 < 0 {
                         return Err(MachineError::byte_string_cons_not_a_byte(arg1));
                     }
-                    arg1.try_into().expect("should cast to u8 just fine")
+                    integer_to_u8(arg1).expect("should cast to u8 just fine")
                 } else {
-                    let wrap: Integer = arg1 % 256;
-                    wrap.try_into().expect("should cast to u64 just fine")
+                    let wrap = arg1 % Integer::from(256);
+                    integer_to_u8(&wrap).expect("should cast to u8 just fine")
                 };
 
                 let mut ret = BumpVec::with_capacity_in(arg2.len() + 1, self.arena.as_bump());
@@ -360,7 +363,7 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 if !arg2.is_zero() {
-                    let (result, _) = arg1.div_mod_floor(arg2);
+                    let (result, _) = arg1.div_mod(arg2);
 
                     let new = self.arena.alloc_integer(result);
 
@@ -750,7 +753,7 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 if !arg2.is_zero() {
-                    let (_, result) = arg1.div_mod_floor(arg2);
+                    let (_, result) = arg1.div_mod(arg2);
                     let result = self.arena.alloc_integer(result);
                     let value = Value::integer(self.arena, result);
 
@@ -903,18 +906,18 @@ impl<'a> Machine<'a> {
 
                 let skip: usize = if *arg1 < Integer::ZERO {
                     0
-                } else if *arg1 > arg3.len().into() {
+                } else if *arg1 > arg3.len() {
                     arg3.len()
                 } else {
-                    arg1.try_into().expect("should cast to usize just fine")
+                    integer_to_usize(arg1).expect("should cast to usize just fine")
                 };
 
                 let take: usize = if *arg2 < Integer::ZERO {
                     0
-                } else if *arg2 > arg3.len().into() {
+                } else if *arg2 > arg3.len() {
                     arg3.len()
                 } else {
-                    arg2.try_into().expect("should cast to usize just fine")
+                    integer_to_usize(arg2).expect("should cast to usize just fine")
                 };
 
                 let skip_take: usize = if skip + take > arg3.len() { arg3.len() } else { skip + take };
@@ -1275,8 +1278,8 @@ impl<'a> Machine<'a> {
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.mod_floor(&SCALAR_PERIOD);
-                let (_, mut arg1) = arg1.to_bytes_be();
+                let arg1 = arg1.mod_op(&*SCALAR_PERIOD);
+                let mut arg1 = constant::integer_to_bytes(&arg1, true);
 
                 if size_scalar > arg1.len() {
                     let diff = size_scalar - arg1.len();
@@ -1437,9 +1440,9 @@ impl<'a> Machine<'a> {
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.mod_floor(&SCALAR_PERIOD);
+                let arg1 = arg1.mod_op(&*SCALAR_PERIOD);
 
-                let (_, mut arg1) = arg1.to_bytes_be();
+                let mut arg1 = constant::integer_to_bytes(&arg1, true);
 
                 if size_scalar > arg1.len() {
                     let diff = size_scalar - arg1.len();
@@ -1616,7 +1619,7 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::integer_to_byte_string_negative_size(size));
                 }
 
-                if *size > INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH.into() {
+                if *size > INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
                     return Err(MachineError::integer_to_byte_string_size_too_big(
                         size,
                         INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
@@ -1641,9 +1644,8 @@ impl<'a> Machine<'a> {
                 //
                 // >= 0 && < INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH
 
-                if size.is_zero() && integer_log2(input.magnitude()) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH
-                {
-                    let required = integer_log2(input.magnitude()) / 8 + 1;
+                if size.is_zero() && integer_log2(input) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                    let required = integer_log2(input) / 8 + 1;
 
                     return Err(MachineError::integer_to_byte_string_size_too_big(
                         constant::integer_from(self.arena, required as i128),
@@ -1721,9 +1723,9 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let number = self.arena.alloc_integer(if endianness {
-                    Integer::from_bytes_be(num_bigint::Sign::Plus, bytes)
+                    integer_from_bytes(bytes, true)
                 } else {
-                    Integer::from_bytes_le(num_bigint::Sign::Plus, bytes)
+                    integer_from_bytes(bytes, false)
                 });
 
                 let value = Value::integer(self.arena, number);
@@ -1848,9 +1850,9 @@ impl<'a> Machine<'a> {
                 }
 
                 let (byte_index, bit_offset) = bit_index.div_rem(&8.into());
-                let bit_offset = usize::try_from(bit_offset).unwrap();
+                let bit_offset = integer_to_usize(&bit_offset).unwrap();
 
-                let flipped_index = bytes.len() - 1 - usize::try_from(byte_index).unwrap();
+                let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
                 let byte = bytes[flipped_index];
 
                 let bit_test = (byte >> bit_offset) & 1 == 1;
@@ -1879,8 +1881,8 @@ impl<'a> Machine<'a> {
                     }
 
                     let (byte_index, bit_offset) = bit_index.div_rem(&8.into());
-                    let bit_offset = usize::try_from(bit_offset).unwrap();
-                    let flipped_index = bytes.len() - 1 - usize::try_from(byte_index).unwrap();
+                    let bit_offset = integer_to_usize(&bit_offset).unwrap();
+                    let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
                     let bit_mask: u8 = 1 << bit_offset;
 
                     if set_bit {
@@ -1901,7 +1903,7 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::replicate_byte_negative_size(size));
                 }
 
-                if *size > INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH.into() {
+                if *size > INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
                     return Err(MachineError::replicate_byte_size_too_big(
                         size,
                         INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
@@ -1919,9 +1921,8 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                if size.is_zero() && integer_log2(byte.magnitude()) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH
-                {
-                    let required = integer_log2(byte.magnitude()) / 8 + 1;
+                if size.is_zero() && integer_log2(byte) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                    let required = integer_log2(byte) / 8 + 1;
 
                     return Err(MachineError::replicate_byte_size_too_big(
                         constant::integer_from(self.arena, required as i128),
@@ -1959,13 +1960,19 @@ impl<'a> Machine<'a> {
                 let length = bytes.len();
                 let result = self.arena.alloc(vec![0; length]);
 
-                if Integer::from(length) * 8 <= shift.abs() {
+                let shift_abs = shift.clone().unsigned_abs();
+
+                if Natural::from(length) * Natural::from(8u8) <= shift_abs {
                     return Ok(Value::byte_string(self.arena, result));
                 }
 
                 let is_shift_left = shift >= &Integer::ZERO;
-                let byte_shift = usize::try_from(shift.abs() / 8).unwrap();
-                let bit_shift = usize::try_from(shift.abs() % 8).unwrap();
+                let byte_shift = natural_to_u64(&(&shift_abs / &Natural::from(8u8)))
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap();
+                let bit_shift = natural_to_u64(&(shift_abs % Natural::from(8u8)))
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap();
 
                 if is_shift_left {
                     if bit_shift == 0 {
@@ -2048,12 +2055,12 @@ impl<'a> Machine<'a> {
                     return Ok(Value::byte_string(self.arena, result));
                 }
 
-                let shift = shift.mod_floor(&(length * 8).into());
+                let shift = shift.mod_op(&Integer::from(length * 8));
                 if shift == Integer::ZERO {
                     return Ok(Value::byte_string(self.arena, result));
                 }
-                let byte_shift = usize::try_from(&shift / 8).unwrap();
-                let bit_shift = usize::try_from(shift % 8).unwrap();
+                let byte_shift = integer_to_usize(&(&shift / &Integer::from(8))).unwrap();
+                let bit_shift = integer_to_usize(&(shift % Integer::from(8))).unwrap();
 
                 if bit_shift == 0 {
                     // left rotation is the same as shift left
@@ -2142,35 +2149,44 @@ impl<'a> Machine<'a> {
             DefaultFunction::ExpModInteger => {
                 let base = runtime.args[0].unwrap_integer()?;
                 let exponent = runtime.args[1].unwrap_integer()?;
-                let modulus = runtime.args[2].unwrap_integer()?;
+                let modulus_integer = runtime.args[2].unwrap_integer()?;
 
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::ExpModInteger, &[base.into(), exponent.into(), modulus.into()]);
+                    .get_cost(DefaultFunction::ExpModInteger, &[base.into(), exponent.into(), modulus_integer.into()]);
                 self.spend_budget(budget)?;
 
-                if modulus <= &Integer::ZERO {
-                    return Err(MachineError::division_by_zero(base, modulus));
+                if modulus_integer <= &Integer::ZERO {
+                    return Err(MachineError::division_by_zero(base, modulus_integer));
                 }
 
-                let result = if exponent.is_negative() {
-                    match base.modinv(modulus) {
-                        Some(inv) => inv.modpow(&exponent.abs(), modulus),
-                        None => return Err(MachineError::ExplicitErrorTerm),
+                let is_negative_exponent = exponent.is_negative();
+                let modulus = modulus_integer.clone().unsigned_abs();
+                let base_integer = base;
+                let base = base_integer.mod_op(modulus_integer).unsigned_abs();
+                let exponent = exponent.clone().unsigned_abs();
+
+                let result = if is_negative_exponent {
+                    let (gcd, inverse, _) = base_integer.extended_gcd(modulus_integer);
+                    if gcd != 1u8 {
+                        return Err(MachineError::ExplicitErrorTerm);
                     }
+
+                    inverse.mod_op(modulus_integer).unsigned_abs().mod_pow(exponent, &modulus)
                 } else {
-                    base.modpow(exponent, modulus)
+                    base.mod_pow(exponent, &modulus)
                 };
 
-                let value = Value::integer(self.arena, self.arena.alloc_integer(result));
+                let value = Value::integer(self.arena, self.arena.alloc_integer(Integer::from(result)));
                 Ok(value)
             }
             DefaultFunction::DropList => {
                 let elements_to_drop = runtime.args[0].unwrap_integer()?;
                 let (list_type, list) = runtime.args[1].unwrap_list()?;
 
-                let arg0: i64 = u64::try_from(elements_to_drop.abs()).unwrap().try_into().unwrap_or(i64::MAX);
+                let arg0: i64 =
+                    natural_to_u64(&elements_to_drop.clone().unsigned_abs()).unwrap().try_into().unwrap_or(i64::MAX);
 
                 let budget = self
                     .costs
@@ -2185,7 +2201,7 @@ impl<'a> Machine<'a> {
                     return Ok(value);
                 }
 
-                let elements_to_drop_usize = if *elements_to_drop > (usize::MAX as i128).into() {
+                let elements_to_drop_usize = if *elements_to_drop > usize::MAX {
                     list.len()
                 } else {
                     usize::try_from(elements_to_drop).unwrap_or(0)
@@ -2512,7 +2528,7 @@ impl<'a> Machine<'a> {
 }
 
 fn integer_to_bytes<'a>(arena: &'a Arena, num: &'a Integer, big_endian: bool) -> BumpVec<'a, u8> {
-    let bytes = if big_endian { num.magnitude().to_bytes_be() } else { num.magnitude().to_bytes_le() };
+    let bytes = constant::integer_to_bytes(num, big_endian);
 
     let mut result = BumpVec::with_capacity_in(bytes.len(), arena.as_bump());
     result.extend_from_slice(&bytes);

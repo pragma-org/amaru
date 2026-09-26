@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use malachite_base::num::basic::traits::Zero;
+
 use super::FlatEncodeError;
-use crate::{constant::Integer, flat::zigzag::ZigZag};
+use crate::{
+    constant::{Integer, integer_to_u8},
+    flat::zigzag::ZigZag,
+};
 
 #[derive(Default)]
 pub struct Encoder {
@@ -165,9 +170,9 @@ impl Encoder {
         let mut d = c;
 
         loop {
-            let temp: Integer = d.clone() % 128;
+            let temp = d.clone() % Integer::from(128);
             #[expect(clippy::unwrap_used)]
-            let mut w: u8 = temp.try_into().unwrap();
+            let mut w = integer_to_u8(&temp).unwrap();
 
             d >>= 7;
 

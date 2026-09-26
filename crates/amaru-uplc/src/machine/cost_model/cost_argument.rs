@@ -14,8 +14,8 @@
 
 use std::cell::OnceCell;
 
-use num::Zero;
-use num_bigint::{BigInt, BigUint};
+use malachite_base::num::{basic::traits::Zero, logic::traits::SignificantBits};
+use malachite_nz::{integer::Integer, natural::Natural};
 
 use crate::{binder::Eval, constant::Constant, data::PlutusData, ledger_value::LedgerValue, machine::value::Value};
 
@@ -133,15 +133,15 @@ impl IntoMachineSize for str {
     }
 }
 
-impl IntoMachineSize for BigUint {
+impl IntoMachineSize for Natural {
     fn size(&self) -> i64 {
-        if self.is_zero() { 1 } else { 1 + ((self.bits() - 1) as i64) / 64 }
+        if self == &Natural::ZERO { 1 } else { 1 + ((self.significant_bits() - 1) as i64) / 64 }
     }
 }
 
-impl IntoMachineSize for BigInt {
+impl IntoMachineSize for Integer {
     fn size(&self) -> i64 {
-        self.magnitude().size()
+        if self == &Integer::ZERO { 1 } else { 1 + ((self.significant_bits() - 1) as i64) / 64 }
     }
 }
 
@@ -240,13 +240,15 @@ impl IntoMachineSize for DataNodeCount<'_> {
 }
 
 /// Compute the base-2 logarithm expected by the ledger's integer-to-bytes limit checks.
-pub(crate) fn integer_log2(integer: &BigUint) -> i64 {
-    if integer.is_zero() { 0 } else { (integer.bits() - 1) as i64 }
+pub(crate) fn integer_log2(integer: &Integer) -> i64 {
+    if integer == &Integer::ZERO { 0 } else { (integer.significant_bits() - 1) as i64 }
 }
 
 #[cfg(test)]
 mod tests {
     use std::{cell::Cell, str::FromStr};
+
+    use malachite_base::num::basic::traits::Zero;
 
     use super::{CostArgument, IntoMachineSize, integer_log2};
     use crate::constant::Integer;
@@ -277,39 +279,23 @@ mod tests {
     #[test]
     fn integer_log2_oracle() {
         // Values come from the Haskell implementation.
-        assert_eq!(integer_log2(Integer::ZERO.magnitude()), 0);
-        assert_eq!(integer_log2(Integer::from(1).magnitude()), 0);
-        assert_eq!(integer_log2(Integer::from(42).magnitude()), 5);
+        assert_eq!(integer_log2(&Integer::ZERO), 0);
+        assert_eq!(integer_log2(&Integer::from(1)), 0);
+        assert_eq!(integer_log2(&Integer::from(42)), 5);
 
-        assert_eq!(integer_log2(Integer::from_str("18446744073709551615").unwrap().magnitude()), 63);
-        assert_eq!(integer_log2(Integer::from_str("999999999999999999999999999999").unwrap().magnitude()), 99);
-        assert_eq!(
-            integer_log2(Integer::from_str("170141183460469231731687303715884105726").unwrap().magnitude()),
-            126
-        );
-        assert_eq!(
-            integer_log2(Integer::from_str("170141183460469231731687303715884105727").unwrap().magnitude()),
-            126
-        );
-        assert_eq!(
-            integer_log2(Integer::from_str("170141183460469231731687303715884105728").unwrap().magnitude()),
-            127
-        );
-        assert_eq!(
-            integer_log2(Integer::from_str("340282366920938463463374607431768211458").unwrap().magnitude()),
-            128
-        );
-        assert_eq!(
-            integer_log2(Integer::from_str("999999999999999999999999999999999999999999").unwrap().magnitude()),
-            139
-        );
+        assert_eq!(integer_log2(&Integer::from_str("18446744073709551615").unwrap()), 63);
+        assert_eq!(integer_log2(&Integer::from_str("999999999999999999999999999999").unwrap()), 99);
+        assert_eq!(integer_log2(&Integer::from_str("170141183460469231731687303715884105726").unwrap()), 126);
+        assert_eq!(integer_log2(&Integer::from_str("170141183460469231731687303715884105727").unwrap()), 126);
+        assert_eq!(integer_log2(&Integer::from_str("170141183460469231731687303715884105728").unwrap()), 127);
+        assert_eq!(integer_log2(&Integer::from_str("340282366920938463463374607431768211458").unwrap()), 128);
+        assert_eq!(integer_log2(&Integer::from_str("999999999999999999999999999999999999999999").unwrap()), 139);
         assert_eq!(
             integer_log2(
-                Integer::from_str(
+                &Integer::from_str(
                     "999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
                 )
                 .unwrap()
-                .magnitude()
             ),
             279
         );
