@@ -17,20 +17,20 @@ use std::fmt;
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
-use crate::{RationalNumber, cbor};
+use crate::{UnitRationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DRepVotingThresholds {
-    pub motion_no_confidence: RationalNumber,
-    pub committee_normal: RationalNumber,
-    pub committee_no_confidence: RationalNumber,
-    pub update_constitution: RationalNumber,
-    pub hard_fork_initiation: RationalNumber,
-    pub pp_network_group: RationalNumber,
-    pub pp_economic_group: RationalNumber,
-    pub pp_technical_group: RationalNumber,
-    pub pp_governance_group: RationalNumber,
-    pub treasury_withdrawal: RationalNumber,
+    pub motion_no_confidence: UnitRationalNumber,
+    pub committee_normal: UnitRationalNumber,
+    pub committee_no_confidence: UnitRationalNumber,
+    pub update_constitution: UnitRationalNumber,
+    pub hard_fork_initiation: UnitRationalNumber,
+    pub pp_network_group: UnitRationalNumber,
+    pub pp_economic_group: UnitRationalNumber,
+    pub pp_technical_group: UnitRationalNumber,
+    pub pp_governance_group: UnitRationalNumber,
+    pub treasury_withdrawal: UnitRationalNumber,
 }
 
 impl<'b, C> cbor::Decode<'b, C> for DRepVotingThresholds {

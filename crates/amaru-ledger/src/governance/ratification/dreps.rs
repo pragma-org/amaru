@@ -55,24 +55,24 @@ pub fn voting_threshold(
             )
         }
 
-        ProposalEnum::HardFork(..) => Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation)),
+        ProposalEnum::HardFork(..) => Some(into_safe_ratio(voting_thresholds.hard_fork_initiation.as_ratio())),
 
         ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::NoConfidence, _) => {
-            Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
+            Some(into_safe_ratio(voting_thresholds.motion_no_confidence.as_ratio()))
         }
 
         ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { .. }, _) => {
             Some(into_safe_ratio(if is_state_of_no_confidence {
-                &voting_thresholds.committee_no_confidence
+                voting_thresholds.committee_no_confidence.as_ratio()
             } else {
-                &voting_thresholds.committee_normal
+                voting_thresholds.committee_normal.as_ratio()
             }))
         }
 
-        ProposalEnum::Constitution(..) => Some(into_safe_ratio(&voting_thresholds.update_constitution)),
+        ProposalEnum::Constitution(..) => Some(into_safe_ratio(voting_thresholds.update_constitution.as_ratio())),
 
         ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
-            Some(into_safe_ratio(&voting_thresholds.treasury_withdrawal))
+            Some(into_safe_ratio(voting_thresholds.treasury_withdrawal.as_ratio()))
         }
     }
 }
