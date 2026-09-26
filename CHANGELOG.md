@@ -67,6 +67,7 @@ Other guiding principles:
 - **amaru**: after a chain switch, a block forged in the adopted block's slot extends that block's parent.
 - **amaru-node**: startup fails when the chain store is missing the ledger tip header. A bootstrap snapshot stores that tip without its parent block. Forging in the snapshot tip's own slot is skipped when that parent header is absent.
 - **amaru**: report errors on stderr when tracing isn't available on specific commands.
+- **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
