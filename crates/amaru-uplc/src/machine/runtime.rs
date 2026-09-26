@@ -203,7 +203,10 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::Blake2b_256 => {
-                use cryptoxide::{blake2b::Blake2b, digest::Digest};
+                use blake2::{
+                    Blake2b,
+                    digest::{Digest as _, consts::U32},
+                };
 
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
 
@@ -211,20 +214,11 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let mut digest = BumpVec::with_capacity_in(32, self.arena.as_bump());
+                let mut hasher = Blake2b::<U32>::new();
+                hasher.update(arg1);
+                let digest = self.arena.alloc(hasher.finalize());
 
-                unsafe {
-                    digest.set_len(32);
-                }
-
-                let mut context = Blake2b::new(32);
-
-                context.input(arg1);
-                context.result(&mut digest);
-
-                let digest = self.arena.alloc(digest);
-
-                let value = Value::byte_string(self.arena, digest);
+                let value = Value::byte_string(self.arena, digest.as_slice());
 
                 Ok(value)
             }
@@ -839,7 +833,7 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::Sha2_256 => {
-                use cryptoxide::{digest::Digest, sha2::Sha256};
+                use sha2::{Digest as _, Sha256};
 
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
 
@@ -848,25 +842,15 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let mut hasher = Sha256::new();
+                hasher.update(arg1);
+                let bytes = self.arena.alloc(hasher.finalize());
 
-                hasher.input(arg1);
-
-                let mut bytes = BumpVec::with_capacity_in(hasher.output_bytes(), self.arena.as_bump());
-
-                unsafe {
-                    bytes.set_len(hasher.output_bytes());
-                }
-
-                hasher.result(&mut bytes);
-
-                let bytes = self.arena.alloc(bytes);
-
-                let value = Value::byte_string(self.arena, bytes);
+                let value = Value::byte_string(self.arena, bytes.as_slice());
 
                 Ok(value)
             }
             DefaultFunction::Sha3_256 => {
-                use cryptoxide::{digest::Digest, sha3::Sha3_256};
+                use sha3::{Digest as _, Sha3_256};
 
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
 
@@ -875,20 +859,10 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let mut hasher = Sha3_256::new();
+                hasher.update(arg1);
+                let bytes = self.arena.alloc(hasher.finalize());
 
-                hasher.input(arg1);
-
-                let mut bytes = BumpVec::with_capacity_in(hasher.output_bytes(), self.arena.as_bump());
-
-                unsafe {
-                    bytes.set_len(hasher.output_bytes());
-                }
-
-                hasher.result(&mut bytes);
-
-                let bytes = self.arena.alloc(bytes);
-
-                let value = Value::byte_string(self.arena, bytes);
+                let value = Value::byte_string(self.arena, bytes.as_slice());
 
                 Ok(value)
             }
@@ -1564,7 +1538,7 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::Keccak_256 => {
-                use cryptoxide::{digest::Digest, sha3::Keccak256};
+                use sha3::{Digest as _, Keccak256};
 
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
 
@@ -1573,25 +1547,18 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let mut hasher = Keccak256::new();
+                hasher.update(arg1);
+                let bytes = self.arena.alloc(hasher.finalize());
 
-                hasher.input(arg1);
-
-                let mut bytes = BumpVec::with_capacity_in(hasher.output_bytes(), self.arena.as_bump());
-
-                unsafe {
-                    bytes.set_len(hasher.output_bytes());
-                }
-
-                hasher.result(&mut bytes);
-
-                let bytes = self.arena.alloc(bytes);
-
-                let value = Value::byte_string(self.arena, bytes);
+                let value = Value::byte_string(self.arena, bytes.as_slice());
 
                 Ok(value)
             }
             DefaultFunction::Blake2b_224 => {
-                use cryptoxide::{blake2b::Blake2b, digest::Digest};
+                use blake2::{
+                    Blake2b,
+                    digest::{Digest as _, consts::U28},
+                };
 
                 let arg1 = runtime.args[0].unwrap_byte_string()?;
 
@@ -1599,20 +1566,11 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let mut digest = BumpVec::with_capacity_in(28, self.arena.as_bump());
+                let mut hasher = Blake2b::<U28>::new();
+                hasher.update(arg1);
+                let digest = self.arena.alloc(hasher.finalize());
 
-                unsafe {
-                    digest.set_len(28);
-                }
-
-                let mut context = Blake2b::new(28);
-
-                context.input(arg1);
-                context.result(&mut digest);
-
-                let digest = self.arena.alloc(digest);
-
-                let value = Value::byte_string(self.arena, digest);
+                let value = Value::byte_string(self.arena, digest.as_slice());
 
                 Ok(value)
             }
@@ -2140,17 +2098,16 @@ impl<'a> Machine<'a> {
                 Ok(Value::integer(self.arena, result))
             }
             DefaultFunction::Ripemd_160 => {
-                use cryptoxide::{digest::Digest, ripemd160::Ripemd160};
+                use ripemd::{Digest as _, Ripemd160};
                 let input = runtime.args[0].unwrap_byte_string()?;
                 let budget = self.costs.builtin_costs.get_cost(DefaultFunction::Ripemd_160, &[(&input).into()]);
                 self.spend_budget(budget)?;
 
                 let mut hasher = Ripemd160::new();
-                hasher.input(input);
-                let result = self.arena.alloc(vec![0; hasher.output_bytes()]);
-                hasher.result(result);
+                hasher.update(input);
+                let result = self.arena.alloc(hasher.finalize());
 
-                Ok(Value::byte_string(self.arena, result))
+                Ok(Value::byte_string(self.arena, result.as_slice()))
             }
             DefaultFunction::ExpModInteger => {
                 let base = runtime.args[0].unwrap_integer()?;
