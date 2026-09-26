@@ -56,4 +56,9 @@ impl Semantics {
     pub fn cons_byte_string_range_checks(&self) -> bool {
         matches!(self, Self::C | Self::E)
     }
+
+    /// Whether arithmetic builtins reject integers outside Cardano's signed 262144-bit range.
+    pub fn enforces_integer_bounds(&self) -> bool {
+        matches!(self, Self::D | Self::E)
+    }
 }
