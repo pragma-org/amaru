@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ExUnits, PlutusData, RedeemerTag, cbor};
+use crate::{ExUnits, MemoizedPlutusData, RedeemerTag, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct Redeemer {
     #[n(0)]
@@ -24,8 +24,21 @@ pub struct Redeemer {
     pub index: u32,
 
     #[n(2)]
-    pub data: PlutusData,
+    pub data: MemoizedPlutusData,
 
     #[n(3)]
     pub ex_units: ExUnits,
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Redeemer {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(4)?;
+            let tag = d.decode_with(ctx)?;
+            let index = d.decode_with(ctx)?;
+            let data = d.decode_with(ctx)?;
+            let ex_units = d.decode_with(ctx)?;
+            Ok(Self { tag, index, data, ex_units })
+        })
+    }
 }

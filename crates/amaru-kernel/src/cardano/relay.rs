@@ -16,7 +16,7 @@ use std::{fmt, net::Ipv6Addr};
 
 use serde::ser::SerializeStruct;
 
-use crate::{Bytes, MaxString128, cbor};
+use crate::{MaxString128, cardano::fixed_bytes::FixedBytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Relay {
@@ -25,8 +25,8 @@ pub enum Relay {
     MultiHostName(MaxString128),
 }
 
-type IPv4 = Bytes;
-type IPv6 = Bytes;
+pub type IPv4 = FixedBytes<4>;
+pub type IPv6 = FixedBytes<16>;
 
 impl fmt::Display for Relay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

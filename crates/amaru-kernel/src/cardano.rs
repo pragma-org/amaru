@@ -123,6 +123,7 @@ pub mod transaction_pointer;
 pub mod transaction_ref;
 pub mod treasury_delta;
 pub mod tx_info;
+pub mod unit_rational_number;
 pub mod utxos;
 pub mod validity_interval;
 pub mod value;

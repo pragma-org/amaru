@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
+### Fixed
+
+- **amaru-kernel**: fixed some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).
+
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
 ### Added

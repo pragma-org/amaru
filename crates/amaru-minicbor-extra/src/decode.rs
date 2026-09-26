@@ -31,6 +31,25 @@ pub use with_size::*;
 mod with_original_bytes;
 pub use with_original_bytes::*;
 
+/// Largest byte string accepted inside Plutus data, whether as a definite-length string or as a
+/// single chunk of an indefinite-length one.
+///
+/// Plutus imposes this limit on the leaves of a serialised `Data` (see
+/// *Note [The 64-byte limit]* in `PlutusCore.Data`) and enforces it per chunk, so a longer value is
+/// legal as long as it arrives split into chunks of at most this size.
+pub const MAX_BOUNDED_BYTES_CHUNK: usize = 64;
+
+/// Reject a Plutus data byte string chunk above [`MAX_BOUNDED_BYTES_CHUNK`].
+pub fn assert_bounded_chunk(chunk: &[u8]) -> Result<(), decode::Error> {
+    if chunk.len() > MAX_BOUNDED_BYTES_CHUNK {
+        return Err(decode::Error::message(format!(
+            "plutus data byte string of {} bytes exceeds the {MAX_BOUNDED_BYTES_CHUNK}-byte limit",
+            chunk.len()
+        )));
+    }
+    Ok(())
+}
+
 /// Decode an arbitrary-precision integer, accepting both CBOR native integers and the tagged
 /// bignum forms (tag 2 for positive, tag 3 for negative).
 pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error> {
@@ -40,7 +59,9 @@ pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error>
             Ok(iana @ (IanaTag::PosBignum | IanaTag::NegBignum)) => {
                 let mut bytes = Vec::new();
                 for chunk in d.bytes_iter()? {
-                    bytes.extend_from_slice(chunk?);
+                    let chunk = chunk?;
+                    assert_bounded_chunk(chunk)?;
+                    bytes.extend_from_slice(chunk);
                 }
 
                 let magnitude = BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
@@ -79,6 +100,7 @@ pub fn decode_string<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, str>, deco
         return Ok(Cow::Owned(string));
     }
 
+    #[expect(clippy::disallowed_methods)]
     Ok(Cow::Borrowed(d.str()?))
 }
 
@@ -151,6 +173,23 @@ pub fn heterogeneous_array<'d, A>(
                 Ok(())
             }),
         ),
+    }
+}
+
+/// Decode a heterogeneous CBOR array in the definite-length form only, of exactly `len` elements.
+///
+/// Unlike [`heterogeneous_array`], an indefinite-length encoding is rejected outright.
+pub fn heterogeneous_array_definite<'d, A>(
+    d: &mut cbor::Decoder<'d>,
+    len: u64,
+    elems: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, decode::Error>,
+) -> Result<A, decode::Error> {
+    match d.array()? {
+        None => Err(decode::Error::message("indefinite-length array where a definite-length one was expected")),
+        Some(actual) if actual != len => {
+            Err(decode::Error::message(format!("expected an array of {len} elements, got {actual}")))
+        }
+        Some(_) => elems(d),
     }
 }
 
@@ -256,6 +295,42 @@ pub fn heterogeneous_map_with<C, K, S>(
     }
 
     Ok(state)
+}
+
+/// Like [`heterogeneous_map`], but rejects a map that repeats a key.
+///
+/// Every CBOR map decoder in the Haskell ledger refuses duplicate keys from protocol version 9
+/// onwards: `decodeSparseKeyed` tracks the tags it has seen and fails with `duplicateKey`, and
+/// `decodeMapByKey` compares the size of the assembled map against the number of decoded pairs.
+/// Accepting a repeated key here would mean taking the last one where the node takes none.
+pub fn heterogeneous_map_unique_keys<K: Eq + Clone, S>(
+    d: &mut cbor::Decoder<'_>,
+    state: S,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>) -> Result<K, cbor::decode::Error>,
+    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut S, K) -> Result<(), cbor::decode::Error>,
+) -> Result<S, cbor::decode::Error> {
+    heterogeneous_map_with_unique_keys(d, &mut (), state, |d, _| decode_key(d), |d, _, st, k| decode_value(d, st, k))
+}
+
+/// Like [`heterogeneous_map_with`], but rejects a map that repeats a key.
+///
+/// See [`heterogeneous_map_unique_keys`] for why duplicates are an error.
+pub fn heterogeneous_map_with_unique_keys<C, K: Eq + Clone, S>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+    state: S,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>, &mut C) -> Result<K, cbor::decode::Error>,
+    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut C, &mut S, K) -> Result<(), cbor::decode::Error>,
+) -> Result<S, cbor::decode::Error> {
+    let mut seen: Vec<K> = Vec::new();
+
+    heterogeneous_map_with(d, ctx, state, decode_key, |d, ctx, st, k| {
+        if seen.contains(&k) {
+            return Err(cbor::decode::Error::message("duplicate key in CBOR map"));
+        }
+        seen.push(k.clone());
+        decode_value(d, ctx, st, k)
+    })
 }
 
 /// Collect the raw CBOR bytes of each value in a map, together with decoded keys.

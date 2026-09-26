@@ -14,7 +14,7 @@
 
 use crate::{Ed25519Signature, VerificationKey, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct OperationalCert {
     #[n(0)]
@@ -28,4 +28,18 @@ pub struct OperationalCert {
 
     #[n(3)]
     pub operational_cert_sigma: Ed25519Signature,
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for OperationalCert {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(4)?;
+            Ok(Self {
+                operational_cert_hot_verification_key: d.decode_with(ctx)?,
+                operational_cert_sequence_number: d.decode_with(ctx)?,
+                operational_cert_kes_period: d.decode_with(ctx)?,
+                operational_cert_sigma: d.decode_with(ctx)?,
+            })
+        })
+    }
 }

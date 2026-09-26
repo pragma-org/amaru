@@ -247,7 +247,8 @@ fn decode_tvar_entry(input: &[u8], output: &[u8]) -> anyhow::Result<(Transaction
     }
 
     let input = TransactionInput {
-        transaction_id: Hash::from(&input[..32]),
+        transaction_id: Hash::try_from(&input[..32])
+            .unwrap_or_else(|_| unreachable!("the key length is checked above")),
         index: u16::from_be_bytes([input[32], input[33]]),
     };
     let output = mempack::decode_transaction_output(output)?;

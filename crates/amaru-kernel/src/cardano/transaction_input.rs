@@ -26,7 +26,6 @@ use crate::{Hash, cbor, hash};
     Ord,
     std::hash::Hash,
     cbor::Encode,
-    cbor::Decode,
     serde::Serialize,
     serde::Deserialize,
 )]
@@ -37,6 +36,15 @@ pub struct TransactionInput {
 
     #[n(1)]
     pub index: u16,
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for TransactionInput {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(Self { transaction_id: d.decode_with(ctx)?, index: d.decode_with(ctx)? })
+        })
+    }
 }
 
 impl fmt::Display for TransactionInput {

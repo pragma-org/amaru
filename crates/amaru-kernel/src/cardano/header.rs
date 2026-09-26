@@ -231,9 +231,10 @@ mod tests {
     /// Body hash and size of a test block, so seed headers are close to the blocks
     /// `EncodedTestBlock::from_seed` attaches to them. Tests that store blocks must still
     /// take the header from that encoding.
-    static TEST_BLOCK_BODY: LazyLock<(Hash<BLOCK_BODY>, u64)> = LazyLock::new(|| {
+    #[expect(clippy::expect_used)]
+    static TEST_BLOCK_BODY: LazyLock<(Hash<BLOCK_BODY>, u32)> = LazyLock::new(|| {
         let block = make_block();
-        (block.body_hash(), block.body_len())
+        (block.body_hash(), u32::try_from(block.body_len()).expect("the test block body fits in a u32"))
     });
 
     /// Make a mostly empty Header with the given block_number, slot and previous hash

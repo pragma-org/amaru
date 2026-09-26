@@ -14,33 +14,46 @@
 
 use std::fmt;
 
-/// How a test sample was created.
+/// Where a test sample sits in the corpus, which says what the suite must observe for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Category {
-    /// Directly generated from the CDDL. It might not be decodable though.
-    CddlGenerated,
-    /// A CDDL-violating mutation of increasing severity. A test sample in this category must be rejected.
+    /// Generated from the CDDL and accepted by the reference decoder. It must decode, and its re-encoding must
+    /// match the reference bytes.
+    Valid,
+    /// Generated from the CDDL but rejected by the reference decoder: satisfying the CDDL is not enough to be
+    /// decodable. It must be rejected. This is severity zero, the one severity that is not a mutation.
+    InvalidGenerated,
+    /// A CDDL-violating mutation of increasing severity. It must be rejected.
     Zapped(u8),
 }
 
 impl Category {
+    /// Build a category from the name of the directory the samples sit in: `valid`, or `zap-<n>` below `invalid`.
     pub fn from_dir(name: &str) -> anyhow::Result<Self> {
         match name {
-            "valid" => Ok(Category::CddlGenerated),
+            "valid" => Ok(Category::Valid),
             _ => name
                 .strip_prefix("zap-")
                 .and_then(|level| level.parse().ok())
-                .map(Category::Zapped)
+                .map(|level| if level == 0 { Category::InvalidGenerated } else { Category::Zapped(level) })
                 .ok_or_else(|| anyhow::anyhow!("unknown category type `{name}`")),
         }
     }
+
+    /// Whether the decoder is expected to reject the sample.
+    pub fn must_be_rejected(&self) -> bool {
+        !matches!(self, Category::Valid)
+    }
 }
 
+/// Displays as the path of the category inside its rule directory, which is also how the conformance report
+/// names the category of a sample.
 impl fmt::Display for Category {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Category::CddlGenerated => write!(f, "valid"),
-            Category::Zapped(level) => write!(f, "zap-{level}"),
+            Category::Valid => write!(f, "valid"),
+            Category::InvalidGenerated => write!(f, "invalid/zap-0"),
+            Category::Zapped(level) => write!(f, "invalid/zap-{level}"),
         }
     }
 }

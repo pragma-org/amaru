@@ -352,7 +352,7 @@ where
 }
 
 fn fail_on_tx_size_too_large(provided: u64, protocol_parameters: &ProtocolParameters) -> Result<(), PhaseOneError> {
-    let maximum = protocol_parameters.max_transaction_size;
+    let maximum = u64::from(protocol_parameters.max_transaction_size);
     if provided > maximum {
         return Err(PhaseOneError::TooLarge { provided, maximum });
     }

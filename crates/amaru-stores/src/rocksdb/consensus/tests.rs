@@ -101,7 +101,7 @@ fn load_header_with_validity_rejects_blob_under_wrong_hash() {
 #[test]
 fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
     with_db(|db| {
-        let nonexistent_hash: HeaderHash = random_bytes(HEADER).as_slice().into();
+        let nonexistent_hash: HeaderHash = random_bytes(HEADER).as_slice().try_into().unwrap();
         let result = db.load_block(&nonexistent_hash).unwrap();
 
         assert_eq!(result, None);
@@ -319,9 +319,9 @@ fn load_nonces() {
         let mut expected = BTreeMap::new();
         for header in &chain {
             let nonces = Nonces {
-                active: Nonce::from(random_bytes(32).as_slice()),
-                evolving: Nonce::from(random_bytes(32).as_slice()),
-                candidate: Nonce::from(random_bytes(32).as_slice()),
+                active: Nonce::try_from(random_bytes(32).as_slice()).unwrap(),
+                evolving: Nonce::try_from(random_bytes(32).as_slice()).unwrap(),
+                candidate: Nonce::try_from(random_bytes(32).as_slice()).unwrap(),
                 tail: header.parent().unwrap_or(ORIGIN_HASH),
                 epoch: Default::default(),
             };
@@ -983,9 +983,9 @@ fn read_snapshot_exposes_direct_read_operations() {
     let chain = make_forked_chain();
     let headers = chain.headers();
     let nonces = Nonces {
-        active: Nonce::from(random_bytes(32).as_slice()),
-        evolving: Nonce::from(random_bytes(32).as_slice()),
-        candidate: Nonce::from(random_bytes(32).as_slice()),
+        active: Nonce::try_from(random_bytes(32).as_slice()).unwrap(),
+        evolving: Nonce::try_from(random_bytes(32).as_slice()).unwrap(),
+        candidate: Nonce::try_from(random_bytes(32).as_slice()).unwrap(),
         tail: headers.h1.hash(),
         epoch: Default::default(),
     };
@@ -1585,7 +1585,7 @@ fn can_convert_v1_sample_db_to_v4() {
 
     let chain_key = [&CHAIN_PREFIX[..], &5u64.to_be_bytes()[..]].concat();
     let stored = store.db.get(chain_key).unwrap().expect("sample chain entry at slot 5");
-    let stored_hash = HeaderHash::from(&stored[..]);
+    let stored_hash = HeaderHash::try_from(&stored[..]).unwrap();
     assert_eq!(stored_hash, HeaderHash::from_str(SAMPLE_HASH).unwrap(), "Sample data should be preserved");
 }
 
@@ -1612,11 +1612,11 @@ fn migrate_to_v3_writes_best_chain_as_header_hash() {
 
     let best = store.db.get(BEST_CHAIN_PREFIX).unwrap().unwrap();
     assert_eq!(best.len(), HEADER, "v3 best chain must be a 32-byte header hash");
-    assert_eq!(HeaderHash::from(&best[..]), anchor.hash());
+    assert_eq!(HeaderHash::try_from(&best[..]).unwrap(), anchor.hash());
 
     let stored_anchor = store.db.get(ANCHOR_PREFIX).unwrap().unwrap();
     assert_eq!(stored_anchor.len(), HEADER);
-    assert_eq!(HeaderHash::from(&stored_anchor[..]), anchor.hash());
+    assert_eq!(HeaderHash::try_from(&stored_anchor[..]).unwrap(), anchor.hash());
 
     let validity = store.db.get([&HEADER_PREFIX[..], &anchor.hash()[..], &[0]].concat()).unwrap();
     assert_eq!(validity.as_deref(), Some([1u8].as_slice()), "v3 marks the new tip valid");
@@ -1794,7 +1794,7 @@ fn iterator_over_chain() {
     while let Some(Ok((_, v))) = iter.next()
         && count < 3
     {
-        let _header_hash: HeaderHash = Hash::from(v.as_ref());
+        let _header_hash: HeaderHash = Hash::try_from(v.as_ref()).unwrap();
         count += 1;
     }
 

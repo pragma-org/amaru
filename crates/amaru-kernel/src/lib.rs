@@ -58,8 +58,9 @@ pub mod cbor {
         TAG_MAP_259, TAG_SET_258, WithOriginalBytes, WithSize, allow_tag, check_tagged_array_length,
         collect_array_item_bytes, collect_map_value_bytes, count_bytes, decode_break, decode_bytes, decode_string,
         encode_bytestring, encode_variable_length_map, expect_tag, from_cbor, from_cbor_no_leftovers,
-        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, heterogeneous_map_with, lazy,
-        missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
+        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_array_definite, heterogeneous_map,
+        heterogeneous_map_unique_keys, heterogeneous_map_with, heterogeneous_map_with_unique_keys, lazy, missing_field,
+        tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -67,7 +68,9 @@ pub mod cbor {
         decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
     };
 
-    pub use super::utils::cbor::{HasProtocolVersion, Skip, decode_bytes_v12_indefinite};
+    pub use super::utils::cbor::{
+        HasProtocolVersion, Skip, decode_bytes_v12_indefinite, heterogeneous_array_v12_indefinite,
+    };
 }
 pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 
@@ -191,6 +194,7 @@ pub use cardano::{
     transaction_ref::TransactionRef,
     treasury_delta::TreasuryDelta,
     tx_info::{TxInfo, TxInfoTranslationError},
+    unit_rational_number::UnitRationalNumber,
     utxos::Utxos,
     validity_interval::ValidityInterval,
     value::{self, CurrencySymbol, Mint, PlutusMint, Value},
@@ -254,5 +258,6 @@ pub use cardano::{
     reward_account::any_reward_account,
     transaction_input::any_transaction_input,
     transaction_pointer::any_transaction_pointer,
+    unit_rational_number::any_unit_rational_number,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
 };

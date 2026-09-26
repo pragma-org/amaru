@@ -16,7 +16,7 @@ use std::{cmp::Ordering, collections::BTreeMap, rc::Rc};
 
 use crate::{
     Constitution, ConstitutionalCommitteeUpdate, GovernanceAction, OrphanProposal, ProposalId, ProtocolParamUpdate,
-    ProtocolVersion, into_safe_ratio,
+    ProtocolVersion,
 };
 
 /// Akin to a GovAction, but with a split that is more tailored to the ratification needs.
@@ -156,7 +156,7 @@ impl From<GovernanceAction> for ProposalEnum {
                 ConstitutionalCommitteeUpdate::ChangeMembers {
                     removed: removed.into_iter().collect(),
                     added: added.into_iter().collect(),
-                    threshold: into_safe_ratio(&threshold),
+                    threshold: threshold.into(),
                 },
                 parent.map(Rc::new),
             ),

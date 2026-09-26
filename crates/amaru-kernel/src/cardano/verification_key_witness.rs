@@ -16,7 +16,7 @@ use thiserror::Error;
 
 use crate::{Ed25519Signature, VerificationKey, cbor, ed25519};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct VerificationKeyWitness {
     #[n(0)]
@@ -24,6 +24,15 @@ pub struct VerificationKeyWitness {
 
     #[n(1)]
     pub signature: Ed25519Signature,
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for VerificationKeyWitness {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(Self { verification_key: d.decode_with(ctx)?, signature: d.decode_with(ctx)? })
+        })
+    }
 }
 
 #[derive(Debug, Error)]

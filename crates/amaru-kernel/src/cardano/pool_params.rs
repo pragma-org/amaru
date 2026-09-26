@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
+    Hash, Lovelace, PoolId, PoolMetadata, Relay, RewardAccount, UnitRationalNumber, cbor,
     size::{KEY, VRF_KEY},
     utils::cbor::SerialisedAsSet,
 };
@@ -24,7 +24,7 @@ pub struct PoolParams {
     pub vrf: Hash<VRF_KEY>,
     pub pledge: Lovelace,
     pub cost: Lovelace,
-    pub margin: RationalNumber,
+    pub margin: UnitRationalNumber,
     pub reward_account: RewardAccount,
     // NOTE: Small set too small for BTreeSet
     //
@@ -90,7 +90,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        Bytes, MaxString128, RationalNumber, Relay, any_hash28, any_hash32, any_reward_account, prop_cbor_roundtrip,
+        MaxString128, Relay, UnitRationalNumber, any_hash28, any_hash32, any_reward_account,
+        cardano::fixed_bytes::FixedBytes,
+        prop_cbor_roundtrip,
+        relay::{IPv4, IPv6},
     };
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
@@ -99,12 +102,12 @@ mod tests {
         option::of(any::<u32>())
     }
 
-    fn any_optional_ipv4() -> impl Strategy<Value = Option<Bytes>> {
-        option::of(any::<[u8; 4]>().prop_map(|a| Vec::from(a).into()))
+    fn any_optional_ipv4() -> impl Strategy<Value = Option<IPv4>> {
+        option::of(any::<[u8; 4]>().prop_map(FixedBytes::from))
     }
 
-    fn any_optional_ipv6() -> impl Strategy<Value = Option<Bytes>> {
-        option::of(any::<[u8; 16]>().prop_map(|a| Vec::from(a).into()))
+    fn any_optional_ipv6() -> impl Strategy<Value = Option<IPv6>> {
+        option::of(any::<[u8; 16]>().prop_map(FixedBytes::from))
     }
 
     prop_compose! {
@@ -141,6 +144,7 @@ mod tests {
     }
 
     prop_compose! {
+        #[expect(clippy::expect_used)]
         pub fn any_pool_params()(
             id in any_hash28(),
             vrf in any_hash32(),
@@ -156,7 +160,7 @@ mod tests {
                 vrf,
                 pledge,
                 cost,
-                margin: RationalNumber { numerator: margin, denominator: 100 },
+                margin: UnitRationalNumber::new(margin, 100).expect("margin is always less than 100"),
                 reward_account,
                 owners,
                 relays,

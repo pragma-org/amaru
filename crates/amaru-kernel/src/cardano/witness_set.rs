@@ -31,7 +31,7 @@ use crate::{
 ///   <https://github.com/IntersectMBO/cardano-ledger/blob/fe0af09c8667bf8ffdd17dd1a387515b9b0533bf/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L610-L624>
 ///
 ///   Importantly, this behaviour is changing again in v12, back to being a non-empty set / maps.
-#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(map)]
 pub struct WitnessSet {
@@ -63,12 +63,40 @@ pub struct WitnessSet {
     pub plutus_v3_script: Option<NonEmptyVec<PlutusScript<3>>>,
 }
 
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for WitnessSet {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_map_unique_keys(
+            d,
+            WitnessSet::default(),
+            |d| d.u64(),
+            |d, st, k| {
+                match k {
+                    0 => st.verification_key_witness = Some(d.decode_with(ctx)?),
+                    1 => st.native_script = Some(d.decode_with(ctx)?),
+                    2 => st.bootstrap_witness = Some(d.decode_with(ctx)?),
+                    3 => st.plutus_v1_script = Some(d.decode_with(ctx)?),
+                    4 => st.plutus_data = Some(d.decode_with(ctx)?),
+                    5 => st.redeemer = Some(d.decode_with(ctx)?),
+                    6 => st.plutus_v2_script = Some(d.decode_with(ctx)?),
+                    7 => st.plutus_v3_script = Some(d.decode_with(ctx)?),
+                    _ => {
+                        let position = d.position();
+                        return Err(cbor::decode::Error::message(format!("unrecognised field key: {k}")).at(position));
+                    }
+                };
+
+                Ok(())
+            },
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
 
     use super::WitnessSet;
-    use crate::{from_cbor_no_leftovers, to_cbor};
+    use crate::{cbor, from_cbor_no_leftovers, to_cbor};
 
     const KEY: &str = "0000000000000000000000000000000000000000000000000000000000000000";
     const SIGNATURE: &str = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
@@ -91,5 +119,17 @@ mod tests {
 
         let re_decoded: WitnessSet = from_cbor_no_leftovers(&encoded).unwrap();
         assert_eq!(to_cbor(&re_decoded), encoded, "encoding is not a fixed point");
+    }
+
+    /// The ledger reads this map with `decodeSparseKeyed`, which fails on a key it does not know
+    /// and on a key it has already seen; neither is something to skip or overwrite.
+    #[test_case("a0"                              => matches Ok(_)  ; "empty witness set")]
+    #[test_case("a10481182a"                      => matches Ok(_)  ; "one known key")]
+    #[test_case("a2038141000481182a"              => matches Ok(_)  ; "two distinct known keys")]
+    #[test_case("a20481182a0481182a"              => matches Err(_) ; "the same key twice")]
+    #[test_case("a1186380"                        => matches Err(_) ; "an unknown key")]
+    #[test_case("a20481182a186380"                => matches Err(_) ; "a known key and an unknown one")]
+    fn decode_rejects_unknown_and_duplicate_keys(input: &str) -> Result<WitnessSet, cbor::decode::Error> {
+        from_cbor_no_leftovers(&hex::decode(input).unwrap())
     }
 }

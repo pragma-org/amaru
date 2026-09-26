@@ -76,12 +76,17 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Value {
             cbor::data::Type::U8 | cbor::data::Type::U16 | cbor::data::Type::U32 | cbor::data::Type::U64 => {
                 Ok(Value::Coin(d.decode_with(ctx)?))
             }
-            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => cbor::heterogeneous_array(d, |d, assert_len| {
-                assert_len(2)?;
-                let coin = d.decode_with(ctx)?;
-                let multiasset = d.decode_with(ctx)?;
-                Ok(Value::Multiasset(coin, multiasset))
-            }),
+            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
+                cbor::heterogeneous_array_v12_indefinite(d, ctx, 2, |d, ctx| {
+                    let coin = d.decode_with(ctx)?;
+                    let multiasset: Multiasset<PositiveCoin> = d.decode_with(ctx)?;
+                    // In the Haskell code this normalization of a bare coin only occurs in the
+                    // encoder, but arguably it makes more sense to model a multiasset value with
+                    // assets only when they are not empty. From protocol version 12 the bundle
+                    // decoder rejects an empty bundle outright, so this branch is pre-12 only.
+                    Ok(if multiasset.is_empty() { Value::Coin(coin) } else { Value::Multiasset(coin, multiasset) })
+                })
+            }
             _ => Err(cbor::decode::Error::message("unknown cbor data type for Value enum")),
         }
     }
@@ -296,4 +301,23 @@ fn lovelace_to_i64(amount: u64) -> i64 {
 fn positive_to_i128(qty: &PositiveCoin) -> i128 {
     let raw: u64 = qty.into();
     i128::from(raw)
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_minicbor_extra::{from_cbor_no_leftovers_with, to_cbor_with};
+    use test_case::test_case;
+
+    use super::*;
+    use crate::PROTOCOL_VERSION_10;
+
+    /// A value with no assets is the same value as a bare coin, and the ledger re-encodes it as one.
+    #[test_case(&[0x82, 0x01, 0xa0]             ; "definite empty multiasset")]
+    #[test_case(&[0x82, 0x01, 0xbf, 0xff]       ; "indefinite empty multiasset")]
+    fn empty_multiasset_collapses_to_coin(bytes: &[u8]) {
+        let mut version = PROTOCOL_VERSION_10;
+        let value: Value = from_cbor_no_leftovers_with(bytes, &mut version).unwrap();
+        assert_eq!(value, Value::Coin(1));
+        assert_eq!(to_cbor_with(&value, &mut version), vec![0x01]);
+    }
 }

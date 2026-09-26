@@ -123,7 +123,7 @@ mod tests {
 
     use amaru_kernel::{
         CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, Hash, Network, PoolId, PoolParams,
-        ProposalEnum, ProtocolParamUpdate, RationalNumber, RewardAccount, SafeRatio, Vote, any_ex_units,
+        ProposalEnum, ProtocolParamUpdate, RewardAccount, SafeRatio, UnitRationalNumber, Vote, any_ex_units,
         any_pool_voting_thresholds, any_proposal_enum, any_proposal_id, any_protocol_params_update,
         any_rational_number, any_vote_ref, safe_ratio,
     };
@@ -190,7 +190,7 @@ mod tests {
             let proposal_no_security_group = ProposalEnum::ProtocolParameters(Box::new(update_no_security_group), parent.clone());
             let result_no = voting_threshold(is_no_confidence, &thresholds, &proposal_no_security_group);
 
-            let is_null_threshold = thresholds.security_voting_threshold.numerator == 0;
+            let is_null_threshold = thresholds.security_voting_threshold.numerator() == 0;
 
             prop_assert!(
                 (result_in > Some(SafeRatio::zero()) || is_null_threshold) && result_no == Some(SafeRatio::zero()),
@@ -229,12 +229,12 @@ mod tests {
         let security_group = (
             option::of(any::<u64>()),
             option::of(any::<u64>()),
-            option::of(any::<u64>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
+            option::of(any::<u32>()),
             option::of(any::<u16>()),
             option::of(any::<u64>()),
             option::of(any_ex_units()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
             option::of(any::<u64>()),
             option::of(any_rational_number()),
         );
@@ -347,7 +347,8 @@ mod tests {
                         vrf: Hash::new([7; 32]),
                         pledge: 0,
                         cost: 0,
-                        margin: RationalNumber { numerator: 0, denominator: 1 },
+                        #[expect(clippy::expect_used)]
+                        margin: UnitRationalNumber::new(0, 1).expect("valid unit ratio"),
                         reward_account: RewardAccount::new(
                             Network::Testnet,
                             Credential::ScriptHash(Hash::new([1; 28])),

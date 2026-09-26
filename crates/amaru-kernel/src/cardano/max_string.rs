@@ -14,7 +14,7 @@
 
 use std::{fmt::Display, ops::Deref, str::FromStr};
 
-use crate::cbor;
+use crate::{cbor, cbor::HasProtocolVersion, utils::cbor::decode_string_v12_indefinite};
 
 pub type MaxString128 = MaxString<128>;
 
@@ -65,9 +65,9 @@ impl<const MAX: usize> FromStr for MaxString<MAX> {
     }
 }
 
-impl<'b, C, const MAX: usize> cbor::Decode<'b, C> for MaxString<MAX> {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let text = cbor::decode_string(d)?;
+impl<'b, C: HasProtocolVersion, const MAX: usize> cbor::Decode<'b, C> for MaxString<MAX> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let text = decode_string_v12_indefinite(d, ctx)?;
         if text.len() > MAX {
             return Err(cbor::decode::Error::message(format!("text exceeds {MAX} bytes: got {}", text.len())));
         }

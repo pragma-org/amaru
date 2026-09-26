@@ -16,7 +16,7 @@ use std::sync::LazyLock;
 
 use crate::{
     CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PROTOCOL_VERSION_10, PoolVotingThresholds,
-    ProtocolParameters, RationalNumber,
+    ProtocolParameters, RationalNumber, UnitRationalNumber,
 };
 
 /// Latest cost models for Plutus V1
@@ -80,6 +80,7 @@ pub const DEFAULT_V3_COST_MODEL: [i64; 350] = [
     183150, 6, 24, 21, 213283, 618401, 1998, 28258, 1, 1000, 38159, 2, 22, 1000, 95933, 1, 1, 11, 1000, 277577, 12, 21,
 ];
 
+#[expect(clippy::expect_used)]
 pub static MAINNET_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = LazyLock::new(|| ProtocolParameters {
     protocol_version: PROTOCOL_VERSION_10,
     min_fee_a: 44,
@@ -95,44 +96,47 @@ pub static MAINNET_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
     stake_pool_deposit: 500_000_000,
     lovelace_per_utxo_byte: 4310,
     prices: ExUnitPrices {
-        mem_price: RationalNumber { numerator: 577, denominator: 10_000 },
-        step_price: RationalNumber { numerator: 721, denominator: 10_000_000 },
+        mem_price: RationalNumber::new(577, 10_000).expect("577/10_000 is a valid rational number"),
+        step_price: RationalNumber::new(721, 10_000_000).expect("721/10_000_000 is a valid rational number"),
     },
-    min_fee_ref_script_lovelace_per_byte: RationalNumber { numerator: 15, denominator: 1 },
+    min_fee_ref_script_lovelace_per_byte: RationalNumber::new(15, 1).expect("15/1 is a valid rational number"),
     max_ref_script_size_per_tx: 200 * 1024,
     max_ref_script_size_per_block: 1024 * 1024,
     ref_script_cost_stride: 25600,
-    ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
+    ref_script_cost_multiplier: RationalNumber::new(12, 10).expect("12/10 is a valid rational number"),
     stake_pool_max_retirement_epoch: 18,
-    pledge_influence: RationalNumber { numerator: 3, denominator: 10 },
+    pledge_influence: RationalNumber::new(3, 10).expect("3/10 is a valid rational number"),
     optimal_stake_pools_count: 500,
-    treasury_expansion_rate: RationalNumber { numerator: 2, denominator: 10 },
-    monetary_expansion_rate: RationalNumber { numerator: 3, denominator: 1_000 },
+    #[expect(clippy::expect_used)]
+    treasury_expansion_rate: UnitRationalNumber::new(2, 10).expect("2 <= 10"),
+    #[expect(clippy::expect_used)]
+    monetary_expansion_rate: UnitRationalNumber::new(3, 1_000).expect("3 <= 1000"),
     min_pool_cost: 170000000,
     collateral_percentage: 150,
     cost_models: CostModels {
         plutus_v1: Some(Vec::from(DEFAULT_V1_COST_MODEL)),
         plutus_v2: Some(Vec::from(DEFAULT_V2_COST_MODEL)),
         plutus_v3: Some(Vec::from(DEFAULT_V3_COST_MODEL)),
+        unknown: Default::default(),
     },
     pool_voting_thresholds: PoolVotingThresholds {
-        motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-        committee_normal: RationalNumber { numerator: 51, denominator: 100 },
-        committee_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-        hard_fork_initiation: RationalNumber { numerator: 51, denominator: 100 },
-        security_voting_threshold: RationalNumber { numerator: 51, denominator: 100 },
+        motion_no_confidence: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+        committee_normal: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+        committee_no_confidence: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+        hard_fork_initiation: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+        security_voting_threshold: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
     },
     drep_voting_thresholds: DRepVotingThresholds {
-        motion_no_confidence: RationalNumber { numerator: 67, denominator: 100 },
-        committee_normal: RationalNumber { numerator: 67, denominator: 100 },
-        committee_no_confidence: RationalNumber { numerator: 60, denominator: 100 },
-        update_constitution: RationalNumber { numerator: 75, denominator: 100 },
-        hard_fork_initiation: RationalNumber { numerator: 60, denominator: 100 },
-        pp_network_group: RationalNumber { numerator: 67, denominator: 100 },
-        pp_economic_group: RationalNumber { numerator: 67, denominator: 100 },
-        pp_technical_group: RationalNumber { numerator: 67, denominator: 100 },
-        pp_governance_group: RationalNumber { numerator: 75, denominator: 100 },
-        treasury_withdrawal: RationalNumber { numerator: 67, denominator: 100 },
+        motion_no_confidence: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+        committee_normal: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+        committee_no_confidence: RationalNumber::new(60, 100).expect("60/100 is a valid rational number"),
+        update_constitution: RationalNumber::new(75, 100).expect("75/100 is a valid rational number"),
+        hard_fork_initiation: RationalNumber::new(60, 100).expect("60/100 is a valid rational number"),
+        pp_network_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+        pp_economic_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+        pp_technical_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+        pp_governance_group: RationalNumber::new(75, 100).expect("75/100 is a valid rational number"),
+        treasury_withdrawal: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
     },
     min_committee_size: 7,
     max_committee_term_length: 146,
@@ -143,6 +147,7 @@ pub static MAINNET_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
 });
 
 // This default is the protocol parameters on Preprod as of epoch 197
+#[expect(clippy::expect_used)]
 pub static PREPROD_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = LazyLock::new(|| {
     ProtocolParameters {
         protocol_version: PROTOCOL_VERSION_10,
@@ -159,10 +164,10 @@ pub static PREPROD_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
         stake_pool_deposit: 500_000_000,
         lovelace_per_utxo_byte: 4310,
         prices: ExUnitPrices {
-            mem_price: RationalNumber { numerator: 577, denominator: 10_000 },
-            step_price: RationalNumber { numerator: 721, denominator: 10_000_000 },
+            mem_price: RationalNumber::new(577, 10_000).expect("577/10_000 is a valid rational number"),
+            step_price: RationalNumber::new(721, 10_000_000).expect("721/10_000_000 is a valid rational number"),
         },
-        min_fee_ref_script_lovelace_per_byte: RationalNumber { numerator: 15, denominator: 1 },
+        min_fee_ref_script_lovelace_per_byte: RationalNumber::new(15, 1).expect("15/1 is a valid rational number"),
         // Hardcoded in the haskell ledger
         // See https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Ledger.hs#L154
         max_ref_script_size_per_tx: 200 * 1024,
@@ -177,37 +182,40 @@ pub static PREPROD_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
 
         // Hardcoded in the haskell ledger
         // See https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85
-        ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
+        ref_script_cost_multiplier: RationalNumber::new(12, 10).expect("12/10 is a valid rational number"),
         stake_pool_max_retirement_epoch: 18,
-        pledge_influence: RationalNumber { numerator: 3, denominator: 10 },
+        pledge_influence: RationalNumber::new(3, 10).expect("3/10 is a valid rational number"),
         optimal_stake_pools_count: 500,
-        treasury_expansion_rate: RationalNumber { numerator: 2, denominator: 10 },
-        monetary_expansion_rate: RationalNumber { numerator: 3, denominator: 1_000 },
+        #[expect(clippy::expect_used)]
+        treasury_expansion_rate: UnitRationalNumber::new(2, 10).expect("2 <= 10"),
+        #[expect(clippy::expect_used)]
+        monetary_expansion_rate: UnitRationalNumber::new(3, 1_000).expect("3 <= 1000"),
         min_pool_cost: 340000000,
         collateral_percentage: 150,
         cost_models: CostModels {
             plutus_v1: Some(Vec::from(DEFAULT_V1_COST_MODEL)),
             plutus_v2: Some(Vec::from(DEFAULT_V2_COST_MODEL)),
             plutus_v3: Some(Vec::from(DEFAULT_V3_COST_MODEL)),
+            unknown: Default::default(),
         },
         pool_voting_thresholds: PoolVotingThresholds {
-            motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            committee_normal: RationalNumber { numerator: 51, denominator: 100 },
-            committee_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            hard_fork_initiation: RationalNumber { numerator: 51, denominator: 100 },
-            security_voting_threshold: RationalNumber { numerator: 51, denominator: 100 },
+            motion_no_confidence: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            committee_normal: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            committee_no_confidence: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            hard_fork_initiation: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            security_voting_threshold: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
         },
         drep_voting_thresholds: DRepVotingThresholds {
-            motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            committee_normal: RationalNumber { numerator: 67, denominator: 100 },
-            committee_no_confidence: RationalNumber { numerator: 67, denominator: 100 },
-            update_constitution: RationalNumber { numerator: 6, denominator: 10 },
-            hard_fork_initiation: RationalNumber { numerator: 75, denominator: 100 },
-            pp_network_group: RationalNumber { numerator: 6, denominator: 10 },
-            pp_economic_group: RationalNumber { numerator: 67, denominator: 100 },
-            pp_technical_group: RationalNumber { numerator: 67, denominator: 100 },
-            pp_governance_group: RationalNumber { numerator: 75, denominator: 100 },
-            treasury_withdrawal: RationalNumber { numerator: 67, denominator: 100 },
+            motion_no_confidence: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            committee_normal: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            committee_no_confidence: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            update_constitution: RationalNumber::new(6, 10).expect("6/10 is a valid rational number"),
+            hard_fork_initiation: RationalNumber::new(75, 100).expect("75/100 is a valid rational number"),
+            pp_network_group: RationalNumber::new(6, 10).expect("6/10 is a valid rational number"),
+            pp_economic_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            pp_technical_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            pp_governance_group: RationalNumber::new(75, 100).expect("75/100 is a valid rational number"),
+            treasury_withdrawal: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
         },
         min_committee_size: 7,
         max_committee_term_length: 146,
@@ -219,6 +227,7 @@ pub static PREPROD_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
 });
 
 // This default is the protocol parameters on Preview as of epoch 646
+#[expect(clippy::expect_used)]
 pub static PREVIEW_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = LazyLock::new(|| {
     ProtocolParameters {
         protocol_version: PROTOCOL_VERSION_10,
@@ -235,10 +244,10 @@ pub static PREVIEW_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
         stake_pool_deposit: 500_000_000,
         lovelace_per_utxo_byte: 4310,
         prices: ExUnitPrices {
-            mem_price: RationalNumber { numerator: 577, denominator: 10_000 },
-            step_price: RationalNumber { numerator: 721, denominator: 10_000_000 },
+            mem_price: RationalNumber::new(577, 10_000).expect("577/10000 is a valid rational number"),
+            step_price: RationalNumber::new(721, 10_000_000).expect("721/10000000 is a valid rational number"),
         },
-        min_fee_ref_script_lovelace_per_byte: RationalNumber { numerator: 15, denominator: 1 },
+        min_fee_ref_script_lovelace_per_byte: RationalNumber::new(15, 1).expect("15/1 is a valid rational number"),
         // Hardcoded in the haskell ledger
         // See https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Ledger.hs#L154
         max_ref_script_size_per_tx: 200 * 1024,
@@ -253,37 +262,40 @@ pub static PREVIEW_DEFAULT_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = L
 
         // Hardcoded in the haskell ledger
         // See https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85
-        ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
+        ref_script_cost_multiplier: RationalNumber::new(12, 10).expect("12/10 is a valid rational number"),
         stake_pool_max_retirement_epoch: 18,
-        pledge_influence: RationalNumber { numerator: 3, denominator: 10 },
+        pledge_influence: RationalNumber::new(3, 10).expect("3/10 is a valid rational number"),
         optimal_stake_pools_count: 500,
-        treasury_expansion_rate: RationalNumber { numerator: 2, denominator: 10 },
-        monetary_expansion_rate: RationalNumber { numerator: 3, denominator: 1_000 },
+        #[expect(clippy::expect_used)]
+        treasury_expansion_rate: UnitRationalNumber::new(2, 10).expect("2 <= 10"),
+        #[expect(clippy::expect_used)]
+        monetary_expansion_rate: UnitRationalNumber::new(3, 1_000).expect("3 <= 1000"),
         min_pool_cost: 340000000,
         collateral_percentage: 150,
         cost_models: CostModels {
             plutus_v1: Some(Vec::from(DEFAULT_V1_COST_MODEL)),
             plutus_v2: Some(Vec::from(DEFAULT_V2_COST_MODEL)),
             plutus_v3: Some(Vec::from(DEFAULT_V3_COST_MODEL)),
+            unknown: Default::default(),
         },
         pool_voting_thresholds: PoolVotingThresholds {
-            motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            committee_normal: RationalNumber { numerator: 51, denominator: 100 },
-            committee_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            hard_fork_initiation: RationalNumber { numerator: 51, denominator: 100 },
-            security_voting_threshold: RationalNumber { numerator: 51, denominator: 100 },
+            motion_no_confidence: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            committee_normal: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            committee_no_confidence: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            hard_fork_initiation: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
+            security_voting_threshold: RationalNumber::new(51, 100).expect("51/100 is a valid rational number"),
         },
         drep_voting_thresholds: DRepVotingThresholds {
-            motion_no_confidence: RationalNumber { numerator: 67, denominator: 100 },
-            committee_normal: RationalNumber { numerator: 67, denominator: 100 },
-            committee_no_confidence: RationalNumber { numerator: 67, denominator: 100 },
-            update_constitution: RationalNumber { numerator: 75, denominator: 100 },
-            hard_fork_initiation: RationalNumber { numerator: 75, denominator: 100 },
-            pp_network_group: RationalNumber { numerator: 67, denominator: 100 },
-            pp_economic_group: RationalNumber { numerator: 67, denominator: 100 },
-            pp_technical_group: RationalNumber { numerator: 67, denominator: 100 },
-            pp_governance_group: RationalNumber { numerator: 75, denominator: 100 },
-            treasury_withdrawal: RationalNumber { numerator: 67, denominator: 100 },
+            motion_no_confidence: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            committee_normal: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            committee_no_confidence: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            update_constitution: RationalNumber::new(75, 100).expect("75/100 is a valid rational number"),
+            hard_fork_initiation: RationalNumber::new(75, 100).expect("75/100 is a valid rational number"),
+            pp_network_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            pp_economic_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            pp_technical_group: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
+            pp_governance_group: RationalNumber::new(75, 100).expect("75/100 is a valid rational number"),
+            treasury_withdrawal: RationalNumber::new(67, 100).expect("67/100 is a valid rational number"),
         },
         min_committee_size: 0,
         max_committee_term_length: 365,

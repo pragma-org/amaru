@@ -38,8 +38,7 @@ impl Proposal {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Proposal {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(4)?;
+        cbor::heterogeneous_array_v12_indefinite(d, ctx, 4, |d, ctx| {
             Ok(Self {
                 deposit: d.decode_with(ctx)?,
                 reward_account: d.decode_with(ctx)?,
