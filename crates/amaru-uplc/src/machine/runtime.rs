@@ -105,11 +105,12 @@ where
     }
 
     pub fn push(&self, arena: &'a Arena, arg: &'a Value<'a, V>) -> &'a Self {
-        let new_runtime = arena.alloc(Runtime { args: self.args.clone(), fun: self.fun, forces: self.forces });
+        // `BumpVec::clone` has no spare capacity, so appending to it allocates and copies the arguments twice.
+        let mut args = BumpVec::with_capacity_in(self.args.len() + 1, arena.as_bump());
+        args.extend_from_slice(&self.args);
+        args.push(arg);
 
-        new_runtime.args.push(arg);
-
-        new_runtime
+        arena.alloc(Runtime { args, fun: self.fun, forces: self.forces })
     }
 
     pub fn needs_force(&self) -> bool {
