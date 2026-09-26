@@ -37,7 +37,7 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
-## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
+## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
 ### Added
 
