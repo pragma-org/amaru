@@ -41,11 +41,18 @@ mod tests {
     use pretty_assertions::assert_eq;
     use test_case::test_case;
 
-    use super::{arena::Arena, constant::Constant, ledger_value::LedgerValue, program::Program, term::Term, typ::Type};
+    use super::{
+        arena::Arena,
+        constant::{Constant, Integer},
+        ledger_value::LedgerValue,
+        program::Program,
+        term::Term,
+        typ::Type,
+    };
     use crate::{
         binder::DeBruijn,
         flat,
-        machine::{CostModel, ExBudget, MachineVersion},
+        machine::{CostModel, ExBudget, MachineError, MachineVersion, RuntimeError},
     };
 
     fn alloc_constants<'a>(
@@ -363,6 +370,31 @@ mod tests {
 
         // Base builtin budgets should be identical regardless of protocol version
         assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
+    }
+
+    #[test]
+    fn arithmetic_rejects_out_of_range_integers_from_v11() {
+        let arena = Arena::new();
+        let version = MachineVersion::V1_1_0;
+        let out_of_range = arena.alloc_integer(Integer::from(1u8) << 262_143u64);
+        let term = Term::add_integer(&arena)
+            .apply(&arena, Term::integer(&arena, out_of_range))
+            .apply(&arena, Term::integer_from(&arena, 0));
+        let program = Program::<DeBruijn>::new(&arena, version, term);
+
+        let pre_v11 = program.eval(
+            &arena,
+            CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_10, &CostModel::DEFAULT_V2),
+            ExBudget::default(),
+        );
+        assert!(pre_v11.term.is_ok());
+
+        let v11 = program.eval(
+            &arena,
+            CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_11, &CostModel::DEFAULT_V2),
+            ExBudget::default(),
+        );
+        assert!(matches!(v11.term, Err(MachineError::Runtime(RuntimeError::IntegerOutOfBounds(..)))));
     }
 
     #[test_case(exp_mod_integer_fixture; "exp_mod_integer")]

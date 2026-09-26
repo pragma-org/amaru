@@ -41,28 +41,32 @@ use crate::{
 
 pub const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH: i64 = 8192;
 
+const CARDANO_INTEGER_MAXIMUM_BITS: u64 = 262_143;
+
+/// Return whether an integer is representable by Cardano's bounded arithmetic builtins.
+fn fits_cardano_integer_range(integer: &Integer) -> bool {
+    fits_signed_integer_range(integer, CARDANO_INTEGER_MAXIMUM_BITS)
+}
+
+/// Return whether an integer fits within `[-2^maximum_bits, 2^maximum_bits - 1]`.
+fn fits_signed_integer_range(integer: &Integer, maximum_bits: u64) -> bool {
+    let bits = integer.bits();
+
+    if bits <= maximum_bits {
+        return true;
+    }
+
+    if bits != maximum_bits + 1 || !integer.is_negative() {
+        return false;
+    }
+
+    integer.clone().unsigned_abs() == Natural::from(1u8) << maximum_bits
+}
+
 /// Check that an integer fits in a signed 4096-bit range: [-(2^4095), 2^4095 - 1].
 /// Used by multiScalarMul to limit scalar sizes.
 fn check_multi_scalar_range(int: &Integer) -> Result<(), RuntimeError<'_>> {
-    let bits = int.bits();
-
-    if bits <= 4095 {
-        return Ok(());
-    }
-
-    if bits > 4096 {
-        return Err(RuntimeError::MultiScalarMulScalarOutOfBounds);
-    }
-
-    // bits == 4096: only valid if negative and exactly -(2^4095)
-    if !int.is_negative() {
-        return Err(RuntimeError::MultiScalarMulScalarOutOfBounds);
-    }
-
-    let magnitude = int.clone().unsigned_abs();
-    let two_pow_4095 = Natural::from(1u8) << 4095u64;
-
-    if magnitude == two_pow_4095 { Ok(()) } else { Err(RuntimeError::MultiScalarMulScalarOutOfBounds) }
+    fits_signed_integer_range(int, 4095).then_some(()).ok_or(RuntimeError::MultiScalarMulScalarOutOfBounds)
 }
 
 /// Reduce scalar mod SCALAR_PERIOD, convert to LE bytes, and append to the output buffer.
@@ -127,14 +131,27 @@ where
 }
 
 impl<'a> Machine<'a> {
+    fn unwrap_bounded_integer<V>(&self, value: &'a Value<'a, V>) -> Result<&'a Integer, MachineError<'a, V>>
+    where
+        V: Eval<'a>,
+    {
+        let integer = value.unwrap_integer()?;
+
+        if self.costs.semantics.enforces_integer_bounds() && !fits_cardano_integer_range(integer) {
+            return Err(MachineError::integer_out_of_bounds(integer));
+        }
+
+        Ok(integer)
+    }
+
     pub fn call<V>(&mut self, runtime: &'a Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {
         match runtime.fun {
             DefaultFunction::AddInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::AddInteger, &[arg1.into(), arg2.into()]);
@@ -349,8 +366,8 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::DivideInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::DivideInteger, &[arg1.into(), arg2.into()]);
@@ -566,8 +583,8 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::LessThanEqualsInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget = self
                     .costs
@@ -583,8 +600,8 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::LessThanInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::LessThanInteger, &[arg1.into(), arg2.into()]);
@@ -739,8 +756,8 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::ModInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::ModInteger, &[arg1.into(), arg2.into()]);
@@ -758,8 +775,8 @@ impl<'a> Machine<'a> {
                 }
             }
             DefaultFunction::MultiplyInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::MultiplyInteger, &[arg1.into(), arg2.into()]);
@@ -786,8 +803,8 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::QuotientInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::QuotientInteger, &[arg1.into(), arg2.into()]);
@@ -804,8 +821,8 @@ impl<'a> Machine<'a> {
                 }
             }
             DefaultFunction::RemainderInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::RemainderInteger, &[arg1.into(), arg2.into()]);
@@ -913,8 +930,8 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::SubtractInteger => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
-                let arg2 = runtime.args[1].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
+                let arg2 = self.unwrap_bounded_integer(runtime.args[1])?;
 
                 let budget =
                     self.costs.builtin_costs.get_cost(DefaultFunction::SubtractInteger, &[arg1.into(), arg2.into()]);
