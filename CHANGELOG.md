@@ -110,7 +110,7 @@ Other guiding principles:
 - **amaru-kernel**: use RustCrypto hash implementations for BLAKE2b, SHA-2, SHA-3, Keccak, and RIPEMD.
 ### Added
 
-- **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
+- **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
 
 ### Fixed
 

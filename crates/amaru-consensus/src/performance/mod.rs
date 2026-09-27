@@ -120,6 +120,8 @@ pub use peers::{
     UninterestingMark, ViewConnection, malus_at,
 };
 use spans::HeaderSpanBook;
+#[doc(hidden)]
+pub use spans::close_root_forward_after_exit;
 use tokio::{
     sync::mpsc::{UnboundedSender, unbounded_channel},
     time::Instant as TokioInstant,

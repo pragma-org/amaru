@@ -26,7 +26,7 @@ use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
 use amaru_observability::{debug, error, info};
 use amaru_pure_stage::Instant;
 
-use super::spans::{HeaderDurations, HeaderSpanBook};
+use super::spans::HeaderSpanBook;
 
 /// How many distinct announcing peers are logged for one header hash.
 const LOGGED_ANNOUNCEMENTS: usize = 3;
@@ -242,11 +242,13 @@ impl HeaderTelemetry {
                     hash.and_then(|hash| spans.finish(&hash, *outcome == HeaderLifecycleOutcome::ValidBlock));
                 let block_fetch_wait_micros = recorded
                     .as_ref()
-                    .map(|d: &HeaderDurations| d.block_fetch_wait_micros)
-                    .unwrap_or(*block_fetch_wait_micros);
-                let block_fetch_micros = recorded.as_ref().map(|d| d.block_fetch_micros).unwrap_or(*block_fetch_micros);
-                let forward_micros = recorded.as_ref().map(|d| d.forward_micros).unwrap_or(*forward_micros);
-                let adopt_micros = recorded.as_ref().map(|d| d.adopt_micros).unwrap_or(*adopt_micros);
+                    .and_then(|durations| durations.block_fetch_wait_micros)
+                    .or(*block_fetch_wait_micros);
+                let block_fetch_micros =
+                    recorded.as_ref().and_then(|durations| durations.block_fetch_micros).or(*block_fetch_micros);
+                let forward_micros =
+                    recorded.as_ref().and_then(|durations| durations.forward_micros).or(*forward_micros);
+                let adopt_micros = recorded.as_ref().and_then(|durations| durations.adopt_micros).or(*adopt_micros);
                 let rejected = outcome.is_reception_rejection();
                 emit_lifecycle(
                     rejected,
