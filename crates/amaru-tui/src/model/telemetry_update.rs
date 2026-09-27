@@ -280,17 +280,16 @@ impl Model {
             return;
         };
 
-        let slot_start_to_header_micros = (!self.catching_up)
-            .then(|| consensus::perf::header::LIFECYCLE::slot_start_to_header_micros(record))
-            .flatten();
+        let recorded_observe = consensus::perf::header::LIFECYCLE::slot_start_to_header_micros(record);
+        let slot_start_to_header_micros = if self.catching_up { None } else { recorded_observe };
         let query_header_micros = consensus::perf::header::LIFECYCLE::block_fetch_wait_micros(record);
         let get_block_micros = consensus::perf::header::LIFECYCLE::block_fetch_micros(record);
-        let adopt_block_micros = consensus::perf::header::LIFECYCLE::forward_micros(record)
-            .zip(query_header_micros)
-            .zip(get_block_micros)
-            .map(|((forward_micros, query_header_micros), get_block_micros)| {
-                forward_micros.saturating_sub(query_header_micros.saturating_add(get_block_micros))
-            });
+        let adopt_block_micros = consensus::perf::header::LIFECYCLE::adopt_micros(record);
+        // Slot onset to first body. Catch-up omits Observe, so those samples stay out of this window.
+        let live_arrival_micros = match (slot_start_to_header_micros, query_header_micros, get_block_micros) {
+            (Some(observe), Some(select), Some(fetch)) => Some(observe.saturating_add(select).saturating_add(fetch)),
+            _ => None,
+        };
 
         let capacity = self.config.peer_timing_capacity;
         let peer = self.peer_mut(peer, record.at);
@@ -302,6 +301,9 @@ impl Model {
             get_block_micros,
             adopt_block_micros,
         );
+        if let Some(micros) = live_arrival_micros {
+            peer.record_live_arrival(micros, capacity);
+        }
     }
 
     fn peer_mut(&mut self, address: impl ToString, updated_at: Instant) -> &mut PeerState {

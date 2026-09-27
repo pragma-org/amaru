@@ -679,6 +679,7 @@ mod tests {
             consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_WAIT_MICROS => 2_000u64,
             consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_MICROS => 5_000u64,
             consensus::perf::header::LIFECYCLE::FIELD_FORWARD_MICROS => 11_000u64,
+            consensus::perf::header::LIFECYCLE::FIELD_ADOPT_MICROS => 4_000u64,
         )));
         model.handle_message(Message::Telemetry(telemetry_at!(
             now + Duration::from_secs(1),
@@ -689,6 +690,7 @@ mod tests {
             consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_WAIT_MICROS => 4_000u64,
             consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_MICROS => 7_000u64,
             consensus::perf::header::LIFECYCLE::FIELD_FORWARD_MICROS => 15_000u64,
+            consensus::perf::header::LIFECYCLE::FIELD_ADOPT_MICROS => 4_000u64,
         )));
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
@@ -789,6 +791,159 @@ mod tests {
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
         assert_eq!(peer.mean_slot_start_to_header_micros(), Some(3_000));
+    }
+
+    fn mark_caught_up(model: &mut Model, at: Instant) {
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            at,
+            consensus::tip::ADOPT,
+            consensus::tip::ADOPT::FIELD_SLOT => 1u64,
+            consensus::tip::ADOPT::FIELD_HEADER_HASH => "abc",
+            consensus::tip::ADOPT::FIELD_BLOCK_HEIGHT => 10u64,
+            consensus::tip::ADOPT::FIELD_MAX_BLOCK_HEIGHT => 10u64,
+            consensus::tip::ADOPT::FIELD_SUPPRESSED => 0u32,
+        )));
+    }
+
+    fn mark_catching_up(model: &mut Model, at: Instant) {
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            at,
+            consensus::tip::ADOPT,
+            consensus::tip::ADOPT::FIELD_SLOT => 1u64,
+            consensus::tip::ADOPT::FIELD_HEADER_HASH => "abc",
+            consensus::tip::ADOPT::FIELD_BLOCK_HEIGHT => 10u64,
+            consensus::tip::ADOPT::FIELD_MAX_BLOCK_HEIGHT => 100u64,
+            consensus::tip::ADOPT::FIELD_SUPPRESSED => 0u32,
+        )));
+    }
+
+    fn push_lifecycle(model: &mut Model, at: Instant, observe: u64, wait: u64, fetch: u64, forward: u64, adopt: u64) {
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            at,
+            consensus::perf::header::LIFECYCLE,
+            consensus::perf::header::LIFECYCLE::FIELD_PEER => "1.2.3.4:3001",
+            consensus::perf::header::LIFECYCLE::FIELD_OUTCOME => "valid",
+            consensus::perf::header::LIFECYCLE::FIELD_SLOT_START_TO_HEADER_MICROS => observe,
+            consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_WAIT_MICROS => wait,
+            consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_MICROS => fetch,
+            consensus::perf::header::LIFECYCLE::FIELD_FORWARD_MICROS => forward,
+            consensus::perf::header::LIFECYCLE::FIELD_ADOPT_MICROS => adopt,
+        )));
+    }
+
+    fn arrival_shares(peer: &PeerState) -> (Option<u64>, Option<u64>, Option<u64>) {
+        (
+            peer.live_arrival_share_percent(1_000_000),
+            peer.live_arrival_share_percent(3_000_000),
+            peer.live_arrival_share_percent(5_000_000),
+        )
+    }
+
+    #[test]
+    fn adopt_uses_adopt_micros_not_the_forward_residual() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+
+        // 11_000 - 2_000 - 5_000 = 4_000, which is not the recorded adopt time.
+        push_lifecycle(&mut model, now, 9_000, 2_000, 5_000, 11_000, 9_000);
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(peer.mean_adopt_block_micros(), Some(9_000));
+
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            now,
+            consensus::perf::header::LIFECYCLE,
+            consensus::perf::header::LIFECYCLE::FIELD_PEER => "5.6.7.8:3001",
+            consensus::perf::header::LIFECYCLE::FIELD_OUTCOME => "valid",
+            consensus::perf::header::LIFECYCLE::FIELD_SLOT_START_TO_HEADER_MICROS => 9_000u64,
+            consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_WAIT_MICROS => 2_000u64,
+            consensus::perf::header::LIFECYCLE::FIELD_BLOCK_FETCH_MICROS => 5_000u64,
+            consensus::perf::header::LIFECYCLE::FIELD_FORWARD_MICROS => 11_000u64,
+        )));
+        let peer = model.peers.get("5.6.7.8:3001").expect("peer must exist");
+        assert_eq!(peer.mean_adopt_block_micros(), None);
+    }
+
+    #[test]
+    fn live_arrival_of_500ms_counts_in_all_three_shares() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+        mark_caught_up(&mut model, now);
+
+        push_lifecycle(&mut model, now, 100_000, 150_000, 250_000, 50_000_000, 1);
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(arrival_shares(peer), (Some(100), Some(100), Some(100)));
+    }
+
+    #[test]
+    fn live_arrival_of_2s_misses_one_second_and_counts_in_three_and_five() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+        mark_caught_up(&mut model, now);
+
+        push_lifecycle(&mut model, now, 400_000, 600_000, 1_000_000, 50_000_000, 1);
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(arrival_shares(peer), (Some(0), Some(100), Some(100)));
+    }
+
+    #[test]
+    fn live_arrival_of_4s_counts_only_within_five_seconds() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+        mark_caught_up(&mut model, now);
+
+        push_lifecycle(&mut model, now, 1_500_000, 1_500_000, 1_000_000, 50_000_000, 1);
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(arrival_shares(peer), (Some(0), Some(0), Some(100)));
+    }
+
+    #[test]
+    fn catching_up_sample_does_not_move_arrival_shares_or_observe() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+
+        push_lifecycle(&mut model, now, 100_000, 200_000, 200_000, 50_000_000, 3_000);
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(peer.mean_slot_start_to_header_micros(), None);
+        assert_eq!(arrival_shares(peer), (None, None, None));
+        assert_eq!(peer.mean_query_header_micros(), Some(200_000));
+        assert_eq!(peer.mean_get_block_micros(), Some(200_000));
+        assert_eq!(peer.mean_adopt_block_micros(), Some(3_000));
+
+        mark_caught_up(&mut model, now + Duration::from_secs(1));
+        push_lifecycle(&mut model, now + Duration::from_secs(2), 100_000, 200_000, 200_000, 50_000_000, 1_000);
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(peer.mean_slot_start_to_header_micros(), Some(100_000));
+        assert_eq!(arrival_shares(peer), (Some(100), Some(100), Some(100)));
+
+        mark_catching_up(&mut model, now + Duration::from_secs(3));
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        let observe = peer.mean_slot_start_to_header_micros();
+        let shares = arrival_shares(peer);
+        let select = peer.mean_query_header_micros();
+        let adopt = peer.mean_adopt_block_micros();
+        assert_eq!(observe, None);
+        assert_eq!(shares, (Some(100), Some(100), Some(100)));
+
+        push_lifecycle(&mut model, now + Duration::from_secs(4), 1_500_000, 1_500_000, 1_000_000, 50_000_000, 9_000);
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(peer.mean_slot_start_to_header_micros(), observe);
+        assert_eq!(arrival_shares(peer), shares);
+        assert_ne!(peer.mean_query_header_micros(), select);
+        assert_ne!(peer.mean_adopt_block_micros(), adopt);
+    }
+
+    #[test]
+    fn live_arrivals_keep_the_latest_peer_timing_capacity_samples() {
+        let mut model = Model::new(Config { peer_timing_capacity: 2, ..Config::default() }, fixture_startup_context());
+        let now = model.created_at;
+        mark_caught_up(&mut model, now);
+
+        push_lifecycle(&mut model, now, 100_000, 200_000, 200_000, 0, 1);
+        push_lifecycle(&mut model, now + Duration::from_secs(1), 100_000, 200_000, 200_000, 0, 1);
+        push_lifecycle(&mut model, now + Duration::from_secs(2), 1_500_000, 1_500_000, 1_000_000, 0, 1);
+
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(arrival_shares(peer), (Some(50), Some(50), Some(100)));
     }
 
     #[test]

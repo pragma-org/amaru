@@ -48,6 +48,10 @@ Other guiding principles:
 - **amaru**: a failed outbound connection attempt times out after 2 seconds. Each failure adds a large connection penalty, so healthier peers are dialed first. When no healthier peer can fill an open slot, the penalized peer is dialed anyway. A peer is not dialed again within 2 seconds of a connect attempt or a connection failure. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
 
+### Changed
+
+- **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
+
 ### Fixed
 
 - **amaru**: starting with many upstream peers no longer panics when connection attempts fail together, or when many name lookups fail or many peers are demoted at the same time. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
