@@ -272,6 +272,7 @@ pub fn te_select_peers_for_fetch(at_stage: &str, need: Vec<HeaderHash>, max_peer
         Box::new(crate::performance::Performance::select_peers_for_fetch(crate::performance::SelectPeersParams {
             need,
             max_peers,
+            exclude: Vec::new(),
             now,
         })),
     ))

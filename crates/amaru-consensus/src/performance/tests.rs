@@ -52,7 +52,7 @@ fn peer(name: &str) -> Peer {
 }
 
 fn select(need: Vec<HeaderHash>, max_peers: usize) -> SelectPeersParams {
-    SelectPeersParams { need, max_peers, now: t(100) }
+    SelectPeersParams { need, max_peers, exclude: Vec::new(), now: t(100) }
 }
 
 // ---------------------------------------------------------------------------
@@ -536,6 +536,31 @@ fn after_intersect_selection_becomes_non_empty() {
     let set = peers.apply_select_peers_for_fetch(select(vec![hash(5)], 5));
     assert!(!set.weak);
     assert_eq!(set.peers, vec![alice]);
+}
+
+#[test]
+fn later_announcer_is_selected_when_the_first_is_excluded() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+
+    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    let first = peers.apply_select_peers_for_fetch(select(vec![hash(1)], 3));
+    assert!(!first.weak);
+    assert_eq!(first.peers, vec![alice]);
+
+    peers.apply_header_announcement(bob, tip(1, 1), None, t(2));
+    let mut again = select(vec![hash(1)], 3);
+    again.exclude = vec![alice];
+    let second = peers.apply_select_peers_for_fetch(again);
+    assert!(!second.weak);
+    assert_eq!(second.peers, vec![bob]);
+
+    let mut nobody = select(vec![hash(1)], 3);
+    nobody.exclude = vec![alice, bob];
+    let third = peers.apply_select_peers_for_fetch(nobody);
+    assert!(third.weak);
+    assert!(third.peers.is_empty());
 }
 
 #[test]

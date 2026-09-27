@@ -186,6 +186,9 @@ pub struct SelectPeersParams {
     /// Oldest-first chain fragment to fetch (parent before child).
     pub need: Vec<HeaderHash>,
     pub max_peers: usize,
+    /// Peers already asked for this batch. They are skipped so a later wakeup returns the next
+    /// covering peers rather than the same set.
+    pub exclude: Vec<Peer>,
     /// Wall-clock for selection (reserved for future staleness-aware ranking).
     pub now: Instant,
 }
@@ -761,14 +764,15 @@ impl PeerPerformance {
     }
 
     fn select_peers_for_fetch(&self, params: SelectPeersParams) -> FetchPeerSet {
-        let SelectPeersParams { need, max_peers, now: _ } = params;
+        let SelectPeersParams { need, max_peers, exclude, now: _ } = params;
         if need.is_empty() || max_peers == 0 {
             return FetchPeerSet { peers: Vec::new(), weak: true };
         }
+        let excluded: BTreeSet<Peer> = exclude.into_iter().collect();
 
         let mut ranked: Vec<(f64, Peer)> = Vec::new();
         for &peer in self.peers.keys() {
-            if !self.peer_covers_fragment(&peer, &need) {
+            if excluded.contains(&peer) || !self.peer_covers_fragment(&peer, &need) {
                 continue;
             }
             let score = rank_score(self.peers.get(&peer).map(|s| &s.scores), need.len());

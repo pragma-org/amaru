@@ -74,6 +74,8 @@ Timestamps use pure-stage `Instant` so simulation remains deterministic ([EDR-01
 `fetch_blocks` selects covering peers via `select_peers_for_fetch` (coverage from claims, ranked by a score to be tuned over time).
 If coverage is weak or the set is empty, the stage may fall back to all eligible connections.
 
+The first request often sees only the peer who announced first. `fetch_blocks` schedules further asks at 30ms, 80ms, and 150ms after that request. Each wakeup is one query for covering peers not already asked; announcements themselves are not stage messages. Widening continues until every block in the batch has arrived, so a peer that returns only a prefix does not stop the later asks. The 5s batch timeout is unchanged.
+
 ### Lifecycle terminalisation and pruning
 
 Header lifecycles must always reach a terminal outcome so the map won't grow without bound and so network-health observations close:
