@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use amaru_observability::{
     RecordFields,
-    amaru::{bootstrap, consensus, ledger, mempool, protocols},
+    amaru::{blockperf, bootstrap, consensus, ledger, mempool, protocols},
 };
 
 use super::*;
@@ -73,6 +73,7 @@ impl Model {
             TelemetryEvent::StateSwitchToFork => {
                 self.push_recent_rollback(ledger::state::SWITCH_TO_FORK::rollback_length(record), record.at)
             }
+            TelemetryEvent::HeaderAnnounced => self.update_peer_header_announced(record),
             TelemetryEvent::HeaderLifecycle => self.update_peer_header_lifecycle(record),
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
@@ -271,6 +272,14 @@ impl Model {
         peer.update_rtt(record, round_trip_micros);
     }
 
+    fn update_peer_header_announced(&mut self, record: &TelemetryRecord) {
+        let Some(points) = announcement_points(blockperf::header::ANNOUNCED::rank(record)) else {
+            return;
+        };
+        let peer = blockperf::header::ANNOUNCED::peer(record);
+        self.peer_mut(peer, record.at).add_announcement_points(points, record.at);
+    }
+
     fn update_peer_header_lifecycle(&mut self, record: &TelemetryRecord) {
         if record.str(consensus::perf::header::LIFECYCLE::FIELD_OUTCOME) != Some("valid") {
             return;
@@ -335,5 +344,15 @@ impl Model {
                 self.proposals_by_id.remove(&removed);
             }
         }
+    }
+}
+
+/// Points for one `header.announced` rank. Later ranks are not logged, so they add nothing.
+fn announcement_points(rank: u64) -> Option<u64> {
+    match rank {
+        1 => Some(6),
+        2 => Some(3),
+        3 => Some(1),
+        _ => None,
     }
 }
