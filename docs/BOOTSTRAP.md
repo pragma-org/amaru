@@ -2,6 +2,32 @@
 
 Amaru bootstrap expects a window of three consecutive epoch snapshots. The runtime discovers that window from `<network>/index.json` in the configured S3-compatible bucket. See [Publishing bootstrap snapshots](./PUBLISHING_SNAPSHOTS.md) to publish a generated snapshot set.
 
+## Observe bootstrap progress
+
+Library users can receive progress events by implementing `BootstrapObserver` and calling `bootstrap_with_observer`.
+
+```rust
+use amaru_bootstrap::{BootstrapObserver, BootstrapProgress};
+
+struct AppObserver;
+
+impl BootstrapObserver for AppObserver {
+    fn on_progress(&self, progress: BootstrapProgress) {
+        match progress {
+            BootstrapProgress::DownloadProgress { downloaded_bytes, completed_snapshots } => {
+                println!("{downloaded_bytes} bytes; {completed_snapshots} snapshots ready");
+            }
+            BootstrapProgress::Completed { epoch, point } => {
+                println!("bootstrap completed at epoch {epoch}, {point}");
+            }
+            _ => {}
+        }
+    }
+}
+
+// Pass `&AppObserver` as the final argument to `bootstrap_with_observer(...)`.
+```
+
 ## Create a Snapshot Set
 
 ### Prerequisites

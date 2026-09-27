@@ -37,6 +37,11 @@ Other guiding principles:
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
+### Added
+
+- **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
+- **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
+
 ### Changed
 
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
@@ -46,6 +51,9 @@ Other guiding principles:
 - **amaru**: `cardano-cli ping` from cardano-cli 11.2 onwards completes the handshake again. That client offers node-to-node version 16 alongside versions 14 and 15; version 16 is kept as raw CBOR and the node still agrees version 15. ([#1425](https://github.com/pragma-org/amaru/issues/1425))
 - **amaru**: block propagation can be followed on its own. `AMARU_LOG=off,amaru::blockperf=info` prints, for each block, the first three peers that announced the header (`header.announced`, with rank), the peers asked for the body (`block.requested`), each peer that delivered the body in arrival order (`block.received`), and local adoption (`block.adopted`). The logging is at DEBUG level while syncing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
 - **amaru**: `chainsync.chain_lagging` is logged when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, including while sync is finishing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
+- **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
+- **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
+- **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
@@ -97,7 +105,7 @@ Other guiding principles:
 - **amaru-protocols**: a deeply nested CBOR mini-protocol message no longer crashes the node with a stack overflow while mux is splitting frames.
 - **amaru-stores**: opening a ledger store before any snapshots exist returns a `NoStableSnapshot` error instead of panicking.
 
-## v10.11.20260910 _[unreleased; planned for 2026-09-10]_
+## v10.11.20260910 _[unreleased]_
 
 ### Added
 
