@@ -33,6 +33,7 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/cache
+      - uses: ./.github/actions/stage-peer-snapshots
 
       - name: Build Amaru
         shell: bash
