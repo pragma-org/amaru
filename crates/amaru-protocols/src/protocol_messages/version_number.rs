@@ -60,6 +60,13 @@ impl VersionNumber {
     pub const fn has_query_and_peer_sharing(self) -> bool {
         self.0 >= 11
     }
+
+    /// Whether this node decodes version data for the version.
+    ///
+    /// Any other version number stays in the handshake version table as the original CBOR item.
+    pub fn is_supported(self) -> bool {
+        Self::SUPPORTED.contains(&self)
+    }
 }
 
 impl<C> cbor::Encode<C> for VersionNumber {

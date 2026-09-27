@@ -118,15 +118,21 @@ where
 #[cfg(test)]
 #[expect(clippy::wildcard_enum_match_arm)]
 mod negotiation_tests {
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{NetworkMagic, cbor};
 
     use super::*;
+    use crate::protocol_messages::version_table::tests::{haskell_ping_propose, n2n_version_data_cbor};
     fn data(magic: NetworkMagic, initiator_only: bool, sharing: bool, query: bool) -> VersionData {
         VersionData::new(magic, initiator_only, sharing.into(), query)
     }
 
     fn table(entries: &[(u64, VersionData)]) -> VersionTable<VersionData> {
-        VersionTable { values: entries.iter().map(|(v, d)| (VersionNumber::new(*v), d.clone())).collect() }
+        VersionTable {
+            values: entries.iter().map(|(v, d)| (VersionNumber::new(*v), d.clone())).collect(),
+            unknown: BTreeMap::new(),
+        }
     }
 
     #[test]
@@ -251,6 +257,42 @@ mod negotiation_tests {
         assert_eq!(
             compute_negotiation_result(&ours, &theirs),
             HandshakeResult::Accepted(VersionNumber::V15, data(magic, false, true, false))
+        );
+    }
+
+    #[test]
+    fn haskell_ping_offer_keeps_v16_bytes_and_agrees_on_v15() {
+        // test to be removed once we implement v16
+        let magic = NetworkMagic::MAINNET;
+        let bytes = haskell_ping_propose(magic.as_u64());
+        let decoded: Message<VersionData> = cbor::decode(&bytes).unwrap_or_else(|error| panic!("{error}"));
+        let Message::Propose(theirs) = decoded else { panic!("expected propose") };
+        let v16 = VersionNumber::new(16);
+        assert_eq!(theirs.unknown.get(&v16), Some(&n2n_version_data_cbor(16, magic.as_u64())));
+        assert!(!theirs.values.contains_key(&v16));
+        assert_eq!(
+            theirs.to_string(),
+            "14: { network_magic: mainnet, initiator_only_diffusion_mode: true, peer_sharing: Disabled, query: false }, \
+            15: { network_magic: mainnet, initiator_only_diffusion_mode: true, peer_sharing: Disabled, query: false }, \
+            16: [764824073, true, 0, false, true]"
+        );
+
+        let v15 = &theirs.values[&VersionNumber::V15];
+        assert_eq!(v15.network_magic(), magic);
+        assert!(v15.initiator_only_diffusion_mode());
+        assert!(!v15.is_advertisable());
+        assert!(!v15.query());
+        assert!(theirs.values.contains_key(&VersionNumber::V14));
+
+        let encoded = cbor::to_cbor(&Message::Propose(theirs.clone()));
+        let decoded: Message<VersionData> = cbor::decode(&encoded).unwrap_or_else(|error| panic!("{error}"));
+        let Message::Propose(again) = decoded else { panic!("expected propose") };
+        assert_eq!(again.unknown.get(&v16), theirs.unknown.get(&v16));
+
+        let ours = VersionTable::v11_and_above(magic, false, true);
+        assert_eq!(
+            compute_negotiation_result(&ours, &theirs),
+            HandshakeResult::Accepted(VersionNumber::V15, data(magic, true, false, false)),
         );
     }
 
