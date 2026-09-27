@@ -12,8 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(type_alias_impl_trait, generic_const_exprs)]
-#![allow(incomplete_features)]
+#![feature(
+    type_alias_impl_trait,
+    // features below are only needed when using `amaru_pure_stage::reveal_remainder!` to debug typestate
+    generic_const_args,
+    min_generic_const_args,
+    generic_const_items,
+    const_type_name,
+    unsized_const_params,
+    adt_const_params
+)]
+#![allow(incomplete_features, unused_features)]
 
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;
