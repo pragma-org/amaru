@@ -25,7 +25,7 @@ use amaru_consensus::stages::{
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
 use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Point};
-use amaru_observability::debug_span;
+use amaru_observability::{TraceContext, amaru::consensus::node::INITIALIZE, debug_span};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
@@ -56,7 +56,7 @@ pub fn build_stage_graph(
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
     let span = debug_span!(consensus::node::INITIALIZE);
-    let trace_context = (&span).into();
+    let trace_context: TraceContext<INITIALIZE> = (&span).into();
     let manager = stage_graph.stage("manager", manager::stage);
     let peer_selection = stage_graph.stage("peer_selection", peer_selection::stage);
     let peer_selection_ref = peer_selection.sender();

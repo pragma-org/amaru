@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeight, GlobalParameters, Header, HeaderHash, NetworkPoint, NonEmptyVec, Point, RawBlock};
-use amaru_observability::TraceContext;
+use amaru_observability::{AttachedSpan, NoParent, TraceContext};
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
     Nonces, SampleAncestorPointsResult, StoreError,
@@ -156,20 +156,24 @@ impl StoreEffect {
 }
 
 /// Implementation of ChainStore using amaru_pure_stage::Effects.
+///
+/// `S` is the span the context was taken from. Store reads that do not open a
+/// child span keep those bytes and do not treat `S` as a parent list.
 #[derive(Clone, Debug)]
-pub struct Store {
+pub struct Store<S = NoParent> {
     effects: Effects<Void>,
-    trace_context: TraceContext,
+    trace_context: TraceContext<S>,
 }
 
-impl Store {
+impl Store<NoParent> {
     pub fn new<T: SendData>(effects: Effects<T>) -> Self {
-        Store { effects: effects.erase(), trace_context: Default::default() }
+        Store { effects: effects.erase(), trace_context: TraceContext::none() }
     }
+}
 
-    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
-        self.trace_context = trace_context.clone();
-        self
+impl<S> Store<S> {
+    pub fn with_trace_context<P>(self, trace_context: &TraceContext<P>) -> Store<P> {
+        Store { effects: self.effects, trace_context: trace_context.clone() }
     }
 
     pub fn load_header(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Header>> {
@@ -265,7 +269,7 @@ impl Store {
     }
 
     pub fn load_point(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(StoreEffect::load_point(*hash).with_trace_context(&self.trace_context))
+        self.effects.external(StoreEffect::load_point(*hash).with_trace_context(&self.trace_context.for_attach()))
     }
 
     pub fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> BoxFuture<'static, (Vec<HeaderHash>, bool)> {
@@ -273,7 +277,8 @@ impl Store {
     }
 
     pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Point>>> {
-        self.effects.external(StoreEffect::ancestors_between(from, to).with_trace_context(&self.trace_context))
+        self.effects
+            .external(StoreEffect::ancestors_between(from, to).with_trace_context(&self.trace_context.for_attach()))
     }
 
     pub fn find_ancestor_on_best_chain(
@@ -600,15 +605,16 @@ impl ExternalEffectAPI for LoadHeaderEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LoadPointEffect {
     hash: HeaderHash,
-    trace_context: TraceContext,
+    trace_context: TraceContext<AttachedSpan>,
 }
 
 impl LoadPointEffect {
     pub fn new(hash: HeaderHash) -> Self {
-        Self { hash, trace_context: Default::default() }
+        Self { hash, trace_context: TraceContext::detached() }
     }
 
-    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+    /// Accepts the caller's span. This effect only attaches that context.
+    pub fn with_trace_context(mut self, trace_context: &TraceContext<AttachedSpan>) -> Self {
         self.trace_context = trace_context.clone();
         self
     }
@@ -919,15 +925,16 @@ impl ExternalEffectAPI for UnvalidatedAncestorHashesEffect {
 pub struct AncestorsBetweenEffect {
     from: Point,
     to: HeaderHash,
-    trace_context: TraceContext,
+    trace_context: TraceContext<AttachedSpan>,
 }
 
 impl AncestorsBetweenEffect {
     pub fn new(from: Point, to: HeaderHash) -> Self {
-        Self { from, to, trace_context: Default::default() }
+        Self { from, to, trace_context: TraceContext::detached() }
     }
 
-    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+    /// Accepts the caller's span. This effect only attaches that context.
+    pub fn with_trace_context(mut self, trace_context: &TraceContext<AttachedSpan>) -> Self {
         self.trace_context = trace_context.clone();
         self
     }

@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Schema DSL expansion.
+//!
+//! A span may declare `parents: path::to::Marker, other::MARKER`. The expansion implements
+//! `AcceptsParent` for the span marker so `parent_context:` accepts only those markers. An event
+//! that declares `parents:` is a compile error. A span with no `parents:` is a root.
+
 use std::collections::BTreeMap;
 
 use proc_macro::TokenStream;
@@ -214,6 +220,8 @@ struct Schema {
     description: Option<String>,
     /// Functional tags, each recorded as a boolean `amaru.tag.<name>` span attribute.
     tags: Vec<Ident>,
+    /// Parent markers a span accepts. Empty means the span is a root.
+    parents: Vec<syn::Path>,
     /// Fields that must be present.
     required_fields: Vec<SchemaField>,
     /// Fields that may optionally be present.
@@ -313,10 +321,17 @@ struct LevelsDecl {
     levels: Vec<TraceLevel>,
 }
 
+/// `parents:` paths, with the span of the keyword for errors.
+struct ParentsDecl {
+    at: proc_macro2::Span,
+    parents: Vec<syn::Path>,
+}
+
 /// Items that may appear inside a schema body.
 enum SchemaItem {
     Tags(Vec<Ident>),
     Levels(LevelsDecl),
+    Parents(ParentsDecl),
     Field {
         /// Field doc comments are accepted for source documentation; not emitted today.
         #[allow(dead_code)]
@@ -462,6 +477,14 @@ fn parse_schema_body(input: ParseStream<'_>) -> syn::Result<Vec<SchemaItem>> {
             continue;
         }
 
+        if peek_keyword(input, "parents") {
+            if !attrs.is_empty() {
+                return Err(syn::Error::new(attrs[0].span(), "`parents:` declarations cannot have attributes"));
+            }
+            items.push(SchemaItem::Parents(parse_parents_decl(input)?));
+            continue;
+        }
+
         let kind: Ident = input.parse()?;
         let required = match kind.to_string().as_str() {
             "required" => true,
@@ -470,7 +493,7 @@ fn parse_schema_body(input: ParseStream<'_>) -> syn::Result<Vec<SchemaItem>> {
                 return Err(syn::Error::new(
                     kind.span(),
                     format!(
-                        "expected `required`, `optional`, `tags:`, or `levels:` inside schema body, found '{other}'"
+                        "expected `required`, `optional`, `tags:`, `levels:`, or `parents:` inside schema body, found '{other}'"
                     ),
                 ));
             }
@@ -527,6 +550,7 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
             || peek_keyword(input, "public")
             || peek_keyword(input, "tags")
             || peek_keyword(input, "levels")
+            || peek_keyword(input, "parents")
         {
             break;
         }
@@ -536,7 +560,7 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
         })?;
 
         if is_schema_name(&tag)
-            || matches!(tag.to_string().as_str(), "required" | "optional" | "public" | "tags" | "levels")
+            || matches!(tag.to_string().as_str(), "required" | "optional" | "public" | "tags" | "levels" | "parents")
         {
             return Err(syn::Error::new(
                 tag.span(),
@@ -582,6 +606,7 @@ fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<LevelsDecl> {
             || peek_keyword(input, "public")
             || peek_keyword(input, "tags")
             || peek_keyword(input, "levels")
+            || peek_keyword(input, "parents")
         {
             break;
         }
@@ -613,6 +638,54 @@ fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<LevelsDecl> {
         return Err(syn::Error::new(levels_kw.span(), "expected at least one level after `levels:`"));
     };
     Ok(LevelsDecl { at, levels })
+}
+
+fn parse_parents_decl(input: ParseStream<'_>) -> syn::Result<ParentsDecl> {
+    let parents_kw: Ident = input.parse()?;
+    if parents_kw != "parents" {
+        return Err(syn::Error::new(parents_kw.span(), "expected `parents`"));
+    }
+    input.parse::<Token![:]>()?;
+
+    let mut parents = Vec::new();
+    loop {
+        let path_start = input.peek(Ident)
+            || input.peek(Token![crate])
+            || input.peek(Token![self])
+            || input.peek(Token![super])
+            || input.peek(Token![::]);
+        if input.is_empty() || input.peek(Token![#]) || !path_start {
+            break;
+        }
+        if input.peek2(syn::token::Brace)
+            || peek_keyword(input, "required")
+            || peek_keyword(input, "optional")
+            || peek_keyword(input, "public")
+            || peek_keyword(input, "tags")
+            || peek_keyword(input, "levels")
+            || peek_keyword(input, "parents")
+        {
+            break;
+        }
+
+        let parent: syn::Path = input.parse()?;
+        let rendered = parent.to_token_stream().to_string();
+        if parents.iter().any(|existing: &syn::Path| existing.to_token_stream().to_string() == rendered) {
+            return Err(syn::Error::new_spanned(parent, "duplicate parent in `parents:`"));
+        }
+        parents.push(parent);
+
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            continue;
+        }
+        break;
+    }
+
+    if parents.is_empty() {
+        return Err(syn::Error::new(parents_kw.span(), "expected at least one parent path after `parents:`"));
+    }
+    Ok(ParentsDecl { at: parents_kw.span(), parents })
 }
 
 /// `span` / `event` only when the following identifier is a schema name.
@@ -722,11 +795,22 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
 
     let mut tags: Option<Vec<Ident>> = None;
     let mut levels: Option<LevelsDecl> = None;
+    let mut parents: Option<ParentsDecl> = None;
     let mut required_fields = Vec::new();
     let mut optional_fields = Vec::new();
 
     for item in node.items {
         match item {
+            SchemaItem::Parents(declared) => {
+                if parents.is_some() {
+                    errors.push(syn::Error::new(
+                        declared.at,
+                        format!("duplicate parents declaration in schema {}", node.name),
+                    ));
+                } else {
+                    parents = Some(declared);
+                }
+            }
             SchemaItem::Tags(t) => {
                 if tags.is_some() {
                     errors.push(syn::Error::new(
@@ -791,6 +875,12 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
             SchemaKind::Span
         }
         DeclaredKind::Event => {
+            if let Some(declared) = &parents {
+                errors.push(syn::Error::new(
+                    declared.at,
+                    format!("`parents:` is not allowed on event schema {}", node.name),
+                ));
+            }
             let Some(mut declared) = levels else {
                 errors.push(syn::Error::new(
                     node.name.span(),
@@ -811,6 +901,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
     }
 
     let tags = tags.unwrap_or_else(|| inherited_tags.to_vec());
+    let parents = parents.map(|declared| declared.parents).unwrap_or_default();
 
     Ok(Schema {
         public: node.public,
@@ -819,6 +910,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
         name: node.name,
         description,
         tags,
+        parents,
         required_fields,
         optional_fields,
     })
@@ -964,6 +1056,30 @@ fn generate_kind_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro
 }
 
 /// Generate the required fields checker macro for a schema.
+/// `Child: AcceptsParent<P>` for each path in the span's `parents:` list.
+fn generate_parent_impls(schema: &Schema) -> proc_macro2::TokenStream {
+    if schema.parents.is_empty() {
+        return quote! {};
+    }
+    let child_path = schema_item_path(schema);
+    let impls = schema.parents.iter().map(|parent| {
+        quote! {
+            impl ::amaru_observability::AcceptsParent<#parent> for #child_path {}
+        }
+    });
+    quote! { #(#impls)* }
+}
+
+/// Path of the generated schema marker, relative to the `define_schemas!` call site.
+fn schema_item_path(schema: &Schema) -> syn::Path {
+    let mut segments = syn::punctuated::Punctuated::new();
+    for category in &schema.categories {
+        segments.push(syn::PathSegment::from(category.clone()));
+    }
+    segments.push(syn::PathSegment::from(schema.name.clone()));
+    syn::Path { leading_colon: None, segments }
+}
+
 fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let categories = schema.category_strings();
     let schema_name_str = schema.name_str();
@@ -1668,6 +1784,7 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
         validation_macros.push(generate_instrument_macro(schema, config));
         validation_macros.push(generate_assign_macro(schema, config));
         validation_macros.push(generate_record_macro(schema, config));
+        validation_macros.push(generate_parent_impls(schema));
 
         inventory_submissions.push(generate_inventory_submission(schema, config));
     }
@@ -1890,7 +2007,12 @@ fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
         }
         let tree = build_category_tree(&schemas);
         let modules = build_modules_noop(&tree, &config);
-        return quote! { #(#modules)* }.into();
+        let parent_impls = schemas.iter().map(generate_parent_impls);
+        return quote! {
+            #(#parent_impls)*
+            #(#modules)*
+        }
+        .into();
     }
 
     let module_tree = build_module_tree_with_metadata(&schemas, &config);
@@ -2104,6 +2226,7 @@ mod tests {
             name: Ident::new("TEST", proc_macro2::Span::call_site()),
             description: None,
             tags: Vec::new(),
+            parents: Vec::new(),
             required_fields: Vec::new(),
             optional_fields: Vec::new(),
         };

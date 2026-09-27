@@ -15,7 +15,9 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeight, Header, IsHeader, Point};
-use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
+use amaru_observability::{
+    ContinuedHeader, Instrument, TraceContext, amaru::consensus::block::ADOPT, debug, debug_span, error, info, warn,
+};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
@@ -126,15 +128,15 @@ impl AdoptChain {
 pub struct AdoptChainMsg {
     tip: Point,
     max_block_height: BlockHeight,
-    trace_context: TraceContext,
+    trace_context: TraceContext<ContinuedHeader>,
 }
 
 impl AdoptChainMsg {
     pub fn new(tip: Point, max_block_height: BlockHeight) -> Self {
-        Self { tip, max_block_height, trace_context: Default::default() }
+        Self { tip, max_block_height, trace_context: TraceContext::detached() }
     }
 
-    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+    pub fn with_trace_context(mut self, trace_context: &TraceContext<ContinuedHeader>) -> Self {
         self.trace_context = trace_context.clone();
         self
     }
@@ -145,12 +147,12 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
     let AdoptChainMsg { tip: msg, trace_context, .. } = msg;
     let root_trace_context = trace_context.clone();
     let span = debug_span!(
-        parent_context: trace_context,
+        parent_context: &trace_context,
         consensus::block::ADOPT,
         tip = msg,
         header_hash = msg.hash()
     );
-    let trace_context = (&span).into();
+    let trace_context: TraceContext<ADOPT> = (&span).into();
 
     async {
         if msg.block_height() < state.current_best_tip.block_height() {
@@ -263,13 +265,13 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         state.current_best_tip = msg;
         state
     }
-    .instrument(span)
+    .instrument(span.into())
     .await
 }
 
 /// Adopt the tip: update the best chain fragment and best chain hash in a single store transaction.
-async fn adopt_tip(
-    store: &Store,
+async fn adopt_tip<S>(
+    store: &Store<S>,
     incoming_header: &Header,
     current_best: &Header,
 ) -> Result<AdoptTipResult, StoreError> {
@@ -303,8 +305,8 @@ enum AdoptTipResult {
 /// After the anchor update (if any), prunes performance maps at the immutable horizon
 /// (`tip.height - k`): peer claims below that height, and open header lifecycles as `Pruned`.
 /// Returns the clock reading used for that prune (also suitable for adoption logging).
-async fn drag_anchor_forward(
-    store: &Store,
+async fn drag_anchor_forward<S>(
+    store: &Store<S>,
     tip: &Point,
     consensus_security_param: u64,
     eff: &Effects<AdoptChainMsg>,

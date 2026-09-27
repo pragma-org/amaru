@@ -22,7 +22,13 @@ use amaru_kernel::{
     BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, from_cbor_no_leftovers,
     num::CheckedSub,
 };
-use amaru_observability::{Instrument, TraceContext, debug, debug_record, debug_span, error, info, trace, warn};
+use amaru_observability::{
+    ChainSyncProcess, ContinuedHeader, Instrument, TraceContext,
+    amaru::consensus::{
+        roll_backward::PROCESS as ROLL_BACKWARD_PROCESS, roll_forward::PROCESS as ROLL_FORWARD_PROCESS,
+    },
+    debug, debug_record, debug_span, error, info, trace, warn,
+};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
@@ -222,7 +228,7 @@ struct DeferredHeader {
     conn_id: ConnectionId,
     handler: StageRef<chainsync::InitiatorMessage>,
     reason: DeferReason,
-    trace_context: TraceContext,
+    trace_context: TraceContext<ROLL_FORWARD_PROCESS>,
     /// When the header was first received from upstream, retained across deferrals so the forward
     /// duration downstream is measured from the original ingress time.
     received_at: Instant,
@@ -248,7 +254,7 @@ struct RollForwardArgs {
     variant: EraName,
     header: Header,
     tip: Point,
-    trace_context: TraceContext,
+    trace_context: TraceContext<ROLL_FORWARD_PROCESS>,
     /// When the header was first received from upstream.
     received_at: Instant,
 }
@@ -318,13 +324,18 @@ pub enum TrackPeersMsg {
 pub struct NewTip {
     pub tip: Point,
     pub parent: Point,
-    pub trace_context: TraceContext,
+    pub trace_context: TraceContext<ChainSyncProcess>,
 }
 
 impl NewTip {
     pub fn new(tip: Point, parent: Point) -> Self {
-        NewTip { tip, parent, trace_context: Default::default() }
+        NewTip { tip, parent, trace_context: TraceContext::detached() }
     }
+}
+
+fn ban_context(context: impl Into<TraceContext<ChainSyncProcess>>) -> TraceContext<ContinuedHeader> {
+    let chain_sync: TraceContext<ChainSyncProcess> = context.into();
+    chain_sync.into()
 }
 
 pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {
@@ -395,7 +406,7 @@ impl TrackPeers {
             conn_id,
             handler,
             reason: DeferReason::FollowUp { header, tip, variant: EraName::Conway },
-            trace_context: TraceContext::default(),
+            trace_context: TraceContext::detached(),
             received_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
         });
     }
@@ -468,8 +479,8 @@ impl TrackPeers {
         variant: EraName,
         header: &Header,
         tip: Point,
-        ledger: &Ledger,
-        store: &Store,
+        ledger: &Ledger<ROLL_FORWARD_PROCESS>,
+        store: &Store<ROLL_FORWARD_PROCESS>,
         current_time: Instant,
     ) -> Result<Option<(Point, Nonces)>, ConsensusError> {
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
@@ -556,7 +567,7 @@ impl TrackPeers {
         conn_id: ConnectionId,
         current: Point,
         tip: Point,
-        store: &Store,
+        store: &Store<ROLL_BACKWARD_PROCESS>,
     ) -> Result<Point, ConsensusError> {
         let Some(current_tip) = store.load_point(&current.hash()).await else {
             return Err(ConsensusError::UnknownPoint(current.hash()));
@@ -763,7 +774,11 @@ impl TrackPeers {
                 record_header_rejected(eff, HeaderLifecycleOutcome::InvalidHeader).await;
 
                 self.purge_connection(*conn_id);
-                eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(args.peer, args.trace_context)).await;
+                eff.send(
+                    &self.peer_selection,
+                    PeerSelectionMsg::Adversarial(args.peer, ban_context(args.trace_context)),
+                )
+                .await;
                 return Ok(());
             }
         };
@@ -828,7 +843,8 @@ impl TrackPeers {
                 ))
                 .await;
                 debug!(consensus::chainsync::ROLL_FORWARD_DONE, peer, current, highest = tip, outcome = "stored");
-                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context }).await;
+                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context: trace_context.into() })
+                    .await;
             }
         }
 
@@ -895,7 +911,7 @@ impl TrackPeers {
             }
             RollForward(header_content, tip) => {
                 let span = debug_span!(root, consensus::roll_forward::PROCESS, tip, peer);
-                let trace_context: TraceContext = (&span).into();
+                let trace_context: TraceContext<ROLL_FORWARD_PROCESS> = (&span).into();
                 async {
                     trace!(
                         consensus::chainsync::ROLL_FORWARD,
@@ -917,8 +933,11 @@ impl TrackPeers {
                                 outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
                             record_header_rejected(&eff, HeaderLifecycleOutcome::UndecodableHeader).await;
-                            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context.clone()))
-                                .await;
+                            eff.send(
+                                &self.peer_selection,
+                                PeerSelectionMsg::Adversarial(peer, ban_context(trace_context.clone())),
+                            )
+                            .await;
                             return;
                         }
                     };
@@ -986,13 +1005,13 @@ impl TrackPeers {
                         self.ensure_recheck_armed(&eff).await;
                     }
                 }
-                .instrument(span)
+                .instrument(span.into())
                 .await
             }
             RollBackward(current, tip) => {
                 info!(consensus::chainsync::ROLL_BACKWARD, peer, current, highest = tip);
                 let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer);
-                let trace_context: TraceContext = (&span).into();
+                let trace_context: TraceContext<ROLL_BACKWARD_PROCESS> = (&span).into();
                 async {
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
 
@@ -1010,11 +1029,15 @@ impl TrackPeers {
                         Err(error) => {
                             error!(consensus::chainsync::ROLL_BACKWARD_FAILED, peer, error = error.to_string());
                             self.purge_connection(conn_id);
-                            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
+                            eff.send(
+                                &self.peer_selection,
+                                PeerSelectionMsg::Adversarial(peer, ban_context(trace_context)),
+                            )
+                            .await;
                         }
                     }
                 }
-                .instrument(span)
+                .instrument(span.into())
                 .await
             }
         }

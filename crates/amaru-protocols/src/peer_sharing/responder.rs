@@ -148,7 +148,7 @@ impl StageState<State, Responder> for PeerSharingResponder {
                     eff.send(&self.manager, ManagerMessage::ShareRequest { peer: self.peer, amount, reply_to }).await;
                     Ok((None, self))
                 }
-                .instrument(span)
+                .instrument(span.into())
                 .await
             }
             ResponderResult::Done => Ok((None, self)),

@@ -134,7 +134,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
             eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
             Ok((None, self))
         }
-        .instrument(debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie))
+        .instrument(debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie).into())
         .await
     }
 

@@ -18,6 +18,7 @@ use amaru_kernel::{
     ConsensusParameters, Epoch, EraHistory, Header, HeaderHash, IsHeader, NetworkName, Peer, Point, make_header,
     num::CheckedSub,
 };
+use amaru_observability::TraceContext;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
     BaseReadChainStore, MockBlockValidator, Nonces, PoolSummaries, WriteChainStore, has_stake_pools::MockHasStakePools,
@@ -247,7 +248,7 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
 }
 
 pub fn new_tip(tip: Point, parent: Point) -> NewTip {
-    NewTip { tip, parent, trace_context: Default::default() }
+    NewTip { tip, parent, trace_context: TraceContext::detached() }
 }
 
 fn register_guards() -> DeserializerGuards {

@@ -639,10 +639,6 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
 /// debug_span!(parent_context: &ctx, consensus::VALIDATE)
 /// ```
 pub fn expand_trace_span(input: TokenStream) -> TokenStream {
-    if crate::is_trace_no_emit() {
-        return quote! { ::amaru_observability::tracing::Span::none() }.into();
-    }
-
     // Parse using syn to properly handle commas in expressions
     use syn::{
         Token,
@@ -827,6 +823,37 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         Some(TraceSpanParent::Context(parent_expr)) => Some(parent_expr),
         Some(TraceSpanParent::Root | TraceSpanParent::Span(_)) | None => None,
     };
+    let schema_ty = build_exported_path(&meta, &args.schema_path);
+    let parent_context_bind = parent_context_expr
+        .map(|parent_expr| {
+            quote! {
+                let __amaru_parent_context = #parent_expr;
+                {
+                    fn __amaru_check_parent<C, Child>(_: &C)
+                    where
+                        C: ::amaru_observability::ParentContext,
+                        Child: ::amaru_observability::AcceptsParent<C::Schema>,
+                    {
+                    }
+                    __amaru_check_parent::<_, #schema_ty>(&__amaru_parent_context);
+                }
+            }
+        })
+        .unwrap_or_else(|| quote! {});
+
+    if crate::is_trace_no_emit() {
+        let parent_context_bind = parent_context_bind.clone();
+        let expanded = wrap_in_module_validator(
+            &meta,
+            quote! {{
+                #parent_context_bind
+                ::amaru_observability::SchemaSpan::<#schema_ty>::from_span(
+                    ::amaru_observability::tracing::Span::none(),
+                )
+            }},
+        );
+        return expanded.into();
+    }
 
     let span_expr = if level_str == "trace" {
         if let Some(parent_expr) = span_parent {
@@ -863,10 +890,9 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         (quote! { ::amaru_observability::opentelemetry }, quote! { ::amaru_observability::tracing_opentelemetry })
     };
     let parent_context_attachment = parent_context_expr
-        .map(|parent_expr| {
+        .map(|_parent_expr| {
             quote! {
                 {
-                    let __amaru_parent_context = #parent_expr;
                     let __amaru_otel_context = __amaru_parent_context.context();
                     let __amaru_has_valid_parent = {
                         use #opentelemetry_path::trace::TraceContextExt as _;
@@ -892,9 +918,10 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             #required_fields_check
             #private_emit_guard
             #(#field_nav)*
+            #parent_context_bind
 
             if !#public_const_path && !__amaru_emit_private {
-                ::amaru_observability::tracing::Span::none()
+                ::amaru_observability::SchemaSpan::<#schema_ty>::from_span(::amaru_observability::tracing::Span::none())
             } else {
                 #(#value_bindings)*
 
@@ -910,7 +937,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                 let #span_name = #span_expr;
                 #parent_context_attachment
 
-                #span_name
+                ::amaru_observability::SchemaSpan::<#schema_ty>::from_span(#span_name)
             }
         }},
     );

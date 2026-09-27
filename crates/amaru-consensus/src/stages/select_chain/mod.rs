@@ -15,7 +15,11 @@
 use std::{cmp::Ordering, collections::BTreeMap};
 
 use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point};
-use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
+use amaru_observability::{
+    ChainSyncProcess, ContinuedHeader, Instrument, TraceContext,
+    amaru::consensus::chain::{FETCH_NEXT, SELECT_FROM_BLOCK_VALIDATION, SELECT_FROM_TIP},
+    debug, debug_span, error, info, warn,
+};
 use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
@@ -113,33 +117,32 @@ impl SelectChain {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SelectChainMsg {
     Initialize(HeaderHash),
-    TipFromUpstream { tip: Point, parent: Point, trace_context: TraceContext },
-    BlockValidationResult(Point, bool, BlockHeight, TraceContext),
+    TipFromUpstream { tip: Point, parent: Point, trace_context: TraceContext<ChainSyncProcess> },
+    BlockValidationResult(Point, bool, BlockHeight, TraceContext<ContinuedHeader>),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
-    FetchNextFrom(Point, TraceContext),
+    FetchNextFrom(Point, TraceContext<ContinuedHeader>),
 }
 
 impl SelectChainMsg {
     pub fn tip_from_upstream(tip: Point, parent: Point) -> Self {
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context: Default::default() }
+        SelectChainMsg::TipFromUpstream { tip, parent, trace_context: TraceContext::detached() }
     }
 
     pub fn block_validation_result(point: Point, valid: bool, max_block_height: BlockHeight) -> Self {
-        SelectChainMsg::BlockValidationResult(point, valid, max_block_height, Default::default())
+        SelectChainMsg::BlockValidationResult(point, valid, max_block_height, TraceContext::detached())
     }
 
     pub fn fetch_next_from(point: Point) -> Self {
-        SelectChainMsg::FetchNextFrom(point, Default::default())
+        SelectChainMsg::FetchNextFrom(point, TraceContext::detached())
     }
 
-    /// Attaches the given contex as the parent of the span this message will open.
-    pub fn with_trace_context(mut self, context: &TraceContext) -> Self {
+    /// Attaches the context carried with a block. A tip from chain sync uses [`ChainSyncProcess`] directly.
+    pub fn with_trace_context(mut self, context: &TraceContext<ContinuedHeader>) -> Self {
         match &mut self {
-            SelectChainMsg::TipFromUpstream { trace_context, .. }
-            | SelectChainMsg::BlockValidationResult(_, _, _, trace_context)
+            SelectChainMsg::BlockValidationResult(_, _, _, trace_context)
             | SelectChainMsg::FetchNextFrom(_, trace_context) => *trace_context = context.clone(),
-            SelectChainMsg::Initialize(_) => {}
+            SelectChainMsg::TipFromUpstream { .. } | SelectChainMsg::Initialize(_) => {}
         }
         self
     }
@@ -164,11 +167,14 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 header_hash = tip.hash(),
             );
             let child_trace_context = (&span).into();
-            state.handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context).instrument(span).await;
+            state
+                .handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context)
+                .instrument(span.into())
+                .await;
         }
         SelectChainMsg::BlockValidationResult(point, valid, max_block_height, parent_trace_context) => {
             let span = debug_span!(
-                parent_context: parent_trace_context,
+                parent_context: &parent_trace_context,
                 consensus::chain::SELECT_FROM_BLOCK_VALIDATION,
                 point,
                 valid,
@@ -177,13 +183,13 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             let trace_context = (&span).into();
             state
                 .handle_block_validation_result(point, valid, max_block_height, eff, trace_context)
-                .instrument(span)
+                .instrument(span.into())
                 .await;
         }
         SelectChainMsg::FetchNextFrom(point, trace_context) => {
-            let span = debug_span!(parent_context: trace_context, consensus::chain::FETCH_NEXT, point, header_hash = point.hash(),);
+            let span = debug_span!(parent_context: &trace_context, consensus::chain::FETCH_NEXT, point, header_hash = point.hash(),);
             let trace_context = (&span).into();
-            state.handle_fetch_next_from(point, eff, trace_context).instrument(span).await;
+            state.handle_fetch_next_from(point, eff, trace_context).instrument(span.into()).await;
         }
     }
     state
@@ -199,8 +205,8 @@ impl SelectChain {
         tip: Point,
         parent: Point,
         eff: Effects<SelectChainMsg>,
-        parent_context: TraceContext,
-        stage_context: TraceContext,
+        parent_context: TraceContext<ChainSyncProcess>,
+        stage_context: TraceContext<SELECT_FROM_TIP>,
     ) {
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
 
@@ -272,7 +278,7 @@ impl SelectChain {
 
             if self.may_fetch_blocks {
                 self.may_fetch_blocks = false;
-                eff.send(&self.downstream, NewBestTip { tip, parent, trace_context: parent_context }).await;
+                eff.send(&self.downstream, NewBestTip { tip, parent, trace_context: parent_context.into() }).await;
             }
             self.best_tip = Some(header);
         }
@@ -284,7 +290,7 @@ impl SelectChain {
         valid: bool,
         max_block_height: BlockHeight,
         eff: Effects<SelectChainMsg>,
-        trace_context: TraceContext,
+        trace_context: TraceContext<SELECT_FROM_BLOCK_VALIDATION>,
     ) {
         // While catching up, slot-start-to-header is not a meaningful network-health signal.
         let syncing = max_block_height > tip.block_height();
@@ -350,8 +356,15 @@ impl SelectChain {
                     let parent = load_parent_point(&eff, &store, &new_best_tip).await;
                     if self.may_fetch_blocks {
                         self.may_fetch_blocks = false;
-                        eff.send(&self.downstream, NewBestTip { tip: new_best_tip.point(), parent, trace_context })
-                            .await;
+                        eff.send(
+                            &self.downstream,
+                            NewBestTip {
+                                tip: new_best_tip.point(),
+                                parent,
+                                trace_context: trace_context.clone().into(),
+                            },
+                        )
+                        .await;
                     }
                     let (to_validate, _) = store.unvalidated_ancestor_hashes(new_best_tip.hash()).await;
                     // Only record a fork switch if there are blocks to validate on the new best tip.
@@ -395,7 +408,7 @@ impl SelectChain {
         &mut self,
         point: Point,
         eff: Effects<SelectChainMsg>,
-        trace_context: TraceContext,
+        trace_context: TraceContext<FETCH_NEXT>,
     ) {
         assert!(!self.may_fetch_blocks, "received FetchNextFrom while not having responded to previous one");
         // During startup with non-empty chain store, best_tip will be different from origin and
@@ -431,7 +444,11 @@ impl SelectChain {
                 best_tip = best_tip.point(),
                 parent
             );
-            eff.send(&self.downstream, NewBestTip { tip: best_tip.point(), parent, trace_context }).await;
+            eff.send(
+                &self.downstream,
+                NewBestTip { tip: best_tip.point(), parent, trace_context: trace_context.into() },
+            )
+            .await;
         } else {
             let (outcome, best_tip) = match &self.best_tip {
                 Some(best_tip) => ("already_at_best_tip", best_tip.point()),
@@ -448,18 +465,22 @@ impl SelectChain {
 pub struct NewBestTip {
     pub tip: Point,
     pub parent: Point,
-    pub trace_context: TraceContext,
+    pub trace_context: TraceContext<ContinuedHeader>,
 }
 
 impl NewBestTip {
     pub fn new(tip: Point, parent: Point) -> Self {
-        NewBestTip { tip, parent, trace_context: Default::default() }
+        NewBestTip { tip, parent, trace_context: TraceContext::detached() }
     }
 }
 
 /// Return the point of the parent of `header`, or `Point::Origin` if it has no parent.
 /// The parent header must be present in the store otherwise the stage is terminated.
-pub async fn load_parent_point<T: Send + Sync + 'static>(eff: &Effects<T>, store: &Store, header: &Header) -> Point {
+pub async fn load_parent_point<T: Send + Sync + 'static, S>(
+    eff: &Effects<T>,
+    store: &Store<S>,
+    header: &Header,
+) -> Point {
     if let Some(parent) = header.parent() {
         store
             .load_point(&parent)

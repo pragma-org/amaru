@@ -16,13 +16,16 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point};
 use amaru_metrics::LedgerMetrics;
-use amaru_observability::{Instrument, TraceContext, debug, debug_record, debug_span, error, info, warn};
+use amaru_observability::{
+    ContinuedHeader, Instrument, TraceContext, amaru::consensus::block::VALIDATE, debug, debug_record, debug_span,
+    error, info, warn,
+};
 use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
 
 use crate::{
-    effects::{Ledger, LedgerOps, Metrics, MetricsOps},
+    effects::{Ledger, Metrics, MetricsOps},
     stages::{
         adopt_chain::AdoptChainMsg,
         block_source::BlockSourceMsg,
@@ -102,7 +105,7 @@ impl ValidateBlock {
         tip: Point,
         eff: &Effects<ValidateBlockMsg>,
         metrics: LedgerMetrics,
-        trace_context: &TraceContext,
+        trace_context: &TraceContext<ContinuedHeader>,
     ) {
         Metrics::new(eff).record(metrics.into()).await;
         eff.send(
@@ -128,7 +131,7 @@ impl ValidateBlock {
         eff: &Effects<ValidateBlockMsg>,
         reason: &str,
         message: &str,
-        trace_context: &TraceContext,
+        trace_context: &TraceContext<ContinuedHeader>,
     ) {
         warn!(consensus::block::INVALID, failed_tip, parent = msg.parent, error = reason, detail = message);
         self.invalid_blocks.insert(failed_tip.hash(), failed_tip.block_height());
@@ -149,39 +152,35 @@ pub struct ValidateBlockMsg {
     tip: Point,
     parent: Point,
     max_block_height: BlockHeight,
-    trace_context: TraceContext,
+    trace_context: TraceContext<ContinuedHeader>,
 }
 
 impl ValidateBlockMsg {
     pub fn new(tip: Point, parent: Point, max_block_height: BlockHeight) -> Self {
-        Self { tip, parent, max_block_height, trace_context: Default::default() }
+        Self { tip, parent, max_block_height, trace_context: TraceContext::detached() }
     }
 
-    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+    pub fn with_trace_context(mut self, trace_context: &TraceContext<ContinuedHeader>) -> Self {
         self.trace_context = trace_context.clone();
         self
     }
 }
 
-pub async fn stage(
-    mut state: ValidateBlock,
-    mut msg: ValidateBlockMsg,
-    eff: Effects<ValidateBlockMsg>,
-) -> ValidateBlock {
+pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects<ValidateBlockMsg>) -> ValidateBlock {
     let tip = msg.tip;
     if msg.parent == Point::Origin {
         error!(consensus::block::VALIDATE_FROM_GENESIS, tip, current = state.current, parent = msg.parent);
         return eff.terminate().await;
     }
 
-    let trace_context = std::mem::take(&mut msg.trace_context);
+    let trace_context = msg.trace_context.clone();
     let root_trace_context = trace_context.clone();
     let span = debug_span!(
-            parent_context: trace_context,
+            parent_context: &trace_context,
             consensus::block::VALIDATE,
             tip,
             header_hash = tip.hash());
-    let stage_context = (&span).into();
+    let stage_context: TraceContext<VALIDATE> = (&span).into();
 
     state.max_block_height = msg.max_block_height.max(state.max_block_height);
     async {
@@ -295,7 +294,7 @@ pub async fn stage(
         };
         state
     }
-    .instrument(span)
+    .instrument(span.into())
     .await
 }
 

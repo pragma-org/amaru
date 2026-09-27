@@ -63,11 +63,14 @@ impl ChainSyncClient {
                 point.ok_or(ChainSyncClientError::NoIntersectionFound { points: self.intersection.clone() })?;
             Ok(from_pallas_point(&intersection))
         }
-        .instrument(debug_span!(
-            consensus::chain::FIND_INTERSECTION,
-            peer = &self.peer,
-            intersection_slot = self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default()
-        ))
+        .instrument(
+            debug_span!(
+                consensus::chain::FIND_INTERSECTION,
+                peer = &self.peer,
+                intersection_slot = self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default()
+            )
+            .into(),
+        )
         .await
     }
 
