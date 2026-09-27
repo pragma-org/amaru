@@ -28,7 +28,9 @@ use amaru_kernel::{
     utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::{debug_span, error_record, info, info_record, info_span, trace, warn, warn_record};
+use amaru_observability::{
+    debug_span, error_record, info, info_record, info_span, trace, trace_record, warn, warn_record,
+};
 pub use amaru_ouroboros_traits::{ForkSwitchOutcome, InvalidBlock, PoolSummaries, PoolSummary};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
@@ -903,7 +905,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         let state_recovery = self.rollback_to(fork_point)?;
 
         let rollback_length = state_recovery.rollback_length();
-        info_record!(ledger::state::SWITCH_TO_FORK, fork_point, fork_length, rollback_length);
+        trace_record!(ledger::state::SWITCH_TO_FORK, fork_point, fork_length, rollback_length);
 
         // The fork must replace the rolled-back chain at equal length or extend it by exactly one
         // block. If this condition is violated, this means that there is an issue with chain selection.

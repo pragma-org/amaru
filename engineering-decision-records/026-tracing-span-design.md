@@ -21,10 +21,10 @@ This section is structured by the kind of traces under consideration:
 Each of these areas contains parts that are intended for node operators as well as implementation details relevant for Amaru developers.
 It is important that the node admin can enable any desired trace to aid in debugging issues that may be observed in production.
 
-All spans are classified first by a TARGET and within that target by a NAME.
+A span is classified by its target and its span id.
 The target gives a rough categorization and allows selecting traces pertaining to one of the major Amaru components (precise granularity to be decided case by case).
 
-The name uniquely identifies the source location within a given target **(see discussion below)** and is composed from multiple components separated by dots. For example
+The span id is the dotted suffix stored as the span's metadata name. `name:` / NAME is the event name only, not this id. The span id identifies the source location within a given target and is composed from multiple components separated by dots. For example
 
 1. a function, logical unit, data item, or similar
 2. an operation (if applicable) described as a verb
@@ -45,30 +45,30 @@ The name uniquely identifies the source location within a given target **(see di
 OpenTelemetry. It prescribes the use of a schema to specify spans attributes and their types with namespacing to avoid
 collisions.
 
-In the current EDR the first two levels are used to define the target of a span and the next levels to define the name of the span.
+In the current EDR the first two levels define the target. The next levels are the event name when the schema is an event, and the span id when it is a span. They are not NAME. NAME is only the event name (`name:`).
 
 Here are two examples. During consensus, we receive an upstream message informing the node of a new block header and we
-need to evolve the nonce associated with the current header. In that case the fully qualified name of the span in the
+need to evolve the nonce associated with the current header. In that case the fully qualified path in the
 schema is:
 
 ```rust
 amaru::consensus::header::evolve_nonce
 ```
 
-In this example, the target is `amaru::consensus` and the name is `header.evolve_nonce`.
+In this example, the target is `amaru::consensus` and the span id is `header.evolve_nonce`.
 Similarly for the ledger, we can find a schema entry like:
 
 ```rust
 amaru::ledger::validation_context::create
 ```
 
-In this case, the target is `amaru::ledger` and the name is `validation_context.create`.
+In this case, the target is `amaru::ledger` and the span id is `validation_context.create`.
 
-We also mandate that the span names are unique, even across targets, to avoid having two spans called
+We also mandate that these suffixes are unique, even across targets, to avoid having two spans with span id
 `block.validate` both in `amaru::consensus` and in `amaru::ledger`.
 
-In addition to the target and name of a span, the schema can define a number of tags, that translate to boolean span
-attributes. This can be used to classify spans across target and span names. For example:
+In addition to the target and span id, the schema can define a number of tags, that translate to boolean span
+attributes. This can be used to classify spans across target and span id. For example:
 
     - `setup` for starting up a component or subsystem
     - `check` for validating inputs, peer behaviour, authorization, integrity, etc.
@@ -98,9 +98,9 @@ One result of the Node Diversity Workshop in Porto (June 2–3, 2026) was a reaf
 3. first reception of the block from some upstream peer
 4. local adoption of the block
 
-The duration of that path is a span with NAME `perf.header.forward` on target `amaru::network`, opened upon successful decoding of the header in the `track_peers` stage and closed in the `select_chain` stage, either upon seeing that the header is not on the best chain candidate or upon receiving the block validation result (which is slightly after adopting the block but typically before communicating the new tip to downstream peers). This records points 1 and 4.
+The duration of that path is the span id `perf.header.forward` on target `amaru::network`, opened upon successful decoding of the header in the `track_peers` stage and closed in the `select_chain` stage, either upon seeing that the header is not on the best chain candidate or upon receiving the block validation result (which is slightly after adopting the block but typically before communicating the new tip to downstream peers). This records points 1 and 4.
 
-Points 2 and 3 are recorded by a span with NAME `perf.blocks.fetch` on the same target, opened in `fetch_blocks` when requesting a range containing that block and closed when the block has been received.
+Points 2 and 3 are recorded by the span id `perf.blocks.fetch` on target `amaru::network`, opened in `fetch_blocks` when requesting a range containing that block and closed when the block has been received.
 
 These duration spans, together with `perf.header.block_fetch_wait` and `perf.fork.switch`, are span schemas on target `amaru::network`. They are not a substitute for the blockperf log lines below, and those log lines do not replace the spans. OpenTelemetry exports the spans as spans and the blockperf events as logs. Each schema is either a span or an event; that kind is what emission uses.
 
@@ -117,19 +117,19 @@ Each of these lines carries `slot_latency_ms`, milliseconds since the onset of t
 
 `adopt_chain` stores a consensus mode from the adopted tip's slot onset and the wall clock. A lag strictly under 60 seconds is live. A change of mode is logged at info as `tip.mode`. While syncing, the four events are debug and `tip.adopt` is limited to one info line per second. While live, the four events and every adoption are info. `track_peers` logs `chainsync.chain_lagging` at most once a minute when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. A sync that is still adopting faster than 10 blocks per second, and the first minute of that condition, stay quiet.
 
-Switching to a different fork opens a span with NAME `perf.fork.switch` on target `amaru::network` for all blocks on the target fork. That span is separate from the consensus event of the same name, which records the outcome when a fork switch ends.
+Switching to a different fork opens the span id `perf.fork.switch` on target `amaru::network` for all blocks on the target fork. That span is separate from the consensus event of the same id, which records the outcome when a fork switch ends.
 
 #### Consensus
 
 > **TARGET:** `amaru::consensus`
 
-The span names for this target don't have to follow the names of the stages in the consensus pipeline, but rather reflect the logical processing steps that are performed on a header or block.
+The span ids for this target don't have to follow the names of the stages in the consensus pipeline, but rather reflect the logical processing steps that are performed on a header or block.
 
 External `pure-stage` effect handling is extended such that the calling stage’s span is set as the context when executing the effect logic. This will tie for example all store or ledger spans to their parent span from the consensus span that triggered the effect.
 
 Messages sent to the `peer_selection` stage stemming from adversarial peer behaviour must be associated with the related header’s trace ID.
 
-The waiting time of a header in `select_chain` before being eligible for fetching blocks during catch-up (due to the back-pressure decoupling twixt `select_chain` and `fetch_blocks`) must be made explicitly visible in the traces by opening and closing a span with NAME `perf.header.block_fetch_wait` accordingly.
+The waiting time of a header in `select_chain` before being eligible for fetching blocks during catch-up (due to the back-pressure decoupling twixt `select_chain` and `fetch_blocks`) must be made explicitly visible in the traces by opening and closing the span id `perf.header.block_fetch_wait` on target `amaru::network`.
 
 #### Ledger
 
@@ -144,9 +144,9 @@ Activities spawned from such invocations that are not related to that block or h
 
 Each received transaction gives rise to a trace ID associated with the transaction hash as a property. The spans recorded are:
 
-- NAME `state.transaction.submit`: is opened upon local reception of the transaction and closed when inserted in the mempool or rejected
-- NAME `state.transaction.receive`: is opened upon N2N reception of the transaction and closed when inserted in the mempool or rejected
-- NAME `state.transaction.forward`: is opened when an upstream peer is requesting transactions and this transaction’s ID is sent; it is closed when the transaction has been sent to the peer
+- span id `state.transaction.submit`: is opened upon local reception of the transaction and closed when inserted in the mempool or rejected
+- span id `state.transaction.receive`: is opened upon N2N reception of the transaction and closed when inserted in the mempool or rejected
+- span id `state.transaction.forward`: is opened when an upstream peer is requesting transactions and this transaction’s ID is sent; it is closed when the transaction has been sent to the peer
 
 ### Protocols
 

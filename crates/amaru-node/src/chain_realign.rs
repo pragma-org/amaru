@@ -45,12 +45,13 @@ pub enum ClearValidity {
 /// Headers and blocks are retained. When a best chain already exists, `tip` must lie on it;
 /// otherwise the store is left untouched and an error is returned.
 pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: ClearValidity) -> anyhow::Result<()> {
-    info!(consensus::chain_db::INITIALIZE, ledger_tip = tip);
-
     let best_chain_hash = chain_store.get_best_chain_hash();
     let has_best_chain = best_chain_hash != ORIGIN_HASH;
 
-    ensure_store_consistency(chain_store, tip)?;
+    if let Err(error) = ensure_store_consistency(chain_store, tip) {
+        info!(consensus::chain_db::INITIALIZE, ledger_tip = tip);
+        return Err(error.into());
+    }
 
     chain_store.set_anchor_point(&tip)?;
     chain_store.set_block_valid(&tip.hash(), true)?;

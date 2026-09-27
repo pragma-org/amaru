@@ -4071,6 +4071,28 @@
         "info"
       ]
     },
+    "amaru::consensus::chain_db_migration::MIGRATE": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "integer"
+        },
+        "to": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "migrate",
+      "kind": "span",
+      "target": "amaru::consensus::chain_db_migration",
+      "description": "Migrate the chain database from the stored version to the current one",
+      "public": true
+    },
     "amaru::consensus::chain_db_migration::RESET_BEST_CHAIN": {
       "type": "object",
       "properties": {

@@ -437,51 +437,23 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     let field_nav: Vec<_> =
         args.fields.iter().map(|field| field_usage_anchor(&meta, &args.schema_path, &field.name)).collect();
 
-    // Generate the expanded code - generate the full block based on whether a level is specified
-    let expanded = if let Some(level_ident) = &args.level {
-        let level_str = level_ident.to_string().to_lowercase();
+    // The parser only keeps TRACE/DEBUG/INFO/WARN/ERROR, so lowercase is one of those.
+    let event_emit = args.level.as_ref().map(|level_ident| {
+        let level_macro = syn::Ident::new(&level_ident.to_string().to_lowercase(), proc_macro2::Span::call_site());
+        quote! { ::amaru_observability::tracing::#level_macro!(#(#event_fields),*); }
+    });
 
-        // Validate level
-        if !matches!(level_str.as_str(), "trace" | "debug" | "info" | "warn" | "error") {
-            return syn::Error::new_spanned(
-                level_ident,
-                "Invalid tracing level. Must be one of: TRACE, DEBUG, INFO, WARN, ERROR",
-            )
-            .to_compile_error()
-            .into();
-        }
+    let expanded = quote! {
+        {
+            #kind_check
+            #private_emit_guard
+            #(#field_nav)*
 
-        // Create the level macro identifier (trace, debug, info, warn, error)
-        let level_macro = syn::Ident::new(&level_str, proc_macro2::Span::call_site());
-
-        // Generate the code once with the level macro identifier
-        quote! {
-            {
-                #kind_check
-                #private_emit_guard
-                #(#field_nav)*
-
-                if #public_const_path || __amaru_emit_private {
-                    let _schema = #schema_name_path;
-                    #(#field_prep)*
-                    #(#span_records)*
-                    ::amaru_observability::tracing::#level_macro!(#(#event_fields),*);
-                }
-            }
-        }
-    } else {
-        // Without level: just record to span
-        quote! {
-            {
-                #kind_check
-                #private_emit_guard
-                #(#field_nav)*
-
-                if #public_const_path || __amaru_emit_private {
-                    let _schema = #schema_name_path;
-                    #(#field_prep)*
-                    #(#span_records)*
-                }
+            if #public_const_path || __amaru_emit_private {
+                let _schema = #schema_name_path;
+                #(#field_prep)*
+                #(#span_records)*
+                #event_emit
             }
         }
     };
@@ -775,22 +747,10 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     };
     let fields = &args.fields;
 
-    // Validate and convert level (accept uppercase and convert to lowercase)
-    let level_str = if let Some(level_ident) = &args.level {
-        let level_str = level_ident.to_string().to_lowercase();
-        match level_str.as_str() {
-            "trace" | "debug" | "info" | "warn" | "error" => level_str,
-            _ => {
-                return syn::Error::new_spanned(
-                    level_ident,
-                    "Invalid tracing level. Must be one of: TRACE, DEBUG, INFO, WARN, ERROR",
-                )
-                .to_compile_error()
-                .into();
-            }
-        }
-    } else {
-        "trace".to_string()
+    // The parser only keeps TRACE/DEBUG/INFO/WARN/ERROR, so lowercase is one of those.
+    let level_str = match &args.level {
+        Some(level_ident) => level_ident.to_string().to_lowercase(),
+        None => "trace".to_string(),
     };
 
     let meta = match SchemaMeta::parse(&args.schema_path) {

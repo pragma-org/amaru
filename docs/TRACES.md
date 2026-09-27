@@ -1301,10 +1301,20 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
 | `execute` | `event` | info | public | Migrate the database if necessary | from, to |  |
+| `migrate` | `span` |  | public | Migrate the chain database from the stored version to the current one | from, to |  |
 | `reset_best_chain` | `event` | info | public | Reset the best chain to the anchor during migration so blocks are revalidated | prev_best_chain, new_best_chain |  |
 | `warn` | `event` | warn | public | A database migration relies on an assumption that may not hold; see the reason | to, reason |  |
 
 <details><summary>event: `execute`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from` | `integer` | ✓ |
+| `to` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `migrate`</summary>
 
 | field | type | required |
 | --- | --- | --- |

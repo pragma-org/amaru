@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock};
-use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, tracing::Span, warn};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
@@ -528,10 +528,11 @@ impl FetchBlocks {
             let expected = block.header.body().block_body_hash;
             let actual = block.body_hash();
             warn!(consensus::block::MISMATCHED_HASH, peer, header_hash = point.hash(), expected, actual);
-            // The mismatch is an event. Parent the adversarial report on the span already
-            // active for this fetch instead of opening a second span for the same fields.
-            let parent = TraceContext::from(&Span::current());
-            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, parent)).await;
+            eff.send(
+                &self.peer_selection,
+                PeerSelectionMsg::Adversarial(peer, self.trace_context.clone().unwrap_or_default()),
+            )
+            .await;
             return;
         }
 

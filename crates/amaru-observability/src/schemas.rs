@@ -115,6 +115,11 @@ define_schemas! {
                     required from: u16
                     required to: u16
                 }
+                /// Migrate the chain database from the stored version to the current one
+                public span MIGRATE {
+                    required from: u16
+                    required to: u16
+                }
                 /// A database migration relies on an assumption that may not hold; see the reason
                 public event WARN {
                     levels: warn
@@ -2830,6 +2835,10 @@ define_schemas! {
                         levels: trace
                         optional bytes: u64
                         optional proto_id: String
+                    }
+                    /// Run the protocol handler for one received segment
+                    span HANDLE {
+                        required bytes: u64
                     }
                     /// Want next message for protocol
                     span WANT_NEXT {}

@@ -81,9 +81,8 @@ fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
                 "description": entry.description,
                 "public": entry.public,
             });
-            if entry.kind == SchemaKind::Event {
-                schema["levels"] =
-                    Value::Array(entry.levels.iter().map(|level| Value::String((*level).to_string())).collect());
+            if let SchemaKind::Event = entry.kind {
+                schema["levels"] = json!(entry.levels);
             }
 
             (entry.path.to_string(), schema)
