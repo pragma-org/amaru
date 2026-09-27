@@ -306,10 +306,17 @@ struct SchemaNode {
     items: Vec<SchemaItem>,
 }
 
+/// `levels:` names already checked against [`TraceLevel`].
+struct LevelsDecl {
+    /// First level name. A span schema points its "levels are not allowed" error here.
+    at: proc_macro2::Span,
+    levels: Vec<TraceLevel>,
+}
+
 /// Items that may appear inside a schema body.
 enum SchemaItem {
     Tags(Vec<Ident>),
-    Levels(Vec<Ident>),
+    Levels(LevelsDecl),
     Field {
         /// Field doc comments are accepted for source documentation; not emitted today.
         #[allow(dead_code)]
@@ -556,7 +563,7 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
     Ok(tags)
 }
 
-fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
+fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<LevelsDecl> {
     let levels_kw: Ident = input.parse()?;
     if levels_kw != "levels" {
         return Err(syn::Error::new(levels_kw.span(), "expected `levels`"));
@@ -564,6 +571,7 @@ fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
     input.parse::<Token![:]>()?;
 
     let mut levels = Vec::new();
+    let mut at = None;
     loop {
         if input.is_empty() || input.peek(Token![#]) || !input.peek(Ident) {
             break;
@@ -580,16 +588,19 @@ fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
 
         let level: Ident = input.parse()?;
         let name = level.to_string();
-        if TraceLevel::from_name(&name).is_none() {
+        let Some(parsed) = TraceLevel::from_name(&name) else {
             return Err(syn::Error::new(
                 level.span(),
                 format!("invalid level '{name}'; expected one of: trace, debug, info, warn, error"),
             ));
-        }
-        if levels.iter().any(|existing| existing == &level) {
+        };
+        if levels.contains(&parsed) {
             return Err(syn::Error::new(level.span(), format!("duplicate level '{level}' in levels declaration")));
         }
-        levels.push(level);
+        if at.is_none() {
+            at = Some(level.span());
+        }
+        levels.push(parsed);
 
         if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
@@ -598,10 +609,10 @@ fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
         break;
     }
 
-    if levels.is_empty() {
+    let Some(at) = at else {
         return Err(syn::Error::new(levels_kw.span(), "expected at least one level after `levels:`"));
-    }
-    Ok(levels)
+    };
+    Ok(LevelsDecl { at, levels })
 }
 
 /// `span` / `event` only when the following identifier is a schema name.
@@ -710,7 +721,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
     let description = docs_from_attrs(&node.attrs);
 
     let mut tags: Option<Vec<Ident>> = None;
-    let mut levels: Option<Vec<Ident>> = None;
+    let mut levels: Option<LevelsDecl> = None;
     let mut required_fields = Vec::new();
     let mut optional_fields = Vec::new();
 
@@ -729,7 +740,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
             SchemaItem::Levels(declared) => {
                 if levels.is_some() {
                     errors.push(syn::Error::new(
-                        declared.first().map(|i| i.span()).unwrap_or_else(proc_macro2::Span::call_site),
+                        declared.at,
                         format!("duplicate levels declaration in schema {}", node.name),
                     ));
                 } else {
@@ -773,27 +784,14 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
         DeclaredKind::Span => {
             if let Some(declared) = &levels {
                 errors.push(syn::Error::new(
-                    declared.first().map(|ident| ident.span()).unwrap_or_else(proc_macro2::Span::call_site),
+                    declared.at,
                     format!("`levels:` is not allowed on span schema {}", node.name),
                 ));
             }
             SchemaKind::Span
         }
-        DeclaredKind::Event => match &levels {
-            Some(declared) => {
-                let mut parsed = Vec::new();
-                for ident in declared {
-                    let Some(level) = TraceLevel::from_name(&ident.to_string()) else {
-                        errors.push(syn::Error::new(ident.span(), format!("invalid level '{ident}'")));
-                        continue;
-                    };
-                    parsed.push(level);
-                }
-                parsed.sort_by_key(|level| level.rank());
-                parsed.dedup();
-                SchemaKind::Event { levels: parsed }
-            }
-            None => {
+        DeclaredKind::Event => {
+            let Some(mut declared) = levels else {
                 errors.push(syn::Error::new(
                     node.name.span(),
                     format!(
@@ -801,9 +799,11 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
                         node.name
                     ),
                 ));
-                SchemaKind::Event { levels: Vec::new() }
-            }
-        },
+                return Err(errors);
+            };
+            declared.levels.sort_by_key(|level| level.rank());
+            SchemaKind::Event { levels: declared.levels }
+        }
     };
 
     if !errors.is_empty() {
@@ -1268,90 +1268,16 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
 
-    let validate_value_patterns: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let field_name = field.name_lit();
-            match field.transport_kind() {
-                FieldTransportKind::Str => quote! {
-                    (#field_name, $expr:expr, validate_value) => {{
-                        let __amaru_assert_type = |_: &dyn ::std::convert::AsRef<str>| {};
-                        __amaru_assert_type($expr);
-                    }};
-                },
-                FieldTransportKind::DisplayStr => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_v = #as_field_ref::<#field_type>($expr);
-                            let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
-                            __amaru_assert_display(__amaru_v);
-                        }};
-                    }
-                }
-                FieldTransportKind::DebugStr => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_v = #as_field_ref::<#field_type>($expr);
-                            let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
-                            __amaru_assert_debug(__amaru_v);
-                        }};
-                    }
-                }
-                FieldTransportKind::Bool
-                | FieldTransportKind::I64
-                | FieldTransportKind::U64
-                | FieldTransportKind::F64 => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let _ = #as_field_ref::<#field_type>($expr);
-                        }};
-                    }
-                }
-                FieldTransportKind::Cbor => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_v = #as_field_ref::<#field_type>($expr);
-                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait + ?Sized>(_: &T) {}
-                            __amaru_assert_serialize(__amaru_v);
-                        }};
-                    }
-                }
-            }
-        })
-        .collect();
-
     // Expression-producing patterns: type-check and produce a `tracing::Value`.
     let format_typed_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
             let field_name = field.name_lit();
             match field.transport_kind() {
-                FieldTransportKind::Bool => quote! {
-                    (#field_name, $expr:expr, format_typed) => {{
-                        *#as_field_ref::<bool>($expr)
-                    }};
-                },
-                FieldTransportKind::I64 => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, format_typed) => {{
-                            *#as_field_ref::<#field_type>($expr)
-                        }};
-                    }
-                }
-                FieldTransportKind::U64 => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, format_typed) => {{
-                            *#as_field_ref::<#field_type>($expr)
-                        }};
-                    }
-                }
-                FieldTransportKind::F64 => {
+                FieldTransportKind::Bool
+                | FieldTransportKind::I64
+                | FieldTransportKind::U64
+                | FieldTransportKind::F64 => {
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
@@ -1395,51 +1321,11 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
-    let validate_exact_patterns: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let field_name = field.name_lit();
-            let field_type = field.type_lit();
-            quote! {
-                (#field_name, #field_type, validate) => {};
-            }
-        })
-        .collect();
-
-    let validate_wrong_type_patterns: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let field_name = field.name_lit();
-            let expected_type = field.type_lit();
-            quote! {
-                (#field_name, $actual_ty:literal, validate) => {
-                    compile_error!(concat!(
-                        "Wrong type for field '",
-                        #field_name,
-                        "': expected '",
-                        #expected_type,
-                        "', found '",
-                        $actual_ty,
-                        "'"
-                    ));
-                };
-            }
-        })
-        .collect();
-
-    let validate_formatted_patterns: Vec<_> = all_fields
+    let validate_event_value_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
             let field_name = field.name_lit();
             quote! {
-                (#field_name, $expr:expr, validate_event_display) => {{
-                    let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
-                    __amaru_assert_display($expr);
-                }};
-                (#field_name, $expr:expr, validate_event_debug) => {{
-                    let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
-                    __amaru_assert_debug($expr);
-                }};
                 (#field_name, $expr:expr, validate_event_value) => {{
                     let __amaru_assert_value = |_: &dyn ::amaru_observability::tracing::field::Value| {};
                     __amaru_assert_value($expr);
@@ -1455,40 +1341,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         #macro_export
         #[doc(hidden)]
         macro_rules! #macro_ident {
-            #(#validate_value_patterns)*
             #(#format_typed_patterns)*
-            #(#validate_formatted_patterns)*
-            ($name:literal, $expr:expr, validate_value) => {
-                compile_error!(concat!(
-                    "Unknown field '",
-                    $name,
-                    "' for schema ",
-                    #schema_name,
-                    ". Available fields: ",
-                    #fields_list
-                ))
-            };
+            #(#validate_event_value_patterns)*
             ($name:literal, $expr:expr, format_typed) => {
-                compile_error!(concat!(
-                    "Unknown field '",
-                    $name,
-                    "' for schema ",
-                    #schema_name,
-                    ". Available fields: ",
-                    #fields_list
-                ))
-            };
-            ($name:literal, $expr:expr, validate_event_display) => {
-                compile_error!(concat!(
-                    "Unknown field '",
-                    $name,
-                    "' for schema ",
-                    #schema_name,
-                    ". Available fields: ",
-                    #fields_list
-                ))
-            };
-            ($name:literal, $expr:expr, validate_event_debug) => {
                 compile_error!(concat!(
                     "Unknown field '",
                     $name,
@@ -1508,10 +1363,6 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #fields_list
                 ))
             };
-
-            #(#validate_exact_patterns)*
-            #(#validate_wrong_type_patterns)*
-            ($name:literal, $ty:literal, validate) => {};
         }
     }
 }

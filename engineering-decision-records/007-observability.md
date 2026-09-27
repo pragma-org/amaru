@@ -47,9 +47,8 @@ To ensure consistency and enable compile-time validation of tracing instrumentat
 
 Schemas are defined using the `define_schemas!` macro in a central location (`amaru-observability/src/schemas.rs`). They are organized hierarchically:
 
-- The first two levels define the target of a span, for example `amaru::consensus` or `amaru::ledger`.
-- The other levels (two or three in practice) define the name of the span, for example `header.evolve_nonce` or `block.apply` (
-  see [EDR-026](./026-tracing-span-design.md) for more details).
+- The first two levels define the target, for example `amaru::consensus` or `amaru::ledger`.
+- The remaining levels are the event name (`name:`) when the schema is an event. For a span they are the span id, not NAME. Examples: `header.evolve_nonce`, `block.apply` (see [EDR-026](./026-tracing-span-design.md)).
 
 ```rust
 define_schemas! {
@@ -94,7 +93,7 @@ In addition to fields, a `tags: <name>, ...` entry assigns functional tags to sc
 
 Tags can be declared at the module level, in which case they are inherited by all the schemas nested below that module, or inside a specific schema, in which case they override the module-level declaration. Each tag is automatically recorded on the corresponding spans as a boolean attribute named `amaru.tag.<name>`.
 
-Since tags are regular span attributes, they can be used to select spans regardless of their target and name with an `EnvFilter` directive: for example `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'` enables all the spans tagged with `cpu`.
+Since tags are regular span attributes, they can be used to select spans regardless of their target and span id with an `EnvFilter` directive: for example `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'` enables all the spans tagged with `cpu`.
 
 Several tags can be combined:
 
@@ -105,7 +104,7 @@ Several tags can be combined:
 
 Amaru now prefers explicit span creation over function-wide instrumentation wrappers. New schema-based tracing should use `debug_span!` or `info_span!` to create a span at the point where the work actually begins, then either enter that span or attach it to a future with `.instrument(...)`.
 
-Note that even though the schema compilation generates full names like `amaru_observability::amaru::consensus::header::EVOLVE_NONCE`, the `info_span!/debug_span!/trace_span!` macros only requires the second target name and the span name, e.g. `consensus::header::EVOLVE_NONCE`.
+Note that even though the schema compilation generates full paths like `amaru_observability::amaru::consensus::header::EVOLVE_NONCE`, the `info_span!` / `debug_span!` / `trace_span!` macros only require the path under `amaru`, e.g. `consensus::header::EVOLVE_NONCE` (target `amaru::consensus`, span id `header.evolve_nonce`).
 
 ```rust
 fn evolve_nonce(&self, hash: String) -> Result<Nonce, ConsensusError> {

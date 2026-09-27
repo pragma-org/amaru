@@ -752,10 +752,15 @@ impl Muxer {
         bytes: Bytes,
         eff: &Effects<M>,
     ) -> anyhow::Result<()> {
-        let Some(proto) = self.protocols.get_mut(&proto_id) else {
-            anyhow::bail!("received data for unknown protocol {}", proto_id);
-        };
-        proto.received(timestamp, bytes, eff).await
+        let byte_len = bytes.len() as u64;
+        async {
+            let Some(proto) = self.protocols.get_mut(&proto_id) else {
+                anyhow::bail!("received data for unknown protocol {}", proto_id);
+            };
+            proto.received(timestamp, bytes, eff).await
+        }
+        .instrument(debug_span!(protocols::mux::protocol::HANDLE, bytes = byte_len))
+        .await
     }
 
     pub async fn want_next<M>(&mut self, proto_id: ProtocolId<Erased>, eff: &Effects<M>) -> anyhow::Result<()> {
