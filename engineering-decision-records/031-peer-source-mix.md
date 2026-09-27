@@ -83,7 +83,7 @@ A peer counts only toward its canonical source’s allotment.
 | --- | --- |
 | Active cool-down | **Hard** — never dial |
 | Already in `outbound_peers` | **Hard** |
-| Connection / protocol failure | **Soft** — raises **malus** |
+| Connection / protocol failure | **Not offered** while evolved malus is at least the share threshold (`0.05`); below that, **soft** malus still lowers sampling weight |
 | Adversarial | Cool-down is **hard** for the ban window; after that, dial is allowed. Sticky `adversarial` remains **only** for peer-sharing filters ([EDR-030][edr-performance]) |
 | Observed scores (lag, fetch, …) | **Soft** — **goodness** for ranking |
 
@@ -120,7 +120,7 @@ Impulses (policy constants, not admin surface v1):
 
 | Event | Impulse |
 | --- | --- |
-| Connect exhausted | `+1` |
+| Connect failure | `+8` |
 | Adversarial (with cool-down) | `+12` |
 
 Peer-sharing also requires `advertisable` and `!adversarial` (sticky adversarial is permanent for sharing only).
@@ -134,7 +134,7 @@ After allotting `n` slots to a source:
    `score = goodness(scores) − λ · malus(now, τ) [+ never_connected_bonus]`  
    Never-connected / no Performance record: small positive **bonus** (exploration of fresh addresses).
 3. Convert to sampling weights `w ∝ exp(score / T)` (temperature `T` fixed policy).
-4. Draw **n** peers **weighted without replacement** (exploration, not pure top-n).
+4. Draw up to **n** peers **weighted without replacement from the lowest malus tier only**. A higher tier is not used to fill the quota, so one connect failure is not offered while any healthier candidate remains in the bucket.
 
 ### Ownership
 
@@ -160,7 +160,6 @@ static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h
 ## Future work
 
 - Admin knobs for impulses, `λ`, `T`, share threshold (if operators need them).
-- Optional absolute score floor (“never dial if malus above X”) in addition to cool-down.
 - Align churn demotion ([EDR-030][edr-performance]) with the same malus/goodness axes.
 
 [edr-performance]: ./030-consensus-performance-resource.md

@@ -2738,7 +2738,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `close_failed` | `TRACE` | public | Closing the socket of a dead connection failed | peer, error |  |
 | `connect` | `TRACE` | public | Initiating an outbound connection to a peer | peer |  |
 | `connect_discarded` | `TRACE` | public | A connection request for a peer was discarded. Reason ∈ {already_connected_or_scheduled, already_connected, not_added}. | peer, reason |  |
-| `connect_exhausted` | `TRACE` | public | A peer is dropped after exhausting its connection attempts | peer |  |
 | `connect_failed` | `TRACE` | public | An outbound connection attempt failed | peer, error |  |
 | `connected` | `TRACE` | public | An outbound connection to a peer was established | peer, conn_id |  |
 | `connection_died` | `TRACE` | public | A peer connection has died | peer, conn_id, role |  |
@@ -2791,14 +2790,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
 | `reason` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `connect_exhausted`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `peer` | `string` | ✓ |
 
 </details>
 

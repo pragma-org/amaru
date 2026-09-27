@@ -338,8 +338,7 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
     );
     peers.apply_connection_failure(bad, t(1));
 
-    // Open=1: should strongly prefer never-connected good over failed bad.
-    let mut good_picks = 0;
+    // A fresh failure is not offered at all; the never-connected peer takes the slot.
     for i in 0..20u8 {
         let seed = [i; 32];
         let picked = peers.apply_select_outbound(SelectOutboundParams {
@@ -349,11 +348,80 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
             seed,
             now: t(1),
         });
-        if picked.outbound.iter().map(|p| p.candidate.as_peer()).collect::<Vec<_>>() == vec![Some(good)] {
-            good_picks += 1;
-        }
+        assert_eq!(
+            picked.outbound.iter().map(|p| p.candidate.as_peer()).collect::<Vec<_>>(),
+            vec![Some(good)],
+            "seed {i} offered the failed peer"
+        );
     }
-    assert!(good_picks >= 15, "good_picks={good_picks}");
+}
+
+#[test]
+fn connection_failure_suppresses_hostname_until_malus_fades() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use crate::performance::{CONNECT_FAIL_IMPULSE, PeerMix, PeerSource, SHARE_MALUS_THRESHOLD, SelectOutboundParams};
+
+    let host = PeerCandidate::host("relay.example".parse().unwrap(), 3001);
+    let resolved = peer("10.9.9.9:3001");
+    let mut peers = PeerPerformance::with_sources(
+        BTreeSet::new(),
+        BTreeSet::from([host.clone()]),
+        BTreeSet::new(),
+        PeerMix::parse("snapshot~1@10s").unwrap(),
+    );
+    peers.apply_note_dial(PeerSource::Snapshot, &host, resolved);
+    peers.apply_connection_failure(resolved, t(0));
+
+    let half_life = peers.half_life_for(&resolved);
+    // malus(t) = impulse * 0.5^(t/τ). Just below the threshold the name is eligible again.
+    let faded_secs = (half_life.as_secs_f64() * (CONNECT_FAIL_IMPULSE / SHARE_MALUS_THRESHOLD).log2()).ceil() as u64;
+
+    let select = |now| {
+        peers.apply_select_outbound(SelectOutboundParams {
+            open: 1,
+            excluded: BTreeSet::new(),
+            eligible_inbound: 0,
+            seed: [0x42; 32],
+            now,
+        })
+    };
+    assert!(select(t(0)).outbound.is_empty(), "fresh failure must not offer the name");
+    assert!(select(t(faded_secs.saturating_sub(1))).outbound.is_empty(), "malus still above the threshold");
+    assert_eq!(select(t(faded_secs)).outbound.len(), 1, "faded malus must offer the name again");
+}
+
+#[test]
+fn lowest_malus_tier_is_not_filled_from_a_failed_name() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use crate::performance::{PeerMix, PeerSource, SelectOutboundParams};
+
+    let fresh = PeerCandidate::host("fresh.example".parse().unwrap(), 3001);
+    let failed = PeerCandidate::host("failed.example".parse().unwrap(), 3001);
+    let resolved = peer("10.9.9.9:3001");
+    let mut peers = PeerPerformance::with_sources(
+        BTreeSet::new(),
+        BTreeSet::from([fresh.clone(), failed.clone()]),
+        BTreeSet::new(),
+        PeerMix::parse("snapshot~1@10s").unwrap(),
+    );
+    peers.apply_note_dial(PeerSource::Snapshot, &failed, resolved);
+    peers.apply_connection_failure(resolved, t(0));
+
+    let picked = peers.apply_select_outbound(SelectOutboundParams {
+        open: 2,
+        excluded: BTreeSet::new(),
+        eligible_inbound: 0,
+        seed: [0x42; 32],
+        now: t(0),
+    });
+    assert_eq!(picked.outbound.len(), 1);
+    assert_eq!(picked.outbound[0].candidate, fresh);
 }
 
 #[test]

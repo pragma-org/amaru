@@ -77,12 +77,15 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
     setup_logging();
     let addr = ephemeral_localhost_addr()?;
     tracing::info!("starting test at address {}", addr);
-    let (initiator, initiator_done, _) = start_initiator_with_configuration(
+    let (initiator, initiator_done, initiator_sender) = start_initiator_with_configuration(
         Configuration::initiator().with_addr(addr).with_reconnect_delay(Duration::from_millis(500)),
     )
     .await?;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // The first attempt fails while nothing is listening. The manager does not retry.
+    tokio::time::sleep(Duration::from_millis(500)).await;
     let (responder, responder_done) = start_responder_at(addr).await?;
+    let peer = Peer::try_from(addr).expect("test listen address is a peer");
+    initiator_sender.send(ManagerMessage::AddPeer(peer)).await.unwrap();
     wait_for_termination(responder_done, initiator_done).await?;
     check_state(initiator, responder)?;
 
@@ -251,7 +254,6 @@ async fn start_initiator_with_configuration(
 
     let manager_config = ManagerConfig::default()
         .with_reconnect_delay(configuration.reconnect_delay)
-        .with_connect_retries(10)
         .with_max_n2n_version(configuration.max_n2n_version);
     let initiator_manager = create_manager(manager_config, chainsync_stage.without_state());
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);

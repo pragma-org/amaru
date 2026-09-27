@@ -281,10 +281,10 @@ pub async fn stage(
                 State::Established(converge_use(s, &params, &eff).await)
             }
             (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::FetchBlocks { .. }) => {
-                // The peer might be still connecting. In that case we reschedule the message
-                // If the peer eventually can't be fully initialized, the caller timeout will trigger.
-                // We schedule after the reconnect delay (2s by default) which is shorter than the call
-                // timeout (5s) (whereas a full connection timeout is 10s).
+                // The peer might still be connecting. Reschedule until the attempt finishes;
+                // if it never does, the caller times out. The delay is the reconnect delay
+                // (2s by default), shorter than the 5s call timeout. The connect attempt
+                // itself fails after 2s.
                 eff.schedule_after(msg, params.config.reconnect_delay).await;
                 state
             }
