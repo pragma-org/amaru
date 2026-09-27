@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Instant;
+use std::{collections::VecDeque, time::Instant};
 
 use amaru_observability::amaru::protocols;
 
@@ -55,6 +55,8 @@ pub struct PeerState {
     query_header: MeanMicros,
     get_block: MeanMicros,
     adopt_block: MeanMicros,
+    /// Live arrivals (slot onset to first body), newest at the back. Catch-up samples are not stored.
+    live_arrivals: VecDeque<u64>,
     pub updated_at: Instant,
 }
 
@@ -75,6 +77,7 @@ impl PeerState {
             query_header: MeanMicros::default(),
             get_block: MeanMicros::default(),
             adopt_block: MeanMicros::default(),
+            live_arrivals: VecDeque::new(),
             updated_at,
         }
     }
@@ -134,6 +137,25 @@ impl PeerState {
             self.adopt_block.record(micros, smoothing);
         }
         self.updated_at = at;
+    }
+
+    /// Remember one live arrival latency. Only the last `capacity` samples are kept.
+    pub(crate) fn record_live_arrival(&mut self, micros: u64, capacity: usize) {
+        self.live_arrivals.push_back(micros);
+        while self.live_arrivals.len() > capacity {
+            self.live_arrivals.pop_front();
+        }
+    }
+
+    /// Percent of retained live arrivals at or under `within_micros`, rounded to the nearest percent.
+    /// `None` until a live arrival has been recorded.
+    pub fn live_arrival_share_percent(&self, within_micros: u64) -> Option<u64> {
+        let total = self.live_arrivals.len();
+        if total == 0 {
+            return None;
+        }
+        let within = self.live_arrivals.iter().filter(|micros| **micros <= within_micros).count();
+        Some(((within as u64) * 100 + (total as u64) / 2) / (total as u64))
     }
 
     pub fn mean_query_header_micros(&self) -> Option<u64> {

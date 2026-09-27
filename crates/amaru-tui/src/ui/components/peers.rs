@@ -97,11 +97,17 @@ pub(in crate::ui) fn render_peers_table(
             Constraint::Fill(1),
             Constraint::Length(1),
             Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
         ],
     )
     .header(
-        Row::new(vec!["", "Dir", "Peer", "Duplex?", "RTT", "Observe", "→", "Select", "→", "Fetch", "→", "Adopt"])
-            .style(table_header_style(model.interaction_mode)),
+        Row::new(vec![
+            "", "Dir", "Peer", "Duplex?", "RTT", "Observe", "→", "Select", "→", "Fetch", "→", "Adopt", "≤1s", "≤3s",
+            "≤5s",
+        ])
+        .style(table_header_style(model.interaction_mode)),
     )
     .column_spacing(1)
     .block(block);
@@ -131,6 +137,9 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
     let query_header = peer.mean_query_header_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let get_block = peer.mean_get_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let adopt_block = peer.mean_adopt_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let within_1s = format_share(peer.live_arrival_share_percent(1_000_000));
+    let within_3s = format_share(peer.live_arrival_share_percent(3_000_000));
+    let within_5s = format_share(peer.live_arrival_share_percent(5_000_000));
     let can_duplex = match peer.full_duplex_capable {
         Some(true) => "yes",
         Some(false) => "no",
@@ -154,8 +163,15 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
         Cell::from(get_block).style(Style::default().fg(emphasis_white_color())),
         Cell::from("→"),
         Cell::from(adopt_block).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(within_1s).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(within_3s).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(within_5s).style(Style::default().fg(emphasis_white_color())),
     ])
     .style(striped_row_style(index))
+}
+
+fn format_share(percent: Option<u64>) -> String {
+    percent.map(|percent| format!("{percent}%")).unwrap_or_else(|| "—".into())
 }
 
 fn peer_address_line(peer: &PeerState) -> Line<'static> {
@@ -165,5 +181,81 @@ fn peer_address_line(peer: &PeerState) -> Line<'static> {
             Line::from(vec![address, Span::styled(format!(" ({candidate})"), Style::default().fg(muted_color()))])
         }
         None => Line::from(address),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
+
+    use super::*;
+    use crate::{
+        config::Config,
+        model::{Model, PeerState},
+        startup::{ProcessInfo, StartupContext},
+        ui::Views,
+    };
+
+    fn fixture_startup_context() -> StartupContext {
+        StartupContext {
+            process: ProcessInfo {
+                pid: 42,
+                network: "preview".into(),
+                software_version: "10.11.0 (abc123)".into(),
+                target: "darwin/aarch64".into(),
+            },
+            protocol_version: "10.11".into(),
+            mempool_max_bytes: 180_224,
+            epoch_length: 86_400,
+            active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
+            max_lovelace_supply: 45_000_000_000_000_000,
+            system_start_millis: 1_666_656_000_000,
+            era_history: None,
+            runtime_sections: Vec::default(),
+            protocol_sections: Vec::default(),
+        }
+    }
+
+    fn buffer_lines(buffer: &Buffer) -> Vec<String> {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()).unwrap_or("").to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn peer_row_shows_timing_and_arrival_share_cells() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let at = Instant::now();
+        let mut peer = PeerState::new("1.2.3.4:3001".into(), at);
+        peer.record_header_lifecycle(at, 100, Some(9_000), Some(2_000), Some(5_000), Some(8_000));
+        peer.record_live_arrival(500_000, 100);
+        peer.record_live_arrival(2_000_000, 100);
+        peer.record_live_arrival(4_000_000, 100);
+        model.peers.insert(peer.address.clone(), peer);
+
+        let backend = TestBackend::new(160, 8);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut views = Views::default();
+        terminal
+            .draw(|frame| render_peers_table(frame, frame.area(), &model, &mut views, at))
+            .expect("draw peer table");
+        let lines = buffer_lines(terminal.backend().buffer());
+
+        let header = lines.iter().find(|line| line.contains("Observe")).expect("header row");
+        for label in ["Select", "Fetch", "Adopt", "≤1s", "≤3s", "≤5s"] {
+            assert!(header.contains(label), "header missing {label}: {header}");
+        }
+
+        let row = lines.iter().find(|line| line.contains("1.2.3.4:3001")).expect("peer row");
+        for cell in ["9.0ms", "2.0ms", "5.0ms", "8.0ms", "33%", "67%", "100%"] {
+            assert!(row.contains(cell), "peer row missing {cell}: {row}");
+        }
     }
 }

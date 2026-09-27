@@ -110,6 +110,10 @@ Other guiding principles:
 - **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
 - **amaru-kernel**: use RustCrypto hash implementations for BLAKE2b, SHA-2, SHA-3, Keccak, and RIPEMD.
 
+### Changed
+
+- **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
+
 ### Fixed
 
 - **amaru**: a VRF signing key from `cardano-cli conway node key-gen-VRF` loads. The file is the 32-byte seed followed by the verification key.
