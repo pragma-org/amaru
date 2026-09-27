@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Header, HeaderHash, IsHeader, NonEmptyVec, Point,
+    BlockHeight, EraHistory, Header, HeaderHash, IsHeader, NonEmptyVec, Point, Slot,
     cardano::network_block::EncodedTestBlock, make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
@@ -140,9 +140,23 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PruneBelowEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::effects::UpdateConsensusModeEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordSyncAdoptionEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::effects::ConsensusMode>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<(Point, NonEmptyVec<Point>)>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
     ]
+}
+
+pub fn te_update_consensus_mode(at_stage: &str, slot: Slot, now: amaru_pure_stage::Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::effects::UpdateConsensusModeEffect { slot, now })))
+}
+
+pub fn te_record_sync_adoption(at_stage: &str, at: amaru_pure_stage::Instant, live: bool) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_sync_adoption(at, live)),
+    ))
 }
 
 pub fn te_prune_below(at_stage: &str, min_height: BlockHeight, now: amaru_pure_stage::Instant) -> TraceEntry {
@@ -174,6 +188,7 @@ pub fn setup(prep: &TestPrep, msg: AdoptChainMsg) -> (SimulationRunning, Deseria
     // No global_epoch_offset: adopt_chain only needs relative sim time for the 1s log throttle.
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
     network.resources().put::<ResourceHeaderStore>(prep.store.clone());
+    network.resources().put::<EraHistory>(EraHistory::default());
     network
         .resources()
         .put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(crate::performance::Performance::new()));

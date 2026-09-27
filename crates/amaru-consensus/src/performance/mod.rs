@@ -30,6 +30,7 @@
 //! events and metrics are emitted only on the external-effect path so export drops or lag cannot
 //! stall or couple to performance state updates.
 
+mod adoption;
 mod effects;
 mod header;
 mod peer;
@@ -45,6 +46,7 @@ use std::{
     time::Duration,
 };
 
+use adoption::SyncAdoptionPace;
 use amaru_kernel::{Peer, PeerCandidate};
 use amaru_observability::{error, warn};
 use amaru_pure_stage::Instant;
@@ -149,9 +151,10 @@ impl fmt::Debug for Performance {
 /// Ops that close header/fork state reply with [`HeaderTelemetry`] for emission off this thread.
 pub(crate) enum PerformanceOp {
     RecordIntersection { effect: RecordIntersectionEffect },
-    RecordHeaderAnnouncement { effect: RecordHeaderAnnouncementEffect },
+    RecordHeaderAnnouncement { effect: RecordHeaderAnnouncementEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordBlocksRequested { effect: RecordBlocksRequestedEffect },
-    RecordBlockDelivery { effect: RecordBlockDeliveryEffect },
+    RecordPeersAsked { effect: RecordPeersAskedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordBlockDelivery { effect: RecordBlockDeliveryEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordFetchFailure { effect: RecordFetchFailureEffect },
     RecordKeepaliveRtt { effect: RecordKeepaliveRttEffect },
     RecordAdvertisability { effect: RecordAdvertisabilityEffect },
@@ -181,6 +184,8 @@ pub(crate) enum PerformanceOp {
     RecordForkStarted { effect: RecordForkStartedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordBlockValid { effect: RecordBlockValidEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordBlockPruned { effect: RecordBlockPrunedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordSyncAdoption { effect: RecordSyncAdoptionEffect },
+    SyncAdoptionPace { effect: SyncAdoptionPaceEffect, reply: oneshot::Sender<bool> },
 }
 
 impl Performance {
@@ -221,9 +226,10 @@ impl Performance {
                 rt.block_on(async move {
                     let mut peers = initial_peers;
                     let mut headers = HeaderPerformance::new();
+                    let mut pace = SyncAdoptionPace::default();
                     while let Some(op) = rx.recv().await {
                         pending_worker.fetch_sub(1, Ordering::Relaxed);
-                        dispatch(&mut peers, &mut headers, op);
+                        dispatch(&mut peers, &mut headers, &mut pace, op);
                     }
                 });
             })
@@ -297,19 +303,36 @@ impl Default for Performance {
     }
 }
 
-fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: PerformanceOp) {
+fn dispatch(
+    peers: &mut PeerPerformance,
+    headers: &mut HeaderPerformance,
+    pace: &mut SyncAdoptionPace,
+    op: PerformanceOp,
+) {
     match op {
         PerformanceOp::RecordIntersection { effect } => {
             peers.apply_intersection(effect.peer, effect.current, effect.parent, effect.at);
         }
-        PerformanceOp::RecordHeaderAnnouncement { effect } => {
+        PerformanceOp::RecordHeaderAnnouncement { effect, reply } => {
             peers.apply_header_announcement(effect.peer, effect.header, effect.parent, effect.at);
-            headers.apply_header_received(effect.peer, effect.header, effect.at, effect.slot_start_to_header_micros);
+            let telemetry = headers.apply_header_received(
+                effect.peer,
+                effect.header,
+                effect.at,
+                effect.slot_start_to_header_micros,
+                effect.slot_onset,
+                effect.already_stored,
+            );
+            let _ = reply.send(telemetry);
         }
         PerformanceOp::RecordBlocksRequested { effect } => {
             headers.apply_blocks_requested(&effect.hashes, effect.requested_at);
         }
-        PerformanceOp::RecordBlockDelivery { effect } => {
+        PerformanceOp::RecordPeersAsked { effect, reply } => {
+            let telemetry = headers.apply_peers_asked(&effect.hashes, &effect.peers, effect.at);
+            let _ = reply.send(telemetry);
+        }
+        PerformanceOp::RecordBlockDelivery { effect, reply } => {
             peers.apply_block_delivery(
                 effect.peer,
                 effect.hash,
@@ -319,7 +342,8 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
                 effect.response,
                 effect.bytes,
             );
-            headers.apply_block_downloaded(&effect.hash, effect.at);
+            let telemetry = headers.apply_block_downloaded(effect.peer, &effect.hash, effect.height, effect.at);
+            let _ = reply.send(telemetry);
         }
         PerformanceOp::RecordFetchFailure { effect } => {
             peers.apply_fetch_failure(&effect.peers, effect.at);
@@ -428,6 +452,12 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
         PerformanceOp::RecordBlockPruned { effect, reply } => {
             let telemetry = headers.apply_block_pruned(&effect.hash, effect.invalid, effect.now, effect.syncing);
             let _ = reply.send(telemetry);
+        }
+        PerformanceOp::RecordSyncAdoption { effect } => {
+            pace.record(effect.at, effect.live);
+        }
+        PerformanceOp::SyncAdoptionPace { effect, reply } => {
+            let _ = reply.send(pace.is_catching_up_fast(effect.now));
         }
     }
 }

@@ -477,12 +477,28 @@ impl FetchBlocks {
         }
     }
 
-    pub async fn peers_asked(&mut self, req_id: u64, peers: Vec<Peer>, _eff: Effects<FetchBlocksMsg>) {
+    pub async fn peers_asked(&mut self, req_id: u64, peers: Vec<Peer>, eff: Effects<FetchBlocksMsg>) {
         if req_id != self.req_id || self.missing.is_none() {
             return;
         }
         // Contacted set from the manager; exclude peers already settled (e.g. NoBlocks raced ahead).
         self.fetch_peers = peers.into_iter().filter(|p| !self.fetch_settled.contains(p)).collect();
+        let hashes: Vec<HeaderHash> = self
+            .missing
+            .as_ref()
+            .map(|missing| missing.missing_points().into_iter().map(|point| point.hash()).collect())
+            .unwrap_or_default();
+        let asked: Vec<Peer> = self.fetch_peers.iter().copied().collect();
+        if asked.is_empty() || hashes.is_empty() {
+            return;
+        }
+        // The initial set shares the time the fetch was handed to the manager. A later staggered
+        // ask records its own time, so each peer's fetch latency starts when that peer was asked.
+        let at = match self.fetch_started_at {
+            Some(at) => at,
+            None => eff.clock().await,
+        };
+        eff.external(Performance::record_peers_asked(hashes, asked, at)).await;
     }
 
     pub async fn no_blocks(&mut self, req_id: u64, peer: Peer, eff: Effects<FetchBlocksMsg>) {
