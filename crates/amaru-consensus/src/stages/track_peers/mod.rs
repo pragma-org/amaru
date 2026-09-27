@@ -24,8 +24,9 @@ use amaru_kernel::{
 };
 use amaru_observability::{
     CarriedHeader, ChainChoice, ChainSyncProcess, Instrument, TraceContext,
-    amaru::consensus::{
-        roll_backward::PROCESS as ROLL_BACKWARD_PROCESS, roll_forward::PROCESS as ROLL_FORWARD_PROCESS,
+    amaru::{
+        consensus::{roll_backward::PROCESS as ROLL_BACKWARD_PROCESS, roll_forward::PROCESS as ROLL_FORWARD_PROCESS},
+        network::perf::header::FORWARD,
     },
     debug, debug_record, debug_span, error, info, trace, warn,
 };
@@ -325,11 +326,14 @@ pub struct NewTip {
     pub tip: Point,
     pub parent: Point,
     pub trace_context: TraceContext<ChainSyncProcess>,
+    /// Forward span opened when this header was accepted. Chain selection still parents on
+    /// [`trace_context`](Self::trace_context).
+    pub forward_context: TraceContext<FORWARD>,
 }
 
 impl NewTip {
     pub fn new(tip: Point, parent: Point) -> Self {
-        NewTip { tip, parent, trace_context: TraceContext::detached() }
+        NewTip { tip, parent, trace_context: TraceContext::detached(), forward_context: TraceContext::detached() }
     }
 }
 
@@ -765,14 +769,14 @@ impl TrackPeers {
                 } else if let Some(dh) = self.try_defer_for_clock_skew(&args, &error, eff).await {
                     return Err(dh);
                 }
-                error!(
-                    consensus::perf::header::LIFECYCLE,
-                    peer,
-                    header_hash = header.hash(),
-                    error = error.to_string(),
-                    outcome = HeaderLifecycleOutcome::InvalidHeader.as_str()
-                );
-                record_header_rejected(eff, HeaderLifecycleOutcome::InvalidHeader).await;
+                record_header_rejected(
+                    eff,
+                    HeaderLifecycleOutcome::InvalidHeader,
+                    Some(*peer),
+                    Some(header.hash()),
+                    Some(error.to_string()),
+                )
+                .await;
 
                 self.purge_connection(*conn_id);
                 eff.send(
@@ -820,19 +824,22 @@ impl TrackPeers {
                     .store_validated_header(&header, &nonces)
                     .or_terminate_with(eff, async |e| {
                         let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
-                        error!(
-                            consensus::perf::header::LIFECYCLE,
-                            peer,
-                            header_hash = current.hash(),
-                            error = error.to_string(),
-                            outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
-                        );
-                        record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
+                        record_header_rejected(
+                            eff,
+                            HeaderLifecycleOutcome::StoreHeaderError,
+                            Some(peer),
+                            Some(current.hash()),
+                            Some(error.to_string()),
+                        )
+                        .await;
                     })
                     .await;
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
                 let slot_onset = self.slot_onset(header_tip.slot());
                 let already_stored = false;
+                let forward_context = eff
+                    .external(Performance::open_header_forward(header_tip.hash(), Some(trace_context.clone())))
+                    .await;
                 eff.external(Performance::record_header_announcement(
                     peer,
                     header_tip,
@@ -844,8 +851,11 @@ impl TrackPeers {
                 ))
                 .await;
                 debug!(consensus::chainsync::ROLL_FORWARD_DONE, peer, current, highest = tip, outcome = "stored");
-                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context: trace_context.into() })
-                    .await;
+                eff.send(
+                    &self.downstream,
+                    NewTip { tip: header_tip, parent, trace_context: trace_context.into(), forward_context },
+                )
+                .await;
             }
         }
 
@@ -927,13 +937,14 @@ impl TrackPeers {
                         Ok(h) => h,
                         Err(error) => {
                             self.purge_connection(conn_id);
-                            error!(
-                                consensus::perf::header::LIFECYCLE,
-                                peer,
-                                error = error.to_string(),
-                                outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
-                            );
-                            record_header_rejected(&eff, HeaderLifecycleOutcome::UndecodableHeader).await;
+                            record_header_rejected(
+                                &eff,
+                                HeaderLifecycleOutcome::UndecodableHeader,
+                                Some(peer),
+                                None,
+                                Some(error.to_string()),
+                            )
+                            .await;
                             eff.send(
                                 &self.peer_selection,
                                 PeerSelectionMsg::Adversarial(peer, ban_context(trace_context.clone())),
@@ -1098,8 +1109,11 @@ pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<Header, C
 async fn record_header_rejected<T: amaru_pure_stage::SendData + Sync>(
     eff: &Effects<T>,
     outcome: HeaderLifecycleOutcome,
+    peer: Option<Peer>,
+    hash: Option<amaru_kernel::HeaderHash>,
+    error: Option<String>,
 ) {
-    eff.external(Performance::record_header_rejected(outcome)).await;
+    eff.external(Performance::record_header_rejected_with(outcome, peer, hash, error)).await;
 }
 
 #[cfg(test)]

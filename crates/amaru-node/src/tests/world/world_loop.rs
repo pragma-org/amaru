@@ -83,6 +83,8 @@ pub struct WorldLoop {
     reveal_scheduled: bool,
     /// Set when a graph resumes a store effect that writes the best-chain pointer.
     best_chain_tip_updated: bool,
+    /// Subscriber installed for one graph. Other graphs keep the ambient dispatcher.
+    graph_tracing: Vec<Option<tracing::Dispatch>>,
 }
 
 /// Same-timestamp heap pops before we treat the world as livelocked.
@@ -110,7 +112,8 @@ impl WorldLoop {
         for graph in &mut graphs {
             graph.breakpoint("world_external", |effect| matches!(effect, Effect::External { .. }));
         }
-        let graph_on_heap = vec![None; graphs.len()];
+        let graph_count = graphs.len();
+        let graph_on_heap = vec![None; graph_count];
         let mut world = Self {
             provider,
             graphs,
@@ -127,6 +130,7 @@ impl WorldLoop {
             pending_reveals: VecDeque::new(),
             reveal_scheduled: false,
             best_chain_tip_updated: false,
+            graph_tracing: vec![None; graph_count],
         };
         for index in 0..world.graphs.len() {
             world.schedule_graph_if_needed(index);
@@ -141,6 +145,14 @@ impl WorldLoop {
     /// Borrow the node graphs owned by this world.
     pub fn graphs(&self) -> &[SimulationRunning] {
         &self.graphs
+    }
+
+    /// Trace only `graph_index` with `dispatch`. The injector and other nodes stay on the ambient subscriber.
+    pub fn with_graph_tracing(mut self, graph_index: usize, dispatch: tracing::Dispatch) -> Self {
+        if let Some(slot) = self.graph_tracing.get_mut(graph_index) {
+            *slot = Some(dispatch);
+        }
+        self
     }
 
     /// Attach the serve-only injector handle this loop owns, at `graph_index` in `graphs`.
@@ -305,6 +317,15 @@ impl WorldLoop {
     }
 
     fn wake_and_run_graph(&mut self, index: usize) {
+        let dispatch = self.graph_tracing.get(index).and_then(Clone::clone);
+        if let Some(dispatch) = dispatch {
+            tracing::dispatcher::with_default(&dispatch, || self.wake_and_run_graph_inner(index));
+        } else {
+            self.wake_and_run_graph_inner(index);
+        }
+    }
+
+    fn wake_and_run_graph_inner(&mut self, index: usize) {
         let time_nanos = self.provider.current_time_nanos();
         let graph = &mut self.graphs[index];
         // Instant Ord uses duration_since_global_epoch. Skip due waits by their own Instant
@@ -555,7 +576,17 @@ impl WorldLoop {
         let _ = self.provider.close_endpoint(conn);
     }
 
-    fn resume(&mut self, (graph_idx, stage_name, result): Completion) {
+    fn resume(&mut self, completion: Completion) {
+        let graph_idx = completion.0;
+        let dispatch = self.graph_tracing.get(graph_idx).and_then(Clone::clone);
+        if let Some(dispatch) = dispatch {
+            tracing::dispatcher::with_default(&dispatch, || self.resume_inner(completion));
+        } else {
+            self.resume_inner(completion);
+        }
+    }
+
+    fn resume_inner(&mut self, (graph_idx, stage_name, result): Completion) {
         if self.terminated_stages.contains(&(graph_idx, stage_name.clone())) {
             return;
         }

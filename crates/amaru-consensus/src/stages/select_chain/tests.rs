@@ -25,7 +25,8 @@ use amaru_pure_stage::{
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        make_block_header, setup, setup_many, te_find_best_candidate, te_has_header, te_load_header, te_load_point,
+        make_block_header, setup, setup_many, te_close_block_fetch_wait, te_close_header_forward,
+        te_find_best_candidate, te_has_header, te_load_header, te_load_point, te_open_block_fetch_wait,
         te_record_block_pruned, te_record_block_valid, te_record_fork_started, te_record_header_abandoned,
         te_set_block_valid, te_unvalidated_ancestor_hashes, test_prep,
     },
@@ -76,6 +77,7 @@ fn test_tip_already_validated_is_ignored() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
+            te_close_header_forward("sc-1", tip.hash()),
             te_state("sc-1", &prep.state),
         ],
     );
@@ -168,6 +170,8 @@ fn test_tip_extends_from_origin() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
+            te_open_block_fetch_wait("sc-1", tip.hash()),
+            te_close_block_fetch_wait("sc-1", tip.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -205,6 +209,8 @@ fn test_tip_extends_from_h1() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
+            te_open_block_fetch_wait("sc-1", tip.hash()),
+            te_close_block_fetch_wait("sc-1", tip.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -239,12 +245,14 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
+            te_open_block_fetch_wait("sc-1", tip.hash()),
             te_clock_read("sc-1"),
             te_record_fork_started(
                 "sc-1",
                 tip,
                 Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
             ),
+            te_close_block_fetch_wait("sc-1", tip.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -288,12 +296,14 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
+            te_open_block_fetch_wait("sc-1", tip.hash()),
             te_clock_read("sc-1"),
             te_record_fork_started(
                 "sc-1",
                 tip,
                 Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
             ),
+            te_close_block_fetch_wait("sc-1", tip.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -333,6 +343,7 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
+            te_close_header_forward("sc-1", tip.hash()),
             te_state("sc-1", &expected),
         ],
     );
@@ -371,12 +382,14 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
+            te_open_block_fetch_wait("sc-1", tip.hash()),
             te_clock_read("sc-1"),
             te_record_fork_started(
                 "sc-1",
                 tip,
                 Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
             ),
+            te_close_block_fetch_wait("sc-1", tip.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
             te_state("sc-1", &expected),
         ],
@@ -397,7 +410,12 @@ fn test_upstream_tip_depends_on_invalid_block() {
     let parent = prep.headers.h2.point();
     // Use the simulation clock as the reception time so the forward duration measured at
     // abandonment (which reads the same clock) is zero.
-    let msg = SelectChainMsg::TipFromUpstream { tip, parent, trace_context: TraceContext::detached() };
+    let msg = SelectChainMsg::TipFromUpstream {
+        tip,
+        parent,
+        trace_context: TraceContext::detached(),
+        forward_context: TraceContext::detached(),
+    };
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
     let mut expected = SelectChain::new(prep.downstream.clone());
@@ -502,8 +520,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
             te_load_point("sc-1", prep.headers.h0.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.point(), prep.headers.h0.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.point(), prep.headers.h0.point())),
             te_clock_read("sc-1"),
             te_record_block_pruned(
                 "sc-1",
@@ -566,8 +584,10 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
             te_load_point("sc-1", prep.headers.h2a.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.point(), prep.headers.h2a.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
+            te_close_block_fetch_wait("sc-1", prep.headers.h2a.hash()),
+            te_close_block_fetch_wait("sc-1", prep.headers.h3a.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.point(), prep.headers.h2a.point())),
             te_clock_read("sc-1"),
             te_record_block_pruned(
                 "sc-1",
@@ -888,6 +908,7 @@ fn test_new_tip_after_pruning_restores_pending_block_validations() {
             te_input("sc-1", &new_tip),
             te_load_header("sc-1", h3b.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h2a.hash()),
+            te_close_header_forward("sc-1", h3b.hash()),
             te_state("sc-1", &expected),
         ],
     );
@@ -945,8 +966,8 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h2.hash(), false),
             te_load_point("sc-1", prep.headers.h1.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h2.point(), prep.headers.h1.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h2.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h2.point(), prep.headers.h1.point())),
             te_clock_read("sc-1"),
             te_record_block_pruned("sc-1", prep.headers.h3.hash(), true, now, false),
             te_state("sc-1", &expected),

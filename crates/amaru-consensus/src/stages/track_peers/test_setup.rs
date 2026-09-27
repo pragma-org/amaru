@@ -218,19 +218,23 @@ pub fn te_record_header_announcement(
 }
 
 /// Performance effect recorded for a header rejected on reception.
-pub fn te_header_rejected(outcome: &str) -> TraceEntry {
-    use crate::performance::HeaderLifecycleOutcome as O;
-    let outcome = match outcome {
+///
+/// The effect also carries the peer, hash, and error text. Those vary by header, so the matcher
+/// checks the outcome.
+pub fn te_header_rejected(outcome: &str) -> amaru_pure_stage::TraceMatch<'static> {
+    use crate::performance::{HeaderLifecycleOutcome as O, RecordHeaderRejectedEffect};
+    let expected = match outcome {
         "invalid header" => O::InvalidHeader,
         "duplicate header" => O::DuplicateHeader,
         "undecodable header" => O::UndecodableHeader,
         "store header error" => O::StoreHeaderError,
         other => panic!("unknown header rejection outcome in test: {other}"),
     };
-    TraceEntry::suspend(Effect::external(
+    amaru_pure_stage::tm_external_effect_match(
         "tp-1",
-        Box::new(crate::performance::Performance::record_header_rejected(outcome)),
-    ))
+        move |effect: &RecordHeaderRejectedEffect| effect.outcome == expected,
+        amaru_pure_stage::Detached::No,
+    )
 }
 
 /// Slot-start → header reception interval matching [`TrackPeers`] test era history.
@@ -248,7 +252,7 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
 }
 
 pub fn new_tip(tip: Point, parent: Point) -> NewTip {
-    NewTip { tip, parent, trace_context: TraceContext::detached() }
+    NewTip { tip, parent, trace_context: TraceContext::detached(), forward_context: TraceContext::detached() }
 }
 
 fn register_guards() -> DeserializerGuards {
@@ -276,6 +280,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::effects::QueryConsensusModeEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SyncAdoptionPaceEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderAnnouncementEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::OpenHeaderForwardEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderRejectedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordIntersectionEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordRollbackEffect>().boxed(),

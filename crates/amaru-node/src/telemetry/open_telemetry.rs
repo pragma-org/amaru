@@ -12,19 +12,67 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
+use amaru_observability::{note_span_duration, prepare_exported_attributes};
 use opentelemetry::Key;
 use opentelemetry_otlp::ExporterBuildError;
 use opentelemetry_sdk::{
     Resource,
-    error::OTelSdkError,
+    error::{OTelSdkError, OTelSdkResult},
     logs::SdkLoggerProvider,
     metrics::{SdkMeterProvider, Temporality},
-    trace::SdkTracerProvider,
+    trace::{SdkTracerProvider, SpanData, SpanExporter},
 };
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use thiserror::Error;
+
+/// Replaces a stock CBOR debug dump with the decoded attribute and keeps one value per key.
+#[derive(Debug)]
+pub struct CborSpanExporter<E> {
+    inner: E,
+}
+
+impl<E> CborSpanExporter<E> {
+    pub fn new(inner: E) -> Self {
+        Self { inner }
+    }
+}
+
+impl<E> SpanExporter for CborSpanExporter<E>
+where
+    E: SpanExporter,
+{
+    fn export(&self, mut batch: Vec<SpanData>) -> impl std::future::Future<Output = OTelSdkResult> + Send {
+        for span in &mut batch {
+            prepare_exported_attributes(&mut span.attributes, &mut span.events.events);
+            if let Some(hash) = header_hash_attribute(span) {
+                let micros = span.end_time.duration_since(span.start_time).unwrap_or_default().as_micros() as u64;
+                note_span_duration(&span.name, &hash, micros);
+            }
+        }
+        self.inner.export(batch)
+    }
+
+    fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
+        self.inner.shutdown_with_timeout(timeout)
+    }
+
+    fn force_flush(&self) -> OTelSdkResult {
+        self.inner.force_flush()
+    }
+}
+
+fn header_hash_attribute(span: &SpanData) -> Option<String> {
+    span.attributes.iter().rev().find(|kv| kv.key.as_str() == "header_hash").and_then(|kv| match &kv.value {
+        opentelemetry::Value::String(text) => Some(text.as_str().to_string()),
+        opentelemetry::Value::Bool(_)
+        | opentelemetry::Value::I64(_)
+        | opentelemetry::Value::F64(_)
+        | opentelemetry::Value::Array(_)
+        | _ => None,
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OtelSignal {
@@ -95,7 +143,10 @@ impl OpenTelemetryProviders {
                     .with_tonic()
                     .build()
                     .map_err(BuildOpenTelemetryProvidersError::Traces)?;
-                Ok(SdkTracerProvider::builder().with_resource(resource.clone()).with_batch_exporter(exporter).build())
+                Ok(SdkTracerProvider::builder()
+                    .with_resource(resource.clone())
+                    .with_batch_exporter(CborSpanExporter::new(exporter))
+                    .build())
             })
             .transpose()?;
 

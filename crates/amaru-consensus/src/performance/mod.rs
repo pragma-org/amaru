@@ -35,6 +35,7 @@ mod effects;
 mod header;
 mod peer;
 mod peer_mix;
+mod spans;
 
 use std::{
     fmt,
@@ -60,6 +61,7 @@ pub use peer::{
     SourceCounts, malus_at,
 };
 pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
+use spans::HeaderSpanBook;
 use tokio::{
     sync::{
         mpsc::{UnboundedSender, unbounded_channel},
@@ -125,6 +127,8 @@ pub struct Performance {
     /// Tokio's Instant is safe to read outside a runtime (see unit test) and saturates.
     last_queue_warn: Arc<Mutex<Option<TokioInstant>>>,
     worker: Arc<WorkerGuard>,
+    /// Open header spans. The worker never touches this map.
+    spans: Arc<Mutex<HeaderSpanBook>>,
 }
 
 impl Clone for Performance {
@@ -134,6 +138,7 @@ impl Clone for Performance {
             pending: Arc::clone(&self.pending),
             last_queue_warn: Arc::clone(&self.last_queue_warn),
             worker: Arc::clone(&self.worker),
+            spans: Arc::clone(&self.spans),
         }
     }
 }
@@ -240,6 +245,7 @@ impl Performance {
             pending,
             last_queue_warn: Arc::new(Mutex::new(None)),
             worker: Arc::new(WorkerGuard { join: Mutex::new(Some(join)) }),
+            spans: Arc::new(Mutex::new(HeaderSpanBook::default())),
         }
     }
 

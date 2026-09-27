@@ -58,7 +58,7 @@ use crate::{
 mod open_telemetry;
 
 pub use open_telemetry::{
-    BuildOpenTelemetryProvidersError, OpenTelemetryProviders, OtelSignal, OtelSignals,
+    BuildOpenTelemetryProvidersError, CborSpanExporter, OpenTelemetryProviders, OtelSignal, OtelSignals,
     ShutdownOpenTelemetryProvidersError,
 };
 

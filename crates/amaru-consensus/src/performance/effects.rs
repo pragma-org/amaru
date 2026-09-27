@@ -27,14 +27,18 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, PeerCandidate, Point};
+use amaru_observability::{
+    TraceContext,
+    amaru::{consensus::roll_forward::PROCESS, network::perf::header::FORWARD},
+};
 use amaru_protocols::metrics_effects::ResourceMeter;
 use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendData};
 use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerShareFlags,
-    PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams, SelectPeersParams,
-    SelectUsing, SharedIngestResult,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderTelemetry, PeerScores, PeerShareFlags, PeerSnapshot,
+    Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams, SelectPeersParams, SelectUsing,
+    SharedIngestResult,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -71,9 +75,7 @@ async fn enqueue_and_emit_telemetry(
     make: impl FnOnce(oneshot::Sender<Vec<HeaderTelemetry>>) -> PerformanceOp,
 ) {
     let events = enqueue_query(perf, make).await;
-    let meter = optional_meter(&resources);
-    let live = crate::consensus_mode::is_live(&resources);
-    HeaderTelemetry::emit_all(&events, meter.as_deref(), live);
+    perf.emit_telemetry(&events, &resources);
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +245,41 @@ impl Performance {
     }
 
     pub fn record_header_rejected(outcome: HeaderLifecycleOutcome) -> RecordHeaderRejectedEffect {
-        RecordHeaderRejectedEffect { outcome }
+        Self::record_header_rejected_with(outcome, None, None, None)
+    }
+
+    pub fn record_header_rejected_with(
+        outcome: HeaderLifecycleOutcome,
+        peer: Option<Peer>,
+        hash: Option<HeaderHash>,
+        error: Option<String>,
+    ) -> RecordHeaderRejectedEffect {
+        RecordHeaderRejectedEffect { outcome, peer, hash, error }
+    }
+
+    /// Open `perf.header.forward`. `parent` is the roll-forward span; `None` opens a root span.
+    pub fn open_header_forward(hash: HeaderHash, parent: Option<TraceContext<PROCESS>>) -> OpenHeaderForwardEffect {
+        OpenHeaderForwardEffect { hash, parent }
+    }
+
+    pub fn open_block_fetch_wait(hash: HeaderHash, parent: TraceContext<FORWARD>) -> OpenBlockFetchWaitEffect {
+        OpenBlockFetchWaitEffect { hash, parent }
+    }
+
+    pub fn close_block_fetch_wait(hash: HeaderHash) -> CloseBlockFetchWaitEffect {
+        CloseBlockFetchWaitEffect { hash }
+    }
+
+    pub fn open_block_fetches(hashes: Vec<HeaderHash>) -> OpenBlockFetchesEffect {
+        OpenBlockFetchesEffect { hashes }
+    }
+
+    pub fn close_block_fetch(hash: HeaderHash) -> CloseBlockFetchEffect {
+        CloseBlockFetchEffect { hash }
+    }
+
+    pub fn close_header_forward(hash: HeaderHash) -> CloseHeaderForwardEffect {
+        CloseHeaderForwardEffect { hash }
     }
 
     pub fn record_header_abandoned(hash: HeaderHash, now: Instant) -> RecordHeaderAbandonedEffect {
@@ -275,6 +311,41 @@ impl Performance {
     /// Whether sync adoptions are still arriving faster than 10 per second and are not overdue.
     pub fn sync_adoption_is_fast(now: Instant) -> SyncAdoptionPaceEffect {
         SyncAdoptionPaceEffect { now }
+    }
+
+    fn emit_telemetry(&self, events: &[HeaderTelemetry], resources: &Resources) {
+        let meter = optional_meter(resources);
+        let live = crate::consensus_mode::is_live(resources);
+        let mut spans = self.spans.lock();
+        HeaderTelemetry::emit_all(events, meter.as_deref(), live, &mut spans);
+    }
+
+    fn span_open_forward(&self, hash: HeaderHash, parent: Option<TraceContext<PROCESS>>) -> TraceContext<FORWARD> {
+        self.spans.lock().open_forward(hash, parent)
+    }
+
+    fn span_open_fetch_wait(&self, hash: HeaderHash, parent: TraceContext<FORWARD>) {
+        self.spans.lock().open_fetch_wait(hash, parent);
+    }
+
+    fn span_close_fetch_wait(&self, hash: &HeaderHash) {
+        self.spans.lock().close_fetch_wait(hash);
+    }
+
+    fn span_open_fetches(&self, hashes: &[HeaderHash]) {
+        self.spans.lock().open_fetches(hashes);
+    }
+
+    fn span_close_fetch(&self, hash: &HeaderHash) {
+        self.spans.lock().close_fetch(hash);
+    }
+
+    fn span_close_forward(&self, hash: &HeaderHash) {
+        self.spans.lock().close_forward(hash);
+    }
+
+    fn span_open_fork(&self, hash: &HeaderHash) {
+        self.spans.lock().open_fork(hash);
     }
 }
 
@@ -820,16 +891,122 @@ impl ExternalEffectAPI for RecordRollbackEffect {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordHeaderRejectedEffect {
     pub(crate) outcome: HeaderLifecycleOutcome,
+    pub(crate) peer: Option<Peer>,
+    pub(crate) hash: Option<HeaderHash>,
+    pub(crate) error: Option<String>,
 }
 
 impl ExternalEffectAPI for RecordHeaderRejectedEffect {
     type Response = ();
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        let resources = resources.clone();
+        let outcome = self.outcome;
+        let peer = self.peer;
+        let hash = self.hash;
+        let error = self.error.clone();
+        self.wrap_sync_f(move || {
+            let event = HeaderTelemetry::rejected_with(outcome, peer, hash, error);
+            perf.emit_telemetry(std::slice::from_ref(&event), &resources);
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OpenHeaderForwardEffect {
+    pub(crate) hash: HeaderHash,
+    pub(crate) parent: Option<TraceContext<PROCESS>>,
+}
+
+impl ExternalEffectAPI for OpenHeaderForwardEffect {
+    type Response = TraceContext<FORWARD>;
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        let hash = self.hash;
+        let parent = self.parent.clone();
+        self.wrap_sync_f(move || perf.span_open_forward(hash, parent))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OpenBlockFetchWaitEffect {
+    pub(crate) hash: HeaderHash,
+    pub(crate) parent: TraceContext<FORWARD>,
+}
+
+impl ExternalEffectAPI for OpenBlockFetchWaitEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
-            // NOTE: No worker state; emit directly on the effect path (never on the performance thread).
-            let meter = optional_meter(&resources);
-            HeaderPerformance::apply_header_rejected(self.outcome).emit(meter.as_deref(), false);
+            let perf = require_perf(&resources);
+            perf.span_open_fetch_wait(self.hash, self.parent.clone());
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloseBlockFetchWaitEffect {
+    pub(crate) hash: HeaderHash,
+}
+
+impl ExternalEffectAPI for CloseBlockFetchWaitEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let perf = require_perf(&resources);
+            perf.span_close_fetch_wait(&self.hash);
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OpenBlockFetchesEffect {
+    pub(crate) hashes: Vec<HeaderHash>,
+}
+
+impl ExternalEffectAPI for OpenBlockFetchesEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let perf = require_perf(&resources);
+            perf.span_open_fetches(&self.hashes);
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloseBlockFetchEffect {
+    pub(crate) hash: HeaderHash,
+}
+
+impl ExternalEffectAPI for CloseBlockFetchEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let perf = require_perf(&resources);
+            perf.span_close_fetch(&self.hash);
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloseHeaderForwardEffect {
+    pub(crate) hash: HeaderHash,
+}
+
+impl ExternalEffectAPI for CloseHeaderForwardEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let perf = require_perf(&resources);
+            perf.span_close_forward(&self.hash);
         })
     }
 }
@@ -869,11 +1046,13 @@ impl ExternalEffectAPI for RecordForkStartedEffect {
         let perf = require_perf(&resources);
         let resources = resources.clone();
         self.wrap(|this| async move {
+            let hash = this.tip.hash();
             enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordForkStarted {
                 effect: this,
                 reply,
             })
-            .await
+            .await;
+            perf.span_open_fork(&hash);
         })
     }
 }

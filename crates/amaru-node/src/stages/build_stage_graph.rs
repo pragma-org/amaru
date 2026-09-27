@@ -167,8 +167,8 @@ pub fn build_stage_graph(
         .preload(&select_chain, [SelectChainMsg::Initialize(recovery_best_hash)])
         .expect("initialization message must be preloaded");
     let select_chain_input = select_chain.contramap(|msg| {
-        let track_peers::NewTip { tip, parent, trace_context } = msg;
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context }
+        let track_peers::NewTip { tip, parent, trace_context, forward_context } = msg;
+        SelectChainMsg::TipFromUpstream { tip, parent, trace_context, forward_context }
     });
 
     let track_peers_wired = stage_graph.wire_up(

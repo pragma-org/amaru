@@ -4758,7 +4758,7 @@
       "name": "switch",
       "kind": "event",
       "target": "amaru::consensus::perf::fork",
-      "description": "Event recorded when a fork switch ends. `duration_micros` measures the time from the detection of the fork to its application (or abandonment).",
+      "description": "Event recorded when a fork switch ends. `duration_micros` is the `amaru::network` span `perf.fork.switch`.",
       "public": true,
       "levels": [
         "debug"
@@ -4793,6 +4793,9 @@
         },
         "forward_micros": {
           "type": "integer"
+        },
+        "adopt_micros": {
+          "type": "integer"
         }
       },
       "required": [],
@@ -4804,13 +4807,14 @@
         "slot_start_to_header_micros",
         "block_fetch_wait_micros",
         "block_fetch_micros",
-        "forward_micros"
+        "forward_micros",
+        "adopt_micros"
       ],
       "additionalProperties": false,
       "name": "lifecycle",
       "kind": "event",
       "target": "amaru::consensus::perf::header",
-      "description": "Event recorded once per header, when its processing reaches a terminal state. The four network-health points themselves are the `amaru::blockperf` events (`header.announced`, `block.requested`, `block.received`, `block.adopted`). This event carries the intervals between those points once the header reaches a terminal state. `outcome` describes that state (including headers rejected on reception, which carry no durations). The optional durations are: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
+      "description": "Event recorded once per header, when its processing reaches a terminal state. The four network-health points themselves are the `amaru::blockperf` events (`header.announced`, `block.requested`, `block.received`, `block.adopted`). A header rejected on reception is logged at error and carries no durations. A completed header stays at debug. The optional durations are the `amaru::network` span durations, not a separate clock: - `forward_micros`: `perf.header.forward` - `block_fetch_wait_micros`: `perf.header.block_fetch_wait` - `block_fetch_micros`: `perf.blocks.fetch` - `adopt_micros`: body reception to adoption",
       "public": true,
       "levels": [
         "debug",
@@ -7426,6 +7430,90 @@
       "levels": [
         "info"
       ]
+    },
+    "amaru::network::perf::blocks::FETCH": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch",
+      "kind": "span",
+      "target": "amaru::network::perf::blocks",
+      "description": "One header's block body, from the request of the range that contains it until that body arrives.",
+      "public": true
+    },
+    "amaru::network::perf::fork::SWITCH": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch",
+      "kind": "span",
+      "target": "amaru::network::perf::fork",
+      "description": "One switch onto a fork, from detection until the switch ends. `header_hash` is the fork tip. The span covers every block on that fork.",
+      "public": true
+    },
+    "amaru::network::perf::header::BLOCK_FETCH_WAIT": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "block_fetch_wait",
+      "kind": "span",
+      "target": "amaru::network::perf::header",
+      "description": "Header waiting in chain selection before it can be fetched.",
+      "public": true
+    },
+    "amaru::network::perf::header::FORWARD": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forward",
+      "kind": "span",
+      "target": "amaru::network::perf::header",
+      "description": "Header accepted from an upstream peer, or forged locally, until chain selection finishes with it. A locally forged block has no upstream roll-forward and is a root span.",
+      "public": true
     },
     "amaru::node::build::LEDGER_OPENED": {
       "type": "object",

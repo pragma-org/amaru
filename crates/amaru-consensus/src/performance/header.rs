@@ -23,8 +23,10 @@ use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
-use amaru_observability::{debug, info};
+use amaru_observability::{debug, error, info};
 use amaru_pure_stage::Instant;
+
+use super::spans::{HeaderDurations, HeaderSpanBook};
 
 /// How many distinct announcing peers are logged for one header hash.
 const LOGGED_ANNOUNCEMENTS: usize = 3;
@@ -133,6 +135,11 @@ pub enum HeaderLifecycleOutcome {
 }
 
 impl HeaderLifecycleOutcome {
+    /// Header rejected before a lifecycle was tracked. Logged at error, with no durations.
+    pub fn is_reception_rejection(self) -> bool {
+        matches!(self, Self::DuplicateHeader | Self::UndecodableHeader | Self::InvalidHeader | Self::StoreHeaderError)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AbandonedBlock => "abandoned",
@@ -188,6 +195,10 @@ pub enum HeaderTelemetry {
         block_fetch_wait_micros: Option<u64>,
         block_fetch_micros: Option<u64>,
         forward_micros: Option<u64>,
+        /// Body reception to adoption. Not `forward − wait − fetch`.
+        adopt_micros: Option<u64>,
+        /// Present when a header is rejected on reception.
+        error: Option<String>,
     },
     /// Closed fork switch (`perf.fork.switch`).
     ForkSwitch { hash: HeaderHash, outcome: ForkSwitchOutcome, duration_micros: u64 },
@@ -212,166 +223,235 @@ impl HeaderTelemetry {
     /// Emit the corresponding tracing event and optional metric.
     ///
     /// Safe to call where OTel/export layers may drop or lag; must not run on the performance
-    /// worker thread.
-    pub fn emit(&self, meter: Option<&Meter>, live: bool) {
+    /// worker thread. Blockperf lines are emitted under the forward span when it is still open.
+    /// Lifecycle closes that span and uses its duration.
+    pub(crate) fn emit(&self, meter: Option<&Meter>, live: bool, spans: &mut HeaderSpanBook) {
         match self {
             Self::Lifecycle {
                 hash,
                 peer,
                 outcome,
+                error,
                 slot_start_to_header_micros,
                 block_fetch_wait_micros,
                 block_fetch_micros,
                 forward_micros,
+                adopt_micros,
             } => {
-                match (hash, peer) {
-                    (Some(hash), Some(peer)) => {
-                        debug!(
-                            consensus::perf::header::LIFECYCLE,
-                            peer,
-                            header_hash = hash,
-                            outcome = outcome.as_str(),
-                            slot_start_to_header_micros = @slot_start_to_header_micros,
-                            block_fetch_wait_micros = @block_fetch_wait_micros,
-                            block_fetch_micros = @block_fetch_micros,
-                            forward_micros = @forward_micros
-                        );
-                    }
-                    (Some(hash), None) => {
-                        debug!(
-                            consensus::perf::header::LIFECYCLE,
-                            header_hash = hash,
-                            outcome = outcome.as_str(),
-                            slot_start_to_header_micros = @slot_start_to_header_micros,
-                            block_fetch_wait_micros = @block_fetch_wait_micros,
-                            block_fetch_micros = @block_fetch_micros,
-                            forward_micros = @forward_micros
-                        );
-                    }
-                    _ => {
-                        debug!(consensus::perf::header::LIFECYCLE, outcome = outcome.as_str());
-                    }
-                }
+                let recorded =
+                    hash.and_then(|hash| spans.finish(&hash, *outcome == HeaderLifecycleOutcome::ValidBlock));
+                let block_fetch_wait_micros = recorded
+                    .as_ref()
+                    .map(|d: &HeaderDurations| d.block_fetch_wait_micros)
+                    .unwrap_or(*block_fetch_wait_micros);
+                let block_fetch_micros = recorded.as_ref().map(|d| d.block_fetch_micros).unwrap_or(*block_fetch_micros);
+                let forward_micros = recorded.as_ref().map(|d| d.forward_micros).unwrap_or(*forward_micros);
+                let adopt_micros = recorded.as_ref().map(|d| d.adopt_micros).unwrap_or(*adopt_micros);
+                let rejected = outcome.is_reception_rejection();
+                emit_lifecycle(
+                    rejected,
+                    *peer,
+                    *hash,
+                    outcome.as_str(),
+                    error.as_deref(),
+                    *slot_start_to_header_micros,
+                    block_fetch_wait_micros,
+                    block_fetch_micros,
+                    forward_micros,
+                    adopt_micros,
+                );
                 record_metric(
                     meter,
                     ConsensusMetrics::HeaderLifecycle {
                         outcome: outcome.as_str().to_string(),
                         slot_start_to_header_micros: *slot_start_to_header_micros,
-                        block_fetch_wait_micros: *block_fetch_wait_micros,
-                        block_fetch_micros: *block_fetch_micros,
-                        forward_micros: *forward_micros,
+                        block_fetch_wait_micros,
+                        block_fetch_micros,
+                        forward_micros,
                     },
                 );
             }
             Self::ForkSwitch { hash, outcome, duration_micros } => {
+                let duration_micros = spans.take_fork_micros().unwrap_or(*duration_micros);
                 debug!(
                     consensus::perf::fork::SWITCH,
                     header_hash = hash,
                     outcome = outcome.as_str(),
-                    duration_micros = @duration_micros
+                    duration_micros = duration_micros
                 );
                 record_metric(
                     meter,
-                    ConsensusMetrics::ForkSwitch {
-                        outcome: outcome.as_str().to_string(),
-                        duration_micros: *duration_micros,
-                    },
+                    ConsensusMetrics::ForkSwitch { outcome: outcome.as_str().to_string(), duration_micros },
                 );
             }
             Self::Announced { hash, peer, rank, slot_latency_ms } => {
-                if live {
-                    info!(
-                        blockperf::header::ANNOUNCED,
-                        peer,
-                        header_hash = hash,
-                        rank = *rank,
-                        slot_latency_ms = @slot_latency_ms
-                    );
-                } else {
-                    debug!(
-                        blockperf::header::ANNOUNCED,
-                        peer,
-                        header_hash = hash,
-                        rank = *rank,
-                        slot_latency_ms = @slot_latency_ms
-                    );
-                }
+                in_forward(spans, hash, || {
+                    if live {
+                        info!(
+                            blockperf::header::ANNOUNCED,
+                            peer,
+                            header_hash = hash,
+                            rank = *rank,
+                            slot_latency_ms = @slot_latency_ms
+                        );
+                    } else {
+                        debug!(
+                            blockperf::header::ANNOUNCED,
+                            peer,
+                            header_hash = hash,
+                            rank = *rank,
+                            slot_latency_ms = @slot_latency_ms
+                        );
+                    }
+                });
             }
             Self::Requested { hash, peers, slot_latency_ms } => {
-                if live {
-                    info!(
-                        blockperf::block::REQUESTED,
-                        header_hash = hash,
-                        peers = peers.as_str(),
-                        slot_latency_ms = @slot_latency_ms
-                    );
-                } else {
-                    debug!(
-                        blockperf::block::REQUESTED,
-                        header_hash = hash,
-                        peers = peers.as_str(),
-                        slot_latency_ms = @slot_latency_ms
-                    );
-                }
+                in_forward(spans, hash, || {
+                    if live {
+                        info!(
+                            blockperf::block::REQUESTED,
+                            header_hash = hash,
+                            peers = peers.as_str(),
+                            slot_latency_ms = @slot_latency_ms
+                        );
+                    } else {
+                        debug!(
+                            blockperf::block::REQUESTED,
+                            header_hash = hash,
+                            peers = peers.as_str(),
+                            slot_latency_ms = @slot_latency_ms
+                        );
+                    }
+                });
             }
             Self::Received { hash, peer, rank, slot_latency_ms, fetch_latency_ms } => {
-                if live {
-                    info!(
-                        blockperf::block::RECEIVED,
-                        peer,
-                        header_hash = hash,
-                        rank = *rank,
-                        slot_latency_ms = @slot_latency_ms,
-                        fetch_latency_ms = @fetch_latency_ms
-                    );
-                } else {
-                    debug!(
-                        blockperf::block::RECEIVED,
-                        peer,
-                        header_hash = hash,
-                        rank = *rank,
-                        slot_latency_ms = @slot_latency_ms,
-                        fetch_latency_ms = @fetch_latency_ms
-                    );
-                }
+                in_forward(spans, hash, || {
+                    if live {
+                        info!(
+                            blockperf::block::RECEIVED,
+                            peer,
+                            header_hash = hash,
+                            rank = *rank,
+                            slot_latency_ms = @slot_latency_ms,
+                            fetch_latency_ms = @fetch_latency_ms
+                        );
+                    } else {
+                        debug!(
+                            blockperf::block::RECEIVED,
+                            peer,
+                            header_hash = hash,
+                            rank = *rank,
+                            slot_latency_ms = @slot_latency_ms,
+                            fetch_latency_ms = @fetch_latency_ms
+                        );
+                    }
+                });
             }
             Self::Adopted { hash, peer: Some(peer), slot_latency_ms } => {
-                if live {
-                    info!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
-                } else {
-                    debug!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
-                }
+                in_forward(spans, hash, || {
+                    if live {
+                        info!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
+                    } else {
+                        debug!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
+                    }
+                });
             }
             Self::Adopted { hash, peer: None, slot_latency_ms } => {
-                if live {
-                    info!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
-                } else {
-                    debug!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
-                }
+                in_forward(spans, hash, || {
+                    if live {
+                        info!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
+                    } else {
+                        debug!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
+                    }
+                });
             }
         }
     }
 
     /// Emit a batch of telemetry events.
     ///
+    /// Blockperf and fork events run before lifecycle so they still see the forward span.
     /// `live` prints block-propagation events at info; sync keeps them at debug.
-    pub fn emit_all(events: &[Self], meter: Option<&Meter>, live: bool) {
-        for event in events {
-            event.emit(meter, live);
+    pub(crate) fn emit_all(events: &[Self], meter: Option<&Meter>, live: bool, spans: &mut HeaderSpanBook) {
+        for event in events.iter().filter(|event| !matches!(event, Self::Lifecycle { .. })) {
+            event.emit(meter, live, spans);
+        }
+        for event in events.iter().filter(|event| matches!(event, Self::Lifecycle { .. })) {
+            event.emit(meter, live, spans);
         }
     }
 
-    /// Rejected header with no tracked lifecycle (no durations, no hash, no peer).
+    /// Rejected header with no tracked lifecycle (no durations).
     pub fn rejected(outcome: HeaderLifecycleOutcome) -> Self {
+        Self::rejected_with(outcome, None, None, None)
+    }
+
+    pub fn rejected_with(
+        outcome: HeaderLifecycleOutcome,
+        peer: Option<Peer>,
+        hash: Option<HeaderHash>,
+        error: Option<String>,
+    ) -> Self {
         Self::Lifecycle {
-            hash: None,
-            peer: None,
+            hash,
+            peer,
             outcome,
+            error,
             slot_start_to_header_micros: None,
             block_fetch_wait_micros: None,
             block_fetch_micros: None,
             forward_micros: None,
+            adopt_micros: None,
         }
+    }
+}
+
+fn in_forward(spans: &HeaderSpanBook, hash: &HeaderHash, emit: impl FnOnce()) {
+    if let Some(span) = spans.forward_span(hash) {
+        let _entered = span.enter();
+        emit();
+    } else {
+        emit();
+    }
+}
+
+#[expect(clippy::too_many_arguments)]
+fn emit_lifecycle(
+    rejected: bool,
+    peer: Option<Peer>,
+    hash: Option<HeaderHash>,
+    outcome: &str,
+    error_text: Option<&str>,
+    slot_start_to_header_micros: Option<u64>,
+    block_fetch_wait_micros: Option<u64>,
+    block_fetch_micros: Option<u64>,
+    forward_micros: Option<u64>,
+    adopt_micros: Option<u64>,
+) {
+    macro_rules! lifecycle {
+        ($macro:ident $($field:tt)*) => {{
+            $macro!(
+                consensus::perf::header::LIFECYCLE,
+                $($field)*
+                outcome = outcome,
+                error = @error_text,
+                slot_start_to_header_micros = @slot_start_to_header_micros,
+                block_fetch_wait_micros = @block_fetch_wait_micros,
+                block_fetch_micros = @block_fetch_micros,
+                forward_micros = @forward_micros,
+                adopt_micros = @adopt_micros
+            );
+        }};
+    }
+    match (rejected, peer, hash) {
+        (true, Some(peer), Some(hash)) => lifecycle!(error peer, header_hash = hash,),
+        (true, Some(peer), None) => lifecycle!(error peer,),
+        (true, None, Some(hash)) => lifecycle!(error header_hash = hash,),
+        (true, None, None) => lifecycle!(error),
+        (false, Some(peer), Some(hash)) => lifecycle!(debug peer, header_hash = hash,),
+        (false, Some(peer), None) => lifecycle!(debug peer,),
+        (false, None, Some(hash)) => lifecycle!(debug header_hash = hash,),
+        (false, None, None) => lifecycle!(debug),
     }
 }
 
@@ -679,10 +759,12 @@ impl HeaderPerformance {
             hash: Some(*hash),
             peer: Some(lifecycle.peer),
             outcome,
+            error: None,
             slot_start_to_header_micros,
             block_fetch_wait_micros,
             block_fetch_micros,
             forward_micros: Some(forward_micros),
+            adopt_micros: None,
         }]
     }
 

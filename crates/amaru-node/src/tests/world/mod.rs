@@ -25,6 +25,8 @@
 mod fragment;
 #[cfg(test)]
 mod generated;
+#[cfg(test)]
+mod header_spans;
 mod injector;
 mod nodes;
 #[cfg(test)]

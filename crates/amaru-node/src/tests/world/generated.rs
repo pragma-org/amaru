@@ -61,22 +61,22 @@ const TAG_PEER_SEL: u64 = 200;
 /// First node listen port is `base + NODE_PORT_OFFSET`.
 const NODE_PORT_OFFSET: u16 = 11;
 
-const BLOCKFETCH_FRAGMENT: usize = 6;
-const BLOCKFETCH_HORIZON_NANOS: u64 = 5_000_000_000;
+pub(super) const BLOCKFETCH_FRAGMENT: usize = 6;
+pub(super) const BLOCKFETCH_HORIZON_NANOS: u64 = 5_000_000_000;
 
 fn provider(seed: u64) -> Arc<WorldConnectionProvider> {
     Arc::new(WorldConnectionProvider::new(seed))
 }
 
-fn loopback(port: u16) -> SocketAddr {
+pub(super) fn loopback(port: u16) -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], port))
 }
 
-fn node_listen(base: u16, index: usize) -> SocketAddr {
+pub(super) fn node_listen(base: u16, index: usize) -> SocketAddr {
     loopback(base + NODE_PORT_OFFSET + index as u16)
 }
 
-fn peer_at(addr: SocketAddr) -> Peer {
+pub(super) fn peer_at(addr: SocketAddr) -> Peer {
     Peer::try_from(addr).expect("world tests use IPv4 loopback")
 }
 
@@ -88,7 +88,7 @@ fn generated_headers(n: usize, seed: u64) -> Vec<Header> {
     run_strategy_with_seed(seed, any_headers_chain_with_root(n, conway_root().with_height(BlockHeight::from(0))))
 }
 
-fn injector_linear_store(n: usize, seed: u64) -> (Arc<InMemoryChainStore>, Vec<Header>) {
+pub(super) fn injector_linear_store(n: usize, seed: u64) -> (Arc<InMemoryChainStore>, Vec<Header>) {
     let headers = generated_headers(n, seed);
     let store = Arc::new(InMemoryChainStore::new());
     store.set_anchor_point(&headers[0].point()).unwrap();
@@ -114,14 +114,14 @@ fn stub_generated_validation(sim: &mut SimulationRunning) {
     });
 }
 
-fn generated_node(seed: u64, index: usize, listen: SocketAddr) -> NodeTestConfig {
+pub(super) fn generated_node(seed: u64, index: usize, listen: SocketAddr) -> NodeTestConfig {
     NodeTestConfig::default()
         .with_listen_address(&listen.to_string())
         .with_seed(derive_seed(seed, TAG_NODE + index as u64))
         .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000))
 }
 
-fn with_ancestor(config: NodeTestConfig, ancestor: &Header) -> NodeTestConfig {
+pub(super) fn with_ancestor(config: NodeTestConfig, ancestor: &Header) -> NodeTestConfig {
     config.with_validated_blocks(vec![ancestor.clone()])
 }
 
@@ -169,8 +169,8 @@ fn world_with_injector(
 
 /// Sync tests: production graphs may `Handle::block_on` DurationDist::Zero, which
 /// panics inside an existing Tokio context.
-struct SyncRun {
-    seed: u64,
+pub(super) struct SyncRun {
+    pub(super) seed: u64,
     handle: Handle,
     provider: Arc<WorldConnectionProvider>,
     _runtime: Runtime,
@@ -178,7 +178,7 @@ struct SyncRun {
 }
 
 impl SyncRun {
-    fn new(label: &str) -> Self {
+    pub(super) fn new(label: &str) -> Self {
         Self::with_provider(label, provider)
     }
 
@@ -195,7 +195,7 @@ impl SyncRun {
         self.provider.clone()
     }
 
-    fn spawn_catch_up(&self, index: usize, config: NodeTestConfig) -> SimulationRunning {
+    pub(super) fn spawn_catch_up(&self, index: usize, config: NodeTestConfig) -> SimulationRunning {
         spawn_node(config, self.connections(), &self.handle, self.seed, index, true)
     }
 
@@ -203,7 +203,7 @@ impl SyncRun {
         spawn_node(config, self.connections(), &self.handle, self.seed, index, false)
     }
 
-    fn spawn_injector(
+    pub(super) fn spawn_injector(
         &self,
         store: Arc<InMemoryChainStore>,
         listen: SocketAddr,
@@ -211,7 +211,7 @@ impl SyncRun {
         spawn_injector(store, self.connections(), listen, self.seed, &self.handle)
     }
 
-    fn injector_world(
+    pub(super) fn injector_world(
         &self,
         injector: SimulationRunning,
         shared: Arc<InjectorShared>,

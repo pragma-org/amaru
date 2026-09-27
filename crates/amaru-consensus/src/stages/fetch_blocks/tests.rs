@@ -29,9 +29,9 @@ use crate::{
     stages::{
         fetch_blocks::test_setup::{
             TestPrep, make_block_header, setup, setup_with_overrides, te_ancestors_between, te_cancel_schedule,
-            te_clock, te_find_missing_blocks, te_has_block, te_load_header, te_record_block_delivery,
-            te_record_blocks_requested, te_record_fetch_failure, te_schedule, te_select_peers_for_fetch,
-            te_store_block, test_peer, test_prep,
+            te_clock, te_find_missing_blocks, te_has_block, te_load_header, te_open_block_fetches,
+            te_record_block_delivery, te_record_blocks_requested, te_record_fetch_failure, te_schedule,
+            te_select_peers_for_fetch, te_store_block, test_peer, test_prep,
         },
         test_utils::{
             assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated,
@@ -197,6 +197,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
                 peers: None,
             },
         ),
+        te_open_block_fetches("fb-1", vec![prep.headers.h2.hash(), h3.hash()]),
         te_record_blocks_requested("fb-1", vec![prep.headers.h2.hash(), h3.hash()], requested_at),
         te_schedule("fb-1", FetchBlocksMsg::Timeout(1), timers.timeout),
     ];
@@ -272,6 +273,7 @@ fn test_new_tip_blocks_to_fetch() {
                 peers: None,
             },
         ),
+        te_open_block_fetches("fb-1", vec![prep.headers.h1.hash(), prep.headers.h2.hash()]),
         te_record_blocks_requested("fb-1", vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at),
         te_schedule("fb-1", FetchBlocksMsg::Timeout(1), timers.timeout),
     ];

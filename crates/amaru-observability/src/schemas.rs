@@ -750,12 +750,13 @@ define_schemas! {
                     /// Event recorded once per header, when its processing reaches a terminal state.
                     /// The four network-health points themselves are the `amaru::blockperf` events
                     /// (`header.announced`, `block.requested`, `block.received`, `block.adopted`).
-                    /// This event carries the intervals between those points once the header reaches
-                    /// a terminal state. `outcome` describes that state (including headers rejected
-                    /// on reception, which carry no durations). The optional durations are:
-                    /// - `block_fetch_wait_micros`: reception of the header to the request of its block
-                    /// - `block_fetch_micros`: request of the block to its reception
-                    /// - `forward_micros`: reception of the header to the adoption of its block
+                    /// A header rejected on reception is logged at error and carries no durations.
+                    /// A completed header stays at debug. The optional durations are the
+                    /// `amaru::network` span durations, not a separate clock:
+                    /// - `forward_micros`: `perf.header.forward`
+                    /// - `block_fetch_wait_micros`: `perf.header.block_fetch_wait`
+                    /// - `block_fetch_micros`: `perf.blocks.fetch`
+                    /// - `adopt_micros`: body reception to adoption
                     public event LIFECYCLE {
                         levels: debug, error
                         optional peer: %amaru_kernel::Peer
@@ -766,11 +767,12 @@ define_schemas! {
                         optional block_fetch_wait_micros: u64
                         optional block_fetch_micros: u64
                         optional forward_micros: u64
+                        optional adopt_micros: u64
                     }
                 }
                 fork {
-                    /// Event recorded when a fork switch ends. `duration_micros` measures the time
-                    /// from the detection of the fork to its application (or abandonment).
+                    /// Event recorded when a fork switch ends. `duration_micros` is the
+                    /// `amaru::network` span `perf.fork.switch`.
                     public event SWITCH {
                         levels: debug
                         required header_hash: amaru_kernel::HeaderHash
@@ -3153,6 +3155,39 @@ define_schemas! {
                 event CONNECTED {
                     levels: debug
                     required peer: %amaru_kernel::Peer
+                }
+            }
+            perf {
+                header {
+                    /// Header accepted from an upstream peer, or forged locally, until chain
+                    /// selection finishes with it. A locally forged block has no upstream
+                    /// roll-forward and is a root span.
+                    public span FORWARD {
+                        parents: crate::amaru::consensus::roll_forward::PROCESS
+                        root
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
+                    /// Header waiting in chain selection before it can be fetched.
+                    public span BLOCK_FETCH_WAIT {
+                        parents: crate::amaru::network::perf::header::FORWARD
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
+                }
+                blocks {
+                    /// One header's block body, from the request of the range that contains it
+                    /// until that body arrives.
+                    public span FETCH {
+                        parents: crate::amaru::network::perf::header::FORWARD
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
+                }
+                fork {
+                    /// One switch onto a fork, from detection until the switch ends.
+                    /// `header_hash` is the fork tip. The span covers every block on that fork.
+                    public span SWITCH {
+                        parents: crate::amaru::network::perf::header::FORWARD
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
                 }
             }
         }

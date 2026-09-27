@@ -36,7 +36,11 @@ use super::{
     effects::{ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect},
     schedule::{EpochSchedule, Schedule as Schedules},
 };
-use crate::{effects::ValidateHeaderEffect, stages::select_chain::SelectChainMsg};
+use crate::{
+    effects::ValidateHeaderEffect,
+    performance::{OpenHeaderForwardEffect, Performance},
+    stages::select_chain::SelectChainMsg,
+};
 
 make_states!(pub Live as LiveIn { Idle(IdleIn); Signed(!), Window(!) });
 
@@ -65,11 +69,17 @@ define_messages! {
 pub struct ForgeTip {
     tip: Point,
     parent: Point,
+    forward_context: amaru_observability::TraceContext<amaru_observability::amaru::network::perf::header::FORWARD>,
 }
 
 impl From<ForgeTip> for SelectChainMsg {
     fn from(tip: ForgeTip) -> Self {
-        SelectChainMsg::tip_from_upstream(tip.tip, tip.parent)
+        SelectChainMsg::TipFromUpstream {
+            tip: tip.tip,
+            parent: tip.parent,
+            trace_context: amaru_observability::TraceContext::detached(),
+            forward_context: tip.forward_context,
+        }
     }
 }
 
@@ -105,6 +115,7 @@ on_receive!(Signed, Publish =>
     External<StoreBlockEffect>,
     Clock,
     Repeat<Wait>,
+    External<OpenHeaderForwardEffect>,
     Send<ToSelectChain, ForgeTip>,
     Repeat<CancelSchedule>,
     Repeat<Schedule<DueLead>>
@@ -360,7 +371,8 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         let (_at, next) = session.wait(delay).await;
         session = next;
     }
-    let forged = ForgeTip { tip: header_point, parent: parent_point };
+    let (forward_context, session) = session.external(Performance::open_header_forward(header_hash, None)).await;
+    let forged = ForgeTip { tip: header_point, parent: parent_point, forward_context };
     info!(consensus::forge::FORGED, slot, header_hash, parent = parent_hash);
     let session = session.send(&state.select_chain, forged).await;
     finish_with_next_lead!(session, state, now)

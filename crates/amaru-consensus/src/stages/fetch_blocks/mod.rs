@@ -416,6 +416,7 @@ impl FetchBlocks {
         )
         .await;
         self.fetch_started_at = Some(now);
+        eff.external(Performance::open_block_fetches(requested.clone())).await;
         eff.external(Performance::record_blocks_requested(requested, now)).await;
         let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
         self.timeout = Some(timeout);
@@ -568,6 +569,7 @@ impl FetchBlocks {
             bytes,
         ))
         .await;
+        eff.external(Performance::close_block_fetch(point.hash())).await;
 
         if block.header.parent_hash() != Some(missing.boundary().hash()) {
             // this happens for stragglers when fetching from multiple peers
