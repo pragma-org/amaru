@@ -16,7 +16,7 @@ use std::{cmp::Ordering, collections::BTreeMap};
 
 use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point};
 use amaru_observability::{
-    ChainSyncProcess, ContinuedHeader, Instrument, TraceContext,
+    CarriedHeader, ChainChoice, ChainSyncProcess, FetchResume, Instrument, TraceContext,
     amaru::consensus::chain::{FETCH_NEXT, SELECT_FROM_BLOCK_VALIDATION, SELECT_FROM_TIP},
     debug, debug_span, error, info, warn,
 };
@@ -118,10 +118,10 @@ impl SelectChain {
 pub enum SelectChainMsg {
     Initialize(HeaderHash),
     TipFromUpstream { tip: Point, parent: Point, trace_context: TraceContext<ChainSyncProcess> },
-    BlockValidationResult(Point, bool, BlockHeight, TraceContext<ContinuedHeader>),
+    BlockValidationResult(Point, bool, BlockHeight, TraceContext<CarriedHeader>),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
-    FetchNextFrom(Point, TraceContext<ContinuedHeader>),
+    FetchNextFrom(Point, TraceContext<FetchResume>),
 }
 
 impl SelectChainMsg {
@@ -137,12 +137,10 @@ impl SelectChainMsg {
         SelectChainMsg::FetchNextFrom(point, TraceContext::detached())
     }
 
-    /// Attaches the context carried with a block. A tip from chain sync uses [`ChainSyncProcess`] directly.
-    pub fn with_trace_context(mut self, context: &TraceContext<ContinuedHeader>) -> Self {
-        match &mut self {
-            SelectChainMsg::BlockValidationResult(_, _, _, trace_context)
-            | SelectChainMsg::FetchNextFrom(_, trace_context) => *trace_context = context.clone(),
-            SelectChainMsg::TipFromUpstream { .. } | SelectChainMsg::Initialize(_) => {}
+    /// Attaches the context carried with a validated block. A fetch resume uses [`FetchResume`].
+    pub fn with_trace_context(mut self, context: &TraceContext<CarriedHeader>) -> Self {
+        if let SelectChainMsg::BlockValidationResult(_, _, _, trace_context) = &mut self {
+            *trace_context = context.clone();
         }
         self
     }
@@ -358,11 +356,7 @@ impl SelectChain {
                         self.may_fetch_blocks = false;
                         eff.send(
                             &self.downstream,
-                            NewBestTip {
-                                tip: new_best_tip.point(),
-                                parent,
-                                trace_context: trace_context.clone().into(),
-                            },
+                            NewBestTip { tip: new_best_tip.point(), parent, trace_context: trace_context.into() },
                         )
                         .await;
                     }
@@ -465,7 +459,7 @@ impl SelectChain {
 pub struct NewBestTip {
     pub tip: Point,
     pub parent: Point,
-    pub trace_context: TraceContext<ContinuedHeader>,
+    pub trace_context: TraceContext<ChainChoice>,
 }
 
 impl NewBestTip {

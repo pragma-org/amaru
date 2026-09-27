@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 use amaru_kernel::{BlockHeight, HeaderHash, Point};
 use amaru_metrics::LedgerMetrics;
 use amaru_observability::{
-    ContinuedHeader, Instrument, TraceContext, amaru::consensus::block::VALIDATE, debug, debug_record, debug_span,
-    error, info, warn,
+    CarriedHeader, Instrument, TraceContext, amaru::consensus::block::VALIDATE, debug, debug_record, debug_span, error,
+    info, warn,
 };
 use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_protocols::store_effects::Store;
@@ -105,7 +105,7 @@ impl ValidateBlock {
         tip: Point,
         eff: &Effects<ValidateBlockMsg>,
         metrics: LedgerMetrics,
-        trace_context: &TraceContext<ContinuedHeader>,
+        trace_context: &TraceContext<CarriedHeader>,
     ) {
         Metrics::new(eff).record(metrics.into()).await;
         eff.send(
@@ -131,7 +131,7 @@ impl ValidateBlock {
         eff: &Effects<ValidateBlockMsg>,
         reason: &str,
         message: &str,
-        trace_context: &TraceContext<ContinuedHeader>,
+        trace_context: &TraceContext<CarriedHeader>,
     ) {
         warn!(consensus::block::INVALID, failed_tip, parent = msg.parent, error = reason, detail = message);
         self.invalid_blocks.insert(failed_tip.hash(), failed_tip.block_height());
@@ -152,7 +152,7 @@ pub struct ValidateBlockMsg {
     tip: Point,
     parent: Point,
     max_block_height: BlockHeight,
-    trace_context: TraceContext<ContinuedHeader>,
+    trace_context: TraceContext<CarriedHeader>,
 }
 
 impl ValidateBlockMsg {
@@ -160,7 +160,7 @@ impl ValidateBlockMsg {
         Self { tip, parent, max_block_height, trace_context: TraceContext::detached() }
     }
 
-    pub fn with_trace_context(mut self, trace_context: &TraceContext<ContinuedHeader>) -> Self {
+    pub fn with_trace_context(mut self, trace_context: &TraceContext<CarriedHeader>) -> Self {
         self.trace_context = trace_context.clone();
         self
     }
@@ -173,10 +173,9 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         return eff.terminate().await;
     }
 
-    let trace_context = msg.trace_context.clone();
-    let root_trace_context = trace_context.clone();
+    let root_trace_context = msg.trace_context.clone();
     let span = debug_span!(
-            parent_context: &trace_context,
+            parent_context: &root_trace_context,
             consensus::block::VALIDATE,
             tip,
             header_hash = tip.hash());

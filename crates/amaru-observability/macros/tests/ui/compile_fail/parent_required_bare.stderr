@@ -1,0 +1,15 @@
+error: span demo::CHILD lists parents and must be opened with `parent_context:`
+  --> tests/ui/compile_fail/parent_required_bare.rs:21:1
+   |
+21 | / define_local_schemas! {
+22 | |     demo {
+23 | |         /// Child span
+24 | |         span CHILD {
+...  |
+29 | | }
+   | |_^
+...
+32 |       let _span = trace_span!(crate::demo::CHILD, value = 1u64);
+   |                   --------------------------------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `__DEMO__CHILD_PARENT_FORM` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -65,6 +65,12 @@ define_local_schemas! {
                 parents: crate::parent_context::HeaderParent
                 required point_slot: u64
             }
+            /// Child that may also be opened as an explicit root
+            span OPTED_ROOT {
+                parents: crate::parent_context::HeaderParent
+                root
+                required point_slot: u64
+            }
         }
     }
     network {
@@ -145,6 +151,11 @@ mod parent_context {
     fn trace_span_accepts_listed_parent() {
         let context = TraceContext::<HeaderParent>::detached();
         let _span = trace_span!(parent_context: &context, crate::ledger::state::CHILD_OF_HEADER, point_slot = 1);
+    }
+
+    #[test]
+    fn listed_parent_span_with_root_flag_opens_as_root() {
+        let _span = trace_span!(root, crate::ledger::state::OPTED_ROOT, point_slot = 1);
     }
 }
 

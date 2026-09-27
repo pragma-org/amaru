@@ -30,7 +30,7 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeight, Peer, PeerCandidate};
-use amaru_observability::{ContinuedHeader, Instrument, TraceContext, debug, debug_span, info, trace, warn};
+use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug, debug_span, info, trace, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, ObservedAt};
 use amaru_protocols::{connection::LocalUse, manager::ManagerMessage};
 use amaru_pure_stage::{Effects, Instant, StageRef};
@@ -234,7 +234,7 @@ pub enum PeerSelectionMsg {
     ///
     /// The first report while no ban is active removes and bans the peer. A repeat report during
     /// that ban is logged and ignored. Refill waits for the next tick.
-    Adversarial(Peer, TraceContext<ContinuedHeader>),
+    Adversarial(Peer, TraceContext<CarriedHeader>),
     /// Manually add a peer, mostly for testing.
     AddPeer(Peer),
     /// DNS result for a selected bootstrap [`amaru_kernel::PeerCandidate`] (at most one [`Peer`]).

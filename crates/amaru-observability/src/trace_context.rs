@@ -32,13 +32,25 @@ pub struct NoParent;
 /// into this marker.
 pub struct ChainSyncProcess;
 
-/// Parent carried with a block once chain selection has a context to forward.
+/// Parent of the block-fetch span opened from chain selection.
 ///
-/// Fetch, validation, adoption, header forwarding, and a ban opened from that
-/// work share one message field. The field is filled from [`ChainSyncProcess`],
-/// from a chain-selection span, or from startup recovery. The span bytes stay
-/// as they were; only this marker changes.
-pub struct ContinuedHeader;
+/// A new best tip comes from the chain-sync process span, from selection after
+/// a validation result, or from selection after a fetch resume. Those three are
+/// the same parent of the fetch span.
+pub struct ChainChoice;
+
+/// Header context carried with a downloaded or recovered block.
+///
+/// Filled from [`ChainChoice`] or from the startup recovery span. It parents
+/// validation, adoption, forwarding, a ban, and selection after a validation
+/// result. The node-initialize span is not this context.
+pub struct CarriedHeader;
+
+/// Parent of the chain-selection span that decides where fetching resumes.
+///
+/// Filled from [`CarriedHeader`] after a fetch batch, or from node initialize
+/// when startup recovery has nothing left to fetch.
+pub struct FetchResume;
 
 /// Context attached by an effect that opens no child span.
 ///
@@ -50,24 +62,14 @@ pub struct AttachedSpan;
 #[doc(hidden)]
 pub trait ParentContext {
     type Schema;
-
-    fn as_trace_context(&self) -> &TraceContext<Self::Schema>;
 }
 
 impl<S> ParentContext for TraceContext<S> {
     type Schema = S;
-
-    fn as_trace_context(&self) -> &TraceContext<S> {
-        self
-    }
 }
 
 impl<S> ParentContext for &TraceContext<S> {
     type Schema = S;
-
-    fn as_trace_context(&self) -> &TraceContext<S> {
-        self
-    }
 }
 
 /// A child span implements this for each marker named in its `parents:` list.
@@ -121,7 +123,7 @@ impl Default for TraceContext<NoParent> {
 }
 
 impl<S> TraceContext<S> {
-    pub fn from_span_context(span_context: SpanContext) -> Self {
+    pub(crate) fn from_span_context(span_context: SpanContext) -> Self {
         Self { span_context, _schema: PhantomData }
     }
 
@@ -164,33 +166,43 @@ impl From<TraceContext<crate::amaru::consensus::roll_backward::PROCESS>> for Tra
     }
 }
 
-impl From<TraceContext<ChainSyncProcess>> for TraceContext<ContinuedHeader> {
+impl From<TraceContext<ChainSyncProcess>> for TraceContext<ChainChoice> {
     fn from(context: TraceContext<ChainSyncProcess>) -> Self {
         Self::from_span_context(context.span_context)
     }
 }
 
-impl From<TraceContext<crate::amaru::consensus::chain::SELECT_FROM_BLOCK_VALIDATION>>
-    for TraceContext<ContinuedHeader>
-{
+impl From<TraceContext<crate::amaru::consensus::chain::SELECT_FROM_BLOCK_VALIDATION>> for TraceContext<ChainChoice> {
     fn from(context: TraceContext<crate::amaru::consensus::chain::SELECT_FROM_BLOCK_VALIDATION>) -> Self {
         Self::from_span_context(context.span_context)
     }
 }
 
-impl From<TraceContext<crate::amaru::consensus::chain::FETCH_NEXT>> for TraceContext<ContinuedHeader> {
+impl From<TraceContext<crate::amaru::consensus::chain::FETCH_NEXT>> for TraceContext<ChainChoice> {
     fn from(context: TraceContext<crate::amaru::consensus::chain::FETCH_NEXT>) -> Self {
         Self::from_span_context(context.span_context)
     }
 }
 
-impl From<TraceContext<crate::amaru::consensus::blocks::RECOVER_STORED>> for TraceContext<ContinuedHeader> {
+impl From<TraceContext<ChainChoice>> for TraceContext<CarriedHeader> {
+    fn from(context: TraceContext<ChainChoice>) -> Self {
+        Self::from_span_context(context.span_context)
+    }
+}
+
+impl From<TraceContext<crate::amaru::consensus::blocks::RECOVER_STORED>> for TraceContext<CarriedHeader> {
     fn from(context: TraceContext<crate::amaru::consensus::blocks::RECOVER_STORED>) -> Self {
         Self::from_span_context(context.span_context)
     }
 }
 
-impl From<TraceContext<crate::amaru::consensus::node::INITIALIZE>> for TraceContext<ContinuedHeader> {
+impl From<TraceContext<CarriedHeader>> for TraceContext<FetchResume> {
+    fn from(context: TraceContext<CarriedHeader>) -> Self {
+        Self::from_span_context(context.span_context)
+    }
+}
+
+impl From<TraceContext<crate::amaru::consensus::node::INITIALIZE>> for TraceContext<FetchResume> {
     fn from(context: TraceContext<crate::amaru::consensus::node::INITIALIZE>) -> Self {
         Self::from_span_context(context.span_context)
     }

@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroU8, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
-use amaru_observability::{ContinuedHeader, Instrument, TraceContext, debug, debug_span, error, info};
+use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug, debug_span, error, info};
 use amaru_ouroboros::{CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, MempoolMsg};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 
@@ -57,7 +57,7 @@ pub enum ManagerMessage {
     /// When `None`, every initiating connection is asked (cold-start / empty-selection fallback).
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64, peers: Option<Vec<Peer>> },
     /// Advertise this new tip to all downstream peers.
-    NewTip(Point, TraceContext<ContinuedHeader>),
+    NewTip(Point, TraceContext<CarriedHeader>),
     /// INTERNAL message sent by the connector stage after a connection attempt completes.
     ///
     /// `attempt` is the dial [`AddPeer`](ManagerMessage::AddPeer) accepted. A connect error has

@@ -230,6 +230,14 @@ pub fn make_kind_macro_name(categories: &[String], schema_name: &str) -> String 
     format!("__{namespace}{schema_name}_KIND")
 }
 
+/// Generate the parent-form check macro name for a schema.
+///
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_PARENT_FORM`
+pub fn make_parent_form_macro_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
+    format!("__{namespace}{schema_name}_PARENT_FORM")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
