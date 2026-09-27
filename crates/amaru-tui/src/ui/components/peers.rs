@@ -87,26 +87,26 @@ pub(in crate::ui) fn render_peers_table(
         [
             Constraint::Length(3),
             Constraint::Length(3),
-            // The address gives up its extra share so ≤1s, ≤3s, and ≤5s stay wide enough for 100%.
-            Constraint::Fill(1),
-            Constraint::Fill(1),
-            Constraint::Fill(1),
-            Constraint::Fill(1),
+            Constraint::Fill(10),
+            Constraint::Min(6),
+            Constraint::Min(7),
+            Constraint::Min(5),
+            Constraint::Min(7),
             Constraint::Length(1),
-            Constraint::Fill(1),
+            Constraint::Min(7),
             Constraint::Length(1),
-            Constraint::Fill(1),
+            Constraint::Min(7),
             Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(4),
-            Constraint::Length(4),
-            Constraint::Length(4),
+            Constraint::Min(7),
+            Constraint::Length(5),
+            Constraint::Length(5),
+            Constraint::Length(5),
         ],
     )
     .header(
         Row::new(vec![
-            "", "Dir", "Peer", "Duplex?", "RTT", "Observe", "→", "Select", "→", "Fetch", "→", "Adopt", "≤1s", "≤3s",
-            "≤5s",
+            "", "Dir", "Peer", "Duplex?", "RTT", "Score", "Observe", "→", "Select", "→", "Fetch", "→", "Adopt", "≤1s",
+            "≤3s", "≤5s",
         ])
         .style(table_header_style(model.interaction_mode)),
     )
@@ -138,6 +138,7 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
     let query_header = peer.mean_query_header_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let get_block = peer.mean_get_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let adopt_block = peer.mean_adopt_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let announcement_score = peer.announcement_score().to_string();
     let within_1s = format_share(peer.live_arrival_share_percent(1_000_000));
     let within_3s = format_share(peer.live_arrival_share_percent(3_000_000));
     let within_5s = format_share(peer.live_arrival_share_percent(5_000_000));
@@ -157,6 +158,7 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
         Cell::from(peer_address_line(peer)),
         Cell::from(can_duplex).style(Style::default().fg(muted_color())),
         Cell::from(rtt).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(announcement_score).style(Style::default().fg(emphasis_white_color())),
         Cell::from(slot_start_to_header).style(Style::default().fg(emphasis_white_color())),
         Cell::from("→"),
         Cell::from(query_header).style(Style::default().fg(emphasis_white_color())),
@@ -235,6 +237,9 @@ mod tests {
         let at = Instant::now();
         let mut peer = PeerState::new("1.2.3.4:3001".into(), at);
         peer.record_header_lifecycle(at, 100, Some(9_000), Some(2_000), Some(5_000), Some(8_000));
+        peer.add_announcement_points(6, at);
+        peer.add_announcement_points(6, at);
+        peer.add_announcement_points(3, at);
         peer.record_live_arrival(500_000, 100);
         peer.record_live_arrival(2_000_000, 100);
         peer.record_live_arrival(4_000_000, 100);
@@ -248,12 +253,12 @@ mod tests {
         let lines = buffer_lines(terminal.backend().buffer());
 
         let header = lines.iter().find(|line| line.contains("Observe")).expect("header row");
-        for label in ["Select", "Fetch", "Adopt", "≤1s", "≤3s", "≤5s"] {
+        for label in ["Score", "Select", "Fetch", "Adopt", "≤1s", "≤3s", "≤5s"] {
             assert!(header.contains(label), "header missing {label}: {header}");
         }
 
         let row = lines.iter().find(|line| line.contains("9.0ms")).expect("peer row");
-        for cell in ["9.0ms", "2.0ms", "5.0ms", "8.0ms", "33%", "67%", "100%"] {
+        for cell in ["15", "9.0ms", "2.0ms", "5.0ms", "8.0ms", "33%", "67%", "100%"] {
             assert!(row.contains(cell), "peer row missing {cell}: {row}");
         }
     }

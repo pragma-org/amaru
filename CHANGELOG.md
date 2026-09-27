@@ -51,6 +51,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
+- **amaru-tui**: each peer row shows a header announcement score. The first peer to announce a header scores 6, the second scores 3, and the third scores 1.
 
 ### Fixed
 

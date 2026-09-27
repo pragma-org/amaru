@@ -258,7 +258,7 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use amaru_metrics::{MetricsEvent, system::SystemMetrics};
-    use amaru_observability::amaru::{consensus, ledger, protocols};
+    use amaru_observability::amaru::{blockperf, consensus, ledger, protocols};
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::layout::Rect;
     use tracing::Level;
@@ -944,6 +944,30 @@ mod tests {
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
         assert_eq!(arrival_shares(peer), (Some(50), Some(50), Some(100)));
+    }
+
+    #[test]
+    fn header_announcement_score_counts_six_three_and_one() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+
+        for rank in [1u64, 2, 3, 9, 1] {
+            model.handle_message(Message::Telemetry(telemetry_at!(
+                now,
+                blockperf::header::ANNOUNCED,
+                blockperf::header::ANNOUNCED::FIELD_PEER => "1.2.3.4:3001",
+                blockperf::header::ANNOUNCED::FIELD_RANK => rank,
+            )));
+        }
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            now,
+            blockperf::header::ANNOUNCED,
+            blockperf::header::ANNOUNCED::FIELD_PEER => "5.6.7.8:3001",
+            blockperf::header::ANNOUNCED::FIELD_RANK => 2u64,
+        )));
+
+        assert_eq!(model.peers.get("1.2.3.4:3001").expect("peer").announcement_score(), 6 + 3 + 1 + 6);
+        assert_eq!(model.peers.get("5.6.7.8:3001").expect("peer").announcement_score(), 3);
     }
 
     #[test]

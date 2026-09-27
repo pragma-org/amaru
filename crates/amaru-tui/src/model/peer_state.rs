@@ -57,6 +57,8 @@ pub struct PeerState {
     adopt_block: MeanMicros,
     /// Live arrivals (slot onset to first body), newest at the back. Catch-up samples are not stored.
     live_arrivals: VecDeque<u64>,
+    /// Sum of header-announcement points: rank 1 is 6, rank 2 is 3, rank 3 is 1.
+    announcement_score: u64,
     pub updated_at: Instant,
 }
 
@@ -78,6 +80,7 @@ impl PeerState {
             get_block: MeanMicros::default(),
             adopt_block: MeanMicros::default(),
             live_arrivals: VecDeque::new(),
+            announcement_score: 0,
             updated_at,
         }
     }
@@ -137,6 +140,16 @@ impl PeerState {
             self.adopt_block.record(micros, smoothing);
         }
         self.updated_at = at;
+    }
+
+    /// Add points for one logged header announcement. Rank 1 is 6, rank 2 is 3, rank 3 is 1.
+    pub(crate) fn add_announcement_points(&mut self, points: u64, at: Instant) {
+        self.announcement_score = self.announcement_score.saturating_add(points);
+        self.updated_at = at;
+    }
+
+    pub fn announcement_score(&self) -> u64 {
+        self.announcement_score
     }
 
     /// Remember one live arrival latency. Only the last `capacity` samples are kept.
