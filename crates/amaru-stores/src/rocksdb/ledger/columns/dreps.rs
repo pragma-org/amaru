@@ -48,49 +48,47 @@ pub fn add<DB>(
     valid_until_on_update: Epoch,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::dreps::ADD).in_scope(|| {
-        for (credential, (anchor, registration)) in rows {
-            let key = as_key(&PREFIX, credential);
+    for (credential, (anchor, registration)) in rows {
+        let key = as_key(&PREFIX, credential);
 
-            // Registration already exists. Which represents one of two cases:
-            //
-            // 1. The DRep is simply updating (register is None).
-            // 2. The DRep is re-registering after a previous deregistration.
-            let row = if let Some(mut row) =
-                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-            {
-                // Re-registration
-                if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
-                    row.deposit = deposit;
-                    row.registered_at = registered_at;
-                    row.valid_until = valid_until;
-                } else {
-                    row.valid_until = valid_until_on_update;
-                }
-
-                Some(row)
-            } else if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
-                // Brand new registration.
-                Some(Row { deposit, registered_at, valid_until, anchor: None })
+        // Registration already exists. Which represents one of two cases:
+        //
+        // 1. The DRep is simply updating (register is None).
+        // 2. The DRep is re-registering after a previous deregistration.
+        let row = if let Some(mut row) =
+            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+        {
+            // Re-registration
+            if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
+                row.deposit = deposit;
+                row.registered_at = registered_at;
+                row.valid_until = valid_until;
             } else {
-                // Technically impossible, sign of a logic error.
-                None
-            };
+                row.valid_until = valid_until_on_update;
+            }
 
-            match row {
-                Some(mut row) => {
-                    anchor.set_or_reset(&mut row.anchor);
+            Some(row)
+        } else if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
+            // Brand new registration.
+            Some(Row { deposit, registered_at, valid_until, anchor: None })
+        } else {
+            // Technically impossible, sign of a logic error.
+            None
+        };
 
-                    db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-                }
-                None => {
-                    error!(stores::ledger::dreps::ADD, credential, reason = "registration without a deposit");
-                }
+        match row {
+            Some(mut row) => {
+                anchor.set_or_reset(&mut row.anchor);
+
+                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+            }
+            None => {
+                error!(stores::ledger::dreps::ADD, credential, reason = "registration without a deposit");
             }
         }
+    }
 
-        Ok(())
-    })
+    Ok(())
 }
 
 /// Re-calculate drep expiry based the current epoch. This happens each time a drep vote on an
@@ -100,22 +98,20 @@ pub fn set_valid_until<DB>(
     credentials: BTreeSet<Credential>,
     valid_until: Epoch,
 ) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::dreps::SET_VALID_UNTIL).in_scope(|| {
-        for credential in credentials {
-            let key = as_key(&PREFIX, credential);
+    for credential in credentials {
+        let key = as_key(&PREFIX, credential);
 
-            if let Some(mut row) =
-                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-            {
-                row.valid_until = valid_until;
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else {
-                warn!(stores::ledger::dreps::SET_VALID_UNTIL, credential, reason = "unknown drep");
-            };
-        }
+        if let Some(mut row) =
+            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+        {
+            row.valid_until = valid_until;
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            warn!(stores::ledger::dreps::SET_VALID_UNTIL, credential, reason = "unknown drep");
+        };
+    }
 
-        Ok(())
-    })
+    Ok(())
 }
 
 /// Clear a DRep registration.
@@ -123,17 +119,15 @@ pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
 ) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::dreps::REMOVE).in_scope(|| {
-        for (drep, _) in rows {
-            let key = as_key(&PREFIX, drep);
+    for (drep, _) in rows {
+        let key = as_key(&PREFIX, drep);
 
-            if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
-                db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
-            } else {
-                error!(stores::ledger::dreps::REMOVE, drep, reason = "unknown drep");
-            }
+        if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
+            db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            error!(stores::ledger::dreps::REMOVE, drep, reason = "unknown drep");
         }
+    }
 
-        Ok(())
-    })
+    Ok(())
 }

@@ -20,7 +20,7 @@ define_local_schemas! {
     test {
         example {
             /// Test schema for custom expression type validation
-            STRICT_EXPR_TYPE {
+            span STRICT_EXPR_TYPE {
                 required fee: u64
             }
         }

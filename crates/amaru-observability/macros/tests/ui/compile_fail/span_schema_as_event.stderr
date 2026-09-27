@@ -1,0 +1,15 @@
+error: schema test::sub::SCHEMA is a span and cannot be emitted as an event
+  --> tests/ui/compile_fail/span_schema_as_event.rs:19:1
+   |
+19 | / define_local_schemas! {
+20 | |     test {
+21 | |         sub {
+22 | |             /// Span schema
+...  |
+28 | | }
+   | |_^
+...
+31 |       trace_event!(INFO, crate::test::sub::SCHEMA, value = 1_u64);
+   |       ----------------------------------------------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `__TEST__SUB__SCHEMA_KIND` which comes from the expansion of the macro `trace_event` (in Nightly builds, run with -Z macro-backtrace for more info)

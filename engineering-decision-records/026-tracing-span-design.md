@@ -98,11 +98,13 @@ One result of the Node Diversity Workshop in Porto (June 2–3, 2026) was a reaf
 3. first reception of the block from some upstream peer
 4. local adoption of the block
 
-We support this by opening a span with NAME `perf.header.forward` upon successful decoding of the header in the `track_peers` stage and closing that span in the `select_chain` stage, either upon seeing that the header is not on the best chain candidate or upon receiving the block validation result (which is slightly after adopting the block but typically before communicating the new tip to downstream peers). This records points 1 and 4.
+The duration of that path is a span with NAME `perf.header.forward` on target `amaru::network`, opened upon successful decoding of the header in the `track_peers` stage and closed in the `select_chain` stage, either upon seeing that the header is not on the best chain candidate or upon receiving the block validation result (which is slightly after adopting the block but typically before communicating the new tip to downstream peers). This records points 1 and 4.
 
-Points 2 and 3 are recorded by opening a span with NAME `perf.blocks.fetch` in `fetch_blocks` when requesting a range containing that block and closing that range when the block has been received.
+Points 2 and 3 are recorded by a span with NAME `perf.blocks.fetch` on the same target, opened in `fetch_blocks` when requesting a range containing that block and closed when the block has been received.
 
-Operators also need these points as individual log lines they can turn on with `EnvFilter`. `EnvFilter` matches a bracketed name against the current span, so an event whose metadata name is `perf.header.lifecycle` is not selected by `amaru::consensus[perf.header.lifecycle{peer}]`. The four points are therefore emitted as debug events on target `amaru::blockperf`:
+These duration spans, together with `perf.header.block_fetch_wait` and `perf.fork.switch`, are span schemas on target `amaru::network`. They are not a substitute for the blockperf log lines below, and those log lines do not replace the spans. OpenTelemetry exports the spans as spans and the blockperf events as logs. Each schema is either a span or an event; that kind is what emission uses.
+
+Operators also need these points as individual log lines they can turn on with `EnvFilter`. `EnvFilter` matches a bracketed name against the current span, so an event whose metadata name is `perf.header.lifecycle` is not selected by `amaru::consensus[perf.header.lifecycle{peer}]`. The four points are also emitted as events on target `amaru::blockperf`, in addition to the duration spans:
 
 - `header.announced` — the first three distinct peers to announce a header hash, with `rank` 1, 2, or 3. A header already in the store does not open a new rank-1 line; later peers are logged only while that header's first three slots are still open and the header has not been adopted
 - `block.requested` — the peers asked for that block body
@@ -115,7 +117,7 @@ Each of these lines carries `slot_latency_ms`, milliseconds since the onset of t
 
 `adopt_chain` stores a consensus mode from the adopted tip's slot onset and the wall clock. A lag strictly under 60 seconds is live. A change of mode is logged at info as `tip.mode`. While syncing, the four events are debug and `tip.adopt` is limited to one info line per second. While live, the four events and every adoption are info. `track_peers` logs `chainsync.chain_lagging` at most once a minute when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. A sync that is still adopting faster than 10 blocks per second, and the first minute of that condition, stay quiet.
 
-Switching to a different fork will then open a span with NAME `perf.fork.switch` for all blocks on the target fork.
+Switching to a different fork opens a span with NAME `perf.fork.switch` on target `amaru::network` for all blocks on the target fork. That span is separate from the consensus event of the same name, which records the outcome when a fork switch ends.
 
 #### Consensus
 

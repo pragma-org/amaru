@@ -21,8 +21,8 @@ error[E0599]: no associated function or constant named `typo_field` found for st
 24 | |     test {
 25 | |         example {
 26 | |             /// Test schema for custom expression validation
-27 | |             STRICT_TEST {
-   | |_______________________- associated function or constant `typo_field` not found for this struct
+27 | |             span STRICT_TEST {
+   | |____________________________- associated function or constant `typo_field` not found for this struct
 ...
 42 |       let _span = trace_span!(crate::test::example::STRICT_TEST, actual_field, typo_field = get_value());
    |                                                                                ^^^^^^^^^^ associated function or constant not found in `STRICT_TEST`

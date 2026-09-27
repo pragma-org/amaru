@@ -29,12 +29,12 @@ define_local_schemas! {
     network {
         sync {
             /// Network sync events
-            public SYNC_BLOCKS {
+            public span SYNC_BLOCKS {
                 required block_height: u64
             }
 
             /// Connection events
-            public CONNECTION_OPENED {
+            public span CONNECTION_OPENED {
                 required peer_id: String
                 optional ip_address: String
             }
@@ -44,7 +44,7 @@ define_local_schemas! {
     validation {
         rules {
             /// Rule validation events
-            public VALIDATE_RULE {
+            public span VALIDATE_RULE {
                 required rule_name: String
                 required result: String
             }

@@ -24,7 +24,7 @@ define_local_schemas! {
     test {
         example {
             /// Test schema for values that serialize but have no JsonSchema
-            NO_SCHEMA {
+            span NO_SCHEMA {
                 required value: NoSchema
             }
         }

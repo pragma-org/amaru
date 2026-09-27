@@ -29,7 +29,7 @@ define_local_schemas! {
     consensus {
         validate_header {
             /// Evolve nonce for testing
-            EVOLVE_NONCE {
+            span EVOLVE_NONCE {
                 required hash: String
             }
         }
@@ -37,35 +37,35 @@ define_local_schemas! {
     ledger {
         state {
             /// Apply block for testing
-            public APPLY_BLOCK {
+            public span APPLY_BLOCK {
                 required point_slot: u64
             }
             /// Create validation context for testing
-            CREATE_VALIDATION_CONTEXT {
+            span CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: String
                 required block_number: u64
                 required block_body_size: u64
                 optional total_inputs: u64
             }
             /// Epoch transition for testing
-            EPOCH_TRANSITION {
+            span EPOCH_TRANSITION {
                 required from: u64
                 required into: u64
             }
             /// Resolve inputs for testing
-            RESOLVE_INPUTS {
+            span RESOLVE_INPUTS {
                 optional resolved_from_context: u64
                 optional resolved_from_volatile: u64
                 optional resolved_from_db: u64
             }
             /// Roll forward for testing
-            ROLL_FORWARD {}
+            span ROLL_FORWARD {}
         }
     }
     network {
         chainsync_client {
             /// Find intersection for testing
-            FIND_INTERSECTION {
+            span FIND_INTERSECTION {
                 required peer: String
                 required intersection_slot: u64
             }

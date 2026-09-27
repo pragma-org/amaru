@@ -67,8 +67,15 @@
 //!         tags: <tag>, <tag>, ...          // optional; inherited by nested schemas
 //!         <category> { ... }               // nested category
 //!         /// Description of the event     // required doc comment on every schema
-//!         [public] <SCHEMA> {
+//!         [public] span <SCHEMA> {
 //!             tags: <tag>, ...             // optional; overrides inherited module tags
+//!             required <field>: <Type> [,]
+//!             optional <field>: <Type> [,]
+//!         }
+//!         /// Description of the event
+//!         [public] event <SCHEMA> {
+//!             levels: <level>, ...         // required; tracing levels this event may use
+//!             tags: <tag>, ...
 //!             required <field>: <Type> [,]
 //!             optional <field>: <Type> [,]
 //!         }
@@ -83,11 +90,14 @@
 //! category         := ident "{" category_body "}"
 //! category_body    := ( tags_decl | category | schema )*
 //!
-//! schema           := attrs "public"? UPPER_IDENT "{" schema_body "}"
-//! schema_body      := ( tags_decl | field )*
+//! schema           := attrs "public"? ("span" | "event") UPPER_IDENT "{" schema_body "}"
+//! schema_body      := ( tags_decl | levels_decl | field )*
 //!
 //! tags_decl        := "tags" ":" tag ("," tag)*
 //! tag              := lowercase_ident
+//!
+//! levels_decl      := "levels" ":" level ("," level)*
+//! level            := "trace" | "debug" | "info" | "warn" | "error"
 //!
 //! field            := attrs ("required" | "optional") ident ":" Type ","?
 //! attrs            := outer_attribute*     // typically `///` doc comments
@@ -100,7 +110,9 @@
 //!   `SCREAMING_SNAKE_CASE`). These introduce schemas; all other identifiers introduce
 //!   categories.
 //! - **`Type`** is any Rust type accepted by [`syn::Type`] (primitives, paths, generics, …).
-//! - **`public`** may only appear immediately before a schema name, never before a category.
+//! - **`public`** may only appear immediately before `span` or `event`, never before a category.
+//! - **`span` / `event`** choose the emission kind. `levels:` is required on every event and
+//!   forbidden on a span. It lists the tracing levels that event may be emitted at.
 //! - **`required` / `optional`** are prefix keywords on individual fields. Block forms such
 //!   as `required { ... }` are not part of the language.
 //! - Trailing commas after field type annotations are allowed.
@@ -115,6 +127,11 @@
 //! - the tracing `target` (first two segments, e.g. `amaru::ledger`);
 //! - the tracing event/span `name` (remaining segments plus schema name, lowercased and
 //!   joined with `.`, e.g. `state.roll_forward`).
+//!
+//! `span` schemas are used from `trace_span!` / `debug_span!` / `info_span!` and from
+//! `trace_record!`. `event` schemas are used from `trace_event!` / `trace!` / `debug!` /
+//! `info!` / `warn!` / `error!`, and only at a level listed in `levels:`. A mismatch is a
+//! compile error.
 //!
 //! ## Schemas
 //!
@@ -182,6 +199,7 @@
 //!    - typed `fn field_name(record) -> …` accessors (exported schemas only)
 //! 3. Hidden declarative macros used by the instrumentation proc-macros:
 //!    - `__…_REQUIRE!` — required-field presence
+//!    - `__…_KIND!` — span/event kind, allowed event levels, and `trace_record!` on a span
 //!    - `__…_RECORD!` / `__…_ASSIGN!` — field type checks and value assignment
 //!    - `__…_INSTRUMENT!` — span construction with metadata and tags
 //!    - `__VALIDATE_…!` — module-level schema name check

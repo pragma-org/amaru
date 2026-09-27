@@ -35,13 +35,16 @@ define_local_schemas! {
         stores {
             accounts {
                 /// Reset rewards counters for testing
-                public RESET_MANY {
+                public event RESET_MANY {
+                    levels: info, error
                     required credential: String
                     required reason: String
                     optional count: usize
                 }
                 /// Event without fields for testing
-                public FLUSH {}
+                public event FLUSH {
+                    levels: warn
+                }
             }
         }
     }

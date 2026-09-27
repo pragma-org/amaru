@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{ORIGIN_HASH, Point};
-use amaru_observability::{debug, info, info_record};
+use amaru_observability::{debug, info};
 use amaru_ouroboros::ChainStore;
 
 use crate::NodeStartError;
@@ -60,7 +60,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
         chain_store.roll_forward_chain(&tip)?;
     }
 
-    info_record!(consensus::db_chain::INITIALIZE, best_chain_hash);
+    info!(consensus::db_chain::INITIALIZE, ledger_tip = tip, best_chain_hash);
     clear_validation_after_tip(chain_store, tip, clear)?;
     Ok(())
 }

@@ -1,5 +1,5 @@
-error: expected curly braces
-  --> tests/ui/compile_fail/invalid_schema_name_with_colon.rs:24:21
+error: expected `span` or `event` before schema 'VALIDATE'
+  --> tests/ui/compile_fail/invalid_schema_name_with_colon.rs:24:13
    |
 24 |             VALIDATE-HEADER {
-   |                     ^
+   |             ^^^^^^^^

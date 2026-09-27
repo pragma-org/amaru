@@ -14,7 +14,7 @@
 
 use amaru_kernel::{BlockHeight, Epoch, Hash, Peer, Point, Slot};
 use amaru_observability::{
-    FieldValue, TelemetryCaptureLayer, amaru,
+    FieldValue, TelemetryCaptureLayer, amaru, debug,
     field::{cbor_to_json, encode_cbor},
     info,
 };
@@ -30,8 +30,8 @@ fn peer_and_hash_schema_fields_are_emitted_as_plain_strings() {
     let header_hash = Hash::<32>::from([0xabu8; 32]);
 
     tracing::subscriber::with_default(subscriber, || {
-        info!(protocols::manager::peer::ADD, peer = peer);
-        info!(
+        info!(protocols::manager::peer::CONNECT, peer = peer);
+        debug!(
             ledger::tip::UPDATE,
             slot = Slot::from(42),
             header_hash,
@@ -46,8 +46,10 @@ fn peer_and_hash_schema_fields_are_emitted_as_plain_strings() {
     });
 
     let records: Vec<_> = rx.try_iter().collect();
-    let peer_record =
-        records.iter().find(|record| record.name == amaru::protocols::manager::peer::ADD::NAME).expect("peer event");
+    let peer_record = records
+        .iter()
+        .find(|record| record.name == amaru::protocols::manager::peer::CONNECT::NAME)
+        .expect("peer event");
     let tip_record = records.iter().find(|record| record.name == amaru::ledger::tip::UPDATE::NAME).expect("tip event");
 
     assert_eq!(peer_record.fields.get("peer"), Some(&FieldValue::Str(peer.to_string())));
