@@ -16,7 +16,7 @@ use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeight, Header, IsHeader, Point};
 use amaru_observability::{
-    ContinuedHeader, Instrument, TraceContext, amaru::consensus::block::ADOPT, debug, debug_span, error, info, warn,
+    CarriedHeader, Instrument, TraceContext, amaru::consensus::block::ADOPT, debug, debug_span, error, info, warn,
 };
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
@@ -128,7 +128,7 @@ impl AdoptChain {
 pub struct AdoptChainMsg {
     tip: Point,
     max_block_height: BlockHeight,
-    trace_context: TraceContext<ContinuedHeader>,
+    trace_context: TraceContext<CarriedHeader>,
 }
 
 impl AdoptChainMsg {
@@ -136,7 +136,7 @@ impl AdoptChainMsg {
         Self { tip, max_block_height, trace_context: TraceContext::detached() }
     }
 
-    pub fn with_trace_context(mut self, trace_context: &TraceContext<ContinuedHeader>) -> Self {
+    pub fn with_trace_context(mut self, trace_context: &TraceContext<CarriedHeader>) -> Self {
         self.trace_context = trace_context.clone();
         self
     }
@@ -145,14 +145,13 @@ impl AdoptChainMsg {
 pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<AdoptChainMsg>) -> AdoptChain {
     state.max_block_height = msg.max_block_height.max(state.max_block_height);
     let AdoptChainMsg { tip: msg, trace_context, .. } = msg;
-    let root_trace_context = trace_context.clone();
     let span = debug_span!(
         parent_context: &trace_context,
         consensus::block::ADOPT,
         tip = msg,
         header_hash = msg.hash()
     );
-    let trace_context: TraceContext<ADOPT> = (&span).into();
+    let stage_context: TraceContext<ADOPT> = (&span).into();
 
     async {
         if msg.block_height() < state.current_best_tip.block_height() {
@@ -165,7 +164,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             return state;
         }
 
-        let store = Store::new(eff.clone()).with_trace_context(&trace_context);
+        let store = Store::new(eff.clone()).with_trace_context(&stage_context);
 
         let incoming_header = store
             .load_header(&msg.hash())
@@ -260,7 +259,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             state.suppressed += 1;
         }
         eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
-        eff.send(&state.downstream, ManagerMessage::NewTip(msg, root_trace_context)).await;
+        eff.send(&state.downstream, ManagerMessage::NewTip(msg, trace_context)).await;
         eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
         state.current_best_tip = msg;
         state

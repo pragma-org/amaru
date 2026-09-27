@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{EraName, NetworkPoint, Peer, Point};
-use amaru_observability::{ContinuedHeader, Instrument, TraceContext, debug_span, info};
+use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug_span, info};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -43,7 +43,7 @@ pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
-    NewTip(Point, TraceContext<ContinuedHeader>),
+    NewTip(Point, TraceContext<CarriedHeader>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

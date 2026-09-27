@@ -1,0 +1,15 @@
+error: span demo::CHILD lists parents and does not accept a raw `parent:` span
+  --> tests/ui/compile_fail/parent_required_span_parent.rs:21:1
+   |
+21 | / define_local_schemas! {
+22 | |     demo {
+23 | |         /// Child span
+24 | |         span CHILD {
+...  |
+29 | | }
+   | |_^
+...
+33 |       let _span = trace_span!(parent: parent, crate::demo::CHILD, value = 1u64);
+   |                   ------------------------------------------------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `__DEMO__CHILD_PARENT_FORM` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

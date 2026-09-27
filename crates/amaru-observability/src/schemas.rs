@@ -36,6 +36,7 @@
 //!         /// Description of the event     // required on every schema
 //!         [public] span <SCHEMA> {
 //!             parents: <path>, ...         // optional; omitted means a root span
+//!             root                         // optional; with parents, also allow `debug_span!(root, SPAN)`
 //!             tags: <tag>, ...             // optional; overrides inherited tags
 //!             required <field>: <Type> [,]
 //!             optional <field>: <Type> [,]
@@ -77,8 +78,10 @@
 //! A span may list `parents: path::to::Marker, other::MARKER`. `debug_span!(parent_context: &ctx, SPAN)`
 //! then compiles only when `ctx` is `TraceContext<S>` and `S` is one of those markers.
 //! `TraceContext::none()` uses [`NoParent`](crate::NoParent) and does not satisfy a listed parent.
-//! A span with no `parents:` is a root: `debug_span!(SPAN)` and `debug_span!(root, SPAN)` still
-//! compile. Events reject `parents:`.
+//! A span that lists parents cannot be opened bare, with `root`, or under a raw `parent:` span.
+//! `root` in the schema body opts that span into `debug_span!(root, SPAN)` as well. A span with
+//! no `parents:` is a root: `debug_span!(SPAN)` and `debug_span!(root, SPAN)` still compile.
+//! Events reject `parents:` and `root`.
 //!
 //! ## Fields
 //!
@@ -168,7 +171,7 @@ define_schemas! {
                 }
                 /// Fetch a range of blocks starting from the specified tip
                 span FETCH {
-                    parents: crate::ContinuedHeader
+                    parents: crate::ChainChoice
                     tags: cpu
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
@@ -302,7 +305,7 @@ define_schemas! {
                 }
                 /// Received a block validation result
                 public span SELECT_FROM_BLOCK_VALIDATION {
-                    parents: crate::ContinuedHeader
+                    parents: crate::CarriedHeader
                     tags: cpu
                     required point: amaru_kernel::Point
                     required valid: bool
@@ -310,7 +313,7 @@ define_schemas! {
                 }
                 /// Some blocks have been fetched for the current chain, decide what to do next
                 public span FETCH_NEXT {
-                    parents: crate::ContinuedHeader
+                    parents: crate::FetchResume
                     tags: cpu
                     required point: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
@@ -583,7 +586,7 @@ define_schemas! {
                 }
                 /// Forward to a downstream peer
                 span FORWARD {
-                    parents: crate::ContinuedHeader
+                    parents: crate::CarriedHeader
                     required tip: amaru_kernel::Point
                     required peer: %amaru_kernel::Peer
                 }
@@ -592,7 +595,7 @@ define_schemas! {
                 tags: cpu
                 /// Validate a block by applying it to the current ledger
                 span VALIDATE {
-                    parents: crate::ContinuedHeader
+                    parents: crate::CarriedHeader
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                     optional valid: bool
@@ -608,7 +611,7 @@ define_schemas! {
                 }
                 /// Adopt a block as the next block in the best chain
                 span ADOPT {
-                    parents: crate::ContinuedHeader
+                    parents: crate::CarriedHeader
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
@@ -738,7 +741,7 @@ define_schemas! {
                 tags: cpu
                 /// A peer behaves like an adversary, ban it
                 span BAN {
-                    parents: crate::ContinuedHeader
+                    parents: crate::CarriedHeader
                     required peer: %amaru_kernel::Peer
                 }
             }

@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
-use amaru_observability::{ContinuedHeader, Instrument, TraceContext, debug_span, error, info};
+use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug_span, error, info};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 
@@ -172,7 +172,7 @@ pub enum ConnectionMessage {
         interval: std::time::Duration,
         reply_to: StageRef<ShareResult>,
     },
-    NewTip(Point, TraceContext<ContinuedHeader>),
+    NewTip(Point, TraceContext<CarriedHeader>),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
     /// Record the desired local use for a live connection.

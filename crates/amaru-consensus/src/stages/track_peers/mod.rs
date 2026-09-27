@@ -23,7 +23,7 @@ use amaru_kernel::{
     num::CheckedSub,
 };
 use amaru_observability::{
-    ChainSyncProcess, ContinuedHeader, Instrument, TraceContext,
+    CarriedHeader, ChainChoice, ChainSyncProcess, Instrument, TraceContext,
     amaru::consensus::{
         roll_backward::PROCESS as ROLL_BACKWARD_PROCESS, roll_forward::PROCESS as ROLL_FORWARD_PROCESS,
     },
@@ -333,9 +333,10 @@ impl NewTip {
     }
 }
 
-fn ban_context(context: impl Into<TraceContext<ChainSyncProcess>>) -> TraceContext<ContinuedHeader> {
+fn ban_context(context: impl Into<TraceContext<ChainSyncProcess>>) -> TraceContext<CarriedHeader> {
     let chain_sync: TraceContext<ChainSyncProcess> = context.into();
-    chain_sync.into()
+    let choice: TraceContext<ChainChoice> = chain_sync.into();
+    choice.into()
 }
 
 pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {

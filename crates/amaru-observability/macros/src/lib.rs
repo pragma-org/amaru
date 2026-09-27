@@ -69,6 +69,7 @@
 //!         /// Description of the event     // required doc comment on every schema
 //!         [public] span <SCHEMA> {
 //!             parents: <path>, ...         // optional; markers this span accepts as parent_context
+//!             root                         // optional; allow `debug_span!(root, SPAN)` as well
 //!             tags: <tag>, ...             // optional; overrides inherited module tags
 //!             required <field>: <Type> [,]
 //!             optional <field>: <Type> [,]
@@ -92,9 +93,10 @@
 //! category_body    := ( tags_decl | category | schema )*
 //!
 //! schema           := attrs "public"? ("span" | "event") UPPER_IDENT "{" schema_body "}"
-//! schema_body      := ( tags_decl | levels_decl | parents_decl | field )*
+//! schema_body      := ( tags_decl | levels_decl | parents_decl | root_flag | field )*
 //!
 //! parents_decl     := "parents" ":" path ("," path)*
+//! root_flag        := "root"
 //!
 //! tags_decl        := "tags" ":" tag ("," tag)*
 //! tag              := lowercase_ident
@@ -118,8 +120,10 @@
 //!   forbidden on a span. It lists the tracing levels that event may be emitted at.
 //! - **`parents:`** is allowed only on a span. Each path is a marker type (a schema marker or
 //!   another parent marker). `parent_context:` at a call site compiles only when the
-//!   expression is `TraceContext<S>` for an `S` in that list. A span with no `parents:` is a
-//!   root. An event that declares `parents:` is rejected.
+//!   expression is `TraceContext<S>` for an `S` in that list. A span that lists parents cannot
+//!   be opened bare, with `root`, or with a raw `parent:` span. **`root`** on that span opts
+//!   into `debug_span!(root, SPAN)` as well as `parent_context:`. A span with no `parents:` is
+//!   a root either way. An event that declares `parents:` or `root` is rejected.
 //! - **`required` / `optional`** are prefix keywords on individual fields. Block forms such
 //!   as `required { ... }` are not part of the language.
 //! - Trailing commas after field type annotations are allowed.
@@ -334,7 +338,7 @@ pub fn trace_event(input: TokenStream) -> TokenStream {
 ///
 /// ```text
 /// debug_span!(SCHEMA, field = value, ...);           // root span (no parents: on SCHEMA)
-/// debug_span!(root, SCHEMA, field = value, ...);     // explicit root
+/// debug_span!(root, SCHEMA, field = value, ...);     // root; required if SCHEMA lists parents and says `root`
 /// debug_span!(parent_context: &ctx, SCHEMA, ...);    // ctx: &TraceContext<S>, S listed in parents:
 /// debug_span!(LEVEL, SCHEMA, field = value, ...);    // custom level
 /// ```

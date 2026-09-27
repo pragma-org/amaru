@@ -16,7 +16,8 @@ use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock};
 use amaru_observability::{
-    ContinuedHeader, Instrument, TraceContext, amaru::consensus::node::INITIALIZE, debug, debug_span, error, info, warn,
+    CarriedHeader, ChainChoice, FetchResume, Instrument, TraceContext, amaru::consensus::node::INITIALIZE, debug,
+    debug_span, error, info, warn,
 };
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
@@ -146,9 +147,10 @@ pub struct FetchBlocks {
     /// Set when the manager reports no initiating peers; suppresses ERROR on the next timeout.
     no_peers_pause: bool,
     block_height: BlockHeight,
-    /// Trace context originating from the reception of a new tip. Additional spans created by
-    /// this stage are children of that context
-    trace_context: Option<TraceContext<ContinuedHeader>>,
+    /// Header context for a ban or a downloaded block. Not the node-initialize span.
+    carried_context: Option<TraceContext<CarriedHeader>>,
+    /// Context sent as `FetchNextFrom`. Startup initialize stays here until a batch replaces it.
+    resume_context: Option<TraceContext<FetchResume>>,
     /// When the current fetch batch was requested (for peer delivery timing).
     fetch_started_at: Option<amaru_pure_stage::Instant>,
     /// Peers contacted for the current batch and still at risk of timeout failure.
@@ -187,7 +189,8 @@ impl FetchBlocks {
             timeout: None,
             no_peers_pause: false,
             block_height: BlockHeight::from(0),
-            trace_context: Default::default(),
+            carried_context: None,
+            resume_context: None,
             fetch_started_at: None,
             fetch_peers: BTreeSet::new(),
             fetch_settled: BTreeSet::new(),
@@ -218,7 +221,7 @@ impl FetchBlocks {
         tip: Point,
         parent: Point,
         eff: Effects<FetchBlocksMsg>,
-        parent_context: TraceContext<ContinuedHeader>,
+        parent_context: TraceContext<ChainChoice>,
     ) {
         self.block_height = tip.block_height().max(self.block_height);
 
@@ -320,7 +323,7 @@ impl FetchBlocks {
         // blocks must chain onto. An empty batch means the replay covered the whole path, in which case
         // this just tells the upstream stage to carry on.
         let missing = MissingBlocks::new(parent, to_fetch);
-        self.request_blocks(missing, best_tip_header.point(), parent, eff, trace_context.into()).await;
+        self.request_blocks(missing, best_tip_header.point(), parent, eff, trace_context).await;
     }
 
     /// Find the oldest missing blocks in the chain ending with `tip` and fetch them.
@@ -329,7 +332,7 @@ impl FetchBlocks {
         tip: Point,
         parent: Point,
         eff: Effects<FetchBlocksMsg>,
-        parent_context: TraceContext<ContinuedHeader>,
+        parent_context: TraceContext<ChainChoice>,
         stage_context: TraceContext<amaru_observability::amaru::consensus::blocks::FETCH>,
     ) {
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
@@ -355,14 +358,16 @@ impl FetchBlocks {
 
     /// Ask peers for a batch of blocks already known to be missing, or tell the upstream stage to
     /// carry on when the batch turns out to be empty.
-    async fn request_blocks(
+    async fn request_blocks<C>(
         &mut self,
         missing: MissingBlocks,
         tip: Point,
         parent: Point,
         eff: Effects<FetchBlocksMsg>,
-        parent_context: TraceContext<ContinuedHeader>,
-    ) {
+        parent_context: TraceContext<C>,
+    ) where
+        TraceContext<C>: Into<TraceContext<CarriedHeader>>,
+    {
         let Some((from, through)) = missing.from_to().map(|(from, through)| (*from, *through)) else {
             self.missing = None;
             info!(consensus::blocks::NOTHING_TO_FETCH, tip, parent);
@@ -373,7 +378,9 @@ impl FetchBlocks {
         self.cancel_widen(&eff).await;
         self.req_id += 1;
         self.no_peers_pause = false;
-        self.trace_context = Some(parent_context);
+        let carried: TraceContext<CarriedHeader> = parent_context.into();
+        self.resume_context = Some(carried.clone().into());
+        self.carried_context = Some(carried);
         self.end_attempt();
 
         let now = eff.clock().await;
@@ -532,7 +539,10 @@ impl FetchBlocks {
             warn!(consensus::block::MISMATCHED_HASH, peer, header_hash = point.hash(), expected, actual);
             eff.send(
                 &self.peer_selection,
-                PeerSelectionMsg::Adversarial(peer, self.trace_context.clone().unwrap_or_else(TraceContext::detached)),
+                PeerSelectionMsg::Adversarial(
+                    peer,
+                    self.carried_context.clone().unwrap_or_else(TraceContext::detached),
+                ),
             )
             .await;
             return;
@@ -589,7 +599,7 @@ impl FetchBlocks {
         let tip = point;
 
         // retrieve the trace context that led to fetching that block to send downstream
-        let trace_context = self.trace_context.clone().unwrap_or_else(TraceContext::detached);
+        let trace_context = self.carried_context.clone().unwrap_or_else(TraceContext::detached);
 
         let downloaded_block =
             DownloadedBlock { tip, parent: missing.boundary(), max_block_height: self.block_height, trace_context };
@@ -708,7 +718,8 @@ impl FetchBlocks {
     }
 
     async fn fetch_next_from(&mut self, eff: Effects<FetchBlocksMsg>, from: Point) {
-        let trace_context = self.trace_context.take().unwrap_or_else(TraceContext::detached);
+        let trace_context = self.resume_context.take().unwrap_or_else(TraceContext::detached);
+        self.carried_context = None;
         eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from, trace_context)).await;
     }
 }
@@ -718,7 +729,7 @@ pub struct DownloadedBlock {
     pub tip: Point,
     pub parent: Point,
     pub max_block_height: BlockHeight,
-    pub trace_context: TraceContext<ContinuedHeader>,
+    pub trace_context: TraceContext<CarriedHeader>,
 }
 
 impl DownloadedBlock {
@@ -732,7 +743,7 @@ pub enum FetchBlocksMsg {
     NewTip {
         tip: Point,
         parent: Point,
-        trace_context: TraceContext<ContinuedHeader>,
+        trace_context: TraceContext<ChainChoice>,
     },
     RecoverStoredBlocks {
         from: Point,
@@ -768,7 +779,7 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     match msg {
         FetchBlocksMsg::NewTip { tip, parent, trace_context } => state.new_tip(tip, parent, eff, trace_context).await,
         FetchBlocksMsg::RecoverStoredBlocks { from, to, trace_context } => {
-            state.trace_context = Some(trace_context.into());
+            state.resume_context = Some(trace_context.into());
             state.recover_stored_blocks(eff, from, to).await
         }
         FetchBlocksMsg::Block(peer, block) => state.block(peer, block, eff).await,

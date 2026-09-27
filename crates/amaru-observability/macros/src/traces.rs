@@ -20,7 +20,7 @@ use syn::{Token, parse::ParseStream};
 
 use crate::utils::{
     make_assign_macro_name, make_ident, make_instrument_macro_name, make_kind_macro_name, make_module_validator_name,
-    make_record_macro_name, make_require_macro_name, parse_full_schema_path,
+    make_parent_form_macro_name, make_record_macro_name, make_require_macro_name, parse_full_schema_path,
 };
 
 const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";
@@ -161,6 +161,13 @@ impl SchemaMeta {
 fn generate_kind_check(meta: &SchemaMeta, use_kind: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
     let kind_ident = make_ident(&make_kind_macro_name(&meta.categories(), &meta.schema_name));
     meta.macro_call_stmt(&kind_ident, use_kind)
+}
+
+/// `mode` is `context`, `root`, `bare`, or `span_parent`.
+fn generate_parent_form_check(meta: &SchemaMeta, mode: &str) -> proc_macro2::TokenStream {
+    let ident = make_ident(&make_parent_form_macro_name(&meta.categories(), &meta.schema_name));
+    let mode = make_ident(mode);
+    meta.macro_call_stmt(&ident, quote! { #mode })
 }
 
 /// Generate required fields checker invocation.
@@ -824,6 +831,13 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         Some(TraceSpanParent::Root | TraceSpanParent::Span(_)) | None => None,
     };
     let schema_ty = build_exported_path(&meta, &args.schema_path);
+    let parent_form = match &args.parent {
+        Some(TraceSpanParent::Context(_)) => "context",
+        Some(TraceSpanParent::Root) => "root",
+        Some(TraceSpanParent::Span(_)) => "span_parent",
+        None => "bare",
+    };
+    let parent_form_check = generate_parent_form_check(&meta, parent_form);
     let parent_context_bind = parent_context_expr
         .map(|parent_expr| {
             quote! {
@@ -842,10 +856,10 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
         .unwrap_or_else(|| quote! {});
 
     if crate::is_trace_no_emit() {
-        let parent_context_bind = parent_context_bind.clone();
         let expanded = wrap_in_module_validator(
             &meta,
             quote! {{
+                #parent_form_check
                 #parent_context_bind
                 ::amaru_observability::SchemaSpan::<#schema_ty>::from_span(
                     ::amaru_observability::tracing::Span::none(),
@@ -889,32 +903,33 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     } else {
         (quote! { ::amaru_observability::opentelemetry }, quote! { ::amaru_observability::tracing_opentelemetry })
     };
-    let parent_context_attachment = parent_context_expr
-        .map(|_parent_expr| {
-            quote! {
+    let parent_context_attachment = if parent_context_expr.is_some() {
+        quote! {
+            {
+                let __amaru_otel_context = __amaru_parent_context.context();
+                let __amaru_has_valid_parent = {
+                    use #opentelemetry_path::trace::TraceContextExt as _;
+                    __amaru_otel_context.span().span_context().is_valid()
+                };
                 {
-                    let __amaru_otel_context = __amaru_parent_context.context();
-                    let __amaru_has_valid_parent = {
-                        use #opentelemetry_path::trace::TraceContextExt as _;
-                        __amaru_otel_context.span().span_context().is_valid()
-                    };
+                    use #tracing_opentelemetry_path::OpenTelemetrySpanExt as _;
+                    if let ::std::result::Result::Err(error) = #span_name.set_parent(__amaru_otel_context)
+                        && __amaru_has_valid_parent
                     {
-                        use #tracing_opentelemetry_path::OpenTelemetrySpanExt as _;
-                        if let ::std::result::Result::Err(error) = #span_name.set_parent(__amaru_otel_context)
-                            && __amaru_has_valid_parent
-                        {
-                            ::amaru_observability::tracing::warn!(%error, "failed to set span parent context");
-                        }
+                        ::amaru_observability::tracing::warn!(%error, "failed to set span parent context");
                     }
                 }
             }
-        })
-        .unwrap_or_else(|| quote! {});
+        }
+    } else {
+        quote! {}
+    };
 
     let expanded = wrap_in_module_validator(
         &meta,
         quote! {{
             #kind_check
+            #parent_form_check
             #required_fields_check
             #private_emit_guard
             #(#field_nav)*

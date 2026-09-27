@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeight, Peer, PeerCandidate};
-use amaru_observability::{ContinuedHeader, Instrument, TraceContext, debug, debug_span, info, warn};
+use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug, debug_span, info, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::{
     connection::LocalUse,
@@ -371,7 +371,7 @@ pub enum PeerSelectionMsg {
     ///
     /// This peer will be removed and banned for some time period; static peers are banned
     /// shorter than non-static peers.
-    Adversarial(Peer, TraceContext<ContinuedHeader>),
+    Adversarial(Peer, TraceContext<CarriedHeader>),
     /// Manually add a peer, mostly for testing.
     AddPeer(Peer),
     /// Wake-up to drain cool-downs whose end time is at or before now, then re-arm the next.

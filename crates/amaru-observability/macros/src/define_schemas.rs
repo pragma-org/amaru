@@ -15,8 +15,10 @@
 //! Schema DSL expansion.
 //!
 //! A span may declare `parents: path::to::Marker, other::MARKER`. The expansion implements
-//! `AcceptsParent` for the span marker so `parent_context:` accepts only those markers. An event
-//! that declares `parents:` is a compile error. A span with no `parents:` is a root.
+//! `AcceptsParent` for the span marker so `parent_context:` accepts only those markers. A span
+//! that lists parents must be opened with `parent_context:`; `root` on that span also allows
+//! `debug_span!(root, SPAN)`, and a raw `parent:` span is rejected. An event that declares
+//! `parents:` or `root` is a compile error. A span with no `parents:` is a root.
 
 use std::collections::BTreeMap;
 
@@ -30,7 +32,8 @@ use syn::{
 
 use crate::utils::{
     format_field_spec, make_assign_macro_name, make_ident, make_instrument_macro_name, make_kind_macro_name,
-    make_module_validator_name, make_record_macro_name, make_require_macro_name, make_required_field_check_macro_name,
+    make_module_validator_name, make_parent_form_macro_name, make_record_macro_name, make_require_macro_name,
+    make_required_field_check_macro_name,
 };
 
 // =============================================================================
@@ -222,6 +225,8 @@ struct Schema {
     tags: Vec<Ident>,
     /// Parent markers a span accepts. Empty means the span is a root.
     parents: Vec<syn::Path>,
+    /// When set, a span that lists parents may also be opened with `debug_span!(root, SPAN)`.
+    allows_root: bool,
     /// Fields that must be present.
     required_fields: Vec<SchemaField>,
     /// Fields that may optionally be present.
@@ -332,6 +337,8 @@ enum SchemaItem {
     Tags(Vec<Ident>),
     Levels(LevelsDecl),
     Parents(ParentsDecl),
+    /// `root` flag. The span is the keyword's span.
+    Root(proc_macro2::Span),
     Field {
         /// Field doc comments are accepted for source documentation; not emitted today.
         #[allow(dead_code)]
@@ -485,6 +492,18 @@ fn parse_schema_body(input: ParseStream<'_>) -> syn::Result<Vec<SchemaItem>> {
             continue;
         }
 
+        if peek_keyword(input, "root") {
+            if !attrs.is_empty() {
+                return Err(syn::Error::new(attrs[0].span(), "`root` cannot have attributes"));
+            }
+            let root_kw: Ident = input.parse()?;
+            if input.peek(Token![:]) {
+                return Err(syn::Error::new(root_kw.span(), "`root` is a flag, not `root:`"));
+            }
+            items.push(SchemaItem::Root(root_kw.span()));
+            continue;
+        }
+
         let kind: Ident = input.parse()?;
         let required = match kind.to_string().as_str() {
             "required" => true,
@@ -493,7 +512,7 @@ fn parse_schema_body(input: ParseStream<'_>) -> syn::Result<Vec<SchemaItem>> {
                 return Err(syn::Error::new(
                     kind.span(),
                     format!(
-                        "expected `required`, `optional`, `tags:`, `levels:`, or `parents:` inside schema body, found '{other}'"
+                        "expected `required`, `optional`, `tags:`, `levels:`, `parents:`, or `root` inside schema body, found '{other}'"
                     ),
                 ));
             }
@@ -551,6 +570,7 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
             || peek_keyword(input, "tags")
             || peek_keyword(input, "levels")
             || peek_keyword(input, "parents")
+            || peek_keyword(input, "root")
         {
             break;
         }
@@ -560,7 +580,10 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
         })?;
 
         if is_schema_name(&tag)
-            || matches!(tag.to_string().as_str(), "required" | "optional" | "public" | "tags" | "levels" | "parents")
+            || matches!(
+                tag.to_string().as_str(),
+                "required" | "optional" | "public" | "tags" | "levels" | "parents" | "root"
+            )
         {
             return Err(syn::Error::new(
                 tag.span(),
@@ -607,6 +630,7 @@ fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<LevelsDecl> {
             || peek_keyword(input, "tags")
             || peek_keyword(input, "levels")
             || peek_keyword(input, "parents")
+            || peek_keyword(input, "root")
         {
             break;
         }
@@ -664,13 +688,13 @@ fn parse_parents_decl(input: ParseStream<'_>) -> syn::Result<ParentsDecl> {
             || peek_keyword(input, "tags")
             || peek_keyword(input, "levels")
             || peek_keyword(input, "parents")
+            || peek_keyword(input, "root")
         {
             break;
         }
 
         let parent: syn::Path = input.parse()?;
-        let rendered = parent.to_token_stream().to_string();
-        if parents.iter().any(|existing: &syn::Path| existing.to_token_stream().to_string() == rendered) {
+        if parents.iter().any(|existing| existing == &parent) {
             return Err(syn::Error::new_spanned(parent, "duplicate parent in `parents:`"));
         }
         parents.push(parent);
@@ -796,6 +820,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
     let mut tags: Option<Vec<Ident>> = None;
     let mut levels: Option<LevelsDecl> = None;
     let mut parents: Option<ParentsDecl> = None;
+    let mut allows_root: Option<proc_macro2::Span> = None;
     let mut required_fields = Vec::new();
     let mut optional_fields = Vec::new();
 
@@ -809,6 +834,13 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
                     ));
                 } else {
                     parents = Some(declared);
+                }
+            }
+            SchemaItem::Root(at) => {
+                if allows_root.is_some() {
+                    errors.push(syn::Error::new(at, format!("duplicate `root` in schema {}", node.name)));
+                } else {
+                    allows_root = Some(at);
                 }
             }
             SchemaItem::Tags(t) => {
@@ -881,6 +913,9 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
                     format!("`parents:` is not allowed on event schema {}", node.name),
                 ));
             }
+            if let Some(at) = allows_root {
+                errors.push(syn::Error::new(at, format!("`root` is not allowed on event schema {}", node.name)));
+            }
             let Some(mut declared) = levels else {
                 errors.push(syn::Error::new(
                     node.name.span(),
@@ -902,6 +937,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
 
     let tags = tags.unwrap_or_else(|| inherited_tags.to_vec());
     let parents = parents.map(|declared| declared.parents).unwrap_or_default();
+    let allows_root = allows_root.is_some();
 
     Ok(Schema {
         public: node.public,
@@ -911,6 +947,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
         description,
         tags,
         parents,
+        allows_root,
         required_fields,
         optional_fields,
     })
@@ -1055,7 +1092,6 @@ fn generate_kind_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro
     }
 }
 
-/// Generate the required fields checker macro for a schema.
 /// `Child: AcceptsParent<P>` for each path in the span's `parents:` list.
 fn generate_parent_impls(schema: &Schema) -> proc_macro2::TokenStream {
     if schema.parents.is_empty() {
@@ -1070,6 +1106,60 @@ fn generate_parent_impls(schema: &Schema) -> proc_macro2::TokenStream {
     quote! { #(#impls)* }
 }
 
+/// Reject a bare open, `root`, or a raw `parent:` span when the schema lists parents.
+fn generate_parent_form_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
+    let macro_ident = make_ident(&make_parent_form_macro_name(&schema.category_strings(), &schema.name_str()));
+    let macro_export = config.macro_export_attr();
+    let path = schema.full_path();
+    let listed = !schema.parents.is_empty();
+    let root_ok = !listed || schema.allows_root;
+    let bare_and_span = if listed {
+        quote! {
+            (bare) => {
+                compile_error!(concat!(
+                    "span ",
+                    #path,
+                    " lists parents and must be opened with `parent_context:`"
+                ));
+            };
+            (span_parent) => {
+                compile_error!(concat!(
+                    "span ",
+                    #path,
+                    " lists parents and does not accept a raw `parent:` span"
+                ));
+            };
+        }
+    } else {
+        quote! {
+            (bare) => {};
+            (span_parent) => {};
+        }
+    };
+    let root_arm = if root_ok {
+        quote! { (root) => {}; }
+    } else {
+        quote! {
+            (root) => {
+                compile_error!(concat!(
+                    "span ",
+                    #path,
+                    " lists parents and cannot be opened with `root` unless the schema says `root`"
+                ));
+            };
+        }
+    };
+    quote! {
+        #macro_export
+        #[doc(hidden)]
+        macro_rules! #macro_ident {
+            (context) => {};
+            #root_arm
+            #bare_and_span
+        }
+    }
+}
+
 /// Path of the generated schema marker, relative to the `define_schemas!` call site.
 fn schema_item_path(schema: &Schema) -> syn::Path {
     let mut segments = syn::punctuated::Punctuated::new();
@@ -1080,6 +1170,7 @@ fn schema_item_path(schema: &Schema) -> syn::Path {
     syn::Path { leading_colon: None, segments }
 }
 
+/// Generate the required fields checker macro for a schema.
 fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let categories = schema.category_strings();
     let schema_name_str = schema.name_str();
@@ -1785,6 +1876,7 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
         validation_macros.push(generate_assign_macro(schema, config));
         validation_macros.push(generate_record_macro(schema, config));
         validation_macros.push(generate_parent_impls(schema));
+        validation_macros.push(generate_parent_form_macro(schema, config));
 
         inventory_submissions.push(generate_inventory_submission(schema, config));
     }
@@ -2008,8 +2100,10 @@ fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
         let tree = build_category_tree(&schemas);
         let modules = build_modules_noop(&tree, &config);
         let parent_impls = schemas.iter().map(generate_parent_impls);
+        let parent_form_macros = schemas.iter().map(|schema| generate_parent_form_macro(schema, &config));
         return quote! {
             #(#parent_impls)*
+            #(#parent_form_macros)*
             #(#modules)*
         }
         .into();
@@ -2227,6 +2321,7 @@ mod tests {
             description: None,
             tags: Vec::new(),
             parents: Vec::new(),
+            allows_root: false,
             required_fields: Vec::new(),
             optional_fields: Vec::new(),
         };

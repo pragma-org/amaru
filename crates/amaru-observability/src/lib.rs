@@ -53,7 +53,8 @@ pub use span_encode::{
 };
 pub use telemetry_capture::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
 pub use trace_context::{
-    AcceptsParent, AttachedSpan, ChainSyncProcess, ContinuedHeader, NoParent, ParentContext, SchemaSpan, TraceContext,
+    AcceptsParent, AttachedSpan, CarriedHeader, ChainChoice, ChainSyncProcess, FetchResume, NoParent, ParentContext,
+    SchemaSpan, TraceContext,
 };
 pub use tracing::{self, Instrument};
 pub use tracing_opentelemetry;
