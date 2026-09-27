@@ -71,9 +71,8 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 info!(cli::dev::chain::MIGRATION_NOT_NEEDED);
                 Ok(())
             }
-            Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
-                info_span!(consensus::chain_db_migration::EXECUTE, from = stored, to = current)
-                    .in_scope(|| migrate_db(&store))?;
+            Err(StoreError::IncompatibleChainStoreVersions { .. }) => {
+                migrate_db(&store)?;
                 Ok(())
             }
             Err(e) => {

@@ -903,7 +903,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         let state_recovery = self.rollback_to(fork_point)?;
 
         let rollback_length = state_recovery.rollback_length();
-        info!(ledger::state::SWITCH_TO_FORK, fork_point, fork_length, rollback_length);
+        info_record!(ledger::state::SWITCH_TO_FORK, fork_point, fork_length, rollback_length);
 
         // The fork must replace the rolled-back chain at equal length or extend it by exactly one
         // block. If this condition is violated, this means that there is an issue with chain selection.

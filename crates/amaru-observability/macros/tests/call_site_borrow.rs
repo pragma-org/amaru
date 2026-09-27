@@ -32,19 +32,34 @@ define_local_schemas! {
     test {
         borrow {
             /// Owned / borrowed peer
-            public PEER {
+            public span PEER {
                 required peer: SamplePeer
             }
             /// Slice of peers
-            public PEERS {
+            public span PEERS {
                 required peers: [SamplePeer]
             }
             /// Display peer
-            public PEER_DISPLAY {
+            public span PEER_DISPLAY {
                 required peer: %SamplePeer
             }
             /// String label
-            public LABEL {
+            public span LABEL {
+                required label: String
+            }
+            /// Owned / borrowed peer as an event
+            public event PEER_EVENT {
+                levels: info
+                required peer: SamplePeer
+            }
+            /// Slice of peers as an event
+            public event PEERS_EVENT {
+                levels: info
+                required peers: [SamplePeer]
+            }
+            /// String label as an event
+            public event LABEL_EVENT {
+                levels: info
                 required label: String
             }
         }
@@ -108,7 +123,7 @@ fn owned_and_borrowed_values_compile_and_keep_the_original() {
     use_str(&label);
     use_str("static");
 
-    trace_event!(INFO, crate::test::borrow::PEER, peer);
-    trace_event!(INFO, crate::test::borrow::PEERS, peers);
-    trace_event!(INFO, crate::test::borrow::LABEL, label = "event");
+    trace_event!(INFO, crate::test::borrow::PEER_EVENT, peer);
+    trace_event!(INFO, crate::test::borrow::PEERS_EVENT, peers);
+    trace_event!(INFO, crate::test::borrow::LABEL_EVENT, label = "event");
 }

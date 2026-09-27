@@ -21,7 +21,7 @@ define_schemas! {
         consensus {
             chain_sync {
                 /// Validate a block before adding to chain
-                VALIDATE_HEADER {
+                span VALIDATE_HEADER {
                     required point_slot: u64
                     required point_hash: String
                     optional peer_id: String

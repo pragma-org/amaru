@@ -22,7 +22,7 @@ define_local_schemas! {
     test {
         sub {
             /// Test schema for wrong schema in module test
-            SCHEMA {
+            span SCHEMA {
                 required first: String
                 required second: u64
             }

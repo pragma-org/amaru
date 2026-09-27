@@ -12,20 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Test: A schema name must be a single identifier introduced by span or event.
-//! `VALIDATE-HEADER` is not one identifier, so it is rejected before the hyphen.
+//! `trace_record!` only targets a span schema.
 
-use amaru_observability_macros::define_local_schemas;
+use amaru_observability_macros::{define_local_schemas, trace_record};
 
 define_local_schemas! {
     test {
-        validation {
-            /// Schema with invalid name containing hyphen
-            VALIDATE-HEADER {
-                required value: String
+        sub {
+            /// Event schema
+            event SCHEMA {
+                levels: debug
+                required value: u64
             }
         }
     }
 }
 
-fn main() {}
+fn main() {
+    trace_record!(crate::test::sub::SCHEMA, value = 1_u64);
+}

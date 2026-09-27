@@ -82,13 +82,22 @@ pub fn json_schema_for<T: JsonSchema + ?Sized>() -> Value {
     }
 }
 
+/// Whether a schema is emitted as a span or as an event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaKind {
+    Span,
+    Event,
+}
+
 /// A schema entry in the runtime registry
 #[derive(Debug, Clone)]
 pub struct SchemaEntry {
     pub path: &'static str,
     pub name: &'static str,
     pub target: &'static str,
-    pub level: &'static str,
+    pub kind: SchemaKind,
+    /// Tracing levels an event may be emitted at, from `trace` through `error`. Empty for a span.
+    pub levels: &'static [&'static str],
     pub description: &'static str,
     pub public: bool,
     pub required_fields: &'static [SchemaFieldEntry],

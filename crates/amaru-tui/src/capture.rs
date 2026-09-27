@@ -55,8 +55,8 @@ fn convert_field(value: ObsFieldValue) -> FieldValue {
 mod tests {
     use std::sync::mpsc::sync_channel;
 
-    use amaru_kernel::{Epoch, NULL_HASH32, Slot, TransactionId};
-    use amaru_observability::{TelemetryCaptureLayer, amaru::ledger, info, info_span};
+    use amaru_kernel::{Epoch, NULL_HASH32, Slot};
+    use amaru_observability::{TelemetryCaptureLayer, amaru::ledger, debug, info, info_span};
     use tracing_subscriber::prelude::*;
 
     use super::*;
@@ -68,15 +68,15 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
 
         tracing::subscriber::with_default(subscriber, || {
-            info!(ledger::transaction::VALIDATE, id = TransactionId::new(NULL_HASH32));
+            info!(ledger::ratification::SUMMARIZE, is_dormant_epoch = false);
         });
 
         let record = from_observability(rx.recv().expect("telemetry event"));
-        assert_eq!(record.target, ledger::transaction::VALIDATE::TARGET);
-        assert_eq!(record.name, ledger::transaction::VALIDATE::NAME);
+        assert_eq!(record.target, ledger::ratification::SUMMARIZE::TARGET);
+        assert_eq!(record.name, ledger::ratification::SUMMARIZE::NAME);
         assert_eq!(
-            record.fields.get(ledger::transaction::VALIDATE::FIELD_ID),
-            Some(&FieldValue::String(TransactionId::new(NULL_HASH32).to_string()))
+            record.fields.get(ledger::ratification::SUMMARIZE::FIELD_IS_DORMANT_EPOCH),
+            Some(&FieldValue::Bool(false))
         );
         assert!(!record.fields.keys().any(|k| k.starts_with("amaru.tag.")));
     }
@@ -87,7 +87,7 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
 
         tracing::subscriber::with_default(subscriber, || {
-            let span = info_span!(
+            debug!(
                 ledger::tip::UPDATE,
                 slot = Slot::new(42),
                 header_hash = NULL_HASH32,
@@ -99,10 +99,9 @@ mod tests {
                 current_kes_period = 0u64,
                 remaining_kes_periods = 0u64,
             );
-            let _g = span.enter();
         });
 
-        let record = from_observability(rx.recv().expect("span close"));
+        let record = from_observability(rx.recv().expect("tip update"));
         assert_eq!(record.target, ledger::tip::UPDATE::TARGET);
         // Slot is a Serialize newtype → CBOR `record_bytes` → decoded back to U64
         // (handled in TelemetryCaptureLayer, not in this thin converter).

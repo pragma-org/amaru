@@ -22,7 +22,7 @@ define_local_schemas! {
     test {
         example {
             /// Test schema for values that are typed correctly but not Serialize
-            NON_SERIALIZE {
+            span NON_SERIALIZE {
                 required value: NoSerialize
             }
         }
