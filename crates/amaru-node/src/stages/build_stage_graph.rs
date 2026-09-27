@@ -26,7 +26,7 @@ use amaru_consensus::stages::{
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
 use amaru_kernel::{ConsensusParameters, Epoch, EraHistory, GlobalParameters, HeaderHash, Point, ProtocolVersion};
-use amaru_observability::debug_span;
+use amaru_observability::{TraceContext, amaru::consensus::node::INITIALIZE, debug_span};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
@@ -85,7 +85,7 @@ pub fn build_stage_graph(
     let ledger_parent = opened.parent;
     let protocol_version = opened.protocol_version;
     let span = debug_span!(consensus::node::INITIALIZE);
-    let trace_context = (&span).into();
+    let trace_context: TraceContext<INITIALIZE> = (&span).into();
     let peer_mailbox = peer_mailbox_size(config.target_upstream_peers, config.target_downstream_peers);
     let manager = stage_graph.stage_with_mailbox_size("manager", manager::stage, peer_mailbox);
     let peer_selection = stage_graph.stage_with_mailbox_size("peer_selection", peer_selection::stage, peer_mailbox);

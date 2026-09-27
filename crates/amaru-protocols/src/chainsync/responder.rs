@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{EraName, NetworkPoint, Peer, Point};
-use amaru_observability::{Instrument, TraceContext, debug_span, info};
+use amaru_observability::{ContinuedHeader, Instrument, TraceContext, debug_span, info};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -43,7 +43,7 @@ pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
-    NewTip(Point, TraceContext),
+    NewTip(Point, TraceContext<ContinuedHeader>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -78,14 +78,14 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         match input {
             ResponderMessage::NewTip(tip, trace_context) => {
                 let span = debug_span!(
-                    parent_context: trace_context,
+                    parent_context: &trace_context,
                     consensus::header::FORWARD,
                     tip,
                     peer = &self.peer,
                 );
                 self.upstream = tip;
                 let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
-                    .instrument(span)
+                    .instrument(span.into())
                     .await
                     .context("failed to get next header")?;
                 Ok((action, self))
@@ -124,7 +124,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                 }
             }
         }
-        .instrument(debug_span!(protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE, message_type))
+        .instrument(debug_span!(protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE, message_type).into())
         .await
     }
 

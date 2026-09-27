@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
-use amaru_observability::{Instrument, TraceContext, debug_span, error, info};
+use amaru_observability::{ContinuedHeader, Instrument, TraceContext, debug_span, error, info};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
 
@@ -150,7 +150,7 @@ pub enum ConnectionMessage {
         id: u64,
         cr: StageRef<Blocks>,
     },
-    NewTip(Point, TraceContext),
+    NewTip(Point, TraceContext<ContinuedHeader>),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
     /// Record the desired local use for a live connection.
@@ -176,7 +176,7 @@ impl ConnectionMessage {
     }
 
     pub fn new_tip(tip: Point) -> Self {
-        ConnectionMessage::NewTip(tip, TraceContext::none())
+        ConnectionMessage::NewTip(tip, TraceContext::detached())
     }
 }
 
@@ -268,16 +268,19 @@ pub async fn stage(
         };
         Connection { params, state }
     }
-    .instrument(debug_span!(
-        protocols::connection::message::PROCESS,
-        message_type,
-        conn_id = conn_id.as_u64(),
-        peer,
-        role = role.to_string(),
-        local_use,
-        duplex,
-        stopping,
-    ))
+    .instrument(
+        debug_span!(
+            protocols::connection::message::PROCESS,
+            message_type,
+            conn_id = conn_id.as_u64(),
+            peer,
+            role = role.to_string(),
+            local_use,
+            duplex,
+            stopping,
+        )
+        .into(),
+    )
     .await
 }
 

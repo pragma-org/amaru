@@ -176,7 +176,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
             }
             Ok((action, self))
         }
-        .instrument(debug_span!(protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE, message_type))
+        .instrument(debug_span!(protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE, message_type).into())
         .await
     }
 
@@ -192,7 +192,7 @@ async fn intersect_points(eff: &Effects<Inputs<InitiatorMessage>>) -> anyhow::Re
         debug_record!(protocols::chainsync::initiator::INTERSECT_POINTS, points = points.as_slice());
         Ok(points)
     }
-    .instrument(span)
+    .instrument(span.into())
     .await
 }
 

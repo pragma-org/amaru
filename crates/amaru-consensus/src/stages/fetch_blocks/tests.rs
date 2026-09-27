@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use amaru_kernel::{BlockHeight, IsHeader, ORIGIN_HASH, Peer, Point};
-use amaru_observability::tracing::Level;
+use amaru_observability::{TraceContext, tracing::Level};
 use amaru_ouroboros_traits::MissingBlocks;
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
@@ -141,7 +141,7 @@ fn test_recover_stored_blocks_at_origin_keeps_the_stage() {
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let mut expected = prep.state.clone();
-    expected.trace_context = Some(Default::default());
+    expected.trace_context = Some(TraceContext::detached());
     assert_trace_no_clock(
         &running,
         &[te_state("fb-1", &prep.state), te_input("fb-1", &msg), te_state("fb-1", &expected)],
@@ -235,7 +235,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
         timers.timeout,
     );
     expected.block_height = BlockHeight::from(4);
-    expected.trace_context = Some(Default::default());
+    expected.trace_context = Some(TraceContext::detached());
     expected.fetch_started_at = Some(requested_at);
     expected.awaiting_broadcast = true;
     expected.widen = Some(timers.widen[0]);
@@ -315,7 +315,7 @@ fn test_new_tip_blocks_to_fetch() {
         timers.timeout,
     );
     state_with_timeout.block_height = BlockHeight::from(3);
-    state_with_timeout.trace_context = Some(Default::default());
+    state_with_timeout.trace_context = Some(TraceContext::detached());
     let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     state_with_timeout.fetch_started_at = Some(requested_at);
     state_with_timeout.awaiting_broadcast = true;
@@ -625,7 +625,7 @@ fn test_timeout_records_fetch_failure_for_asked_peers() {
         );
         state.fetch_peers = BTreeSet::from([peer]);
         state.fetch_started_at = Some(Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time));
-        state.trace_context = Some(Default::default());
+        state.trace_context = Some(TraceContext::detached());
         state
     };
 
@@ -738,7 +738,7 @@ fn test_timeout_skips_fetch_failure_for_contributors() {
         state.fetch_peers = BTreeSet::from([good, bad]);
         state.fetch_contributors = BTreeSet::from([good]);
         state.fetch_started_at = Some(Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time));
-        state.trace_context = Some(Default::default());
+        state.trace_context = Some(TraceContext::detached());
         state
     };
 
@@ -963,7 +963,7 @@ fn test_no_peers_available_pauses_without_error() {
         1,
         schedule_id,
     );
-    prep.state.trace_context = Some(Default::default());
+    prep.state.trace_context = Some(TraceContext::detached());
 
     let msg = FetchBlocksMsg::NoPeersAvailable(1);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -996,7 +996,7 @@ fn test_timeout_after_no_peers_pause_retries_without_error() {
         schedule_id,
     );
     prep.state.no_peers_pause = true;
-    prep.state.trace_context = Some(Default::default());
+    prep.state.trace_context = Some(TraceContext::detached());
 
     let msg = FetchBlocksMsg::Timeout(1);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());

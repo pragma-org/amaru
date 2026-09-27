@@ -127,7 +127,7 @@ impl StageState<State, Responder> for PeerSharingResponder {
                     );
                     Ok((Some(ResponderAction::SharePeers { peers }), self))
                 }
-                .instrument(span)
+                .instrument(span.into())
                 .await
             }
             ResponderResult::Done => Ok((None, self)),

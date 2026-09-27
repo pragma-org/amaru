@@ -68,6 +68,7 @@
 //!         <category> { ... }               // nested category
 //!         /// Description of the event     // required doc comment on every schema
 //!         [public] span <SCHEMA> {
+//!             parents: <path>, ...         // optional; markers this span accepts as parent_context
 //!             tags: <tag>, ...             // optional; overrides inherited module tags
 //!             required <field>: <Type> [,]
 //!             optional <field>: <Type> [,]
@@ -91,7 +92,9 @@
 //! category_body    := ( tags_decl | category | schema )*
 //!
 //! schema           := attrs "public"? ("span" | "event") UPPER_IDENT "{" schema_body "}"
-//! schema_body      := ( tags_decl | levels_decl | field )*
+//! schema_body      := ( tags_decl | levels_decl | parents_decl | field )*
+//!
+//! parents_decl     := "parents" ":" path ("," path)*
 //!
 //! tags_decl        := "tags" ":" tag ("," tag)*
 //! tag              := lowercase_ident
@@ -113,6 +116,10 @@
 //! - **`public`** may only appear immediately before `span` or `event`, never before a category.
 //! - **`span` / `event`** choose the emission kind. `levels:` is required on every event and
 //!   forbidden on a span. It lists the tracing levels that event may be emitted at.
+//! - **`parents:`** is allowed only on a span. Each path is a marker type (a schema marker or
+//!   another parent marker). `parent_context:` at a call site compiles only when the
+//!   expression is `TraceContext<S>` for an `S` in that list. A span with no `parents:` is a
+//!   root. An event that declares `parents:` is rejected.
 //! - **`required` / `optional`** are prefix keywords on individual fields. Block forms such
 //!   as `required { ... }` are not part of the language.
 //! - Trailing commas after field type annotations are allowed.
@@ -326,8 +333,10 @@ pub fn trace_event(input: TokenStream) -> TokenStream {
 /// # Syntax
 ///
 /// ```text
-/// debug_span!(SCHEMA, field = value, ...);           // TRACE-level span (default)
-/// debug_span!(LEVEL, SCHEMA, field = value, ...);    // Custom level span
+/// debug_span!(SCHEMA, field = value, ...);           // root span (no parents: on SCHEMA)
+/// debug_span!(root, SCHEMA, field = value, ...);     // explicit root
+/// debug_span!(parent_context: &ctx, SCHEMA, ...);    // ctx: &TraceContext<S>, S listed in parents:
+/// debug_span!(LEVEL, SCHEMA, field = value, ...);    // custom level
 /// ```
 ///
 /// # Example
