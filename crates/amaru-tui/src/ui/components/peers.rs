@@ -87,7 +87,8 @@ pub(in crate::ui) fn render_peers_table(
         [
             Constraint::Length(3),
             Constraint::Length(3),
-            Constraint::Fill(4),
+            // The address gives up its extra share so ≤1s, ≤3s, and ≤5s stay wide enough for 100%.
+            Constraint::Fill(1),
             Constraint::Fill(1),
             Constraint::Fill(1),
             Constraint::Fill(1),
@@ -97,9 +98,9 @@ pub(in crate::ui) fn render_peers_table(
             Constraint::Fill(1),
             Constraint::Length(1),
             Constraint::Fill(1),
-            Constraint::Fill(1),
-            Constraint::Fill(1),
-            Constraint::Fill(1),
+            Constraint::Length(4),
+            Constraint::Length(4),
+            Constraint::Length(4),
         ],
     )
     .header(
@@ -186,11 +187,10 @@ fn peer_address_line(peer: &PeerState) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
-    use super::*;
     use crate::{
         config::Config,
         model::{Model, PeerState},
@@ -240,12 +240,11 @@ mod tests {
         peer.record_live_arrival(4_000_000, 100);
         model.peers.insert(peer.address.clone(), peer);
 
-        let backend = TestBackend::new(160, 8);
+        let now = model.created_at + Duration::from_secs(3);
+        let backend = TestBackend::new(120, 40);
         let mut terminal = Terminal::new(backend).expect("terminal");
         let mut views = Views::default();
-        terminal
-            .draw(|frame| render_peers_table(frame, frame.area(), &model, &mut views, at))
-            .expect("draw peer table");
+        terminal.draw(|frame| crate::ui::render(frame, &model, &mut views, now)).expect("draw shell");
         let lines = buffer_lines(terminal.backend().buffer());
 
         let header = lines.iter().find(|line| line.contains("Observe")).expect("header row");
@@ -253,7 +252,7 @@ mod tests {
             assert!(header.contains(label), "header missing {label}: {header}");
         }
 
-        let row = lines.iter().find(|line| line.contains("1.2.3.4:3001")).expect("peer row");
+        let row = lines.iter().find(|line| line.contains("9.0ms")).expect("peer row");
         for cell in ["9.0ms", "2.0ms", "5.0ms", "8.0ms", "33%", "67%", "100%"] {
             assert!(row.contains(cell), "peer row missing {cell}: {row}");
         }
