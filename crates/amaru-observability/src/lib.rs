@@ -24,6 +24,7 @@ pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
 // the amaru module with all schema constants and validation macros
 mod schemas;
+mod span_duration;
 pub mod span_encode;
 pub mod telemetry_capture;
 mod trace_context;
@@ -49,12 +50,13 @@ pub use layers::{
 };
 pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;
-pub use otel_trace_arrays::{CborTraceArrayLayer, prepare_exported_attributes, retain_last_attribute};
+pub use otel_trace_arrays::{CborTraceArrayLayer, prepare_exported_attributes};
 pub use record_fields::RecordFields;
 /// Re-export for schema macros that require `Serialize` / `JsonSchema` on complex field types.
 pub use schemars;
 pub use schemas::*;
 pub use serde;
+pub use span_duration::{SpanDurationLayer, offer_span_elapsed};
 pub use span_encode::{
     abbreviate_span_name, ancestor_span_names, format_abbreviated_span_path, write_abbreviated_span_name,
     write_abbreviated_span_path,
@@ -83,9 +85,9 @@ pub fn private_traces_enabled() -> bool {
 
 static SPAN_DURATIONS: Mutex<BTreeMap<(String, String), u64>> = Mutex::new(BTreeMap::new());
 
-/// Remember an exported span's elapsed microseconds, keyed by span name and header hash.
+/// Remember a span's elapsed microseconds, keyed by span name and header hash.
 ///
-/// Called while the span is ending so lifecycle fields can use that elapsed time.
+/// [`SpanDurationLayer`] records this from `on_close`, before a batch exporter runs.
 pub fn note_span_duration(name: &str, header_hash: &str, micros: u64) {
     if let Ok(mut durations) = SPAN_DURATIONS.lock() {
         durations.insert((name.to_string(), header_hash.to_string()), micros);

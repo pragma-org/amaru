@@ -4888,6 +4888,63 @@
         "error"
       ]
     },
+    "amaru::consensus::roll_forward::PROCESS": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "peer": {
+          "type": "string"
+        },
+        "header_hash": {
+          "title": "Hash<32>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "tip",
+        "peer"
+      ],
+      "optional": [
+        "header_hash"
+      ],
+      "additionalProperties": false,
+      "name": "process",
+      "kind": "span",
+      "target": "amaru::consensus::roll_forward",
+      "description": "Received a new tip to roll forward. Parent of the exported `perf.header.forward` span.",
+      "public": true
+    },
     "amaru::consensus::tip::ADOPT": {
       "type": "object",
       "properties": {

@@ -319,34 +319,6 @@ impl Performance {
         let mut spans = self.spans.lock();
         HeaderTelemetry::emit_all(events, meter.as_deref(), live, &mut spans);
     }
-
-    fn span_open_forward(&self, hash: HeaderHash, parent: Option<TraceContext<PROCESS>>) -> TraceContext<FORWARD> {
-        self.spans.lock().open_forward(hash, parent)
-    }
-
-    fn span_open_fetch_wait(&self, hash: HeaderHash, parent: TraceContext<FORWARD>) {
-        self.spans.lock().open_fetch_wait(hash, parent);
-    }
-
-    fn span_close_fetch_wait(&self, hash: &HeaderHash) {
-        self.spans.lock().close_fetch_wait(hash);
-    }
-
-    fn span_open_fetches(&self, hashes: &[HeaderHash]) {
-        self.spans.lock().open_fetches(hashes);
-    }
-
-    fn span_close_fetch(&self, hash: &HeaderHash) {
-        self.spans.lock().close_fetch(hash);
-    }
-
-    fn span_close_forward(&self, hash: &HeaderHash) {
-        self.spans.lock().close_forward(hash);
-    }
-
-    fn span_open_fork(&self, hash: &HeaderHash) {
-        self.spans.lock().open_fork(hash);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -926,7 +898,7 @@ impl ExternalEffectAPI for OpenHeaderForwardEffect {
         let perf = require_perf(&resources);
         let hash = self.hash;
         let parent = self.parent.clone();
-        self.wrap_sync_f(move || perf.span_open_forward(hash, parent))
+        self.wrap_sync_f(move || perf.spans.lock().open_forward(hash, parent))
     }
 }
 
@@ -942,7 +914,7 @@ impl ExternalEffectAPI for OpenBlockFetchWaitEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let perf = require_perf(&resources);
-            perf.span_open_fetch_wait(self.hash, self.parent.clone());
+            perf.spans.lock().open_fetch_wait(self.hash, self.parent.clone());
         })
     }
 }
@@ -958,7 +930,7 @@ impl ExternalEffectAPI for CloseBlockFetchWaitEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let perf = require_perf(&resources);
-            perf.span_close_fetch_wait(&self.hash);
+            perf.spans.lock().close_fetch_wait(&self.hash);
         })
     }
 }
@@ -974,7 +946,7 @@ impl ExternalEffectAPI for OpenBlockFetchesEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let perf = require_perf(&resources);
-            perf.span_open_fetches(&self.hashes);
+            perf.spans.lock().open_fetches(&self.hashes);
         })
     }
 }
@@ -990,7 +962,7 @@ impl ExternalEffectAPI for CloseBlockFetchEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let perf = require_perf(&resources);
-            perf.span_close_fetch(&self.hash);
+            perf.spans.lock().close_fetch(&self.hash);
         })
     }
 }
@@ -1006,7 +978,7 @@ impl ExternalEffectAPI for CloseHeaderForwardEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let perf = require_perf(&resources);
-            perf.span_close_forward(&self.hash);
+            perf.spans.lock().close_forward(&self.hash);
         })
     }
 }
@@ -1052,7 +1024,7 @@ impl ExternalEffectAPI for RecordForkStartedEffect {
                 reply,
             })
             .await;
-            perf.span_open_fork(&hash);
+            perf.spans.lock().open_fork(&hash);
         })
     }
 }

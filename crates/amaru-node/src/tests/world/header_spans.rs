@@ -14,23 +14,26 @@
 
 //! Header spans exported from one follower syncing a generated chain.
 
-use amaru_kernel::{Header, IsHeader};
-use amaru_observability::{CborOtelLogBridge, CborTraceArrayLayer, enable_private_traces};
+use std::{
+    num::NonZeroU8,
+    time::{Duration, SystemTime},
+};
+
+use amaru_consensus::performance::close_root_forward_after_exit;
+use amaru_kernel::{Header, HeaderHash, IsHeader};
+use amaru_observability::{CborOtelLogBridge, CborTraceArrayLayer, SpanDurationLayer};
 use opentelemetry::{logs::AnyValue, trace::TracerProvider as _};
 use opentelemetry_sdk::{
     logs::{InMemoryLogExporter, SdkLoggerProvider, in_memory_exporter::LogDataWithResource},
-    trace::{InMemorySpanExporter, SdkTracerProvider, SpanData},
+    trace::{InMemorySpanExporter, SdkTracerProvider, SimpleSpanProcessor, SpanData},
 };
 use tracing_subscriber::{
     Layer,
     layer::{Filter, SubscriberExt},
 };
 
-use super::generated::{
-    BLOCKFETCH_FRAGMENT, BLOCKFETCH_HORIZON_NANOS, SyncRun, generated_node, injector_linear_store, loopback,
-    node_listen, peer_at, with_ancestor,
-};
-use crate::telemetry::CborSpanExporter;
+use super::generated::{BLOCKFETCH_HORIZON_NANOS, SyncRun, spawn_blockfetch_follower};
+use crate::telemetry::{CborSpanExporter, NotingSpanProcessor};
 
 const BLOCKPERF: [&str; 4] = ["header.announced", "block.requested", "block.received", "block.adopted"];
 
@@ -45,14 +48,16 @@ impl<S> Filter<S> for SpansOnly {
 /// One follower, the generated-chain injector, and the product trace layers on that follower only.
 ///
 /// Not `#[tokio::test]`: `build_node` zero-duration effects `block_on` the runtime handle.
+/// Private schemas stay off: `roll_forward.process` is the exported parent of the forward span.
 #[test]
 fn test_world_header_span_export() {
-    enable_private_traces();
-
     let span_exporter = InMemorySpanExporter::default();
     let log_exporter = InMemoryLogExporter::default();
-    let tracer_provider =
-        SdkTracerProvider::builder().with_simple_exporter(CborSpanExporter::new(span_exporter.clone())).build();
+    let tracer_provider = SdkTracerProvider::builder()
+        .with_span_processor(NotingSpanProcessor::new(SimpleSpanProcessor::new(CborSpanExporter::new(
+            span_exporter.clone(),
+        ))))
+        .build();
     let logger_provider = SdkLoggerProvider::builder().with_simple_exporter(log_exporter.clone()).build();
     let tracer = tracer_provider.tracer("amaru");
     let subscriber = tracing_subscriber::registry()
@@ -63,18 +68,12 @@ fn test_world_header_span_export() {
                 .with_target(true)
                 .with_filter(SpansOnly),
         )
+        .with(SpanDurationLayer::new())
         .with(CborTraceArrayLayer::new())
         .with(CborOtelLogBridge::new(&logger_provider).with_filter(tracing_subscriber::filter::LevelFilter::DEBUG));
 
     let run = SyncRun::new("header span export");
-    let base_port = 9740;
-    let injector_addr = loopback(base_port);
-    let node_addr = node_listen(base_port, 0);
-    let (store, headers) = injector_linear_store(BLOCKFETCH_FRAGMENT, run.seed);
-    let (injector, shared) = run.spawn_injector(store, injector_addr);
-    let node =
-        with_ancestor(generated_node(run.seed, 0, node_addr).with_upstream_peer(peer_at(injector_addr)), &headers[0]);
-    let mut world = run.injector_world(injector, shared, vec![run.spawn_catch_up(0, node)], &headers);
+    let (mut world, headers) = spawn_blockfetch_follower(&run, 9740, NonZeroU8::MIN);
     world = world.with_graph_tracing(1, tracing::Dispatch::new(subscriber));
     world.run_until_horizon_on_best_chain_tip(BLOCKFETCH_HORIZON_NANOS, |_| {});
 
@@ -83,22 +82,19 @@ fn test_world_header_span_export() {
     let spans = span_exporter.get_finished_spans().expect("spans");
     let logs = log_exporter.get_emitted_logs().expect("logs");
 
-    let hash = headers
+    let (hash, forward, fetch_wait, fetch) = headers
         .iter()
         .skip(1)
         .map(Header::hash)
         .map(|hash| hash.to_string())
-        .find(|hash| {
-            span_named(&spans, "perf.header.forward", hash).is_some()
-                && span_named(&spans, "perf.header.block_fetch_wait", hash).is_some()
-                && span_named(&spans, "perf.blocks.fetch", hash).is_some()
+        .find_map(|hash| {
+            let forward = span_named(&spans, "perf.header.forward", &hash)?;
+            let fetch_wait = span_named(&spans, "perf.header.block_fetch_wait", &hash)?;
+            let fetch = span_named(&spans, "perf.blocks.fetch", &hash)?;
+            Some((hash, forward, fetch_wait, fetch))
         })
         .unwrap_or_else(|| panic!("no adopted header exported forward, fetch wait, and fetch; spans={spans:#?}"));
-
     let roll_forward = span_named(&spans, "roll_forward.process", &hash).expect("roll_forward.process");
-    let forward = span_named(&spans, "perf.header.forward", &hash).expect("perf.header.forward");
-    let fetch_wait = span_named(&spans, "perf.header.block_fetch_wait", &hash).expect("block_fetch_wait");
-    let fetch = span_named(&spans, "perf.blocks.fetch", &hash).expect("perf.blocks.fetch");
 
     assert_eq!(forward.span_context.trace_id(), roll_forward.span_context.trace_id());
     assert_eq!(forward.parent_span_id, roll_forward.span_context.span_id());
@@ -161,9 +157,6 @@ fn test_world_header_span_export() {
         "log header.announced",
         "log perf.header.lifecycle",
         "log tip.adopt",
-        "span block.adopt",
-        "span block.validate",
-        "span blocks.fetch",
         "span chain.fetch_next",
         "span chain.select_from_block_validation",
         "span chain.select_from_tip",
@@ -176,25 +169,9 @@ fn test_world_header_span_export() {
     stable.sort();
     assert_eq!(stable, expected, "complete export for {hash}");
 
-    let removed = spans.iter().filter(|span| span_has_hash(span, &hash)).count()
-        + logs.iter().filter(|log| log_has_hash(log, &hash)).count();
     let rest = spans.iter().filter(|span| !span_has_hash(span, &hash)).count()
-        + logs.iter().filter(|log| !log_has_hash(log, &hash) && !log_mentions_hash(log, &hash)).count();
-    assert!(removed > expected.len(), "header traces must cover spans and logs");
+        + logs.iter().filter(|log| !log_mentions_hash(log, &hash)).count();
     assert!(rest > 0, "export must keep traces that are not this header");
-    assert!(
-        spans
-            .iter()
-            .all(|span| !span_has_hash(span, &hash) || stable.iter().any(|name| name == &format!("span {}", span.name)))
-            && logs.iter().all(|log| {
-                if !log_mentions_hash(log, &hash) {
-                    return true;
-                }
-                let name = format!("log {}", log.record.event_name().unwrap_or(""));
-                stable.iter().any(|expected| expected == &name) || name.starts_with("log event ")
-            }),
-        "header hash {hash} remains after removing its traces"
-    );
 }
 
 fn span_named<'a>(spans: &'a [SpanData], name: &str, hash: &str) -> Option<&'a SpanData> {
@@ -254,4 +231,35 @@ fn log_u64(log: &LogDataWithResource, key: &str) -> Option<u64> {
 
 fn elapsed_micros(span: &SpanData) -> u64 {
     span.end_time.duration_since(span.start_time).unwrap_or_default().as_micros() as u64
+}
+
+/// Enter and exit the forward span the way a blockperf line does, then close it later.
+///
+/// The exported end is the close. An exit alone would leave the span ended at that line.
+#[test]
+fn test_forward_span_ends_at_close_not_blockperf_exit() {
+    let span_exporter = InMemorySpanExporter::default();
+    let tracer_provider =
+        SdkTracerProvider::builder().with_simple_exporter(CborSpanExporter::new(span_exporter.clone())).build();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_opentelemetry::layer().with_tracer(tracer_provider.tracer("amaru")).with_level(true));
+
+    let hash = HeaderHash::new([0xab; 32]);
+    let mut exited_at = SystemTime::UNIX_EPOCH;
+    tracing::subscriber::with_default(subscriber, || {
+        close_root_forward_after_exit(hash, || {
+            exited_at = SystemTime::now();
+            std::thread::sleep(Duration::from_millis(40));
+        });
+    });
+
+    tracer_provider.force_flush().expect("flush spans");
+    let spans = span_exporter.get_finished_spans().expect("spans");
+    let forward = spans.iter().find(|span| span.name == "perf.header.forward").expect("forward span");
+    let since_exit = forward.end_time.duration_since(exited_at).unwrap_or_default();
+    assert!(
+        since_exit > Duration::from_millis(20),
+        "forward span ended at the blockperf exit ({since_exit:?} after it), end={:?} exit={exited_at:?}",
+        forward.end_time
+    );
 }

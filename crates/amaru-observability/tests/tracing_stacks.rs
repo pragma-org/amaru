@@ -258,8 +258,8 @@ fn otel_stack_preserves_parent_child_and_plain_hash() {
     assert_eq!(wrap.parent_span_id, mid.span_context.span_id());
     assert_eq!(wrap.span_context.trace_id(), outer.span_context.trace_id());
 
-    // Stock tracing-opentelemetry may also store a hex dump of the CBOR bytes.
-    // CborTraceArrayLayer appends the upgraded value; exporters keep the last key.
+    // Stock tracing-opentelemetry also stores a hex dump of the CBOR bytes.
+    // Export replaces that dump and keeps one value per key.
     let header = wrap
         .attributes
         .iter()

@@ -550,8 +550,9 @@ define_schemas! {
             }
             roll_forward {
                 tags: cpu
-                /// Received a new tip to roll forward
-                span PROCESS {
+                /// Received a new tip to roll forward.
+                /// Parent of the exported `perf.header.forward` span.
+                public span PROCESS {
                     required tip: amaru_kernel::Point
                     required peer: %amaru_kernel::Peer
                     optional header_hash: amaru_kernel::HeaderHash

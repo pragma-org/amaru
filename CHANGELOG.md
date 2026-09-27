@@ -48,7 +48,7 @@ Other guiding principles:
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
 ### Added
 
-- **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
+- **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
 
 ### Fixed
 

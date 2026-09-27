@@ -14,15 +14,15 @@
 
 use std::{str::FromStr, time::Duration};
 
-use amaru_observability::{note_span_duration, prepare_exported_attributes};
-use opentelemetry::Key;
+use amaru_observability::{offer_span_elapsed, prepare_exported_attributes};
+use opentelemetry::{Context, Key};
 use opentelemetry_otlp::ExporterBuildError;
 use opentelemetry_sdk::{
     Resource,
     error::{OTelSdkError, OTelSdkResult},
     logs::SdkLoggerProvider,
     metrics::{SdkMeterProvider, Temporality},
-    trace::{SdkTracerProvider, SpanData, SpanExporter},
+    trace::{BatchSpanProcessor, SdkTracerProvider, Span, SpanData, SpanExporter, SpanProcessor},
 };
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use thiserror::Error;
@@ -46,10 +46,6 @@ where
     fn export(&self, mut batch: Vec<SpanData>) -> impl std::future::Future<Output = OTelSdkResult> + Send {
         for span in &mut batch {
             prepare_exported_attributes(&mut span.attributes, &mut span.events.events);
-            if let Some(hash) = header_hash_attribute(span) {
-                let micros = span.end_time.duration_since(span.start_time).unwrap_or_default().as_micros() as u64;
-                note_span_duration(&span.name, &hash, micros);
-            }
         }
         self.inner.export(batch)
     }
@@ -63,15 +59,48 @@ where
     }
 }
 
-fn header_hash_attribute(span: &SpanData) -> Option<String> {
-    span.attributes.iter().rev().find(|kv| kv.key.as_str() == "header_hash").and_then(|kv| match &kv.value {
-        opentelemetry::Value::String(text) => Some(text.as_str().to_string()),
-        opentelemetry::Value::Bool(_)
-        | opentelemetry::Value::I64(_)
-        | opentelemetry::Value::F64(_)
-        | opentelemetry::Value::Array(_)
-        | _ => None,
-    })
+/// Notes a `perf` span's exported elapsed time before the inner processor queues or exports it.
+///
+/// `on_end` runs while the tracing span is closing, including when the inner processor is a
+/// batch exporter that ships the span later.
+#[derive(Debug)]
+pub(crate) struct NotingSpanProcessor<P> {
+    inner: P,
+}
+
+impl<P> NotingSpanProcessor<P> {
+    pub(crate) fn new(inner: P) -> Self {
+        Self { inner }
+    }
+}
+
+impl<P> SpanProcessor for NotingSpanProcessor<P>
+where
+    P: SpanProcessor,
+{
+    fn on_start(&self, span: &mut Span, cx: &Context) {
+        self.inner.on_start(span, cx);
+    }
+
+    fn on_end(&self, span: SpanData) {
+        if span.name.starts_with("perf.") {
+            let micros = span.end_time.duration_since(span.start_time).unwrap_or_default().as_micros() as u64;
+            offer_span_elapsed(&span.name, micros);
+        }
+        self.inner.on_end(span);
+    }
+
+    fn force_flush(&self) -> OTelSdkResult {
+        self.inner.force_flush()
+    }
+
+    fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
+        self.inner.shutdown_with_timeout(timeout)
+    }
+
+    fn set_resource(&mut self, resource: &Resource) {
+        self.inner.set_resource(resource);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,9 +172,10 @@ impl OpenTelemetryProviders {
                     .with_tonic()
                     .build()
                     .map_err(BuildOpenTelemetryProvidersError::Traces)?;
+                let batch = BatchSpanProcessor::builder(CborSpanExporter::new(exporter)).build();
                 Ok(SdkTracerProvider::builder()
                     .with_resource(resource.clone())
-                    .with_batch_exporter(CborSpanExporter::new(exporter))
+                    .with_span_processor(NotingSpanProcessor::new(batch))
                     .build())
             })
             .transpose()?;

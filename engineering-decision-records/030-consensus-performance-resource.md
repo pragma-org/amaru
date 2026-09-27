@@ -110,7 +110,7 @@ Connection quality for dial and share rehab uses lazy-decay **malus** ([EDR-031]
 
 ### Relation to tracing and metrics
 
-[EDR-026][edr-tracing] specifies duration spans on target `amaru::network`: `perf.header.forward`, `perf.blocks.fetch`, `perf.header.block_fetch_wait`, and `perf.fork.switch`. Those are span schemas; their call sites land with the instrumentation, not in this resource.
+[EDR-026][edr-tracing] specifies duration spans on target `amaru::network`: `perf.header.forward`, `perf.blocks.fetch`, `perf.header.block_fetch_wait`, and `perf.fork.switch`. Those are span schemas; their call sites are not in this resource.
 The performance resource complements that with:
 
 - **decision state** (who can serve what; ranked peer sets; share-relevant reputation);

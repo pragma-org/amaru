@@ -390,19 +390,31 @@ fn test_world_blockfetch_pipelined() {
     run_blockfetch_generated_chain(NonZeroU8::new(2).unwrap(), 9720);
 }
 
-fn run_blockfetch_generated_chain(n: NonZeroU8, base_port: u16) {
-    let run = SyncRun::new(&format!("blockfetch n={}", n.get()));
+/// Injector plus one follower on [`BLOCKFETCH_FRAGMENT`], before the world runs.
+pub(super) fn spawn_blockfetch_follower(
+    run: &SyncRun,
+    base_port: u16,
+    pipeline: NonZeroU8,
+) -> (WorldLoop, Vec<Header>) {
     let injector_addr = loopback(base_port);
     let node_addr = node_listen(base_port, 0);
     let (store, headers) = injector_linear_store(BLOCKFETCH_FRAGMENT, run.seed);
-    let head = headers.last().expect("fragment HEAD").clone();
-
     let (injector, shared) = run.spawn_injector(store, injector_addr);
     let node = with_ancestor(
-        generated_node(run.seed, 0, node_addr).with_upstream_peer(peer_at(injector_addr)).with_blockfetch_pipeline_n(n),
+        generated_node(run.seed, 0, node_addr)
+            .with_upstream_peer(peer_at(injector_addr))
+            .with_blockfetch_pipeline_n(pipeline),
         &headers[0],
     );
-    let mut world = run.injector_world(injector, shared, vec![run.spawn_catch_up(0, node)], &headers);
+    let world = run.injector_world(injector, shared, vec![run.spawn_catch_up(0, node)], &headers);
+    (world, headers)
+}
+
+fn run_blockfetch_generated_chain(n: NonZeroU8, base_port: u16) {
+    let run = SyncRun::new(&format!("blockfetch n={}", n.get()));
+    let injector_addr = loopback(base_port);
+    let (mut world, headers) = spawn_blockfetch_follower(&run, base_port, n);
+    let head = headers.last().expect("fragment HEAD").clone();
     world.run_until_horizon_on_best_chain_tip(BLOCKFETCH_HORIZON_NANOS, |_| {});
 
     let log = world.heap_log();

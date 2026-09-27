@@ -89,14 +89,13 @@ fn apply_pending(span: &tracing::Span, pending: PendingTraceAttributes) {
 ///
 /// A CBOR field is visited twice: the stock layer records a debug dump of the bytes, then
 /// [`CborTraceArrayLayer`] records the decoded value. Export must show the decoded value once.
-pub fn retain_last_attribute(attributes: &mut Vec<KeyValue>) {
+fn retain_last_attribute(attributes: &mut Vec<KeyValue>) {
     let mut index = 0;
     while index < attributes.len() {
         if let Some(upgraded) = upgrade_debug_cbor(&attributes[index].value) {
             attributes[index].value = upgraded;
         }
-        let key = attributes[index].key.clone();
-        if attributes[index + 1..].iter().any(|later| later.key == key) {
+        if attributes[index + 1..].iter().any(|later| later.key == attributes[index].key) {
             attributes.remove(index);
         } else {
             index += 1;

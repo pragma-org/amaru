@@ -62,6 +62,8 @@ pub use peer::{
 };
 pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
 use spans::HeaderSpanBook;
+#[doc(hidden)]
+pub use spans::close_root_forward_after_exit;
 use tokio::{
     sync::{
         mpsc::{UnboundedSender, unbounded_channel},

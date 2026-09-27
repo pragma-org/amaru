@@ -1562,6 +1562,22 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
+## target: `amaru::consensus::roll_forward`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `process` | `span` |  | public | Received a new tip to roll forward. Parent of the exported \`perf.header.forward\` span. | tip, peer | header_hash |
+
+<details><summary>span: `process`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `array` | ✓ |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` |  |
+
+</details>
+
 ## target: `amaru::consensus::tip`
 
 | name | kind | levels | public | description | required fields | optional fields |
