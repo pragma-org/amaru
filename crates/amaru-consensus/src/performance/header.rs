@@ -19,7 +19,7 @@
 //! may drop or block under resource/connectivity pressure. Callers (external-effect handlers on
 //! the stage executor) invoke [`HeaderTelemetry::emit`].
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
@@ -72,6 +72,10 @@ struct HeaderAudience {
     delivered: Vec<Peer>,
     /// The block was adopted. Later peers do not emit `header.announced`.
     adopted: bool,
+    /// Slot onset as a duration since the global epoch, from the first announcement that knew it.
+    slot_onset: Option<Duration>,
+    /// When each peer was asked for this body. The first ask of a peer wins.
+    asked_at: BTreeMap<Peer, Instant>,
 }
 
 /// The processing timestamps accumulated for a header until its block reaches a terminal state.
@@ -188,11 +192,20 @@ pub enum HeaderTelemetry {
     /// Closed fork switch (`perf.fork.switch`).
     ForkSwitch { hash: HeaderHash, outcome: ForkSwitchOutcome, duration_micros: u64 },
     /// One of the first three distinct peers to announce `hash` (`header.announced`).
-    Announced { hash: HeaderHash, peer: Peer, rank: u64 },
+    Announced { hash: HeaderHash, peer: Peer, rank: u64, slot_latency_ms: Option<u64> },
+    /// Peers asked for the body of `hash` (`block.requested`).
+    Requested { hash: HeaderHash, peers: String, slot_latency_ms: Option<u64> },
     /// A distinct peer delivered the body of `hash` (`block.received`).
-    Received { hash: HeaderHash, peer: Peer, rank: u64 },
+    Received {
+        hash: HeaderHash,
+        peer: Peer,
+        rank: u64,
+        slot_latency_ms: Option<u64>,
+        /// Milliseconds since this peer was asked. Absent when that ask was not recorded.
+        fetch_latency_ms: Option<u64>,
+    },
     /// `hash` was adopted locally (`block.adopted`).
-    Adopted { hash: HeaderHash, peer: Option<Peer> },
+    Adopted { hash: HeaderHash, peer: Option<Peer>, slot_latency_ms: Option<u64> },
 }
 
 impl HeaderTelemetry {
@@ -265,32 +278,75 @@ impl HeaderTelemetry {
                     },
                 );
             }
-            Self::Announced { hash, peer, rank } => {
+            Self::Announced { hash, peer, rank, slot_latency_ms } => {
                 if live {
-                    info!(blockperf::header::ANNOUNCED, peer, header_hash = hash, rank = *rank);
+                    info!(
+                        blockperf::header::ANNOUNCED,
+                        peer,
+                        header_hash = hash,
+                        rank = *rank,
+                        slot_latency_ms = @slot_latency_ms
+                    );
                 } else {
-                    debug!(blockperf::header::ANNOUNCED, peer, header_hash = hash, rank = *rank);
+                    debug!(
+                        blockperf::header::ANNOUNCED,
+                        peer,
+                        header_hash = hash,
+                        rank = *rank,
+                        slot_latency_ms = @slot_latency_ms
+                    );
                 }
             }
-            Self::Received { hash, peer, rank } => {
+            Self::Requested { hash, peers, slot_latency_ms } => {
                 if live {
-                    info!(blockperf::block::RECEIVED, peer, header_hash = hash, rank = *rank);
+                    info!(
+                        blockperf::block::REQUESTED,
+                        header_hash = hash,
+                        peers = peers.as_str(),
+                        slot_latency_ms = @slot_latency_ms
+                    );
                 } else {
-                    debug!(blockperf::block::RECEIVED, peer, header_hash = hash, rank = *rank);
+                    debug!(
+                        blockperf::block::REQUESTED,
+                        header_hash = hash,
+                        peers = peers.as_str(),
+                        slot_latency_ms = @slot_latency_ms
+                    );
                 }
             }
-            Self::Adopted { hash, peer: Some(peer) } => {
+            Self::Received { hash, peer, rank, slot_latency_ms, fetch_latency_ms } => {
                 if live {
-                    info!(blockperf::block::ADOPTED, header_hash = hash, peer);
+                    info!(
+                        blockperf::block::RECEIVED,
+                        peer,
+                        header_hash = hash,
+                        rank = *rank,
+                        slot_latency_ms = @slot_latency_ms,
+                        fetch_latency_ms = @fetch_latency_ms
+                    );
                 } else {
-                    debug!(blockperf::block::ADOPTED, header_hash = hash, peer);
+                    debug!(
+                        blockperf::block::RECEIVED,
+                        peer,
+                        header_hash = hash,
+                        rank = *rank,
+                        slot_latency_ms = @slot_latency_ms,
+                        fetch_latency_ms = @fetch_latency_ms
+                    );
                 }
             }
-            Self::Adopted { hash, peer: None } => {
+            Self::Adopted { hash, peer: Some(peer), slot_latency_ms } => {
                 if live {
-                    info!(blockperf::block::ADOPTED, header_hash = hash);
+                    info!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
                 } else {
-                    debug!(blockperf::block::ADOPTED, header_hash = hash);
+                    debug!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
+                }
+            }
+            Self::Adopted { hash, peer: None, slot_latency_ms } => {
+                if live {
+                    info!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
+                } else {
+                    debug!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
                 }
             }
         }
@@ -335,25 +391,27 @@ impl HeaderPerformance {
     /// collecting announcers. It does not open a rank-1 line or a new lifecycle: a slow peer
     /// repeating headers that are already in the store stays quiet.
     ///
-    /// `slot_start_to_header_micros` is computed by the caller (using era history) so this type
-    /// stays free of consensus calendar knowledge. It is recorded only for a header that is not
-    /// already stored.
+    /// `slot_start_to_header_micros` and `slot_onset` are computed by the caller (using era
+    /// history) so this type stays free of consensus calendar knowledge. The micros are recorded
+    /// only for a header that is not already stored. `slot_onset` is the slot start as a duration
+    /// since the global epoch, kept so later blockperf lines can report milliseconds since then.
     pub fn apply_header_received(
         &mut self,
         peer: Peer,
         tip: Point,
         received_at: Instant,
         slot_start_to_header_micros: u64,
+        slot_onset: Duration,
         already_stored: bool,
     ) -> Vec<HeaderTelemetry> {
         let hash = tip.hash();
         if already_stored {
-            return self.extend_announcement(peer, hash).into_iter().collect();
+            return self.extend_announcement(peer, hash, received_at, slot_onset).into_iter().collect();
         }
         self.lifecycles.entry(hash).or_insert_with(|| {
             HeaderLifecycle::new(peer, slot_start_to_header_micros, tip.block_height(), received_at)
         });
-        self.note_announcement(peer, hash, tip.block_height()).into_iter().collect()
+        self.note_announcement(peer, hash, tip.block_height(), received_at, slot_onset).into_iter().collect()
     }
 
     /// Close open lifecycles (and any matching fork switch) for headers that have fallen behind
@@ -369,6 +427,29 @@ impl HeaderPerformance {
         }
         self.audience.retain(|_, audience| audience.height >= min_height);
         out
+    }
+
+    /// These peers were asked for these bodies at `at`.
+    ///
+    /// The first ask of a given peer is kept, so a later staggered ask of a new peer gets its own
+    /// timestamp and a repeat ask does not move the original. Returns one `block.requested` line
+    /// per header.
+    pub fn apply_peers_asked(&mut self, hashes: &[HeaderHash], peers: &[Peer], at: Instant) -> Vec<HeaderTelemetry> {
+        let mut ordered = peers.to_vec();
+        ordered.sort();
+        ordered.dedup();
+        let peers_field = ordered.iter().map(|peer| peer.to_string()).collect::<Vec<_>>().join(",");
+        hashes
+            .iter()
+            .map(|hash| {
+                let audience = self.audience_mut(*hash, BlockHeight::from(0));
+                for peer in &ordered {
+                    audience.asked_at.entry(*peer).or_insert(at);
+                }
+                let slot_latency_ms = audience.slot_onset.map(|onset| latency_since_onset(onset, at));
+                HeaderTelemetry::Requested { hash: *hash, peers: peers_field.clone(), slot_latency_ms }
+            })
+            .collect()
     }
 
     /// The fetch stage requested the blocks for these headers: record their request time.
@@ -392,7 +473,7 @@ impl HeaderPerformance {
         if let Some(lifecycle) = self.lifecycles.get_mut(hash) {
             lifecycle.downloaded_at.get_or_insert(downloaded_at);
         }
-        self.note_delivery(peer, *hash, height).into_iter().collect()
+        self.note_delivery(peer, *hash, height, downloaded_at).into_iter().collect()
     }
 
     /// Header rejected on reception (duplicate, undecodable, invalid, store error, …).
@@ -423,12 +504,15 @@ impl HeaderPerformance {
     /// When `syncing` is true, `slot_start_to_header_micros` is omitted (not meaningful while
     /// catching up far behind the network tip).
     pub fn apply_block_valid(&mut self, hash: &HeaderHash, now: Instant, syncing: bool) -> Vec<HeaderTelemetry> {
-        let delivered_by = self.audience.get(hash).and_then(|audience| audience.delivered.first().copied());
-        if let Some(audience) = self.audience.get_mut(hash) {
-            audience.adopted = true;
-        }
+        let (delivered_by, slot_latency_ms) = match self.audience.get_mut(hash) {
+            Some(audience) => {
+                audience.adopted = true;
+                (audience.delivered.first().copied(), audience.slot_onset.map(|onset| latency_since_onset(onset, now)))
+            }
+            None => (None, None),
+        };
         let mut out = self.close_lifecycle(hash, HeaderLifecycleOutcome::ValidBlock, now, syncing);
-        out.push(HeaderTelemetry::Adopted { hash: *hash, peer: delivered_by });
+        out.push(HeaderTelemetry::Adopted { hash: *hash, peer: delivered_by, slot_latency_ms });
         out.extend(self.close_fork(hash, ForkSwitchOutcome::ValidBlock, now));
         out
     }
@@ -478,47 +562,93 @@ impl HeaderPerformance {
 }
 
 impl HeaderPerformance {
-    fn note_announcement(&mut self, peer: Peer, hash: HeaderHash, height: BlockHeight) -> Option<HeaderTelemetry> {
+    fn note_announcement(
+        &mut self,
+        peer: Peer,
+        hash: HeaderHash,
+        height: BlockHeight,
+        at: Instant,
+        slot_onset: Duration,
+    ) -> Option<HeaderTelemetry> {
         let audience = self.audience_mut(hash, height);
-        Self::push_announcer(audience, peer, hash)
+        audience.slot_onset.get_or_insert(slot_onset);
+        Self::push_announcer(audience, peer, hash, at)
     }
 
     /// Rank 2 or 3 for a header whose announcement list is still open.
     ///
     /// Missing audience means the header was already stored before we started collecting, or it
     /// has since fallen off the horizon. Either way there is no rank-1 line to emit.
-    fn extend_announcement(&mut self, peer: Peer, hash: HeaderHash) -> Option<HeaderTelemetry> {
+    fn extend_announcement(
+        &mut self,
+        peer: Peer,
+        hash: HeaderHash,
+        at: Instant,
+        slot_onset: Duration,
+    ) -> Option<HeaderTelemetry> {
         let audience = self.audience.get_mut(&hash)?;
-        Self::push_announcer(audience, peer, hash)
+        audience.slot_onset.get_or_insert(slot_onset);
+        Self::push_announcer(audience, peer, hash, at)
     }
 
-    fn push_announcer(audience: &mut HeaderAudience, peer: Peer, hash: HeaderHash) -> Option<HeaderTelemetry> {
+    fn push_announcer(
+        audience: &mut HeaderAudience,
+        peer: Peer,
+        hash: HeaderHash,
+        at: Instant,
+    ) -> Option<HeaderTelemetry> {
         if audience.adopted || audience.announced.contains(&peer) || audience.announced.len() >= LOGGED_ANNOUNCEMENTS {
             return None;
         }
         audience.announced.push(peer);
         let rank = audience.announced.len() as u64;
-        Some(HeaderTelemetry::Announced { hash, peer, rank })
+        let slot_latency_ms = audience.slot_onset.map(|onset| latency_since_onset(onset, at));
+        Some(HeaderTelemetry::Announced { hash, peer, rank, slot_latency_ms })
     }
 
-    fn note_delivery(&mut self, peer: Peer, hash: HeaderHash, height: BlockHeight) -> Option<HeaderTelemetry> {
+    fn note_delivery(
+        &mut self,
+        peer: Peer,
+        hash: HeaderHash,
+        height: BlockHeight,
+        at: Instant,
+    ) -> Option<HeaderTelemetry> {
         let audience = self.audience_mut(hash, height);
         if audience.delivered.contains(&peer) {
             return None;
         }
         audience.delivered.push(peer);
         let rank = audience.delivered.len() as u64;
-        Some(HeaderTelemetry::Received { hash, peer, rank })
+        let slot_latency_ms = audience.slot_onset.map(|onset| latency_since_onset(onset, at));
+        let fetch_latency_ms = audience.asked_at.get(&peer).map(|asked| since_ms(*asked, at));
+        Some(HeaderTelemetry::Received { hash, peer, rank, slot_latency_ms, fetch_latency_ms })
     }
 
     fn audience_mut(&mut self, hash: HeaderHash, height: BlockHeight) -> &mut HeaderAudience {
-        self.audience.entry(hash).or_insert_with(|| HeaderAudience {
+        let audience = self.audience.entry(hash).or_insert_with(|| HeaderAudience {
             height,
             announced: Vec::new(),
             delivered: Vec::new(),
             adopted: false,
-        })
+            slot_onset: None,
+            asked_at: BTreeMap::new(),
+        });
+        // A fetch ask may have opened the entry before the header's height was known.
+        if audience.height == BlockHeight::from(0) && height != BlockHeight::from(0) {
+            audience.height = height;
+        }
+        audience
     }
+}
+
+/// Milliseconds from the slot onset to `at`.
+fn latency_since_onset(onset: Duration, at: Instant) -> u64 {
+    at.duration_since_global_epoch().saturating_sub(onset).as_millis() as u64
+}
+
+/// Milliseconds from `started` to `now`.
+fn since_ms(started: Instant, now: Instant) -> u64 {
+    now.saturating_since(started).as_millis() as u64
 }
 
 impl HeaderPerformance {

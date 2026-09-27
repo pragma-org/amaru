@@ -676,31 +676,41 @@ define_schemas! {
                 /// being collected. A header that is already stored does not start a new line, and
                 /// a header that has been adopted is not announced again.
                 /// `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.
+                /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
                 public ANNOUNCED {
                     required peer: %amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
                     required rank: u64
+                    optional slot_latency_ms: u64
                 }
             }
             block {
                 /// Peers asked to fetch this block body. `peers` is a comma-separated list of
                 /// socket addresses, sorted.
+                /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
                 public REQUESTED {
                     required header_hash: amaru_kernel::HeaderHash
                     required peers: String
+                    optional slot_latency_ms: u64
                 }
                 /// A distinct peer delivered this block body.
                 /// `rank` is 1 for the first delivery, then 2, 3, … in arrival order.
+                /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
+                /// `fetch_latency_ms` is milliseconds since the request was sent to this peer.
                 public RECEIVED {
                     required peer: %amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
                     required rank: u64
+                    optional slot_latency_ms: u64
+                    optional fetch_latency_ms: u64
                 }
                 /// The block was adopted locally.
                 /// `peer` is the first peer that delivered the body, when a delivery was recorded.
+                /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
                 public ADOPTED {
                     required header_hash: amaru_kernel::HeaderHash
                     optional peer: %amaru_kernel::Peer
+                    optional slot_latency_ms: u64
                 }
             }
         }

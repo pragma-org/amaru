@@ -439,8 +439,12 @@ impl TrackPeers {
     /// Microseconds from the virtual start of `slot` to `received_at`, for header lifecycle metrics.
     ///
     /// Computed here (with [`EraHistory`]) so the performance resource stays free of calendar knowledge.
+    fn slot_onset(&self, slot: Slot) -> Duration {
+        self.era_history.slot_to_relative_time_unchecked_horizon(slot).unwrap_or_default()
+    }
+
     fn slot_start_to_header_micros(&self, slot: Slot, received_at: Instant) -> u64 {
-        let slot_start = self.era_history.slot_to_relative_time_unchecked_horizon(slot).unwrap_or_default();
+        let slot_start = self.slot_onset(slot);
         received_at.duration_since_global_epoch().saturating_sub(slot_start).as_micros() as u64
     }
 
@@ -780,6 +784,7 @@ impl TrackPeers {
                     outcome = "already_stored"
                 );
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
+                let slot_onset = self.slot_onset(header_tip.slot());
                 let already_stored = true;
                 eff.external(Performance::record_header_announcement(
                     peer,
@@ -787,6 +792,7 @@ impl TrackPeers {
                     header_parent,
                     received_at,
                     slot_start_to_header_micros,
+                    slot_onset,
                     already_stored,
                 ))
                 .await;
@@ -809,6 +815,7 @@ impl TrackPeers {
                     })
                     .await;
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
+                let slot_onset = self.slot_onset(header_tip.slot());
                 let already_stored = false;
                 eff.external(Performance::record_header_announcement(
                     peer,
@@ -816,6 +823,7 @@ impl TrackPeers {
                     header_parent,
                     received_at,
                     slot_start_to_header_micros,
+                    slot_onset,
                     already_stored,
                 ))
                 .await;

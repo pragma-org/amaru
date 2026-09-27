@@ -201,6 +201,7 @@ pub fn te_record_header_announcement(
     slot_start_to_header_micros: u64,
     already_stored: bool,
 ) -> TraceEntry {
+    let slot_onset = EraHistory::default().slot_to_relative_time_unchecked_horizon(header.slot()).unwrap_or_default();
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::record_header_announcement(
@@ -209,6 +210,7 @@ pub fn te_record_header_announcement(
             parent,
             at,
             slot_start_to_header_micros,
+            slot_onset,
             already_stored,
         )),
     ))

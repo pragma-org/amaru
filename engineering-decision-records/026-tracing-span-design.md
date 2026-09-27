@@ -109,6 +109,8 @@ Operators also need these points as individual log lines they can turn on with `
 - `block.received` — each distinct peer that delivers the body, with `rank` in arrival order
 - `block.adopted` — local adoption; `peer` is the first peer that delivered the body when one did
 
+Each of these lines carries `slot_latency_ms`, milliseconds since the onset of the block's slot. `block.received` also carries `fetch_latency_ms`, milliseconds since the request was sent to that peer, so a later staggered ask is timed from its own request.
+
 `AMARU_LOG=info,amaru::blockperf=debug` adds them to the usual info log. `AMARU_LOG=off,amaru::blockperf=debug` prints only them. The terminal `perf.header.lifecycle` event still carries the intervals between the points for the TUI.
 
 `adopt_chain` stores a consensus mode from the adopted tip's slot onset and the wall clock. A lag strictly under 60 seconds is live. A change of mode is logged at info as `tip.mode`. While syncing, the four events are debug and `tip.adopt` is limited to one info line per second. While live, the four events and every adoption are info. `track_peers` logs `chainsync.chain_lagging` at most once a minute when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. A sync that is still adopting faster than 10 blocks per second, and the first minute of that condition, stay quiet.

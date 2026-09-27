@@ -21,8 +21,6 @@ use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
 
 use crate::{
-    consensus_mode::ConsensusMode,
-    effects::QueryConsensusModeEffect,
     performance::{Performance, SelectPeersParams},
     stages::{block_source::BlockSourceMsg, peer_selection::PeerSelectionMsg, select_chain::SelectChainMsg},
 };
@@ -494,8 +492,13 @@ impl FetchBlocks {
         if asked.is_empty() || hashes.is_empty() {
             return;
         }
-        let live = eff.external(QueryConsensusModeEffect).await == ConsensusMode::Live;
-        crate::performance::emit_blocks_requested(&hashes, &asked, live);
+        // The initial set shares the time the fetch was handed to the manager. A later staggered
+        // ask records its own time, so each peer's fetch latency starts when that peer was asked.
+        let at = match self.fetch_started_at {
+            Some(at) => at,
+            None => eff.clock().await,
+        };
+        eff.external(Performance::record_peers_asked(hashes, asked, at)).await;
     }
 
     pub async fn no_blocks(&mut self, req_id: u64, peer: Peer, eff: Effects<FetchBlocksMsg>) {

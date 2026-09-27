@@ -47,8 +47,8 @@ use std::{
 };
 
 use adoption::SyncAdoptionPace;
-use amaru_kernel::{HeaderHash, Peer, PeerCandidate};
-use amaru_observability::{debug, error, info, warn};
+use amaru_kernel::{Peer, PeerCandidate};
+use amaru_observability::{error, warn};
 use amaru_pure_stage::Instant;
 pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
@@ -153,6 +153,7 @@ pub(crate) enum PerformanceOp {
     RecordIntersection { effect: RecordIntersectionEffect },
     RecordHeaderAnnouncement { effect: RecordHeaderAnnouncementEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordBlocksRequested { effect: RecordBlocksRequestedEffect },
+    RecordPeersAsked { effect: RecordPeersAskedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordBlockDelivery { effect: RecordBlockDeliveryEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordFetchFailure { effect: RecordFetchFailureEffect },
     RecordKeepaliveRtt { effect: RecordKeepaliveRttEffect },
@@ -319,12 +320,17 @@ fn dispatch(
                 effect.header,
                 effect.at,
                 effect.slot_start_to_header_micros,
+                effect.slot_onset,
                 effect.already_stored,
             );
             let _ = reply.send(telemetry);
         }
         PerformanceOp::RecordBlocksRequested { effect } => {
             headers.apply_blocks_requested(&effect.hashes, effect.requested_at);
+        }
+        PerformanceOp::RecordPeersAsked { effect, reply } => {
+            let telemetry = headers.apply_peers_asked(&effect.hashes, &effect.peers, effect.at);
+            let _ = reply.send(telemetry);
         }
         PerformanceOp::RecordBlockDelivery { effect, reply } => {
             peers.apply_block_delivery(
@@ -452,26 +458,6 @@ fn dispatch(
         }
         PerformanceOp::SyncAdoptionPace { effect, reply } => {
             let _ = reply.send(pace.is_catching_up_fast(effect.now));
-        }
-    }
-}
-
-/// Log which peers were asked for each block in a fetch batch (`block.requested`).
-///
-/// Addresses are sorted so the line is stable. An empty peer set logs nothing.
-pub(crate) fn emit_blocks_requested(hashes: &[HeaderHash], peers: &[Peer], live: bool) {
-    if peers.is_empty() || hashes.is_empty() {
-        return;
-    }
-    let mut ordered: Vec<&Peer> = peers.iter().collect();
-    ordered.sort();
-    ordered.dedup();
-    let peers_field = ordered.iter().map(|peer| peer.to_string()).collect::<Vec<_>>().join(",");
-    for hash in hashes {
-        if live {
-            info!(blockperf::block::REQUESTED, header_hash = hash, peers = peers_field.as_str());
-        } else {
-            debug!(blockperf::block::REQUESTED, header_hash = hash, peers = peers_field.as_str());
         }
     }
 }

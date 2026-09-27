@@ -9,9 +9,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `adopted` | `TRACE` | public | The block was adopted locally. \`peer\` is the first peer that delivered the body, when a delivery was recorded. | header_hash | peer |
-| `received` | `TRACE` | public | A distinct peer delivered this block body. \`rank\` is 1 for the first delivery, then 2, 3, … in arrival order. | peer, header_hash, rank |  |
-| `requested` | `TRACE` | public | Peers asked to fetch this block body. \`peers\` is a comma-separated list of socket addresses, sorted. | header_hash, peers |  |
+| `adopted` | `TRACE` | public | The block was adopted locally. \`peer\` is the first peer that delivered the body, when a delivery was recorded. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | header_hash | peer, slot_latency_ms |
+| `received` | `TRACE` | public | A distinct peer delivered this block body. \`rank\` is 1 for the first delivery, then 2, 3, … in arrival order. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. \`fetch_latency_ms\` is milliseconds since the request was sent to this peer. | peer, header_hash, rank | slot_latency_ms, fetch_latency_ms |
+| `requested` | `TRACE` | public | Peers asked to fetch this block body. \`peers\` is a comma-separated list of socket addresses, sorted. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | header_hash, peers | slot_latency_ms |
 
 <details><summary>span: `adopted`</summary>
 
@@ -19,6 +19,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `header_hash` | `string` | ✓ |
 | `peer` | `string` |  |
+| `slot_latency_ms` | `integer` |  |
 
 </details>
 
@@ -29,6 +30,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `peer` | `string` | ✓ |
 | `header_hash` | `string` | ✓ |
 | `rank` | `integer` | ✓ |
+| `slot_latency_ms` | `integer` |  |
+| `fetch_latency_ms` | `integer` |  |
 
 </details>
 
@@ -38,6 +41,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `header_hash` | `string` | ✓ |
 | `peers` | `string` | ✓ |
+| `slot_latency_ms` | `integer` |  |
 
 </details>
 
@@ -45,7 +49,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `announced` | `TRACE` | public | One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. | peer, header_hash, rank |  |
+| `announced` | `TRACE` | public | One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | peer, header_hash, rank | slot_latency_ms |
 
 <details><summary>span: `announced`</summary>
 
@@ -54,6 +58,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `peer` | `string` | ✓ |
 | `header_hash` | `string` | ✓ |
 | `rank` | `integer` | ✓ |
+| `slot_latency_ms` | `integer` |  |
 
 </details>
 

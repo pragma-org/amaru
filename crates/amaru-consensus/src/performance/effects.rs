@@ -100,9 +100,26 @@ impl Performance {
         parent: Option<HeaderHash>,
         at: Instant,
         slot_start_to_header_micros: u64,
+        slot_onset: Duration,
         already_stored: bool,
     ) -> RecordHeaderAnnouncementEffect {
-        RecordHeaderAnnouncementEffect { peer, header, parent, at, slot_start_to_header_micros, already_stored }
+        RecordHeaderAnnouncementEffect {
+            peer,
+            header,
+            parent,
+            at,
+            slot_start_to_header_micros,
+            slot_onset,
+            already_stored,
+        }
+    }
+
+    /// Record that `peers` were asked for `hashes` at `at`, and emit `block.requested`.
+    ///
+    /// The first ask of a peer is kept. A later ask of a different peer, as in a staggered retry,
+    /// records its own time.
+    pub fn record_peers_asked(hashes: Vec<HeaderHash>, peers: Vec<Peer>, at: Instant) -> RecordPeersAskedEffect {
+        RecordPeersAskedEffect { hashes, peers, at }
     }
 
     pub fn record_blocks_requested(hashes: Vec<HeaderHash>, requested_at: Instant) -> RecordBlocksRequestedEffect {
@@ -292,8 +309,33 @@ pub struct RecordHeaderAnnouncementEffect {
     pub(crate) at: Instant,
     /// Stage-computed interval from virtual slot start to header reception.
     pub(crate) slot_start_to_header_micros: u64,
+    /// Slot onset as a duration since the global epoch.
+    pub(crate) slot_onset: Duration,
     /// The chain store already held this header. Used to avoid a fresh rank-1 announcement.
     pub(crate) already_stored: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RecordPeersAskedEffect {
+    pub(crate) hashes: Vec<HeaderHash>,
+    pub(crate) peers: Vec<Peer>,
+    pub(crate) at: Instant,
+}
+
+impl ExternalEffectAPI for RecordPeersAskedEffect {
+    type Response = ();
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        let resources = resources.clone();
+        self.wrap(|this| async move {
+            enqueue_and_emit_telemetry(&perf, resources, |reply| PerformanceOp::RecordPeersAsked {
+                effect: this,
+                reply,
+            })
+            .await
+        })
+    }
 }
 
 impl ExternalEffectAPI for RecordHeaderAnnouncementEffect {

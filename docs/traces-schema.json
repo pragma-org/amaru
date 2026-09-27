@@ -15,19 +15,23 @@
         },
         "peer": {
           "type": "string"
+        },
+        "slot_latency_ms": {
+          "type": "integer"
         }
       },
       "required": [
         "header_hash"
       ],
       "optional": [
-        "peer"
+        "peer",
+        "slot_latency_ms"
       ],
       "additionalProperties": false,
       "name": "adopted",
       "level": "TRACE",
       "target": "amaru::blockperf::block",
-      "description": "The block was adopted locally. `peer` is the first peer that delivered the body, when a delivery was recorded.",
+      "description": "The block was adopted locally. `peer` is the first peer that delivered the body, when a delivery was recorded. `slot_latency_ms` is milliseconds since the onset of this block's slot.",
       "public": true
     },
     "amaru::blockperf::block::RECEIVED": {
@@ -44,6 +48,12 @@
         },
         "rank": {
           "type": "integer"
+        },
+        "slot_latency_ms": {
+          "type": "integer"
+        },
+        "fetch_latency_ms": {
+          "type": "integer"
         }
       },
       "required": [
@@ -51,12 +61,15 @@
         "header_hash",
         "rank"
       ],
-      "optional": [],
+      "optional": [
+        "slot_latency_ms",
+        "fetch_latency_ms"
+      ],
       "additionalProperties": false,
       "name": "received",
       "level": "TRACE",
       "target": "amaru::blockperf::block",
-      "description": "A distinct peer delivered this block body. `rank` is 1 for the first delivery, then 2, 3, … in arrival order.",
+      "description": "A distinct peer delivered this block body. `rank` is 1 for the first delivery, then 2, 3, … in arrival order. `slot_latency_ms` is milliseconds since the onset of this block's slot. `fetch_latency_ms` is milliseconds since the request was sent to this peer.",
       "public": true
     },
     "amaru::blockperf::block::REQUESTED": {
@@ -70,18 +83,23 @@
         },
         "peers": {
           "type": "string"
+        },
+        "slot_latency_ms": {
+          "type": "integer"
         }
       },
       "required": [
         "header_hash",
         "peers"
       ],
-      "optional": [],
+      "optional": [
+        "slot_latency_ms"
+      ],
       "additionalProperties": false,
       "name": "requested",
       "level": "TRACE",
       "target": "amaru::blockperf::block",
-      "description": "Peers asked to fetch this block body. `peers` is a comma-separated list of socket addresses, sorted.",
+      "description": "Peers asked to fetch this block body. `peers` is a comma-separated list of socket addresses, sorted. `slot_latency_ms` is milliseconds since the onset of this block's slot.",
       "public": true
     },
     "amaru::blockperf::header::ANNOUNCED": {
@@ -98,6 +116,9 @@
         },
         "rank": {
           "type": "integer"
+        },
+        "slot_latency_ms": {
+          "type": "integer"
         }
       },
       "required": [
@@ -105,12 +126,14 @@
         "header_hash",
         "rank"
       ],
-      "optional": [],
+      "optional": [
+        "slot_latency_ms"
+      ],
       "additionalProperties": false,
       "name": "announced",
       "level": "TRACE",
       "target": "amaru::blockperf::header",
-      "description": "One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.",
+      "description": "One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. `rank` is 1, 2, or 3 in arrival order. Later peers are not logged. `slot_latency_ms` is milliseconds since the onset of this block's slot.",
       "public": true
     },
     "amaru::bootstrap::COMPLETE": {
