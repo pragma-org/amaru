@@ -633,6 +633,7 @@ dependencies = [
  "amaru-pure-stage",
  "anyhow",
  "bytes",
+ "cbor-data",
  "futures-util",
  "hex",
  "minicbor",
@@ -1636,9 +1637,9 @@ dependencies = [
 
 [[package]]
 name = "cbor-data"
-version = "0.8.19"
+version = "0.8.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da3ad76f5176516dc0f8b18e53c6ae4542fabc71cfcb3e8202f66d27f4086614"
+checksum = "85192a213e319a947e78efc44233b4fc98440ce174383a9ce24920779b59a840"
 dependencies = [
  "base64 0.13.1",
  "half 1.8.3",

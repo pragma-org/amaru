@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use amaru_kernel::{NetworkMagic, Peer};
+use amaru_kernel::{NetworkMagic, Peer, cbor};
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::ConnectionsResource;
+use amaru_ouroboros_traits::ConnectionProvider;
 use amaru_pure_stage::{
     Effect, StageGraph,
     simulation::{Run, SimulationBuilder},
@@ -24,18 +25,23 @@ use amaru_pure_stage::{
     trace_buffer::TraceBuffer,
 };
 use futures_util::StreamExt;
-use tokio::runtime::Runtime;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+    runtime::{Handle, Runtime},
+    time::timeout,
+};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    handshake,
+    handshake::{self, Message},
     mux::{self, MuxMessage},
     network_effects::create_connection,
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
         version_data::{PeerSharing, VersionData},
         version_number::VersionNumber,
-        version_table::VersionTable,
+        version_table::{VersionTable, tests::haskell_ping_propose},
     },
 };
 
@@ -176,4 +182,87 @@ fn test_against_node_with_tokio() {
 
     running.abort();
     trace_guard.defuse();
+}
+
+fn mux_segment(protocol: u16, payload: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(8 + payload.len());
+    frame.extend_from_slice(&0u32.to_be_bytes());
+    frame.extend_from_slice(&protocol.to_be_bytes());
+    let length = u16::try_from(payload.len()).expect("handshake fits in one mux segment");
+    frame.extend_from_slice(&length.to_be_bytes());
+    frame.extend_from_slice(payload);
+    frame
+}
+
+/// A TCP client sends the current Haskell `cardano-cli ping` propose (versions 14, 15, and 16).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn haskell_ping_handshake_negotiates_over_tcp() {
+    let _network_guard = crate::network_effects::register_deserializers();
+    let _mux_guard = crate::mux::register_deserializers();
+    let _handshake_guard = crate::handshake::register_deserializers();
+
+    let magic = NetworkMagic::MAINNET;
+    let connections = TokioConnections::new(65536);
+    let bound = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await.unwrap();
+    let mut tcp = TcpStream::connect(bound).await.unwrap();
+    tcp.set_nodelay(true).unwrap();
+    let (peer, conn_id) = connections.accept(bound).await.unwrap();
+
+    let trace_buffer = TraceBuffer::new_shared(1000, 1_000_000);
+    let trace_guard = TraceBuffer::drop_guard(&trace_buffer);
+    let mut graph = TokioBuilder::default().with_trace_buffer(trace_buffer);
+    graph.resources().put::<ConnectionsResource>(Arc::new(connections));
+
+    let mux = graph.stage("mux", mux::stage);
+    let mux = graph
+        .wire_up(mux, mux::State::new(conn_id, &[(PROTO_HANDSHAKE.responder().erase(), 5760)], Role::Responder, peer));
+
+    let (output, mut rx) = graph.output::<handshake::HandshakeResult>("handshake_result", 10);
+    let handshake = graph.stage("handshake", handshake::responder());
+    let handshake = graph.wire_up(
+        handshake,
+        handshake::HandshakeResponder::new(
+            mux.clone().without_state(),
+            output,
+            VersionTable::v11_and_above(magic, false, true),
+        ),
+    );
+    graph
+        .preload(
+            &mux,
+            [MuxMessage::Register {
+                protocol: PROTO_HANDSHAKE.responder().erase(),
+                frame: mux::Frame::OneCborItem,
+                handler: handshake.contramap(Inputs::Network),
+                max_buffer: 5760,
+            }],
+        )
+        .unwrap();
+
+    let running = graph.run(Handle::current());
+    let propose = haskell_ping_propose(magic.as_u64());
+    tcp.write_all(&mux_segment(0, &propose)).await.unwrap();
+    tcp.flush().await.unwrap();
+
+    let read = async {
+        let mut header = [0u8; 8];
+        tcp.read_exact(&mut header).await.unwrap();
+        let mut protocol = bytes::BytesMut::new();
+        PROTO_HANDSHAKE.responder().erase().encode(&mut protocol);
+        assert_eq!(&header[4..6], protocol.as_ref());
+        let length = u16::from_be_bytes([header[6], header[7]]) as usize;
+        let mut payload = vec![0u8; length];
+        tcp.read_exact(&mut payload).await.unwrap();
+        payload
+    };
+    let (stage_result, payload) =
+        timeout(Duration::from_secs(5), async { tokio::join!(rx.next(), read) }).await.expect("handshake over tcp");
+    running.abort();
+    trace_guard.defuse();
+
+    let agreed = VersionData::new(magic, true, PeerSharing::Disabled, false);
+    assert_eq!(stage_result, Some(handshake::HandshakeResult::Accepted(VersionNumber::V15, agreed.clone())));
+
+    let message: Message<VersionData> = cbor::from_cbor_no_leftovers(&payload).expect("accept message");
+    assert_eq!(message, Message::Accept(VersionNumber::V15, agreed));
 }

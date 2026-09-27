@@ -32,7 +32,7 @@ blst = "0.3.16"
 built = "0.8.1"
 bumpalo = "3.20.3"
 bytes = "1.12.1"
-cbor-data = "0.8.19"
+cbor-data = "0.8.20"
 cbor4ii = { version = "1.1.1", features = ["serde1", "use_std"] }
 chumsky = "1.0.0-alpha.8"
 clap = { version = "4.6.2", features = ["derive", "env"] }
