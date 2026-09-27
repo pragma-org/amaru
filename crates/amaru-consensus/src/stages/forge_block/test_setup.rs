@@ -133,6 +133,9 @@ fn setup_with(
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
+                crate::performance::Performance::new(),
+            ));
             let credentials = prep.credentials.clone().map(|credentials| credentials as Arc<dyn ForgingCredentials>);
             resources.put::<ResourceForgingCredentials>(credentials);
         },

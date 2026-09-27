@@ -17,7 +17,10 @@ use std::{cmp::Ordering, collections::BTreeMap};
 use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point};
 use amaru_observability::{
     CarriedHeader, ChainChoice, ChainSyncProcess, FetchResume, Instrument, TraceContext,
-    amaru::consensus::chain::{FETCH_NEXT, SELECT_FROM_BLOCK_VALIDATION, SELECT_FROM_TIP},
+    amaru::{
+        consensus::chain::{FETCH_NEXT, SELECT_FROM_BLOCK_VALIDATION, SELECT_FROM_TIP},
+        network::perf::header::FORWARD,
+    },
     debug, debug_span, error, info, warn,
 };
 use amaru_ouroboros::vrf;
@@ -117,7 +120,12 @@ impl SelectChain {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SelectChainMsg {
     Initialize(HeaderHash),
-    TipFromUpstream { tip: Point, parent: Point, trace_context: TraceContext<ChainSyncProcess> },
+    TipFromUpstream {
+        tip: Point,
+        parent: Point,
+        trace_context: TraceContext<ChainSyncProcess>,
+        forward_context: TraceContext<FORWARD>,
+    },
     BlockValidationResult(Point, bool, BlockHeight, TraceContext<CarriedHeader>),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
@@ -126,7 +134,12 @@ pub enum SelectChainMsg {
 
 impl SelectChainMsg {
     pub fn tip_from_upstream(tip: Point, parent: Point) -> Self {
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context: TraceContext::detached() }
+        SelectChainMsg::TipFromUpstream {
+            tip,
+            parent,
+            trace_context: TraceContext::detached(),
+            forward_context: TraceContext::detached(),
+        }
     }
 
     pub fn block_validation_result(point: Point, valid: bool, max_block_height: BlockHeight) -> Self {
@@ -157,7 +170,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 state.tips.insert(best_hash, to_validate);
             }
         }
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context } => {
+        SelectChainMsg::TipFromUpstream { tip, parent, trace_context, forward_context } => {
             let span = debug_span!(
                 parent_context: &trace_context,
                 consensus::chain::SELECT_FROM_TIP,
@@ -166,7 +179,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             );
             let child_trace_context = (&span).into();
             state
-                .handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context)
+                .handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context, forward_context)
                 .instrument(span.into())
                 .await;
         }
@@ -205,6 +218,7 @@ impl SelectChain {
         eff: Effects<SelectChainMsg>,
         parent_context: TraceContext<ChainSyncProcess>,
         stage_context: TraceContext<SELECT_FROM_TIP>,
+        forward_context: TraceContext<FORWARD>,
     ) {
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
 
@@ -221,6 +235,7 @@ impl SelectChain {
         match validity {
             Some(true) => {
                 debug!(consensus::chain::TIP_IGNORED, tip, reason = "already_validated");
+                eff.external(Performance::close_header_forward(tip.hash())).await;
                 return;
             }
             Some(false) => {
@@ -264,21 +279,40 @@ impl SelectChain {
             }
         }
 
-        if self.tips.contains_key(&tip.hash()) && cmp_tip(Some(&header), self.best_tip.as_ref()) == Ordering::Greater {
-            let best_tip = self.best_tip.take().map(|h| h.point()).unwrap_or(Point::Origin);
-            debug!(consensus::chain::BEST_TIP_CANDIDATE, tip, reason = "better_chain", previous = best_tip);
+        if !self.tips.contains_key(&tip.hash()) {
+            return;
+        }
 
-            // if we have a real fork, start recording the time it takes to switch to that fork
-            if parent.hash() != best_tip.hash() {
-                let now = eff.clock().await;
-                eff.external(Performance::record_fork_started(tip, now)).await;
-            }
+        if cmp_tip(Some(&header), self.best_tip.as_ref()) != Ordering::Greater {
+            eff.external(Performance::close_header_forward(tip.hash())).await;
+            return;
+        }
 
-            if self.may_fetch_blocks {
-                self.may_fetch_blocks = false;
-                eff.send(&self.downstream, NewBestTip { tip, parent, trace_context: parent_context.into() }).await;
-            }
-            self.best_tip = Some(header);
+        eff.external(Performance::open_block_fetch_wait(tip.hash(), forward_context)).await;
+
+        let best_tip = self.best_tip.take().map(|h| h.point()).unwrap_or(Point::Origin);
+        debug!(consensus::chain::BEST_TIP_CANDIDATE, tip, reason = "better_chain", previous = best_tip);
+
+        // if we have a real fork, start recording the time it takes to switch to that fork
+        if parent.hash() != best_tip.hash() {
+            let now = eff.clock().await;
+            eff.external(Performance::record_fork_started(tip, now)).await;
+        }
+
+        if self.may_fetch_blocks {
+            self.may_fetch_blocks = false;
+            eff.external(Performance::close_block_fetch_wait(tip.hash())).await;
+            eff.send(&self.downstream, NewBestTip { tip, parent, trace_context: parent_context.into() }).await;
+        }
+        self.best_tip = Some(header);
+    }
+
+    async fn close_fetch_waits(&self, eff: &Effects<SelectChainMsg>, tip: HeaderHash) {
+        let Some(chain) = self.tips.get(&tip) else {
+            return;
+        };
+        for hash in chain.clone() {
+            eff.external(Performance::close_block_fetch_wait(hash)).await;
         }
     }
 
@@ -352,24 +386,26 @@ impl SelectChain {
                         reason = "previous_invalidated"
                     );
                     let parent = load_parent_point(&eff, &store, &new_best_tip).await;
-                    if self.may_fetch_blocks {
-                        self.may_fetch_blocks = false;
-                        eff.send(
-                            &self.downstream,
-                            NewBestTip { tip: new_best_tip.point(), parent, trace_context: trace_context.into() },
-                        )
-                        .await;
-                    }
                     let (to_validate, _) = store.unvalidated_ancestor_hashes(new_best_tip.hash()).await;
                     // Only record a fork switch if there are blocks to validate on the new best tip.
                     // Otherwise, there are no blocks to apply and no switch occurs.
                     // This is typically the case when we have a tip that is invalid but one of its
                     // ancestors was applied succesfully to the ledger. Here we just revert to knowing
                     // that this ancestor is the best tip and we will continue to fetch blocks from it.
-                    if !to_validate.is_empty() {
+                    let pending = !to_validate.is_empty();
+                    self.tips.insert(new_best_tip.hash(), to_validate);
+                    if self.may_fetch_blocks {
+                        self.may_fetch_blocks = false;
+                        self.close_fetch_waits(&eff, new_best_tip.hash()).await;
+                        eff.send(
+                            &self.downstream,
+                            NewBestTip { tip: new_best_tip.point(), parent, trace_context: trace_context.into() },
+                        )
+                        .await;
+                    }
+                    if pending {
                         switched_to = Some(new_best_tip.point());
                     }
-                    self.tips.insert(new_best_tip.hash(), to_validate);
                     self.best_tip = Some(new_best_tip);
                 }
                 Ok(_) => {
@@ -438,6 +474,7 @@ impl SelectChain {
                 best_tip = best_tip.point(),
                 parent
             );
+            self.close_fetch_waits(&eff, best_tip.hash()).await;
             eff.send(
                 &self.downstream,
                 NewBestTip { tip: best_tip.point(), parent, trace_context: trace_context.into() },

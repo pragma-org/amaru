@@ -147,6 +147,8 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockDeliveryEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordFetchFailureEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectPeersForFetchEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::OpenBlockFetchesEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::CloseBlockFetchEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::performance::FetchPeerSet>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Point>>>().boxed(),
@@ -253,6 +255,13 @@ pub fn te_schedule(
 
 pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) -> TraceEntry {
     TraceEntry::suspend(Effect::CancelSchedule { at_stage: Name::from(at_stage.as_ref()), id: schedule_id })
+}
+
+pub fn te_open_block_fetches(at_stage: &str, hashes: Vec<HeaderHash>) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::open_block_fetches(hashes)),
+    ))
 }
 
 pub fn te_record_blocks_requested(at_stage: &str, hashes: Vec<HeaderHash>, requested_at: Instant) -> TraceEntry {

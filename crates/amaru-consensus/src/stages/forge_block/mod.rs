@@ -29,7 +29,7 @@ mod effects;
 mod protocol;
 mod schedule;
 
-use amaru_kernel::{ConsensusParameters, Point, PoolId, ProtocolVersion};
+use amaru_kernel::{ConsensusParameters, HeaderHash, Point, PoolId, ProtocolVersion, Slot};
 pub use amaru_ouroboros_traits::{ForgingCredentials, IssuerFields};
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
 pub use calc::FreezeWatch;
@@ -74,6 +74,10 @@ pub struct ForgeData {
     /// value is ignored, including one whose timer `cancel_schedule` could not stop.
     pub schedule_generation: u64,
     pub freeze: Option<FreezeWatch>,
+    /// Slot and parent of the last block this stage published. A schedule installed
+    /// after that slot was dropped can arm it again; publishing it twice builds the
+    /// same header.
+    pub published: Option<(Slot, HeaderHash)>,
 }
 
 impl ForgeBlock {
@@ -102,6 +106,7 @@ impl ForgeBlock {
                 next_lead: None,
                 schedule_generation: 0,
                 freeze: None,
+                published: None,
             },
         }
     }
