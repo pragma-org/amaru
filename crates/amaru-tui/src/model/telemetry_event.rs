@@ -30,6 +30,9 @@ pub enum TelemetryEvent {
     GovernanceActivityUpdate,
     GovernanceEnacting,
     GovernanceRatifying,
+    ChainSyncIntersect,
+    ChainSyncRollBackward,
+    ChainSyncRollForwardDone,
     HeaderAnnounced,
     HeaderLifecycle,
     KeepaliveRoundTrip,
@@ -90,6 +93,12 @@ impl TelemetryEvent {
             Some(Self::BootstrapPotsImport)
         } else if mempool::state::UPDATE::matches(&record.target, &record.name) {
             Some(Self::MempoolStateUpdate)
+        } else if consensus::chainsync::ROLL_FORWARD_DONE::matches(&record.target, &record.name) {
+            Some(Self::ChainSyncRollForwardDone)
+        } else if consensus::chainsync::INTERSECT_FOUND::matches(&record.target, &record.name) {
+            Some(Self::ChainSyncIntersect)
+        } else if consensus::chainsync::ROLL_BACKWARD::matches(&record.target, &record.name) {
+            Some(Self::ChainSyncRollBackward)
         } else if blockperf::header::ANNOUNCED::matches(&record.target, &record.name) {
             Some(Self::HeaderAnnounced)
         } else if consensus::perf::header::LIFECYCLE::matches(&record.target, &record.name) {

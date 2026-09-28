@@ -72,7 +72,7 @@ pub(in crate::ui) fn render_peers_table(
         .skip(start)
         .take(visible)
         .enumerate()
-        .map(|(index, peer)| peer_row(start + index, peer, model.interaction_mode))
+        .map(|(index, peer)| peer_row(start + index, peer, model.interaction_mode, model.adopted_block_height))
         .collect::<Vec<_>>();
     views.peer_toggle = Rect {
         x: area.x
@@ -88,6 +88,8 @@ pub(in crate::ui) fn render_peers_table(
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Fill(10),
+            Constraint::Min(9),
+            Constraint::Min(8),
             Constraint::Min(6),
             Constraint::Min(7),
             Constraint::Min(5),
@@ -105,8 +107,24 @@ pub(in crate::ui) fn render_peers_table(
     )
     .header(
         Row::new(vec![
-            "", "Dir", "Peer", "Duplex?", "RTT", "Score", "Observe", "→", "Select", "→", "Fetch", "→", "Adopt", "≤1s",
-            "≤3s", "≤5s",
+            "",
+            "Dir",
+            "Peer",
+            "ChainSync",
+            "Adopted",
+            "Duplex?",
+            "RTT",
+            "Score",
+            "Observe",
+            "→",
+            "Select",
+            "→",
+            "Fetch",
+            "→",
+            "Adopt",
+            "≤1s",
+            "≤3s",
+            "≤5s",
         ])
         .style(table_header_style(model.interaction_mode)),
     )
@@ -120,7 +138,7 @@ fn peer_toggle_label(model: &Model) -> &'static str {
     if model.peer_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
-fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'static> {
+fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode, adopted_block_height: Option<u64>) -> Row<'static> {
     let direction = if peer.full_duplex == Some(true) {
         "↕"
     } else {
@@ -139,6 +157,8 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
     let get_block = peer.mean_get_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let adopt_block = peer.mean_adopt_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let announcement_score = peer.announcement_score().to_string();
+    let forward_gap = signed_height_gap(adopted_block_height, peer.roll_forward_height());
+    let tip_gap = signed_height_gap(adopted_block_height, peer.peer_tip_height());
     let within_1s = format_share(peer.live_arrival_share_percent(1_000_000));
     let within_3s = format_share(peer.live_arrival_share_percent(3_000_000));
     let within_5s = format_share(peer.live_arrival_share_percent(5_000_000));
@@ -156,6 +176,8 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
         })),
         Cell::from(direction).style(Style::default().fg(accent_primary(mode))),
         Cell::from(peer_address_line(peer)),
+        Cell::from(forward_gap).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(tip_gap).style(Style::default().fg(emphasis_white_color())),
         Cell::from(can_duplex).style(Style::default().fg(muted_color())),
         Cell::from(rtt).style(Style::default().fg(emphasis_white_color())),
         Cell::from(announcement_score).style(Style::default().fg(emphasis_white_color())),
@@ -171,6 +193,15 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
         Cell::from(within_5s).style(Style::default().fg(emphasis_white_color())),
     ])
     .style(striped_row_style(index))
+}
+
+/// `theirs - ours`, always with a sign. Positive means the peer is ahead.
+/// Empty until both heights are known.
+fn signed_height_gap(ours: Option<u64>, theirs: Option<u64>) -> String {
+    match (ours, theirs) {
+        (Some(ours), Some(theirs)) => format!("{:+}", theirs as i64 - ours as i64),
+        _ => "—".into(),
+    }
 }
 
 fn format_share(percent: Option<u64>) -> String {
@@ -243,23 +274,28 @@ mod tests {
         peer.record_live_arrival(500_000, 100);
         peer.record_live_arrival(2_000_000, 100);
         peer.record_live_arrival(4_000_000, 100);
+        peer.note_roll_forward(90, 110, at);
+        model.adopted_block_height = Some(100);
         model.peers.insert(peer.address.clone(), peer);
 
         let now = model.created_at + Duration::from_secs(3);
-        let backend = TestBackend::new(120, 40);
+        let backend = TestBackend::new(200, 40);
         let mut terminal = Terminal::new(backend).expect("terminal");
         let mut views = Views::default();
         terminal.draw(|frame| crate::ui::render(frame, &model, &mut views, now)).expect("draw shell");
         let lines = buffer_lines(terminal.backend().buffer());
 
         let header = lines.iter().find(|line| line.contains("Observe")).expect("header row");
-        for label in ["Score", "Select", "Fetch", "Adopt", "≤1s", "≤3s", "≤5s"] {
+        for label in ["ChainSync", "Adopted", "Score", "Select", "Fetch", "Adopt", "≤1s", "≤3s", "≤5s"] {
             assert!(header.contains(label), "header missing {label}: {header}");
         }
 
         let row = lines.iter().find(|line| line.contains("9.0ms")).expect("peer row");
-        for cell in ["15", "9.0ms", "2.0ms", "5.0ms", "8.0ms", "33%", "67%", "100%"] {
+        for cell in ["-10", "+10", "15", "9.0ms", "2.0ms", "5.0ms", "8.0ms", "33%", "67%", "100%"] {
             assert!(row.contains(cell), "peer row missing {cell}: {row}");
         }
+        let forward_gap = row.find("-10").expect("forward gap");
+        let tip_gap = row.find("+10").expect("tip gap");
+        assert!(forward_gap < tip_gap, "Fwd is left of Tip and positive means the peer is ahead: {row}");
     }
 }

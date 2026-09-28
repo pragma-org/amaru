@@ -50,6 +50,10 @@ Other guiding principles:
 - **amaru**: remove legacy commands that were deprecated and hidden away months ago.
 - **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
+- **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
+- **amaru-tui**: each peer row shows a header announcement score. The first peer to announce a header scores 6, the second scores 3, and the third scores 1.
+- **amaru-tui**: each chainsync peer row shows the signed gap from that peer's latest roll-forward (`ChainSync`) and advertised tip (`Adopted`) to this node's adopted height. Positive means the peer is ahead.
+- **amaru**: chainsync roll-forward completion is included in debug traces, with the header height and the peer's tip height.
 
 ### Fixed
 
@@ -109,11 +113,6 @@ Other guiding principles:
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
 - **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
 - **amaru-kernel**: use RustCrypto hash implementations for BLAKE2b, SHA-2, SHA-3, Keccak, and RIPEMD.
-
-### Changed
-
-- **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
-- **amaru-tui**: each peer row shows a header announcement score. The first peer to announce a header scores 6, the second scores 3, and the third scores 1.
 
 ### Fixed
 

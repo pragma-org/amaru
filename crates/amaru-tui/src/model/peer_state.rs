@@ -59,6 +59,10 @@ pub struct PeerState {
     live_arrivals: VecDeque<u64>,
     /// Sum of header-announcement points: rank 1 is 6, rank 2 is 3, rank 3 is 1.
     announcement_score: u64,
+    /// Block height of the latest header this peer rolled forward.
+    roll_forward_height: Option<u64>,
+    /// Block height of the tip this peer advertises.
+    peer_tip_height: Option<u64>,
     pub updated_at: Instant,
 }
 
@@ -81,6 +85,8 @@ impl PeerState {
             adopt_block: MeanMicros::default(),
             live_arrivals: VecDeque::new(),
             announcement_score: 0,
+            roll_forward_height: None,
+            peer_tip_height: None,
             updated_at,
         }
     }
@@ -150,6 +156,36 @@ impl PeerState {
 
     pub fn announcement_score(&self) -> u64 {
         self.announcement_score
+    }
+
+    /// Record the header this peer just rolled forward and the tip it advertised with that header.
+    ///
+    /// The advertised tip can be one block behind that header: chainsync may send the next
+    /// header before the peer counts it as its adopted tip. The header is still their chain.
+    pub(crate) fn note_roll_forward(&mut self, height: u64, tip_height: u64, at: Instant) {
+        self.roll_forward_height = Some(height);
+        let tip = tip_height.max(height);
+        self.peer_tip_height = Some(self.peer_tip_height.map(|known| known.max(tip)).unwrap_or(tip));
+        self.updated_at = at;
+    }
+
+    /// Record the tip this peer advertises, without a new roll-forward.
+    ///
+    /// A rollback can move the tip backward. A roll-forward header past that tip is pulled back with it.
+    pub(crate) fn note_peer_tip(&mut self, tip_height: u64, at: Instant) {
+        self.peer_tip_height = Some(tip_height);
+        if self.roll_forward_height.is_some_and(|forward| forward > tip_height) {
+            self.roll_forward_height = Some(tip_height);
+        }
+        self.updated_at = at;
+    }
+
+    pub fn roll_forward_height(&self) -> Option<u64> {
+        self.roll_forward_height
+    }
+
+    pub fn peer_tip_height(&self) -> Option<u64> {
+        self.peer_tip_height
     }
 
     /// Remember one live arrival latency. Only the last `capacity` samples are kept.

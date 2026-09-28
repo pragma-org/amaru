@@ -73,6 +73,10 @@ impl Model {
             TelemetryEvent::StateSwitchToFork => {
                 self.push_recent_rollback(ledger::state::SWITCH_TO_FORK::rollback_length(record), record.at)
             }
+            TelemetryEvent::ChainSyncRollForwardDone => self.update_peer_roll_forward(record),
+            TelemetryEvent::ChainSyncIntersect | TelemetryEvent::ChainSyncRollBackward => {
+                self.update_peer_tip_height(record)
+            }
             TelemetryEvent::HeaderAnnounced => self.update_peer_header_announced(record),
             TelemetryEvent::HeaderLifecycle => self.update_peer_header_lifecycle(record),
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
@@ -125,6 +129,7 @@ impl Model {
             .startup
             .is_near_target_slot_at(consensus::tip::ADOPT::slot(record), record.wall_time)
             .is_some_and(|is_near_tip| !is_near_tip);
+        self.adopted_block_height = Some(consensus::tip::ADOPT::block_height(record));
         let catching_up = catching_up_by_height || catching_up_by_slot;
 
         if catching_up {
@@ -270,6 +275,25 @@ impl Model {
             peer.outbound = true;
         }
         peer.update_rtt(record, round_trip_micros);
+    }
+
+    fn update_peer_roll_forward(&mut self, record: &TelemetryRecord) {
+        let peer = consensus::chainsync::ROLL_FORWARD_DONE::peer(record);
+        let height = consensus::chainsync::ROLL_FORWARD_DONE::current_height(record);
+        let tip_height = consensus::chainsync::ROLL_FORWARD_DONE::tip_height(record);
+        self.peer_mut(peer, record.at).note_roll_forward(height, tip_height, record.at);
+    }
+
+    fn update_peer_tip_height(&mut self, record: &TelemetryRecord) {
+        let (peer, tip_height) = if consensus::chainsync::INTERSECT_FOUND::matches(&record.target, &record.name) {
+            (
+                consensus::chainsync::INTERSECT_FOUND::peer(record),
+                consensus::chainsync::INTERSECT_FOUND::tip_height(record),
+            )
+        } else {
+            (consensus::chainsync::ROLL_BACKWARD::peer(record), consensus::chainsync::ROLL_BACKWARD::tip_height(record))
+        };
+        self.peer_mut(peer, record.at).note_peer_tip(tip_height, record.at);
     }
 
     fn update_peer_header_announced(&mut self, record: &TelemetryRecord) {
