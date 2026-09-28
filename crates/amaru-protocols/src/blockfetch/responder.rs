@@ -106,8 +106,11 @@ impl PointsRange {
         if from == through {
             return if let Some(block) = store.load_block(&from.hash()).await? {
                 match block.decode_header() {
-                    Ok(header) => Ok(Some(PointsRange::singleton(header.point()))),
+                    Ok(header) if NetworkPoint::from(header.point()) == from => {
+                        Ok(Some(PointsRange::singleton(header.point())))
+                    }
                     Err(_) => Ok(None),
+                    Ok(_) => Ok(None),
                 }
             } else {
                 Ok(None)
@@ -131,9 +134,16 @@ impl PointsRange {
                 return Ok(None);
             };
             if let Ok(header) = block.decode_header() {
-                result.push(header.point());
+                let point = header.point();
+                if result.is_empty() && NetworkPoint::from(point) != through {
+                    return Ok(None);
+                }
+                result.push(point);
                 // if we found the from point, we're done
                 if current_hash == from.hash() {
+                    if NetworkPoint::from(point) != from {
+                        return Ok(None);
+                    }
                     break;
                 }
                 // if we reached a slot before 'from', abort
