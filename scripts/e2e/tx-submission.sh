@@ -65,7 +65,7 @@ CARDANO_NODE_SYNC_PROGRESS="${CARDANO_NODE_SYNC_PROGRESS:-99.9}"
 CARDANO_NODE_SYNC_TIMEOUT_SECONDS="${CARDANO_NODE_SYNC_TIMEOUT_SECONDS:-14400}"
 CARDANO_NODE_SOCKET_TIMEOUT_SECONDS="${CARDANO_NODE_SOCKET_TIMEOUT_SECONDS:-1800}"
 CARDANO_NODE_QUERY_TIMEOUT_SECONDS="${CARDANO_NODE_QUERY_TIMEOUT_SECONDS:-1800}"
-CARDANO_UPSTREAM_MODE=local
+CARDANO_UPSTREAM_MODE="${CARDANO_UPSTREAM_MODE:-local}"
 UPSTREAM_PORT="${CARDANO_NODE_PORT:-3001}"
 
 MITHRIL_INSTALLER_COMMIT="${MITHRIL_INSTALLER_COMMIT:-791dca3c035452ae35a0361303c6e674aacf617c}"
@@ -87,7 +87,11 @@ TX_WALLET_VKEY="${TX_WALLET_VKEY:-$TX_WALLET_DIR/payment.vkey}"
 TX_WALLET_ADDRESS_FILE="${TX_WALLET_ADDRESS_FILE:-$TX_WALLET_DIR/payment.addr}"
 TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-$TX_WALLET_SKEY}"
 TX_SUBMIT_API_ADDRESS="$AMARU_SUBMIT_API_ADDRESS"
-TX_QUERY_SOURCE=local
+case "$CARDANO_UPSTREAM_MODE" in
+  local) TX_QUERY_SOURCE=local ;;
+  public) TX_QUERY_SOURCE=koios ;;
+  *) echo "error: CARDANO_UPSTREAM_MODE must be local or public" >&2; exit 1 ;;
+esac
 TX_METADATA_MESSAGE="${TX_METADATA_MESSAGE:-amaru e2e $RUN_ID}"
 TX_SYNC_TIMEOUT_SECONDS="${TX_SYNC_TIMEOUT_SECONDS:-3600}"
 TX_SYNC_POLL_INTERVAL_SECONDS="${TX_SYNC_POLL_INTERVAL_SECONDS:-15}"
@@ -97,6 +101,8 @@ TX_INPUT_TIMEOUT_SECONDS="${TX_INPUT_TIMEOUT_SECONDS:-900}"
 TX_INPUT_POLL_INTERVAL_SECONDS="${TX_INPUT_POLL_INTERVAL_SECONDS:-2}"
 TX_MEMPOOL_TIMEOUT_SECONDS="${TX_MEMPOOL_TIMEOUT_SECONDS:-60}"
 TX_MEMPOOL_POLL_INTERVAL_SECONDS="${TX_MEMPOOL_POLL_INTERVAL_SECONDS:-1}"
+TX_CONFIRM_TIMEOUT_SECONDS="${TX_CONFIRM_TIMEOUT_SECONDS:-600}"
+TX_CONFIRM_POLL_INTERVAL_SECONDS="${TX_CONFIRM_POLL_INTERVAL_SECONDS:-10}"
 
 . "$COMMON_DIR/common.sh"
 . "$COMMON_DIR/cardano-cli.sh"
@@ -124,14 +130,15 @@ Usage: scripts/e2e/tx-submission.sh <wallet|snapshot|prepare|setup|run|self-test
   snapshot   Install mithril-client and download a cardano-node database snapshot.
   prepare    Run setup and snapshot for a fast first development run.
   setup      Download pinned tools/config, create the wallet, build Amaru, and bootstrap its databases.
-  run        Start the topology, submit one transaction, and verify cardano-node's mempool.
+  run        Start Amaru, submit one transaction, and verify propagation upstream.
   self-test  Test the strict response parsers without starting either node.
 
 The managed development topology uses CARDANO_NODE_DB (default:
 cardano-node-config/<network>/db). An existing synchronized database makes startup fast;
 otherwise cardano-node initializes and synchronizes one. CI can start cardano-node itself
-and set E2E_TX_MANAGE_CARDANO_NODE=false. Set E2E_TX_MANAGE_AMARU=false when
-the workflow already started Amaru with its Submit API enabled.
+and set E2E_TX_MANAGE_CARDANO_NODE=false. Set CARDANO_UPSTREAM_MODE=public to
+use a public peer and Koios without running cardano-node. Set
+E2E_TX_MANAGE_AMARU=false when the workflow already started Amaru with its Submit API enabled.
 EOF
 }
 
@@ -328,7 +335,9 @@ runner_snapshot() {
 runner_setup() {
   runner_wallet
   mkdir -p "$RESULTS_DIR"
-  ensure_cardano_node_tools
+  if ! public_cardano_upstream_enabled; then
+    ensure_cardano_node_tools
+  fi
   ensure_amaru_binary
   ensure_amaru_databases
   setup_log "transaction submission E2E prerequisites are ready"
@@ -489,7 +498,7 @@ wait_for_transaction_input() {
   local timeout="$TX_INPUT_TIMEOUT_SECONDS" interval="$TX_INPUT_POLL_INTERVAL_SECONDS" elapsed record
 
   for ((elapsed = 0; elapsed < timeout; elapsed += interval)); do
-    if query_payment_utxo "$socket" "$address" "$utxo_file" && record="$(select_transaction_input "$utxo_file")"; then
+    if query_address_utxo "$socket" "$address" "$utxo_file" && record="$(select_transaction_input "$utxo_file")"; then
       SELECTED_TX_RECORD="$record"
       return
     fi
@@ -516,9 +525,45 @@ wait_for_cardano_mempool() {
   die "tx_id=$tx_id did not diffuse to cardano-node within ${timeout}s"
 }
 
+parse_koios_transaction_confirmations() {
+  local tx_id="$1" response_file="$2"
+  jq -r --arg tx_id "$tx_id" '
+    if type != "array" then error("expected a Koios transaction status array")
+    elif length == 0 then 0
+    else
+      [.[] | select((.tx_hash | ascii_downcase) == ($tx_id | ascii_downcase)) | .num_confirmations]
+      | if length == 1 and (.[0] | type == "number" and . >= 0) then .[0]
+        else error("Koios returned an invalid transaction status") end
+    end
+  ' "$response_file"
+}
+
+koios_transaction_confirmations() {
+  local tx_id="$1" response_file="$2"
+  curl --max-time "${KOIOS_TIMEOUT_SECONDS:-30}" -fsSL -X POST "$KOIOS_API_URL/tx_status" \
+    -H 'accept: application/json' \
+    -H 'content-type: application/json' \
+    -d "$(jq -cn --arg tx_id "$tx_id" '{_tx_hashes: [$tx_id]}')" \
+    -o "$response_file" || return 1
+  parse_koios_transaction_confirmations "$tx_id" "$response_file"
+}
+
+wait_for_koios_confirmation() {
+  local tx_id="$1" response_file="$2" elapsed confirmations
+  for ((elapsed = 0; elapsed < TX_CONFIRM_TIMEOUT_SECONDS; elapsed += TX_CONFIRM_POLL_INTERVAL_SECONDS)); do
+    if confirmations="$(koios_transaction_confirmations "$tx_id" "$response_file")" && ((confirmations > 0)); then
+      printf '%s\n' "$confirmations"
+      return 0
+    fi
+    sleep "$TX_CONFIRM_POLL_INTERVAL_SECONDS"
+  done
+  return 1
+}
+
 run_transaction_test() {
   local socket address utxo_file protocol_params_file tx_body tx_signed tx_cbor
-  local response_file mempool_response_file input_available_slot record tx_in lovelace tx_id mempool_state submitted_at
+  local response_file upstream_response_file input_available_slot record tx_in lovelace tx_id upstream_state submitted_at
+  local verification_source verification_status confirmations=0
   local -a network_args=()
   socket="$(cardano_node_socket_file)"
   utxo_file="$PRIVATE_DIR/utxo.json"
@@ -527,7 +572,7 @@ run_transaction_test() {
   tx_signed="$PRIVATE_DIR/tx.signed"
   tx_cbor="$PRIVATE_DIR/tx.cbor"
   response_file="$RESULT_DIR/submit-response.json"
-  mempool_response_file="$RESULT_DIR/cardano-node-mempool.json"
+  upstream_response_file="$RESULT_DIR/upstream-response.json"
 
   mkdir -p "$PRIVATE_DIR" "$RESULT_DIR"
   TX_PAYMENT_SKEY="$(resolve_payment_skey "$PRIVATE_DIR")"
@@ -536,9 +581,13 @@ run_transaction_test() {
   e2e_log "using payment address $address"
 
   wait_for_transaction_input "$socket" "$address" "$utxo_file"
-  query_protocol_parameters "$socket" "$protocol_params_file"
-  input_available_slot="$(cardano_node_tip_slot)"
-  [[ "$input_available_slot" =~ ^[0-9]+$ ]] || die "could not determine cardano-node tip slot"
+  query_upstream_protocol_parameters "$socket" "$protocol_params_file"
+  if public_cardano_upstream_enabled; then
+    input_available_slot="$(koios_tip_slot)"
+  else
+    input_available_slot="$(cardano_node_tip_slot)"
+  fi
+  [[ "$input_available_slot" =~ ^[0-9]+$ ]] || die "could not determine upstream tip slot"
   record="$SELECTED_TX_RECORD"
   IFS=$'\t' read -r tx_in lovelace <<<"$record"
   e2e_log "selected input $tx_in with $lovelace lovelace at slot $input_available_slot"
@@ -558,14 +607,36 @@ run_transaction_test() {
   [[ "$tx_id" =~ ^[0-9a-fA-F]{64}$ ]] || die "cardano-cli returned an invalid transaction id: $tx_id"
   e2e_log "built tx_id=$tx_id"
 
-  mempool_state="$(cardano_node_mempool_tx_state "$tx_id" "$mempool_response_file")" ||
-    die "cardano-node returned an invalid tx-mempool response for tx_id=$tx_id"
-  [[ "$mempool_state" == absent ]] ||
-    die "new tx_id=$tx_id unexpectedly existed in cardano-node's mempool before submission"
-  e2e_log "pre-submit mempool check: tx_id=$tx_id is absent from cardano-node"
+  if public_cardano_upstream_enabled; then
+    upstream_state=""
+    for _ in {1..5}; do
+      if upstream_state="$(koios_transaction_confirmations "$tx_id" "$upstream_response_file")"; then
+        break
+      fi
+      sleep 5
+    done
+    [[ "$upstream_state" == 0 ]] || die "tx_id=$tx_id was already confirmed or Koios could not check it"
+    e2e_log "pre-submit chain check: tx_id=$tx_id is not confirmed"
+  else
+    upstream_state="$(cardano_node_mempool_tx_state "$tx_id" "$upstream_response_file")" ||
+      die "cardano-node returned an invalid tx-mempool response for tx_id=$tx_id"
+    [[ "$upstream_state" == absent ]] ||
+      die "new tx_id=$tx_id unexpectedly existed in cardano-node's mempool before submission"
+    e2e_log "pre-submit mempool check: tx_id=$tx_id is absent from cardano-node"
+  fi
   wait_for_amaru_slot "$AMARU_LOG_FILE" "E2E" "$input_available_slot" "$TX_SYNC_TIMEOUT_SECONDS"
   submit_tx_and_expect_id "$tx_cbor" "$tx_id" "$response_file"
-  wait_for_cardano_mempool "$tx_id" "$mempool_response_file"
+  if public_cardano_upstream_enabled; then
+    confirmations="$(wait_for_koios_confirmation "$tx_id" "$upstream_response_file")" ||
+      die "tx_id=$tx_id was not confirmed on chain within ${TX_CONFIRM_TIMEOUT_SECONDS}s"
+    verification_source=koios
+    verification_status=confirmed
+    e2e_log "Koios reports $confirmations confirmation(s) for tx_id=$tx_id"
+  else
+    wait_for_cardano_mempool "$tx_id" "$upstream_response_file"
+    verification_source=cardano-node
+    verification_status=mempool
+  fi
 
   submitted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   jq -n \
@@ -574,6 +645,9 @@ run_transaction_test() {
     --arg tx_in "$tx_in" \
     --arg address "$address" \
     --arg submitted_at "$submitted_at" \
+    --arg verification_source "$verification_source" \
+    --arg verification_status "$verification_status" \
+    --argjson confirmations "$confirmations" \
     --argjson input_available_slot "$input_available_slot" \
     '{
       outcome: "passed",
@@ -583,11 +657,14 @@ run_transaction_test() {
       address: $address,
       input_available_slot: $input_available_slot,
       submit_http_status: 202,
-      cardano_node_mempool_before_submission: "absent",
-      cardano_node_mempool: "present",
+      upstream_verification: {
+        source: $verification_source,
+        status: $verification_status,
+        confirmations: $confirmations
+      },
       submitted_at: $submitted_at
     }' >"$RESULT_DIR/result.json"
-  e2e_success "PASS: Submit API accepted tx_id=$tx_id and the connected cardano-node received it"
+  e2e_success "PASS: Submit API accepted tx_id=$tx_id; upstream verification: $verification_source $verification_status"
   e2e_log "result: $RESULT_DIR/result.json"
 }
 
@@ -644,7 +721,7 @@ cleanup() {
 }
 
 runner_self_test() {
-  local work tx_id state selected managed_before binary
+  local work tx_id state selected managed_before binary confirmations
   work="$(mktemp -d)"
   tx_id=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
   printf '"%s"\n' "$tx_id" >"$work/submit.json"
@@ -659,6 +736,16 @@ runner_self_test() {
   printf '{"exists":true,"txId":"%s","slot":1}\n' "${tx_id%?}0" >"$work/mempool.json"
   if parse_cardano_node_mempool_tx_state "$tx_id" "$work/mempool.json" >/dev/null 2>&1; then
     die "cardano-node mempool parser accepted the wrong transaction id"
+  fi
+  printf '[]\n' >"$work/koios.json"
+  confirmations="$(parse_koios_transaction_confirmations "$tx_id" "$work/koios.json")"
+  [[ "$confirmations" == 0 ]] || die "expected an unconfirmed Koios transaction, got $confirmations"
+  printf '[{"tx_hash":"%s","num_confirmations":1}]\n' "$tx_id" >"$work/koios.json"
+  confirmations="$(parse_koios_transaction_confirmations "$tx_id" "$work/koios.json")"
+  [[ "$confirmations" == 1 ]] || die "expected one Koios confirmation, got $confirmations"
+  printf '[{"tx_hash":"%s","num_confirmations":1}]\n' "${tx_id%?}0" >"$work/koios.json"
+  if parse_koios_transaction_confirmations "$tx_id" "$work/koios.json" >/dev/null 2>&1; then
+    die "Koios transaction status parser accepted the wrong transaction id"
   fi
   if submit_tx_response_matches_id "${tx_id%?}0" "$work/submit.json"; then
     die "Submit API response parser accepted the wrong transaction id"
@@ -702,9 +789,13 @@ run_e2e() {
   trap 'exit 130' INT TERM
   install_base64_payment_key
   runner_setup
-  prepare_cardano_database
-  start_cardano_node
-  wait_for_cardano_node
+  if public_cardano_upstream_enabled; then
+    wait_for_upstream_ready
+  else
+    prepare_cardano_database
+    start_cardano_node
+    wait_for_cardano_node
+  fi
   start_amaru
   wait_for_amaru_submit_api
   run_transaction_test
