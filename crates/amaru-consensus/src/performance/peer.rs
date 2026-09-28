@@ -41,8 +41,9 @@ const MAX_PARENT_WALK: usize = 512;
 pub const DEFAULT_PEER_MALUS_HALF_LIFE: Duration = DEFAULT_MALUS_HALF_LIFE;
 /// Added to connection malus on each failed outbound connect.
 ///
-/// Large enough that one failure sorts the peer behind every healthy candidate and keeps it
-/// there until the source half-life fades the penalty below [`SHARE_MALUS_THRESHOLD`].
+/// Large enough that one failure sorts the peer behind every healthy candidate. It does not
+/// remove the peer from the dial pool: when no healthier candidate can fill a slot, this peer
+/// is still offered.
 pub const CONNECT_FAIL_IMPULSE: f64 = 8.0;
 /// Added when a peer is marked adversarial (cool-down is separate, in peer selection).
 pub const ADVERSARIAL_IMPULSE: f64 = 12.0;
@@ -383,15 +384,7 @@ impl PeerPerformance {
                 eligible_counts.insert(PeerSource::Inbound, params.eligible_inbound);
                 continue;
             }
-            // A connection failure is stored as malus on the dialed address. Host/SRV names
-            // reach that record through `last_peer`. While the malus is still above the
-            // share threshold the candidate is not eligible, so regulation cannot offer it
-            // again until the source half-life fades the penalty.
-            let list: Vec<PeerCandidate> = self
-                .eligible_for_source(entry.source, &params.excluded)
-                .into_iter()
-                .filter(|candidate| !self.connection_failure_suppresses(candidate, params.now))
-                .collect();
+            let list = self.eligible_for_source(entry.source, &params.excluded);
             eligible_counts.insert(entry.source, list.len());
             eligible_by_source.insert(entry.source, list);
         }
@@ -419,9 +412,9 @@ impl PeerPerformance {
                 continue;
             }
             let weights = self.outbound_weights_for(&candidates, params.now);
-            // Lowest malus first. A connect failure is a sizeable step up, so that name is not
-            // drawn while any healthier candidate remains in the bucket.
-            for candidate in sample_lowest_malus_tier(&mut rng, weights, n) {
+            // Best score first, then worse scores, until the bucket is full. Malus makes a
+            // peer less preferred; it does not drop the peer while a slot is still open.
+            for candidate in fill_by_worsening_score(&mut rng, weights, n) {
                 already.insert(candidate.clone());
                 picked.push(OutboundPick { candidate, origin: entry.source });
             }
@@ -479,24 +472,6 @@ impl PeerPerformance {
         pool
     }
 
-    /// One connect-failure impulse starts at [`CONNECT_FAIL_IMPULSE`] and must fall below
-    /// [`SHARE_MALUS_THRESHOLD`] before the candidate is offered again.
-    ///
-    /// An adversarial peer is not held here: its ban is the cool-down, and dialing is allowed
-    /// again when that cool-down ends.
-    fn connection_failure_suppresses(&self, candidate: &PeerCandidate, now: Instant) -> bool {
-        let Some(peer) = candidate.as_peer().or_else(|| self.last_peer.get(candidate).copied()) else {
-            return false;
-        };
-        let Some(state) = self.peers.get(&peer) else {
-            return false;
-        };
-        if state.adversarial {
-            return false;
-        }
-        malus_at(state.malus, state.malus_as_of, now, self.half_life_for(&peer)) >= SHARE_MALUS_THRESHOLD
-    }
-
     fn eligible_for_source(&self, source: PeerSource, excluded: &BTreeSet<PeerCandidate>) -> Vec<PeerCandidate> {
         let pool = match source {
             PeerSource::Static => &self.static_peers,
@@ -515,8 +490,8 @@ impl PeerPerformance {
                 let Some(peer) = candidate.as_peer().or_else(|| self.last_peer.get(candidate).copied()) else {
                     return OutboundWeight {
                         candidate: candidate.clone(),
+                        score: NEVER_CONNECTED_BONUS,
                         weight: outbound_sampling_weight(NEVER_CONNECTED_BONUS),
-                        malus: 0.0,
                     };
                 };
                 let half_life = self.half_life_for(&peer);
@@ -537,7 +512,7 @@ impl PeerPerformance {
                 if never_connected {
                     score += NEVER_CONNECTED_BONUS;
                 }
-                OutboundWeight { candidate: candidate.clone(), weight: outbound_sampling_weight(score), malus }
+                OutboundWeight { candidate: candidate.clone(), score, weight: outbound_sampling_weight(score) }
             })
             .collect()
     }
@@ -545,21 +520,32 @@ impl PeerPerformance {
 
 struct OutboundWeight {
     candidate: PeerCandidate,
+    score: f64,
     weight: f64,
-    malus: f64,
 }
 
-/// Weighted sample of at most `n` candidates from the lowest malus tier only.
-fn sample_lowest_malus_tier(rng: &mut StdRng, weights: Vec<OutboundWeight>, n: usize) -> Vec<PeerCandidate> {
-    let Some(best) = weights.iter().map(|weight| weight.malus).min_by(f64::total_cmp) else {
+/// Fill `n` slots from best score to worse. Ties are a weighted draw; a worse score is used
+/// only after every better score in the bucket has been taken.
+fn fill_by_worsening_score(rng: &mut StdRng, mut weights: Vec<OutboundWeight>, n: usize) -> Vec<PeerCandidate> {
+    if n == 0 || weights.is_empty() {
         return Vec::new();
-    };
-    let tier = weights
-        .into_iter()
-        .filter(|weight| weight.malus.total_cmp(&best).is_eq())
-        .map(|weight| (weight.candidate, weight.weight))
-        .collect();
-    weighted_sample_without_replacement(rng, tier, n)
+    }
+    weights
+        .sort_by(|left, right| right.score.total_cmp(&left.score).then_with(|| left.candidate.cmp(&right.candidate)));
+    let mut out = Vec::with_capacity(n.min(weights.len()));
+    let mut index = 0;
+    while out.len() < n && index < weights.len() {
+        let score = weights[index].score;
+        let mut end = index + 1;
+        while end < weights.len() && weights[end].score.total_cmp(&score).is_eq() {
+            end += 1;
+        }
+        let group = weights[index..end].iter().map(|weight| (weight.candidate.clone(), weight.weight)).collect();
+        let take = (n - out.len()).min(end - index);
+        out.extend(weighted_sample_without_replacement(rng, group, take));
+        index = end;
+    }
+    out
 }
 
 impl PeerPerformance {

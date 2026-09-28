@@ -44,6 +44,10 @@ fn using_conn() -> Connection {
     conn().with_local_use(LocalUse::Diffusion)
 }
 
+fn stamp_holdoff(state: &mut PeerSelection, peer: amaru_kernel::Peer) {
+    state.dial_holdoff.insert(amaru_kernel::PeerCandidate::from(peer), sim_t0() + super::DIAL_HOLDOFF);
+}
+
 // ---------------------------------------------------------------------------
 // Initialize
 // ---------------------------------------------------------------------------
@@ -86,6 +90,8 @@ fn test_initialize_adds_static_peers() {
 
     state.outbound_peers.insert(p1, PeerState::Connecting);
     state.outbound_peers.insert(p2, PeerState::Connecting);
+    stamp_holdoff(&mut state, p1);
+    stamp_holdoff(&mut state, p2);
 
     let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
@@ -125,6 +131,8 @@ fn test_initialize_resolves_static_hostname() {
     let mut state = prep.state.clone();
     state.outbound_peers.insert(resolved, PeerState::Connecting);
     state.bound.insert(candidate.clone(), resolved);
+    state.dial_holdoff.insert(candidate.clone(), sim_t0() + super::DIAL_HOLDOFF);
+    stamp_holdoff(&mut state, resolved);
     let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
@@ -169,6 +177,8 @@ fn test_initialize_resolves_static_srv() {
     let mut state = prep.state.clone();
     state.outbound_peers.insert(resolved, PeerState::Connecting);
     state.bound.insert(candidate.clone(), resolved);
+    state.dial_holdoff.insert(candidate.clone(), sim_t0() + super::DIAL_HOLDOFF);
+    stamp_holdoff(&mut state, resolved);
     let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
@@ -588,6 +598,7 @@ fn test_connected_outbound() {
     let after = {
         let mut s = state.clone();
         s.outbound_peers.insert(p, PeerState::Connected(using_conn()));
+        stamp_holdoff(&mut s, p);
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -622,6 +633,7 @@ fn test_connected_outbound_starts_peer_sharing() {
     let after = {
         let mut s = state.clone();
         s.outbound_peers.insert(p, PeerState::Connected(using_conn()));
+        stamp_holdoff(&mut s, p);
         s
     };
     let p_send = p;
@@ -880,6 +892,7 @@ fn test_outbound_retry_drops_dead_conn_before_reconnect() {
     let after_reconnect = {
         let mut s = start.clone();
         s.outbound_peers.insert(p, PeerState::Connected(conn1));
+        stamp_holdoff(&mut s, p);
         s
     };
 
@@ -1702,6 +1715,7 @@ fn test_regulate_does_not_promote_inbound_when_mix_omits_it() {
     let after = {
         let mut s = prep.state.clone();
         s.outbound_peers.insert(static_p, PeerState::Connecting);
+        stamp_holdoff(&mut s, static_p);
         s
     };
 

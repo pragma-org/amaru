@@ -134,7 +134,7 @@ After allotting `n` slots to a source:
    `score = goodness(scores) − λ · malus(now, τ) [+ never_connected_bonus]`  
    Never-connected / no Performance record: small positive **bonus** (exploration of fresh addresses).
 3. Convert to sampling weights `w ∝ exp(score / T)` (temperature `T` fixed policy).
-4. Draw up to **n** peers **weighted without replacement from the lowest malus tier only**. A higher tier is not used to fill the quota, so one connect failure is not offered while any healthier candidate remains in the bucket.
+4. Fill up to **n** peers **from best score to worse**. Ties are a weighted draw. A worse score is used once every better candidate in the bucket has a slot, so a connect failure is not preferred while a healthier candidate remains, but it is dialled when the bucket would otherwise stay short. A peer is not dialled again within 2 seconds of a connect attempt or a connection failure; that hold-off lives in peer selection, not in the score.
 
 ### Ownership
 

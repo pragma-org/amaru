@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru**: a failed outbound connection attempt times out after 2 seconds and is not retried. Each failure adds a large connection penalty, and that peer or name is not dialed again while any healthier candidate is available or until the penalty has faded (about seven hours for a default snapshot peer, about two hours for a static peer). ([#1428](https://github.com/pragma-org/amaru/issues/1428))
+- **amaru**: a failed outbound connection attempt times out after 2 seconds. Each failure adds a large connection penalty, so healthier peers are dialed first. When no healthier peer can fill an open slot, the penalized peer is dialed anyway. A peer is not dialed again within 2 seconds of a connect attempt or a connection failure. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
 
 ### Fixed
