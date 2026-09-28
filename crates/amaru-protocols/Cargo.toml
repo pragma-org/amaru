@@ -23,10 +23,10 @@ hex.workspace = true
 minicbor.workspace = true
 serde.workspace = true
 
-amaru-kernel = { "workspace" = true, features = ["test-utils"] }
+amaru-kernel.workspace = true
 amaru-metrics.workspace = true
 amaru-observability.workspace = true
-amaru-ouroboros-traits = { "workspace" = true, features = ["test-utils"] }
+amaru-ouroboros-traits.workspace = true
 amaru-ouroboros.workspace = true
 amaru-pure-stage.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
@@ -35,8 +35,10 @@ tokio = { workspace = true, features = ["rt", "time"] }
 amaru-deps.workspace = true
 
 [dev-dependencies]
+amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-mempool.workspace = true
 amaru-network.workspace = true
+amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 hex.workspace = true
 proptest.workspace = true
 socket2.workspace = true
