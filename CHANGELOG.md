@@ -52,6 +52,8 @@ Other guiding principles:
 
 - **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
 - **amaru-tui**: each peer row shows a header announcement score. The first peer to announce a header scores 6, the second scores 3, and the third scores 1.
+- **amaru-tui**: each chainsync peer row shows the signed gap from that peer's latest roll-forward (`ChainSync`) and advertised tip (`Adopted`) to this node's adopted height. Positive means the peer is ahead.
+- **amaru**: chainsync roll-forward completion is included in debug traces, with the header height and the peer's tip height.
 
 ### Fixed
 

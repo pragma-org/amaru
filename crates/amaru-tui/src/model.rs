@@ -100,6 +100,8 @@ pub struct Model {
     pub prompt: Option<PromptState>,
     key_aliases: KeyAliases,
     pub catching_up: bool,
+    /// Block height of the latest tip this node adopted.
+    pub adopted_block_height: Option<u64>,
     pub log_scroll: usize,
     pub log_hscroll: usize,
     pub log_wrap: bool,
@@ -167,6 +169,7 @@ impl Model {
             prompt: None,
             key_aliases: KeyAliases::default(),
             catching_up: true,
+            adopted_block_height: None,
             log_scroll: 0,
             log_hscroll: 0,
             log_wrap: true,
@@ -968,6 +971,70 @@ mod tests {
 
         assert_eq!(model.peers.get("1.2.3.4:3001").expect("peer").announcement_score(), 6 + 3 + 1 + 6);
         assert_eq!(model.peers.get("5.6.7.8:3001").expect("peer").announcement_score(), 3);
+    }
+
+    #[test]
+    fn chainsync_peer_heights_follow_roll_forward_and_advertised_tip() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+        adopt_height(&mut model, now, 100);
+
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            now,
+            consensus::chainsync::ROLL_FORWARD_DONE,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_PEER => "1.2.3.4:3001",
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_CURRENT_HEIGHT => 90u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_TIP_HEIGHT => 110u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_OUTCOME => "stored",
+        )));
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer");
+        assert_eq!(peer.roll_forward_height(), Some(90));
+        assert_eq!(peer.peer_tip_height(), Some(110));
+
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            now + Duration::from_secs(1),
+            consensus::chainsync::ROLL_BACKWARD,
+            consensus::chainsync::ROLL_BACKWARD::FIELD_PEER => "1.2.3.4:3001",
+            consensus::chainsync::ROLL_BACKWARD::FIELD_TIP_HEIGHT => 80u64,
+        )));
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer");
+        assert_eq!(peer.roll_forward_height(), Some(80));
+        assert_eq!(peer.peer_tip_height(), Some(80));
+        assert_eq!(model.adopted_block_height, Some(100));
+    }
+
+    #[test]
+    fn advertised_tip_one_behind_the_header_does_not_stick() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+        adopt_height(&mut model, now, 100);
+
+        // Chainsync can name a tip one block behind the header it just sent.
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            now,
+            consensus::chainsync::ROLL_FORWARD_DONE,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_PEER => "1.2.3.4:3001",
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_CURRENT_HEIGHT => 101u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_TIP_HEIGHT => 100u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_OUTCOME => "stored",
+        )));
+        adopt_height(&mut model, now + Duration::from_secs(1), 101);
+
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer");
+        assert_eq!(peer.roll_forward_height(), Some(101));
+        assert_eq!(peer.peer_tip_height(), Some(101));
+    }
+
+    fn adopt_height(model: &mut Model, at: Instant, height: u64) {
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            at,
+            consensus::tip::ADOPT,
+            consensus::tip::ADOPT::FIELD_SLOT => 1u64,
+            consensus::tip::ADOPT::FIELD_HEADER_HASH => "abc",
+            consensus::tip::ADOPT::FIELD_BLOCK_HEIGHT => height,
+            consensus::tip::ADOPT::FIELD_MAX_BLOCK_HEIGHT => height,
+            consensus::tip::ADOPT::FIELD_SUPPRESSED => 0u32,
+        )));
     }
 
     #[test]

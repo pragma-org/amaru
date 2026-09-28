@@ -481,6 +481,8 @@ define_schemas! {
                     required conn_id: u64
                     required current: amaru_kernel::Point
                     required highest: amaru_kernel::Point
+                    /// Block height of `highest`, the tip the peer advertises
+                    required tip_height: u64
                 }
                 /// No intersection with the peer's chain was found, so chainsync with it stops
                 public event INTERSECT_NOT_FOUND {
@@ -505,11 +507,14 @@ define_schemas! {
                 }
                 /// A header announced by a peer was processed.
                 /// Outcome ∈ {already_stored, stored}.
-                event ROLL_FORWARD_DONE {
+                /// `current_height` is that header. `tip_height` is the tip the peer advertises.
+                public event ROLL_FORWARD_DONE {
                     levels: debug
                     required peer: %amaru_kernel::Peer
                     required current: amaru_kernel::Point
                     required highest: amaru_kernel::Point
+                    required current_height: u64
+                    required tip_height: u64
                     required outcome: String
                 }
                 /// A peer rolled back to an earlier point
@@ -518,6 +523,8 @@ define_schemas! {
                     required peer: %amaru_kernel::Peer
                     required current: amaru_kernel::Point
                     required highest: amaru_kernel::Point
+                    /// Block height of `highest`, the tip the peer advertises
+                    required tip_height: u64
                 }
                 /// A rollback requested by a peer could not be applied; the peer is adversarial
                 public event ROLL_BACKWARD_FAILED {
