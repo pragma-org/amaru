@@ -64,12 +64,21 @@ trap cleanup EXIT
 
 curl -fsSL --max-time 30 -A 'amaru-refresh-cardano-metrics/1.0' "$CARDANO_URL" -o "$tmp_dir/metrics"
 if ! awk '
+  BEGIN {
+    name = "[a-zA-Z_:][a-zA-Z0-9_:]*"
+    quoted = "\"([^\"\\\\]|\\\\[\\\\\"n])*\""
+    label = "[a-zA-Z_][a-zA-Z0-9_]*[ \t]*=[ \t]*" quoted
+    labels = "[{][ \t]*(" label "([ \t]*,[ \t]*" label ")*[ \t]*,?)?[}]"
+    value = "([-+]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][-+]?[0-9]+)?|NaN|[+-]?Inf)"
+    sample = "^[ \t]*" name "(" labels ")?[ \t]+" value "([ \t]+[+-]?[0-9]+)?[ \t]*$"
+  }
   /^[[:space:]]*(#|$)/ { next }
   {
-    name = $1
-    sub(/\{.*/, "", name)
-    if (name !~ /^[a-zA-Z_:][a-zA-Z0-9_:]*$/) exit 1
-    print name
+    if ($0 !~ sample) exit 1
+    metric = $0
+    sub(/^[ \t]*/, "", metric)
+    sub(/[{ \t].*$/, "", metric)
+    print metric
   }
 ' "$tmp_dir/metrics" | sort -u > "$tmp_dir/names"; then
   printf 'error: %s returned malformed Prometheus samples\n' "$CARDANO_URL" >&2
@@ -78,6 +87,14 @@ fi
 
 if [[ ! -s "$tmp_dir/names" ]] || ! awk '/^cardano_node_metrics_/ { found = 1 } END { exit !found }' "$tmp_dir/names"; then
   printf 'error: %s did not expose cardano-node metric samples\n' "$CARDANO_URL" >&2
+  exit 1
+fi
+
+jq -r '.supported_metrics[] | select(startswith("cardano_node_metrics_"))' "$CONFIG" | sort -u > "$tmp_dir/promised"
+comm -23 "$tmp_dir/promised" "$tmp_dir/names" > "$tmp_dir/missing"
+if [[ -s "$tmp_dir/missing" ]]; then
+  printf 'error: %s is missing promised cardano-node metric samples:\n' "$CARDANO_URL" >&2
+  sed 's/^/  /' "$tmp_dir/missing" >&2
   exit 1
 fi
 

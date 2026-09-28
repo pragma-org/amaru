@@ -531,8 +531,10 @@ parse_koios_transaction_confirmations() {
     if type != "array" then error("expected a Koios transaction status array")
     elif length == 0 then 0
     else
-      [.[] | select((.tx_hash | ascii_downcase) == ($tx_id | ascii_downcase)) | .num_confirmations]
-      | if length == 1 and (.[0] | type == "number" and . >= 0) then .[0]
+      [.[] | select((.tx_hash | ascii_downcase) == ($tx_id | ascii_downcase))
+        | if has("num_confirmations") then .num_confirmations
+          else error("Koios returned an invalid transaction status") end]
+      | if length == 1 and (.[0] == null or (.[0] | type == "number" and . >= 0)) then .[0] // 0
         else error("Koios returned an invalid transaction status") end
     end
   ' "$response_file"
@@ -740,9 +742,16 @@ runner_self_test() {
   printf '[]\n' >"$work/koios.json"
   confirmations="$(parse_koios_transaction_confirmations "$tx_id" "$work/koios.json")"
   [[ "$confirmations" == 0 ]] || die "expected an unconfirmed Koios transaction, got $confirmations"
+  printf '[{"tx_hash":"%s","num_confirmations":null}]\n' "$tx_id" >"$work/koios.json"
+  confirmations="$(parse_koios_transaction_confirmations "$tx_id" "$work/koios.json")"
+  [[ "$confirmations" == 0 ]] || die "expected null Koios confirmations to mean zero, got $confirmations"
   printf '[{"tx_hash":"%s","num_confirmations":1}]\n' "$tx_id" >"$work/koios.json"
   confirmations="$(parse_koios_transaction_confirmations "$tx_id" "$work/koios.json")"
   [[ "$confirmations" == 1 ]] || die "expected one Koios confirmation, got $confirmations"
+  printf '[{"tx_hash":"%s"}]\n' "$tx_id" >"$work/koios.json"
+  if parse_koios_transaction_confirmations "$tx_id" "$work/koios.json" >/dev/null 2>&1; then
+    die "Koios transaction status parser accepted a missing confirmation count"
+  fi
   printf '[{"tx_hash":"%s","num_confirmations":1}]\n' "${tx_id%?}0" >"$work/koios.json"
   if parse_koios_transaction_confirmations "$tx_id" "$work/koios.json" >/dev/null 2>&1; then
     die "Koios transaction status parser accepted the wrong transaction id"
