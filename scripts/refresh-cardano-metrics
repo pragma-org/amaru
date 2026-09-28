@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+
+# Copyright 2026 PRAGMA
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Refresh the checked-in cardano-node metric inventory from a local node.
+# Run a synced cardano-node with Prometheus enabled, then run this script and
+# review the resulting diff before committing it.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CARDANO_URL="http://localhost:12798/metrics"
+CONFIG="$SCRIPT_DIR/compare-metrics.json"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --url) CARDANO_URL="$2"; shift 2 ;;
+    --config) CONFIG="$2"; shift 2 ;;
+    -h|--help)
+      printf 'Usage: %s [--url CARDANO_METRICS_URL] [--config METRICS_JSON]\n' "$0"
+      exit 0
+      ;;
+    *) printf 'unknown option: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
+
+command -v jq >/dev/null 2>&1 || { printf 'error: jq is required but not found in PATH\n' >&2; exit 1; }
+if [[ ! -f "$CONFIG" ]]; then
+  printf 'error: metrics config not found: %s\n' "$CONFIG" >&2
+  exit 1
+fi
+if ! jq -e '
+  def string_array:
+    type == "array"
+    and all(.[]; type == "string" and length > 0)
+    and (length == (unique | length));
+  type == "object"
+  and (.all_metrics | string_array)
+  and (.supported_metrics | string_array)
+' "$CONFIG" >/dev/null; then
+  printf 'error: %s must contain unique string arrays "all_metrics" and "supported_metrics"\n' "$CONFIG" >&2
+  exit 1
+fi
+
+tmp_dir="$(mktemp -d)"
+tmp_output=""
+cleanup() {
+  rm -rf "$tmp_dir"
+  [[ -z "$tmp_output" ]] || rm -f "$tmp_output"
+}
+trap cleanup EXIT
+
+curl -fsSL --max-time 30 -A 'amaru-refresh-cardano-metrics/1.0' "$CARDANO_URL" -o "$tmp_dir/metrics"
+if ! awk '
+  /^[[:space:]]*(#|$)/ { next }
+  {
+    name = $1
+    sub(/\{.*/, "", name)
+    if (name !~ /^[a-zA-Z_:][a-zA-Z0-9_:]*$/) exit 1
+    print name
+  }
+' "$tmp_dir/metrics" | sort -u > "$tmp_dir/names"; then
+  printf 'error: %s returned malformed Prometheus samples\n' "$CARDANO_URL" >&2
+  exit 1
+fi
+
+if [[ ! -s "$tmp_dir/names" ]] || ! awk '/^cardano_node_metrics_/ { found = 1 } END { exit !found }' "$tmp_dir/names"; then
+  printf 'error: %s did not expose cardano-node metric samples\n' "$CARDANO_URL" >&2
+  exit 1
+fi
+
+tmp_output="$(mktemp "${CONFIG}.tmp.XXXXXX")"
+jq -n --rawfile names "$tmp_dir/names" --slurpfile current "$CONFIG" '
+  $current[0] | .all_metrics = ($names | split("\n") | map(select(length > 0)) | unique)
+' > "$tmp_output"
+mv "$tmp_output" "$CONFIG"
+tmp_output=""
+printf 'Updated %s with %s metric names from %s\n' "$CONFIG" "$(wc -l < "$tmp_dir/names" | tr -d ' ')" "$CARDANO_URL"
