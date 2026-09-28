@@ -149,7 +149,6 @@ pub fn build_stage_graph(
                 global_parameters.system_start,
                 k,
                 credentials.pool_id(),
-                credentials.operational_cert().operational_cert_kes_period,
                 protocol_version,
             ),
         );

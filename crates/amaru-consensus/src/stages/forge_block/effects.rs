@@ -21,11 +21,11 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    Block, BodyParts, Epoch, EraHistory, EraHistoryError, Hash, Header, HeaderBody, HeaderHash, KesPeriod, Nonce,
-    PoolId, ProtocolVersion, RawBlock, Slot, VrfCert, cardano::network_block::NetworkBlock, maths::FixedDecimal,
+    Block, BodyParts, Epoch, EraHistory, EraHistoryError, Hash, Header, HeaderHash, KesPeriod, Nonce, PoolId, RawBlock,
+    Slot, cardano::network_block::NetworkBlock, maths::FixedDecimal,
 };
 use amaru_ouroboros::vrf;
-use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
+use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError, HeaderDraft};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
@@ -44,7 +44,7 @@ pub struct ForgedBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
-pub enum ForgeEffectError {
+pub enum SignHeaderError {
     #[error("forging credentials resource is missing")]
     CredentialsMissing,
     #[error(transparent)]
@@ -146,69 +146,28 @@ fn schedule_for(effect: &LeaderScheduleEffect, resources: &Resources) -> EpochSc
     schedule
 }
 
-/// Sign a header for `slot` over `body`. KES evolution happens inside this call.
+/// Sign `draft` with the KES key evolved to `kes_period`.
 ///
-/// `vrf_cert` comes from the leader schedule, so this call reaches for the KES
-/// secret only; the VRF secret stays confined to [`LeaderScheduleEffect`].
+/// The credentials complete the draft with their keys and certificate.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ForgeHeaderEffect {
-    pub slot: Slot,
+pub struct SignHeaderEffect {
     pub kes_period: KesPeriod,
-    pub parent: HeaderHash,
-    pub block_number: u64,
-    pub body_hash: Hash<32>,
-    pub body_size: u64,
-    pub vrf_cert: VrfCert,
-    pub protocol_version: ProtocolVersion,
+    pub draft: HeaderDraft,
 }
 
-impl ForgeHeaderEffect {
-    pub fn new(
-        slot: Slot,
-        kes_period: KesPeriod,
-        parent: HeaderHash,
-        block_number: u64,
-        body: &ForgedBody,
-        vrf_cert: VrfCert,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        Self {
-            slot,
-            kes_period,
-            parent,
-            block_number,
-            body_hash: body.hash,
-            body_size: body.size,
-            vrf_cert,
-            protocol_version,
-        }
-    }
-
-    fn forge(&self, credentials: &dyn ForgingCredentials) -> Result<Header, ForgeEffectError> {
-        let body = HeaderBody {
-            block_number: self.block_number,
-            slot: u64::from(self.slot),
-            prev_hash: Some(self.parent),
-            issuer_verification_key: credentials.issuer_verification_key(),
-            vrf_verification_key: credentials.vrf_verification_key(),
-            vrf_result: self.vrf_cert.clone(),
-            block_body_size: self.body_size,
-            block_body_hash: self.body_hash,
-            operational_cert: credentials.operational_cert(),
-            protocol_version: self.protocol_version,
-        };
-        let signature = credentials.sign(self.kes_period, &body)?;
-        Ok(Header::new(body, signature))
+impl SignHeaderEffect {
+    pub fn new(kes_period: KesPeriod, draft: HeaderDraft) -> Self {
+        Self { kes_period, draft }
     }
 }
 
-impl ExternalEffectAPI for ForgeHeaderEffect {
-    type Response = Result<Header, ForgeEffectError>;
+impl ExternalEffectAPI for SignHeaderEffect {
+    type Response = Result<Header, SignHeaderError>;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let header = match resources.get::<ResourceForgingCredentials>().as_deref().cloned() {
-            Ok(Some(credentials)) => self.forge(credentials.as_ref()),
-            Ok(None) | Err(_) => Err(ForgeEffectError::CredentialsMissing),
+            Ok(Some(credentials)) => credentials.sign(self.kes_period, self.draft.clone()).map_err(Into::into),
+            Ok(None) | Err(_) => Err(SignHeaderError::CredentialsMissing),
         };
         self.wrap_sync(header)
     }

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Hasher, HeaderBody, KesPeriod, KesPeriodError, KesSignature, OperationalCert, PoolId, VerificationKey,
-    size::POOL_COLD_KEY,
+    Hash, Hasher, Header, HeaderHash, KesPeriod, KesPeriodError, PoolId, ProtocolVersion, Slot, VerificationKey,
+    VrfCert, size::POOL_COLD_KEY,
 };
 use thiserror::Error;
 
@@ -28,13 +28,30 @@ pub enum ForgingCredentialsError {
     Kes(String),
 }
 
-/// A block producer's identity: the public material every forged header
-/// carries, and the KES key that signs it.
+/// The header fields a block producer decides for a led slot.
+///
+/// The credentials add the issuer and VRF verification keys and the operational
+/// certificate, then sign the whole body.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HeaderDraft {
+    pub block_number: u64,
+    pub slot: Slot,
+    pub prev_hash: Option<HeaderHash>,
+    pub vrf_result: VrfCert,
+    pub block_body_size: u64,
+    pub block_body_hash: Hash<32>,
+    pub protocol_version: ProtocolVersion,
+}
+
+/// A block producer's identity: the keys every forged header carries, and the
+/// KES key that signs it.
 ///
 /// The KES secret never leaves the implementation. Signing takes `&self`
 /// even though the key evolves in place and one-way: the implementation
 /// holds the key behind a lock so that evolving and signing happen as one
-/// step, and no caller can interleave between them.
+/// step, and no caller can interleave between them. The operational
+/// certificate is written into the header under that same lock, so a header
+/// always carries the certificate of the key that signed it.
 pub trait ForgingCredentials: Send + Sync {
     /// Cold verification key; `HeaderBody::issuer_verification_key`.
     fn issuer_verification_key(&self) -> VerificationKey;
@@ -44,18 +61,16 @@ pub trait ForgingCredentials: Send + Sync {
         Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.issuer_verification_key()[..])
     }
 
-    fn vrf_verification_key(&self) -> VerificationKey;
-
     /// 32-byte VRF signing seed. The leader-schedule effect turns this into proofs;
     /// the seed does not enter stage state.
     fn vrf_secret_bytes(&self) -> [u8; 32];
 
-    /// Operational certificate delegating from the cold key to the current KES key.
-    fn operational_cert(&self) -> OperationalCert;
-
-    /// Sign `msg` with the KES key evolved to `period`.
+    /// Complete `draft` with this producer's keys and certificate and sign it
+    /// with the KES key evolved to `period`.
     ///
     /// `period` is absolute (from `ConsensusParameters::slot_to_kes_period`);
-    /// the implementation evolves from the certificate's start period.
-    fn sign(&self, period: KesPeriod, header_body: &HeaderBody) -> Result<KesSignature, ForgingCredentialsError>;
+    /// the implementation evolves from the certificate's start period and
+    /// reports [`ForgingCredentialsError::Period`] when the certificate does
+    /// not cover `period`.
+    fn sign(&self, period: KesPeriod, draft: HeaderDraft) -> Result<Header, ForgingCredentialsError>;
 }

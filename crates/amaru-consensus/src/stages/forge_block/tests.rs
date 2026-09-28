@@ -34,7 +34,7 @@ use super::{
     ForgeBlockMsg, FreezeWatch,
     protocol::{AdoptedTip, DueLead},
     schedule::{EpochSchedule, Schedule},
-    test_setup::{TestCredentials, setup, setup_until_sleeping, test_prep, vrf_key},
+    test_setup::{TestCredentials, TestPrep, setup, setup_until_sleeping, test_prep, vrf_key},
 };
 use crate::stages::test_utils::start_in_era;
 
@@ -61,6 +61,10 @@ fn adopted_origin_records_the_tip_and_does_not_schedule() {
     assert_eq!(state.schedule.slots(), 0);
 }
 
+fn credentials_from(prep: &TestPrep, start: KesPeriod) -> Option<Arc<TestCredentials>> {
+    Some(Arc::new(TestCredentials::for_test_keys(start, prep.state.data.consensus_parameters.max_kes_evolutions())))
+}
+
 fn simulation_slot() -> Slot {
     let start = start_in_era();
     // The harness clock is this far after `start_in_era`, on a slot boundary.
@@ -70,8 +74,9 @@ fn simulation_slot() -> Slot {
 #[test]
 fn lead_slot_before_certificate_start_is_a_miss() {
     let mut prep = test_prep();
-    prep.state.data.ocert_start_period = KesPeriod::from(1_000_000);
+    prep.credentials = credentials_from(&prep, KesPeriod::from(1_000_000));
     let slot = simulation_slot();
+    prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
     let (running, _guards, mut logs, stage) = setup(&prep, msg);
@@ -107,7 +112,7 @@ fn stale_lead_slot_does_not_forge() {
 #[test]
 fn an_accepted_lead_arms_the_following_slot() {
     let mut prep = test_prep();
-    prep.state.data.ocert_start_period = KesPeriod::from(1_000_000);
+    prep.credentials = credentials_from(&prep, KesPeriod::from(1_000_000));
     // Inside the open forge window, so the miss is the certificate rather than a late wake.
     let slot = simulation_slot();
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 2);
@@ -153,7 +158,6 @@ fn a_late_due_lead_is_not_forged() {
 #[test]
 fn an_early_due_lead_waits_for_the_forge_window() {
     let mut prep = test_prep();
-    prep.state.data.ocert_start_period = KesPeriod::from(1_000_000);
     let slot = simulation_slot() + 100;
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
@@ -167,11 +171,7 @@ fn lead_slot_forges_a_signed_header() {
     let mut prep = test_prep();
     let slot = simulation_slot();
     let period = prep.state.data.consensus_parameters.slot_to_kes_period(slot);
-    prep.state.data.ocert_start_period = period;
-    prep.credentials = Some(Arc::new(TestCredentials::for_test_keys(
-        period,
-        prep.state.data.consensus_parameters.max_kes_evolutions(),
-    )));
+    prep.credentials = credentials_from(&prep, period);
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     prep.state.data.adopted_tip = Point::Specific(Slot::from(u64::from(slot).saturating_sub(1)), ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
@@ -190,6 +190,7 @@ fn lead_slot_forges_a_signed_header() {
     assert_eq!(header.block_height(), 2.into());
     assert_eq!(header.body().issuer_verification_key, credentials.issuer_verification_key());
     assert_eq!(header.body().vrf_verification_key, credentials.vrf_verification_key());
+    assert_eq!(ocert, credentials.operational_cert());
     assert_eq!(header.body().protocol_version, prep.state.data.protocol_version);
     AssertKesSignatureError::new(
         parameters.slot_to_kes_period(slot),
@@ -207,7 +208,6 @@ fn lead_slot_without_credentials_terminates() {
     let mut prep = test_prep();
     prep.credentials = None;
     let slot = simulation_slot();
-    prep.state.data.ocert_start_period = prep.state.data.consensus_parameters.slot_to_kes_period(slot);
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     prep.state.data.adopted_tip = Point::Specific(Slot::from(u64::from(slot).saturating_sub(1)), ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });

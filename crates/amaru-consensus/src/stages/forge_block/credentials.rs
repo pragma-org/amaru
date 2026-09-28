@@ -21,12 +21,12 @@
 use std::sync::Mutex;
 
 use amaru_kernel::{
-    Ed25519Signature, HeaderBody, KesPeriod, KesSignature, OperationalCert, VerificationKey,
+    Ed25519Signature, Header, HeaderBody, KesPeriod, KesSignature, OperationalCert, VerificationKey,
     ed25519::{self, Signer},
     to_cbor,
 };
 use amaru_ouroboros::{kes, vrf};
-use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
+use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError, HeaderDraft};
 
 /// VRF seed used by [`TestCredentials::new`] and the forge-stage schedule fixtures.
 pub const TEST_VRF_SEED: [u8; 32] = [7u8; 32];
@@ -79,6 +79,14 @@ impl TestCredentials {
     pub fn for_test_keys(ocert_start_period: KesPeriod, max_kes_evolutions: u64) -> Self {
         Self::new(ed25519::SigningKey::from_bytes(&TEST_COLD_KEY), ocert_start_period, max_kes_evolutions)
     }
+
+    pub fn vrf_verification_key(&self) -> VerificationKey {
+        VerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&self.vrf_seed)))
+    }
+
+    pub fn operational_cert(&self) -> &OperationalCert {
+        &self.ocert
+    }
 }
 
 impl ForgingCredentials for TestCredentials {
@@ -86,49 +94,65 @@ impl ForgingCredentials for TestCredentials {
         VerificationKey::from(self.cold.verifying_key().to_bytes())
     }
 
-    fn vrf_verification_key(&self) -> VerificationKey {
-        VerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&self.vrf_seed)))
-    }
-
     fn vrf_secret_bytes(&self) -> [u8; 32] {
         self.vrf_seed
     }
 
-    fn operational_cert(&self) -> OperationalCert {
-        self.ocert.clone()
-    }
-
-    fn sign(&self, period: KesPeriod, header_body: &HeaderBody) -> Result<KesSignature, ForgingCredentialsError> {
+    fn sign(&self, period: KesPeriod, draft: HeaderDraft) -> Result<Header, ForgingCredentialsError> {
         let evolution = period.evolutions_since(self.ocert.operational_cert_kes_period, self.max_kes_evolutions)?;
         let mut kes = self.kes.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        kes.evolve_to(evolution).map_err(|e| ForgingCredentialsError::Kes(e.to_string()))?;
-        Ok(KesSignature::from(<[u8; kes::Signature::SIZE]>::from(&kes.sign(&to_cbor(header_body)))))
+        kes.evolve_to(evolution).map_err(|error| {
+            if matches!(error, kes::KesError::CannotEvolveBackwards { .. }) {
+                ForgingCredentialsError::EvolvedPast(error.to_string())
+            } else {
+                ForgingCredentialsError::Kes(error.to_string())
+            }
+        })?;
+        let body = HeaderBody {
+            block_number: draft.block_number,
+            slot: u64::from(draft.slot),
+            prev_hash: draft.prev_hash,
+            issuer_verification_key: self.issuer_verification_key(),
+            vrf_verification_key: self.vrf_verification_key(),
+            vrf_result: draft.vrf_result,
+            block_body_size: draft.block_body_size,
+            block_body_hash: draft.block_body_hash,
+            operational_cert: self.ocert.clone(),
+            protocol_version: draft.protocol_version,
+        };
+        let signature = KesSignature::from(<[u8; kes::Signature::SIZE]>::from(&kes.sign(&to_cbor(&body))));
+        Ok(Header::new(body, signature))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Bytes, Hash, HeaderBody, KesSignature, ProtocolVersion, VrfCert, cardano::fixed_bytes::FixedBytes,
-        size::BLOCK_BODY,
+        Bytes, Hash, ProtocolVersion, Slot, VrfCert, cardano::fixed_bytes::FixedBytes, size::BLOCK_BODY,
     };
     use amaru_ouroboros::praos::header::{AssertKesSignatureError, AssertOperationalCertificateError};
 
     use super::*;
 
-    fn header_body(credentials: &TestCredentials) -> HeaderBody {
-        HeaderBody {
-            block_number: 1,
-            slot: 1,
+    fn draft(block_number: u64) -> HeaderDraft {
+        HeaderDraft {
+            block_number,
+            slot: Slot::from(1),
             prev_hash: None,
-            issuer_verification_key: credentials.issuer_verification_key(),
-            vrf_verification_key: credentials.vrf_verification_key(),
             vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::<80>::zeroes() },
             block_body_size: 0,
             block_body_hash: Hash::new([0u8; BLOCK_BODY]),
-            operational_cert: credentials.operational_cert(),
             protocol_version: ProtocolVersion::new(11, 0),
         }
+    }
+
+    fn verify(credentials: &TestCredentials, period: KesPeriod, header: &Header, max: u64) {
+        let ocert = &header.body().operational_cert;
+        let hot = kes::PublicKey::from(ocert.operational_cert_hot_verification_key.as_array());
+        let signature = kes::Signature::from(header.signature().as_array());
+        assert_eq!(ocert, credentials.operational_cert());
+        AssertKesSignatureError::new(period, ocert.operational_cert_kes_period, header.body(), &hot, &signature, max)
+            .unwrap();
     }
 
     #[test]
@@ -140,7 +164,7 @@ mod tests {
             credentials.pool_id(),
             amaru_kernel::Hasher::<224>::hash(credentials.issuer_verification_key().as_slice())
         );
-        AssertOperationalCertificateError::new(&credentials.operational_cert(), &cold.verifying_key(), None).unwrap();
+        AssertOperationalCertificateError::new(credentials.operational_cert(), &cold.verifying_key(), None).unwrap();
     }
 
     #[test]
@@ -157,30 +181,23 @@ mod tests {
         let start = KesPeriod::from(2);
         let max = 62;
         let credentials = TestCredentials::for_test_keys(start, max);
-        let hot =
-            kes::PublicKey::try_from(credentials.operational_cert().operational_cert_hot_verification_key.as_slice())
-                .expect("hot key");
 
-        let at_start = header_body(&credentials);
-        let signature = credentials.sign(start, &at_start).unwrap();
-        let kes_signature = kes::Signature::try_from(signature.as_slice()).unwrap();
-        AssertKesSignatureError::new(start, start, &at_start, &hot, &kes_signature, max).unwrap();
+        let at_start = credentials.sign(start, draft(1)).unwrap();
+        verify(&credentials, start, &at_start, max);
+        assert_eq!(at_start.body().issuer_verification_key, credentials.issuer_verification_key());
+        assert_eq!(at_start.body().vrf_verification_key, credentials.vrf_verification_key());
 
         let later = KesPeriod::from(5);
-        let mut at_later = header_body(&credentials);
-        at_later.block_number = 2;
-        let signature = credentials.sign(later, &at_later).unwrap();
-        let kes_signature = kes::Signature::try_from(signature.as_slice()).unwrap();
-        AssertKesSignatureError::new(later, start, &at_later, &hot, &kes_signature, max).unwrap();
+        let at_later = credentials.sign(later, draft(2)).unwrap();
+        verify(&credentials, later, &at_later, max);
     }
 
     #[test]
     fn signing_before_the_certificate_or_past_its_window_fails() {
         let start = KesPeriod::from(3);
         let credentials = TestCredentials::for_test_keys(start, 4);
-        let body = header_body(&credentials);
-        assert!(matches!(credentials.sign(KesPeriod::from(2), &body), Err(ForgingCredentialsError::Period(_))));
-        assert!(matches!(credentials.sign(KesPeriod::from(7), &body), Err(ForgingCredentialsError::Period(_))));
+        assert!(matches!(credentials.sign(KesPeriod::from(2), draft(1)), Err(ForgingCredentialsError::Period(_))));
+        assert!(matches!(credentials.sign(KesPeriod::from(7), draft(1)), Err(ForgingCredentialsError::Period(_))));
     }
 
     #[test]
@@ -198,9 +215,9 @@ mod tests {
     }
 
     #[test]
-    fn kes_signature_type_matches_the_fixed_width() {
+    fn signing_backwards_fails_after_the_key_evolved() {
         let credentials = TestCredentials::for_test_keys(KesPeriod::from(0), 62);
-        let signature: KesSignature = credentials.sign(KesPeriod::from(0), &header_body(&credentials)).unwrap();
-        assert_eq!(signature.as_slice().len(), kes::Signature::SIZE);
+        credentials.sign(KesPeriod::from(3), draft(1)).unwrap();
+        assert!(matches!(credentials.sign(KesPeriod::from(2), draft(2)), Err(ForgingCredentialsError::EvolvedPast(_))));
     }
 }

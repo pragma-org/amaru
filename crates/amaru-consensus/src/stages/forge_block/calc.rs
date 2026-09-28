@@ -17,7 +17,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use amaru_kernel::{BlockHeight, Epoch, KesEvolution, KesPeriodError, Point, Slot};
+use amaru_kernel::{BlockHeight, Epoch, KesPeriodError, Point, Slot};
 use amaru_pure_stage::Instant;
 
 /// Forging starts this long before slot onset, so the block can diffuse as the slot begins.
@@ -93,18 +93,11 @@ pub(super) fn choose_parent(tip_slot: Slot, lead_slot: Slot) -> ParentChoice {
     }
 }
 
-/// Combine OCERT and parent checks into a miss reason, if any.
-pub(super) fn missed_slot(
-    coverage: Result<KesEvolution, KesPeriodError>,
-    parent: ParentChoice,
-) -> Option<MissedSlotReason> {
-    match coverage {
-        Err(KesPeriodError::StartsInTheFuture { .. }) => Some(MissedSlotReason::OcertNotYetValid),
-        Err(KesPeriodError::Expired { .. }) => Some(MissedSlotReason::OcertExpired),
-        Ok(_) => match parent {
-            ParentChoice::MissedTipAhead => Some(MissedSlotReason::TipAhead),
-            ParentChoice::AdoptedTip | ParentChoice::AdoptedParent => None,
-        },
+/// Which edge of the certificate's window the credentials reported.
+pub(super) fn ocert_miss(error: &KesPeriodError) -> MissedSlotReason {
+    match error {
+        KesPeriodError::StartsInTheFuture { .. } => MissedSlotReason::OcertNotYetValid,
+        KesPeriodError::Expired { .. } => MissedSlotReason::OcertExpired,
     }
 }
 
@@ -282,15 +275,12 @@ mod tests {
     }
 
     #[test]
-    fn missed_slot_prefers_ocert_over_tip() {
+    fn ocert_miss_names_the_window_edge() {
         let period = KesPeriod::from;
-        let expired = period(67).evolutions_since(period(5), 62);
-        let covered = period(66).evolutions_since(period(5), 62);
-        let early = period(4).evolutions_since(period(5), 62);
-        assert_eq!(missed_slot(expired, ParentChoice::MissedTipAhead), Some(MissedSlotReason::OcertExpired));
-        assert_eq!(missed_slot(early, ParentChoice::AdoptedTip), Some(MissedSlotReason::OcertNotYetValid));
-        assert_eq!(missed_slot(covered.clone(), ParentChoice::MissedTipAhead), Some(MissedSlotReason::TipAhead));
-        assert_eq!(missed_slot(covered, ParentChoice::AdoptedParent), None);
+        let expired = period(67).evolutions_since(period(5), 62).unwrap_err();
+        let early = period(4).evolutions_since(period(5), 62).unwrap_err();
+        assert_eq!(ocert_miss(&expired), MissedSlotReason::OcertExpired);
+        assert_eq!(ocert_miss(&early), MissedSlotReason::OcertNotYetValid);
     }
 
     #[test]

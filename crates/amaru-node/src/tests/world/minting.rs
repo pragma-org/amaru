@@ -30,10 +30,10 @@ use std::{
 use amaru_consensus::stages::forge_block::TestCredentials;
 use amaru_kernel::{
     Anchor, Block, BodyParts, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch,
-    EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, Hash, Hasher, Header, HeaderBody, IsHeader,
-    KesPeriod, MaxString128, Network, NetworkName, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_GLOBAL_PARAMETERS, Peer, Point, PoolParams, Pots, ProposalsRoots, ProtocolParameters, RationalNumber,
-    RewardAccount, Slot, TransactionPointer, VrfCert, cardano::network_block::NetworkBlock, ed25519,
+    EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, Hash, Hasher, Header, IsHeader, KesPeriod,
+    MaxString128, Network, NetworkName, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Peer,
+    Point, PoolParams, Pots, ProposalsRoots, ProtocolParameters, RationalNumber, RewardAccount, Slot,
+    TransactionPointer, VrfCert, cardano::network_block::NetworkBlock, ed25519,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -44,7 +44,7 @@ use amaru_ledger::{
     },
 };
 use amaru_ouroboros::{BaseReadChainStore, ChainStore, WriteChainStore};
-use amaru_ouroboros_traits::{ForgingCredentials, Nonces, PoolSummaries, PoolSummary};
+use amaru_ouroboros_traits::{ForgingCredentials, HeaderDraft, Nonces, PoolSummaries, PoolSummary};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::simulation::SimulationRunning;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
@@ -202,25 +202,21 @@ fn header_for(
     protocol_version: amaru_kernel::ProtocolVersion,
     slots_per_kes_period: u64,
 ) -> Header {
-    let (body_hash, body_size) = Block::body_commitment(&[]).expect("empty body");
+    let (block_body_hash, block_body_size) = Block::body_commitment(&[]).expect("empty body");
     let kes_period = KesPeriod::from(u64::from(slot) / slots_per_kes_period);
-    let body = HeaderBody {
+    let draft = HeaderDraft {
         block_number,
-        slot: u64::from(slot),
+        slot,
         prev_hash: parent,
-        issuer_verification_key: credentials.issuer_verification_key(),
-        vrf_verification_key: credentials.vrf_verification_key(),
         vrf_result: VrfCert {
             output: amaru_kernel::Bytes::default(),
             proof: amaru_kernel::cardano::fixed_bytes::FixedBytes::<80>::zeroes(),
         },
-        block_body_size: body_size,
-        block_body_hash: body_hash,
-        operational_cert: credentials.operational_cert(),
+        block_body_size,
+        block_body_hash,
         protocol_version,
     };
-    let signature = credentials.sign(kes_period, &body).expect("sign anchor");
-    Header::new(body, signature)
+    credentials.sign(kes_period, draft).expect("sign anchor")
 }
 
 fn store_block(chain: &RocksDBStore, header: &Header, era: &EraHistory) {

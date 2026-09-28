@@ -27,7 +27,7 @@ use amaru_pure_stage::{
 
 pub use super::TestCredentials;
 use super::{
-    ForgeBlock, ForgeBlockMsg, ForgeHeaderEffect, LeaderScheduleEffect, ResourceForgingCredentials, TakeForForgeEffect,
+    ForgeBlock, ForgeBlockMsg, LeaderScheduleEffect, ResourceForgingCredentials, SignHeaderEffect, TakeForForgeEffect,
     schedule::EpochSchedule, stage, test_vrf_key,
 };
 use crate::{
@@ -53,8 +53,7 @@ pub struct TestPrep {
 
 pub fn test_prep() -> TestPrep {
     let consensus_parameters = ConsensusParameters::new(PREPROD_GLOBAL_PARAMETERS.clone(), &PREPROD_ERA_HISTORY);
-    let ocert_start_period = KesPeriod::from(0);
-    let credentials = TestCredentials::for_test_keys(ocert_start_period, consensus_parameters.max_kes_evolutions());
+    let credentials = TestCredentials::for_test_keys(KesPeriod::from(0), consensus_parameters.max_kes_evolutions());
     let select_chain: StageRef<SelectChainMsg> = StageRef::named_for_tests("select_chain");
     TestPrep {
         state: ForgeBlock::new(
@@ -63,7 +62,6 @@ pub fn test_prep() -> TestPrep {
             PREPROD_GLOBAL_PARAMETERS.system_start,
             PREPROD_GLOBAL_PARAMETERS.consensus_security_param,
             NULL_HASH28,
-            ocert_start_period,
             ProtocolVersion::new(11, 0),
         ),
         rt: crate::stages::test_utils::test_runtime(),
@@ -78,7 +76,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<ForgeBlockMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LeaderScheduleEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<ForgeHeaderEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SignHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TakeForForgeEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::store_effects::StoreValidatedHeaderEffect>()

@@ -18,7 +18,9 @@
 //! The product binary leaves that resource empty, so the stage is not in the graph.
 //!
 //! The typestate remainder in `protocol` is the audit surface for messages,
-//! timers, and forging effects. Internal decisions live in `calc`.
+//! timers, and forging effects. Internal decisions live in `calc`. The
+//! credentials resource owns the KES key and its certificate; the stage learns
+//! whether the certificate covers a slot only by asking it to sign.
 
 mod calc;
 #[cfg(any(test, feature = "test-utils"))]
@@ -27,15 +29,14 @@ mod effects;
 mod protocol;
 mod schedule;
 
-use amaru_kernel::{ConsensusParameters, KesPeriod, Point, PoolId, ProtocolVersion};
+use amaru_kernel::{ConsensusParameters, Point, PoolId, ProtocolVersion};
 pub use amaru_ouroboros_traits::ForgingCredentials;
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
 pub use calc::FreezeWatch;
 #[cfg(any(test, feature = "test-utils"))]
 pub use credentials::{TEST_COLD_KEY, TEST_VRF_SEED, TestCredentials, test_vrf_key};
 pub use effects::{
-    ForgeEffectError, ForgeHeaderEffect, ForgedBody, LeaderScheduleEffect, ResourceForgingCredentials,
-    TakeForForgeEffect,
+    ForgedBody, LeaderScheduleEffect, ResourceForgingCredentials, SignHeaderEffect, SignHeaderError, TakeForForgeEffect,
 };
 pub use protocol::{AdoptedTip, DueLead, ForgeBlockMsg, LeaderSchedule, Live, SelectChainOut, stage};
 use schedule::Schedule;
@@ -61,7 +62,6 @@ pub struct ForgeData {
     pub consensus_parameters: ConsensusParameters,
     pub k: u64,
     pub pool: PoolId,
-    pub ocert_start_period: KesPeriod,
     /// Ouroboros system start, as Unix time in milliseconds.
     pub system_start_unix_ms: u64,
     pub protocol_version: ProtocolVersion,
@@ -82,7 +82,6 @@ impl ForgeBlock {
         system_start_unix_ms: u64,
         k: u64,
         pool: PoolId,
-        ocert_start_period: KesPeriod,
         protocol_version: ProtocolVersion,
     ) -> Self {
         Self {
@@ -92,7 +91,6 @@ impl ForgeBlock {
                 consensus_parameters,
                 k,
                 pool,
-                ocert_start_period,
                 system_start_unix_ms,
                 protocol_version,
                 adopted_tip: Point::Origin,

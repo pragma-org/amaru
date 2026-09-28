@@ -20,7 +20,7 @@ use std::{
 use amaru_kernel::{Epoch, EraHistory, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, Point, Slot};
 use amaru_observability::{error, info, warn};
 use amaru_ouroboros::praos::nonce as praos_nonce;
-use amaru_ouroboros_traits::{FindCommonAncestorResult, Nonces};
+use amaru_ouroboros_traits::{FindCommonAncestorResult, ForgingCredentialsError, HeaderDraft, Nonces};
 use amaru_protocols::store_effects::{Store, StoreBlockEffect, StoreValidatedHeaderEffect};
 use amaru_pure_stage::{
     Effects, Instant, define_messages, define_role, define_role_tag, make_states, on_receive, typestate::prelude::*,
@@ -30,20 +30,24 @@ use super::{
     ForgeBlock, ForgeData, FreezeWatch,
     calc::{
         FORGE_LEAD_OFFSET, ForgeWindow, MissedSlotReason, ParentChoice, choose_parent, decide_freeze, forge_window,
-        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, missed_slot, schedule_settled,
+        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, ocert_miss, schedule_settled,
         wait_until_onset,
     },
-    effects::{ForgeHeaderEffect, LeaderScheduleEffect, TakeForForgeEffect},
+    effects::{LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect},
     schedule::{EpochSchedule, Schedule as Schedules},
 };
 use crate::{effects::ValidateHeaderEffect, stages::select_chain::SelectChainMsg};
 
-make_states!(pub Live as LiveIn { Idle(IdleIn); Signed(!), Window(!) });
+make_states!(pub Live as LiveIn { Idle(IdleIn); Signing(!), Window(!) });
 
 /// Witness for the second half of forging. Not a mailbox message: `DueLead`
-/// finishes into [`Signed`] and receives this immediately, so the effect
+/// finishes into [`Signing`] and receives this immediately, so the effect
 /// sequence stays within the tuple limit.
 struct Publish;
+
+/// Witness that the credentials declined the slot: their certificate does not
+/// cover its KES period. Not a mailbox message.
+struct Missed;
 
 /// Witness that the forge window has been checked. Not a mailbox message.
 struct Proceed;
@@ -93,13 +97,15 @@ on_receive!(Idle as IdleIn {
 
 on_receive!(Window, Proceed =>
     External<TakeForForgeEffect>,
-    External<ForgeHeaderEffect>,
+    External<SignHeaderEffect>,
     Repeat<Terminate> // KES signing failed
-    => Signed
+    => Signing
     | Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
 );
 
-on_receive!(Signed, Publish =>
+on_receive!(Signing, Missed => Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle);
+
+on_receive!(Signing, Publish =>
     External<ValidateHeaderEffect>,
     External<StoreValidatedHeaderEffect>,
     External<StoreBlockEffect>,
@@ -291,15 +297,15 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         return finish_with_next_lead!(session, state, now);
     }
 
-    let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
-    let coverage =
-        kes_period.evolutions_since(state.ocert_start_period, state.consensus_parameters.max_kes_evolutions());
-    let parent_choice = choose_parent(state.adopted_tip.slot(), slot);
-    if let Some(reason) = missed_slot(coverage, parent_choice) {
-        warn!(consensus::forge::MISSED_SLOT, slot, reason = reason.as_str());
-        let session = session.finish().receive(&Proceed, eff.clone());
-        return finish_with_next_lead!(session, state, now);
-    }
+    let parent_point = match choose_parent(state.adopted_tip.slot(), slot) {
+        ParentChoice::AdoptedTip => state.adopted_tip,
+        ParentChoice::AdoptedParent => state.adopted_parent,
+        ParentChoice::MissedTipAhead => {
+            warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::TipAhead.as_str());
+            let session = session.finish().receive(&Proceed, eff.clone());
+            return finish_with_next_lead!(session, state, now);
+        }
+    };
 
     let Some(cert) = cert else {
         warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::NotLed.as_str());
@@ -309,20 +315,28 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
 
     let session = session.finish().receive(&Proceed, eff.clone());
 
-    let parent_point = match parent_choice {
-        ParentChoice::AdoptedTip => state.adopted_tip,
-        ParentChoice::AdoptedParent => state.adopted_parent,
-        ParentChoice::MissedTipAhead => unreachable!("filtered by missed_slot"),
-    };
     let parent_hash: HeaderHash = parent_point.hash();
     let block_number = u64::from(parent_point.block_height()) + 1;
+    let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
 
     let (body, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
-    let forge_header =
-        ForgeHeaderEffect::new(slot, kes_period, parent_hash, block_number, &body, cert, state.protocol_version);
-    let (header, session) = session.external(forge_header).await;
+    let draft = HeaderDraft {
+        block_number,
+        slot,
+        prev_hash: Some(parent_hash),
+        vrf_result: cert,
+        block_body_size: body.size,
+        block_body_hash: body.hash,
+        protocol_version: state.protocol_version,
+    };
+    let (header, session) = session.external(SignHeaderEffect::new(kes_period, draft)).await;
     let header = match header {
         Ok(header) => header,
+        Err(SignHeaderError::Credentials(ForgingCredentialsError::Period(error))) => {
+            warn!(consensus::forge::MISSED_SLOT, slot, reason = ocert_miss(&error).as_str());
+            let session = session.finish().receive(&Missed, eff.clone());
+            return finish_with_next_lead!(session, state, now);
+        }
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "sign_header", error = error.to_string());
             return session.terminate().await;
