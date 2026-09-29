@@ -14,7 +14,7 @@
 
 use std::{
     collections::BTreeMap,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex},
 };
@@ -484,8 +484,18 @@ fn cached_range_covers_snapshot(
     from_chunk: u64,
     through_chunk: u64,
 ) -> Result<bool, MithrilDownloadError> {
-    let last_chunk =
-        validate_immutable_files(immutable_dir).map_err(|source| MithrilDownloadError::InvalidCache { source })?;
+    let last_chunk = match validate_immutable_files(immutable_dir) {
+        Ok(last_chunk) => last_chunk,
+        Err(source)
+            if source
+                .downcast_ref::<io::Error>()
+                .is_none_or(|error| matches!(error.kind(), io::ErrorKind::NotFound | io::ErrorKind::InvalidData)) =>
+        {
+            warn!(mithril::snapshot::REDOWNLOAD_CACHE, from_chunk, through_chunk, reason = source.to_string());
+            return Ok(false);
+        }
+        Err(source) => return Err(MithrilDownloadError::InvalidCache { source }),
+    };
     Ok(last_chunk == Some(through_chunk)
         && immutable_chunk_is_complete(immutable_dir, from_chunk)
             .map_err(|source| MithrilDownloadError::Download(source.into()))?)
