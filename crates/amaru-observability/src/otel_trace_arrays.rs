@@ -23,7 +23,7 @@
 //!
 //! Place this layer **after** `tracing_opentelemetry::OpenTelemetryLayer` so the OTEL span
 //! exists when attributes are applied. The stock layer has no `record_bytes` visitor, so it
-//! also stores a debug dump of the CBOR bytes under the same key. [`CborSpanExporter`]
+//! also stores a debug dump of the CBOR bytes under the same key. [`prepare_exported_attributes`]
 //! replaces that dump with the upgraded value and keeps one attribute per key.
 //!
 //! ## Lifecycle / never-entered spans
