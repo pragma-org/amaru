@@ -28,7 +28,7 @@ use amaru_consensus::{
     validate_header::validate_header,
 };
 use amaru_kernel::{
-    Block, ConsensusParameters, EraHistory, IsHeader, NetworkName, NetworkPoint, ORIGIN_HASH, Point, RawBlock, Slot,
+    Block, ConsensusParameters, EraHistory, IsHeader, NetworkName, NetworkPoint, Point, RawBlock, Slot,
     cardano::network_block::NetworkBlock,
 };
 use amaru_ledger::store::ReadStore;
@@ -47,9 +47,8 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ClearValidity, NodeStartError,
-    chain_realign::ensure_store_consistency,
-    realign_chain_store_to,
+    NodeStartError,
+    chain_realign::{ReconcileError, ReconcileMode, ReconcileOutcome, adopt_validated_block, reconcile_chain_store},
     stages::{
         build_node::{ledger_store_error, make_block_validator, make_state, open_chain_store},
         config::LedgerConfig,
@@ -928,44 +927,21 @@ fn lock_sync_file(lock: &File, directory: &Path) -> Result<(), MithrilSyncError>
 
 fn recover_stores(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<StoreRecoveryOutcome, MithrilSyncError> {
     let chain_tip = chain_store.get_best_chain_tip();
-    if ledger_tip == chain_tip {
-        return Ok(StoreRecoveryOutcome::AlreadyConsistent { point: ledger_tip });
+    match reconcile_chain_store(chain_store, ledger_tip, ReconcileMode::ResumeReplay).map_err(|error| match error {
+        ReconcileError::Incompatible(source) => MithrilSyncError::RebootstrapRequired(Box::new(RebootstrapRequired {
+            ledger_tip,
+            chain_tip,
+            reason: source.to_string(),
+        })),
+        ReconcileError::Store { operation, source } => store_error(operation, source),
+    })? {
+        ReconcileOutcome::AlreadyConsistent { point } => Ok(StoreRecoveryOutcome::AlreadyConsistent { point }),
+        ReconcileOutcome::AdoptedSuccessor { before, after } => {
+            info!(cli::mithril::RECOVER_CHAIN_TIP, ledger_tip, chain_tip);
+            Ok(StoreRecoveryOutcome::Recovered { before, after })
+        }
+        ReconcileOutcome::Realigned { before, after } => Ok(StoreRecoveryOutcome::Recovered { before, after }),
     }
-    if can_adopt(chain_store, ledger_tip, chain_tip) {
-        info!(cli::mithril::RECOVER_CHAIN_TIP, ledger_tip, chain_tip);
-        adopt_validated_block(chain_store, ledger_tip)
-            .map_err(|source| store_error("adopt recovered ledger tip", source))?;
-    } else {
-        ensure_store_consistency(chain_store, ledger_tip).map_err(|source| {
-            MithrilSyncError::RebootstrapRequired(Box::new(RebootstrapRequired {
-                ledger_tip,
-                chain_tip,
-                reason: source.to_string(),
-            }))
-        })?;
-        realign_chain_store_to(chain_store, ledger_tip, ClearValidity::ValidOnly)
-            .map_err(|source| store_error("realign chain store to ledger tip", source))?;
-    }
-    Ok(StoreRecoveryOutcome::Recovered { before: chain_tip, after: ledger_tip })
-}
-
-fn can_adopt(chain_store: &dyn ChainStore, ledger_tip: Point, chain_tip: Point) -> bool {
-    chain_store.load_header_with_validity(&ledger_tip.hash()).is_some_and(|(header, validity)| {
-        header.point() == ledger_tip
-            && validity != Some(false)
-            && header.parent_hash().unwrap_or(ORIGIN_HASH) == chain_tip.hash()
-            && chain_store.get_nonces(&ledger_tip.hash()).is_some()
-    })
-}
-
-fn adopt_validated_block(chain_store: &dyn ChainStore, point: Point) -> anyhow::Result<()> {
-    chain_store.set_block_valid(&point.hash(), true)?;
-    chain_store.roll_forward_chain(&point)?;
-    let chain_tip = chain_store.get_best_chain_tip();
-    if chain_tip != point {
-        anyhow::bail!("adopted chain tip {chain_tip} does not match ledger tip {point}");
-    }
-    Ok(())
 }
 
 fn advance_replay_anchor(
