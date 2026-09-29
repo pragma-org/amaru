@@ -2727,6 +2727,8 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `fetch` | `event` | info | public | Fetch and verify a Mithril snapshot | hash, from_chunk |  |
 | `ready` | `event` | info | public | Mithril cardano-node database is ready | target_dir |  |
 | `rebuild_cache` | `event` | warn | public | Rebuild an invalid local immutable cache before retrying once | immutable_dir, reason |  |
+| `redownload_cache` | `event` | warn | public | Cached immutable files did not verify, so fetch the selected range again | from_chunk, through_chunk, reason |  |
+| `reuse_cache` | `event` | info | public | Reuse cached immutable files after verifying them against the selected snapshot | from_chunk, through_chunk |  |
 | `verify_database` | `event` | info | public | Verify the local cardano-node database against a Mithril certificate | target_dir |  |
 | `verify_digests` | `event` | info | public | Download and verify the digests for a Mithril snapshot | target_dir |  |
 
@@ -2763,6 +2765,25 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- |
 | `immutable_dir` | `string` | ✓ |
 | `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>event: `redownload_cache`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from_chunk` | `integer` | ✓ |
+| `through_chunk` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>event: `reuse_cache`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from_chunk` | `integer` | ✓ |
+| `through_chunk` | `integer` | ✓ |
 
 </details>
 
