@@ -154,6 +154,10 @@ impl StoreEffect {
         FindAnchorAtHeightEffect::new(target_height)
     }
 
+    pub fn find_anchor_for_tip(tip: Point, security_param: u64) -> FindAnchorForTipEffect {
+        FindAnchorForTipEffect::new(tip, security_param)
+    }
+
     pub fn find_missing_blocks(start: HeaderHash, limit: usize) -> FindMissingBlocksEffect {
         FindMissingBlocksEffect::new(start, limit)
     }
@@ -312,6 +316,14 @@ impl<S> Store<S> {
         self.effects.external(StoreEffect::find_anchor_at_height(target_height))
     }
 
+    pub fn find_anchor_for_tip(
+        &self,
+        tip: Point,
+        security_param: u64,
+    ) -> BoxFuture<'static, Result<Option<Point>, StoreError>> {
+        self.effects.external(StoreEffect::find_anchor_for_tip(tip, security_param))
+    }
+
     pub fn find_missing_blocks(
         &self,
         start: HeaderHash,
@@ -354,6 +366,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<FindAnchorForTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindCommonAncestorEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindIntersectPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SampleAncestorPointsEffect>().boxed(),
@@ -1032,6 +1045,31 @@ impl ExternalEffectAPI for FindAnchorAtHeightEffect {
                 .expect("FindAnchorAtHeightEffect requires a chain store")
                 .clone();
             store.find_anchor_at_height(self.target_height)
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FindAnchorForTipEffect {
+    tip: Point,
+    security_param: u64,
+}
+
+impl FindAnchorForTipEffect {
+    pub fn new(tip: Point, security_param: u64) -> Self {
+        Self { tip, security_param }
+    }
+}
+
+impl ExternalEffectAPI for FindAnchorForTipEffect {
+    type Response = Result<Option<Point>, StoreError>;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("FindAnchorForTipEffect requires a chain store").clone();
+            store.find_anchor_for_tip(self.tip, self.security_param)
         })
     }
 }

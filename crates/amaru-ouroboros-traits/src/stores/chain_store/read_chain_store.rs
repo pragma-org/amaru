@@ -251,17 +251,45 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// best chain even if other writers mutate it concurrently.
     fn find_anchor_at_height(&self, target_height: BlockHeight) -> Option<Point> {
         let snapshot = self.snapshot();
-        let mut point = snapshot.get_anchor_point();
-        if target_height <= point.block_height() {
-            return None;
+        find_anchor_at_height_on_snapshot(snapshot.as_ref(), target_height)
+    }
+
+    /// Find the next immutable-horizon anchor for an adopted best-chain tip.
+    ///
+    /// Nearby targets are found by walking forward from the current anchor. When recovering a
+    /// large gap, walk back from the tip so the work is bounded by the security parameter.
+    /// The anchor is never moved backward; `None` means it is already at or beyond the target.
+    fn find_anchor_for_tip(&self, tip: Point, security_param: u64) -> Result<Option<Point>, StoreError> {
+        let snapshot = self.snapshot();
+        if snapshot.get_best_chain_tip() != tip {
+            return Err(StoreError::ReadError { error: format!("{tip} is not the adopted best-chain tip") });
         }
-        while let Some(next_point) = snapshot.next_best_chain(&point) {
-            if next_point.block_height() >= target_height {
-                return Some(next_point);
+
+        let target_height = tip.block_height() - security_param;
+        let current_anchor = snapshot.get_anchor_point();
+        if target_height <= current_anchor.block_height() {
+            return Ok(None);
+        }
+
+        if target_height - current_anchor.block_height() > security_param {
+            let mut header = snapshot
+                .load_header(&tip.hash())
+                .ok_or_else(|| StoreError::ReadError { error: format!("missing adopted header at {tip}") })?;
+            while header.block_height() > target_height {
+                let parent = header
+                    .parent()
+                    .ok_or_else(|| StoreError::ReadError { error: format!("missing parent of {}", header.point()) })?;
+                header = snapshot
+                    .load_header(&parent)
+                    .ok_or_else(|| StoreError::ReadError { error: format!("missing ancestor {parent}") })?;
             }
-            point = next_point;
+            Ok(Some(header.point()))
+        } else {
+            let point = find_anchor_at_height_on_snapshot(snapshot.as_ref(), target_height).ok_or_else(|| {
+                StoreError::ReadError { error: format!("no best-chain point at height {target_height}") }
+            })?;
+            Ok(Some(point))
         }
-        None
     }
 
     /// Return the range of missing blocks on the path from the nearest available block (or anchor)
@@ -338,6 +366,20 @@ pub trait ReadChainStore: BaseReadChainStore {
             }
         }
     }
+}
+
+fn find_anchor_at_height_on_snapshot(snapshot: &dyn BaseReadChainStore, target_height: BlockHeight) -> Option<Point> {
+    let mut point = snapshot.get_anchor_point();
+    if target_height <= point.block_height() {
+        return None;
+    }
+    while let Some(next_point) = snapshot.next_best_chain(&point) {
+        if next_point.block_height() >= target_height {
+            return Some(next_point);
+        }
+        point = next_point;
+    }
+    None
 }
 
 /// Walk ancestors of `start` on a snapshot view, stopping past the anchor.
