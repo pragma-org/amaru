@@ -500,6 +500,7 @@ dependencies = [
  "quote",
  "reqwest",
  "rocksdb",
+ "same-file",
  "serde",
  "serde_json",
  "syn 3.0.3",

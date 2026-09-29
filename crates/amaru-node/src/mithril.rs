@@ -42,6 +42,7 @@ use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use anyhow::anyhow;
 use futures_util::FutureExt;
+use same_file::Handle;
 use thiserror::Error;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -919,30 +920,13 @@ fn acquire_sync_locks<const N: usize>(directories: [&Path; N]) -> Result<Vec<Syn
 
 /// Detect a lock file replaced between opening it and acquiring its lock.
 fn lock_points_to_path(file: &File, path: &Path) -> io::Result<bool> {
-    let locked = file.metadata()?;
-    let current = match fs::metadata(path) {
+    let locked = Handle::from_file(file.try_clone()?)?;
+    let current = match Handle::from_path(path) {
         Ok(current) => current,
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(source) => return Err(source),
     };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-
-        Ok(locked.dev() == current.dev() && locked.ino() == current.ino())
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-
-        let locked_id = locked.volume_serial_number().zip(locked.file_index());
-        let current_id = current.volume_serial_number().zip(current.file_index());
-        Ok(locked_id.is_some_and(|id| Some(id) == current_id))
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        Ok(false)
-    }
+    Ok(locked == current)
 }
 
 fn sync_lock_path(directory: &Path) -> Result<PathBuf, MithrilSyncError> {
