@@ -15,7 +15,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["test-utils"]
+default = []
 profiling = ["dep:pprof"]
 test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions"]
 
