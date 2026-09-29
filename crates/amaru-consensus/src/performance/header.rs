@@ -17,7 +17,7 @@
 //! State transitions are pure: methods return [`HeaderTelemetry`] payloads. OpenTelemetry events
 //! and metrics are **not** emitted here — the performance worker must not run export paths that
 //! may drop or block under resource/connectivity pressure. Callers (external-effect handlers on
-//! the stage executor) invoke [`HeaderTelemetry::emit`].
+//! the stage executor) invoke `HeaderTelemetry::emit`.
 
 use std::{collections::BTreeMap, time::Duration};
 
@@ -181,7 +181,7 @@ impl ForkSwitchOutcome {
 
 /// Telemetry produced by a header/fork state transition.
 ///
-/// Emit via [`HeaderTelemetry::emit`] on the external-effect path (not on the performance worker).
+/// Emit via `HeaderTelemetry::emit` on the external-effect path (not on the performance worker).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeaderTelemetry {
     /// Closed or rejected header lifecycle (`perf.header.lifecycle`).
