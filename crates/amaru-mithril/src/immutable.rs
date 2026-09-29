@@ -304,7 +304,7 @@ pub(crate) fn validate_immutable_resume_point(
     Ok(())
 }
 
-fn validate_immutable_files(immutable_dir: &Path) -> ImmutableResult<Option<u64>> {
+pub(crate) fn validate_immutable_files(immutable_dir: &Path) -> ImmutableResult<Option<u64>> {
     let entries = match fs::read_dir(immutable_dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -370,7 +370,7 @@ pub fn first_missing_immutable_chunk(immutable_dir: &Path) -> Result<u64, io::Er
     Ok(chunk)
 }
 
-fn immutable_chunk_is_complete(immutable_dir: &Path, chunk: u64) -> io::Result<bool> {
+pub(crate) fn immutable_chunk_is_complete(immutable_dir: &Path, chunk: u64) -> io::Result<bool> {
     ["chunk", "primary", "secondary"].into_iter().try_fold(true, |complete, extension| {
         if !complete {
             return Ok(false);

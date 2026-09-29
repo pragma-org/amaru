@@ -32,7 +32,10 @@ use mithril_client::{
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use crate::immutable::{chunk_for_slot, validate_immutable_resume_point, validated_download_boundary};
+use crate::immutable::{
+    chunk_for_slot, immutable_chunk_is_complete, validate_immutable_files, validate_immutable_resume_point,
+    validated_download_boundary,
+};
 
 type ProgressFactory = Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>;
 
@@ -402,26 +405,53 @@ async fn download_from_mithril_with_chunk_range(
     let immutable_file_range = immutable_file_range(from_chunk, requested_through_chunk);
     let download_unpack_options =
         DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
-    info!(mithril::snapshot::DOWNLOAD, target_dir = target_dir.display().to_string(), from_chunk, through_chunk);
-    database_client
-        .download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options)
-        .await
-        .map_err(MithrilDownloadError::Download)?;
-
     let immutable_file_count = immutable_file_range.length(through_chunk) * 3;
-    observer.on_progress(MithrilDownloadProgress::StageChanged {
-        stage: MithrilDownloadStage::VerifyingDatabase { from_chunk, through_chunk, files: immutable_file_count },
-    });
+    let reuse_cache = cached_range_covers_snapshot(&target_dir.join("immutable"), from_chunk, through_chunk)?;
     info!(mithril::snapshot::VERIFY_DIGESTS, target_dir = target_dir.display().to_string());
     let verified_digests = database_client
         .download_and_verify_digests(&certificate, &snapshot)
         .await
         .map_err(|source| MithrilDownloadError::Validation { source })?;
-    info!(mithril::snapshot::VERIFY_DATABASE, target_dir = target_dir.display().to_string());
-    let merkle_proof = database_client
-        .verify_cardano_database(&certificate, &snapshot, &immutable_file_range, false, &target_dir, &verified_digests)
-        .await
-        .map_err(|source| MithrilDownloadError::Validation { source: source.into() })?;
+    let download = async || {
+        info!(mithril::snapshot::DOWNLOAD, target_dir = target_dir.display().to_string(), from_chunk, through_chunk);
+        database_client
+            .download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options)
+            .await
+            .map_err(MithrilDownloadError::Download)
+    };
+    let verify_database = async || {
+        observer.on_progress(MithrilDownloadProgress::StageChanged {
+            stage: MithrilDownloadStage::VerifyingDatabase { from_chunk, through_chunk, files: immutable_file_count },
+        });
+        info!(mithril::snapshot::VERIFY_DATABASE, target_dir = target_dir.display().to_string());
+        database_client
+            .verify_cardano_database(
+                &certificate,
+                &snapshot,
+                &immutable_file_range,
+                false,
+                &target_dir,
+                &verified_digests,
+            )
+            .await
+    };
+    let first_verification = if reuse_cache {
+        verify_database().await
+    } else {
+        download().await?;
+        verify_database().await
+    };
+    let (merkle_proof, reused_cache) = match first_verification {
+        Ok(proof) => (proof, reuse_cache),
+        Err(source) if reuse_cache => {
+            warn!(mithril::snapshot::REDOWNLOAD_CACHE, from_chunk, through_chunk, reason = source.to_string());
+            download().await?;
+            let proof =
+                verify_database().await.map_err(|source| MithrilDownloadError::Validation { source: source.into() })?;
+            (proof, false)
+        }
+        Err(source) => return Err(MithrilDownloadError::Validation { source: source.into() }),
+    };
     let message = MessageBuilder::new()
         .compute_cardano_database_message(&certificate, &merkle_proof)
         .await
@@ -431,6 +461,10 @@ async fn download_from_mithril_with_chunk_range(
         return Err(MithrilDownloadError::Validation {
             source: anyhow::anyhow!("Mithril certificate verification failed"),
         });
+    }
+
+    if reused_cache {
+        info!(mithril::snapshot::REUSE_CACHE, from_chunk, through_chunk);
     }
 
     observer.on_progress(MithrilDownloadProgress::StageChanged { stage: MithrilDownloadStage::DatabaseVerified });
@@ -443,6 +477,18 @@ fn immutable_file_range(from_chunk: u64, requested_through_chunk: Option<u64>) -
     requested_through_chunk.map_or(ImmutableFileRange::From(from_chunk), |through_chunk| {
         ImmutableFileRange::Range(from_chunk, through_chunk)
     })
+}
+
+fn cached_range_covers_snapshot(
+    immutable_dir: &Path,
+    from_chunk: u64,
+    through_chunk: u64,
+) -> Result<bool, MithrilDownloadError> {
+    let last_chunk =
+        validate_immutable_files(immutable_dir).map_err(|source| MithrilDownloadError::InvalidCache { source })?;
+    Ok(last_chunk == Some(through_chunk)
+        && immutable_chunk_is_complete(immutable_dir, from_chunk)
+            .map_err(|source| MithrilDownloadError::Download(source.into()))?)
 }
 
 fn requested_through_chunk(
