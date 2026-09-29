@@ -57,9 +57,7 @@ use thiserror::Error;
 use tokio::runtime::Handle;
 
 use crate::{
-    ClearValidity,
-    chain_realign::ensure_store_consistency,
-    realign_chain_store_to,
+    chain_realign::{ReconcileError, ReconcileMode, ensure_store_consistency, reconcile_chain_store},
     stages::{
         build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
@@ -628,7 +626,12 @@ fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -
     // run must not hide that chain from `find_best_candidate` (which skips `valid=false` and does
     // not walk its children). Re-validation either repeats the error or, if the bug is gone, adopts
     // the chain. Runtime `FindBestCandidate` still skips blocks marked invalid in *this* run.
-    realign_chain_store_to(chain_store.as_ref(), ledger_tip, ClearValidity::All)
+    reconcile_chain_store(chain_store.as_ref(), ledger_tip, ReconcileMode::Restart).map(|_| ()).map_err(|error| {
+        match error {
+            ReconcileError::Incompatible(source) => source.into(),
+            ReconcileError::Store { source, .. } => source,
+        }
+    })
 }
 
 #[cfg(test)]

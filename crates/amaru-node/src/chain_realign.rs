@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ORIGIN_HASH, Point};
+use amaru_kernel::{IsHeader, ORIGIN_HASH, Point};
 use amaru_observability::{debug, info, info_record};
 use amaru_ouroboros::ChainStore;
+use thiserror::Error;
 
 use crate::NodeStartError;
 
@@ -37,6 +38,81 @@ pub enum ClearValidity {
     /// volatile ledger is rebuilt) and by offline rollback, so a false invalid from an earlier
     /// run is re-validated instead of silently parking the node on a shorter stored chain.
     All,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReconcileMode {
+    /// Rebuild the volatile ledger and revalidate all descendants after the durable tip.
+    Restart,
+    /// Resume replay, preserving invalid descendants and accepting a validated direct successor.
+    ResumeReplay,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReconcileOutcome {
+    AlreadyConsistent { point: Point },
+    AdoptedSuccessor { before: Point, after: Point },
+    Realigned { before: Point, after: Point },
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum ReconcileError {
+    #[error(transparent)]
+    Incompatible(#[from] NodeStartError),
+    #[error("failed to {operation}: {source}")]
+    Store {
+        operation: &'static str,
+        #[source]
+        source: anyhow::Error,
+    },
+}
+
+/// Reconcile the adopted chain with the durable ledger before starting a node or resuming replay.
+pub(crate) fn reconcile_chain_store(
+    chain_store: &dyn ChainStore,
+    ledger_tip: Point,
+    mode: ReconcileMode,
+) -> Result<ReconcileOutcome, ReconcileError> {
+    let before = chain_store.get_best_chain_tip();
+    if mode == ReconcileMode::ResumeReplay {
+        if before == ledger_tip {
+            return Ok(ReconcileOutcome::AlreadyConsistent { point: ledger_tip });
+        }
+        if can_adopt_validated_successor(chain_store, ledger_tip, before) {
+            adopt_validated_block(chain_store, ledger_tip)
+                .map_err(|source| ReconcileError::Store { operation: "adopt recovered ledger tip", source })?;
+            return Ok(ReconcileOutcome::AdoptedSuccessor { before, after: ledger_tip });
+        }
+    }
+
+    ensure_store_consistency(chain_store, ledger_tip)?;
+    let clear = match mode {
+        ReconcileMode::Restart => ClearValidity::All,
+        ReconcileMode::ResumeReplay => ClearValidity::ValidOnly,
+    };
+    realign_chain_store_to(chain_store, ledger_tip, clear)
+        .map_err(|source| ReconcileError::Store { operation: "realign chain store to ledger tip", source })?;
+    Ok(ReconcileOutcome::Realigned { before, after: ledger_tip })
+}
+
+fn can_adopt_validated_successor(chain_store: &dyn ChainStore, ledger_tip: Point, chain_tip: Point) -> bool {
+    chain_store.load_header_with_validity(&ledger_tip.hash()).is_some_and(|(header, validity)| {
+        header.point() == ledger_tip
+            && validity != Some(false)
+            && header.parent_hash().unwrap_or(ORIGIN_HASH) == chain_tip.hash()
+            && chain_store.get_nonces(&ledger_tip.hash()).is_some()
+    })
+}
+
+/// Mark a ledger-validated block valid and advance the adopted best chain to it.
+pub(crate) fn adopt_validated_block(chain_store: &dyn ChainStore, point: Point) -> anyhow::Result<()> {
+    chain_store.set_block_valid(&point.hash(), true)?;
+    chain_store.roll_forward_chain(&point)?;
+    let chain_tip = chain_store.get_best_chain_tip();
+    if chain_tip != point {
+        anyhow::bail!("adopted chain tip {chain_tip} does not match ledger tip {point}");
+    }
+    Ok(())
 }
 
 /// Realign the chain store so the best chain ends at `tip`, the anchor is `tip`, and validation
@@ -97,6 +173,24 @@ mod tests {
     use amaru_ouroboros::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 
     use super::*;
+
+    #[test]
+    fn restart_reconciles_even_when_tips_already_match() {
+        let durable = make_header(1, 1, None);
+        let descendant = make_header(2, 2, Some(durable.hash()));
+        let chain_store = InMemoryChainStore::new();
+        chain_store.store_header(&durable).unwrap();
+        chain_store.store_header(&descendant).unwrap();
+        chain_store.roll_forward_chain(&durable.point()).unwrap();
+        chain_store.set_block_valid(&descendant.hash(), false).unwrap();
+
+        assert_eq!(
+            reconcile_chain_store(&chain_store, durable.point(), ReconcileMode::Restart).unwrap(),
+            ReconcileOutcome::Realigned { before: durable.point(), after: durable.point() }
+        );
+        assert_eq!(chain_store.get_anchor_point(), durable.point());
+        assert_eq!(chain_store.load_header_with_validity(&descendant.hash()).unwrap().1, None);
+    }
 
     #[test]
     fn realign_valid_only_keeps_invalid_flags() {
