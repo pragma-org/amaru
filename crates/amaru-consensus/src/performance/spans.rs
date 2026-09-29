@@ -15,7 +15,7 @@
 //! Open header spans, kept on the effect executor.
 //!
 //! `tracing::Span` is not serialized and does not enter the performance worker. The executor
-//! opens and drops the spans; [`super::HeaderTelemetry::emit`] reads their durations.
+//! opens and drops the spans; `HeaderTelemetry::emit` reads their durations.
 
 use std::{collections::BTreeMap, time::SystemTime};
 
