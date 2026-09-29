@@ -328,7 +328,7 @@ async fn drag_anchor_forward(
     eff: &Effects<AdoptChainMsg>,
 ) -> Result<Instant, StoreError> {
     let target_height = tip.block_height() - consensus_security_param;
-    if let Some(new_anchor) = store.find_anchor_at_height(target_height).await {
+    if let Some(new_anchor) = store.find_anchor_for_tip(*tip, consensus_security_param).await? {
         store.set_anchor_point(&new_anchor).await?;
     }
     let now = eff.clock().await;
