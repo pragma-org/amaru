@@ -20,6 +20,7 @@ This KES key is linked to the pool identity via a certificate signed by the cold
 
 ### SPO support
 
+For every KES period change, an INFO event is logged; this can be used by the SPO to monitor the progression, trigger alerts, etc.
 When the KES key validity period is about to expire, Amaru will generate WARN messages to alert the SPO that they needs to rotate their KES key.
 The Amaru TUI will show a count-down and the end of the validity period in local and UTC time.
 
@@ -44,10 +45,13 @@ The SPO then uses their cold key to sign the certificate request.
 The SPO then uses `amaru keys hot import` to import the KES certificate signature into the chain database.
 
 Note that the chain database can hold multiple KES keys and certificates, each valid for a certain range of slots.
+Note also that Amaru will need to enforce that the opcert sequence number is incremented by exactly one for each new certificate.
 
 ### Cold key handling
 
-While many SPOs nowadays use hardware wallets to store their cold keys, Amaru comes with a simple tool that can be used e.g. on an air-gapped machine; while this doesn’t achieve the same level of security, we want to provide a complete set of tooling to get started.
+While many SPOs nowadays use hardware wallets to store their cold keys, Amaru comes with a simple tool that can be used e.g. on an air-gapped machine.
+This doesn’t achieve the same level of security, but we want to provide a complete set of tooling to get started.
+It is also required for pools established before hardware wallets were available: these cold keys cannot be migrated and must be handled on air-gapped machines.
 `amaru keys cold create` generates a new cold key, writes it to a file (which requires a password for encryption), and prints the corresponding public key etc. to stdout.
 `amaru keys cold sign` reads a certificate request from a file, prompts the SPO for the password to decrypt the cold key, and writes the signature to stdout.
 
@@ -57,5 +61,10 @@ While many SPOs nowadays use hardware wallets to store their cold keys, Amaru co
 - The SPO can organise the rotation workflow as they pleases, as long as Amaru uses well-known import / export formats for signing requests and signatures.
 - Hot keys are reasonably well protected because they are not available in the same memory address space that also performs network operations and processes potentially malicious inputs.
   We may later look into using TPM or similar hardware if desired.
+- It will be straight-forward to add an HTTP endpoint on localhost to allow other tooling to interact with the hot key process.
 
-[edr-forging]: ./036-block-forging.md
+## Discussion points
+
+- Should Amaru offer import or export facilities for cold or hot keys to interact with other tooling? If yes, which tools and formats exactly?
+
+[edr-forging]: ./035-block-forging.md
