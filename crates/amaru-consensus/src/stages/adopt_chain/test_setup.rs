@@ -23,7 +23,7 @@ use amaru_ouroboros_traits::{
     BaseReadChainStore, DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::store_effects::{
-    FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
+    FindAncestorOnBestChainEffect, FindAnchorForTipEffect, GetAnchorHashEffect, GetBestChainHashEffect,
     IsOnBestChainEffect, LoadHeaderEffect, LoadPointEffect, NextBestChainEffect, ResourceHeaderStore,
     RollForwardChainEffect, SetAnchorPointEffect, SwitchToForkEffect,
 };
@@ -128,6 +128,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Header>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Point>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Result<Option<Point>, StoreError>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<(), StoreError>>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
@@ -140,7 +141,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<IsOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<FindAnchorForTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PruneBelowEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::UpdateConsensusModeEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordSyncAdoptionEffect>().boxed(),
@@ -225,8 +226,8 @@ pub fn te_find_ancestor_on_best_chain(at_stage: &str, hash: HeaderHash) -> Trace
     TraceEntry::suspend(Effect::external(at_stage, Box::new(FindAncestorOnBestChainEffect::new(hash))))
 }
 
-pub fn te_find_anchor_at_height(at_stage: &str, target_height: BlockHeight) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindAnchorAtHeightEffect::new(target_height))))
+pub fn te_find_anchor_for_tip(at_stage: &str, tip: Point, security_param: u64) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(FindAnchorForTipEffect::new(tip, security_param))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {

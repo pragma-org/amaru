@@ -653,6 +653,7 @@ impl MithrilSynchronizer {
         let ledger_config = ledger_config_for_network(self.network, self.ledger_dir.clone())?;
         let era_history = Arc::new(ledger_config.era_history.clone());
         let consensus_parameters = Arc::new(ledger_config.to_consensus_parameters());
+        let security_param = ledger_config.global_parameters.consensus_security_param;
         let state = make_state(&ledger_config, None, chain_store.clone())
             .map_err(|source| MithrilSyncError::Startup(source.into()))?;
         let stable_tip = state.tip().into_owned();
@@ -662,12 +663,13 @@ impl MithrilSynchronizer {
                 stored: NetworkPoint::from(stable_tip),
             });
         }
-        let (pool_summaries_tx, pool_summaries_rx) = watch::channel(state.pool_summaries());
+        advance_replay_anchor(chain_store.as_ref(), stable_tip, security_param)?;
+        let (pool_summaries_tx, pool_summaries_rx) = watch::channel(Arc::new(state.pool_summaries()));
         let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())
             .map_err(|source| store_error("start ledger worker", source))?;
         let ledger_stop = block_validator.thread_stop();
         block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
-            pool_summaries_tx.send_replace(summaries);
+            pool_summaries_tx.send_replace(Arc::new(summaries));
         }));
 
         let before = Instant::now();
@@ -709,6 +711,7 @@ impl MithrilSynchronizer {
                     &block_validator,
                     &mut pool_summaries,
                     era_history.clone(),
+                    security_param,
                     cancellation,
                     &raw_block,
                     block,
@@ -965,13 +968,28 @@ fn adopt_validated_block(chain_store: &dyn ChainStore, point: Point) -> anyhow::
     Ok(())
 }
 
+fn advance_replay_anchor(
+    chain_store: &dyn ChainStore,
+    tip: Point,
+    security_param: u64,
+) -> Result<(), MithrilSyncError> {
+    if let Some(anchor) = chain_store
+        .find_anchor_for_tip(tip, security_param)
+        .map_err(|source| store_error("find replay anchor", source))?
+    {
+        chain_store.set_anchor_point(&anchor).map_err(|source| store_error("advance replay anchor", source))?;
+    }
+    Ok(())
+}
+
 #[expect(clippy::too_many_arguments)]
 async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator,
-    pool_summaries: &mut watch::Receiver<PoolSummaries>,
+    pool_summaries: &mut watch::Receiver<Arc<PoolSummaries>>,
     era_history: Arc<EraHistory>,
+    security_param: u64,
     cancellation: &MithrilCancellation,
     raw_block: &RawBlock,
     block: Block,
@@ -983,7 +1001,7 @@ async fn process_block(
         .store_block(&point.hash(), raw_block)
         .map_err(|source| MithrilSyncError::Validation { point, source: source.into() })?;
     let nonces = loop {
-        let summaries = Arc::new(pool_summaries.borrow_and_update().clone());
+        let summaries = pool_summaries.borrow_and_update().clone();
         match validate_header(
             &block.header,
             consensus_parameters.clone(),
@@ -1018,11 +1036,12 @@ async fn process_block(
         })?;
     adopt_validated_block(chain_store.as_ref(), point)
         .map_err(|source| MithrilSyncError::Validation { point, source })?;
+    advance_replay_anchor(chain_store.as_ref(), point, security_param)?;
     Ok(())
 }
 
 async fn wait_for_stake_distribution(
-    pool_summaries: &mut watch::Receiver<PoolSummaries>,
+    pool_summaries: &mut watch::Receiver<Arc<PoolSummaries>>,
     target: amaru_kernel::Epoch,
     cancellation: &MithrilCancellation,
 ) -> Result<bool, MithrilSyncError> {
@@ -1091,6 +1110,42 @@ mod tests {
         store.roll_forward_chain(&from.point()).unwrap();
         store.store_validated_header(&target, &Nonces::for_tests()).unwrap();
         (store, from, target)
+    }
+
+    #[test]
+    fn replay_anchor_catches_up_to_the_stable_horizon() {
+        let store = InMemoryChainStore::new();
+        let mut parent = None;
+        let mut points = Vec::new();
+        for height in 1..=3 {
+            let header = make_header(height, height, parent);
+            parent = Some(header.hash());
+            store.store_header(&header).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+            points.push(header.point());
+        }
+        store.set_anchor_point(&points[0]).unwrap();
+
+        advance_replay_anchor(&store, points[2], 2).unwrap();
+        assert_eq!(store.get_anchor_point(), points[0]);
+
+        for height in 4..=8 {
+            let header = make_header(height, height, parent);
+            parent = Some(header.hash());
+            store.store_header(&header).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+            points.push(header.point());
+        }
+        advance_replay_anchor(&store, points[7], 2).unwrap();
+        assert_eq!(store.get_anchor_point(), points[5]);
+        advance_replay_anchor(&store, points[7], 2).unwrap();
+        assert_eq!(store.get_anchor_point(), points[5]);
+
+        let next = make_header(9, 9, parent);
+        store.store_header(&next).unwrap();
+        store.roll_forward_chain(&next.point()).unwrap();
+        advance_replay_anchor(&store, next.point(), 2).unwrap();
+        assert_eq!(store.get_anchor_point(), points[6]);
     }
 
     #[tokio::test]
@@ -1607,12 +1662,10 @@ mod tests {
     #[tokio::test]
     async fn replay_waits_for_a_background_stake_distribution() {
         let target = Epoch::from(1120);
-        let (sender, mut receiver) = watch::channel(PoolSummaries::default());
+        let (sender, mut receiver) = watch::channel(Arc::new(PoolSummaries::default()));
         let update = tokio::spawn(async move {
             tokio::task::yield_now().await;
-            sender.send_modify(|summaries| {
-                summaries.by_epoch.insert(target, BTreeMap::new());
-            });
+            sender.send_replace(Arc::new(PoolSummaries { by_epoch: BTreeMap::from([(target, BTreeMap::new())]) }));
         });
 
         assert!(wait_for_stake_distribution(&mut receiver, target, &MithrilCancellation::new()).await.unwrap());
