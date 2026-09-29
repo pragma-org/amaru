@@ -8,8 +8,10 @@ on:
         required: true
         type: boolean
         default: false
+  schedule:
+    - cron: "0 1 * * *"
   push:
-    branches: ["main", "release/*"]
+    branches: ["release/*"]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -566,7 +568,7 @@ jobs:
           subject-checksums: release-assets/amaru-${{ needs.build-metadata.outputs.version }}-checksums.manifest
 
   docker-nightly:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'schedule' }}
     needs: [build-metadata, rust-build]
     uses: ./.github/workflows/template-docker-publish.yml
     with:
@@ -583,12 +585,11 @@ jobs:
     # Run if:
     # - The job was not cancelled, and
     # - The rust-build job succeeded (the cbor conformance might have failed), and
-    # - This is a push to main (not a pull request)
+    # - This is the nightly build
     if: >-
       ${{ !cancelled()
           && needs.rust-build.result == 'success'
-          && github.event_name == 'push'
-          && github.ref == 'refs/heads/main' }}
+          && github.event_name == 'schedule' }}
     needs: [rust-build, cbor-conformance]
 
     runs-on: ubuntu-24.04
@@ -750,7 +751,7 @@ jobs:
   publish:
     name: Publish to GitHub Pages
     runs-on: ubuntu-24.04
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'schedule' }}
     needs: merge-artifacts
     environment:
       name: github-pages
