@@ -14,13 +14,10 @@
 
 //! Parallel outbound connection pool for the connection manager.
 //!
-//! The [`stage`] connector receives connect requests from the [`super::Manager`] and farms them
-//! out to up to [`DEFAULT_PARALLEL_CONNECTION`] worker sub-stages. Workers perform the blocking
-//! `connect` effect and report results back to the connector, which marks them idle and forwards
-//! the result to the manager.
-//!
-//! Reconnect delays are applied at the connector (via `schedule_after`) so that a delayed request
-//! does not occupy a worker slot.
+//! The [`stage`] connector queues peers that are waiting for a connection slot. At most
+//! [`DEFAULT_PARALLEL_CONNECTION`] attempts run at once. Workers perform the blocking
+//! `connect` effect and report results back to the connector, which marks them idle and
+//! forwards the result to the manager.
 
 use std::{collections::VecDeque, time::Duration};
 
@@ -37,64 +34,65 @@ pub const DEFAULT_PARALLEL_CONNECTION: usize = 10;
 /// Messages handled by the connector stage.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConnectorMsg {
-    /// Request a connection attempt, optionally after `delay`.
-    ///
-    /// Sent by the manager (and re-enqueued by the connector itself after a reconnect delay).
-    Connect { peer: Peer, delay: Duration },
+    /// Request a connection attempt.
+    Connect { peer: Peer },
     /// A worker finished a connection attempt and is idle again.
     WorkerDone { peer: Peer, result: Result<ConnectionId, ConnectError>, worker: StageRef<Peer> },
 }
 
-/// State of the connector stage: a pool of workers and a queue of pending peers.
+/// State of the connector stage: a worker pool and a queue of deferred connects.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connector {
     manager: StageRef<ManagerMessage>,
     connection_timeout: Duration,
     idle: Vec<StageRef<Peer>>,
-    pending: VecDeque<Peer>,
+    deferred: VecDeque<Peer>,
     workers_created: usize,
 }
 
 impl Connector {
     pub fn new(connection_timeout: Duration, manager: StageRef<ManagerMessage>) -> Self {
-        Self { manager, connection_timeout, idle: Vec::new(), pending: VecDeque::new(), workers_created: 0 }
+        Self { manager, connection_timeout, idle: Vec::new(), deferred: VecDeque::new(), workers_created: 0 }
     }
 
-    async fn try_dispatch(&mut self, eff: &Effects<ConnectorMsg>) {
-        while let Some(peer) = self.pending.pop_front() {
-            if let Some(worker) = self.idle.pop() {
-                eff.send(&worker, peer).await;
-            } else if self.workers_created < DEFAULT_PARALLEL_CONNECTION {
-                let name = format!("connect-worker-{}", self.workers_created);
-                let build = eff.stage(name, worker_stage).await;
-                let worker = eff.wire_up(build, Worker::new(eff.me(), self.connection_timeout)).await;
-                self.workers_created += 1;
-                eff.send(&worker, peer).await;
-            } else {
-                self.pending.push_front(peer);
-                break;
-            }
+    fn in_flight(&self) -> usize {
+        self.workers_created - self.idle.len()
+    }
+
+    async fn start(&mut self, peer: Peer, eff: &Effects<ConnectorMsg>) {
+        if let Some(worker) = self.idle.pop() {
+            eff.send(&worker, peer).await;
+            return;
+        }
+        let name = format!("connect-worker-{}", self.workers_created);
+        let build = eff.stage(name, worker_stage).await;
+        let worker = eff.wire_up(build, Worker::new(eff.me(), self.connection_timeout)).await;
+        self.workers_created += 1;
+        eff.send(&worker, peer).await;
+    }
+
+    /// Start queued peers while a connection slot is free.
+    async fn pump(&mut self, eff: &Effects<ConnectorMsg>) {
+        while self.in_flight() < DEFAULT_PARALLEL_CONNECTION
+            && let Some(peer) = self.deferred.pop_front()
+        {
+            self.start(peer, eff).await;
         }
     }
 }
 
-/// Connector stage: queues requests, manages the worker pool, and forwards results to the manager.
+/// Connector stage: queues deferred connects, limits in-flight attempts, and forwards results.
 pub async fn stage(mut state: Connector, msg: ConnectorMsg, eff: Effects<ConnectorMsg>) -> Connector {
     match msg {
-        ConnectorMsg::Connect { peer, delay } => {
-            if delay > Duration::ZERO {
-                eff.schedule_after(ConnectorMsg::Connect { peer, delay: Duration::ZERO }, delay).await;
-                return state;
-            }
-            state.pending.push_back(peer);
-            state.try_dispatch(&eff).await;
+        ConnectorMsg::Connect { peer } => {
+            state.deferred.push_back(peer);
         }
         ConnectorMsg::WorkerDone { peer, result, worker } => {
             eff.send(&state.manager, ManagerMessage::ConnectionResult(peer, result)).await;
             state.idle.push(worker);
-            state.try_dispatch(&eff).await;
         }
     }
+    state.pump(&eff).await;
     state
 }
 
@@ -161,7 +159,7 @@ mod tests {
         let peers: Vec<_> = (0..DEFAULT_PARALLEL_CONNECTION + 1).map(|i| Peer::for_test(3000 + i as u16)).collect();
 
         for &peer in &peers {
-            running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay: Duration::ZERO }]);
+            running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer }]);
         }
 
         let mut workers = Vec::new();
@@ -183,8 +181,8 @@ mod tests {
             .assert_busy((0..DEFAULT_PARALLEL_CONNECTION).map(|i| format!("connect-worker-{i}")));
 
         let state = running.get_state(&connector).expect("connector idle after dispatching");
-        assert_eq!(state.pending.len(), 1);
-        assert_eq!(state.pending.front(), Some(&peers[DEFAULT_PARALLEL_CONNECTION]));
+        assert_eq!(state.deferred.len(), 1);
+        assert_eq!(state.deferred.front(), Some(&peers[DEFAULT_PARALLEL_CONNECTION]));
         assert_eq!(state.workers_created, DEFAULT_PARALLEL_CONNECTION);
         assert!(state.idle.is_empty());
         assert_eq!(workers.len(), DEFAULT_PARALLEL_CONNECTION);
@@ -206,43 +204,6 @@ mod tests {
     }
 
     #[test]
-    fn delay_does_not_occupy_a_worker() {
-        let timeout = Duration::from_secs(10);
-        let (network, connector, _rx) = setup_connector(timeout);
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let mut running = network.run(rt.handle());
-
-        running.breakpoint(
-            "connect",
-            |eff| matches!(eff, Effect::External { effect, .. } if effect.is::<ConnectEffect>()),
-        );
-
-        let peer = Peer::for_test(3001);
-        let delay = Duration::from_secs(2);
-        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay }]);
-
-        // skip_wakeups advances sleep; default stops so the delay is visible.
-        let sleeping_until = running.run(Run::default()).assert_sleeping();
-        let state = running.get_state(&connector).expect("connector idle during delay");
-        assert_eq!(state.workers_created, 0);
-        assert!(state.pending.is_empty());
-        assert!(state.idle.is_empty());
-
-        assert!(running.skip_to_next_wakeup(Some(sleeping_until)), "expected to wake up connector");
-
-        running.run(Run::skip_wakeups()).assert_breakpoint("connect");
-        {
-            let hit = running.breakpoint_effect();
-            let Effect::External { at_stage, effect } = hit.effect() else {
-                panic!("expected ConnectEffect, got {:?}", hit.effect());
-            };
-            assert!(at_stage.as_str().starts_with("connect-worker-0-"), "expected first worker, got {at_stage}");
-            let got = effect.cast_ref::<ConnectEffect>().expect("ConnectEffect");
-            assert_eq!(got, &ConnectEffect { peer, timeout });
-        }
-    }
-
-    #[test]
     fn forwards_connection_result_to_manager() {
         let timeout = Duration::from_secs(10);
         let (network, connector, mut rx) = setup_connector(timeout);
@@ -253,7 +214,7 @@ mod tests {
         running.override_external_effect::<ConnectEffect>(usize::MAX, move |_| OverrideResult::handled(Ok(conn_id)));
 
         let peer = Peer::for_test(4000);
-        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, delay: Duration::ZERO }]);
+        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer }]);
         running.run(Run::skip_and_resolve()).assert_idle();
 
         let msgs: Vec<_> = rx.drain().collect();
@@ -261,7 +222,7 @@ mod tests {
 
         let state = running.get_state(&connector).unwrap();
         assert_eq!(state.idle.len(), 1);
-        assert!(state.pending.is_empty());
+        assert!(state.deferred.is_empty());
         assert_eq!(state.workers_created, 1);
     }
 }

@@ -7456,24 +7456,6 @@
       "description": "A connection request for a peer was discarded. Reason ∈ {already_connected_or_scheduled, already_connected, not_added}.",
       "public": true
     },
-    "amaru::protocols::manager::peer::CONNECT_EXHAUSTED": {
-      "type": "object",
-      "properties": {
-        "peer": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "peer"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "connect_exhausted",
-      "level": "TRACE",
-      "target": "amaru::protocols::manager::peer",
-      "description": "A peer is dropped after exhausting its connection attempts",
-      "public": true
-    },
     "amaru::protocols::manager::peer::CONNECT_FAILED": {
       "type": "object",
       "properties": {

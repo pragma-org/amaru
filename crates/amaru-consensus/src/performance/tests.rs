@@ -338,8 +338,7 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
     );
     peers.apply_connection_failure(bad, t(1));
 
-    // Open=1: should strongly prefer never-connected good over failed bad.
-    let mut good_picks = 0;
+    // A fresh failure ranks behind a never-connected peer, so the one open slot stays with the healthy peer.
     for i in 0..20u8 {
         let seed = [i; 32];
         let picked = peers.apply_select_outbound(SelectOutboundParams {
@@ -349,11 +348,74 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
             seed,
             now: t(1),
         });
-        if picked.outbound.iter().map(|p| p.candidate.as_peer()).collect::<Vec<_>>() == vec![Some(good)] {
-            good_picks += 1;
-        }
+        assert_eq!(
+            picked.outbound.iter().map(|p| p.candidate.as_peer()).collect::<Vec<_>>(),
+            vec![Some(good)],
+            "seed {i} offered the failed peer"
+        );
     }
-    assert!(good_picks >= 15, "good_picks={good_picks}");
+}
+
+#[test]
+fn failed_hostname_is_offered_when_nothing_better_remains() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use crate::performance::{PeerMix, PeerSource, SelectOutboundParams};
+
+    let host = PeerCandidate::host("relay.example".parse().unwrap(), 3001);
+    let resolved = peer("10.9.9.9:3001");
+    let mut peers = PeerPerformance::with_sources(
+        BTreeSet::new(),
+        BTreeSet::from([host.clone()]),
+        BTreeSet::new(),
+        PeerMix::parse("snapshot~1@10s").unwrap(),
+    );
+    peers.apply_note_dial(PeerSource::Snapshot, &host, resolved);
+    peers.apply_connection_failure(resolved, t(0));
+
+    let picked = peers.apply_select_outbound(SelectOutboundParams {
+        open: 1,
+        excluded: BTreeSet::new(),
+        eligible_inbound: 0,
+        seed: [0x42; 32],
+        now: t(0),
+    });
+    assert_eq!(picked.outbound.len(), 1, "malus must not drop the only candidate");
+    assert_eq!(picked.outbound[0].candidate, host);
+}
+
+#[test]
+fn open_slots_fill_worse_scores_after_better_ones() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use crate::performance::{PeerMix, PeerSource, SelectOutboundParams};
+
+    let fresh = PeerCandidate::host("fresh.example".parse().unwrap(), 3001);
+    let failed = PeerCandidate::host("failed.example".parse().unwrap(), 3001);
+    let resolved = peer("10.9.9.9:3001");
+    let mut peers = PeerPerformance::with_sources(
+        BTreeSet::new(),
+        BTreeSet::from([fresh.clone(), failed.clone()]),
+        BTreeSet::new(),
+        PeerMix::parse("snapshot~1@10s").unwrap(),
+    );
+    peers.apply_note_dial(PeerSource::Snapshot, &failed, resolved);
+    peers.apply_connection_failure(resolved, t(0));
+
+    let picked = peers.apply_select_outbound(SelectOutboundParams {
+        open: 2,
+        excluded: BTreeSet::new(),
+        eligible_inbound: 0,
+        seed: [0x42; 32],
+        now: t(0),
+    });
+    assert_eq!(picked.outbound.len(), 2);
+    assert_eq!(picked.outbound[0].candidate, fresh);
+    assert_eq!(picked.outbound[1].candidate, failed);
 }
 
 #[test]

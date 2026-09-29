@@ -56,8 +56,9 @@ pub enum PeerSelectionNotify {
     /// The connection is gone. peer-selection owns redial via `Dial` message.
     Disconnected { peer: Peer, conn_id: ConnectionId, direction: ConnectionDirection },
 
-    /// An outbound connection attempt has failed (e.g. connection timeout, handshake refusal, network error)
-    /// for a number of tries, see [`ManagerConfig::connect_retries`].
+    /// The outbound connection attempt failed (timeout, refusal, or another network error).
+    ///
+    /// The manager does not retry. Peer selection decides whether to [`ManagerMessage::AddPeer`] again.
     ConnectFailed { peer: Peer },
 
     /// Inbound peer-sharing request: select addresses to advertise and reply on `reply_to`.
@@ -66,9 +67,10 @@ pub enum PeerSelectionNotify {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ManagerMessage {
-    /// Start outgoing connection attempts to the given peer until successful or retries exhausted.
+    /// Start one outbound connection attempt to the given peer.
     ///
-    /// After a successful session dies, peer selection issues a new `Dial`; the manager does not redial.
+    /// A failed attempt is reported as [`PeerSelectionNotify::ConnectFailed`] and is not retried.
+    /// After a successful session dies, peer selection issues a new `AddPeer`; the manager does not redial.
     AddPeer(Peer),
     /// Remove a peer and terminate all of its connections.
     RemovePeer(Peer),
@@ -174,11 +176,12 @@ impl ManagerMessage {
 /// When the connection dies, there are no retries and the manager immediately notifies
 /// `peer_selection` about the disconnection.
 ///
-/// An outbound connection is initiated by sending `ManagerMessage::AddPeer`. The manager will
-/// then try to connect to that peer until successful or retries exhausted. After a successful
-/// connection and handshake, the manager notifies `peer_selection` about the new connection.
-/// When the connection dies, the manager notifies `peer_selection` and does **not** redial.
-/// Peer selection decides whether to `AddPeer` again.
+/// An outbound connection is initiated by sending `ManagerMessage::AddPeer`. The manager makes
+/// one attempt. If it fails, the manager notifies `peer_selection` with
+/// [`PeerSelectionNotify::ConnectFailed`] and does not retry. After a successful connection and
+/// handshake, the manager notifies `peer_selection` about the new connection. When the connection
+/// dies, the manager notifies `peer_selection` and does **not** redial. Peer selection decides
+/// whether to `AddPeer` again.
 ///
 /// ## Behavioural contracts
 ///
@@ -188,8 +191,7 @@ impl ManagerMessage {
 ///   This also holds true if [`ManagerMessage::RemovePeer`] is processed between.
 ///
 /// - Sending [`ManagerMessage::AddPeer`] will generate [`PeerSelectionNotify::ConnectFailed`]
-///   if the connection cannot be (re)established before [`ManagerMessage::RemovePeer`] is
-///   received.
+///   if that attempt fails before [`ManagerMessage::RemovePeer`] is received.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Manager {
     peers: BTreeMap<Peer, PeerState>,
@@ -207,9 +209,8 @@ pub struct Manager {
 enum OutboundState {
     #[default]
     None,
-    Scheduled {
-        retries: u16,
-    },
+    /// `AddPeer` has been accepted and the attempt has not yet succeeded or failed.
+    Scheduled,
     Connected {
         conn_id: ConnectionId,
     },
@@ -264,9 +265,9 @@ impl Manager {
 /// Parameters for the Manager: connection timeout, reconnection delay, etc...
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ManagerConfig {
+    /// How long one outbound TCP connect attempt may run before it fails.
     pub connection_timeout: Duration,
     pub reconnect_delay: Duration,
-    pub connect_retries: u16,
     pub accept_interval: Duration,
     pub tx_submission_params: ResponderParams,
     /// BlockFetch initiator pipeline depth. `1` drives the lock-step typestate
@@ -290,11 +291,6 @@ impl ManagerConfig {
 
     pub fn with_connection_timeout(mut self, connection_timeout: Duration) -> Self {
         self.connection_timeout = connection_timeout;
-        self
-    }
-
-    pub fn with_connect_retries(mut self, retries: u16) -> Self {
-        self.connect_retries = retries;
         self
     }
 
@@ -322,9 +318,8 @@ impl ManagerConfig {
 impl Default for ManagerConfig {
     fn default() -> Self {
         Self {
-            connection_timeout: Duration::from_secs(10),
+            connection_timeout: Duration::from_secs(2),
             reconnect_delay: Duration::from_secs(2),
-            connect_retries: 3,
             accept_interval: Duration::from_millis(100),
             tx_submission_params: ResponderParams::default(),
             blockfetch_pipeline_n: NonZeroU8::MIN,
@@ -337,50 +332,38 @@ impl Default for ManagerConfig {
 
 impl Manager {
     async fn add_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
-        let state = self.peers.entry(peer).or_default();
-        match &state.outbound {
-            OutboundState::Connected { .. } | OutboundState::Scheduled { .. } => {
-                info!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "already_connected_or_scheduled");
-            }
-            OutboundState::None => {
-                info!(protocols::manager::peer::CONNECT, peer);
-                state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
-                self.connect(peer, true, eff).await;
-            }
+        let already_dialing = matches!(
+            self.peers.get(&peer).map(|state| &state.outbound),
+            Some(OutboundState::Connected { .. } | OutboundState::Scheduled)
+        );
+        if already_dialing {
+            info!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "already_connected_or_scheduled");
+            return;
         }
+        info!(protocols::manager::peer::CONNECT, peer);
+        self.peers.entry(peer).or_default().outbound = OutboundState::Scheduled;
+        eff.ensure_child(&mut self.connector, "connector", connector::stage, || {
+            connector::Connector::new(self.config.connection_timeout, eff.me())
+        })
+        .await;
+        eff.send(&self.connector, connector::ConnectorMsg::Connect { peer }).await;
     }
 
-    async fn connect(&mut self, peer: Peer, immediate: bool, eff: &Effects<ManagerMessage>) {
-        let (has_inbound, attempts) = match self.peers.get_mut(&peer) {
-            Some(PeerState { outbound: OutboundState::Connected { .. }, .. }) => {
-                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "already_connected");
-                return;
-            }
-            Some(PeerState { outbound: OutboundState::Scheduled { retries }, inbound, .. }) => {
-                (inbound.is_some(), retries)
-            }
-            None | Some(PeerState { outbound: OutboundState::None, .. }) => {
-                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer, reason = "not_added");
-                return;
-            }
+    /// Report a failed attempt and forget the outbound dial. In-flight results for a peer that
+    /// was removed, or that is already connected, are ignored.
+    async fn abandon_attempt(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
+        let has_inbound = match self.peers.get(&peer) {
+            Some(state) if matches!(state.outbound, OutboundState::Scheduled) => state.inbound.is_some(),
+            _ => return,
         };
-        if *attempts > 0 {
-            *attempts -= 1;
-            eff.ensure_child(&mut self.connector, "connector", connector::stage, || {
-                connector::Connector::new(self.config.connection_timeout, eff.me())
-            })
-            .await;
-            let delay = if immediate { Duration::ZERO } else { self.config.reconnect_delay };
-            eff.send(&self.connector, connector::ConnectorMsg::Connect { peer, delay }).await;
-        } else {
-            info!(protocols::manager::peer::CONNECT_EXHAUSTED, peer);
-            if !has_inbound {
-                self.peers.remove(&peer);
-            } else if let Some(state) = self.peers.get_mut(&peer) {
+        if has_inbound {
+            if let Some(state) = self.peers.get_mut(&peer) {
                 state.outbound = OutboundState::None;
             }
-            eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer }).await;
+        } else {
+            self.peers.remove(&peer);
         }
+        eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer }).await;
     }
 
     async fn connection_result(
@@ -396,7 +379,7 @@ impl Manager {
             }
             Err(err) => {
                 info!(protocols::manager::peer::CONNECT_FAILED, peer, error = err.to_string());
-                self.connect(peer, false, eff).await;
+                self.abandon_attempt(peer, eff).await;
             }
         }
     }

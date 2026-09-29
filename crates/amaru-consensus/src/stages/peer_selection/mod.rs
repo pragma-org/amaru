@@ -57,6 +57,8 @@ pub(crate) const CHURN_REPROMOTE_DELAY: Duration = Duration::from_secs(10);
 pub(crate) const UNINTERESTING_RETRY: Duration = Duration::from_secs(120);
 /// Retry Using after a rollback past the intersection.
 const UNINTERESTING_RETRY_AFTER_ROLLBACK: Duration = Duration::from_secs(180);
+/// After a dial or a connection failure, do not dial that peer again until this elapses.
+const DIAL_HOLDOFF: Duration = Duration::from_secs(2);
 
 fn churn_interval(seed: [u8; 32]) -> Duration {
     let mut bytes = [0u8; 8];
@@ -123,9 +125,9 @@ fn churn_interval(seed: [u8; 32]) -> Duration {
 /// - **Resolved**: DNS result for a selected bootstrap candidate (at most one
 ///   [`Peer`]). On success, notes the dial origin for malus, dials that address,
 ///   then `regulate_peers`. The candidate stays in its pool. On failure, the
-///   candidate is held in `resolve_backoff` for 30s, other slots are refilled
-///   immediately, and a delayed [`PeerSelectionMsg::Regulate`] is armed if the
-///   outbound target is still short.
+///   candidate is held in `resolve_backoff` for 30s and other slots are refilled
+///   immediately. At most one delayed [`PeerSelectionMsg::Regulate`] is armed, for the
+///   earliest backoff, and only while the outbound target is still short.
 ///
 /// - **Adversarial**: Debug-logs `peer_selection.peer.adversarial`. Delegates to
 ///   `ban_peer`: removes the peer from `inbound_peers` (if present;
@@ -175,7 +177,9 @@ fn churn_interval(seed: [u8; 32]) -> Duration {
 ///     (Share-request timers die with the connection's peer-sharing stage.)
 ///
 /// - **ConnectFailed**: Records a connection failure on Performance, removes the peer from
-///   `outbound_peers` (any `PeerState`), then calls `regulate_peers`.
+///   `outbound_peers` (any `PeerState`), holds the peer off the dial pool for `DIAL_HOLDOFF`,
+///   then calls `regulate_peers`. Malus makes the peer less preferred; it is still dialled when
+///   no healthier candidate fills the open slots, once the hold-off has elapsed.
 ///
 /// - **SharePeersResult**: Inserts learned addresses into `shared_peers`, then
 ///   `regulate_peers` (no reschedule — initiator keeps the cadence).
@@ -214,14 +218,21 @@ fn churn_interval(seed: [u8; 32]) -> Duration {
 /// Using) is at `target_upstream_peers`. Eligible Maintenance outbound is promoted first.
 /// Otherwise it obtains a seed via `eff.external(GenerateRandomSeed)` and asks Performance
 /// to allot remaining slots across the mix, including `inbound` (duplex inbound promotions)
-/// and outbound [`PeerCandidate`]s (quality-weighted sample within each source;
-/// hard exclude outbound + cool-down + in-flight resolve). Socket candidates are
+/// and outbound [`PeerCandidate`]s (best score first, then worse scores, within each source;
+/// hard exclude outbound + cool-down + in-flight resolve + a peer still inside `DIAL_HOLDOFF`
+/// of a dial or connection failure). Socket candidates are
 /// dialled immediately; Host/SRV candidates are resolved via
 /// [`ResolvePeerCandidate`] and dialled when [`PeerSelectionMsg::Resolved`] arrives.
 ///
 /// Schedules (via `Effects`):
 /// - At most one `CheckCooldowns` armed via `schedule_at` (from `cool_down` /
 ///   `arm_next_cooldown`); remaining cool-downs live only in the min-heap.
+/// - At most one `Regulate` armed for failed name lookups, at the earliest
+///   `resolve_backoff` deadline, and only while outbound slots are still open.
+/// - At most one `Regulate` armed for the earliest dial hold-off (`DIAL_HOLDOFF` after a
+///   connect attempt or a connection failure), and only while a slot is still open and that
+///   peer is not already outbound.
+/// - At most one `CheckPromotions` armed for the earliest `demoted_until` entry.
 /// - Child-internal `()` triggers (60s cadence, conditional on height delta).
 ///
 /// Other effects used: `eff.send` (to manager and child), `eff.clock`, `eff.schedule_at`,
@@ -267,6 +278,13 @@ pub struct PeerSelection {
     bound: BTreeMap<PeerCandidate, Peer>,
     /// Failed Host/SRV lookups that must not be re-selected until the stored instant.
     resolve_backoff: BTreeMap<PeerCandidate, Instant>,
+    /// Candidates not dialled again until this instant. A connect attempt and a connection
+    /// failure each push the deadline out by [`DIAL_HOLDOFF`].
+    dial_holdoff: BTreeMap<PeerCandidate, Instant>,
+    /// Single wake for the earliest dialable [`Self::dial_holdoff`] entry. Ignored in [`PartialEq`].
+    dial_holdoff_timer: Option<ScheduleId>,
+    /// Single wake for the earliest [`Self::resolve_backoff`] entry. Ignored in [`PartialEq`].
+    resolve_timer: Option<ScheduleId>,
     /// Contramap target for peer-sharing replies ([`ShareResult`] → [`PeerSelectionMsg::SharePeersResult`]).
     /// Ignored in [`PartialEq`] (lazily wired, test-unstable name).
     share_reply: StageRef<ShareResult>,
@@ -278,6 +296,8 @@ pub struct PeerSelection {
     churn_timer: Option<ScheduleId>,
     /// Peers demoted from Using that must not be re-promoted until this instant.
     demoted_until: BTreeMap<Peer, Instant>,
+    /// Single wake for the earliest [`Self::demoted_until`] entry. Ignored in [`PartialEq`].
+    promote_timer: Option<ScheduleId>,
 }
 
 impl PartialEq for PeerSelection {
@@ -293,10 +313,13 @@ impl PartialEq for PeerSelection {
             && self.pending_resolve == other.pending_resolve
             && self.bound == other.bound
             && self.resolve_backoff == other.resolve_backoff
+            && self.dial_holdoff == other.dial_holdoff
             && self.share_request_initial_delay == other.share_request_initial_delay
             && self.share_request_interval == other.share_request_interval
             && self.demoted_until == other.demoted_until
-        // share_reply and churn_timer intentionally omitted
+        // share_reply, churn_timer, resolve_timer, dial_holdoff_timer, and promote_timer
+        // intentionally omitted: each is the single armed id for a deadline that already lives
+        // in the maps above.
     }
 }
 
@@ -372,6 +395,8 @@ pub enum PeerSelectionMsg {
     Uninteresting { peer: Peer, conn_id: ConnectionId, after_rollback: bool },
     /// Reconsider a previously demoted outbound bearer as Using.
     Promote { peer: Peer, conn_id: ConnectionId },
+    /// Wake for the earliest demotion deadline and promote every bearer whose time has come.
+    CheckPromotions,
     /// Reply from the peer-sharing initiator (one result per request cycle).
     SharePeersResult { peer: Peer, peers: Vec<SocketAddr> },
     /// Server-side peer-sharing: select addresses to advertise to `peer` and reply on `reply_to`.
@@ -411,11 +436,15 @@ impl PeerSelection {
             pending_resolve: BTreeSet::new(),
             bound: BTreeMap::new(),
             resolve_backoff: BTreeMap::new(),
+            dial_holdoff: BTreeMap::new(),
+            dial_holdoff_timer: None,
+            resolve_timer: None,
             share_reply: StageRef::blackhole(),
             share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
             share_request_interval: SHARE_REQUEST_INTERVAL,
             churn_timer: None,
             demoted_until: BTreeMap::new(),
+            promote_timer: None,
         }
     }
 
@@ -524,6 +553,8 @@ impl PeerSelection {
         peer: Peer,
         eff: &Effects<PeerSelectionMsg>,
     ) {
+        let now = eff.clock().await;
+        self.hold_dial(candidate.clone(), peer, now);
         eff.external(Performance::note_dial(origin, candidate.clone(), peer)).await;
         if candidate.needs_resolution() {
             self.bound.insert(candidate, peer);
@@ -531,6 +562,73 @@ impl PeerSelection {
         info!(protocols::peer_selection::peer::ADDED, peer, was_banned = false);
         eff.send(&self.manager, ManagerMessage::AddPeer(peer)).await;
         self.outbound_peers.insert(peer, PeerState::Connecting);
+    }
+
+    /// Push the dial deadline for `peer` and the candidate that named it.
+    fn hold_dial(&mut self, candidate: PeerCandidate, peer: Peer, now: Instant) {
+        let until = now + DIAL_HOLDOFF;
+        self.push_dial_holdoff(candidate, until);
+        self.push_dial_holdoff(PeerCandidate::from(peer), until);
+    }
+
+    /// Push the dial deadline for `peer` and any name still bound to it.
+    fn hold_dial_many(&mut self, peer: Peer, also: impl IntoIterator<Item = PeerCandidate>, now: Instant) {
+        let until = now + DIAL_HOLDOFF;
+        self.push_dial_holdoff(PeerCandidate::from(peer), until);
+        for candidate in also {
+            self.push_dial_holdoff(candidate, until);
+        }
+    }
+
+    fn push_dial_holdoff(&mut self, candidate: PeerCandidate, until: Instant) {
+        let slot = self.dial_holdoff.entry(candidate).or_insert(until);
+        if *slot < until {
+            *slot = until;
+        }
+    }
+
+    fn related_candidates(&self, peer: Peer) -> Vec<PeerCandidate> {
+        self.bound.iter().filter(|(_, bound)| **bound == peer).map(|(candidate, _)| candidate.clone()).collect()
+    }
+
+    /// Arm one `Regulate` for the earliest hold-off whose peer is not already outbound.
+    async fn sync_dial_holdoff_timer(&mut self, now: Instant, eff: &Effects<PeerSelectionMsg>) {
+        self.dial_holdoff.retain(|_, until| *until > now);
+        if self.using_occupancy() >= self.target_upstream_peers {
+            self.clear_dial_holdoff_timer(eff).await;
+            return;
+        }
+        let Some(when) = self.next_dial_opportunity(now) else {
+            self.clear_dial_holdoff_timer(eff).await;
+            return;
+        };
+        if let Some(id) = self.dial_holdoff_timer {
+            if id.time() <= when {
+                return;
+            }
+            eff.cancel_schedule(id).await;
+        }
+        let id = eff.schedule_at(PeerSelectionMsg::Regulate, when).await;
+        self.dial_holdoff_timer = Some(id);
+    }
+
+    fn next_dial_opportunity(&self, now: Instant) -> Option<Instant> {
+        self.dial_holdoff
+            .iter()
+            .filter_map(|(candidate, until)| {
+                if *until <= now {
+                    return None;
+                }
+                let already_out = candidate.as_peer().is_some_and(|peer| self.outbound_peers.contains_key(&peer));
+                if already_out { None } else { Some(*until) }
+            })
+            .min()
+    }
+
+    async fn clear_dial_holdoff_timer(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        if let Some(id) = self.dial_holdoff_timer.take() {
+            eff.cancel_schedule(id).await;
+        }
     }
 
     fn using_occupancy(&self) -> usize {
@@ -594,8 +692,26 @@ impl PeerSelection {
         self.demoted_until.insert(peer, until);
         info!(protocols::peer_selection::peer::DEMOTED, peer, conn_id = conn_id.as_u64(), reason);
         eff.send(&self.manager, ManagerMessage::SetLocalUse { peer, conn_id, local_use: LocalUse::Maintenance }).await;
-        let _promote = eff.schedule_at(PeerSelectionMsg::Promote { peer, conn_id }, until).await;
+        self.sync_promotion_timer(eff).await;
         true
+    }
+
+    /// Arm one promotion wake for the earliest demotion, or cancel it when none remain.
+    async fn sync_promotion_timer(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        let Some(when) = self.demoted_until.values().copied().min() else {
+            if let Some(id) = self.promote_timer.take() {
+                eff.cancel_schedule(id).await;
+            }
+            return;
+        };
+        if let Some(id) = self.promote_timer {
+            if id.time() <= when {
+                return;
+            }
+            eff.cancel_schedule(id).await;
+        }
+        let id = eff.schedule_at(PeerSelectionMsg::CheckPromotions, when).await;
+        self.promote_timer = Some(id);
     }
 
     async fn try_promote(&mut self, peer: Peer, conn_id: ConnectionId, now: Instant, eff: &Effects<PeerSelectionMsg>) {
@@ -711,6 +827,8 @@ impl PeerSelection {
         let target_upstream_peers = self.target_upstream_peers;
         let occupancy = self.using_occupancy();
         if occupancy >= target_upstream_peers {
+            self.sync_dial_holdoff_timer(now, eff).await;
+            self.sync_resolve_timer(eff).await;
             return;
         }
         let open = target_upstream_peers - occupancy;
@@ -733,6 +851,8 @@ impl PeerSelection {
         excluded.extend(self.bound.keys().cloned());
         self.resolve_backoff.retain(|_, until| *until > now);
         excluded.extend(self.resolve_backoff.keys().cloned());
+        self.dial_holdoff.retain(|_, until| *until > now);
+        excluded.extend(self.dial_holdoff.keys().cloned());
         let SelectUsing { inbound, outbound } = eff
             .external(Performance::select_outbound(SelectOutboundParams {
                 open,
@@ -759,6 +879,34 @@ impl PeerSelection {
                         .await;
                 }
             }
+        }
+        self.sync_dial_holdoff_timer(now, eff).await;
+        self.sync_resolve_timer(eff).await;
+    }
+
+    /// Arm one `Regulate` for the earliest failed lookup, and only while a slot is still open.
+    async fn sync_resolve_timer(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        if self.using_occupancy() >= self.target_upstream_peers {
+            self.clear_resolve_timer(eff).await;
+            return;
+        }
+        let Some(when) = self.resolve_backoff.values().copied().min() else {
+            self.clear_resolve_timer(eff).await;
+            return;
+        };
+        if let Some(id) = self.resolve_timer {
+            if id.time() <= when {
+                return;
+            }
+            eff.cancel_schedule(id).await;
+        }
+        let id = eff.schedule_at(PeerSelectionMsg::Regulate, when).await;
+        self.resolve_timer = Some(id);
+    }
+
+    async fn clear_resolve_timer(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        if let Some(id) = self.resolve_timer.take() {
+            eff.cancel_schedule(id).await;
         }
     }
 
@@ -973,6 +1121,9 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             if let Some(old_id) = disconnect_old {
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, old_id)).await;
             }
+            let names = state.related_candidates(peer);
+            state.hold_dial_many(peer, names, now);
+            state.sync_dial_holdoff_timer(now, &eff).await;
             eff.send(
                 &state.manager,
                 ManagerMessage::SetLocalUse { peer, conn_id: connection.id, local_use: LocalUse::Diffusion },
@@ -1024,6 +1175,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         PeerSelectionMsg::ConnectFailed(peer) => {
             let now = eff.clock().await;
             eff.external(Performance::record_connection_failure(peer, now)).await;
+            let names = state.related_candidates(peer);
+            state.hold_dial_many(peer, names, now);
             state.outbound_peers.remove(&peer);
             state.unbind_peer(&peer);
             state.demoted_until.remove(&peer);
@@ -1040,6 +1193,19 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
         }
         PeerSelectionMsg::Regulate => {
+            let now = eff.clock().await;
+            if let Some(id) = state.resolve_timer
+                && id.time() <= now
+            {
+                eff.cancel_schedule(id).await;
+                state.resolve_timer = None;
+            }
+            if let Some(id) = state.dial_holdoff_timer
+                && id.time() <= now
+            {
+                eff.cancel_schedule(id).await;
+                state.dial_holdoff_timer = None;
+            }
             state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::ShareRequest { peer, amount, reply_to } => {
@@ -1056,24 +1222,24 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 let now = eff.clock().await;
                 state.resolve_backoff.insert(candidate, now + RESOLUTION_RETRY_DELAY);
                 state.regulate_peers(&eff).await;
-                if state.using_occupancy() < state.target_upstream_peers {
-                    eff.schedule_at(PeerSelectionMsg::Regulate, now + RESOLUTION_RETRY_DELAY).await;
-                }
                 return state;
             };
+            if state.cooldowns.is_cooling(&peer) || state.outbound_peers.contains_key(&peer) {
+                // The address is already banned or dialing. Remember which name produced it and
+                // keep that name out of the pool; regulating before the link is recorded selects
+                // the same candidate again and floods `peer.resolved`.
+                eff.external(Performance::note_dial(origin, candidate.clone(), peer)).await;
+                if candidate.needs_resolution() {
+                    state.bound.insert(candidate, peer);
+                }
+                return state;
+            }
             info!(
                 protocols::peer_selection::peer::RESOLVED,
                 candidate = candidate.to_string(),
                 origin = origin.as_str(),
                 peer,
             );
-            if state.cooldowns.is_cooling(&peer) {
-                return state;
-            }
-            if state.outbound_peers.contains_key(&peer) {
-                state.regulate_peers(&eff).await;
-                return state;
-            }
             state.start_dial(candidate, origin, peer, &eff).await;
             state.regulate_peers(&eff).await;
         }
@@ -1094,6 +1260,14 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         PeerSelectionMsg::Promote { peer, conn_id } => {
             let now = eff.clock().await;
             state.try_promote(peer, conn_id, now, &eff).await;
+        }
+        PeerSelectionMsg::CheckPromotions => {
+            if let Some(id) = state.promote_timer.take() {
+                eff.cancel_schedule(id).await;
+            }
+            let now = eff.clock().await;
+            state.promote_eligible_maintenance(now, &eff).await;
+            state.sync_promotion_timer(&eff).await;
         }
     }
     state

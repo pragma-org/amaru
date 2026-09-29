@@ -2051,10 +2051,6 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required reason: String
                     }
-                    /// A peer is dropped after exhausting its connection attempts
-                    public CONNECT_EXHAUSTED {
-                        required peer: %amaru_kernel::Peer
-                    }
                     /// An outbound connection to a peer was established
                     public CONNECTED {
                         required peer: %amaru_kernel::Peer

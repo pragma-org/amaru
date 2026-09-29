@@ -44,6 +44,10 @@ fn using_conn() -> Connection {
     conn().with_local_use(LocalUse::Diffusion)
 }
 
+fn stamp_holdoff(state: &mut PeerSelection, peer: amaru_kernel::Peer) {
+    state.dial_holdoff.insert(amaru_kernel::PeerCandidate::from(peer), sim_t0() + super::DIAL_HOLDOFF);
+}
+
 // ---------------------------------------------------------------------------
 // Initialize
 // ---------------------------------------------------------------------------
@@ -86,6 +90,8 @@ fn test_initialize_adds_static_peers() {
 
     state.outbound_peers.insert(p1, PeerState::Connecting);
     state.outbound_peers.insert(p2, PeerState::Connecting);
+    stamp_holdoff(&mut state, p1);
+    stamp_holdoff(&mut state, p2);
 
     let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
@@ -125,6 +131,8 @@ fn test_initialize_resolves_static_hostname() {
     let mut state = prep.state.clone();
     state.outbound_peers.insert(resolved, PeerState::Connecting);
     state.bound.insert(candidate.clone(), resolved);
+    state.dial_holdoff.insert(candidate.clone(), sim_t0() + super::DIAL_HOLDOFF);
+    stamp_holdoff(&mut state, resolved);
     let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
@@ -169,6 +177,8 @@ fn test_initialize_resolves_static_srv() {
     let mut state = prep.state.clone();
     state.outbound_peers.insert(resolved, PeerState::Connecting);
     state.bound.insert(candidate.clone(), resolved);
+    state.dial_holdoff.insert(candidate.clone(), sim_t0() + super::DIAL_HOLDOFF);
+    stamp_holdoff(&mut state, resolved);
     let msg = PeerSelectionMsg::Initialize;
     let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
@@ -588,6 +598,7 @@ fn test_connected_outbound() {
     let after = {
         let mut s = state.clone();
         s.outbound_peers.insert(p, PeerState::Connected(using_conn()));
+        stamp_holdoff(&mut s, p);
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -622,6 +633,7 @@ fn test_connected_outbound_starts_peer_sharing() {
     let after = {
         let mut s = state.clone();
         s.outbound_peers.insert(p, PeerState::Connected(using_conn()));
+        stamp_holdoff(&mut s, p);
         s
     };
     let p_send = p;
@@ -683,6 +695,89 @@ fn test_share_peers_result_records_shared_peers() {
     )
     .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="9.9.9.9:3001""#])
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_resolve_while_already_dialing_does_not_repeat() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+    use amaru_pure_stage::trace_match::tm_external_effect;
+
+    use crate::effects::ResolvePeerCandidate;
+
+    let resolved = TestPrep::peer("10.9.9.9:3001");
+    let candidate = PeerCandidate::host("relay.example".parse().unwrap(), 3001);
+    let mut prep = test_prep(&[]);
+    prep.extra_static.insert(candidate.clone());
+    prep.resolve.insert(candidate.clone(), BTreeSet::from([resolved]));
+    // Address is already dialing, but the name is not bound. Resolving it again must
+    // record the link and stop, not select the same name on the next pass.
+    prep.state.outbound_peers.insert(resolved, PeerState::Connecting);
+
+    let msg = PeerSelectionMsg::Regulate;
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
+
+    let mut state = prep.state.clone();
+    state.bound.insert(candidate, resolved);
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            tm_external_effect::<ResolvePeerCandidate>("ps-1"),
+            te_state("ps-1", &state).into(),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_many_resolve_failures_arm_one_timer() {
+    use amaru_kernel::PeerCandidate;
+
+    use crate::{effects::ResolvePeerCandidateResult, performance::PeerSource};
+
+    let prep = test_prep(&[]);
+    let candidates: Vec<_> =
+        (0..15).map(|i| PeerCandidate::host(format!("missing{i}.example").parse().unwrap(), 3001)).collect();
+    let msgs = candidates.into_iter().map(|candidate| {
+        PeerSelectionMsg::Resolved(ResolvePeerCandidateResult { candidate, origin: PeerSource::Snapshot, peer: None })
+    });
+    // More failures than the priority mailbox. Each one used to arm its own Regulate.
+    let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, msgs);
+    assert_trace_contains(
+        &running,
+        &[tm_state(
+            "ps-1",
+            |s: &PeerSelection| s.resolve_backoff.len() == 15 && s.resolve_timer.is_some(),
+            "fifteen failed lookups share one retry timer",
+        )],
+    );
+    // Fifteen separate schedules would panic: the priority mailbox holds 10.
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_many_demotions_arm_one_promotion_timer() {
+    let peers: Vec<_> = (0..15).map(|i| TestPrep::peer(&format!("10.2.0.{i}:1"))).collect();
+    let mut prep = test_prep(&[]);
+    for peer in &peers {
+        prep.state.outbound_peers.insert(*peer, PeerState::Connected(using_conn()));
+    }
+    let msgs = peers.iter().map(|peer| PeerSelectionMsg::Uninteresting {
+        peer: *peer,
+        conn_id: ConnectionId::initial(),
+        after_rollback: false,
+    });
+    let (running, _guards, _logs) = setup_preload_until_sleeping(&prep, msgs);
+    assert_trace_contains(
+        &running,
+        &[tm_state(
+            "ps-1",
+            |s: &PeerSelection| s.demoted_until.len() == 15 && s.promote_timer.is_some(),
+            "fifteen demotions share one promotion timer",
+        )],
+    );
 }
 
 #[test]
@@ -797,6 +892,7 @@ fn test_outbound_retry_drops_dead_conn_before_reconnect() {
     let after_reconnect = {
         let mut s = start.clone();
         s.outbound_peers.insert(p, PeerState::Connected(conn1));
+        stamp_holdoff(&mut s, p);
         s
     };
 
@@ -1619,6 +1715,7 @@ fn test_regulate_does_not_promote_inbound_when_mix_omits_it() {
     let after = {
         let mut s = prep.state.clone();
         s.outbound_peers.insert(static_p, PeerState::Connecting);
+        stamp_holdoff(&mut s, static_p);
         s
     };
 
