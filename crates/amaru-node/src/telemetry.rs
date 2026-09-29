@@ -37,6 +37,7 @@
 use std::{env, sync::Arc};
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
+use amaru_progress_bar::{ProgressLogWriter, progress_log_writer};
 use anyhow::{Context, anyhow};
 use opentelemetry::{KeyValue, metrics::MeterProvider as _, trace::TracerProvider as _};
 use opentelemetry_sdk::Resource;
@@ -275,7 +276,10 @@ fn init_fmt_subscriber(format: LogFormat) -> anyhow::Result<()> {
     } else {
         Telemetry::accept_already_set(
             tracing_subscriber::registry()
-                .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(filter))
+                .with(
+                    console_fmt_layer(progress_log_writer as fn() -> ProgressLogWriter, format.ansi())
+                        .with_filter(filter),
+                )
                 .try_init(),
             "init fmt tracing subscriber",
         )?;

@@ -34,7 +34,7 @@ use amaru_kernel::{
 use amaru_ledger::store::ReadStore;
 use amaru_mithril::{
     MithrilDownloadError, MithrilDownloadObserver, MithrilDownloadProgress, MithrilDownloadReport,
-    MithrilDownloadStage, download_from_mithril_for_range_with_observer, read_blocks_after_point,
+    MithrilDownloadStage, download_from_mithril_for_range_with_observer, last_immutable_point, read_blocks_after_point,
 };
 use amaru_observability::info;
 use amaru_ouroboros::{ChainStore, PoolSummaries, can_validate_blocks::CanValidateBlocks};
@@ -122,6 +122,10 @@ pub enum MithrilProgress {
         completed_files: u64,
         total_files: u64,
         total_bytes: Option<u64>,
+    },
+    /// Number of blocks expected from the downloaded immutable database after the resume point.
+    IngestPlanned {
+        total_blocks: u64,
     },
     BlocksIngested {
         blocks: u64,
@@ -213,6 +217,7 @@ impl StructuredRenderer {
             MithrilProgress::Completed { .. } => self.finish_download(),
             MithrilProgress::SnapshotSelected { .. }
             | MithrilProgress::CertificateValidated
+            | MithrilProgress::IngestPlanned { .. }
             | MithrilProgress::BlocksIngested { .. } => {}
         }
         if self.should_render(&progress, Instant::now()) {
@@ -237,6 +242,7 @@ impl StructuredRenderer {
             MithrilProgress::StageChanged { .. }
             | MithrilProgress::SnapshotSelected { .. }
             | MithrilProgress::CertificateValidated
+            | MithrilProgress::IngestPlanned { .. }
             | MithrilProgress::Completed { .. } => return true,
         };
         let should_render =
@@ -251,6 +257,8 @@ impl StructuredRenderer {
 #[derive(Default)]
 struct TerminalRenderer {
     downloaded_bytes: u64,
+    ingested_blocks: u64,
+    planned_blocks: Option<u64>,
     total_bytes: Option<u64>,
     download: Option<Box<dyn ProgressBar>>,
     verification: Option<(&'static str, Box<dyn ProgressBar>)>,
@@ -295,6 +303,9 @@ impl TerminalRenderer {
                         );
                     });
                 }
+                if stage == MithrilStage::Ingesting {
+                    self.ingested_blocks = 0;
+                }
                 let template = match stage {
                     MithrilStage::ValidatingCertificate => Some(
                         "{spinner:.green} {elapsed_precise} validating Mithril certificate chain ({pos} certificates)",
@@ -302,16 +313,21 @@ impl TerminalRenderer {
                     MithrilStage::VerifyingDatabase { .. } => {
                         Some("{spinner:.green} {elapsed_precise} verifying Mithril database")
                     }
+                    MithrilStage::Ingesting if self.planned_blocks.is_some_and(|total| total > 0) => {
+                        Some("{spinner:.green} Ingesting {pos}/{len} blocks {wide_bar:.green} {per_sec} ETA {eta}")
+                    }
+                    MithrilStage::Ingesting => Some("{spinner:.green} Ingesting {pos} blocks ({per_sec})"),
                     MithrilStage::ResolvingResumePoint
                     | MithrilStage::FetchingSnapshot
                     | MithrilStage::Downloading
                     | MithrilStage::DatabaseVerified
-                    | MithrilStage::RecoveringStores
-                    | MithrilStage::Ingesting => None,
+                    | MithrilStage::RecoveringStores => None,
                 };
+                let length = if stage == MithrilStage::Ingesting { self.planned_blocks.unwrap_or(0) } else { 0 };
                 self.verification =
-                    template.map(|template| (stage.as_str(), TerminalProgressBar::new(0_u64, template).boxed()));
+                    template.map(|template| (stage.as_str(), TerminalProgressBar::new(length, template).boxed()));
             }
+            MithrilProgress::IngestPlanned { total_blocks } => self.planned_blocks = Some(total_blocks),
             MithrilProgress::CertificateValidated => {
                 if let Some((_, verification)) = &self.verification {
                     verification.increment();
@@ -327,8 +343,20 @@ impl TerminalRenderer {
                         );
                     });
                 }
+                if let Some((phase, verification)) = self.verification.take() {
+                    verification.finish(|| {
+                        info!(mithril::progress::PHASE_COMPLETED, phase);
+                    });
+                }
             }
-            MithrilProgress::SnapshotSelected { .. } | MithrilProgress::BlocksIngested { .. } => {}
+            MithrilProgress::BlocksIngested { blocks, .. } => {
+                if let Some((_, verification)) = &self.verification {
+                    verification
+                        .tick(usize::try_from(blocks.saturating_sub(self.ingested_blocks)).unwrap_or(usize::MAX));
+                }
+                self.ingested_blocks = blocks;
+            }
+            MithrilProgress::SnapshotSelected { .. } => {}
         }
     }
 }
@@ -361,6 +389,7 @@ fn render_structured(progress: MithrilProgress) {
                 total_bytes = @total_bytes
             );
         }
+        MithrilProgress::IngestPlanned { .. } => {}
         MithrilProgress::BlocksIngested { blocks, point } => {
             info!(mithril::progress::INGEST, blocks, point);
         }
@@ -699,6 +728,13 @@ impl MithrilSynchronizer {
         let ingestion_store = chain_store.clone();
         let ingestion = async move {
             let chain_store = ingestion_store;
+            let last_point = last_immutable_point(immutable_dir, self.ingest_until_slot)
+                .map_err(|source| MithrilSyncError::InvalidCache { source })?;
+            let total_blocks = last_point
+                .map(|point| point.block_height() - stable_tip.block_height())
+                .unwrap_or(0)
+                .min(self.ingest_maximum_blocks.unwrap_or(usize::MAX) as u64);
+            observer.on_progress(MithrilProgress::IngestPlanned { total_blocks });
             observer.on_progress(MithrilProgress::StageChanged { stage: MithrilStage::Ingesting });
             let mut current_tip = stable_tip;
             let mut pool_summaries = pool_summaries_rx;
