@@ -217,6 +217,32 @@ struct CanonicalDownloadState {
     cached_files: u64,
     requested_files: u64,
     files: BTreeMap<String, (u64, u64, bool)>,
+    known_bytes: u64,
+    downloaded_bytes: u64,
+    completed_files: u64,
+}
+
+impl CanonicalDownloadState {
+    fn update_file(&mut self, name: String, size: u64, downloaded: u64) {
+        if let Some((old_size, old_downloaded, was_completed)) = self.files.insert(name, (size, downloaded, false)) {
+            self.known_bytes = self.known_bytes.saturating_sub(old_size);
+            self.downloaded_bytes = self.downloaded_bytes.saturating_sub(old_downloaded);
+            self.completed_files -= u64::from(was_completed);
+        }
+        self.known_bytes = self.known_bytes.saturating_add(size);
+        self.downloaded_bytes = self.downloaded_bytes.saturating_add(downloaded);
+    }
+
+    fn complete_file(&mut self, name: &str) {
+        if let Some((size, downloaded, completed)) = self.files.get_mut(name) {
+            self.downloaded_bytes = self.downloaded_bytes.saturating_sub(*downloaded).saturating_add(*size);
+            if !*completed {
+                self.completed_files += 1;
+            }
+            *downloaded = *size;
+            *completed = true;
+        }
+    }
 }
 
 struct CanonicalFeedbackReceiver {
@@ -237,18 +263,11 @@ impl CanonicalFeedbackReceiver {
     }
 
     fn report(&self, state: &CanonicalDownloadState) {
-        let downloaded_bytes = state
-            .files
-            .values()
-            .fold(state.cached_bytes, |total, (_, downloaded, _)| total.saturating_add(*downloaded));
-        let completed_files =
-            state.cached_files + state.files.values().filter(|(_, _, completed)| *completed).count() as u64;
         let all_sizes_known = state.files.len() as u64 == state.requested_files;
-        let total_bytes = all_sizes_known
-            .then(|| state.files.values().fold(state.cached_bytes, |total, (size, _, _)| total.saturating_add(*size)));
+        let total_bytes = all_sizes_known.then(|| state.cached_bytes.saturating_add(state.known_bytes));
         self.observer.on_progress(MithrilDownloadProgress::Downloaded {
-            downloaded_bytes,
-            completed_files,
+            downloaded_bytes: state.cached_bytes.saturating_add(state.downloaded_bytes),
+            completed_files: state.cached_files + state.completed_files,
             total_files: state.cached_files.saturating_add(state.requested_files),
             total_bytes,
         });
@@ -276,7 +295,7 @@ impl FeedbackReceiver for CanonicalFeedbackReceiver {
                 });
             }
             MithrilEventCardanoDatabase::ImmutableDownloadStarted { immutable_file_number, size, .. } => {
-                state.files.insert(immutable_file_number.to_string(), (size, 0, false));
+                state.update_file(immutable_file_number.to_string(), size, 0);
             }
             MithrilEventCardanoDatabase::ImmutableDownloadProgress {
                 immutable_file_number,
@@ -284,25 +303,19 @@ impl FeedbackReceiver for CanonicalFeedbackReceiver {
                 size,
                 ..
             } => {
-                state.files.insert(immutable_file_number.to_string(), (size, downloaded_bytes, false));
+                state.update_file(immutable_file_number.to_string(), size, downloaded_bytes);
             }
             MithrilEventCardanoDatabase::ImmutableDownloadCompleted { immutable_file_number, .. } => {
-                if let Some((size, downloaded, completed)) = state.files.get_mut(&immutable_file_number.to_string()) {
-                    *downloaded = *size;
-                    *completed = true;
-                }
+                state.complete_file(&immutable_file_number.to_string());
             }
             MithrilEventCardanoDatabase::AncillaryDownloadStarted { size, .. } => {
-                state.files.insert("ancillary".to_string(), (size, 0, false));
+                state.update_file("ancillary".to_string(), size, 0);
             }
             MithrilEventCardanoDatabase::AncillaryDownloadProgress { downloaded_bytes, size, .. } => {
-                state.files.insert("ancillary".to_string(), (size, downloaded_bytes, false));
+                state.update_file("ancillary".to_string(), size, downloaded_bytes);
             }
             MithrilEventCardanoDatabase::AncillaryDownloadCompleted { .. } => {
-                if let Some((size, downloaded, completed)) = state.files.get_mut("ancillary") {
-                    *downloaded = *size;
-                    *completed = true;
-                }
+                state.complete_file("ancillary");
             }
             _ => return,
         }

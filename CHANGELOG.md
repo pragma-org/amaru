@@ -43,12 +43,14 @@ Other guiding principles:
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 - **amaru**: `amaru dev env generate` to generate a (curated) list of environment variables available for Amaru main commands, acting as a configuration file.
+- **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
 
 ### Changed
 
 - **amaru**: a failed outbound connection attempt times out after 2 seconds. Each failure adds a large connection penalty, so healthier peers are dialed first. When no healthier peer can fill an open slot, the penalized peer is dialed anyway. A peer is not dialed again within 2 seconds of a connect attempt or a connection failure. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
 - **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
+- **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
 
 ### Fixed
 
@@ -57,6 +59,7 @@ Other guiding principles:
 - **amaru-protocols**: a new connection no longer drops when the peer's first chainsync (and other mini-protocol) segments arrive in the same burst as the handshake accept. Those segments are held until the handlers are registered, instead of being rejected as an unknown protocol.
 - **amaru-consensus**: a node whose ledger and chain store are both still at origin no longer stops block fetch during startup recovery. Recovery still stops when the ledger is at origin but the chain store already has a candidate.
 - **amaru**: starting with many upstream peers no longer panics when connection attempts fail together, or when many name lookups fail or many peers are demoted at the same time. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
+- **amaru**: console logs print above active bootstrap and Mithril progress bars without splitting or overwriting the bar.
 - **amaru**: `cardano-cli ping` from cardano-cli 11.2 onwards completes the handshake again. That client offers node-to-node version 16 alongside versions 14 and 15; version 16 is kept as raw CBOR and the node still agrees version 15. ([#1425](https://github.com/pragma-org/amaru/issues/1425))
 - **amaru**: block propagation can be followed on its own. `AMARU_LOG=off,amaru::blockperf=info` prints, for each block, the first three peers that announced the header (`header.announced`, with rank), the peers asked for the body (`block.requested`), each peer that delivered the body in arrival order (`block.received`), and local adoption (`block.adopted`). The logging is at DEBUG level while syncing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
 - **amaru**: `chainsync.chain_lagging` is logged when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, including while sync is finishing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
