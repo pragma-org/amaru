@@ -883,7 +883,20 @@ fn validate_store_directory(path: &Path, operation: &'static str) -> Result<(), 
     }
 }
 
-fn acquire_sync_locks<const N: usize>(directories: [&Path; N]) -> Result<Vec<File>, MithrilSyncError> {
+struct SyncLock {
+    file: File,
+    path: PathBuf,
+}
+
+impl Drop for SyncLock {
+    fn drop(&mut self) {
+        if matches!(lock_points_to_path(&self.file, &self.path), Ok(true)) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn acquire_sync_locks<const N: usize>(directories: [&Path; N]) -> Result<Vec<SyncLock>, MithrilSyncError> {
     let mut directories = directories
         .into_iter()
         .map(|directory| {
@@ -896,12 +909,40 @@ fn acquire_sync_locks<const N: usize>(directories: [&Path; N]) -> Result<Vec<Fil
     directories
         .iter()
         .map(|directory| {
-            let lock = File::create(sync_lock_path(directory)?)
-                .map_err(|source| store_error("create synchronization lock", source))?;
-            lock_sync_file(&lock, directory)?;
-            Ok(lock)
+            let path = sync_lock_path(directory)?;
+            let file = File::create(&path).map_err(|source| store_error("create synchronization lock", source))?;
+            lock_sync_file(&file, &path, directory)?;
+            Ok(SyncLock { file, path })
         })
         .collect()
+}
+
+/// Detect a lock file replaced between opening it and acquiring its lock.
+fn lock_points_to_path(file: &File, path: &Path) -> io::Result<bool> {
+    let locked = file.metadata()?;
+    let current = match fs::metadata(path) {
+        Ok(current) => current,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => return Err(source),
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        Ok(locked.dev() == current.dev() && locked.ino() == current.ino())
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        let locked_id = locked.volume_serial_number().zip(locked.file_index());
+        let current_id = current.volume_serial_number().zip(current.file_index());
+        Ok(locked_id.is_some_and(|id| Some(id) == current_id))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Ok(false)
+    }
 }
 
 fn sync_lock_path(directory: &Path) -> Result<PathBuf, MithrilSyncError> {
@@ -917,9 +958,15 @@ fn sync_lock_path(directory: &Path) -> Result<PathBuf, MithrilSyncError> {
     Ok(directory.with_file_name(lock_name))
 }
 
-fn lock_sync_file(lock: &File, directory: &Path) -> Result<(), MithrilSyncError> {
+fn lock_sync_file(lock: &File, path: &Path, directory: &Path) -> Result<(), MithrilSyncError> {
     match lock.try_lock() {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            if lock_points_to_path(lock, path).map_err(|source| store_error("verify synchronization lock", source))? {
+                Ok(())
+            } else {
+                Err(MithrilSyncError::Concurrent { path: directory.to_path_buf() })
+            }
+        }
         Err(TryLockError::WouldBlock) => Err(MithrilSyncError::Concurrent { path: directory.to_path_buf() }),
         Err(source) => Err(store_error("acquire synchronization lock", source)),
     }
@@ -1530,7 +1577,26 @@ mod tests {
             Err(MithrilSyncError::Concurrent { .. })
         ));
         drop(locks);
-        acquire_sync_locks([&second_cache, &ledger_dir, &chain_dir]).unwrap();
+        for path in [&first_cache, &ledger_dir, &chain_dir] {
+            assert!(!sync_lock_path(path).unwrap().exists());
+        }
+        let locks = acquire_sync_locks([&second_cache, &ledger_dir, &chain_dir]).unwrap();
+        drop(locks);
+        for path in [&second_cache, &ledger_dir, &chain_dir] {
+            assert!(!sync_lock_path(path).unwrap().exists());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replaced_lock_file_is_not_accepted() {
+        let directory = tempdir().unwrap();
+        let path = sync_lock_path(directory.path()).unwrap();
+        let stale = File::create(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        File::create(&path).unwrap();
+
+        assert!(matches!(lock_sync_file(&stale, &path, directory.path()), Err(MithrilSyncError::Concurrent { .. })));
     }
 
     #[derive(Clone, Copy)]

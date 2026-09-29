@@ -59,6 +59,7 @@ Other guiding principles:
 - **amaru-protocols**: a new connection no longer drops when the peer's first chainsync (and other mini-protocol) segments arrive in the same burst as the handshake accept. Those segments are held until the handlers are registered, instead of being rejected as an unknown protocol.
 - **amaru-consensus**: a node whose ledger and chain store are both still at origin no longer stops block fetch during startup recovery. Recovery still stops when the ledger is at origin but the chain store already has a candidate.
 - **amaru**: starting with many upstream peers no longer panics when connection attempts fail together, or when many name lookups fail or many peers are demoted at the same time. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
+- **amaru-node**: Mithril synchronization removes its cache and store lock files when synchronization finishes.
 - **amaru-node**: Mithril block replay advances the chain anchor as blocks become stable, preventing header validation from slowing down as replay progresses.
 - **amaru-mithril**: repeated sync verifies complete cached immutable files without downloading them again. If cached bytes fail verification, it fetches the affected snapshot range again.
 - **amaru**: console logs print above active bootstrap and Mithril progress bars without splitting or overwriting the bar.
