@@ -151,6 +151,41 @@ pub fn read_blocks_after_point(
     read_blocks_after_point_from_chunks(immutable_dir, network, point, list_immutable_chunks(immutable_dir)?)
 }
 
+/// Find the last block in a verified immutable database, optionally stopping at a slot.
+///
+/// Without a slot limit, only the final block is decoded. With a limit, chunks are scanned
+/// backwards until the last eligible block is found.
+pub fn last_immutable_point(immutable_dir: &Path, until_slot: Option<Slot>) -> ImmutableResult<Option<Point>> {
+    list_immutable_chunks(immutable_dir)?
+        .into_iter()
+        .rev()
+        .map(|chunk| last_point_in_chunk(immutable_dir, chunk, until_slot))
+        .find_map(Result::transpose)
+        .transpose()
+}
+
+fn last_point_in_chunk(immutable_dir: &Path, chunk: u64, until_slot: Option<Slot>) -> ImmutableResult<Option<Point>> {
+    let mut blocks = ChunkBlockIter::open(immutable_dir, chunk)?;
+    let last = match until_slot {
+        None => blocks
+            .offsets
+            .rfind(|offset| *offset < blocks.chunk_len)
+            .map(|start| -> ImmutableResult<_> {
+                let raw_block = blocks.read_block(start, blocks.chunk_len)?;
+                Ok(parse_header_slot_and_hash(&raw_block)?)
+            })
+            .transpose()?,
+        Some(limit) => blocks
+            .map(|block| -> ImmutableResult<_> { Ok(parse_header_slot_and_hash(&block?)?) })
+            .take_while(|header| match header {
+                Ok(header) => header.slot <= limit.as_u64(),
+                Err(_) => true,
+            })
+            .try_fold(None, |_, header| -> ImmutableResult<_> { Ok(Some(header?)) })?,
+    };
+    Ok(last.map(|header| Point::Specific(header.slot.into(), header.header_hash.into(), header.block_height.into())))
+}
+
 /// Iterates over raw blocks strictly after `point` on `network`, excluding the newest immutable chunk.
 ///
 /// The newest chunk is omitted because it may still change. `Point::Origin` starts at the first block. Returns an
@@ -438,7 +473,7 @@ pub(crate) mod tests {
 
     use super::{
         first_missing_immutable_chunk, get_latest_chunk, immutable_file_path, iter_immutable_blocks,
-        read_blocks_after_point, read_stable_blocks_after_point, validate_immutable_resume_point,
+        last_immutable_point, read_blocks_after_point, read_stable_blocks_after_point, validate_immutable_resume_point,
         validated_download_boundary,
     };
 
@@ -533,6 +568,16 @@ pub(crate) mod tests {
 
         assert_eq!(actual, vec![blocks[4].1.clone()]);
         validate_immutable_resume_point(dir.path(), NetworkName::Preprod, blocks[4].0).unwrap();
+    }
+
+    #[test]
+    fn finds_last_point_with_empty_chunks_and_a_slot_limit() {
+        let (dir, blocks) = immutable_store();
+        write_chunk(dir.path(), 4, &[]);
+
+        assert_eq!(last_immutable_point(dir.path(), None).unwrap(), Some(blocks[4].0));
+        assert_eq!(last_immutable_point(dir.path(), Some(43_201.into())).unwrap(), Some(blocks[2].0));
+        assert_eq!(last_immutable_point(dir.path(), Some(0.into())).unwrap(), None);
     }
 
     #[test]
