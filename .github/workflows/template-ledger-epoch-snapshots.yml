@@ -31,12 +31,12 @@ jobs:
             magic: 1
             peer: preprod-node.play.dev.cardano.org:3001
             start_epoch: 270
-            target_epoch: 280
+            target_epoch: 275
           - name: preview
             magic: 2
             peer: preview-node.play.dev.cardano.org:3001
             start_epoch: 1119
-            target_epoch: 1180
+            target_epoch: 1145
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
       AMARU_PEER_ADDRESS: ${{ matrix.network.peer }}
