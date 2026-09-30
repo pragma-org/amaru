@@ -1288,8 +1288,8 @@ define_schemas! {
                 /// Upgrade to a new protocol version
                 public event UPGRADE {
                     levels: info
-                    required old_version: u64
-                    required new_version: u64
+                    required old_version: u32
+                    required new_version: u32
                 }
             }
             protocol_parameters {
