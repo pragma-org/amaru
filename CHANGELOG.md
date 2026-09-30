@@ -42,6 +42,17 @@ Other guiding principles:
 - **amaru**: `amaru pool cert inspect` prints the pool ID, sequence number, KES period, and KES verification key from an operational certificate.
 - **amaru**: `amaru pool kes period` shows the current KES period and how many periods remain before key rotation is required.
 - **amaru**: `amaru pool id inspect` derives the pool ID from a cold verification key file.
+- **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in `docs/cip-023/README.md`. [#1360][]
+- **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or dispaly the current tag this binary would forge blocks with. [#1360][]
+- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
+- **amaru**: `--log-output PATH:FILTER` (or `AMARU_LOG_OUTPUT`) writes an extra log file without replacing the terminal, the TUI, or OpenTelemetry. Repeat the flag for more files. The value is split at the first colon. A path ending in `.ndjson` uses the same JSON format as `--with-json-traces`, one object per line; any other path is text. Span close lines include busy and idle time. `amaru --log-output effects.ndjson:amaru_pure_stage::effect=debug node run` records how long each external effect runs.
+  `try_setup_observability` and `setup_observability` take those file specs as an extra argument.
+- **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
+- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
+- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
+- **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
+- **amaru**: forged block headers identify Amaru and its release day in the protocol version minor, following CIP-0203 (producer id `65`, payload defined in `docs/cip-0203/README.md`). Pass `--software-tag-off` (or set `AMARU_SOFTWARE_TAG_OFF=true`) to emit the CIP-0203 opt-out value `255` instead. [#1360][]
+- **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or display the current tag this binary would forge blocks with. [#1360][]
 
 ### Changed
 
@@ -680,3 +691,4 @@ Other guiding principles:
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
 [#1453]: https://github.com/pragma-org/amaru/issues/1453
+[#1360]: https://github.com/pragma-org/amaru/issues/1360
