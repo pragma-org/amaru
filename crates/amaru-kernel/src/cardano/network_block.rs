@@ -19,7 +19,7 @@ use std::{
 
 use amaru_minicbor_extra::to_cbor;
 
-use crate::{Block, EraHistory, EraHistoryError, EraName, Header, RawBlock, cbor, traits::is_header::IsHeader};
+use crate::{Block, EraHistory, EraHistoryError, EraName, Header, RawBlock, Slot, cbor, traits::is_header::IsHeader};
 
 /// A network block contains:
 ///  - An era tag identifying the Cardano era of the block, which determines its exact encoding.
@@ -43,6 +43,19 @@ impl NetworkBlock {
         let era_tag = era_history.slot_to_era_tag(block.header.slot())?;
 
         Ok(NetworkBlock { era_tag, encoded_block: to_cbor(block) })
+    }
+
+    /// A network block whose block term is already encoded.
+    ///
+    /// `encoded_block` is the CBOR block `[header, bodies, witnesses, auxiliary data, invalid]`.
+    /// It is stored as-is, not encoded again.
+    pub fn from_encoded_block(
+        era_history: &EraHistory,
+        slot: Slot,
+        encoded_block: Vec<u8>,
+    ) -> Result<Self, EraHistoryError> {
+        let era_tag = era_history.slot_to_era_tag(slot)?;
+        Ok(NetworkBlock { era_tag, encoded_block })
     }
 
     pub fn len(&self) -> usize {

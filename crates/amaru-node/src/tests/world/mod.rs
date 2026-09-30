@@ -18,14 +18,16 @@
 //! [`WorldConnectionProvider`] owns the one physical `(time, sequence)` heap of
 //! network events and graph wakes. [`WorldLoop`] is the only popper.
 //!
-//! Chain-data tests are split by kind (EDR-011 "World tests: generated vs recorded
-//! chains"): `generated` for synthetic trees, `real_data` for live-network fragments.
+//! Chain-data tests are split by kind (EDR-011 "World tests"): `generated` for synthetic
+//! trees, `real_data` for live-network fragments, and `minting` for chains the nodes forge.
 
 #[cfg(test)]
 mod fragment;
 #[cfg(test)]
 mod generated;
 mod injector;
+#[cfg(test)]
+mod minting;
 mod nodes;
 #[cfg(test)]
 mod real_data;

@@ -602,7 +602,7 @@ define_schemas! {
             }
             forge {
                 /// A led slot was not forged.
-                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late}.
+                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored}.
                 public MISSED_SLOT {
                     required slot: amaru_kernel::Slot
                     required reason: String
@@ -628,6 +628,10 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required header_hash: amaru_kernel::HeaderHash
                     required parent: amaru_kernel::HeaderHash
+                }
+                /// The in-memory KES key moved to a new period.
+                public KES_PERIOD {
+                    required period: %amaru_kernel::KesPeriod
                 }
             }
             peer {
@@ -2729,6 +2733,12 @@ define_schemas! {
                 /// Opened the ledger state; reports the ledger tip at startup
                 public LEDGER_OPENED {
                     required tip: amaru_kernel::Point
+                }
+                /// Block forging is configured from key files.
+                public FORGING {
+                    required pool_id: amaru_kernel::PoolId
+                    required sequence: u64
+                    required kes_period: %amaru_kernel::KesPeriod
                 }
                 /// Failed to notify the peer tracker of a stake distribution update
                 public STAKE_DIST_NOTIFY_FAILED {}

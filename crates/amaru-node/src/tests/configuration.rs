@@ -23,8 +23,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Header, IsHeader, MaxString128,
-    NetworkName, Peer, Point, ProtocolParameters, Transaction, TransactionId,
+    Anchor, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, GlobalParameters, Header, IsHeader,
+    MaxString128, NetworkName, Peer, Point, ProtocolParameters, Transaction, TransactionId,
     cardano::network_block::make_encoded_chain, cbor::WithOriginalBytes,
 };
 use amaru_ledger::{
@@ -86,6 +86,12 @@ pub struct NodeTestConfig {
     pub blockfetch_pipeline_n: NonZeroU8,
     /// When set, overrides [`Config::share_request_initial_delay`] (production default 300s).
     pub share_request_initial_delay: Option<Duration>,
+    /// When set, replaces the network profile's global parameters.
+    pub global_parameters: Option<GlobalParameters>,
+    /// When set, replaces the network profile's era history.
+    pub era_history_override: Option<EraHistory>,
+    /// Forwarded to [`Config::forging_credentials`]. `None` leaves the node a follower.
+    pub forging_credentials: Option<Arc<dyn amaru_ouroboros_traits::ForgingCredentials>>,
     /// Keeps a dummy ledger tempdir alive until the last node graph holding it is dropped.
     dummy_ledger: Arc<Mutex<Option<Arc<tempfile::TempDir>>>>,
 }
@@ -117,6 +123,9 @@ impl Debug for NodeTestConfig {
             .field("peer_mix", &self.peer_mix)
             .field("blockfetch_pipeline_n", &self.blockfetch_pipeline_n)
             .field("share_request_initial_delay", &self.share_request_initial_delay)
+            .field("forging_credentials", &self.forging_credentials.is_some())
+            .field("global_parameters", &self.global_parameters)
+            .field("era_history_override", &self.era_history_override.is_some())
             .finish()
     }
 }
@@ -151,6 +160,9 @@ impl Default for NodeTestConfig {
             peer_mix: None,
             blockfetch_pipeline_n: NonZeroU8::MIN,
             share_request_initial_delay: None,
+            forging_credentials: None,
+            global_parameters: None,
+            era_history_override: None,
             dummy_ledger: Arc::new(Mutex::new(None)),
         }
     }
@@ -182,9 +194,32 @@ impl NodeTestConfig {
 
     #[allow(clippy::panic)]
     pub fn era_history(&self) -> &EraHistory {
+        if let Some(era_history) = &self.era_history_override {
+            return era_history;
+        }
         self.network_name
             .as_era_history()
             .unwrap_or_else(|| panic!("no default EraHistory for network: {}", self.network_name))
+    }
+
+    #[allow(clippy::panic)]
+    pub fn global_parameters(&self) -> GlobalParameters {
+        self.global_parameters.clone().unwrap_or_else(|| {
+            self.network_name
+                .as_global_parameters()
+                .cloned()
+                .unwrap_or_else(|| panic!("no default GlobalParameters for network: {}", self.network_name))
+        })
+    }
+
+    pub fn with_global_parameters(mut self, global_parameters: GlobalParameters) -> Self {
+        self.global_parameters = Some(global_parameters);
+        self
+    }
+
+    pub fn with_era_history(mut self, era_history: EraHistory) -> Self {
+        self.era_history_override = Some(era_history);
+        self
     }
 
     #[allow(clippy::panic)]
@@ -315,6 +350,14 @@ impl NodeTestConfig {
         self
     }
 
+    pub fn with_forging_credentials(
+        mut self,
+        credentials: Arc<dyn amaru_ouroboros_traits::ForgingCredentials>,
+    ) -> Self {
+        self.forging_credentials = Some(credentials);
+        self
+    }
+
     /// First peer-sharing request this long after an outbound handshake (production 300s).
     pub fn with_share_request_initial_delay(mut self, delay: Duration) -> Self {
         self.share_request_initial_delay = Some(delay);
@@ -367,6 +410,7 @@ impl NodeTestConfig {
         };
 
         config.ledger_config.era_history = self.era_history().clone();
+        config.ledger_config.global_parameters = self.global_parameters();
         config.ledger_config.network = self.network_name;
         config.listen_address = self.listen_address.clone();
         if let Some(n) = self.target_upstream_peers {
@@ -377,6 +421,7 @@ impl NodeTestConfig {
             config.peer_mix = mix.parse().map_err(|e| anyhow::anyhow!("invalid peer-mix `{mix}`: {e}"))?;
         }
         config.blockfetch_pipeline_n = self.blockfetch_pipeline_n;
+        config.forging_credentials = self.forging_credentials.clone();
         if let Some(delay) = self.share_request_initial_delay {
             config.share_request_initial_delay = delay;
         }

@@ -18,7 +18,7 @@ use amaru_kernel::{
     ConsensusParameters, Epoch, EraHistory, Header, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
     hash::Hash,
 };
-use amaru_ouroboros::{kes, praos, praos::header::AssertHeaderError};
+use amaru_ouroboros::{praos, praos::header::AssertHeaderError};
 use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::mock_ledger_state::MockLedgerState};
 use ctor::ctor;
 use num::CheckedSub;
@@ -233,8 +233,6 @@ struct GeneratorContext {
     praos_slots_per_kes_period: u64,
     #[serde(rename = "praosMaxKESEvo")]
     praos_max_kes_evolution: u64,
-    #[serde(rename = "kesSignKey", deserialize_with = "deserialize_secret_kes_key")]
-    kes_secret_key: KesKeyWrapper,
     #[serde(rename = "coldSignKey", deserialize_with = "deserialize_secret_ed25519_key")]
     cold_secret_key: ed25519::SecretKey,
     #[serde(rename = "vrfVKeyHash", deserialize_with = "deserialize_vrf_verification_key_hash")]
@@ -252,33 +250,12 @@ impl std::fmt::Debug for GeneratorContext {
         f.debug_struct("GeneratorContext")
             .field("praos_slots_per_kes_period", &self.praos_slots_per_kes_period)
             .field("praos_max_kes_evolution", &self.praos_max_kes_evolution)
-            .field("kes_secret_key", &self.kes_secret_key)
             .field("cold_secret_key", &self.cold_secret_key)
             .field("vrf_verification_key_hash", &self.vrf_verification_key_hash)
             .field("nonce", &self.nonce)
             .field("operational_certificate_counters", &self.operational_certificate_counters)
             .field("active_slot_coeff", &self.active_slot_coeff)
             .finish()
-    }
-}
-
-pub struct KesKeyWrapper {
-    bytes: Vec<u8>,
-}
-
-impl std::fmt::Debug for KesKeyWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KesKeyWrapper").field("bytes", &hex::encode(&self.bytes)).finish()
-    }
-}
-
-pub struct KesKeyWrapperError {
-    pub reason: String,
-}
-
-impl KesKeyWrapper {
-    pub fn get_kes_secret_key(&'_ mut self) -> Result<kes::SecretKey<'_>, KesKeyWrapperError> {
-        kes::SecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError { reason: err.to_string() })
     }
 }
 
@@ -300,15 +277,6 @@ where
     let buf = <String>::deserialize(deserializer)?;
     let bytes = hex::decode(buf).map_err(serde::de::Error::custom)?;
     Ok(HeaderWrapper { bytes })
-}
-
-fn deserialize_secret_kes_key<'de, D>(deserializer: D) -> Result<KesKeyWrapper, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let buf = <String>::deserialize(deserializer)?;
-    let bytes = hex::decode(buf).map_err(serde::de::Error::custom)?;
-    Ok(KesKeyWrapper { bytes })
 }
 
 fn deserialize_secret_ed25519_key<'de, D>(deserializer: D) -> Result<ed25519::SecretKey, D::Error>

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod forging_credentials;
 mod nonces;
 mod opcert_sequence_numbers;
 mod praos_trait;
 
+pub use forging_credentials::*;
 pub use nonces::*;
 pub use opcert_sequence_numbers::*;
 pub use praos_trait::*;

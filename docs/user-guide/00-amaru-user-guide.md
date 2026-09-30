@@ -10,9 +10,9 @@ description: A structured guide to installing, configuring, running, and maintai
 This guide is built with the same Docusaurus setup and conventions as [developers.cardano.org/docs/operators](https://developers.cardano.org/docs/operators/), since parts of it are expected to be merged into that site at some point. Starting from the same template now means less rework when that happens.  
 It is readable as a website here: https://arwlf.github.io/amaru-operator-portal
 
-:::important Scope: Amaru is a relay node today
-Amaru does **not** yet support block production, there is no key generation, KES/VRF/operational-certificate handling, or stake pool registration. 
-Track Block Producing support on the [Amaru roadmap](https://github.com/orgs/pragma-org/projects/3).
+:::important Scope: block production is a testnet trial
+On preprod, preview, and other testnets, `amaru node run` forges blocks when given a cardano-cli KES signing key, VRF signing key, and operational certificate. Mainnet refuses those flags. With no key files the node is a follower. There is no key generation or stake pool registration.
+Track further block-producing support on the [Amaru roadmap](https://github.com/orgs/pragma-org/projects/3).
 
 :::
 

@@ -23,7 +23,9 @@ use amaru_consensus::{
     performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, PeerCandidate, Point, Transaction};
+use amaru_kernel::{
+    ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader, PeerCandidate, Point, Transaction,
+};
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
     state::State,
@@ -59,7 +61,7 @@ use crate::{
     chain_realign::ensure_store_consistency,
     realign_chain_store_to,
     stages::{
-        build_stage_graph::{NodeStages, build_stage_graph},
+        build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
     },
 };
@@ -361,6 +363,7 @@ pub fn build_node(
 
     let pool_summaries = state.pool_summaries();
     let max_epoch = pool_summaries.max_epoch();
+    let protocol_version = state.protocol_version();
 
     // Production restarts drop the volatile ledger, so the chain store can be ahead of the
     // persisted ledger tip. Rewind the best-chain pointer to that tip.
@@ -374,6 +377,21 @@ pub fn build_node(
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.
     let recovery_best_hash = find_best_candidate(chain_store.as_ref())?;
+    let ledger_parent = tip_parent(chain_store.as_ref(), &ledger_tip)?;
+    if let Some(credentials) = &config.forging_credentials {
+        amaru_ouroboros::ensure_operational_certificate_accepted(
+            credentials.as_ref(),
+            chain_store.as_ref(),
+            &ledger_tip,
+        )?;
+        let issuer = credentials.issuer_fields();
+        amaru_observability::info!(
+            node::build::FORGING,
+            pool_id = credentials.pool_id(),
+            sequence = issuer.operational_cert.operational_cert_sequence_number,
+            kes_period = issuer.operational_cert.operational_cert_kes_period,
+        );
+    }
     let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
 
     // Make resources
@@ -400,7 +418,7 @@ pub fn build_node(
         config,
         era_history,
         global_parameters,
-        ledger_tip,
+        &OpenedLedger { tip: ledger_tip, parent: ledger_parent, protocol_version },
         recovery_best_hash,
         max_epoch,
         stage_builder,
@@ -430,6 +448,23 @@ pub fn build_node(
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
     Ok(node_stages)
+}
+
+/// Parent of `tip`, used to preload forging.
+///
+/// An origin tip, and a header with no parent, yield [`Point::Origin`]. A missing tip
+/// header is an error. A missing parent header also yields [`Point::Origin`]: bootstrap
+/// stores the snapshot tip, and forging reads this parent only when minting in that
+/// tip's own slot. That lead is missed.
+fn tip_parent(store: &dyn ChainStore, tip: &Point) -> anyhow::Result<Point> {
+    if *tip == Point::Origin {
+        return Ok(Point::Origin);
+    }
+    let header = store.load_header(&tip.hash()).ok_or_else(|| anyhow!("ledger tip header not found in chain store"))?;
+    let Some(parent_hash) = header.parent() else {
+        return Ok(Point::Origin);
+    };
+    Ok(store.load_point(&parent_hash).unwrap_or(Point::Origin))
 }
 
 /// Register the resources required by the external effects invoked by the stages in the stage graph.
@@ -466,6 +501,9 @@ fn register_resources(
     stage_graph.resources().put(ConsensusMode::Sync);
 
     stage_graph.resources().put::<ResourceMeter>(meter);
+    stage_graph
+        .resources()
+        .put::<amaru_consensus::stages::forge_block::ResourceForgingCredentials>(config.forging_credentials.clone());
 
     let mut static_peers = BTreeSet::new();
     for address in &config.upstream_peers {

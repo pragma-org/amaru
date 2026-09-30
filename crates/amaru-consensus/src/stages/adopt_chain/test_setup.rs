@@ -24,8 +24,8 @@ use amaru_ouroboros_traits::{
 };
 use amaru_protocols::store_effects::{
     FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
-    IsOnBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
-    SetAnchorPointEffect, SwitchToForkEffect,
+    IsOnBestChainEffect, LoadHeaderEffect, LoadPointEffect, NextBestChainEffect, ResourceHeaderStore,
+    RollForwardChainEffect, SetAnchorPointEffect, SwitchToForkEffect,
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
@@ -130,6 +130,8 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<Option<Point>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<(), StoreError>>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::stages::forge_block::ForgeBlockMsg>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Ed25519Signature, VerificationKey, cbor};
+use crate::{Ed25519Signature, KesPeriod, VerificationKey, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
@@ -24,7 +24,7 @@ pub struct OperationalCert {
     pub operational_cert_sequence_number: u64,
 
     #[n(2)]
-    pub operational_cert_kes_period: u64,
+    pub operational_cert_kes_period: KesPeriod,
 
     #[n(3)]
     pub operational_cert_sigma: Ed25519Signature,

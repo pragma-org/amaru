@@ -25,7 +25,11 @@ use crate::{
     consensus_mode::ConsensusMode,
     effects::UpdateConsensusModeEffect,
     performance::Performance,
-    stages::{block_source::BlockSourceMsg, select_chain::cmp_tip},
+    stages::{
+        block_source::BlockSourceMsg,
+        forge_block::{AdoptedTip, ForgeBlockMsg},
+        select_chain::{cmp_tip, load_parent_point},
+    },
 };
 
 /// The AdoptChain stage decides whether (and how) to adopt a newly validated
@@ -94,6 +98,8 @@ pub struct AdoptChain {
     downstream: StageRef<ManagerMessage>,
     block_source: StageRef<BlockSourceMsg>,
     mempool: StageRef<MempoolMsg>,
+    /// Present when this node has forging credentials. Absent on a follower.
+    forge: Option<StageRef<ForgeBlockMsg>>,
     consensus_security_param: u64,
     current_best_tip: Point,
     max_block_height: BlockHeight,
@@ -113,12 +119,18 @@ impl AdoptChain {
             downstream,
             block_source,
             mempool,
+            forge: None,
             consensus_security_param,
             current_best_tip,
             max_block_height: BlockHeight::from(0),
             last_printed: Instant::at_offset(Duration::ZERO, Duration::ZERO),
             suppressed: 0,
         }
+    }
+
+    pub fn with_forge(mut self, forge: StageRef<ForgeBlockMsg>) -> Self {
+        self.forge = Some(forge);
+        self
     }
 }
 
@@ -260,6 +272,12 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
         eff.send(&state.downstream, ManagerMessage::NewTip(msg, root_trace_context)).await;
         eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
+        if let Some(forge) = &state.forge {
+            // The previous best is the parent only on a roll-forward. A fork switch displaces
+            // that tip, so a later same-slot forge has to extend the adopted header's parent.
+            let parent = load_parent_point(&eff, &store, &incoming_header).await;
+            eff.send(forge, ForgeBlockMsg::from(AdoptedTip { tip: msg, parent })).await;
+        }
         state.current_best_tip = msg;
         state
     }

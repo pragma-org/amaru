@@ -67,6 +67,7 @@ amaru-mithril.workspace = true
 amaru-network.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
+amaru-ouroboros-traits.workspace = true
 amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true

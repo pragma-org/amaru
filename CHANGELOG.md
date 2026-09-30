@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--kes-signing-key-file`, `--vrf-signing-key-file`, and `--operational-certificate` (unencrypted cardano-cli files). Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the certificate's cold signature does not verify, or when its sequence number is not the chain's counter for that pool or exactly one ahead.
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 
@@ -57,6 +58,10 @@ Other guiding principles:
 - **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
 - **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
 - **amaru-protocols**: BlockFetch rejects requests whose endpoint slot does not match the requested block hash.
+- **amaru-protocols**: a connection stays up when a peer starts a mini-protocol this node will serve before that protocol's handler is registered. On a connection this node accepted, that includes a handshake that arrives before the handshake handler is registered.
+- **amaru-node**: startup fails when the chain store is missing the ledger tip header or that header's parent.
+- **amaru**: after a chain switch, a block forged in the adopted block's slot extends that block's parent.
+- **amaru-node**: startup fails when the chain store is missing the ledger tip header. A bootstrap snapshot stores that tip without its parent block. Forging in the snapshot tip's own slot is skipped when that parent header is absent.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 

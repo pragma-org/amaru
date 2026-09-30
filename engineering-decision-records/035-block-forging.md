@@ -81,7 +81,7 @@ flowchart LR
     end
     adopt_chain -->|NewTip| forge_block
     forge_block -->|new tip| select_chain
-    forge_block -.->|leader_schedule, forge_header| creds[(forging credentials)]
+    forge_block -.->|leader_schedule, sign_header| creds[(forging credentials)]
     forge_block -.->|transactions for parent, slot| pool[(mempool)]
     forge_block -.->|schedule_at| clock[(clock)]
 ```
@@ -106,15 +106,14 @@ On startup the stage is preloaded with the current adopted tip and the same step
 
 When `DueLead(slot)` fires:
 
-1. Check that the operational certificate covers the slot's KES period. If not, log a warning and stop.
-2. Pick the parent from the adopted tip:
+1. Pick the parent from the adopted tip:
    - If `tip.slot < slot`, the parent is the tip.
    - If `tip.slot == slot`, the parent is `tip.parent`. This is the case when the node has already received and validated another pool's block for this slot.
    - If `tip.slot > slot`, log a missed slot and stop. Headers are only validated after their slot time has started, so this path is not reachable when the rest of Amaru works as designed; the check is defensive so we never forge a block whose parent is later than its own slot.
-3. Ask the mempool for a sequence of transactions that is valid on the parent's state as of our slot and fits in a block. That sequence is the block body as-is; the stage does not validate it and does not consult the ledger. If the mempool is empty — including when a same-slot competitor already consumed the interesting transactions — still forge. An empty block collects fees and keeps the chain moving; skipping the slot would give that up.
-4. Ask the credentials resource to forge the header: VRF proof for the slot, block body hash, KES signature for the period. KES evolution to `slot_to_kes_period(slot) - operational_cert_kes_period` happens inside that signing procedure. Praos does not require persisting the evolved key.
-5. Run the header through the same `validate_header` every peer header passes. In theory we only need the `evolve_nonces` effect; the full `validate_header` function costs us almost nothing.
-6. Store the header and the block, send the new tip to `select_chain`, then arm the next remaining `DueLead` if any.
+2. Ask the mempool for a sequence of transactions that is valid on the parent's state as of our slot and fits in a block. That sequence is the block body as-is; the stage does not validate it and does not consult the ledger. If the mempool is empty — including when a same-slot competitor already consumed the interesting transactions — still forge. An empty block collects fees and keeps the chain moving; skipping the slot would give that up.
+3. Draft the header body: block number, slot, parent, VRF proof from the schedule, block body hash and size, protocol version, plus the issuer verification key, VRF verification key, and operational certificate captured when the stage started. Encode that body and ask the credentials resource to sign those bytes for the slot's KES period. The resource evolves the KES key to `slot_to_kes_period(slot) - operational_cert_kes_period` and returns the signature. The stage assembles the header. If the certificate does not cover the period the resource refuses; the stage logs a missed slot and stops. A rotation that replaces the certificate is not applied to a running stage yet: it has to refresh those captured issuer fields before the next signature, or the header and the signature will disagree. Praos does not require persisting the evolved key.
+4. Run the header through the same `validate_header` every peer header passes. In theory we only need the `evolve_nonces` effect; the full `validate_header` function costs us almost nothing.
+5. Store the header and the block, send the new tip to `select_chain`, then arm the next remaining `DueLead` if any.
 
 Parent selection happens at the start of this handler. The rest of the work is one message transition: if `adopt_chain` sends a `NewTip` while we are forging, that message waits in the mailbox until we finish. We do not abort, restart, or change parent mid-forge.
 
@@ -122,7 +121,7 @@ Parent selection happens at the start of this handler. The rest of the work is o
 
 ### Rules
 
-- **Secrets never enter stage state.** Stage state is serialised into the trace buffer on every message. The VRF and KES keys live in a resource and answer two effects, `leader_schedule` and `forge_header`. The stage keeps only public facts: the led slots, the certificate's start period and evolution limit.
+- **Secrets never enter stage state.** Stage state is serialised into the trace buffer on every message. The KES key and the VRF seed live in a resource and answer two effects, `leader_schedule` and `sign_header`. `sign_header` receives the header-body bytes and returns only the signature. The stage keeps public facts: the led slots, the pool id, and the issuer fields captured when the stage starts (issuer verification key, VRF verification key, operational certificate).
 - **Compute the schedule once per epoch.** Every input to the leader check is fixed once the candidate freezes, so the stage computes the schedule when the window opens and recomputes only if a rollback reaches past the window. There is no per-slot VRF loop. Only the next `DueLead` is armed at a time.
 - **Do not abort an in-flight forge.** Parent selection is the first step of `DueLead`. A `NewTip` that arrives while that handler runs waits in the mailbox; the forged block keeps the parent it already picked.
 - **Enter the pipeline at `select_chain`, not `adopt_chain`.** `adopt_chain` assumes the ledger has applied the block and that `validate_block` and `select_chain` have moved their tip. Skipping them leaves `validate_block` believing the old tip is current, so the next upstream sibling of our block would be applied as an extension and fail. Entering at `select_chain` keeps every stage's bookkeeping right. Our block is validated once, on that path, like any other.

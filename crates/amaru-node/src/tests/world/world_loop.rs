@@ -19,7 +19,10 @@ use std::{
     future::Future,
     net::SocketAddr,
     num::NonZeroUsize,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Waker},
     time::Duration,
 };
@@ -83,6 +86,10 @@ pub struct WorldLoop {
     reveal_scheduled: bool,
     /// Set when a graph resumes a store effect that writes the best-chain pointer.
     best_chain_tip_updated: bool,
+    /// Per-graph tracing dispatch. Installed only while that graph runs.
+    subscribers: Vec<Option<tracing::Dispatch>>,
+    /// Set by [`Self::halt`] to leave the current `run_until_horizon*` loop.
+    halt: AtomicBool,
 }
 
 /// Same-timestamp heap pops before we treat the world as livelocked.
@@ -110,7 +117,8 @@ impl WorldLoop {
         for graph in &mut graphs {
             graph.breakpoint("world_external", |effect| matches!(effect, Effect::External { .. }));
         }
-        let graph_on_heap = vec![None; graphs.len()];
+        let graph_count = graphs.len();
+        let graph_on_heap = vec![None; graph_count];
         let mut world = Self {
             provider,
             graphs,
@@ -127,6 +135,8 @@ impl WorldLoop {
             pending_reveals: VecDeque::new(),
             reveal_scheduled: false,
             best_chain_tip_updated: false,
+            subscribers: vec![None; graph_count],
+            halt: AtomicBool::new(false),
         };
         for index in 0..world.graphs.len() {
             world.schedule_graph_if_needed(index);
@@ -141,6 +151,11 @@ impl WorldLoop {
     /// Borrow the node graphs owned by this world.
     pub fn graphs(&self) -> &[SimulationRunning] {
         &self.graphs
+    }
+
+    /// Log events emitted while graph `index` runs go to `dispatch`.
+    pub fn set_subscriber(&mut self, index: usize, dispatch: tracing::Dispatch) {
+        self.subscribers[index] = Some(dispatch);
     }
 
     /// Attach the serve-only injector handle this loop owns, at `graph_index` in `graphs`.
@@ -232,10 +247,17 @@ impl WorldLoop {
         });
     }
 
+    /// Leave the current `run_until_horizon*` loop after the event in progress.
+    pub fn halt(&self) {
+        self.halt.store(true, Ordering::Relaxed);
+    }
+
     fn drive_until_horizon(&mut self, horizon_nanos: u64, mut after_event: impl FnMut(&mut Self)) {
         let mut last_pop_time = None;
         let mut same_time_pops = 0u32;
-        while let Some(entry) = self.provider.pop_at_or_before(horizon_nanos) {
+        while !self.halt.load(Ordering::Relaxed)
+            && let Some(entry) = self.provider.pop_at_or_before(horizon_nanos)
+        {
             if self.cancelled.remove(&entry.sequence) {
                 continue;
             }
@@ -305,6 +327,15 @@ impl WorldLoop {
     }
 
     fn wake_and_run_graph(&mut self, index: usize) {
+        let dispatch = self.subscribers.get(index).and_then(|dispatch| dispatch.clone());
+        if let Some(dispatch) = dispatch {
+            tracing::dispatcher::with_default(&dispatch, || self.drive_graph(index));
+        } else {
+            self.drive_graph(index);
+        }
+    }
+
+    fn drive_graph(&mut self, index: usize) {
         let time_nanos = self.provider.current_time_nanos();
         let graph = &mut self.graphs[index];
         // Instant Ord uses duration_since_global_epoch. Skip due waits by their own Instant
