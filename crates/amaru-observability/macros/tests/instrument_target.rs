@@ -52,7 +52,7 @@ define_local_schemas! {
         formatting {
             test {
                 /// Formatter behavior for testing
-                public DISTINCT_FORMATTING {
+                public span DISTINCT_FORMATTING {
                     required display_value: %DistinctFormatting
                     required debug_value: ?DistinctFormatting
                 }
@@ -61,19 +61,19 @@ define_local_schemas! {
         consensus {
             roll_forward {
                 /// Roll forward processing for testing
-                public PROCESS {
+                public span PROCESS {
                     required peer: String
                 }
             }
             header {
                 /// Evolve nonce for testing
-                public EVOLVE_NONCE {
+                public span EVOLVE_NONCE {
                     required hash: String
                 }
             }
             chain_sync {
                 /// Roll forward for testing
-                public ROLL_FORWARD {
+                public span ROLL_FORWARD {
                     required peer: String
                 }
             }
@@ -81,11 +81,11 @@ define_local_schemas! {
         ledger {
             block {
                 /// Apply block for testing
-                public APPLY {
+                public span APPLY {
                     required point_slot: u64
                 }
                 /// Create validation context for testing
-                public CREATE_VALIDATION_CONTEXT {
+                public span CREATE_VALIDATION_CONTEXT {
                     required block_body_hash: String
                     required block_number: u64
                     required block_body_size: u64
@@ -96,7 +96,7 @@ define_local_schemas! {
         classification {
             test {
                 /// Span classification for testing
-                public REGISTERED_SPAN {
+                public span REGISTERED_SPAN {
                     required tip: String
                 }
             }
@@ -105,11 +105,11 @@ define_local_schemas! {
             work {
                 tags: cpu, io
                 /// Tagged span for testing
-                public COMPUTE {
+                public span COMPUTE {
                     required label: String
                 }
                 /// Tagged span overriding the module tags for testing
-                public STORE {
+                public span STORE {
                     tags: setup
                     required label: String
                 }

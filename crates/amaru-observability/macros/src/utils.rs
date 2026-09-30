@@ -222,6 +222,14 @@ pub fn make_record_macro_name(categories: &[String], schema_name: &str) -> Strin
     format!("__{namespace}{schema_name}_RECORD")
 }
 
+/// Generate the span/event kind check macro name for a schema.
+///
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_KIND`
+pub fn make_kind_macro_name(categories: &[String], schema_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
+    format!("__{namespace}{schema_name}_KIND")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

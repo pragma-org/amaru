@@ -24,12 +24,12 @@ define_local_schemas! {
     security {
         secrets {
             /// Public secret tracking
-            public PUBLIC_SECRET {
+            public span PUBLIC_SECRET {
                 required key_name: String
             }
 
             /// Private secret tracking (private by default)
-            PRIVATE_SECRET {
+            span PRIVATE_SECRET {
                 required key_id: String
             }
         }

@@ -28,7 +28,7 @@ define_local_schemas! {
     consensus {
         validate_header {
             /// Evolve nonce example
-            EVOLVE_NONCE {
+            span EVOLVE_NONCE {
                 required hash: String
             }
         }
@@ -37,13 +37,13 @@ define_local_schemas! {
     ledger {
         state {
             /// Epoch transition example
-            EPOCH_TRANSITION {
+            span EPOCH_TRANSITION {
                 required from: u64
                 required into: u64
             }
 
             /// Create validation context example
-            CREATE_VALIDATION_CONTEXT {
+            span CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: String
                 required block_number: u64
                 required block_body_size: u64
@@ -51,21 +51,21 @@ define_local_schemas! {
             }
 
             /// Resolve inputs example
-            RESOLVE_INPUTS {
+            span RESOLVE_INPUTS {
                 optional resolved_from_context: u64
                 optional resolved_from_volatile: u64
                 optional resolved_from_db: u64
             }
 
             /// Roll forward example
-            ROLL_FORWARD {}
+            span ROLL_FORWARD {}
         }
     }
 
     network {
         chainsync_client {
             /// Find intersection example
-            FIND_INTERSECTION {
+            span FIND_INTERSECTION {
                 required peer: String
                 required intersection_slot: u64
             }

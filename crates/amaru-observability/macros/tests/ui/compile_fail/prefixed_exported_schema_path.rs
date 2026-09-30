@@ -20,7 +20,7 @@ define_local_schemas! {
     test {
         example {
             /// Test schema
-            SCHEMA {
+            span SCHEMA {
                 optional value: u64
             }
         }

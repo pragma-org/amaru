@@ -21,7 +21,7 @@ define_local_schemas! {
     consensus {
         chain_sync {
             /// Test schema with duplicate fields
-            VALIDATE_HEADER {
+            span VALIDATE_HEADER {
                 required peer: String
                 required peer: u64
             }

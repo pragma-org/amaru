@@ -20,7 +20,7 @@ define_local_schemas! {
     test {
         example {
             /// Test schema
-            HASH {
+            span HASH {
                 required hash: String
             }
         }

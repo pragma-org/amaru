@@ -21,8 +21,8 @@ error[E0599]: no associated function or constant named `typo` found for struct `
 18 | |     test {
 19 | |         sub {
 20 | |             /// Test schema for unknown trace_span field
-21 | |             SCHEMA {
-   | |__________________- associated function or constant `typo` not found for this struct
+21 | |             span SCHEMA {
+   | |_______________________- associated function or constant `typo` not found for this struct
 ...
 29 |       let _span = trace_span!(crate::test::sub::SCHEMA, first = 42_u64, typo = 1_u64);
    |                                                                         ^^^^ associated function or constant not found in `SCHEMA`

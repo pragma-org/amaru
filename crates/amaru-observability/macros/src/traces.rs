@@ -19,8 +19,8 @@ use quote::quote;
 use syn::{Token, parse::ParseStream};
 
 use crate::utils::{
-    make_assign_macro_name, make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, parse_full_schema_path,
+    make_assign_macro_name, make_ident, make_instrument_macro_name, make_kind_macro_name, make_module_validator_name,
+    make_record_macro_name, make_require_macro_name, parse_full_schema_path,
 };
 
 const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";
@@ -155,6 +155,12 @@ impl SchemaMeta {
             quote! { ::amaru_observability::#macro_ident!(#args) }
         }
     }
+}
+
+/// Invoke the schema's span/event/level checker. `use_kind` is `span`, `record`, or `event`.
+fn generate_kind_check(meta: &SchemaMeta, use_kind: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    let kind_ident = make_ident(&make_kind_macro_name(&meta.categories(), &meta.schema_name));
+    meta.macro_call_stmt(&kind_ident, use_kind)
 }
 
 /// Generate required fields checker invocation.
@@ -381,6 +387,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         Err(error) => return error.to_compile_error().into(),
     };
 
+    let kind_check = generate_kind_check(&meta, quote! { record });
     let record_macro_ident = make_ident(&make_record_macro_name(&meta.categories(), &meta.schema_name));
 
     let mut field_prep = Vec::new();
@@ -430,49 +437,23 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     let field_nav: Vec<_> =
         args.fields.iter().map(|field| field_usage_anchor(&meta, &args.schema_path, &field.name)).collect();
 
-    // Generate the expanded code - generate the full block based on whether a level is specified
-    let expanded = if let Some(level_ident) = &args.level {
-        let level_str = level_ident.to_string().to_lowercase();
+    // The parser only keeps TRACE/DEBUG/INFO/WARN/ERROR, so lowercase is one of those.
+    let event_emit = args.level.as_ref().map(|level_ident| {
+        let level_macro = syn::Ident::new(&level_ident.to_string().to_lowercase(), proc_macro2::Span::call_site());
+        quote! { ::amaru_observability::tracing::#level_macro!(#(#event_fields),*); }
+    });
 
-        // Validate level
-        if !matches!(level_str.as_str(), "trace" | "debug" | "info" | "warn" | "error") {
-            return syn::Error::new_spanned(
-                level_ident,
-                "Invalid tracing level. Must be one of: TRACE, DEBUG, INFO, WARN, ERROR",
-            )
-            .to_compile_error()
-            .into();
-        }
+    let expanded = quote! {
+        {
+            #kind_check
+            #private_emit_guard
+            #(#field_nav)*
 
-        // Create the level macro identifier (trace, debug, info, warn, error)
-        let level_macro = syn::Ident::new(&level_str, proc_macro2::Span::call_site());
-
-        // Generate the code once with the level macro identifier
-        quote! {
-            {
-                #private_emit_guard
-                #(#field_nav)*
-
-                if #public_const_path || __amaru_emit_private {
-                    let _schema = #schema_name_path;
-                    #(#field_prep)*
-                    #(#span_records)*
-                    ::amaru_observability::tracing::#level_macro!(#(#event_fields),*);
-                }
-            }
-        }
-    } else {
-        // Without level: just record to span
-        quote! {
-            {
-                #private_emit_guard
-                #(#field_nav)*
-
-                if #public_const_path || __amaru_emit_private {
-                    let _schema = #schema_name_path;
-                    #(#field_prep)*
-                    #(#span_records)*
-                }
+            if #public_const_path || __amaru_emit_private {
+                let _schema = #schema_name_path;
+                #(#field_prep)*
+                #(#span_records)*
+                #event_emit
             }
         }
     };
@@ -563,6 +544,8 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
     };
 
     let categories = meta.categories();
+    let level_ident = syn::Ident::new(&level_str, args.level.span());
+    let kind_check = generate_kind_check(&meta, quote! { event, #level_ident });
     let name_path = build_schema_associated_const_path(&meta, &args.schema_path, "NAME");
     let target_path = build_schema_associated_const_path(&meta, &args.schema_path, "TARGET");
 
@@ -622,6 +605,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
     let expanded = wrap_in_module_validator(
         &meta,
         quote! {{
+            #kind_check
             #required_fields_check
             #private_emit_guard
             #(#field_nav)*
@@ -763,22 +747,10 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     };
     let fields = &args.fields;
 
-    // Validate and convert level (accept uppercase and convert to lowercase)
-    let level_str = if let Some(level_ident) = &args.level {
-        let level_str = level_ident.to_string().to_lowercase();
-        match level_str.as_str() {
-            "trace" | "debug" | "info" | "warn" | "error" => level_str,
-            _ => {
-                return syn::Error::new_spanned(
-                    level_ident,
-                    "Invalid tracing level. Must be one of: TRACE, DEBUG, INFO, WARN, ERROR",
-                )
-                .to_compile_error()
-                .into();
-            }
-        }
-    } else {
-        "trace".to_string()
+    // The parser only keeps TRACE/DEBUG/INFO/WARN/ERROR, so lowercase is one of those.
+    let level_str = match &args.level {
+        Some(level_ident) => level_ident.to_string().to_lowercase(),
+        None => "trace".to_string(),
     };
 
     let meta = match SchemaMeta::parse(&args.schema_path) {
@@ -787,6 +759,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     };
 
     let categories = meta.categories();
+    let kind_check = generate_kind_check(&meta, quote! { span });
     let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
     let assign_macro_ident = make_ident(&make_assign_macro_name(&categories, &meta.schema_name));
     let field_count_path = build_schema_associated_const_path(&meta, &args.schema_path, "SCHEMA_FIELD_COUNT");
@@ -915,6 +888,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     let expanded = wrap_in_module_validator(
         &meta,
         quote! {{
+            #kind_check
             #required_fields_check
             #private_emit_guard
             #(#field_nav)*

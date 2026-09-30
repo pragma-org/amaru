@@ -110,11 +110,11 @@ Connection quality for dial and share rehab uses lazy-decay **malus** ([EDR-031]
 
 ### Relation to tracing and metrics
 
-[EDR-026][edr-tracing] spans (`perf.header.forward`, `perf.blocks.fetch`, `perf.fork.switch`, …) remain the span-based story for distributed traces and operator debugging.
+[EDR-026][edr-tracing] specifies duration spans on target `amaru::network`: `perf.header.forward`, `perf.blocks.fetch`, `perf.header.block_fetch_wait`, and `perf.fork.switch`. Those are span schemas; their call sites land with the instrumentation, not in this resource.
 The performance resource complements that with:
 
 - **decision state** (who can serve what; ranked peer sets; share-relevant reputation);
-- **closed lifecycle telemetry** (`perf.header.lifecycle` intervals, fork-switch outcomes): the worker produces pure payloads when a lifecycle terminates; the external-effect handler emits tracing events and optional metrics ([EDR-015][edr-metrics]) on the stage effect executor.
+- **closed lifecycle telemetry** (`perf.header.lifecycle` remains the terminal event, and fork-switch outcomes stay the consensus `perf.fork.switch` event rather than the network duration span of that name): the worker produces pure payloads when a lifecycle terminates; the external-effect handler emits tracing events and optional metrics ([EDR-015][edr-metrics]) on the stage effect executor. The performance worker does not emit OpenTelemetry.
 
 OpenTelemetry export may drop or lag under resource or connectivity pressure. That must not stall the performance worker or couple export failure modes to peer/header state. Therefore **no OTel/metric emission runs on the performance thread**.
 

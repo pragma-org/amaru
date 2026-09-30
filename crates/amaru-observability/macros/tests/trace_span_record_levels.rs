@@ -26,7 +26,7 @@ define_local_schemas! {
     database {
         operations {
             /// Database query operation
-            public QUERY {
+            public span QUERY {
                 required query_id: u64
                 optional table_name: String
             }

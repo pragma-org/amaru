@@ -744,7 +744,7 @@ impl Muxer {
                 anyhow::bail!("received data for unknown protocol {}", proto_id)
             }
         }
-        .instrument(debug_span!(protocols::mux::protocol::RECEIVED, bytes = byte_len))
+        .instrument(debug_span!(protocols::mux::protocol::HANDLE, bytes = byte_len))
         .await
     }
 

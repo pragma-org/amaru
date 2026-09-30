@@ -23,8 +23,8 @@ use syn::{
 };
 
 use crate::utils::{
-    format_field_spec, make_assign_macro_name, make_ident, make_instrument_macro_name, make_module_validator_name,
-    make_record_macro_name, make_require_macro_name, make_required_field_check_macro_name,
+    format_field_spec, make_assign_macro_name, make_ident, make_instrument_macro_name, make_kind_macro_name,
+    make_module_validator_name, make_record_macro_name, make_require_macro_name, make_required_field_check_macro_name,
 };
 
 // =============================================================================
@@ -141,12 +141,71 @@ enum FieldTransportKind {
     Cbor,
 }
 
+/// Tracing level an event schema may be emitted at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TraceLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl TraceLevel {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Trace => "trace",
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        }
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            Self::Trace => 0,
+            Self::Debug => 1,
+            Self::Info => 2,
+            Self::Warn => 3,
+            Self::Error => 4,
+        }
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "trace" => Self::Trace,
+            "debug" => Self::Debug,
+            "info" => Self::Info,
+            "warn" => Self::Warn,
+            "error" => Self::Error,
+            _ => return None,
+        })
+    }
+}
+
+/// Whether emission is a span or an event, and which levels an event allows.
+#[derive(Clone, Debug)]
+enum SchemaKind {
+    Span,
+    Event { levels: Vec<TraceLevel> },
+}
+
+/// `span` or `event` as written in front of the schema name, before `levels:` is parsed.
+#[derive(Clone, Copy)]
+enum DeclaredKind {
+    Span,
+    Event,
+}
+
 /// A complete schema definition.
 #[derive(Clone)]
 struct Schema {
     /// Whether this schema is explicitly public.
     /// Schemas are private by default unless marked `public`.
     public: bool,
+    /// Span, or event with the levels it may be emitted at.
+    kind: SchemaKind,
     /// Category path components (idents with original spans).
     categories: Vec<Ident>,
     /// Schema name in SCREAMING_SNAKE_CASE (ident with original span).
@@ -238,17 +297,26 @@ enum CategoryItem {
     Schema(SchemaNode),
 }
 
-/// A schema definition (`[public] NAME { ... }`).
+/// A schema definition (`[public] span|event NAME { ... }`).
 struct SchemaNode {
     attrs: Vec<Attribute>,
     public: bool,
+    kind: DeclaredKind,
     name: Ident,
     items: Vec<SchemaItem>,
+}
+
+/// `levels:` names already checked against [`TraceLevel`].
+struct LevelsDecl {
+    /// First level name. A span schema points its "levels are not allowed" error here.
+    at: proc_macro2::Span,
+    levels: Vec<TraceLevel>,
 }
 
 /// Items that may appear inside a schema body.
 enum SchemaItem {
     Tags(Vec<Ident>),
+    Levels(LevelsDecl),
     Field {
         /// Field doc comments are accepted for source documentation; not emitted today.
         #[allow(dead_code)]
@@ -328,13 +396,26 @@ fn parse_category_body(input: ParseStream<'_>) -> syn::Result<Vec<CategoryItem>>
             false
         };
 
-        let name: Ident = input.parse()?;
-
-        if is_schema_name(&name) {
+        if let Some(kind) = peek_declared_kind(input) {
+            let _kind_ident: Ident = input.parse()?;
+            let name: Ident = input.parse()?;
+            if !is_schema_name(&name) {
+                return Err(syn::Error::new(
+                    name.span(),
+                    format!("expected a schema name after `{}`, found '{name}'", declared_kind_name(kind)),
+                ));
+            }
             let content;
             braced!(content in input);
             let schema_items = parse_schema_body(&content)?;
-            items.push(CategoryItem::Schema(SchemaNode { attrs, public, name, items: schema_items }));
+            items.push(CategoryItem::Schema(SchemaNode { attrs, public, kind, name, items: schema_items }));
+            continue;
+        }
+
+        let name: Ident = input.parse()?;
+
+        if is_schema_name(&name) {
+            return Err(syn::Error::new(name.span(), format!("expected `span` or `event` before schema '{name}'")));
         } else {
             if public {
                 return Err(syn::Error::new(
@@ -373,6 +454,14 @@ fn parse_schema_body(input: ParseStream<'_>) -> syn::Result<Vec<SchemaItem>> {
             continue;
         }
 
+        if peek_keyword(input, "levels") {
+            if !attrs.is_empty() {
+                return Err(syn::Error::new(attrs[0].span(), "`levels:` declarations cannot have attributes"));
+            }
+            items.push(SchemaItem::Levels(parse_levels_decl(input)?));
+            continue;
+        }
+
         let kind: Ident = input.parse()?;
         let required = match kind.to_string().as_str() {
             "required" => true,
@@ -380,7 +469,9 @@ fn parse_schema_body(input: ParseStream<'_>) -> syn::Result<Vec<SchemaItem>> {
             other => {
                 return Err(syn::Error::new(
                     kind.span(),
-                    format!("expected `required`, `optional`, or `tags:` inside schema body, found '{other}'"),
+                    format!(
+                        "expected `required`, `optional`, `tags:`, or `levels:` inside schema body, found '{other}'"
+                    ),
                 ));
             }
         };
@@ -435,6 +526,7 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
             || peek_keyword(input, "optional")
             || peek_keyword(input, "public")
             || peek_keyword(input, "tags")
+            || peek_keyword(input, "levels")
         {
             break;
         }
@@ -443,7 +535,9 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
             syn::Error::new(input.span(), "Invalid tag. Tags must be lowercase identifiers (e.g. `tags: cpu, io`).")
         })?;
 
-        if is_schema_name(&tag) || matches!(tag.to_string().as_str(), "required" | "optional" | "public" | "tags") {
+        if is_schema_name(&tag)
+            || matches!(tag.to_string().as_str(), "required" | "optional" | "public" | "tags" | "levels")
+        {
             return Err(syn::Error::new(
                 tag.span(),
                 format!("Invalid tag '{}'. Tags must be lowercase identifiers (e.g. `tags: cpu, io`).", tag),
@@ -467,6 +561,78 @@ fn parse_tags_decl(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
         return Err(syn::Error::new(tags_kw.span(), "expected at least one tag after `tags:`"));
     }
     Ok(tags)
+}
+
+fn parse_levels_decl(input: ParseStream<'_>) -> syn::Result<LevelsDecl> {
+    let levels_kw: Ident = input.parse()?;
+    if levels_kw != "levels" {
+        return Err(syn::Error::new(levels_kw.span(), "expected `levels`"));
+    }
+    input.parse::<Token![:]>()?;
+
+    let mut levels = Vec::new();
+    let mut at = None;
+    loop {
+        if input.is_empty() || input.peek(Token![#]) || !input.peek(Ident) {
+            break;
+        }
+        if input.peek2(syn::token::Brace)
+            || peek_keyword(input, "required")
+            || peek_keyword(input, "optional")
+            || peek_keyword(input, "public")
+            || peek_keyword(input, "tags")
+            || peek_keyword(input, "levels")
+        {
+            break;
+        }
+
+        let level: Ident = input.parse()?;
+        let name = level.to_string();
+        let Some(parsed) = TraceLevel::from_name(&name) else {
+            return Err(syn::Error::new(
+                level.span(),
+                format!("invalid level '{name}'; expected one of: trace, debug, info, warn, error"),
+            ));
+        };
+        if levels.contains(&parsed) {
+            return Err(syn::Error::new(level.span(), format!("duplicate level '{level}' in levels declaration")));
+        }
+        if at.is_none() {
+            at = Some(level.span());
+        }
+        levels.push(parsed);
+
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            continue;
+        }
+        break;
+    }
+
+    let Some(at) = at else {
+        return Err(syn::Error::new(levels_kw.span(), "expected at least one level after `levels:`"));
+    };
+    Ok(LevelsDecl { at, levels })
+}
+
+/// `span` / `event` only when the following identifier is a schema name.
+fn peek_declared_kind(input: ParseStream<'_>) -> Option<DeclaredKind> {
+    let fork = input.fork();
+    let ident: Ident = fork.parse().ok()?;
+    let kind = match ident.to_string().as_str() {
+        "span" => DeclaredKind::Span,
+        "event" => DeclaredKind::Event,
+        _ => return None,
+    };
+    let name: Ident = fork.parse().ok()?;
+    if is_schema_name(&name) { Some(kind) } else { None }
+}
+
+fn declared_kind_name(kind: DeclaredKind) -> &'static str {
+    match kind {
+        DeclaredKind::Span => "span",
+        DeclaredKind::Event => "event",
+    }
 }
 
 fn peek_keyword(input: ParseStream<'_>, name: &str) -> bool {
@@ -555,6 +721,7 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
     let description = docs_from_attrs(&node.attrs);
 
     let mut tags: Option<Vec<Ident>> = None;
+    let mut levels: Option<LevelsDecl> = None;
     let mut required_fields = Vec::new();
     let mut optional_fields = Vec::new();
 
@@ -568,6 +735,16 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
                     ));
                 } else {
                     tags = Some(t);
+                }
+            }
+            SchemaItem::Levels(declared) => {
+                if levels.is_some() {
+                    errors.push(syn::Error::new(
+                        declared.at,
+                        format!("duplicate levels declaration in schema {}", node.name),
+                    ));
+                } else {
+                    levels = Some(declared);
                 }
             }
             SchemaItem::Field { attrs: _field_docs, required, name, ty, render } => {
@@ -603,13 +780,48 @@ fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Iden
         }
     }
 
+    let kind = match node.kind {
+        DeclaredKind::Span => {
+            if let Some(declared) = &levels {
+                errors.push(syn::Error::new(
+                    declared.at,
+                    format!("`levels:` is not allowed on span schema {}", node.name),
+                ));
+            }
+            SchemaKind::Span
+        }
+        DeclaredKind::Event => {
+            let Some(mut declared) = levels else {
+                errors.push(syn::Error::new(
+                    node.name.span(),
+                    format!(
+                        "event schema '{}' requires `levels:` listing one or more of trace, debug, info, warn, error",
+                        node.name
+                    ),
+                ));
+                return Err(errors);
+            };
+            declared.levels.sort_by_key(|level| level.rank());
+            SchemaKind::Event { levels: declared.levels }
+        }
+    };
+
     if !errors.is_empty() {
         return Err(errors);
     }
 
     let tags = tags.unwrap_or_else(|| inherited_tags.to_vec());
 
-    Ok(Schema { public: node.public, categories, name: node.name, description, tags, required_fields, optional_fields })
+    Ok(Schema {
+        public: node.public,
+        kind,
+        categories,
+        name: node.name,
+        description,
+        tags,
+        required_fields,
+        optional_fields,
+    })
 }
 
 // =============================================================================
@@ -685,6 +897,71 @@ fn accessor_kind(field: &SchemaField) -> AccessorKind {
 // =============================================================================
 // Macro Generation
 // =============================================================================
+
+/// Reject a span/event mismatch, an event emitted outside `levels:`, or `trace_record!` on an event.
+fn generate_kind_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
+    let categories = schema.category_strings();
+    let schema_name = schema.name_str();
+    let macro_ident = make_ident(&make_kind_macro_name(&categories, &schema_name));
+    let macro_export = config.macro_export_attr();
+    let path = schema.full_path();
+
+    match &schema.kind {
+        SchemaKind::Span => quote! {
+            #macro_export
+            #[doc(hidden)]
+            macro_rules! #macro_ident {
+                (span) => {};
+                (event, $level:ident) => {
+                    compile_error!(concat!(
+                        "schema ",
+                        #path,
+                        " is a span and cannot be emitted as an event"
+                    ));
+                };
+                (record) => {};
+            }
+        },
+        SchemaKind::Event { levels } => {
+            let allowed = levels.iter().map(|level| level.as_str()).collect::<Vec<_>>().join(", ");
+            let allowed_arms = levels.iter().map(|level| {
+                let level_ident = make_ident(level.as_str());
+                quote! { (event, #level_ident) => {}; }
+            });
+            quote! {
+                #macro_export
+                #[doc(hidden)]
+                macro_rules! #macro_ident {
+                    (span) => {
+                        compile_error!(concat!(
+                            "schema ",
+                            #path,
+                            " is an event and cannot be used as a span"
+                        ));
+                    };
+                    #(#allowed_arms)*
+                    (event, $level:ident) => {
+                        compile_error!(concat!(
+                            "schema ",
+                            #path,
+                            " may only be emitted at ",
+                            #allowed,
+                            ", not ",
+                            stringify!($level)
+                        ));
+                    };
+                    (record) => {
+                        compile_error!(concat!(
+                            "trace_record! records fields on a span; ",
+                            #path,
+                            " is an event"
+                        ));
+                    };
+                }
+            }
+        }
+    }
+}
 
 /// Generate the required fields checker macro for a schema.
 fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
@@ -991,90 +1268,16 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
 
-    let validate_value_patterns: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let field_name = field.name_lit();
-            match field.transport_kind() {
-                FieldTransportKind::Str => quote! {
-                    (#field_name, $expr:expr, validate_value) => {{
-                        let __amaru_assert_type = |_: &dyn ::std::convert::AsRef<str>| {};
-                        __amaru_assert_type($expr);
-                    }};
-                },
-                FieldTransportKind::DisplayStr => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_v = #as_field_ref::<#field_type>($expr);
-                            let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
-                            __amaru_assert_display(__amaru_v);
-                        }};
-                    }
-                }
-                FieldTransportKind::DebugStr => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_v = #as_field_ref::<#field_type>($expr);
-                            let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
-                            __amaru_assert_debug(__amaru_v);
-                        }};
-                    }
-                }
-                FieldTransportKind::Bool
-                | FieldTransportKind::I64
-                | FieldTransportKind::U64
-                | FieldTransportKind::F64 => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let _ = #as_field_ref::<#field_type>($expr);
-                        }};
-                    }
-                }
-                FieldTransportKind::Cbor => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, validate_value) => {{
-                            let __amaru_v = #as_field_ref::<#field_type>($expr);
-                            fn __amaru_assert_serialize<T: #serialize_trait + #json_schema_trait + ?Sized>(_: &T) {}
-                            __amaru_assert_serialize(__amaru_v);
-                        }};
-                    }
-                }
-            }
-        })
-        .collect();
-
     // Expression-producing patterns: type-check and produce a `tracing::Value`.
     let format_typed_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
             let field_name = field.name_lit();
             match field.transport_kind() {
-                FieldTransportKind::Bool => quote! {
-                    (#field_name, $expr:expr, format_typed) => {{
-                        *#as_field_ref::<bool>($expr)
-                    }};
-                },
-                FieldTransportKind::I64 => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, format_typed) => {{
-                            *#as_field_ref::<#field_type>($expr)
-                        }};
-                    }
-                }
-                FieldTransportKind::U64 => {
-                    let field_type = &field.ty;
-                    quote! {
-                        (#field_name, $expr:expr, format_typed) => {{
-                            *#as_field_ref::<#field_type>($expr)
-                        }};
-                    }
-                }
-                FieldTransportKind::F64 => {
+                FieldTransportKind::Bool
+                | FieldTransportKind::I64
+                | FieldTransportKind::U64
+                | FieldTransportKind::F64 => {
                     let field_type = &field.ty;
                     quote! {
                         (#field_name, $expr:expr, format_typed) => {{
@@ -1118,51 +1321,11 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
-    let validate_exact_patterns: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let field_name = field.name_lit();
-            let field_type = field.type_lit();
-            quote! {
-                (#field_name, #field_type, validate) => {};
-            }
-        })
-        .collect();
-
-    let validate_wrong_type_patterns: Vec<_> = all_fields
-        .iter()
-        .map(|field| {
-            let field_name = field.name_lit();
-            let expected_type = field.type_lit();
-            quote! {
-                (#field_name, $actual_ty:literal, validate) => {
-                    compile_error!(concat!(
-                        "Wrong type for field '",
-                        #field_name,
-                        "': expected '",
-                        #expected_type,
-                        "', found '",
-                        $actual_ty,
-                        "'"
-                    ));
-                };
-            }
-        })
-        .collect();
-
-    let validate_formatted_patterns: Vec<_> = all_fields
+    let validate_event_value_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
             let field_name = field.name_lit();
             quote! {
-                (#field_name, $expr:expr, validate_event_display) => {{
-                    let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
-                    __amaru_assert_display($expr);
-                }};
-                (#field_name, $expr:expr, validate_event_debug) => {{
-                    let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
-                    __amaru_assert_debug($expr);
-                }};
                 (#field_name, $expr:expr, validate_event_value) => {{
                     let __amaru_assert_value = |_: &dyn ::amaru_observability::tracing::field::Value| {};
                     __amaru_assert_value($expr);
@@ -1178,40 +1341,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         #macro_export
         #[doc(hidden)]
         macro_rules! #macro_ident {
-            #(#validate_value_patterns)*
             #(#format_typed_patterns)*
-            #(#validate_formatted_patterns)*
-            ($name:literal, $expr:expr, validate_value) => {
-                compile_error!(concat!(
-                    "Unknown field '",
-                    $name,
-                    "' for schema ",
-                    #schema_name,
-                    ". Available fields: ",
-                    #fields_list
-                ))
-            };
+            #(#validate_event_value_patterns)*
             ($name:literal, $expr:expr, format_typed) => {
-                compile_error!(concat!(
-                    "Unknown field '",
-                    $name,
-                    "' for schema ",
-                    #schema_name,
-                    ". Available fields: ",
-                    #fields_list
-                ))
-            };
-            ($name:literal, $expr:expr, validate_event_display) => {
-                compile_error!(concat!(
-                    "Unknown field '",
-                    $name,
-                    "' for schema ",
-                    #schema_name,
-                    ". Available fields: ",
-                    #fields_list
-                ))
-            };
-            ($name:literal, $expr:expr, validate_event_debug) => {
                 compile_error!(concat!(
                     "Unknown field '",
                     $name,
@@ -1231,10 +1363,6 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #fields_list
                 ))
             };
-
-            #(#validate_exact_patterns)*
-            #(#validate_wrong_type_patterns)*
-            ($name:literal, $ty:literal, validate) => {};
         }
     }
 }
@@ -1346,16 +1474,24 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
     let use_stmt = if is_observability_lib() {
         quote! {
             use crate::registry::{
-                FieldRender, SchemaEntry, SchemaFieldEntry, json_schema_boolean, json_schema_for, json_schema_integer,
-                json_schema_number, json_schema_string,
+                FieldRender, SchemaEntry, SchemaFieldEntry, SchemaKind, json_schema_boolean, json_schema_for,
+                json_schema_integer, json_schema_number, json_schema_string,
             };
         }
     } else {
         quote! {
             use amaru_observability::registry::{
-                FieldRender, SchemaEntry, SchemaFieldEntry, json_schema_boolean, json_schema_for, json_schema_integer,
-                json_schema_number, json_schema_string,
+                FieldRender, SchemaEntry, SchemaFieldEntry, SchemaKind, json_schema_boolean, json_schema_for,
+                json_schema_integer, json_schema_number, json_schema_string,
             };
+        }
+    };
+
+    let (kind_tokens, levels_tokens) = match &schema.kind {
+        SchemaKind::Span => (quote! { SchemaKind::Span }, quote! { &[] as &'static [&'static str] }),
+        SchemaKind::Event { levels } => {
+            let level_lits = levels.iter().map(|level| level.as_str());
+            (quote! { SchemaKind::Event }, quote! { &[#(#level_lits),*] })
         }
     };
 
@@ -1394,7 +1530,8 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
                 path: #schema_path,
                 name: #schema_name,
                 target: #target_path,
-                level: "TRACE",
+                kind: #kind_tokens,
+                levels: #levels_tokens,
                 description: #description,
                 public: #public,
                 required_fields: &[#(#required_fields_array),*],
@@ -1527,6 +1664,7 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
         all_schema_paths.push(schema.full_path());
 
         validation_macros.push(generate_required_fields_macro(schema, config));
+        validation_macros.push(generate_kind_macro(schema, config));
         validation_macros.push(generate_instrument_macro(schema, config));
         validation_macros.push(generate_assign_macro(schema, config));
         validation_macros.push(generate_record_macro(schema, config));
@@ -1806,7 +1944,7 @@ mod tests {
                 consensus {
                     sync {
                         /// Validate the schema
-                        VALIDATE {
+                        span VALIDATE {
                             required slot: u64
                         }
                     }
@@ -1831,7 +1969,7 @@ mod tests {
                 test {
                     sub {
                         /// Test schema
-                        SCHEMA {
+                        span SCHEMA {
                             required id: String
                             optional label: String
                         }
@@ -1854,7 +1992,7 @@ mod tests {
                 test {
                     sub {
                         /// Test schema
-                        SCHEMA {
+                        span SCHEMA {
                             required credential_type: amaru_kernel::CredentialKind
                         }
                     }
@@ -1873,7 +2011,7 @@ mod tests {
                 test {
                     sub {
                         /// Test schema
-                        SCHEMA {
+                        span SCHEMA {
                             required credential_hash: amaru_kernel::Hash<28>
                         }
                     }
@@ -1892,7 +2030,7 @@ mod tests {
                 test {
                     sub {
                         /// Test schema
-                        SCHEMA {
+                        span SCHEMA {
                             required point: amaru_kernel::Point
                             required header_hash: %amaru_kernel::HeaderHash
                             optional debug_info: ?String
@@ -1917,11 +2055,11 @@ mod tests {
                 cat {
                     sub {
                         /// Schema A description
-                        SCHEMA_A {
+                        span SCHEMA_A {
                             required a: u32
                         }
                         /// Schema B description
-                        SCHEMA_B {
+                        span SCHEMA_B {
                             required b: u64
                         }
                     }
@@ -1942,7 +2080,7 @@ mod tests {
                 cat {
                     sub {
                         /// Schema with duplicate
-                        SCHEMA {
+                        span SCHEMA {
                             required x: u32
                             required x: u64
                         }
@@ -1958,6 +2096,7 @@ mod tests {
     fn test_schema_validation_string() {
         let mut schema = Schema {
             public: false,
+            kind: SchemaKind::Span,
             categories: vec![
                 Ident::new("cat", proc_macro2::Span::call_site()),
                 Ident::new("sub", proc_macro2::Span::call_site()),
@@ -1989,11 +2128,11 @@ mod tests {
                     tags: cpu, io
                     sub {
                         /// Schema inheriting the module tags
-                        INHERITED {
+                        span INHERITED {
                             required x: u32
                         }
                         /// Schema overriding the module tags
-                        OVERRIDDEN {
+                        span OVERRIDDEN {
                             tags: setup
                             required y: u32
                         }
@@ -2002,7 +2141,7 @@ mod tests {
                 other {
                     sub {
                         /// Schema without any tags
-                        UNTAGGED {
+                        span UNTAGGED {
                             required z: u32
                         }
                     }
@@ -2028,7 +2167,7 @@ mod tests {
                     tags: CPU
                     sub {
                         /// Schema
-                        SCHEMA {
+                        span SCHEMA {
                             required x: u32
                         }
                     }
@@ -2052,7 +2191,7 @@ mod tests {
                 cat {
                     sub {
                         /// Schema with a duplicated tag
-                        SCHEMA {
+                        span SCHEMA {
                             tags: cpu, cpu
                             required x: u32
                         }
@@ -2075,7 +2214,7 @@ mod tests {
             amaru {
                 cat {
                     sub {
-                        SCHEMA {
+                        span SCHEMA {
                             required x: u32
                         }
                     }
@@ -2099,7 +2238,7 @@ mod tests {
                 cat {
                     sub {
                         /// This is a test schema
-                        SCHEMA {
+                        span SCHEMA {
                             required x: u32
                         }
                     }
@@ -2121,7 +2260,7 @@ mod tests {
                         /// This is a test schema
                         /// with multiple lines
                         /// of documentation
-                        SCHEMA {
+                        span SCHEMA {
                             required x: u32
                         }
                     }
@@ -2144,7 +2283,7 @@ mod tests {
                 cat {
                     sub {
                         /// Schema with trailing commas
-                        SCHEMA {
+                        span SCHEMA {
                             required id: u64,
                             optional label: String,
                         }
@@ -2165,11 +2304,11 @@ mod tests {
                 cat {
                     sub {
                         /// Public schema
-                        public PUBLIC_EVENT {
+                        public span PUBLIC_EVENT {
                             required x: u32
                         }
                         /// Private schema
-                        PRIVATE_EVENT {}
+                        span PRIVATE_EVENT {}
                     }
                 }
             }
@@ -2181,13 +2320,72 @@ mod tests {
     }
 
     #[test]
+    fn test_event_requires_levels_and_span_rejects_them() {
+        let missing = quote! {
+            amaru {
+                cat {
+                    sub {
+                        /// Event without levels
+                        event SCHEMA {
+                            required x: u32
+                        }
+                    }
+                }
+            }
+        };
+        let (_, errors) = parse_input(missing);
+        assert!(errors.iter().any(|e| e.contains("requires `levels:`")), "{errors:?}");
+
+        let forbidden = quote! {
+            amaru {
+                cat {
+                    sub {
+                        /// Span with levels
+                        span SCHEMA {
+                            levels: debug
+                            required x: u32
+                        }
+                    }
+                }
+            }
+        };
+        let (_, errors) = parse_input(forbidden);
+        assert!(errors.iter().any(|e| e.contains("not allowed on span")), "{errors:?}");
+    }
+
+    #[test]
+    fn test_event_levels_are_sorted() {
+        let tokens = quote! {
+            amaru {
+                cat {
+                    sub {
+                        /// Event with two levels
+                        public event SCHEMA {
+                            levels: error, debug
+                            required x: u32
+                        }
+                    }
+                }
+            }
+        };
+        let (schemas, errors) = parse_input(tokens);
+        assert!(errors.is_empty(), "{errors:?}");
+        match &schemas[0].kind {
+            SchemaKind::Event { levels } => {
+                assert_eq!(levels, &vec![TraceLevel::Debug, TraceLevel::Error]);
+            }
+            SchemaKind::Span => panic!("expected event"),
+        }
+    }
+
+    #[test]
     fn test_field_doc_comments_accepted() {
         let tokens = quote! {
             amaru {
                 cat {
                     sub {
                         /// Schema with field docs
-                        SCHEMA {
+                        span SCHEMA {
                             /// docs on a field
                             required count: u64
                         }

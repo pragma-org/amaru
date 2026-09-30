@@ -26,11 +26,11 @@ echo "✓ Generated ${SCHEMAS_FILE}"
 
 # Generate markdown from JSON schemas
 cat > "${OUTPUT_FILE}" << 'EOF'
-# Available Spans
+# Available traces
 
-This document lists all available spans in Amaru, auto-generated from the code.
+This document lists all available trace schemas in Amaru, auto-generated from the code. Each schema is either a span or an event. Event schemas list the levels they may be emitted at.
 
-For information on how to use and filter these spans, see [monitoring/README.md](../monitoring/README.md).
+For information on how to use and filter these traces, see [monitoring/README.md](../monitoring/README.md).
 
 EOF
 
@@ -41,8 +41,11 @@ jq -r '
   # markdown markup or split the row into extra columns.
   def escape_table_cell: gsub("`"; "\\`") | gsub("\\|"; "\\|");
 
+  def levels_cell:
+    if .kind == "event" then (.levels // [] | join(", ")) else "" end;
+
   def span_row:
-    "| `\(.name)` | `\(.level)` | \(if .public then "public" else "" end) | \(.description // "" | escape_table_cell) | \((.required // []) | join(", ")) | \((.optional // []) | join(", ")) |";
+    "| `\(.name)` | `\(.kind)` | \(levels_cell) | \(if .public then "public" else "" end) | \(.description // "" | escape_table_cell) | \((.required // []) | join(", ")) | \((.optional // []) | join(", ")) |";
 
   def field_type:
     if .type then .type
@@ -59,7 +62,7 @@ jq -r '
 
   def span_details:
     if ((.properties // {}) | length) > 0 then
-      ["", "<details><summary>span: `\(.name)`</summary>", "", "| field | type | required |", "| --- | --- | --- |"]
+      ["", "<details><summary>\(.kind): `\(.name)`</summary>", "", "| field | type | required |", "| --- | --- | --- |"]
       + field_rows
       + ["", "</details>"]
     else
@@ -69,7 +72,7 @@ jq -r '
   [.definitions[]] as $spans
   | [ ($spans | map(.target) | unique)[] as $target
       | ($spans | map(select(.target == $target)) | sort_by(.name)) as $group
-      | ["", "## target: `\($target)`", "", "| name | level | public | description | required fields | optional fields |", "| --- | --- | --- | --- | --- | --- |"]
+      | ["", "## target: `\($target)`", "", "| name | kind | levels | public | description | required fields | optional fields |", "| --- | --- | --- | --- | --- | --- | --- |"]
         + ($group | map(span_row))
         + ($group | map(span_details) | add // [])
     ]
