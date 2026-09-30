@@ -36,8 +36,8 @@ use amaru_metrics::Meter;
 use amaru_network::{connection::TokioConnections, resolve::init_resolver};
 use amaru_observability::warn;
 use amaru_ouroboros::{
-    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
-    StoreError as ChainStoreError,
+    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries,
+    ResourceMempool, StoreError as ChainStoreError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
@@ -378,6 +378,20 @@ pub fn build_node(
     // i.e. before the volatile ledger was dropped.
     let recovery_best_hash = find_best_candidate(chain_store.as_ref())?;
     let ledger_parent = tip_parent(chain_store.as_ref(), &ledger_tip)?;
+    if let Some(credentials) = &config.forging_credentials {
+        amaru_ouroboros::ensure_operational_certificate_accepted(
+            credentials.as_ref(),
+            chain_store.as_ref(),
+            &ledger_tip,
+        )?;
+        let issuer = credentials.issuer_fields();
+        amaru_observability::info!(
+            node::build::FORGING,
+            pool_id = credentials.pool_id(),
+            sequence = issuer.operational_cert.operational_cert_sequence_number,
+            kes_period = issuer.operational_cert.operational_cert_kes_period,
+        );
+    }
     let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
 
     // Make resources

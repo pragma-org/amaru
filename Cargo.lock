@@ -564,6 +564,7 @@ dependencies = [
  "amaru-deps",
  "amaru-kernel",
  "amaru-kes-summed-ed25519",
+ "amaru-observability",
  "amaru-ouroboros-traits",
  "amaru-pure-stage",
  "amaru-vrf-dalek",

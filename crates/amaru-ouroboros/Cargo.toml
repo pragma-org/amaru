@@ -30,6 +30,7 @@ zeroize = { workspace = true, features = ["serde"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
+amaru-observability.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-pure-stage.workspace = true
 

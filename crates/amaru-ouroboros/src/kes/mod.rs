@@ -38,7 +38,7 @@ impl SecretKey {
     pub const SIZE: usize = Sum6Kes::SIZE;
 
     /// `type` field of the cardano-cli envelope that wraps a KES signing key.
-    const ENVELOPE_TYPE: &str = "KesSigningKey_ed25519_kes_2^6";
+    pub(crate) const ENVELOPE_TYPE: &str = "KesSigningKey_ed25519_kes_2^6";
 
     /// Take ownership of raw key bytes at period 0.
     pub fn from_bytes(sk_bytes: Vec<u8>) -> Result<Self, KesError> {

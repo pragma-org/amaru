@@ -15,6 +15,7 @@
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
+pub mod credentials;
 pub mod kes;
 pub mod mempool;
 pub mod praos;
@@ -22,4 +23,5 @@ mod serde_util;
 pub mod vrf;
 
 pub use amaru_ouroboros_traits::*;
+pub use credentials::{ensure_operational_certificate_accepted, forging_credentials_from_files};
 pub use mempool::*;

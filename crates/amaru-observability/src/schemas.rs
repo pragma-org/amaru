@@ -629,6 +629,10 @@ define_schemas! {
                     required header_hash: amaru_kernel::HeaderHash
                     required parent: amaru_kernel::HeaderHash
                 }
+                /// The in-memory KES key moved to a new period.
+                public KES_PERIOD {
+                    required period: %amaru_kernel::KesPeriod
+                }
             }
             peer {
                 tags: cpu
@@ -2729,6 +2733,12 @@ define_schemas! {
                 /// Opened the ledger state; reports the ledger tip at startup
                 public LEDGER_OPENED {
                     required tip: amaru_kernel::Point
+                }
+                /// Block forging is configured from key files.
+                public FORGING {
+                    required pool_id: amaru_kernel::PoolId
+                    required sequence: u64
+                    required kes_period: %amaru_kernel::KesPeriod
                 }
                 /// Failed to notify the peer tracker of a stake distribution update
                 public STAKE_DIST_NOTIFY_FAILED {}

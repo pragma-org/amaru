@@ -105,8 +105,8 @@ pub struct Config {
     /// persisted ledger tip on startup.
     pub realign_chain_store: bool,
 
-    /// Block-producer secrets. `None` on a follower, which is the product binary.
-    /// When `Some`, `build_node` wires the forge stage and registers this resource.
+    /// Block-producer secrets. `None` leaves the node a follower.
+    /// When `Some`, `build_node` checks the operational certificate and wires the forge stage.
     pub forging_credentials: Option<Arc<dyn ForgingCredentials>>,
 }
 

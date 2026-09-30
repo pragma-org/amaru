@@ -4282,6 +4282,24 @@
       "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}.",
       "public": true
     },
+    "amaru::consensus::forge::KES_PERIOD": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "period"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "kes_period",
+      "level": "TRACE",
+      "target": "amaru::consensus::forge",
+      "description": "The in-memory KES key moved to a new period.",
+      "public": true
+    },
     "amaru::consensus::forge::MISSED_SLOT": {
       "type": "object",
       "properties": {
@@ -6877,6 +6895,35 @@
       "level": "TRACE",
       "target": "amaru::network::connection",
       "description": "Aborted an existing listener task so the address can be rebound on restart",
+      "public": true
+    },
+    "amaru::node::build::FORGING": {
+      "type": "object",
+      "properties": {
+        "pool_id": {
+          "title": "Hash<28>",
+          "description": "hex-encoded hash",
+          "type": "string",
+          "pattern": "^[0-9a-f]{56}$"
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "kes_period": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pool_id",
+        "sequence",
+        "kes_period"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "forging",
+      "level": "TRACE",
+      "target": "amaru::node::build",
+      "description": "Block forging is configured from key files.",
       "public": true
     },
     "amaru::node::build::LEDGER_OPENED": {

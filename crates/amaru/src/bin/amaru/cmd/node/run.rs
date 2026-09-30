@@ -277,6 +277,41 @@ pub struct Args {
     )]
     dump_trace_buffer: Option<PathBuf>,
 
+    /// KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
+    ///
+    /// Together with `--vrf-signing-key-file` and `--operational-certificate`, the node forges
+    /// blocks. Preprod, preview, and other testnets only. Mainnet refuses these flags.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::KES_SIGNING_KEY_FILE,
+        display_order = 0,
+        help_heading = "Block Forging",
+    )]
+    kes_signing_key_file: Option<PathBuf>,
+
+    /// VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::VRF_SIGNING_KEY_FILE,
+        display_order = 0,
+        help_heading = "Block Forging",
+    )]
+    vrf_signing_key_file: Option<PathBuf>,
+
+    /// Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
+    ///
+    /// The file includes the cold verification key. No separate cold-key file is read.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::OPERATIONAL_CERTIFICATE,
+        display_order = 0,
+        help_heading = "Block Forging",
+    )]
+    operational_certificate: Option<PathBuf>,
+
     /// Path to a JSON era history file overriding the network default.
     ///
     /// This is required for generated custom testnets whose epoch length or era bounds differ from
@@ -568,6 +603,14 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
+    let forging_credentials = amaru_ouroboros::forging_credentials_from_files(
+        network,
+        u64::from(global_parameters.max_kes_evolution),
+        args.kes_signing_key_file.as_deref(),
+        args.vrf_signing_key_file.as_deref(),
+        args.operational_certificate.as_deref(),
+    )?;
+
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
     if !std::fs::metadata(&ledger_dir)
         .with_context(|| format!("failed to stat ledger_dir `{}`", ledger_dir.display()))?
@@ -698,6 +741,8 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         peer_mix: args.peer_mix.parse().context("invalid --peer-mix")?,
         mempool,
         tx_submission_responder_params: tx_submission_params,
+        forging_credentials: forging_credentials
+            .map(|credentials| Arc::new(credentials) as Arc<dyn amaru_ouroboros::ForgingCredentials>),
         ..Config::default()
     })
 }
