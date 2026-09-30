@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point, Slot};
-use amaru_observability::tracing::Level;
+use amaru_observability::{TraceContext, tracing::Level};
 use amaru_ouroboros_traits::{StoreError, overriding_chain_store::OverridingChainStore};
 use amaru_pure_stage::{
     Instant, assert_trace_contains,
@@ -397,7 +397,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
     let parent = prep.headers.h2.point();
     // Use the simulation clock as the reception time so the forward duration measured at
     // abandonment (which reads the same clock) is zero.
-    let msg = SelectChainMsg::TipFromUpstream { tip, parent, trace_context: Default::default() };
+    let msg = SelectChainMsg::TipFromUpstream { tip, parent, trace_context: TraceContext::detached() };
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
     let mut expected = SelectChain::new(prep.downstream.clone());

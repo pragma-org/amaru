@@ -149,7 +149,9 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
             };
             Ok((action, self))
         }
-        .instrument(debug_span!(protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE, message_type, peer))
+        .instrument(
+            debug_span!(protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE, message_type, peer).into(),
+        )
         .await
     }
 

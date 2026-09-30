@@ -1,0 +1,7 @@
+error[E0271]: type mismatch resolving `<&TraceContext<NoParent> as ParentContext>::Schema == Allowed`
+  --> tests/ui/compile_fail/parent_context_none.rs:34:17
+   |
+34 |     let _span = trace_span!(parent_context: &context, crate::demo::CHILD, value = 1u64);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Allowed`, found `NoParent`
+   |
+   = note: this error originates in the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

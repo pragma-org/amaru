@@ -19,18 +19,23 @@ proc-macro = true
 
 [dependencies]
 inventory.workspace = true
-opentelemetry.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true
-syn.workspace = true
+syn = { workspace = true, features = ["extra-traits"] }
 tracing.workspace = true
 
 [dev-dependencies]
 amaru-observability = { path = ".." }
 async-trait.workspace = true
+opentelemetry.workspace = true
 schemars.workspace = true
 serde.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 trybuild.workspace = true
+
+# Local-schema expansions resolve `::opentelemetry` and `::tracing_opentelemetry`.
+# Those paths are generated, so they are not visible as crate uses.
+[package.metadata.cargo-machete]
+ignored = ["opentelemetry", "tracing-opentelemetry"]

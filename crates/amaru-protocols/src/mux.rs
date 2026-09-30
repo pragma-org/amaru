@@ -646,7 +646,7 @@ impl Muxer {
             self.do_register(proto_id, frame, max_buffer, handler);
             Ok(())
         }
-        .instrument(debug_span!(protocols::mux::protocol::REGISTER,))
+        .instrument(debug_span!(protocols::mux::protocol::REGISTER,).into())
         .await
     }
 
@@ -725,7 +725,7 @@ impl Muxer {
             }
             None
         }
-        .instrument(debug_span!(protocols::mux::protocol::NEXT_SEGMENT,))
+        .instrument(debug_span!(protocols::mux::protocol::NEXT_SEGMENT,).into())
         .await
     }
 
@@ -744,7 +744,7 @@ impl Muxer {
                 anyhow::bail!("received data for unknown protocol {}", proto_id)
             }
         }
-        .instrument(debug_span!(protocols::mux::protocol::HANDLE, bytes = byte_len))
+        .instrument(debug_span!(protocols::mux::protocol::HANDLE, bytes = byte_len).into())
         .await
     }
 
@@ -759,7 +759,7 @@ impl Muxer {
                 .await?;
             Ok(())
         }
-        .instrument(debug_span!(protocols::mux::protocol::WANT_NEXT,))
+        .instrument(debug_span!(protocols::mux::protocol::WANT_NEXT,).into())
         .await
     }
 }

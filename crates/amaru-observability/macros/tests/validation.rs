@@ -60,6 +60,17 @@ define_local_schemas! {
             }
             /// Roll forward for testing
             span ROLL_FORWARD {}
+            /// Child span that names its parent marker
+            span CHILD_OF_HEADER {
+                parents: crate::parent_context::HeaderParent
+                required point_slot: u64
+            }
+            /// Child that may also be opened as an explicit root
+            span OPTED_ROOT {
+                parents: crate::parent_context::HeaderParent
+                root
+                required point_slot: u64
+            }
         }
     }
     network {
@@ -122,28 +133,29 @@ mod required_fields {
 }
 
 mod parent_context {
+    use amaru_observability::TraceContext;
+
     use super::*;
 
-    struct TestTraceContext(opentelemetry::Context);
+    pub struct HeaderParent;
 
-    impl TestTraceContext {
-        fn context(&self) -> opentelemetry::Context {
-            self.0.clone()
-        }
-    }
-
-    /// Any struct with a `context` method returning an opentelemetry Context can be passed to create
-    /// the parent context of a span.
+    /// A span with no `parents:` is a root.
     #[test]
-    fn trace_span_accepts_parent_context() {
-        let context = TestTraceContext(opentelemetry::Context::new());
-        let _span = trace_span!(parent_context: &context, crate::ledger::state::APPLY_BLOCK, point_slot = 1);
-    }
-
-    #[test]
-    fn trace_span_accepts_root_parent() {
-        let _span = trace_span!(root, crate::ledger::state::APPLY_BLOCK, point_slot = 1);
+    fn root_span_without_parents_compiles() {
+        let _span = trace_span!(crate::ledger::state::ROLL_FORWARD);
+        let _span = trace_span!(root, crate::ledger::state::ROLL_FORWARD);
         let _span = trace_span!(DEBUG, root, crate::ledger::state::APPLY_BLOCK, point_slot = 1);
+    }
+
+    #[test]
+    fn trace_span_accepts_listed_parent() {
+        let context = TraceContext::<HeaderParent>::detached();
+        let _span = trace_span!(parent_context: &context, crate::ledger::state::CHILD_OF_HEADER, point_slot = 1);
+    }
+
+    #[test]
+    fn listed_parent_span_with_root_flag_opens_as_root() {
+        let _span = trace_span!(root, crate::ledger::state::OPTED_ROOT, point_slot = 1);
     }
 }
 
@@ -355,13 +367,13 @@ mod async_functions {
     use super::*;
 
     async fn traced_async(point_slot: u64) -> u64 {
-        async move { point_slot }.instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot)).await
+        async move { point_slot }.instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot).into()).await
     }
 
     fn traced_boxed_async_like(point_slot: u64) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         Box::pin(
             async move { tracing::Span::current().metadata().is_some() }
-                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot)),
+                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot).into()),
         )
     }
 
@@ -378,7 +390,7 @@ mod async_functions {
     impl AsyncValidator for Validator {
         async fn validate(&self, point_slot: u64) -> bool {
             async move { tracing::Span::current().metadata().is_some() }
-                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot))
+                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot).into())
                 .await
         }
     }
@@ -388,7 +400,7 @@ mod async_functions {
 
     fn traced_async_with_trace_span(point_slot: u64) -> impl Future<Output = bool> + Send {
         async move { tracing::Span::current().metadata().is_some() }
-            .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot))
+            .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot).into())
     }
 
     #[test]
