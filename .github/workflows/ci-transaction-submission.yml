@@ -24,7 +24,6 @@ jobs:
       AMARU_NETWORK: preprod
       AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
       AMARU_UPSTREAM_PEERS: 1
-      CARDANO_UPSTREAM_MODE: public
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
