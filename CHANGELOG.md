@@ -39,6 +39,8 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in `docs/cip-023/README.md`. [#1360][]
+- **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or dispaly the current tag this binary would forge blocks with. [#1360][]
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
 - **amaru**: `--log-output PATH:FILTER` (or `AMARU_LOG_OUTPUT`) writes an extra log file without replacing the terminal, the TUI, or OpenTelemetry. Repeat the flag for more files. The value is split at the first colon. A path ending in `.ndjson` uses the same JSON format as `--with-json-traces`, one object per line; any other path is text. Span close lines include busy and idle time. `amaru --log-output effects.ndjson:amaru_pure_stage::effect=debug node run` records how long each external effect runs.
   `try_setup_observability` and `setup_observability` take those file specs as an extra argument.
@@ -671,3 +673,4 @@ Other guiding principles:
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
 [#1453]: https://github.com/pragma-org/amaru/issues/1453
+[#1360]: https://github.com/pragma-org/amaru/issues/1360
