@@ -150,6 +150,7 @@ pub fn build_stage_graph(
                 k,
                 credentials.pool_id(),
                 protocol_version,
+                credentials.issuer_fields(),
             ),
         );
         if ledger_tip != Point::Origin {

@@ -18,9 +18,9 @@
 //! The product binary leaves that resource empty, so the stage is not in the graph.
 //!
 //! The typestate remainder in `protocol` is the audit surface for messages,
-//! timers, and forging effects. Internal decisions live in `calc`. The
-//! credentials resource owns the KES key and its certificate; the stage learns
-//! whether the certificate covers a slot only by asking it to sign.
+//! timers, and forging effects. Internal decisions live in `calc`. The stage
+//! keeps the public issuer fields and asks the credentials resource only to
+//! sign header-body bytes. The resource owns the KES key.
 
 mod calc;
 #[cfg(any(test, feature = "test-utils"))]
@@ -30,7 +30,7 @@ mod protocol;
 mod schedule;
 
 use amaru_kernel::{ConsensusParameters, Point, PoolId, ProtocolVersion};
-pub use amaru_ouroboros_traits::ForgingCredentials;
+pub use amaru_ouroboros_traits::{ForgingCredentials, IssuerFields};
 use amaru_pure_stage::{ScheduleId, StageRef, typestate::prelude::*};
 pub use calc::FreezeWatch;
 #[cfg(any(test, feature = "test-utils"))]
@@ -62,6 +62,7 @@ pub struct ForgeData {
     pub consensus_parameters: ConsensusParameters,
     pub k: u64,
     pub pool: PoolId,
+    pub issuer: IssuerFields,
     /// Ouroboros system start, as Unix time in milliseconds.
     pub system_start_unix_ms: u64,
     pub protocol_version: ProtocolVersion,
@@ -83,6 +84,7 @@ impl ForgeBlock {
         k: u64,
         pool: PoolId,
         protocol_version: ProtocolVersion,
+        issuer: IssuerFields,
     ) -> Self {
         Self {
             live: initial_state::<protocol::Idle>().into(),
@@ -91,6 +93,7 @@ impl ForgeBlock {
                 consensus_parameters,
                 k,
                 pool,
+                issuer,
                 system_start_unix_ms,
                 protocol_version,
                 adopted_tip: Point::Origin,

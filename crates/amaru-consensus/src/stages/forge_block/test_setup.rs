@@ -63,6 +63,7 @@ pub fn test_prep() -> TestPrep {
             PREPROD_GLOBAL_PARAMETERS.consensus_security_param,
             NULL_HASH28,
             ProtocolVersion::new(11, 0),
+            credentials.issuer_fields(),
         ),
         rt: crate::stages::test_utils::test_runtime(),
         store: Arc::new(InMemoryChainStore::new()),

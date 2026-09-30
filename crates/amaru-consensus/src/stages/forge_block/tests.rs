@@ -61,8 +61,10 @@ fn adopted_origin_records_the_tip_and_does_not_schedule() {
     assert_eq!(state.schedule.slots(), 0);
 }
 
-fn credentials_from(prep: &TestPrep, start: KesPeriod) -> Option<Arc<TestCredentials>> {
-    Some(Arc::new(TestCredentials::for_test_keys(start, prep.state.data.consensus_parameters.max_kes_evolutions())))
+fn use_certificate_starting(prep: &mut TestPrep, start: KesPeriod) {
+    let credentials = TestCredentials::for_test_keys(start, prep.state.data.consensus_parameters.max_kes_evolutions());
+    prep.state.data.issuer = credentials.issuer_fields();
+    prep.credentials = Some(Arc::new(credentials));
 }
 
 fn simulation_slot() -> Slot {
@@ -74,7 +76,7 @@ fn simulation_slot() -> Slot {
 #[test]
 fn lead_slot_before_certificate_start_is_a_miss() {
     let mut prep = test_prep();
-    prep.credentials = credentials_from(&prep, KesPeriod::from(1_000_000));
+    use_certificate_starting(&mut prep, KesPeriod::from(1_000_000));
     let slot = simulation_slot();
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     prep.state.data.adopted_tip = Point::Specific(slot, amaru_kernel::ORIGIN_HASH, 1.into());
@@ -112,7 +114,7 @@ fn stale_lead_slot_does_not_forge() {
 #[test]
 fn an_accepted_lead_arms_the_following_slot() {
     let mut prep = test_prep();
-    prep.credentials = credentials_from(&prep, KesPeriod::from(1_000_000));
+    use_certificate_starting(&mut prep, KesPeriod::from(1_000_000));
     // Inside the open forge window, so the miss is the certificate rather than a late wake.
     let slot = simulation_slot();
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 2);
@@ -171,7 +173,7 @@ fn lead_slot_forges_a_signed_header() {
     let mut prep = test_prep();
     let slot = simulation_slot();
     let period = prep.state.data.consensus_parameters.slot_to_kes_period(slot);
-    prep.credentials = credentials_from(&prep, period);
+    use_certificate_starting(&mut prep, period);
     prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 1);
     prep.state.data.adopted_tip = Point::Specific(Slot::from(u64::from(slot).saturating_sub(1)), ORIGIN_HASH, 1.into());
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });

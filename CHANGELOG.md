@@ -57,7 +57,8 @@ Other guiding principles:
 - **amaru-node**: `amaru mithril sync --ingest-until-slot` downloads immutable files only through the chunk containing the requested slot.
 - **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
 - **amaru-protocols**: BlockFetch rejects requests whose endpoint slot does not match the requested block hash.
-- **amaru-protocols**: a connection stays up when a peer starts a mini-protocol this node will serve before that protocol's handler is registered.
+- **amaru-protocols**: a connection stays up when a peer starts a mini-protocol this node will serve before that protocol's handler is registered. On a connection this node accepted, that includes a handshake that arrives before the handshake handler is registered.
+- **amaru-node**: startup fails when the chain store is missing the ledger tip header or that header's parent.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 

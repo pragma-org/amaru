@@ -21,11 +21,11 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    Block, BodyParts, Epoch, EraHistory, EraHistoryError, Hash, Header, HeaderHash, KesPeriod, Nonce, PoolId, RawBlock,
-    Slot, cardano::network_block::NetworkBlock, maths::FixedDecimal,
+    Block, BodyParts, Epoch, EraHistory, EraHistoryError, Hash, Header, HeaderHash, KesPeriod, KesSignature, Nonce,
+    PoolId, RawBlock, Slot, cardano::network_block::NetworkBlock, maths::FixedDecimal,
 };
 use amaru_ouroboros::vrf;
-use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError, HeaderDraft};
+use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
@@ -146,30 +146,32 @@ fn schedule_for(effect: &LeaderScheduleEffect, resources: &Resources) -> EpochSc
     schedule
 }
 
-/// Sign `draft` with the KES key evolved to `kes_period`.
+/// Sign `message` with the KES key evolved to `kes_period`.
 ///
-/// The credentials complete the draft with their keys and certificate.
+/// `message` is the header-body CBOR from [`kes_message`](amaru_ouroboros_traits::kes_message).
+/// The stage builds the header around the returned signature. Signing is the
+/// effect because it talks to the credentials resource; assembling the header is not.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SignHeaderEffect {
     pub kes_period: KesPeriod,
-    pub draft: HeaderDraft,
+    pub message: Vec<u8>,
 }
 
 impl SignHeaderEffect {
-    pub fn new(kes_period: KesPeriod, draft: HeaderDraft) -> Self {
-        Self { kes_period, draft }
+    pub fn new(kes_period: KesPeriod, message: Vec<u8>) -> Self {
+        Self { kes_period, message }
     }
 }
 
 impl ExternalEffectAPI for SignHeaderEffect {
-    type Response = Result<Header, SignHeaderError>;
+    type Response = Result<KesSignature, SignHeaderError>;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let header = match resources.get::<ResourceForgingCredentials>().as_deref().cloned() {
-            Ok(Some(credentials)) => credentials.sign(self.kes_period, self.draft.clone()).map_err(Into::into),
+        let signature = match resources.get::<ResourceForgingCredentials>().as_deref().cloned() {
+            Ok(Some(credentials)) => credentials.sign(self.kes_period, &self.message).map_err(Into::into),
             Ok(None) | Err(_) => Err(SignHeaderError::CredentialsMissing),
         };
-        self.wrap_sync(header)
+        self.wrap_sync(signature)
     }
 }
 

@@ -357,7 +357,13 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
 /// Any protocol id absent from this list still fails the connection.
 fn initial_mux_buffers(role: Role, initiator_only: bool, advertisable: bool) -> Vec<(ProtocolId<Erased>, usize)> {
     let mut buffers = Vec::with_capacity(6);
-    buffers.push((PROTO_HANDSHAKE.erase(), 5760));
+    // The mux looks up the opposite of the wire id. A responder receives the initiator's
+    // handshake (wire id 0) and must already be holding the responder id.
+    let handshake = match role {
+        Role::Initiator => PROTO_HANDSHAKE.erase(),
+        Role::Responder => PROTO_HANDSHAKE.responder().erase(),
+    };
+    buffers.push((handshake, 5760));
     if role == Role::Responder || !initiator_only {
         buffers.extend([
             (PROTO_N2N_CHAIN_SYNC.responder().erase(), 5760),
@@ -881,6 +887,7 @@ mod tests {
         assert_eq!(initial_mux_buffers(Role::Initiator, true, true), vec![(PROTO_HANDSHAKE.erase(), 5760)]);
         let responder = initial_mux_buffers(Role::Responder, true, false);
         assert_eq!(responder.len(), 5);
+        assert_eq!(responder[0], (PROTO_HANDSHAKE.responder().erase(), 5760));
         assert!(responder.iter().all(|(id, _)| *id != PROTO_N2N_PEER_SHARE.responder().erase()));
         assert!(responder.iter().any(|(id, _)| *id == PROTO_N2N_CHAIN_SYNC.responder().erase()));
     }

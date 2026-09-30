@@ -28,7 +28,7 @@ use crate::{
     stages::{
         block_source::BlockSourceMsg,
         forge_block::{AdoptedTip, ForgeBlockMsg},
-        select_chain::cmp_tip,
+        select_chain::{cmp_tip, load_parent_point},
     },
 };
 
@@ -273,7 +273,10 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         eff.send(&state.downstream, ManagerMessage::NewTip(msg, root_trace_context)).await;
         eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
         if let Some(forge) = &state.forge {
-            eff.send(forge, ForgeBlockMsg::from(AdoptedTip { tip: msg, parent: state.current_best_tip })).await;
+            // The previous best is the parent only on a roll-forward. A fork switch displaces
+            // that tip, so a later same-slot forge has to extend the adopted header's parent.
+            let parent = load_parent_point(&eff, &store, &incoming_header).await;
+            eff.send(forge, ForgeBlockMsg::from(AdoptedTip { tip: msg, parent })).await;
         }
         state.current_best_tip = msg;
         state

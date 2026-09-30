@@ -44,7 +44,7 @@ use amaru_ledger::{
     },
 };
 use amaru_ouroboros::{BaseReadChainStore, ChainStore, WriteChainStore};
-use amaru_ouroboros_traits::{ForgingCredentials, HeaderDraft, Nonces, PoolSummaries, PoolSummary};
+use amaru_ouroboros_traits::{ForgingCredentials, HeaderDraft, Nonces, PoolSummaries, PoolSummary, kes_message};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::simulation::SimulationRunning;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
@@ -216,7 +216,9 @@ fn header_for(
         block_body_hash,
         protocol_version,
     };
-    credentials.sign(kes_period, draft).expect("sign anchor")
+    let header_body = draft.body(&credentials.issuer_fields());
+    let signature = credentials.sign(kes_period, &kes_message(&header_body)).expect("sign anchor");
+    Header::new(header_body, signature)
 }
 
 fn store_block(chain: &RocksDBStore, header: &Header, era: &EraHistory) {
@@ -455,7 +457,6 @@ fn spawn_node(world: &SyncWorld, network: &MintNetwork, fixture: &MintFixture, n
         .with_seed(derive_seed(world.seed, index as u64))
         .with_store_dirs(&chain, &ledger)
         .with_keep_persisted_best_chain()
-        .with_no_upstream_peers()
         .with_upstream_peers(upstream)
         .with_target_upstream_peers(POOLS - 1)
         .with_peer_mix("static~4, inbound~4")

@@ -17,10 +17,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use amaru_kernel::{Epoch, EraHistory, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, Point, Slot};
+use amaru_kernel::{Epoch, EraHistory, Header, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, Point, Slot};
 use amaru_observability::{error, info, warn};
 use amaru_ouroboros::praos::nonce as praos_nonce;
-use amaru_ouroboros_traits::{FindCommonAncestorResult, ForgingCredentialsError, HeaderDraft, Nonces};
+use amaru_ouroboros_traits::{FindCommonAncestorResult, ForgingCredentialsError, HeaderDraft, Nonces, kes_message};
 use amaru_protocols::store_effects::{Store, StoreBlockEffect, StoreValidatedHeaderEffect};
 use amaru_pure_stage::{
     Effects, Instant, define_messages, define_role, define_role_tag, make_states, on_receive, typestate::prelude::*,
@@ -319,19 +319,20 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let block_number = u64::from(parent_point.block_height()) + 1;
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
 
-    let (body, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
-    let draft = HeaderDraft {
+    let (forged, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
+    let header_body = HeaderDraft {
         block_number,
         slot,
         prev_hash: Some(parent_hash),
         vrf_result: cert,
-        block_body_size: body.size,
-        block_body_hash: body.hash,
+        block_body_size: forged.size,
+        block_body_hash: forged.hash,
         protocol_version: state.protocol_version,
-    };
-    let (header, session) = session.external(SignHeaderEffect::new(kes_period, draft)).await;
-    let header = match header {
-        Ok(header) => header,
+    }
+    .body(&state.issuer);
+    let (signed, session) = session.external(SignHeaderEffect::new(kes_period, kes_message(&header_body))).await;
+    let header = match signed {
+        Ok(signature) => Header::new(header_body, signature),
         Err(SignHeaderError::Credentials(ForgingCredentialsError::Period(error))) => {
             warn!(consensus::forge::MISSED_SLOT, slot, reason = ocert_miss(&error).as_str());
             let session = session.finish().receive(&Missed, eff.clone());
@@ -356,7 +357,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
 
     let header_hash = header.hash();
     let header_point = header.point();
-    let block = match body.seal(&header, state.consensus_parameters.era_history()) {
+    let block = match forged.seal(&header, state.consensus_parameters.era_history()) {
         Ok(block) => block,
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());

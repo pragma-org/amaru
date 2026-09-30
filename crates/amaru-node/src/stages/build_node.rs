@@ -377,7 +377,7 @@ pub fn build_node(
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.
     let recovery_best_hash = find_best_candidate(chain_store.as_ref())?;
-    let ledger_parent = tip_parent(chain_store.as_ref(), &ledger_tip);
+    let ledger_parent = tip_parent(chain_store.as_ref(), &ledger_tip)?;
     let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
 
     // Make resources
@@ -436,16 +436,20 @@ pub fn build_node(
     Ok(node_stages)
 }
 
-/// Parent of `tip` on the chain store, or [`Point::Origin`] when the tip has none.
-fn tip_parent(store: &dyn ChainStore, tip: &Point) -> Point {
+/// Parent of `tip` on the chain store.
+///
+/// An origin tip, and a header with no parent, yield [`Point::Origin`]. A missing tip
+/// header or a missing parent point is an error: a same-slot forge would otherwise
+/// extend genesis.
+fn tip_parent(store: &dyn ChainStore, tip: &Point) -> anyhow::Result<Point> {
     if *tip == Point::Origin {
-        return Point::Origin;
+        return Ok(Point::Origin);
     }
-    store
-        .load_header(&tip.hash())
-        .and_then(|header| header.parent())
-        .and_then(|hash| store.load_point(&hash))
-        .unwrap_or(Point::Origin)
+    let header = store.load_header(&tip.hash()).ok_or_else(|| anyhow!("ledger tip header not found in chain store"))?;
+    let Some(parent_hash) = header.parent() else {
+        return Ok(Point::Origin);
+    };
+    store.load_point(&parent_hash).ok_or_else(|| anyhow!("ledger tip parent not found in chain store"))
 }
 
 /// Register the resources required by the external effects invoked by the stages in the stage graph.
