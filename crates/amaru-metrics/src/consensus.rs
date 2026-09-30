@@ -37,14 +37,14 @@ pub enum ConsensusMetrics {
         outcome: String,
         /// Time from the virtual beginning of the slot to the header's reception.
         slot_start_to_header_micros: Option<u64>,
-        /// Time from a header's reception to the request (or abandonment) of its block.
+        /// Duration of `perf.header.block_fetch_wait`.
         block_fetch_wait_micros: Option<u64>,
-        /// Time from a block's request to its reception.
+        /// Duration of `perf.blocks.fetch`.
         block_fetch_micros: Option<u64>,
-        /// Time from a header's reception to the adoption/invalidation/abandonment of its block.
+        /// Duration of `perf.header.forward`.
         forward_micros: Option<u64>,
     },
-    /// Time from the detection of a fork to its application/abandonment.
+    /// Duration of `perf.fork.switch`.
     ForkSwitch { outcome: String, duration_micros: u64 },
 }
 

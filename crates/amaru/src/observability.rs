@@ -25,7 +25,7 @@ use amaru_metrics::{METRICS_METER_NAME, Meter};
 use amaru_node::telemetry::{OpenTelemetryProviders, OtelSignals};
 use amaru_observability::{
     CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
-    CborTraceArrayLayer, TelemetryCaptureLayer, console_field_formatter, info,
+    CborTraceArrayLayer, SpanDurationLayer, TelemetryCaptureLayer, console_field_formatter, info,
     tracing::{Metadata, Subscriber, level_filters::LevelFilter, span, subscriber::Interest},
     tracing_opentelemetry,
     tracing_subscriber::{
@@ -182,6 +182,7 @@ impl TracingSubscriber<Registry> {
             TracingSubscriber::Registry(registry) => {
                 let (default_filter, warning) = new_log_filter();
                 registry
+                    .with(SpanDurationLayer::new())
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
@@ -197,6 +198,7 @@ impl TracingSubscriber<Registry> {
             TracingSubscriber::WithOpenTelemetry(layered) => {
                 let (default_filter, warning) = new_log_filter();
                 layered
+                    .with(SpanDurationLayer::new())
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
@@ -210,16 +212,16 @@ impl TracingSubscriber<Registry> {
                 return warning;
             }
             TracingSubscriber::WithLocalTelemetry(layered) => {
-                layered.init();
+                layered.with(SpanDurationLayer::new()).init();
             }
             TracingSubscriber::WithLocalTelemetryAndOpenTelemetry(layered) => {
-                layered.init();
+                layered.with(SpanDurationLayer::new()).init();
             }
             TracingSubscriber::WithJson(layered) => {
-                layered.init();
+                layered.with(SpanDurationLayer::new()).init();
             }
             TracingSubscriber::WithJsonAndOpenTelemetry(layered) => {
-                layered.init();
+                layered.with(SpanDurationLayer::new()).init();
             }
         }
 

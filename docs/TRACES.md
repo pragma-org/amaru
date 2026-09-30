@@ -1495,7 +1495,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `switch` | `event` | debug | public | Event recorded when a fork switch ends. \`duration_micros\` measures the time from the detection of the fork to its application (or abandonment). | header_hash | outcome, duration_micros |
+| `switch` | `event` | debug | public | Event recorded when a fork switch ends. \`duration_micros\` is the \`amaru::network\` span \`perf.fork.switch\`. | header_hash | outcome, duration_micros |
 
 <details><summary>event: `switch`</summary>
 
@@ -1511,7 +1511,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `lifecycle` | `event` | debug, error | public | Event recorded once per header, when its processing reaches a terminal state. The four network-health points themselves are the \`amaru::blockperf\` events (\`header.announced\`, \`block.requested\`, \`block.received\`, \`block.adopted\`). This event carries the intervals between those points once the header reaches a terminal state. \`outcome\` describes that state (including headers rejected on reception, which carry no durations). The optional durations are: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros |
+| `lifecycle` | `event` | debug, error | public | Event recorded once per header, when its processing reaches a terminal state. The four network-health points themselves are the \`amaru::blockperf\` events (\`header.announced\`, \`block.requested\`, \`block.received\`, \`block.adopted\`). A header rejected on reception is logged at error and carries no durations. A completed header stays at debug. The optional durations are the \`amaru::network\` span durations, not a separate clock: - \`forward_micros\`: \`perf.header.forward\` - \`block_fetch_wait_micros\`: \`perf.header.block_fetch_wait\` - \`block_fetch_micros\`: \`perf.blocks.fetch\` - \`adopt_micros\`: body reception to adoption |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros, adopt_micros |
 
 <details><summary>event: `lifecycle`</summary>
 
@@ -1525,6 +1525,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `block_fetch_wait_micros` | `integer` |  |
 | `block_fetch_micros` | `integer` |  |
 | `forward_micros` | `integer` |  |
+| `adopt_micros` | `integer` |  |
 
 </details>
 
@@ -1558,6 +1559,22 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | field | type | required |
 | --- | --- | --- |
 | `error` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::roll_forward`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `process` | `span` |  | public | Received a new tip to roll forward. Parent of the exported \`perf.header.forward\` span. | tip, peer | header_hash |
+
+<details><summary>span: `process`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `array` | ✓ |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` |  |
 
 </details>
 
@@ -2564,6 +2581,57 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | field | type | required |
 | --- | --- | --- |
 | `address` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::network::perf::blocks`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `fetch` | `span` |  | public | One header's block body, from the request of the range that contains it until that body arrives. | header_hash |  |
+
+<details><summary>span: `fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::network::perf::fork`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `switch` | `span` |  | public | One switch onto a fork, from detection until the switch ends. \`header_hash\` is the fork tip. The span covers every block on that fork. | header_hash |  |
+
+<details><summary>span: `switch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::network::perf::header`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `block_fetch_wait` | `span` |  | public | Header waiting in chain selection before it can be fetched. | header_hash |  |
+| `forward` | `span` |  | public | Header accepted from an upstream peer, or forged locally, until chain selection finishes with it. A locally forged block has no upstream roll-forward and is a root span. | header_hash |  |
+
+<details><summary>span: `block_fetch_wait`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `forward`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
 
 </details>
 
