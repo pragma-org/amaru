@@ -23,6 +23,7 @@ use amaru_kernel::{
     safe_ratio,
 };
 use amaru_observability::info;
+use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
 use serde::ser::SerializeStruct;
 
 use crate::{
@@ -35,35 +36,11 @@ use crate::{
     },
 };
 
-/// A stake summary snapshot useful for:
-///
-/// - Leader schedule (in particular the 'pools' field)
-/// - Rewards calculation
-///
-/// Note that the `accounts` field only contains _active_ accounts; that is, accounts
-/// delegated to a registered stake pool.
-///
-/// Fields are public and individually clonable (`AccountState`, `PoolState`,
-/// `DRepState`, scalars, map entries). The aggregate intentionally does **not**
-/// implement [`Clone`] so large copies require explicit field-level intent.
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone))]
-pub struct StakeSummary {
-    /// The epoch stake distribution and other related stake information
-    pub stake_distribution: StakeDistribution,
+const PROGRESS_BATCH_SIZE: usize = 1_000;
 
-    /// Mapping of accounts' stake credentials to their respective state.
-    ///
-    /// Accounts that have stake but aren't delegated to any pools aren't present in the map.
-    pub accounts: SortedPairs<Credential, AccountState>,
-}
-
-impl Deref for StakeSummary {
-    type Target = StakeDistribution;
-    fn deref(&self) -> &Self::Target {
-        &self.stake_distribution
-    }
-}
+// -------------------------------------------------------------------------------------------------
+// StakeDistribution
+// -------------------------------------------------------------------------------------------------
 
 /// A slim stake distribution retained in-memory by the ledger runtime.
 ///
@@ -106,7 +83,52 @@ pub struct StakeDistribution {
     pub cc_update: Option<ConstitutionalCommitteeUpdate>,
 }
 
-const PROGRESS_BATCH_SIZE: usize = 1_000;
+impl From<&StakeDistribution> for PoolSummaries {
+    fn from(distr: &StakeDistribution) -> Self {
+        let mut pools: BTreeMap<PoolId, PoolSummary> = BTreeMap::new();
+        for (pid, pst) in &distr.pools {
+            pools.insert(
+                *pid,
+                PoolSummary { vrf: pst.parameters.vrf, stake: pst.stake, active_stake: distr.active_stake },
+            );
+        }
+        Self::new(distr.epoch, pools)
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// StakeSummary
+// -------------------------------------------------------------------------------------------------
+
+/// A stake summary snapshot useful for:
+///
+/// - Leader schedule (in particular the 'pools' field)
+/// - Rewards calculation
+///
+/// Note that the `accounts` field only contains _active_ accounts; that is, accounts
+/// delegated to a registered stake pool.
+///
+/// Fields are public and individually clonable (`AccountState`, `PoolState`,
+/// `DRepState`, scalars, map entries). The aggregate intentionally does **not**
+/// implement [`Clone`] so large copies require explicit field-level intent.
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
+pub struct StakeSummary {
+    /// The epoch stake distribution and other related stake information
+    pub stake_distribution: StakeDistribution,
+
+    /// Mapping of accounts' stake credentials to their respective state.
+    ///
+    /// Accounts that have stake but aren't delegated to any pools aren't present in the map.
+    pub accounts: SortedPairs<Credential, AccountState>,
+}
+
+impl Deref for StakeSummary {
+    type Target = StakeDistribution;
+    fn deref(&self) -> &Self::Target {
+        &self.stake_distribution
+    }
+}
 
 impl StakeSummary {
     /// Compute a new stake summary snapshot using data available in the `Store`.
@@ -360,6 +382,10 @@ impl serde::Serialize for StakeSummary {
         s.end()
     }
 }
+
+// -------------------------------------------------------------------------------------------------
+// Capacity
+// -------------------------------------------------------------------------------------------------
 
 /// A type to inform of the ideal capacity for accounts in rewards.
 #[derive(Debug, Default, Clone, Copy)]

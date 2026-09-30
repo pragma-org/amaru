@@ -2117,7 +2117,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `initial_begin` | `TRACE` | public | Start computing one of the initial stake distributions loaded on startup | epoch |  |
 | `initial_progress` | `TRACE` | public | Report progress for one of the initial stake distributions loaded on startup | epoch, progress |  |
 | `initial_ready` | `TRACE` | public | Finished computing all initial stake distributions loaded on startup | epochs |  |
-| `rotate` | `TRACE` | public | Rotate stake distributions at an epoch boundary | available_stake_distributions |  |
+| `rotate` | `TRACE` | public | Rotate stake distributions after background calculation during the epoch. | new_stake_distribution |  |
 | `snapshot` | `TRACE` | public | Snapshot of the stake distribution taken at an epoch boundary | accounts, dreps, pools, active_stake, pools_voting_stake, dreps_voting_stake | cc_update |
 
 <details><summary>span: `compute`</summary>
@@ -2157,7 +2157,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `available_stake_distributions` | `string` | ✓ |
+| `new_stake_distribution` | `integer` | ✓ |
 
 </details>
 

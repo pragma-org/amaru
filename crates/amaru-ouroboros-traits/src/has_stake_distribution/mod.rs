@@ -52,12 +52,49 @@ pub enum GetPoolError {
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct PoolSummaries {
     /// Keyed by the epoch of the corresponding stake distribution snapshot.
-    pub by_epoch: BTreeMap<Epoch, BTreeMap<PoolId, PoolSummary>>,
+    by_epoch: BTreeMap<Epoch, BTreeMap<PoolId, PoolSummary>>,
 }
 
 impl PoolSummaries {
+    pub fn new(epoch: Epoch, summaries: BTreeMap<PoolId, PoolSummary>) -> Self {
+        Self { by_epoch: BTreeMap::from([(epoch, summaries)]) }
+    }
+
     pub fn max_epoch(&self) -> Epoch {
         self.by_epoch.last_key_value().map(|(e, _)| *e).unwrap_or(*Epoch::ZERO)
+    }
+
+    pub fn has_epoch(&self, epoch: &Epoch) -> bool {
+        self.by_epoch.contains_key(epoch)
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &Epoch> {
+        self.by_epoch.keys()
+    }
+
+    pub fn append(&mut self, other: &mut Self) {
+        self.by_epoch.append(&mut other.by_epoch);
+    }
+
+    pub fn update(&self, mut other: Self) -> Self {
+        let mut by_epoch = BTreeMap::new();
+
+        let max_epoch = other.max_epoch().max(self.max_epoch());
+        let prev_epoch = max_epoch.checked_sub(Epoch::ONE);
+
+        let mut get = |epoch| other.by_epoch.remove(epoch).or_else(|| self.by_epoch.get(epoch).cloned());
+
+        if let Some(distr) = get(&max_epoch) {
+            by_epoch.insert(max_epoch, distr);
+        }
+
+        if let Some(prev_epoch) = prev_epoch
+            && let Some(distr) = get(&prev_epoch)
+        {
+            by_epoch.insert(prev_epoch, distr);
+        }
+
+        Self { by_epoch }
     }
 
     /// Obtain information about a pool such as its VRF key hash and its stake.

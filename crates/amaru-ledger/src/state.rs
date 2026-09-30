@@ -15,7 +15,7 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::BTreeSet,
     mem,
     sync::Arc,
     thread::JoinHandle,
@@ -23,9 +23,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, Hash, Hasher, IsHeader, NetworkName, Point, PoolId,
-    ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer, protocol_version, size::SCRIPT,
-    utils::string::display_collection,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, Hash, Hasher, IsHeader, NetworkName, Point,
+    ProtocolParameters, ProtocolVersionTooOld, Slot, Transaction, TransactionId, TransactionPointer, protocol_version,
+    size::SCRIPT, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, error_record, info, info_record, info_span, trace, warn, warn_record};
@@ -70,56 +70,6 @@ pub const MIN_LEDGER_SNAPSHOTS: u64 = 3;
 // State
 // ----------------------------------------------------------------------------
 
-/// The in-memory stake distributions retained across epoch boundaries.
-///
-/// The impossible state `(current = None, previous = Some)` is ruled out by construction.
-#[derive(Default)]
-pub enum Distributions {
-    #[default]
-    None,
-    CurrentOnly(StakeDistribution),
-    CurrentAndPrevious {
-        current: StakeDistribution,
-        previous: StakeDistribution,
-    },
-}
-
-impl Distributions {
-    /// Replace the current distribution with `new`, rotating the old current into previous.
-    /// Returns the evicted previous distribution (if any).
-    fn rotate(&mut self, new: StakeDistribution) -> Option<StakeDistribution> {
-        let old = mem::replace(self, Distributions::None);
-        let (next, evicted) = match old {
-            Distributions::None => (Distributions::CurrentOnly(new), None),
-            Distributions::CurrentOnly(current) => {
-                (Distributions::CurrentAndPrevious { current: new, previous: current }, None)
-            }
-            Distributions::CurrentAndPrevious { current, previous } => {
-                (Distributions::CurrentAndPrevious { current: new, previous: current }, Some(previous))
-            }
-        };
-        *self = next;
-        evicted
-    }
-
-    fn current(&self) -> Option<&StakeDistribution> {
-        match self {
-            Distributions::None => None,
-            Distributions::CurrentOnly(d) => Some(d),
-            Distributions::CurrentAndPrevious { current, .. } => Some(current),
-        }
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &StakeDistribution> {
-        let (a, b) = match self {
-            Distributions::None => (None, None),
-            Distributions::CurrentOnly(d) => (Some(d), None),
-            Distributions::CurrentAndPrevious { current, previous } => (Some(current), Some(previous)),
-        };
-        a.into_iter().chain(b)
-    }
-}
-
 /// The state of the ledger split into two sub-components:
 ///
 /// - A _stable_ and persistent storage, which contains the part of the state which known to be
@@ -148,10 +98,8 @@ where
     /// be updated but grouped here to avoid dealing with magic values everywhere.
     global_parameters: Arc<GlobalParameters>,
 
-    /// The in-memory stake distributions held for leader schedule verification, governance
-    /// ratification, and pool-summaries callbacks. Updated at each epoch transition when the
-    /// background task result is joined.
-    distributions: Distributions,
+    /// Background computation of rewards and stake distributions.
+    background_computations: Option<JoinHandle<BackgroundTasksResult>>,
 
     /// The era history for the network this store is related to.
     era_history: Arc<EraHistory>,
@@ -166,9 +114,6 @@ where
 
     /// Optional embedder observers (adopted blocks, full ledger stake summaries).
     observers: LedgerObservers,
-
-    /// Background computation calculating rewards and stake distributions
-    rewards_join_handle: Option<JoinHandle<RewardsComputation>>,
 
     /// A local debounced tip emitter avoid flooding logs with tip updates during sync
     tip_update_emitter: TipUpdateEmitter,
@@ -225,22 +170,15 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         global_parameters: GlobalParameters,
         emit_initial_stake_distribution_progress_ticks: bool,
         on_startup: Option<StartupHook<S>>,
-    ) -> Result<Self, StoreError> {
+    ) -> Result<(Self, PoolSummaries), StateError> {
         let protocol_parameters = stable.protocol_parameters()?;
 
         protocol_version::validate(protocol_parameters.protocol_version, protocol_version::MINIMUM_SUPPORTED)
-            .map_err(|e| StoreError::Internal(Box::new(e)))?;
+            .map_err(StateError::ProtocolVersionTooOld)?;
 
         let governance_activity = stable.governance_activity()?;
 
         let guardrail_script = stable.constitution()?.guardrail_script;
-
-        let mut initial_distributions = initial_stake_distributions(
-            network,
-            &snapshots,
-            &era_history,
-            emit_initial_stake_distribution_progress_ticks,
-        )?;
 
         let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
 
@@ -248,13 +186,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             on_startup(&StartupContext::new(&stable, epoch, &protocol_parameters, &era_history))?;
         }
 
-        let distributions = match (initial_distributions.pop_front(), initial_distributions.pop_front()) {
-            (None, _) => Distributions::None,
-            (Some(current), None) => Distributions::CurrentOnly(current),
-            (Some(current), Some(previous)) => Distributions::CurrentAndPrevious { current, previous },
-        };
-
-        Ok(Self::new_with(
+        let mut state = Self::new_with(
             stable,
             snapshots,
             epoch,
@@ -264,8 +196,11 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             protocol_parameters,
             governance_activity,
             guardrail_script,
-            distributions,
-        ))
+        );
+
+        let pool_summaries = state.load_initial_stake_distribution(emit_initial_stake_distribution_progress_ticks)?;
+
+        Ok((state, pool_summaries))
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -279,7 +214,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         protocol_parameters: ProtocolParameters,
         governance_activity: GovernanceActivity,
         guardrail_script: Option<Hash<SCRIPT>>,
-        distributions: Distributions,
     ) -> Self {
         Self {
             stable,
@@ -300,8 +234,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
             global_parameters: Arc::new(global_parameters),
 
-            distributions,
-
             era_history: Arc::new(era_history),
 
             network,
@@ -310,10 +242,51 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
             observers: LedgerObservers::default(),
 
-            rewards_join_handle: None,
+            background_computations: None,
 
             tip_update_emitter: TipUpdateEmitter::default(),
         }
+    }
+
+    // NOTE: load_initial_stake_distribution
+    //
+    // At least one stake distribution needs to be available to start: the one before the latest
+    // snapshot. This is *generally* true since it is needed to verify header in the current epoch
+    // which may show up until the last moment in the epoch (and even k blocks after its end).
+    //
+    // We *might* also need the stake distribution from the previous epoch, corresponding to the
+    // latest snapshot. But this is only needed and safe to use once we are past the epoch stability
+    // window. That happens naturally in the background tasks which bundle previous stake
+    // distribution and rewards calculation.
+    fn load_initial_stake_distribution(&mut self, emit_progress_ticks: bool) -> Result<PoolSummaries, StateError> {
+        let mut pool_summaries = PoolSummaries::default();
+
+        if let Some(epoch_for_leader_schedule) = self.most_recent_snapshot().checked_sub(Epoch::ONE) {
+            info!(ledger::stake_distribution::INITIAL_BEGIN, epoch = epoch_for_leader_schedule);
+
+            let snapshot = self.snapshots.for_epoch(epoch_for_leader_schedule)?;
+
+            let mut printed = Instant::now();
+
+            let stake_distribution =
+                compute_stake_distribution(&snapshot, self.network(), self.era_history(), None, |progress| {
+                    let now = Instant::now();
+                    if emit_progress_ticks && now.saturating_duration_since(printed) > Duration::from_millis(100) {
+                        printed = now;
+                        info!(
+                            ledger::stake_distribution::INITIAL_PROGRESS,
+                            epoch = epoch_for_leader_schedule,
+                            progress
+                        );
+                    }
+                })?;
+
+            pool_summaries.append(&mut (&stake_distribution).into())
+        }
+
+        info!(ledger::stake_distribution::INITIAL_READY, epochs = display_collection(pool_summaries.keys()));
+
+        Ok(pool_summaries)
     }
 
     /// Set a callback to be invoked when a new stake distribution snapshot becomes available.
@@ -325,12 +298,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     /// Install embedder observers (adopted blocks and optional full stake summaries).
     pub fn set_observers(&mut self, observers: LedgerObservers) {
         self.observers = observers;
-    }
-
-    /// Project the small pool summaries needed for header validation (and leader schedule)
-    /// from the held stake summaries. Only the `.pools` data is included.
-    pub fn pool_summaries(&self) -> PoolSummaries {
-        pool_summaries_for(self.distributions.iter())
     }
 
     pub fn network(&self) -> NetworkName {
@@ -456,26 +423,41 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
     fn epoch_transition(&mut self, next_epoch: Epoch) -> Result<(), StateError> {
         info_span!(ledger::epoch_transition::COMPUTE, from = next_epoch - 1, into = next_epoch).in_scope(|| {
-            let computed_rewards = if let Some(handle) = mem::take(&mut self.rewards_join_handle) {
-                let (new_distribution, rewards) =
+            let (stake_distribution, computed_rewards) = if let Some(handle) =
+                mem::take(&mut self.background_computations)
+            {
+                let (stake_distribution, rewards) =
                     handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: "rewards".to_string() })??;
-                let is_newer = self.distributions.current().map_or(true, |d| new_distribution.epoch > d.epoch);
-                if is_newer {
-                    self.distributions.rotate(new_distribution);
-                    let summaries = self.pool_summaries();
-                    info!(
-                        ledger::stake_distribution::ROTATE,
-                        available_stake_distributions = display_collection(summaries.by_epoch.keys()),
-                    );
-                    if let Some(notify) = &self.on_stake_dist_updated {
-                        notify(summaries);
-                    }
-                }
-                Some(Rewards::<Computed>::from(rewards))
+                (Arc::new(stake_distribution), Some(Rewards::<Computed>::from(rewards)))
             } else {
-                // A fork switch that re-crosses the epoch boundary rolled the overlay's rewards
-                // back from Effective to Computed; consume them for the re-transition.
-                self.volatile.take_computed_rewards()
+                (
+                    // The stake distribution is cached in the volatile db in case of rollbacks. It
+                    // is only consumed when the overlay is applied, which coincides with the
+                    // creation of a new background tasks. So the previously calculated stake
+                    // distribution is *usually* either available as a background task or it's already
+                    // in the overlay.
+                    self.volatile.most_recent_stake_distribution().map(Ok).unwrap_or_else(|| {
+                        // NOTE: Re-computing stake distribution on-the-fly
+                        //
+                        // There is one case where we may need to re-calculate the stake
+                        // distribution on-the-fly: after we restart Amaru following an interruption
+                        // occuring when applying an epoch transition, after the snapshot was
+                        // created.
+                        //
+                        // If the previous epoch snapshot exists, the background tasks won't be
+                        // triggered for the epoch and we will end up here without any available
+                        // stake distribution. This event is not *particularly rare*, since it is
+                        // exactly the state we're in after bootstrapping from a snapshot. It may
+                        // also occur more rarely if one manages to interrupt Amaru just the right
+                        // moment.
+                        //
+                        // Either way, this covers it.
+                        self.new_background_tasks(next_epoch - 1).stake_distribution().map(Arc::new)
+                    })?,
+                    // A fork switch that re-crosses the epoch boundary rolled the overlay's rewards
+                    // back from Effective to Computed; consume them for the re-transition.
+                    self.volatile.take_computed_rewards(),
+                )
             };
 
             let db = &self.stable;
@@ -544,7 +526,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 // Here, we have `next_epoch = e + 2`. And so, we have to pull the data and stake
                 // distribution from at `next_epoch - 2`.
                 self.snapshots.for_epoch(next_epoch - 2)?,
-                self.stake_distribution(next_epoch - 2)?,
+                &stake_distribution,
                 protocol_parameters.clone(),
                 // NOTE: ratification treasury value
                 //
@@ -566,6 +548,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             )?;
 
             self.volatile.transition(
+                stake_distribution,
                 effective_rewards,
                 pools_updates,
                 governance_updates,
@@ -584,33 +567,36 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             self.era_history.slot_in_epoch(tip, tip).unwrap_or_default() >= self.global_parameters().stability_window();
 
         if self.volatile.rewards_not_ready()
-            && self.rewards_join_handle.is_none()
+            && self.background_computations.is_none()
             && Some(self.most_recent_snapshot()) == current_epoch.checked_sub(Epoch::ONE)
             && is_previous_epoch_stable
         {
-            let tasks = BackgroundTasks {
-                snapshots: self.snapshots.clone(),
-                epoch: current_epoch,
-                network: self.network,
-                global_parameters: self.global_parameters().clone(),
-                protocol_parameters: self.protocol_parameters().clone(),
-                era_history: self.era_history().clone(),
-                on_ledger_snapshot: self.observers.on_ledger_snapshot.clone(),
-            };
-
-            // The rewards task is a fresh thread, so it does not inherit the caller's subscriber.
             let dispatch = tracing::dispatcher::get_default(|dispatch| dispatch.clone());
-            self.rewards_join_handle =
+            let tasks = self.new_background_tasks(current_epoch);
+            self.background_computations =
                 Some(std::thread::spawn(move || tracing::dispatcher::with_default(&dispatch, || tasks.run())))
         }
 
         Ok(())
     }
 
+    fn new_background_tasks(&self, epoch: Epoch) -> BackgroundTasks<HS> {
+        BackgroundTasks {
+            epoch,
+            snapshots: self.snapshots.clone(),
+            network: self.network,
+            global_parameters: self.global_parameters().clone(),
+            protocol_parameters: self.protocol_parameters().clone(),
+            era_history: self.era_history().clone(),
+            on_stake_dist_updated: self.on_stake_dist_updated.clone(),
+            on_ledger_snapshot: self.observers.on_ledger_snapshot.clone(),
+        }
+    }
+
     /// Push a next state into the ledger volatile storage. Once the volatile is full (i.e. filled
     /// with `k` state updates); a push will yield a stable state to apply. Otherwise, this simply
     /// fills the volatile.
-    pub fn push_fragment(
+    fn push_fragment(
         &mut self,
         state: AnchoredVolatileFragment,
     ) -> Result<Option<AnchoredVolatileFragment>, StateError> {
@@ -675,11 +661,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         }
 
         Ok(())
-    }
-
-    /// View the stake distribution for a given epoch, if held in memory.
-    fn stake_distribution(&self, epoch: Epoch) -> Result<&StakeDistribution, StateError> {
-        self.distributions.iter().find(|d| d.epoch == epoch).ok_or(StateError::NoSuitableStakeDistribution(epoch))
     }
 
     /// Create a validation context for a whole block.
@@ -864,6 +845,16 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
             BlockValidation::Valid(metrics)
         })
+    }
+
+    /// A function to roll forward a fragment supposedly produced from a block, while still
+    /// performing other necessary ledger operations.
+    #[cfg(feature = "test-utils")]
+    pub fn forward_fragment(&mut self, fragment: AnchoredVolatileFragment) -> Result<(), StateError> {
+        self.try_compute_rewards()?;
+        self.try_epoch_transition(fragment.point())?;
+        self.push_fragment(fragment)?;
+        Ok(())
     }
 
     fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
@@ -1127,65 +1118,6 @@ where
     }
 }
 
-// NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
-// consensus layer to validate the leader schedule, while the one before that will be
-// consumed for the rewards calculation.
-//
-// We always hold on two stake summaries:
-//
-// - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
-// - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
-//
-// Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
-// the ongoing epoch, not yet finished (and so, not available as snapshot).
-pub fn initial_stake_distributions<HS>(
-    network: NetworkName,
-    snapshots: &HS,
-    era_history: &EraHistory,
-    emit_progress_ticks: bool,
-) -> Result<VecDeque<StakeDistribution>, StoreError>
-where
-    HS: HistoricalStores + Send,
-{
-    use rayon::prelude::*;
-
-    let epochs = {
-        let latest_epoch = snapshots.most_recent_snapshot();
-        let epoch_for_leader_schedule = latest_epoch.checked_sub(Epoch::ONE);
-        [Some(latest_epoch), epoch_for_leader_schedule].into_iter().flatten().collect::<Vec<_>>()
-    };
-
-    for epoch in &epochs {
-        info!(ledger::stake_distribution::INITIAL_BEGIN, epoch = *epoch);
-    }
-
-    let stake_distributions = epochs
-        .into_iter()
-        .map(|epoch| snapshots.for_epoch(epoch))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_par_iter()
-        .map(|snapshot| {
-            let epoch = snapshot.epoch();
-            let mut printed = Instant::now();
-            compute_stake_distribution(&snapshot, network, era_history, None, |progress| {
-                let now = Instant::now();
-                if emit_progress_ticks && now.saturating_duration_since(printed) > Duration::from_millis(100) {
-                    printed = now;
-                    info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch, progress);
-                }
-            })
-        })
-        .collect::<Result<VecDeque<_>, _>>()
-        .map_err(|err| StoreError::Internal(err.into()))?;
-
-    info!(
-        ledger::stake_distribution::INITIAL_READY,
-        epochs = display_collection(stake_distributions.iter().map(|distribution| distribution.epoch)),
-    );
-
-    Ok(stake_distributions)
-}
-
 fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     network: NetworkName,
@@ -1208,27 +1140,13 @@ fn compute_stake_distribution(
     })
 }
 
-fn pool_summaries_for<'iter>(stake_distributions: impl Iterator<Item = &'iter StakeDistribution>) -> PoolSummaries {
-    let mut by_epoch = BTreeMap::new();
-    for distr in stake_distributions {
-        let mut pools: BTreeMap<PoolId, PoolSummary> = BTreeMap::new();
-        for (pid, pst) in &distr.pools {
-            pools.insert(
-                *pid,
-                PoolSummary { vrf: pst.parameters.vrf, stake: pst.stake, active_stake: distr.active_stake },
-            );
-        }
-        by_epoch.insert(distr.epoch, pools);
-    }
-    PoolSummaries { by_epoch }
-}
-
 // RewardsCalculator
 // ----------------------------------------------------------------------------
 
-/// Result of the rewards background task: the newly computed stake distribution and the rewards
-/// for the upcoming epoch transition.
-type RewardsComputation = Result<(StakeDistribution, RewardsSummary), StateError>;
+/// Result of the ledger background tasks:
+/// - The latest computed stake distribution (from the previous epoch)
+/// - And the rewards for the upcoming epoch transition.
+type BackgroundTasksResult = Result<(StakeDistribution, RewardsSummary), StateError>;
 
 /// Snapshot-derived computations running on a background thread while the current epoch
 /// progresses. The thread receives everything it needs by value; results travel back through
@@ -1241,30 +1159,39 @@ struct BackgroundTasks<HS> {
     global_parameters: GlobalParameters,
     protocol_parameters: ProtocolParameters,
     era_history: EraHistory,
+    on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
     on_ledger_snapshot: Option<Arc<dyn Fn(&crate::observers::LedgerStateSnapshot) + Send + Sync>>,
 }
 
 impl<HS: HistoricalStores + Send + Sync + 'static> BackgroundTasks<HS> {
-    fn run(self) -> RewardsComputation {
-        let new_distribution = self.rotate_stake_distribution()?;
-        let rewards = self.compute_rewards()?;
-        Ok((new_distribution, rewards))
+    fn run(self) -> BackgroundTasksResult {
+        let stake_distribution = self.stake_distribution()?;
+        let rewards = self.rewards()?;
+        Ok((stake_distribution, rewards))
     }
 
-    fn rotate_stake_distribution(&self) -> Result<StakeDistribution, StateError> {
+    fn stake_distribution(&self) -> Result<StakeDistribution, StateError> {
         let previous_epoch = self.snapshots.for_epoch(self.epoch - 1)?;
 
-        compute_stake_distribution(
+        let distr = compute_stake_distribution(
             &previous_epoch,
             self.network,
             &self.era_history,
             self.on_ledger_snapshot.as_deref(),
             |_| {},
-        )
+        )?;
+
+        info!(ledger::stake_distribution::ROTATE, new_stake_distribution = previous_epoch.epoch());
+
+        if let Some(notify) = &self.on_stake_dist_updated {
+            notify((&distr).into());
+        }
+
+        Ok(distr)
     }
 
     /// Compute rewards for a given epoch using an anterior stake distribution.
-    fn compute_rewards(&self) -> Result<RewardsSummary, StateError> {
+    fn rewards(&self) -> Result<RewardsSummary, StateError> {
         let previous_epoch = self.snapshots.for_epoch(self.epoch - 1)?;
         let rewards_snapshot = self.snapshots.for_epoch(self.epoch - 3)?;
 
@@ -1418,8 +1345,8 @@ pub enum StateError {
     #[error("error accessing storage: {0}")]
     Storage(#[from] StoreError),
 
-    #[error("no suitable stake distribution for requested epoch: {0}")]
-    NoSuitableStakeDistribution(Epoch),
+    #[error("protocol version from current state is too old")]
+    ProtocolVersionTooOld(#[source] ProtocolVersionTooOld),
 
     // TODO: Using a mere 'String' here because the source error contains some `Rc`, which aren't
     // safe to send across threads. For the sake of carrying the error around, we might want to not

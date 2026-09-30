@@ -103,7 +103,8 @@ impl Resources {
     }
 }
 
-/// Weak counterpart of [`Resources`]. [`WeakResources::put`] is a no-op after the graph is dropped.
+/// Weak counterpart of [`Resources`]. [`WeakResources::put`] and [`WeakResources::replace`] are
+/// no-op after the graph is dropped.
 #[derive(Clone)]
 #[expect(clippy::disallowed_types)]
 pub struct WeakResources(Weak<RwLock<HashMap<TypeId, Box<dyn Any + Send + Sync>>>>);
@@ -113,6 +114,17 @@ impl WeakResources {
     pub fn put<T: Any + Send + Sync>(&self, resource: T) {
         if let Some(inner) = self.0.upgrade() {
             inner.write().insert(TypeId::of::<T>(), Box::new(resource));
+        }
+    }
+
+    /// Replace `resource` if the collection is still alive, using current resource as reference.
+    pub fn replace<T: Any + Send + Sync>(&self, f: impl FnOnce(&T) -> T) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.write().entry(TypeId::of::<T>()).and_modify(|t| {
+                *t = Box::new(f(t.downcast_ref::<T>().unwrap_or_else(|| {
+                    unreachable!("resouce of type {} cannot be downcast to type {}", type_name::<T>(), type_name::<T>())
+                })));
+            });
         }
     }
 }

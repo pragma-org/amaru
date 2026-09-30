@@ -356,12 +356,12 @@ pub fn build_node(
     let chain_store = make_chain_store(config)?;
 
     // Make the ledger state and get its tip
-    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
+    let (mut state, pool_summaries) =
+        make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
     state.set_observers(config.observers.clone());
     let ledger_tip = state.tip().into_owned();
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
-    let pool_summaries = state.pool_summaries();
     let max_epoch = pool_summaries.max_epoch();
     let protocol_version = state.protocol_version();
 
@@ -428,9 +428,9 @@ pub fn build_node(
     // Weak: the callback is stored on `block_validator`, which lives in these same
     // resources. A strong capture would leak every node (RocksDB FDs included).
     let resources = stage_builder.resources().downgrade();
-    block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
-        let max_epoch = summaries.max_epoch();
-        resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
+    block_validator.set_on_stake_dist_updated(Arc::new(move |new_summaries| {
+        let max_epoch = new_summaries.max_epoch();
+        resources.replace::<ResourcePoolSummaries>(|old_summaries| Arc::new(old_summaries.update(new_summaries)));
         let send = async {
             if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
                 amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
@@ -572,7 +572,7 @@ pub fn make_state(
     config: &LedgerConfig,
     on_startup: Option<StartupHook<RocksDB>>,
     chain_store: Arc<dyn BaseReadChainStore>,
-) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
+) -> anyhow::Result<(State<RocksDB, RocksDBHistoricalStores>, PoolSummaries)> {
     let store = RocksDB::new(&config.ledger_store).map_err(ledger_store_error)?;
     store.set_chain_store(chain_store);
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
