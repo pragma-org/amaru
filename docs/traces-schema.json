@@ -4281,13 +4281,17 @@
               "minItems": 3
             }
           ]
+        },
+        "tip_height": {
+          "type": "integer"
         }
       },
       "required": [
         "peer",
         "conn_id",
         "current",
-        "highest"
+        "highest",
+        "tip_height"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -4442,12 +4446,16 @@
               "minItems": 3
             }
           ]
+        },
+        "tip_height": {
+          "type": "integer"
         }
       },
       "required": [
         "peer",
         "current",
-        "highest"
+        "highest",
+        "tip_height"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -4483,6 +4491,101 @@
       "public": true,
       "levels": [
         "error"
+      ]
+    },
+    "amaru::consensus::chainsync::ROLL_FORWARD_DONE": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "current": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "highest": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "current_height": {
+          "type": "integer"
+        },
+        "tip_height": {
+          "type": "integer"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "current",
+        "highest",
+        "current_height",
+        "tip_height",
+        "outcome"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_forward_done",
+      "kind": "event",
+      "target": "amaru::consensus::chainsync",
+      "description": "A header announced by a peer was processed. Outcome ∈ {already_stored, stored}. `current_height` is that header. `tip_height` is the tip the peer advertises.",
+      "public": true,
+      "levels": [
+        "debug"
       ]
     },
     "amaru::consensus::chainsync::TERMINATED": {

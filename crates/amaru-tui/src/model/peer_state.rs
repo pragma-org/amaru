@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Instant;
+use std::{collections::VecDeque, time::Instant};
 
 use amaru_observability::amaru::protocols;
 
@@ -55,6 +55,14 @@ pub struct PeerState {
     query_header: MeanMicros,
     get_block: MeanMicros,
     adopt_block: MeanMicros,
+    /// Live arrivals (slot onset to first body), newest at the back. Catch-up samples are not stored.
+    live_arrivals: VecDeque<u64>,
+    /// Sum of header-announcement points: rank 1 is 6, rank 2 is 3, rank 3 is 1.
+    announcement_score: u64,
+    /// Block height of the latest header this peer rolled forward.
+    roll_forward_height: Option<u64>,
+    /// Block height of the tip this peer advertises.
+    peer_tip_height: Option<u64>,
     pub updated_at: Instant,
 }
 
@@ -75,6 +83,10 @@ impl PeerState {
             query_header: MeanMicros::default(),
             get_block: MeanMicros::default(),
             adopt_block: MeanMicros::default(),
+            live_arrivals: VecDeque::new(),
+            announcement_score: 0,
+            roll_forward_height: None,
+            peer_tip_height: None,
             updated_at,
         }
     }
@@ -134,6 +146,65 @@ impl PeerState {
             self.adopt_block.record(micros, smoothing);
         }
         self.updated_at = at;
+    }
+
+    /// Add points for one logged header announcement. Rank 1 is 6, rank 2 is 3, rank 3 is 1.
+    pub(crate) fn add_announcement_points(&mut self, points: u64, at: Instant) {
+        self.announcement_score = self.announcement_score.saturating_add(points);
+        self.updated_at = at;
+    }
+
+    pub fn announcement_score(&self) -> u64 {
+        self.announcement_score
+    }
+
+    /// Record the header this peer just rolled forward and the tip it advertised with that header.
+    ///
+    /// The advertised tip can be one block behind that header: chainsync may send the next
+    /// header before the peer counts it as its adopted tip. The header is still their chain.
+    pub(crate) fn note_roll_forward(&mut self, height: u64, tip_height: u64, at: Instant) {
+        self.roll_forward_height = Some(height);
+        let tip = tip_height.max(height);
+        self.peer_tip_height = Some(self.peer_tip_height.map(|known| known.max(tip)).unwrap_or(tip));
+        self.updated_at = at;
+    }
+
+    /// Record the tip this peer advertises, without a new roll-forward.
+    ///
+    /// A rollback can move the tip backward. A roll-forward header past that tip is pulled back with it.
+    pub(crate) fn note_peer_tip(&mut self, tip_height: u64, at: Instant) {
+        self.peer_tip_height = Some(tip_height);
+        if self.roll_forward_height.is_some_and(|forward| forward > tip_height) {
+            self.roll_forward_height = Some(tip_height);
+        }
+        self.updated_at = at;
+    }
+
+    pub fn roll_forward_height(&self) -> Option<u64> {
+        self.roll_forward_height
+    }
+
+    pub fn peer_tip_height(&self) -> Option<u64> {
+        self.peer_tip_height
+    }
+
+    /// Remember one live arrival latency. Only the last `capacity` samples are kept.
+    pub(crate) fn record_live_arrival(&mut self, micros: u64, capacity: usize) {
+        self.live_arrivals.push_back(micros);
+        while self.live_arrivals.len() > capacity {
+            self.live_arrivals.pop_front();
+        }
+    }
+
+    /// Percent of retained live arrivals at or under `within_micros`, rounded to the nearest percent.
+    /// `None` until a live arrival has been recorded.
+    pub fn live_arrival_share_percent(&self, within_micros: u64) -> Option<u64> {
+        let total = self.live_arrivals.len();
+        if total == 0 {
+            return None;
+        }
+        let within = self.live_arrivals.iter().filter(|micros| **micros <= within_micros).count();
+        Some(((within as u64) * 100 + (total as u64) / 2) / (total as u64))
     }
 
     pub fn mean_query_header_micros(&self) -> Option<u64> {

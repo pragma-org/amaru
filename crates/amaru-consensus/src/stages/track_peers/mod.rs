@@ -801,6 +801,8 @@ impl TrackPeers {
                     peer,
                     current,
                     highest = tip,
+                    current_height = u64::from(current.block_height()),
+                    tip_height = u64::from(tip.block_height()),
                     outcome = "already_stored"
                 );
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
@@ -850,7 +852,15 @@ impl TrackPeers {
                     already_stored,
                 ))
                 .await;
-                debug!(consensus::chainsync::ROLL_FORWARD_DONE, peer, current, highest = tip, outcome = "stored");
+                debug!(
+                    consensus::chainsync::ROLL_FORWARD_DONE,
+                    peer,
+                    current,
+                    highest = tip,
+                    current_height = u64::from(current.block_height()),
+                    tip_height = u64::from(tip.block_height()),
+                    outcome = "stored"
+                );
                 eff.send(
                     &self.downstream,
                     NewTip { tip: header_tip, parent, trace_context: trace_context.into(), forward_context },
@@ -902,7 +912,8 @@ impl TrackPeers {
                     peer,
                     conn_id = conn_id.as_u64(),
                     current = current_tip,
-                    highest = tip
+                    highest = tip,
+                    tip_height = u64::from(tip.block_height())
                 );
                 let now = eff.clock().await;
                 eff.external(Performance::record_intersection(peer, current_tip, None, now)).await;
@@ -1021,7 +1032,13 @@ impl TrackPeers {
                 .await
             }
             RollBackward(current, tip) => {
-                info!(consensus::chainsync::ROLL_BACKWARD, peer, current, highest = tip);
+                info!(
+                    consensus::chainsync::ROLL_BACKWARD,
+                    peer,
+                    current,
+                    highest = tip,
+                    tip_height = u64::from(tip.block_height())
+                );
                 let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer);
                 let trace_context: TraceContext<ROLL_BACKWARD_PROCESS> = (&span).into();
                 async {

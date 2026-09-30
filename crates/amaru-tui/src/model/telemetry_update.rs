@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use amaru_observability::{
     RecordFields,
-    amaru::{bootstrap, consensus, ledger, mempool, protocols},
+    amaru::{blockperf, bootstrap, consensus, ledger, mempool, protocols},
 };
 
 use super::*;
@@ -73,6 +73,11 @@ impl Model {
             TelemetryEvent::StateSwitchToFork => {
                 self.push_recent_rollback(ledger::state::SWITCH_TO_FORK::rollback_length(record), record.at)
             }
+            TelemetryEvent::ChainSyncRollForwardDone => self.update_peer_roll_forward(record),
+            TelemetryEvent::ChainSyncIntersect | TelemetryEvent::ChainSyncRollBackward => {
+                self.update_peer_tip_height(record)
+            }
+            TelemetryEvent::HeaderAnnounced => self.update_peer_header_announced(record),
             TelemetryEvent::HeaderLifecycle => self.update_peer_header_lifecycle(record),
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
@@ -124,6 +129,7 @@ impl Model {
             .startup
             .is_near_target_slot_at(consensus::tip::ADOPT::slot(record), record.wall_time)
             .is_some_and(|is_near_tip| !is_near_tip);
+        self.adopted_block_height = Some(consensus::tip::ADOPT::block_height(record));
         let catching_up = catching_up_by_height || catching_up_by_slot;
 
         if catching_up {
@@ -271,6 +277,33 @@ impl Model {
         peer.update_rtt(record, round_trip_micros);
     }
 
+    fn update_peer_roll_forward(&mut self, record: &TelemetryRecord) {
+        let peer = consensus::chainsync::ROLL_FORWARD_DONE::peer(record);
+        let height = consensus::chainsync::ROLL_FORWARD_DONE::current_height(record);
+        let tip_height = consensus::chainsync::ROLL_FORWARD_DONE::tip_height(record);
+        self.peer_mut(peer, record.at).note_roll_forward(height, tip_height, record.at);
+    }
+
+    fn update_peer_tip_height(&mut self, record: &TelemetryRecord) {
+        let (peer, tip_height) = if consensus::chainsync::INTERSECT_FOUND::matches(&record.target, &record.name) {
+            (
+                consensus::chainsync::INTERSECT_FOUND::peer(record),
+                consensus::chainsync::INTERSECT_FOUND::tip_height(record),
+            )
+        } else {
+            (consensus::chainsync::ROLL_BACKWARD::peer(record), consensus::chainsync::ROLL_BACKWARD::tip_height(record))
+        };
+        self.peer_mut(peer, record.at).note_peer_tip(tip_height, record.at);
+    }
+
+    fn update_peer_header_announced(&mut self, record: &TelemetryRecord) {
+        let Some(points) = announcement_points(blockperf::header::ANNOUNCED::rank(record)) else {
+            return;
+        };
+        let peer = blockperf::header::ANNOUNCED::peer(record);
+        self.peer_mut(peer, record.at).add_announcement_points(points, record.at);
+    }
+
     fn update_peer_header_lifecycle(&mut self, record: &TelemetryRecord) {
         if record.str(consensus::perf::header::LIFECYCLE::FIELD_OUTCOME) != Some("valid") {
             return;
@@ -280,17 +313,16 @@ impl Model {
             return;
         };
 
-        let slot_start_to_header_micros = (!self.catching_up)
-            .then(|| consensus::perf::header::LIFECYCLE::slot_start_to_header_micros(record))
-            .flatten();
+        let recorded_observe = consensus::perf::header::LIFECYCLE::slot_start_to_header_micros(record);
+        let slot_start_to_header_micros = if self.catching_up { None } else { recorded_observe };
         let query_header_micros = consensus::perf::header::LIFECYCLE::block_fetch_wait_micros(record);
         let get_block_micros = consensus::perf::header::LIFECYCLE::block_fetch_micros(record);
-        let adopt_block_micros = consensus::perf::header::LIFECYCLE::forward_micros(record)
-            .zip(query_header_micros)
-            .zip(get_block_micros)
-            .map(|((forward_micros, query_header_micros), get_block_micros)| {
-                forward_micros.saturating_sub(query_header_micros.saturating_add(get_block_micros))
-            });
+        let adopt_block_micros = consensus::perf::header::LIFECYCLE::adopt_micros(record);
+        // Slot onset to first body. Catch-up omits Observe, so those samples stay out of this window.
+        let live_arrival_micros = match (slot_start_to_header_micros, query_header_micros, get_block_micros) {
+            (Some(observe), Some(select), Some(fetch)) => Some(observe.saturating_add(select).saturating_add(fetch)),
+            _ => None,
+        };
 
         let capacity = self.config.peer_timing_capacity;
         let peer = self.peer_mut(peer, record.at);
@@ -302,6 +334,9 @@ impl Model {
             get_block_micros,
             adopt_block_micros,
         );
+        if let Some(micros) = live_arrival_micros {
+            peer.record_live_arrival(micros, capacity);
+        }
     }
 
     fn peer_mut(&mut self, address: impl ToString, updated_at: Instant) -> &mut PeerState {
@@ -333,5 +368,15 @@ impl Model {
                 self.proposals_by_id.remove(&removed);
             }
         }
+    }
+}
+
+/// Points for one `header.announced` rank. Later ranks are not logged, so they add nothing.
+fn announcement_points(rank: u64) -> Option<u64> {
+    match rank {
+        1 => Some(6),
+        2 => Some(3),
+        3 => Some(1),
+        _ => None,
     }
 }
