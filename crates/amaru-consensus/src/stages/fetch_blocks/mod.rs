@@ -64,8 +64,9 @@ const FETCH_WIDEN_DELAYS: [Duration; 3] =
 /// - `RecoverStoredBlocks { from, to }`: Startup recovery only, where `from` is the ledger tip and
 ///   `to` the best stored candidate. Walks the stored headers from `to` back down to `from` and
 ///   replays them downstream for re-validation (using `ancestors_between` + `has_block` checks),
-///   falling back to `request_missing_blocks` on first gap. Terminates on store errors, and on an
-///   origin `from`, which means the ledger was never bootstrapped.
+///   falling back to `request_missing_blocks` on first gap. Terminates on store errors, and when
+///   `from` is origin while `to` is a stored candidate (empty ledger, non-empty store). Origin
+///   to origin is a fresh node and does not terminate.
 /// - `Block(peer, network_block)`: Decode + basic integrity (body_hash match → adversarial
 ///   on fail). Any valid body during an active batch is scored via `record_block_delivery`
 ///   (including concurrent multi-peer stragglers). Ordering checks against current `missing`
@@ -242,7 +243,8 @@ impl FetchBlocks {
     /// candidate `to`, so the ledger can apply them again, then fetch from the first missing block.
     ///
     /// The ledger has no persisted volatile state, so `from` is where it resumes and therefore the
-    /// only parent the first replayed block may have.
+    /// only parent the first replayed block may have. When both are origin there is nothing to
+    /// replay and the stage keeps running.
     pub async fn recover_stored_blocks(&mut self, eff: Effects<FetchBlocksMsg>, from: Point, to: HeaderHash) {
         let span = debug_span!(consensus::blocks::RECOVER_STORED, from, to);
         let trace_context = (&span).into();
@@ -252,14 +254,18 @@ impl FetchBlocks {
             self.missing
         );
 
-        let store = Store::new(eff.clone()).with_trace_context(&trace_context);
-
-        // An origin ledger tip means that we are trying to recover from an empty ledger with
-        // a non-empty store. This is a misconfiguration, and we should not attempt to replay the stored headers.
+        // Origin together with a stored candidate means an empty ledger and a non-empty chain
+        // store: a misconfiguration, so the stored headers are not replayed. Origin-to-origin is
+        // a fresh node with nothing to replay; the stage stays up so later tips can be fetched.
         if from.hash() == ORIGIN_HASH {
-            error!(consensus::blocks::RECOVER_INCONSISTENT, from, to, reason = "ledger_tip_is_origin");
-            return eff.terminate().await;
+            if to != ORIGIN_HASH {
+                error!(consensus::blocks::RECOVER_INCONSISTENT, from, to, reason = "ledger_tip_is_origin");
+                return eff.terminate().await;
+            }
+            return;
         }
+
+        let store = Store::new(eff.clone()).with_trace_context(&trace_context);
 
         let Some(to_replay) = store.ancestors_between(from, to).await else {
             error!(consensus::blocks::RECOVER_INCONSISTENT, from, to, reason = "broken_chain");
