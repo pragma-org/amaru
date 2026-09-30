@@ -61,6 +61,7 @@ Other guiding principles:
 - **amaru-protocols**: a connection stays up when a peer starts a mini-protocol this node will serve before that protocol's handler is registered. On a connection this node accepted, that includes a handshake that arrives before the handshake handler is registered.
 - **amaru-node**: startup fails when the chain store is missing the ledger tip header or that header's parent.
 - **amaru**: after a chain switch, a block forged in the adopted block's slot extends that block's parent.
+- **amaru-node**: startup fails when the chain store is missing the ledger tip header. A bootstrap snapshot stores that tip without its parent block. Forging in the snapshot tip's own slot is skipped when that parent header is absent.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 

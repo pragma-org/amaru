@@ -36,8 +36,8 @@ use amaru_metrics::Meter;
 use amaru_network::{connection::TokioConnections, resolve::init_resolver};
 use amaru_observability::warn;
 use amaru_ouroboros::{
-    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries,
-    ResourceMempool, StoreError as ChainStoreError,
+    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
+    StoreError as ChainStoreError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
@@ -450,11 +450,12 @@ pub fn build_node(
     Ok(node_stages)
 }
 
-/// Parent of `tip` on the chain store.
+/// Parent of `tip`, used to preload forging.
 ///
 /// An origin tip, and a header with no parent, yield [`Point::Origin`]. A missing tip
-/// header or a missing parent point is an error: a same-slot forge would otherwise
-/// extend genesis.
+/// header is an error. A missing parent header also yields [`Point::Origin`]: bootstrap
+/// stores the snapshot tip, and forging reads this parent only when minting in that
+/// tip's own slot. That lead is missed.
 fn tip_parent(store: &dyn ChainStore, tip: &Point) -> anyhow::Result<Point> {
     if *tip == Point::Origin {
         return Ok(Point::Origin);
@@ -463,7 +464,7 @@ fn tip_parent(store: &dyn ChainStore, tip: &Point) -> anyhow::Result<Point> {
     let Some(parent_hash) = header.parent() else {
         return Ok(Point::Origin);
     };
-    store.load_point(&parent_hash).ok_or_else(|| anyhow!("ledger tip parent not found in chain store"))
+    Ok(store.load_point(&parent_hash).unwrap_or(Point::Origin))
 }
 
 /// Register the resources required by the external effects invoked by the stages in the stage graph.

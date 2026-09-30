@@ -45,6 +45,8 @@ pub(super) enum MissedSlotReason {
     NotLed,
     /// Woken too late to forge: in the last [`FORGE_LEAD_OFFSET`] of the slot, or after it.
     WokeLate,
+    /// Same-slot lead whose adopted parent was not in the chain store.
+    ParentNotStored,
 }
 
 impl MissedSlotReason {
@@ -55,6 +57,7 @@ impl MissedSlotReason {
             Self::TipAhead => "tip_ahead",
             Self::NotLed => "not_led",
             Self::WokeLate => "woke_late",
+            Self::ParentNotStored => "parent_not_stored",
         }
     }
 }
@@ -82,6 +85,21 @@ pub(super) struct FreezeDecision {
     pub drop_epoch: Option<Epoch>,
     /// Leader schedule to compute: the tip's next epoch, if we just entered a freeze.
     pub schedule_epoch: Option<Epoch>,
+}
+
+/// Point a lead extends, or why the slot is missed.
+///
+/// The parent of a height-1 tip is genesis. An origin parent of any later tip means
+/// that parent header was not stored, and extending it would build on genesis.
+pub(super) fn parent_to_extend(choice: ParentChoice, tip: Point, parent: Point) -> Result<Point, MissedSlotReason> {
+    match choice {
+        ParentChoice::AdoptedTip => Ok(tip),
+        ParentChoice::MissedTipAhead => Err(MissedSlotReason::TipAhead),
+        ParentChoice::AdoptedParent if parent == Point::Origin && tip.block_height() > BlockHeight::from(1) => {
+            Err(MissedSlotReason::ParentNotStored)
+        }
+        ParentChoice::AdoptedParent => Ok(parent),
+    }
 }
 
 /// Pick the parent of a block for `lead_slot` from the adopted tip's slot.
@@ -267,6 +285,31 @@ mod tests {
     #[test]
     fn choose_parent_uses_parent_on_same_slot() {
         assert_eq!(choose_parent(slot(11), slot(11)), ParentChoice::AdoptedParent);
+    }
+
+    #[test]
+    fn same_slot_lead_misses_when_the_parent_header_is_absent() {
+        let tip = Point::Specific(slot(11), amaru_kernel::HeaderHash::from([1; 32]), 4.into());
+        let choice = choose_parent(slot(11), slot(11));
+        assert_eq!(parent_to_extend(choice, tip, Point::Origin), Err(MissedSlotReason::ParentNotStored));
+    }
+
+    #[test]
+    fn same_slot_lead_extends_a_stored_parent() {
+        let tip = Point::Specific(slot(11), amaru_kernel::HeaderHash::from([1; 32]), 4.into());
+        let parent = Point::Specific(slot(10), amaru_kernel::HeaderHash::from([2; 32]), 3.into());
+        assert_eq!(parent_to_extend(ParentChoice::AdoptedParent, tip, parent), Ok(parent));
+    }
+
+    #[test]
+    fn genesis_tip_extends_origin_in_its_own_slot() {
+        assert_eq!(parent_to_extend(ParentChoice::AdoptedParent, Point::Origin, Point::Origin), Ok(Point::Origin));
+    }
+
+    #[test]
+    fn first_block_extends_origin_in_its_own_slot() {
+        let tip = Point::Specific(slot(1), HeaderHash::from([1; 32]), 1.into());
+        assert_eq!(parent_to_extend(ParentChoice::AdoptedParent, tip, Point::Origin), Ok(Point::Origin));
     }
 
     #[test]

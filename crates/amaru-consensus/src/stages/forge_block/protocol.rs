@@ -29,9 +29,9 @@ use amaru_pure_stage::{
 use super::{
     ForgeBlock, ForgeData, FreezeWatch,
     calc::{
-        FORGE_LEAD_OFFSET, ForgeWindow, MissedSlotReason, ParentChoice, choose_parent, decide_freeze, forge_window,
-        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, ocert_miss, schedule_settled,
-        wait_until_onset,
+        FORGE_LEAD_OFFSET, ForgeWindow, MissedSlotReason, choose_parent, decide_freeze, forge_window,
+        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, ocert_miss, parent_to_extend,
+        schedule_settled, wait_until_onset,
     },
     effects::{LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect},
     schedule::{EpochSchedule, Schedule as Schedules},
@@ -297,11 +297,14 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         return finish_with_next_lead!(session, state, now);
     }
 
-    let parent_point = match choose_parent(state.adopted_tip.slot(), slot) {
-        ParentChoice::AdoptedTip => state.adopted_tip,
-        ParentChoice::AdoptedParent => state.adopted_parent,
-        ParentChoice::MissedTipAhead => {
-            warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::TipAhead.as_str());
+    let parent_point = match parent_to_extend(
+        choose_parent(state.adopted_tip.slot(), slot),
+        state.adopted_tip,
+        state.adopted_parent,
+    ) {
+        Ok(point) => point,
+        Err(reason) => {
+            warn!(consensus::forge::MISSED_SLOT, slot, reason = reason.as_str());
             let session = session.finish().receive(&Proceed, eff.clone());
             return finish_with_next_lead!(session, state, now);
         }
