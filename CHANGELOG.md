@@ -39,6 +39,8 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in `docs/cip-023/README.md`. [#1360][]
+- **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or dispaly the current tag this binary would forge blocks with. [#1360][]
 - **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--kes-signing-key-file`, `--vrf-signing-key-file`, and `--operational-certificate` (unencrypted cardano-cli files). Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the certificate's cold signature does not verify, or when its sequence number is not the chain's counter for that pool or exactly one ahead.
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
@@ -577,3 +579,4 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
+[#1360]: https://github.com/pragma-org/amaru/issues/1360

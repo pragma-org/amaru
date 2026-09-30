@@ -14,6 +14,7 @@
 
 use std::sync::LazyLock;
 
+use amaru_kernel::{AmaruTag, ReleaseDay, SoftwareTag};
 use amaru_observability::info;
 
 mod built_info {
@@ -23,6 +24,11 @@ mod built_info {
 mod git_info {
     include!(concat!(env!("OUT_DIR"), "/git_info.rs"));
 }
+
+const RELEASE_DAY: ReleaseDay = match ReleaseDay::from_version_patch(built_info::PKG_VERSION_PATCH) {
+    Ok(day) => day,
+    Err(_) => panic!("the package version patch must be 0 or the YYYYMMDD release day"),
+};
 
 static PACKAGE_VERSION: LazyLock<String> = LazyLock::new(|| {
     let version = format!(
@@ -47,6 +53,10 @@ pub fn package_version() -> &'static str {
 
 pub fn display_version() -> &'static str {
     DISPLAY_VERSION.as_str()
+}
+
+pub const fn software_tag() -> SoftwareTag {
+    AmaruTag::new(RELEASE_DAY).software_tag()
 }
 
 pub fn git_commit_hash() -> Option<&'static str> {

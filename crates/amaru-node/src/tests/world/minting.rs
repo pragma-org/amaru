@@ -29,11 +29,12 @@ use std::{
 
 use amaru_consensus::stages::forge_block::TestCredentials;
 use amaru_kernel::{
-    Anchor, Block, BodyParts, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch,
-    EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, Hash, Hasher, Header, IsHeader, KesPeriod,
-    MaxString128, Network, NetworkName, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Peer,
-    Point, PoolParams, Pots, ProposalsRoots, ProtocolParameters, RationalNumber, RewardAccount, Slot,
-    TransactionPointer, VrfCert, cardano::network_block::NetworkBlock, ed25519,
+    AmaruTag, Anchor, Block, BodyParts, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential,
+    Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, Hash, Hasher, Header, IsHeader,
+    KesPeriod, MaxString128, Network, NetworkName, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+    PREPROD_GLOBAL_PARAMETERS, Peer, Point, PoolParams, Pots, ProposalsRoots, ProtocolParameters, ProtocolVersion,
+    RationalNumber, ReleaseDay, RewardAccount, Slot, TransactionPointer, VrfCert, cardano::network_block::NetworkBlock,
+    ed25519,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -736,9 +737,18 @@ fn assert_minted_chain(run: &MintRun, blocks: u64) {
     assert_density(seed, blocks, span, anchor_height, run.security_param, &logs);
     let chain = adopted_chain(stores[0].as_ref(), tip.hash(), anchor.hash());
     assert_eq!(chain.len(), blocks as usize, "adopted headers seed={seed:#x}");
+    assert_software_tag(seed, &chain, anchor);
     assert_battles(seed, span, &logs, &chain, anchor);
     assert_forwarding(seed, &run.fixture, &logs, &chain, anchor);
     assert_schedules(seed, &logs);
+}
+
+fn assert_software_tag(seed: u64, chain: &[Header], anchor: &Header) {
+    let tag = AmaruTag::new(ReleaseDay::UNRELEASED).software_tag();
+    let expected = ProtocolVersion::new(anchor.body().protocol_version.major(), u64::from(u32::from(tag)));
+    for header in chain {
+        assert_eq!(header.body().protocol_version, expected, "protocol version seed={seed:#x} {}", header.hash());
+    }
 }
 
 fn assert_no_forge_failures(seed: u64, logs: &[Vec<LogRecord>]) {

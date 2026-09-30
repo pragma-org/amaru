@@ -17,6 +17,7 @@ use clap::Subcommand;
 
 pub(crate) mod chain;
 pub(crate) mod ledger;
+pub(crate) mod software_tag;
 pub(crate) mod traces;
 
 #[derive(Debug, Subcommand)]
@@ -29,6 +30,10 @@ pub(crate) enum DevCommand {
     #[command(subcommand)]
     Ledger(ledger::LedgerCommand),
 
+    /// CIP-0203 block producer tag operations.
+    #[command(subcommand)]
+    SoftwareTag(software_tag::SoftwareTagCommand),
+
     /// Observability and trace operations.
     #[command(subcommand)]
     Traces(traces::TracesCommand),
@@ -39,6 +44,7 @@ impl DevCommand {
         match self {
             Self::Chain(cmd) => cmd.into_runnable(),
             Self::Ledger(cmd) => cmd.into_runnable(),
+            Self::SoftwareTag(cmd) => cmd.into_runnable(),
             Self::Traces(cmd) => cmd.into_runnable(),
         }
     }

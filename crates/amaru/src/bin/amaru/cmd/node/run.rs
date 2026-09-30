@@ -743,6 +743,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         tx_submission_responder_params: tx_submission_params,
         forging_credentials: forging_credentials
             .map(|credentials| Arc::new(credentials) as Arc<dyn amaru_ouroboros::ForgingCredentials>),
+        software_tag: amaru::version::software_tag(),
         ..Config::default()
     })
 }

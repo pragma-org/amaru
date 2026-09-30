@@ -64,7 +64,8 @@ pub fn build_stage_graph(
 ) -> NodeStages {
     let ledger_tip = opened.tip;
     let ledger_parent = opened.parent;
-    let protocol_version = opened.protocol_version;
+    let protocol_version =
+        ProtocolVersion::new(opened.protocol_version.major(), u64::from(u32::from(config.software_tag)));
     let span = debug_span!(consensus::node::INITIALIZE);
     let trace_context = (&span).into();
     let manager = stage_graph.stage("manager", manager::stage);

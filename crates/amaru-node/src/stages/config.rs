@@ -30,8 +30,8 @@ use amaru_consensus::{
     },
 };
 use amaru_kernel::{
-    ConsensusParameters, EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
-    PREPROD_GLOBAL_PARAMETERS, Peer, PeerCandidate,
+    AmaruTag, ConsensusParameters, EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
+    PREPROD_GLOBAL_PARAMETERS, Peer, PeerCandidate, ReleaseDay, SoftwareTag,
 };
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
@@ -108,6 +108,9 @@ pub struct Config {
     /// Block-producer secrets. `None` leaves the node a follower.
     /// When `Some`, `build_node` checks the operational certificate and wires the forge stage.
     pub forging_credentials: Option<Arc<dyn ForgingCredentials>>,
+
+    /// CIP-0203 producer tag written into forged headers.
+    pub software_tag: SoftwareTag,
 }
 
 impl Config {
@@ -182,6 +185,7 @@ impl Default for Config {
             meter: None,
             realign_chain_store: true,
             forging_credentials: None,
+            software_tag: AmaruTag::new(ReleaseDay::UNRELEASED).software_tag(),
         }
     }
 }
