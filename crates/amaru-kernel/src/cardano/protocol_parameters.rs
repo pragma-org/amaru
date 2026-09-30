@@ -581,9 +581,9 @@ mod tests {
     prop_compose! {
         pub fn any_protocol_version()(
             major in any::<u8>(),
-            minor in any::<u64>(),
+            minor in any::<u32>(),
         ) -> ProtocolVersion {
-            ProtocolVersion::new((major % 13) as u64, minor)
+            ProtocolVersion::new(u32::from(major % 13), minor)
         }
     }
 

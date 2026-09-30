@@ -47,10 +47,7 @@ impl FromStr for Minor {
         if let Ok(minor) = s.parse::<u32>() {
             return Ok(Self(minor));
         }
-        let version = s.parse::<ProtocolVersion>()?;
-        u32::try_from(version.minor())
-            .map(Self)
-            .map_err(|_| format!("minor {} does not fit in 32 bits", version.minor()))
+        s.parse::<ProtocolVersion>().map(|version| Self(version.minor()))
     }
 }
 

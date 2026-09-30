@@ -745,7 +745,7 @@ fn assert_minted_chain(run: &MintRun, blocks: u64) {
 
 fn assert_software_tag(seed: u64, chain: &[Header], anchor: &Header) {
     let tag = AmaruTag::new(ReleaseDay::UNRELEASED).software_tag();
-    let expected = ProtocolVersion::new(anchor.body().protocol_version.major(), u64::from(u32::from(tag)));
+    let expected = ProtocolVersion::new(anchor.body().protocol_version.major(), u32::from(tag));
     for header in chain {
         assert_eq!(header.body().protocol_version, expected, "protocol version seed={seed:#x} {}", header.hash());
     }
