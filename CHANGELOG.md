@@ -56,6 +56,10 @@ Other guiding principles:
 - **amaru**: `amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.
 - **amaru-protocols**: `connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction. ([#1634](https://github.com/pragma-org/amaru/issues/1634))
 - **amaru**: loading a legacy cardano-cli text envelope emits `envelope.legacy` under `amaru::io` at trace level with its envelope type and path, including VRF keys, certificates, and counters. Raw key and binary CBOR files do not emit this event.
+- **amaru**: a failed outbound connection attempt times out after 2 seconds. Each failure adds a large connection penalty, so healthier peers are dialed first. When no healthier peer can fill an open slot, the penalized peer is dialed anyway. A peer is not dialed again within 2 seconds of a connect attempt or a connection failure. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
+- **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
+- **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
+- **amaru-ledger**: keep only one live stake distribution in-memory (the most recent one) instead of a rotating fixed-size queue.
 
 ### Fixed
 

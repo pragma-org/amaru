@@ -950,10 +950,10 @@ define_schemas! {
                 public span COMPUTE {
                     required epoch: amaru_kernel::Epoch
                 }
-                /// Rotate stake distributions at an epoch boundary
+                /// Rotate stake distributions after background calculation during the epoch.
                 public event ROTATE {
                     levels: info
-                    required available_stake_distributions: String
+                    required new_stake_distribution: amaru_kernel::Epoch
                 }
                 /// Snapshot of the stake distribution taken at an epoch boundary
                 public event SNAPSHOT {
