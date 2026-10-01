@@ -14,7 +14,7 @@
 
 //! In-process block-producer secrets for a testnet trial.
 //!
-//! The KES signing key, VRF seed, and operational certificate are read from the
+//! The KES signing key, VRF signing key, and operational certificate are read from the
 //! unencrypted text envelopes cardano-cli already writes. The cold key stays in
 //! the certificate file; it is not loaded on its own.
 
@@ -324,8 +324,9 @@ impl OperationalCertificateError {
 mod tests {
     use std::path::Path;
 
-    use amaru_kernel::{IsHeader, Slot, ed25519::Signer};
+    use amaru_kernel::{IsHeader, Slot, cbor, ed25519::Signer};
     use amaru_ouroboros_traits::{HeaderDraft, InMemoryChainStore, WriteChainStore, kes_message};
+    use serde::Deserialize;
 
     use super::*;
     use crate::praos::header::AssertKesSignatureError;
@@ -334,6 +335,16 @@ mod tests {
 
     fn envelope(r#type: &str, cbor_hex: &str) -> String {
         format!(r#"{{"type":"{type}","description":"","cborHex":"{cbor_hex}"}}"#)
+    }
+
+    /// cardano-cli writes the VRF seed followed by the verification key.
+    fn vrf_signing_envelope(seed: &[u8; 32]) -> String {
+        let secret = vrf::SecretKey::from(seed);
+        let verification = vrf::PublicKey::from(&secret);
+        let mut raw = [0u8; 64];
+        raw[..32].copy_from_slice(seed);
+        raw[32..].copy_from_slice(verification.as_ref());
+        envelope("VrfSigningKey_PraosVRF", &format!("5840{}", hex::encode(raw)))
     }
 
     fn kes_envelope() -> String {
@@ -387,8 +398,7 @@ mod tests {
         let vrf_path = dir.join("vrf.skey");
         let cert_path = dir.join("node.cert");
         fs::write(&kes_path, kes_envelope()).unwrap();
-        let seed = [7u8; 32];
-        fs::write(&vrf_path, envelope("VrfSigningKey_PraosVRF", &format!("5820{}", hex::encode(seed)))).unwrap();
+        fs::write(&vrf_path, vrf_signing_envelope(&[7u8; 32])).unwrap();
         fs::write(
             &cert_path,
             envelope(OPERATIONAL_CERTIFICATE_ENVELOPE, &certificate_cbor(&issued.certificate, &issued.cold_vk)),
@@ -447,6 +457,71 @@ mod tests {
         assert_signature(&credentials, KesPeriod::from(4), &header);
         let later = signed(&credentials, KesPeriod::from(5));
         assert_signature(&credentials, KesPeriod::from(5), &later);
+    }
+
+    fn forging_fixture(name: &str) -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/forging").join(name)
+    }
+
+    fn read_envelope(path: &Path) -> (String, Vec<u8>) {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Envelope {
+            r#type: String,
+            cbor_hex: String,
+        }
+        let envelope: Envelope = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        (envelope.r#type, hex::decode(envelope.cbor_hex).unwrap())
+    }
+
+    fn cbor_byte_string(path: &Path) -> Vec<u8> {
+        let (_type, payload) = read_envelope(path);
+        let mut decoder = cbor::Decoder::new(&payload);
+        cbor::decode_bytes(&mut decoder).unwrap().into_owned()
+    }
+
+    /// Throwaway keys from `cardano-cli conway node` (`key-gen-VRF`, `key-gen-KES`, `key-gen`,
+    /// `issue-op-cert`). Not a live stake pool.
+    #[test]
+    fn cardano_cli_conway_fixtures_load_and_verify() {
+        let kes_path = forging_fixture("kes.skey");
+        let vrf_path = forging_fixture("vrf.skey");
+        let cert_path = forging_fixture("node.cert");
+        let kes_vk = cbor_byte_string(&forging_fixture("kes.vkey"));
+        let vrf_vk = cbor_byte_string(&forging_fixture("vrf.vkey"));
+        let cold_vk = cbor_byte_string(&forging_fixture("cold.vkey"));
+
+        let mut kes = kes::SecretKey::from_file(&kes_path).unwrap();
+        assert_eq!(u32::from(kes.period()), 0, "a fresh cardano-cli KES file has no period");
+        assert_eq!(kes::PublicKey::from(&mut kes).as_ref(), kes_vk.as_slice());
+
+        let vrf = vrf::SecretKey::from_file(&vrf_path).unwrap();
+        assert_eq!(vrf::PublicKey::from(&vrf).as_ref(), vrf_vk.as_slice());
+        let input = vrf::Input::from(&[11u8; vrf::Input::SIZE]);
+        let proof = vrf.prove(&input);
+        proof.verify(&vrf::PublicKey::from(&vrf), &input).unwrap();
+
+        let credentials = InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS).unwrap();
+        assert_eq!(credentials.issuer_verification_key().as_slice(), cold_vk.as_slice());
+        let fields = credentials.issuer_fields();
+        assert_eq!(fields.operational_cert.operational_cert_hot_verification_key.as_slice(), kes_vk.as_slice());
+        assert_eq!(fields.vrf_verification_key.as_slice(), vrf_vk.as_slice());
+        assert_eq!(fields.operational_cert.operational_cert_sequence_number, 0);
+        assert_eq!(u64::from(fields.operational_cert.operational_cert_kes_period), 7);
+        let header = signed(&credentials, KesPeriod::from(7));
+        assert_signature(&credentials, KesPeriod::from(7), &header);
+
+        let (counter_type, counter_cbor) = read_envelope(&forging_fixture("cold.counter"));
+        assert_eq!(counter_type, "NodeOperationalCertificateIssueCounter");
+        let mut decoder = cbor::Decoder::new(&counter_cbor);
+        assert_eq!(decoder.array().unwrap(), Some(2));
+        assert_eq!(decoder.u64().unwrap(), 1, "issue-op-cert rewrites the counter to the next number");
+        assert_eq!(cbor::decode_bytes(&mut decoder).unwrap().as_ref(), cold_vk.as_slice());
+
+        let (cold_type, cold_skey) = read_envelope(&forging_fixture("cold.skey"));
+        assert_eq!(cold_type, "StakePoolSigningKey_ed25519");
+        let mut decoder = cbor::Decoder::new(&cold_skey);
+        assert_eq!(cbor::decode_bytes(&mut decoder).unwrap().len(), 32);
     }
 
     #[test]
