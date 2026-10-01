@@ -8366,6 +8366,76 @@
       "description": "Running binary build/version identity (package version, git commit, target).",
       "public": true
     },
+    "amaru::setup::clock::DRIFT": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "max_error_millis": {
+          "type": "integer"
+        },
+        "threshold_millis": {
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "max_error_millis",
+        "threshold_millis",
+        "hint"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "drift",
+      "level": "TRACE",
+      "target": "amaru::setup::clock",
+      "description": "The wall clock is not trustworthy for slot timing. Reason ∈ {unsynchronized, max_error_exceeded}.",
+      "public": true
+    },
+    "amaru::setup::clock::SYNCHRONIZED": {
+      "type": "object",
+      "properties": {
+        "max_error_millis": {
+          "type": "integer"
+        },
+        "threshold_millis": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_error_millis",
+        "threshold_millis"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "synchronized",
+      "level": "TRACE",
+      "target": "amaru::setup::clock",
+      "description": "The kernel reports the wall clock as NTP-synchronized within the tolerated error bound",
+      "public": true
+    },
+    "amaru::setup::clock::UNKNOWN": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unknown",
+      "level": "TRACE",
+      "target": "amaru::setup::clock",
+      "description": "The kernel NTP state could not be queried",
+      "public": true
+    },
     "amaru::setup::file_descriptors::TOO_LOW": {
       "type": "object",
       "properties": {
