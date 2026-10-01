@@ -32,8 +32,8 @@ use amaru_kernel::{
     Anchor, Block, BodyParts, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch,
     EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, Hash, Hasher, Header, IsHeader, KesPeriod,
     MaxString128, Network, NetworkName, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Peer,
-    Point, PoolParams, Pots, ProposalsRoots, ProtocolParameters, RationalNumber, RewardAccount, Slot,
-    TransactionPointer, VrfCert, cardano::network_block::NetworkBlock, ed25519,
+    Point, PoolParams, Pots, ProposalsRoots, ProtocolParameters, RewardAccount, Slot, TransactionPointer,
+    UnitRationalNumber, VrfCert, cardano::network_block::NetworkBlock, ed25519,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -303,7 +303,7 @@ fn write_ledger(network: &MintNetwork, dir: &Path, pools: &[Arc<TestCredentials>
                     vrf,
                     pledge: 0,
                     cost: 0,
-                    margin: RationalNumber { numerator: 0, denominator: 1 },
+                    margin: UnitRationalNumber::zero(),
                     reward_account: reward,
                     owners: Vec::new(),
                     relays: Vec::new(),

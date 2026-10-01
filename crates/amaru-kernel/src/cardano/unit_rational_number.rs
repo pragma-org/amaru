@@ -22,6 +22,16 @@ use crate::{RationalNumber, cbor};
 #[repr(transparent)]
 pub struct UnitRationalNumber(#[n(0)] RationalNumber);
 
+impl UnitRationalNumber {
+    pub fn zero() -> Self {
+        UnitRationalNumber(RationalNumber::zero())
+    }
+
+    pub fn one() -> Self {
+        UnitRationalNumber(RationalNumber::one())
+    }
+}
+
 impl fmt::Display for UnitRationalNumber {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

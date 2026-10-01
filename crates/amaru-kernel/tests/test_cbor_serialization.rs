@@ -25,12 +25,14 @@ use amaru_kernel::{
 };
 use serde::Deserialize;
 
-/// See the README at crates/amaru/tests/conformance/serialization/cbor-fixture-generator/README.md
-/// to regenerate fixtures.
+/// Fixtures are generated out of tree: `cuddle` emits CDDL-conformant positives from the ledger's
+/// CDDL, and its `zapAntiGen` step mutates those into negatives. The environment in
+/// `.flox/env/manifest.toml` provisions the toolchain (`cabal install cuddle`, plus python3 for
+/// hashing and `meta.json`).
 ///
 /// You can run this specific test with:
 /// ```
-/// cargo test -p amaru-kernel --test test_cbor_serialization -- --no-capture
+/// cargo test -p amaru-kernel --test test_cbor_serialization -- --nocapture
 /// ```
 ///
 /// And use the environment variable `AMARU_FIXTURE_FILTER` to only run a specific test
@@ -38,6 +40,12 @@ use serde::Deserialize;
 /// ```
 /// export AMARU_FIXTURE_FILTER="0df40008"
 /// ```
+///
+/// A fixture whose expectation amaru cannot meet is kept rather than pruned, and marked in its
+/// `meta.json` with `known_amaru_divergence` and a `known_amaru_divergence_reason`. That keeps the
+/// divergence visible in the summary instead of failing the suite. Remove the flag once amaru
+/// agrees with the labelled expectation; the test reports a stale flag rather than passing
+/// silently.
 ///
 #[test]
 fn test_cbor_serialization() {

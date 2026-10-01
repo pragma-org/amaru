@@ -84,6 +84,16 @@ impl<K: Eq, V> IntoIterator for KeyValuePairs<K, V> {
     }
 }
 
+impl<K: Eq, V> KeyValuePairs<K, V> {
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.0.iter().map(|(k, _)| k)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.0.iter().map(|(_, v)| v)
+    }
+}
+
 impl<C, K, V> cbor::Encode<C> for KeyValuePairs<K, V>
 where
     K: cbor::Encode<C> + Eq,

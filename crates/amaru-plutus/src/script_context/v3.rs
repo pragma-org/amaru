@@ -502,7 +502,9 @@ impl ToPlutusData<3> for RewardAccount {
 mod tests {
     use std::ops::Deref;
 
-    use amaru_kernel::{KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor};
+    use amaru_kernel::{
+        KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, UnitRationalNumber, cbor, to_cbor,
+    };
     use test_case::test_case;
 
     use super::{

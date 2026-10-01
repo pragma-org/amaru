@@ -38,7 +38,7 @@ pub struct HeaderDraft {
     pub slot: Slot,
     pub prev_hash: Option<HeaderHash>,
     pub vrf_result: VrfCert,
-    pub block_body_size: u64,
+    pub block_body_size: u32,
     pub block_body_hash: Hash<32>,
     pub protocol_version: ProtocolVersion,
 }

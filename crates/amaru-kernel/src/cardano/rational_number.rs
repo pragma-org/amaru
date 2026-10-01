@@ -24,6 +24,16 @@ pub struct RationalNumber {
     denominator: u64,
 }
 
+impl RationalNumber {
+    pub fn zero() -> Self {
+        RationalNumber { numerator: 0, denominator: 1 }
+    }
+
+    pub fn one() -> Self {
+        RationalNumber { numerator: 1, denominator: 1 }
+    }
+}
+
 impl PartialOrd for RationalNumber {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))

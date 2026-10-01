@@ -745,9 +745,9 @@ mod tests {
         Anchor, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
         MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal,
         ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RatificationStatus,
-        RationalNumber, RewardAccount, Slot, TransactionPointer, any_constitution, any_constitutional_committee_update,
-        any_gov_action, any_proposal_enum, any_proposal_id, any_proposal_pointer, any_protocol_params_update,
-        any_protocol_version, any_reward_account,
+        RewardAccount, Slot, TransactionPointer, UnitRationalNumber, any_constitution,
+        any_constitutional_committee_update, any_gov_action, any_proposal_enum, any_proposal_id, any_proposal_pointer,
+        any_protocol_params_update, any_protocol_version, any_reward_account,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -873,7 +873,7 @@ mod tests {
                     None,
                     vec![],
                     KeyValuePairs::default(),
-                    RationalNumber::new(0, 1).unwrap(),
+                    UnitRationalNumber::new(0, 1).unwrap(),
                 ),
             )
             .unwrap();
@@ -1234,11 +1234,11 @@ mod tests {
                             removed.into_iter().collect::<Vec<_>>(),
                             KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
                             #[expect(clippy::unwrap_used)]
-                            RationalNumber::new(
+                            UnitRationalNumber::new(
                                 threshold.numer().try_into().unwrap(),
                                 threshold.denom().try_into().unwrap(),
                             )
-                            .expect("threshold is a valid rational number"),
+                            .expect("threshold is a valid unit rational number"),
                         )
                     }
                 },

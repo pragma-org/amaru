@@ -14,7 +14,9 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
-use crate::{cbor, protocol_version::PROTOCOL_VERSION_12, size::SCRIPT, AssetName, Hash, KeyValuePairs, NonEmptyKeyValuePairs};
+use crate::{
+    AssetName, Hash, KeyValuePairs, NonEmptyKeyValuePairs, cbor, protocol_version::PROTOCOL_VERSION_12, size::SCRIPT,
+};
 
 /// The Haskell node bounds the size of the values it processes, in order to make them
 /// addressable in a memory region with a u16 offset, so the region
@@ -44,8 +46,14 @@ const BYTES_PER_POLICY: usize = 28;
 pub struct Multiasset<A>(KeyValuePairs<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>);
 
 impl<A> From<BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>> for Multiasset<A> {
-    fn from(map: KeyValuePairs<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>) -> Self {
+    fn from(map: BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>) -> Self {
         Self(map.into())
+    }
+}
+
+impl<A> From<Multiasset<A>> for BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>> {
+    fn from(map: Multiasset<A>) -> Self {
+        map.0.into()
     }
 }
 
@@ -87,7 +95,7 @@ impl<C, A: cbor::Encode<C>> cbor::Encode<C> for Multiasset<A> {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        cbor::encode_variable_length_map(e, self.iter(), ctx)
+        cbor::encode_variable_length_map(e, self.iter().map(|(k, v)| (k, v)), ctx)
     }
 }
 
