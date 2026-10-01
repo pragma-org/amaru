@@ -3643,6 +3643,42 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
+## target: `amaru::setup::clock`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `drift` | `event` | warn | public | The wall clock is not trustworthy for slot timing. Reason ∈ {unsynchronized, max_error_exceeded}. | reason, max_error_millis, threshold_millis, hint |  |
+| `synchronized` | `event` | info | public | The kernel reports the wall clock as NTP-synchronized within the tolerated error bound | max_error_millis, threshold_millis |  |
+| `unknown` | `event` | warn | public | The kernel NTP state could not be queried | error |  |
+
+<details><summary>event: `drift`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `max_error_millis` | `integer` | ✓ |
+| `threshold_millis` | `integer` | ✓ |
+| `hint` | `string` | ✓ |
+
+</details>
+
+<details><summary>event: `synchronized`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `max_error_millis` | `integer` | ✓ |
+| `threshold_millis` | `integer` | ✓ |
+
+</details>
+
+<details><summary>event: `unknown`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::setup::file_descriptors`
 
 | name | kind | levels | public | description | required fields | optional fields |
