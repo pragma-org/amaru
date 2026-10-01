@@ -18,32 +18,24 @@ permissions:
 
 jobs:
   snapshots:
-    name: End-to-end snapshot tests
+    name: End-to-end snapshot tests (${{ matrix.network }})
     runs-on: blacksmith-8vcpu-ubuntu-2404
     concurrency:
-      group: ledger-epoch-snapshots-${{ matrix.network.name }}-${{ github.head_ref || github.ref }}
+      group: ledger-epoch-snapshots-${{ matrix.network }}-${{ github.head_ref || github.ref }}
       cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
-        network:
-          - name: preprod
-            magic: 1
-            peer: preprod-node.play.dev.cardano.org:3001
-            start_epoch: 270
-            target_epoch: 275
-          - name: preview
-            magic: 2
-            peer: preview-node.play.dev.cardano.org:3001
-            start_epoch: 1119
-            target_epoch: 1145
+        network: [preprod, preview]
     env:
-      AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
-      AMARU_PEER_ADDRESS: ${{ matrix.network.peer }}
+      AMARU_NETWORK: ${{ inputs.network || matrix.network }}
+      AMARU_PEER_ADDRESS: ${{ matrix.network == 'preprod' && 'preprod-node.play.dev.cardano.org:3001' || 'preview-node.play.dev.cardano.org:3001' }}
+      START_EPOCH: ${{ matrix.network == 'preprod' && '270' || '1119' }}
+      TARGET_EPOCH: ${{ matrix.network == 'preprod' && '275' || '1145' }}
       AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
-      TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
+      TRACE_CONTRACT: data/${{ matrix.network }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
       AMARU_WITH_OPEN_TELEMETRY: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
@@ -65,20 +57,20 @@ jobs:
           ./scripts/cleanup-runner.sh
 
       - uses: ./.github/actions/stage-peer-snapshots
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
 
       - uses: ./.github/actions/cache
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
 
       - name: Bootstrap DBs
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         uses: ./.github/actions/bootstrap-db
         with:
-          network: ${{ matrix.network.name }}
-          epoch: ${{ matrix.network.start_epoch }}
+          network: ${{ matrix.network }}
+          epoch: ${{ env.START_EPOCH }}
 
       - name: Start OTLP collector
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         shell: bash
         run: |
           docker run -d --network host \
@@ -89,7 +81,7 @@ jobs:
               --set exporters::prometheus::metric_expiration=10m
 
       - name: Run epoch snapshot tests
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         timeout-minutes: 60
         shell: bash
         env:
@@ -99,11 +91,11 @@ jobs:
           AMARU_TRACE: "amaru=info"
         run: |
           ./scripts/run-until-then-test \
-            "${{ matrix.network.start_epoch }}" \
-            "${{ matrix.network.target_epoch }}"
+            "$START_EPOCH" \
+            "$TARGET_EPOCH"
 
       - name: Wait for Amaru metrics
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         shell: bash
         run: |
           timeout 120 bash -c \
@@ -114,24 +106,24 @@ jobs:
           }
 
       - name: Check metrics against cardano-node reference
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         shell: bash
         run: |
           scripts/compare-metrics \
             --check \
-            --output "metrics-report-${{ matrix.network.name }}.json" \
+            --output "metrics-report-${{ matrix.network }}.json" \
             --summary
 
       - name: Upload metrics report
-        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network.name) }}
+        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
-          name: metrics-coverage-report-${{ matrix.network.name }}
-          path: metrics-report-${{ matrix.network.name }}.json
+          name: metrics-coverage-report-${{ matrix.network }}
+          path: metrics-report-${{ matrix.network }}.json
           if-no-files-found: warn
 
       - name: Teardown metrics collector
-        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network.name) }}
+        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network) }}
         shell: bash
         run: |
           docker logs --tail 50 otlp-collector || true
