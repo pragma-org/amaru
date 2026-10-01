@@ -74,7 +74,7 @@ impl AcknowledgedFailures {
     /// Return true if the run is allowed to observe a failure of the given rule and class.
     pub fn contains(&self, rule: &str, class: &str) -> bool {
         match self {
-            Self::None => true,
+            Self::None => false, // no file means no failure is accepted.
             Self::These(entries) => entries.iter().any(|entry| entry.rule == rule && entry.class == class),
         }
     }
