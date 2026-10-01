@@ -5187,7 +5187,7 @@
       "name": "forge_failed",
       "kind": "event",
       "target": "amaru::consensus::forge",
-      "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}.",
+      "description": "Forging the header or storing it failed. Signing failures miss the slot; validation and storage failures shut down the node. Step ∈ {sign_header, validate_header, store_header, store_block}.",
       "public": true,
       "levels": [
         "error"
@@ -5208,7 +5208,7 @@
       "name": "kes_period",
       "kind": "event",
       "target": "amaru::consensus::forge",
-      "description": "The in-memory KES key moved to a new period.",
+      "description": "The KES key used for signing moved to a new period.",
       "public": true,
       "levels": [
         "info"
@@ -5285,6 +5285,32 @@
       "levels": [
         "debug",
         "info"
+      ]
+    },
+    "amaru::consensus::forge::SIGNER_STATUS": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "detail"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "signer_status",
+      "kind": "event",
+      "target": "amaru::consensus::forge",
+      "description": "Status of the separate KES signer process.",
+      "public": true,
+      "levels": [
+        "info",
+        "warn"
       ]
     },
     "amaru::consensus::kes::LEGACY_KEY_ENVELOPE": {

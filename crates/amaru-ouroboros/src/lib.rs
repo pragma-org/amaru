@@ -19,9 +19,11 @@ pub mod credentials;
 pub mod kes;
 pub mod mempool;
 pub mod praos;
+pub mod process_credentials;
 mod serde_util;
 pub mod vrf;
 
 pub use amaru_ouroboros_traits::*;
 pub use credentials::{ensure_operational_certificate_accepted, forging_credentials_from_files};
 pub use mempool::*;
+pub use process_credentials::process_forging_credentials_from_files;

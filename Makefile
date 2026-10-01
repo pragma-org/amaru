@@ -14,6 +14,7 @@ DIST_DIR ?= dist
 BUILD_OUTPUT_DIR ?= $(if $(filter dev,$(BUILD_PROFILE)),debug,$(BUILD_PROFILE))
 AMARU_BIN ?= target/$(BUILD_OUTPUT_DIR)/amaru
 DIST_BIN_NAME ?= $(notdir $(AMARU_BIN))
+KES_SIGNER_BIN ?= $(dir $(AMARU_BIN))amaru-kes-signer$(suffix $(AMARU_BIN))
 PACKAGE_TARGET ?=
 AMARU_VERSION ?= $(shell \
 	version="$$(cargo pkgid -p amaru | sed -E 's/.*[@\#]//')"; \
@@ -199,15 +200,21 @@ cli-assets: clean-dist ## &dist Generate clap-derived man page and shell complet
 	@printf 'Generated command-line assets under %s\n' "$(abspath $(DIST_DIR))"
 
 dist: cli-assets ## &dist Stage a distributable Amaru tree under $(DIST_DIR)
-	@printf 'Adding amaru binary and metadata to %s\n' "$(abspath $(DIST_DIR))"
+	@printf 'Adding amaru binaries and metadata to %s\n' "$(abspath $(DIST_DIR))"
 	@mkdir -p "$(DIST_DIR)/bin"
 	@mkdir -p "$(DIST_DIR)/share/doc/amaru"
 	@if [ ! -f "$(AMARU_BIN)" ]; then \
 		printf 'Error: expected Amaru binary at %s; build it first or set AMARU_BIN\n' "$(abspath $(AMARU_BIN))" >&2; \
 		exit 1; \
 	fi
+	@if [ ! -f "$(KES_SIGNER_BIN)" ]; then \
+		printf 'Error: expected KES signer binary at %s; build it first or set KES_SIGNER_BIN\n' "$(abspath $(KES_SIGNER_BIN))" >&2; \
+		exit 1; \
+	fi
 	@cp "$(AMARU_BIN)" "$(DIST_DIR)/bin/$(DIST_BIN_NAME)"
 	@chmod +x "$(DIST_DIR)/bin/$(DIST_BIN_NAME)"
+	@cp "$(KES_SIGNER_BIN)" "$(DIST_DIR)/bin/$(notdir $(KES_SIGNER_BIN))"
+	@chmod +x "$(DIST_DIR)/bin/$(notdir $(KES_SIGNER_BIN))"
 	@cp LICENSE README.md CHANGELOG.md "$(DIST_DIR)/share/doc/amaru/"
 	@if command -v tree >/dev/null 2>&1; then \
 		tree -h "$(DIST_DIR)"; \

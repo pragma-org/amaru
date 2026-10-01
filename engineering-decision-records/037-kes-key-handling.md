@@ -29,35 +29,34 @@ The Amaru TUI will show a count-down and the end of the validity period in local
 Amaru is not opinionated how the cold key is stored.
 The SPO uses any mechanism they deems adequate to compute the cold key signature on the KES certificate.
 
-The KES key and its certificate are stored in the chain database (because block forging is the quintessential consensus activity that provides chain safety, liveness, and security guarantees).
-The key may be encrypted with a password, which would then need to be provided by the SPO when starting Amaru; environment variables are not suitable for this purpose, reading from a file is (which might be a FIFO or a unix socket or a terminal).
+For initial block forging support, the SPO provides filesystem paths for the KES signing key, VRF signing key, and operational certificate to `amaru node run`.
+The certificate file also contains the cold verification key; Amaru never needs the cold signing key.
+The KES key is not stored in the chain database.
+Initial support accepts unencrypted cardano-cli text envelopes on testnets.
+Password-encrypted KES keys may be added later; passwords must be read from a file-like source rather than an environment variable.
 
 ### Key usage
 
-When a KES key is available, the Amaru process will fork and thus run a separate child process responsible solely for holding that key and using it to sign blocks.
-Communication with the main Amaru process is done in the idiomatic form of IPC for the platform.
-For this purpose, an implementation of `trait CredentialsResource` is provided.
+When a KES key is configured, Amaru launches the `amaru-kes-signer` executable installed beside it. That process opens and holds the KES key and signs header-body bytes on request.
+The node process retains the VRF key for leader scheduling and the public certificate fields for header construction and validation.
+The child communicates with the node through piped IPC and returns its KES verification key at startup so the node can check it against the certificate.
+If the child exits, Amaru restarts it and checks the KES verification key again; a slot whose signing request fails is missed without shutting down the node.
 
 ### Key rotation
 
-The SPO uses `amaru keys hot create` to generate a new KES key and print the corresponding certificate request to stdout; it optionally asks the SPO for a password to encrypt the key.
-The SPO then uses their cold key to sign the certificate request.
-The SPO then uses `amaru keys hot import` to import the KES certificate signature into the chain database.
+For initial support, the SPO generates a cardano-cli compatible KES key pair with `cardano-cli node key-gen-KES`.
+The SPO issues an operational certificate with their existing offline workflow, deploys the files on the block producer, and restarts Amaru with their paths.
 
-Note that the chain database can hold multiple KES keys and certificates, each valid for a certain range of slots.
-Note also that Amaru will need to enforce that the opcert sequence number is incremented by exactly one for each new certificate.
+Amaru checks the new certificate's sequence number against the adopted chain on startup.
 
 ### Cold key handling
 
-While many SPOs nowadays use hardware wallets to store their cold keys, Amaru comes with a simple tool that can be used e.g. on an air-gapped machine.
-This doesn’t achieve the same level of security, but we want to provide a complete set of tooling to get started.
-It is also required for pools established before hardware wallets were available: these cold keys cannot be migrated and must be handled on air-gapped machines.
-`amaru keys cold create` generates a new cold key, writes it to a file (which requires a password for encryption), and prints the corresponding public key etc. to stdout.
-`amaru keys cold sign` reads a certificate request from a file, prompts the SPO for the password to decrypt the cold key, and writes the signature to stdout.
+Cold-key creation and operational certificate signing stay in the SPO's existing offline workflow.
+Amaru does not read or generate the cold signing key for initial support.
 
 ## Consequences
 
-- KES key rotation can be performed while the node is running, Amaru will check for the presence of new KES keys as required.
+- KES key rotation takes effect when the SPO restarts Amaru with the new files.
 - The SPO can organise the rotation workflow as they pleases, as long as Amaru uses well-known import / export formats for signing requests and signatures.
 - Hot keys are reasonably well protected because they are not available in the same memory address space that also performs network operations and processes potentially malicious inputs.
   We may later look into using TPM or similar hardware if desired.

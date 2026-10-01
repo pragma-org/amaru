@@ -189,7 +189,7 @@ pub fn ensure_operational_certificate_accepted(
         .map_err(|error| CertificateRejected::Rejected(Box::new(error)))
 }
 
-fn cold_verifying_key(cold: &VerificationKey) -> Option<ed25519::VerifyingKey> {
+pub(crate) fn cold_verifying_key(cold: &VerificationKey) -> Option<ed25519::VerifyingKey> {
     ed25519::VerifyingKey::try_from(cold.as_slice()).ok()
 }
 
@@ -217,7 +217,7 @@ fn header_parented_on(parent: HeaderHash) -> Header {
     )
 }
 
-fn load_operational_certificate(
+pub(crate) fn load_operational_certificate(
     path: impl AsRef<Path>,
 ) -> Result<(OperationalCert, VerificationKey), OperationalCertificateError> {
     let bytes = fs::read(path)?;
