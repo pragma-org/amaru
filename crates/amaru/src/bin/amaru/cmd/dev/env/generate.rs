@@ -22,6 +22,7 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
     value_names,
 };
+use amaru_kernel::utils::string::{into_sentence, is_scalar, shell_quote};
 use anyhow::{Context, bail};
 use clap::{Arg, ArgAction, Command, Parser};
 
@@ -211,7 +212,8 @@ fn extend_environment_variables(
         if name.starts_with("AMARU_GLOBAL_") {
             continue;
         }
-        let variable = EnvironmentVariable::from_arg(arg)?;
+
+        let variable = EnvironmentVariable::from_arg(arg);
 
         match variables.entry(name) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -230,15 +232,8 @@ fn extend_environment_variables(
 }
 
 impl EnvironmentVariable {
-    fn from_arg(arg: &Arg) -> anyhow::Result<Self> {
-        let description = arg
-            .get_help()
-            .map(ToString::to_string)
-            .and_then(|help| help.lines().next().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string))
-            .map(into_sentence)
-            .with_context(|| {
-                format!("environment-backed option `--{}` is missing a description", arg.get_long().unwrap_or_default())
-            })?;
+    fn from_arg(arg: &Arg) -> Self {
+        let description = arg.get_help().map(ToString::to_string).map(into_sentence).unwrap_or_default();
 
         let default_value =
             arg.get_default_values().iter().map(|value| value.to_string_lossy()).collect::<Vec<_>>().join(",");
@@ -259,36 +254,12 @@ impl EnvironmentVariable {
             }
         };
 
-        Ok(Self {
+        Self {
             description,
             default_value: if default_value.is_empty() { None } else { Some(default_value) },
             meta_type,
-        })
-    }
-}
-
-fn into_sentence(mut description: String) -> String {
-    if !description.chars().last().is_some_and(|character| matches!(character, '.' | '!' | '?' | ';' | ':')) {
-        description.push('.');
-    }
-    description
-}
-
-fn is_scalar(value: &str) -> bool {
-    value.bytes().all(|byte| byte.is_ascii_digit()) || ["true", "false"].contains(&value.to_lowercase().as_str())
-}
-
-fn shell_quote(value: &str) -> String {
-    let mut quoted = String::with_capacity(value.len() + 2);
-    quoted.push('\"');
-    for character in value.chars() {
-        if matches!(character, '\\' | '\"' | '$' | '`') {
-            quoted.push('\\');
         }
-        quoted.push(character);
     }
-    quoted.push('\"');
-    quoted
 }
 
 // -------------------------------------------------------------------------------------------------
