@@ -352,7 +352,12 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         }
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "sign_header", error = error.to_string());
-            return session.terminate().await;
+            if matches!(error, SignHeaderError::CredentialsMissing) {
+                return session.terminate().await;
+            }
+            let session = session.finish().receive(&Missed, eff.clone());
+            let mode = eff.external(QueryConsensusModeEffect).await;
+            return finish_with_next_lead!(session, state, now, mode);
         }
     };
     let session = session.finish().receive(&Publish, eff.clone());

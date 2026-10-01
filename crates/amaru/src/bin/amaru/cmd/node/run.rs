@@ -603,7 +603,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
-    let forging_credentials = amaru_ouroboros::forging_credentials_from_files(
+    let forging_credentials = amaru_ouroboros::process_forging_credentials_from_files(
         network,
         u64::from(global_parameters.max_kes_evolution),
         args.kes_signing_key_file.as_deref(),
