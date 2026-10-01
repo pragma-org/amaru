@@ -556,8 +556,8 @@ mod tests {
 
     use amaru_kernel::{
         BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, UnitRationalNumber, SafeRatio, Slot,
-        SortedPairs, utils::tests::run_strategy,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, SafeRatio, Slot, SortedPairs,
+        UnitRationalNumber, utils::tests::run_strategy,
     };
     use num::Zero;
     use proptest::prelude::any;

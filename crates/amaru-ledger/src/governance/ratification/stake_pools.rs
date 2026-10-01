@@ -123,8 +123,8 @@ mod tests {
 
     use amaru_kernel::{
         CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, ExUnits, Hash, Network, PoolId,
-        PoolParams, PoolVotingThresholds, ProposalEnum, ProposalId, ProtocolParamUpdate, UnitRationalNumber, RewardAccount,
-        SafeRatio, Vote, any_vote_ref, safe_ratio,
+        PoolParams, PoolVotingThresholds, ProposalEnum, ProposalId, ProtocolParamUpdate, RewardAccount, SafeRatio,
+        UnitRationalNumber, Vote, any_vote_ref, safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};

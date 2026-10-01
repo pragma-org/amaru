@@ -484,7 +484,7 @@ impl BalanceSlice for DefaultValidationContext {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Proposal, UnitRationalNumber, Slot, TransactionPointer, utils::tests::run_strategy};
+    use amaru_kernel::{Proposal, Slot, TransactionPointer, UnitRationalNumber, utils::tests::run_strategy};
     use proptest::prelude::any;
     use test_case::test_case;
 

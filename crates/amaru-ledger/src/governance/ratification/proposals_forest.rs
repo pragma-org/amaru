@@ -745,7 +745,7 @@ mod tests {
         Anchor, Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs,
         Lovelace, MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10,
         Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RatificationStatus, UnitRationalNumber, RewardAccount, Slot, TransactionPointer,
+        ProtocolVersion, RatificationStatus, RewardAccount, Slot, TransactionPointer, UnitRationalNumber,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};

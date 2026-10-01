@@ -20,7 +20,10 @@ use proptest::{
     prelude::{Arbitrary, BoxedStrategy, Strategy, any},
 };
 
-use crate::{cbor, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, UnitRationalNumber};
+use crate::{
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber,
+    UnitRationalNumber, cbor,
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]

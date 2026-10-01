@@ -182,7 +182,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::{Bytes, MemoizedPlutusData, PlutusData, Redeemer, RedeemerTag, PROTOCOL_VERSION_10};
+    use crate::{Bytes, MemoizedPlutusData, PROTOCOL_VERSION_10, PlutusData, Redeemer, RedeemerTag};
 
     /// Empty redeemers must be rejected in both forms, from protocol version 9 onwards:
     /// both in the map branch and in the list branch.

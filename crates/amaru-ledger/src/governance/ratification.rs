@@ -416,8 +416,8 @@ mod tests {
 
         use amaru_kernel::{
             GovernanceAction, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalId, ProposalPointer, ProposalsRootsRc,
-            ProtocolParamUpdate, ProtocolVersion, RatificationStatus, UnitRationalNumber, TransactionPointer, safe_ratio,
-            utils::tests::assert_strategy_sometimes_fails,
+            ProtocolParamUpdate, ProtocolVersion, RatificationStatus, TransactionPointer, UnitRationalNumber,
+            safe_ratio, utils::tests::assert_strategy_sometimes_fails,
         };
         use proptest::{prelude::*, test_runner::RngSeed};
 

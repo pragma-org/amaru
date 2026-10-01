@@ -128,7 +128,6 @@ fn gcd(mut a: u64, mut b: u64) -> u64 {
     a
 }
 
-
 #[cfg(any(test, feature = "test-utils"))]
 impl Arbitrary for RationalNumber {
     type Parameters = ();

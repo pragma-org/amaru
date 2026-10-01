@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::{
     collection,
     prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof},
 };
-
-use std::collections::BTreeMap;
 
 use crate::{
     Constitution, Credential, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
