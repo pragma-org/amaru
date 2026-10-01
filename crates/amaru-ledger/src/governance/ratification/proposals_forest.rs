@@ -745,7 +745,7 @@ mod tests {
         Anchor, Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs,
         Lovelace, MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10,
         Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RatificationStatus, RationalNumber, RewardAccount, Slot, TransactionPointer,
+        ProtocolVersion, RatificationStatus, UnitRationalNumber, RewardAccount, Slot, TransactionPointer,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -871,7 +871,7 @@ mod tests {
                     None,
                     vec![],
                     KeyValuePairs::default(),
-                    RationalNumber::new(0, 1).unwrap(),
+                    UnitRationalNumber::new(0, 1).unwrap(),
                 ),
             )
             .unwrap();
@@ -1234,11 +1234,11 @@ mod tests {
                             removed.into_iter().collect::<Vec<_>>(),
                             KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
                             #[expect(clippy::unwrap_used)]
-                            RationalNumber::new(
+                            UnitRationalNumber::new(
                                 threshold.numer().try_into().unwrap(),
                                 threshold.denom().try_into().unwrap(),
                             )
-                            .expect("threshold is a valid rational number"),
+                            .expect("threshold is a valid unit rational number"),
                         )
                     }
                 },
