@@ -42,11 +42,13 @@ Other guiding principles:
 - **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--kes-signing-key-file`, `--vrf-signing-key-file`, and `--operational-certificate` (unencrypted cardano-cli files). Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the certificate's cold signature does not verify, or when its sequence number is not the chain's counter for that pool or exactly one ahead.
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
+- **amaru**: `amaru dev env generate` to generate a (curated) list of environment variables available for Amaru main commands, acting as a configuration file.
 
 ### Changed
 
 - **amaru**: a failed outbound connection attempt times out after 2 seconds. Each failure adds a large connection penalty, so healthier peers are dialed first. When no healthier peer can fill an open slot, the penalized peer is dialed anyway. A peer is not dialed again within 2 seconds of a connect attempt or a connection failure. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
+- **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
 
 ### Fixed
 
@@ -67,11 +69,6 @@ Other guiding principles:
 - **amaru**: report errors on stderr when tracing isn't available on specific commands.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
-### Changed
-
-- **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type. Empty values are treated as unset, so operators can enable only the settings they need.
-
-## v10.11.20260925 _[unreleased; planned for 2026-09-25]_
 
 ### Added
 
