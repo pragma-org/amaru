@@ -84,10 +84,13 @@ pub mod value_names {
     /// A byte size, either a raw count or a unit such as `100MiB` or `10kB`.
     pub const SIZE: &str = "SIZE";
 
+    /// A key/value string pair.
+    pub const STR_KEY_VALUE: &str = "KEY=value";
+
     /// A non-negative integer value.
     pub const UINT: &str = "UINT";
 
-    /// A non-negative integer value, or the keyword 'all'
+    /// A non-negative integer value, or the keyword `all`.
     pub const UINT_ALL: &str = "UINT|all";
 
     /// For HTTP or HTTPS URLs.

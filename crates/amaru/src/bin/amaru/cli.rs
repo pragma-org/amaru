@@ -138,7 +138,8 @@ impl Command {
     pub(crate) fn skip_logging(&self) -> bool {
         matches!(
             self,
-            Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Dump(_)))
+            Command::Dev(cmd::dev::DevCommand::Env(_))
+                | Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Dump(_)))
                 | Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Schema(_)))
                 | Command::LegacyDumpTracesSchema(_)
                 | Command::ShellCompletions(_)

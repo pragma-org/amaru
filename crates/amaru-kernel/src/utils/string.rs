@@ -126,6 +126,33 @@ pub fn blanket_try_from_hex_bytes<T, I: for<'d> cbor::Decode<'d, ()>>(
     Ok(new(original_bytes, value))
 }
 
+/// Add a dot at the end of a one-line sentence.
+pub fn into_sentence(mut description: String) -> String {
+    if !description.chars().last().is_some_and(|character| matches!(character, '.' | '!' | '?' | ';' | ':')) {
+        description.push('.');
+    }
+    description
+}
+
+/// Check whether a value is a simple scalar (number or bool).
+pub fn is_scalar(value: &str) -> bool {
+    value.bytes().all(|byte| byte.is_ascii_digit()) || ["true", "false"].contains(&value.to_lowercase().as_str())
+}
+
+/// Add quotes around a variable if necessary, to make it safe to display in a shell
+pub fn shell_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('\"');
+    for character in value.chars() {
+        if matches!(character, '\\' | '\"' | '$' | '`') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('\"');
+    quoted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
