@@ -42,7 +42,7 @@ use super::{NewTip, TrackPeers, TrackPeersMsg, stage};
 use crate::{
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourcePoolSummaries, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
+        ResourcePoolSummaries, StakeDistributionSource, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
     },
     stages::{
         peer_selection::PeerSelectionMsg,
@@ -389,7 +389,8 @@ fn setup_inner(
             let cp = Arc::new(ConsensusParameters::new(global, &era_history));
             resources.put::<ResourceConsensusParameters>(cp);
             resources.put::<ResourceEraHistory>(era_history);
-            resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
+            let (_, summaries) = StakeDistributionSource::new(PoolSummaries::default());
+            resources.put::<ResourcePoolSummaries>(summaries);
         },
         overrides,
         mode,

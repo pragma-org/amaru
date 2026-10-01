@@ -645,6 +645,7 @@ impl MithrilSynchronizer {
                 *summaries = summaries.update(new_summaries);
             })
         }));
+        block_validator.start_background_computations();
 
         let before = Instant::now();
         let ingestion_store = chain_store.clone();

@@ -15,16 +15,18 @@
 mod ledger_effects;
 mod random_effects;
 mod resolve;
+mod stake_distribution;
 mod store_effects;
 
 pub use amaru_protocols::metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};
 pub use ledger_effects::{
     Ledger, LedgerOps, RegisteredRelayCandidatesEffect, ResourceBlockValidation, ResourceConsensusParameters,
-    ResourceEraHistory, ResourceHasStakePools, ResourcePoolSummaries, ResourceTxValidation, SwitchToForkEffect,
-    TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
+    ResourceEraHistory, ResourceHasStakePools, ResourceTxValidation, SwitchToForkEffect, TipEffect,
+    ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
 };
 pub use random_effects::GenerateRandomSeed;
 pub use resolve::{ResolvePeerCandidate, ResolvePeerCandidateResult};
+pub use stake_distribution::{ResourcePoolSummaries, StakeDistributionPublisher, StakeDistributionSource};
 pub use store_effects::{FindBestCandidate, find_best_candidate};
 
 pub use crate::consensus_mode::{ConsensusMode, QueryConsensusModeEffect, UpdateConsensusModeEffect};

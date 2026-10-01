@@ -250,14 +250,9 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
     // NOTE: load_initial_stake_distribution
     //
-    // At least one stake distribution needs to be available to start: the one before the latest
-    // snapshot. This is *generally* true since it is needed to verify header in the current epoch
-    // which may show up until the last moment in the epoch (and even k blocks after its end).
-    //
-    // We *might* also need the stake distribution from the previous epoch, corresponding to the
-    // latest snapshot. But this is only needed and safe to use once we are past the epoch stability
-    // window. That happens naturally in the background tasks which bundle previous stake
-    // distribution and rewards calculation.
+    // The distribution before the latest snapshot is needed immediately to validate headers in
+    // the current epoch. The node starts the later computation after installing the callback that
+    // publishes the next leader-schedule summary.
     fn load_initial_stake_distribution(&mut self, emit_progress_ticks: bool) -> Result<PoolSummaries, StateError> {
         let mut pool_summaries = PoolSummaries::default();
 
@@ -298,6 +293,11 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     /// Install embedder observers (adopted blocks and optional full stake summaries).
     pub fn set_observers(&mut self, observers: LedgerObservers) {
         self.observers = observers;
+    }
+
+    /// Start the epoch's rewards and stake-distribution work when the current ledger point is eligible.
+    pub fn start_background_computations(&mut self) {
+        self.try_compute_rewards()
     }
 
     pub fn network(&self) -> NetworkName {
@@ -560,7 +560,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         })
     }
 
-    fn try_compute_rewards(&mut self) -> Result<(), StateError> {
+    fn try_compute_rewards(&mut self) {
         let tip = self.tip().slot_or_default();
         let current_epoch = unsafe_slot_to_epoch(&self.era_history, tip);
         let is_previous_epoch_stable =
@@ -576,8 +576,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             self.background_computations =
                 Some(std::thread::spawn(move || tracing::dispatcher::with_default(&dispatch, || tasks.run())))
         }
-
-        Ok(())
     }
 
     fn new_background_tasks(&self, epoch: Epoch) -> BackgroundTasks<HS> {
@@ -794,7 +792,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             let point = block.point();
 
             // 1. Rewards calculation
-            BlockValidation::from(self.try_compute_rewards())?;
+            self.try_compute_rewards();
 
             // 2. Epoch transition
             BlockValidation::from(self.try_epoch_transition(point))?;
@@ -851,7 +849,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     /// performing other necessary ledger operations.
     #[cfg(feature = "test-utils")]
     pub fn forward_fragment(&mut self, fragment: AnchoredVolatileFragment) -> Result<(), StateError> {
-        self.try_compute_rewards()?;
+        self.try_compute_rewards();
         self.try_epoch_transition(fragment.point())?;
         self.push_fragment(fragment)?;
         Ok(())

@@ -20,7 +20,9 @@ use std::{
 use amaru_kernel::{Epoch, EraHistory, Header, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, Point, Slot};
 use amaru_observability::{error, info, warn};
 use amaru_ouroboros::praos::nonce as praos_nonce;
-use amaru_ouroboros_traits::{FindCommonAncestorResult, ForgingCredentialsError, HeaderDraft, Nonces, kes_message};
+use amaru_ouroboros_traits::{
+    FindCommonAncestorResult, ForgingCredentialsError, HeaderDraft, Nonces, PoolSummary, kes_message,
+};
 use amaru_protocols::store_effects::{Store, StoreBlockEffect, StoreValidatedHeaderEffect};
 use amaru_pure_stage::{
     Effects, Instant, define_messages, define_role, define_role_tag, make_states, on_receive, typestate::prelude::*,
@@ -33,7 +35,9 @@ use super::{
         format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, ocert_miss, parent_to_extend,
         schedule_settled, wait_until_onset,
     },
-    effects::{LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect},
+    effects::{
+        GetStakeDistributionEffect, LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect,
+    },
     schedule::{EpochSchedule, Schedule as Schedules},
 };
 use crate::{effects::ValidateHeaderEffect, stages::select_chain::SelectChainMsg};
@@ -60,6 +64,7 @@ define_messages! {
     pub enum ForgeBlockMsg {
         AdoptedTip { tip: Point, parent: Point },
         DueLead { slot: Slot, generation: u64 },
+        LeaderStake { epoch: Epoch, nonce: Nonce, pool_summary: Option<PoolSummary>, from: Slot, until: Slot },
         LeaderSchedule { schedule: EpochSchedule },
     }
 }
@@ -80,7 +85,7 @@ impl From<ForgeTip> for SelectChainMsg {
 on_receive!(Idle as IdleIn {
     AdoptedTip => {
         Clock,
-        Repeat<Detach<LeaderScheduleEffect>>,
+        Repeat<Detach<GetStakeDistributionEffect>>,
         Repeat<CancelSchedule>,
         Repeat<Schedule<DueLead>>
         => Idle
@@ -92,6 +97,10 @@ on_receive!(Idle as IdleIn {
     }
     LeaderSchedule => {
         Clock, Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
+    }
+    LeaderStake => {
+        Detach<LeaderScheduleEffect>, Clock, Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
+        | Clock, Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
     }
 });
 
@@ -166,6 +175,10 @@ pub async fn stage(
         }
         Ok(LiveIn::Idle(idle, IdleIn::LeaderSchedule(schedule))) => {
             let idle = handle_leader_schedule(&mut data, idle, schedule, eff).await;
+            ForgeBlock { live: idle.into(), data }
+        }
+        Ok(LiveIn::Idle(idle, IdleIn::LeaderStake(stake))) => {
+            let idle = handle_leader_stake(&mut data, idle, stake, eff).await;
             ForgeBlock { live: idle.into(), data }
         }
         Err((live, _msg)) => ForgeBlock { live, data },
@@ -244,9 +257,25 @@ async fn handle_adopted_tip(
             continue;
         };
 
-        let effect = LeaderScheduleEffect::new(epoch, nonce, state.pool, from, until);
-        session = session.detach(effect, |schedule| LeaderSchedule { schedule }.into()).await;
+        let effect = GetStakeDistributionEffect::new(epoch.saturating_sub(2), state.pool);
+        session = session
+            .detach(effect, move |pool_summary| LeaderStake { epoch, nonce, pool_summary, from, until }.into())
+            .await;
     }
+    finish_with_next_lead!(session, state, now)
+}
+
+async fn handle_leader_stake(state: &mut ForgeData, idle: Idle, msg: LeaderStake, eff: Effects<ForgeBlockMsg>) -> Idle {
+    let session = idle.receive(&msg, eff.clone());
+
+    if !state.schedule.is_pending(msg.epoch, msg.nonce) {
+        let (now, session) = session.clock().await;
+        return finish_with_next_lead!(session, state, now);
+    }
+
+    let effect = LeaderScheduleEffect::new(msg.epoch, msg.nonce, msg.pool_summary, msg.from, msg.until);
+    let session = session.detach(effect, |schedule| LeaderSchedule { schedule }.into()).await;
+    let (now, session) = session.clock().await;
     finish_with_next_lead!(session, state, now)
 }
 

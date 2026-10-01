@@ -25,7 +25,7 @@ use amaru_kernel::{
     PoolId, RawBlock, Slot, cardano::network_block::NetworkBlock, maths::FixedDecimal,
 };
 use amaru_ouroboros::vrf;
-use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
+use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError, PoolSummary};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
@@ -90,6 +90,33 @@ impl ForgedBody {
     }
 }
 
+/// Wait for the exact stake-distribution epoch needed to schedule a pool.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GetStakeDistributionEffect {
+    pub epoch: Epoch,
+    pub pool: PoolId,
+}
+
+impl GetStakeDistributionEffect {
+    pub fn new(epoch: Epoch, pool: PoolId) -> Self {
+        Self { epoch, pool }
+    }
+}
+
+impl ExternalEffectAPI for GetStakeDistributionEffect {
+    type Response = Option<PoolSummary>;
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let source = resources
+            .get::<ResourcePoolSummaries>()
+            .expect("GetStakeDistributionEffect requires a ResourcePoolSummaries resource")
+            .clone();
+        self.wrap(move |effect| async move { source.wait_for_epoch(effect.epoch, effect.pool).await })
+    }
+}
+
 /// Detached leader-schedule computation for one epoch.
 ///
 /// 432,000 VRF evaluations on mainnet; the stage must not occupy the airlock
@@ -98,15 +125,15 @@ impl ForgedBody {
 pub struct LeaderScheduleEffect {
     pub epoch: Epoch,
     pub nonce: Nonce,
-    pub pool: PoolId,
+    pub pool_summary: Option<PoolSummary>,
     pub from: Slot,
     /// Exclusive upper bound: the first slot of the next epoch.
     pub until: Slot,
 }
 
 impl LeaderScheduleEffect {
-    pub fn new(epoch: Epoch, nonce: Nonce, pool: PoolId, from: Slot, until: Slot) -> Self {
-        Self { epoch, nonce, pool, from, until }
+    pub fn new(epoch: Epoch, nonce: Nonce, pool_summary: Option<PoolSummary>, from: Slot, until: Slot) -> Self {
+        Self { epoch, nonce, pool_summary, from, until }
     }
 }
 
@@ -124,8 +151,7 @@ fn schedule_for(effect: &LeaderScheduleEffect, resources: &Resources) -> EpochSc
     let Some(schedule) = (|| -> Option<EpochSchedule> {
         let credentials = resources.get::<ResourceForgingCredentials>().ok()?.clone()?;
         let parameters = resources.get::<ResourceConsensusParameters>().ok()?.clone();
-        let pools = resources.get::<ResourcePoolSummaries>().ok()?.clone();
-        let summary = pools.get_pool(effect.from, &effect.pool, parameters.era_history()).ok().flatten()?;
+        let summary = effect.pool_summary?;
         if summary.active_stake == 0 {
             return None;
         }
@@ -201,25 +227,20 @@ impl ExternalEffectAPI for TakeForForgeEffect {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::sync::Arc;
 
     use amaru_kernel::{ConsensusParameters, Epoch, Hash, Nonce, PREPROD_ERA_HISTORY, Slot};
     use amaru_ouroboros::{praos::header::AssertVrfProofError, vrf};
-    use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
+    use amaru_ouroboros_traits::PoolSummary;
     use amaru_pure_stage::Resources;
 
     use super::*;
     use crate::stages::forge_block::{TestCredentials, test_vrf_key};
 
-    fn resources_with(
-        credentials: Option<Arc<dyn ForgingCredentials>>,
-        parameters: ConsensusParameters,
-        pools: PoolSummaries,
-    ) -> Resources {
+    fn resources_with(credentials: Option<Arc<dyn ForgingCredentials>>, parameters: ConsensusParameters) -> Resources {
         let resources = Resources::default();
         resources.put::<ResourceForgingCredentials>(credentials);
         resources.put::<ResourceConsensusParameters>(Arc::new(parameters));
-        resources.put::<ResourcePoolSummaries>(Arc::new(pools));
         resources
     }
 
@@ -228,7 +249,7 @@ mod tests {
         let effect = LeaderScheduleEffect::new(
             Epoch::from(2),
             Nonce::from([1u8; 32]),
-            Hash::new([0u8; 28]),
+            Some(PoolSummary { vrf: Hash::new([0u8; 32]), active_stake: 1, stake: 1 }),
             Slot::from(0),
             Slot::from(10),
         );
@@ -242,17 +263,19 @@ mod tests {
     #[test]
     fn full_stake_and_coefficient_lead_every_slot_in_range() {
         let credentials = TestCredentials::for_test_keys(amaru_kernel::KesPeriod::from(0), 62);
-        let pool = credentials.pool_id();
         // First Conway slot on preprod is epoch 163, so leadership reads the epoch 161 snapshot.
         let from = Slot::from(68_774_400);
         let until = Slot::from(u64::from(from) + 4);
         let nonce = Nonce::from([1u8; 32]);
-        let mut by_pool = BTreeMap::new();
-        by_pool.insert(pool, PoolSummary { vrf: Hash::new([0u8; 32]), stake: 1, active_stake: 1 });
-        let pools = PoolSummaries::new(Epoch::from(161), by_pool);
         let parameters = ConsensusParameters::create(1, 129_600, 62, 1.0, &PREPROD_ERA_HISTORY);
-        let resources = resources_with(Some(Arc::new(credentials)), parameters, pools);
-        let effect = LeaderScheduleEffect::new(Epoch::from(163), nonce, pool, from, until);
+        let resources = resources_with(Some(Arc::new(credentials)), parameters);
+        let effect = LeaderScheduleEffect::new(
+            Epoch::from(163),
+            nonce,
+            Some(PoolSummary { vrf: Hash::new([0u8; 32]), stake: 1, active_stake: 1 }),
+            from,
+            until,
+        );
         let schedule = schedule_for(&effect, &resources);
 
         let led: Vec<u64> = schedule.slots().keys().map(|slot| u64::from(*slot)).collect();
