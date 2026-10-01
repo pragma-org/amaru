@@ -27,7 +27,7 @@ pub use messages::{Cookie, Message};
 use crate::{
     connection::ConnectionMessage,
     mux,
-    protocol::{Inputs, PROTO_N2N_KEEP_ALIVE, ProtocolState},
+    protocol::{Inputs, PROTO_N2N_KEEP_ALIVE, ProtocolState, ingress_limit},
 };
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
@@ -89,13 +89,14 @@ pub async fn register_keepalive(
         (keepalive.contramap(Inputs::<Void>::Network), None)
     };
 
+    let protocol = PROTO_N2N_KEEP_ALIVE.for_role(role).erase();
     eff.send(
         &muxer,
         crate::mux::MuxMessage::Register {
-            protocol: PROTO_N2N_KEEP_ALIVE.for_role(role).erase(),
+            protocol,
             frame: mux::Frame::OneCborItem,
             handler,
-            max_buffer: 65535,
+            max_buffer: ingress_limit(protocol),
         },
     )
     .await;

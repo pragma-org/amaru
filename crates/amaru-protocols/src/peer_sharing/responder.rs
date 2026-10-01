@@ -58,7 +58,7 @@ pub async fn register_peer_sharing_responder<M: amaru_pure_stage::SendData>(
     eff: &Effects<M>,
     tombstone: M,
 ) -> StageRef<ResponderMessage> {
-    use crate::{mux::Frame, peer_sharing::MAX_MESSAGE_BYTES};
+    use crate::{mux::Frame, protocol::ingress_limit};
 
     let (state, stage) = PeerSharingResponder::new(muxer.clone(), peer, manager);
     let ps = eff.stage("peer_sharing-responder", responder()).await;
@@ -70,7 +70,7 @@ pub async fn register_peer_sharing_responder<M: amaru_pure_stage::SendData>(
             protocol: PROTO_N2N_PEER_SHARE.responder().erase(),
             frame: Frame::OneCborItem,
             handler: ps.contramap(Inputs::<ResponderMessage>::Network),
-            max_buffer: MAX_MESSAGE_BYTES,
+            max_buffer: ingress_limit(PROTO_N2N_PEER_SHARE.responder()),
         },
     )
     .await;

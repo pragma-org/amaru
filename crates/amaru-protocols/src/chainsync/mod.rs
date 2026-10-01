@@ -24,8 +24,6 @@ pub use responder::{ChainSyncResponder, ResponderMessage, responder};
 /// This value has been obtained by testing between European countries and may therefore be too low for
 /// catching up across continents; that might not be a smart use-case, though, which is why we use this
 /// value for now.
-///
-/// Note that this also scales the buffer size limit accordingly.
 pub const PIPELINE_DEPTH: u8 = 10;
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
@@ -46,7 +44,7 @@ mod register {
     use crate::{
         connection::ConnectionMessage,
         mux::{Frame, MuxMessage},
-        protocol::{Inputs, PROTO_N2N_CHAIN_SYNC},
+        protocol::{Inputs, PROTO_N2N_CHAIN_SYNC, ingress_limit},
     };
 
     pub async fn register_chainsync_initiator(
@@ -66,7 +64,7 @@ mod register {
                 protocol: PROTO_N2N_CHAIN_SYNC.erase(),
                 frame: Frame::OneCborItem,
                 handler: chainsync.contramap(Inputs::Network),
-                max_buffer: 5760 * usize::from(PIPELINE_DEPTH),
+                max_buffer: ingress_limit(PROTO_N2N_CHAIN_SYNC),
             },
         )
         .await;
@@ -90,7 +88,7 @@ mod register {
                 protocol: PROTO_N2N_CHAIN_SYNC.responder().erase(),
                 frame: Frame::OneCborItem,
                 handler: chainsync.contramap(Inputs::Network),
-                max_buffer: 5760,
+                max_buffer: ingress_limit(PROTO_N2N_CHAIN_SYNC.responder()),
             },
         )
         .await;

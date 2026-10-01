@@ -33,6 +33,7 @@ use crate::{
     mux::{Frame, HandlerMessage, MuxMessage, Sent},
     protocol::{
         Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pull, ToMux, WantNext, from_wire,
+        ingress_limit,
     },
     store_effects::Store,
 };
@@ -285,13 +286,14 @@ pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
     let blockfetch = eff.stage("blockfetch-responder", instance).await;
     let blockfetch = eff.supervise(blockfetch, tombstone);
     let blockfetch = eff.wire_up(blockfetch, Instance::new(mux, peer)).await;
+    let protocol = PROTO_N2N_BLOCK_FETCH.responder().erase();
     eff.send(
         muxer,
         MuxMessage::Register {
-            protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
+            protocol,
             frame: Frame::OneCborItem,
             handler: blockfetch.contramap(Inputs::Network),
-            max_buffer: 2_500_000,
+            max_buffer: ingress_limit(protocol),
         },
     )
     .await;

@@ -18,8 +18,8 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use amaru_kernel::cbor;
 
-/// Maximum payload size for peer-sharing frames (network-spec size limit).
-pub const MAX_MESSAGE_BYTES: usize = 5760;
+/// Maximum payload size for peer-sharing frames (network-spec ingress limit).
+pub const MAX_MESSAGE_BYTES: usize = crate::protocol::PEER_SHARING_INGRESS;
 
 /// Wire messages for the peer-sharing mini-protocol.
 ///
