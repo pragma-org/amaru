@@ -23,7 +23,12 @@ use std::{
 
 use amaru_kernel::{PROTOCOL_VERSION_10, PlutusVersion, ProtocolVersion};
 use amaru_minicbor_extra::decode_bytes;
-use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, machine::ExBudget};
+use amaru_uplc::{
+    arena::Arena,
+    binder::DeBruijn,
+    flat,
+    machine::{CostModel, ExBudget},
+};
 use bumpalo::Bump;
 use divan::Bencher;
 use itertools::Itertools;
@@ -53,6 +58,18 @@ impl<'d, C> minicbor::Decode<'d, C> for CborWrapped {
         let bytes = decode_bytes(d)?;
         Ok(CborWrapped(bytes.into_owned()))
     }
+}
+
+fn cost_model(plutus_version: PlutusVersion) -> CostModel {
+    CostModel::new(
+        plutus_version,
+        PROTOCOL_VERSION,
+        match plutus_version {
+            PlutusVersion::V1 => &CostModel::DEFAULT_V1[..],
+            PlutusVersion::V2 => &CostModel::DEFAULT_V2[..],
+            PlutusVersion::V3 => &CostModel::DEFAULT_V3[..],
+        },
+    )
 }
 
 fn detect_plutus_version(file_name: &str) -> PlutusVersion {
@@ -115,10 +132,10 @@ fn collect_scripts(files: &[PathBuf]) -> Vec<(String, Vec<u8>, PlutusVersion)> {
 fn analyze_turbo(arena: &mut Arena, flat: Vec<u8>, plutus_version: PlutusVersion) -> (Duration, Duration, Duration) {
     let instant = Instant::now();
 
-    let (program, _) = flat::decode::<DeBruijn>(arena, &flat, PROTOCOL_VERSION_10).expect("Failed to decode");
+    let (program, _) = flat::decode::<DeBruijn>(arena, &flat, PROTOCOL_VERSION).expect("Failed to decode");
     let elapsed_unflat = instant.elapsed();
 
-    let result = program.eval_version_budget(arena, plutus_version, ExBudget::max());
+    let result = program.eval(arena, cost_model(plutus_version), ExBudget::max());
     let elapsed_eval = instant.elapsed();
 
     let _term = result.term.expect("Failed to evaluate");
@@ -179,7 +196,7 @@ fn turbo_decode_eval(bencher: Bencher<'_, '_>) {
     bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, plutus_version)| {
         arena.reset();
         let (program, _) = flat::decode::<DeBruijn>(&arena, &flat, PROTOCOL_VERSION).expect("Failed to decode");
-        let result = program.eval_version_budget(&arena, plutus_version, ExBudget::max());
+        let result = program.eval(&arena, cost_model(plutus_version), ExBudget::max());
         let _term = result.term.expect("Failed to evaluate");
     });
 }
