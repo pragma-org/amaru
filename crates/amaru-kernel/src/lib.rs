@@ -182,6 +182,10 @@ pub use cardano::{
     script_info::{ScriptInfo, ScriptPurpose},
     script_integrity_data::{ScriptIntegrityData, compute_script_integrity_hash},
     slot::{Slot, SlotArithmeticError},
+    software_tag::{
+        AmaruTag, AmaruTagError, CalendarDate, Payload, PayloadError, ProducerId, ProducerIdError, ReleaseDay,
+        ReleaseDayError, SoftwareTag, SoftwareTagError,
+    },
     stake_entry::{self, StakeEntry},
     time_range::TimeRange,
     transaction::Transaction,

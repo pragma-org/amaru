@@ -1129,8 +1129,8 @@ define_schemas! {
             protocol {
                 /// Upgrade to a new protocol version
                 public UPGRADE {
-                    required old_version: u64
-                    required new_version: u64
+                    required old_version: u32
+                    required new_version: u32
                 }
             }
             protocol_parameters {

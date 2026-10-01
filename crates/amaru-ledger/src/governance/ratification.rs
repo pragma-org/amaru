@@ -431,7 +431,7 @@ mod tests {
             Rc::new(ProposalId { transaction_id: Hash::new([id; 32]), proposal_index: 0 })
         }
 
-        fn hard_fork(parent: Option<u8>, major_version: u64) -> GovernanceAction {
+        fn hard_fork(parent: Option<u8>, major_version: u32) -> GovernanceAction {
             GovernanceAction::HardForkInitiation(
                 parent.map(|id| *proposal_id(id)),
                 ProtocolVersion::new(major_version, 0),
