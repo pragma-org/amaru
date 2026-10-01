@@ -9691,6 +9691,85 @@
         "info"
       ]
     },
+    "amaru::setup::clock::DRIFT": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "max_error_millis": {
+          "type": "integer"
+        },
+        "threshold_millis": {
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "max_error_millis",
+        "threshold_millis",
+        "hint"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "drift",
+      "kind": "event",
+      "target": "amaru::setup::clock",
+      "description": "The wall clock is not trustworthy for slot timing. Reason ∈ {unsynchronized, max_error_exceeded}.",
+      "public": true,
+      "levels": [
+        "warn"
+      ]
+    },
+    "amaru::setup::clock::SYNCHRONIZED": {
+      "type": "object",
+      "properties": {
+        "max_error_millis": {
+          "type": "integer"
+        },
+        "threshold_millis": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_error_millis",
+        "threshold_millis"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "synchronized",
+      "kind": "event",
+      "target": "amaru::setup::clock",
+      "description": "The kernel reports the wall clock as NTP-synchronized within the tolerated error bound",
+      "public": true,
+      "levels": [
+        "info"
+      ]
+    },
+    "amaru::setup::clock::UNKNOWN": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unknown",
+      "kind": "event",
+      "target": "amaru::setup::clock",
+      "description": "The kernel NTP state could not be queried",
+      "public": true,
+      "levels": [
+        "warn"
+      ]
+    },
     "amaru::setup::file_descriptors::TOO_LOW": {
       "type": "object",
       "properties": {

@@ -3090,6 +3090,30 @@ define_schemas! {
                     required error: String
                 }
             }
+            clock {
+                /// The kernel reports the wall clock as NTP-synchronized within the tolerated error bound
+                public event SYNCHRONIZED {
+                    levels: info
+                    required max_error_millis: u64
+                    required threshold_millis: u64
+                }
+                /// The wall clock is not trustworthy for slot timing.
+                /// Reason ∈ {unsynchronized, max_error_exceeded}.
+                public event DRIFT {
+                    levels: warn
+                    required reason: String
+                    /// Kernel upper bound on the current clock error
+                    required max_error_millis: u64
+                    required threshold_millis: u64
+                    /// Operator-facing instruction on how to fix time synchronization
+                    required hint: String
+                }
+                /// The kernel NTP state could not be queried
+                public event UNKNOWN {
+                    levels: warn
+                    required error: String
+                }
+            }
             file_descriptors {
                 /// The soft limit on open files is below what Amaru needs
                 public event TOO_LOW {

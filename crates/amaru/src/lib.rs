@@ -17,6 +17,7 @@ const _: () = amaru_deps::AMARU_DEPS_USED;
 
 use amaru_kernel::NetworkName;
 
+pub mod clock;
 pub mod exit;
 pub mod lifecycle;
 pub mod metrics;
