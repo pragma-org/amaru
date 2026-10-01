@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
 
         let done_flag = Arc::clone(&done);
 
-        let mut builder = NodeBuilder::new(args.network)?
+        let builder = NodeBuilder::new(args.network)?
             .ledger_dir(args.ledger_dir)
             .chain_dir(args.chain_dir)
             .target_upstream_peers(args.upstream_peers)
@@ -68,9 +68,8 @@ fn main() -> anyhow::Result<()> {
                 }
             }));
 
-        if !args.peer_address.is_empty() {
-            builder = builder.peers(args.peer_address);
-        }
+        let builder =
+            if args.peer_address.is_empty() { builder.no_default_peer() } else { builder.peers(args.peer_address) };
 
         let running = builder.start(&tokio::runtime::Handle::current()).await?;
 
@@ -138,7 +137,9 @@ impl Args {
                 }
                 "-h" | "--help" => {
                     eprintln!(
-                        "Usage: run_until --epoch <N> [--network preprod|mainnet|preview] [--ledger-dir DIR] [--chain-dir DIR]"
+                        "Usage: run_until --epoch <N> [--network preprod|mainnet|preview] \
+                         [--ledger-dir DIR] [--chain-dir DIR] [--peer-address HOST:PORT] \
+                         [--upstream-peers N]"
                     );
                     std::process::exit(0);
                 }

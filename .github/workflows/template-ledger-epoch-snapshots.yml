@@ -29,7 +29,6 @@ jobs:
         network: [preprod, preview]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network }}
-      AMARU_PEER_ADDRESS: ${{ matrix.network == 'preprod' && 'preprod-node.play.dev.cardano.org:3001' || 'preview-node.play.dev.cardano.org:3001' }}
       START_EPOCH: ${{ matrix.network == 'preprod' && '270' || '1119' }}
       TARGET_EPOCH: ${{ matrix.network == 'preprod' && '275' || '1145' }}
       AMARU_UPSTREAM_PEERS: 1
