@@ -24,10 +24,10 @@ ignored = [
   "clap",
   "clap_builder",
   "console",
+  "crc32fast",
   "criterion",
   "crossbeam-epoch",
   "crossbeam-utils",
-  "digest",
   "digest-93f6ce9d446188ac",
   "digest-a6292c17cd707f01",
   "ed25519",
@@ -39,19 +39,15 @@ ignored = [
   "futures-channel",
   "futures-core",
   "futures-executor",
-  "futures-sink",
   "futures-util",
   "getrandom-468e82937335b1c9",
   "getrandom-6f8ce4dd05d13bba",
   "hashbrown",
-  "hyper",
-  "hyper-util",
   "insta",
   "itertools",
-  "libc",
+  "libm",
   "log",
   "memchr",
-  "num-bigint",
   "num-integer",
   "num-traits",
   "once_cell",
@@ -75,25 +71,18 @@ ignored = [
   "serde",
   "serde_core",
   "serde_json",
-  "sha2",
   "sha2-93f6ce9d446188ac",
   "sha2-a6292c17cd707f01",
   "slab",
   "smallvec",
   "socket2",
-  "socket2-3b31131e45eafb45",
-  "socket2-d8f496e17d97b5cb",
   "subtle",
-  "syn",
   "syn-7b89eefb6aaa9bf3",
   "thiserror",
   "tokio",
   "tokio-util",
-  "tower",
   "tracing",
   "tracing-core",
-  "tracing-log",
-  "tracing-subscriber",
   "url",
   "uuid",
   "zerocopy",
@@ -116,6 +105,7 @@ bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "std", "suggestions", "usage", "wrap_help"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
+crc32fast = { version = "1" }
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-epoch = { version = "0.9" }
 crossbeam-utils = { version = "0.8" }
@@ -133,7 +123,7 @@ futures-executor = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
 insta = { version = "1", features = ["yaml"] }
 itertools = { version = "0.13" }
 log = { version = "0.4", default-features = false, features = ["std"] }
@@ -167,7 +157,7 @@ slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
 socket2 = { version = "0.6", default-features = false, features = ["all"] }
 subtle = { version = "2", default-features = false, features = ["const-generics", "std"] }
-syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "full", "visit-mut"] }
+syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }
@@ -187,7 +177,7 @@ form_urlencoded = { version = "1" }
 futures-core = { version = "0.3" }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
 itertools = { version = "0.13" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
@@ -211,8 +201,8 @@ serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"
 sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
 subtle = { version = "2", default-features = false, features = ["const-generics", "std"] }
-syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "full", "visit-mut"] }
-syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
@@ -228,7 +218,6 @@ hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
-miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
@@ -260,7 +249,6 @@ hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
-miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
@@ -292,7 +280,6 @@ hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
-miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
@@ -324,7 +311,6 @@ hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
-miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
@@ -357,7 +343,6 @@ hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
-miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
@@ -423,7 +408,7 @@ num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 uuid = { version = "1", default-features = false, features = ["js"] }
 wasm-bindgen = { version = "0.2" }
-web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
+web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "ReferrerPolicy", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
 
 [target.wasm32-unknown-unknown.build-dependencies]
 bumpalo = { version = "3", features = ["collections"] }
@@ -446,7 +431,6 @@ hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
-miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
