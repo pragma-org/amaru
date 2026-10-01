@@ -118,7 +118,6 @@ impl Bench {
             PROTOCOL_PARAMETERS.clone(),
             GovernanceActivity::default(),
             None,
-            Default::default(),
         );
 
         let current_height = Self::warm_volatile(&mut state);
@@ -149,8 +148,8 @@ impl Bench {
 
         for block_height in 1..=max_height {
             let point = Point::Specific(block_height.into(), Hash::new([block_height as u8; 32]), block_height.into());
-            let result = state.push_fragment(VolatileFragment::default().anchor(point, PoolId::new([0; 28])));
-            assert!(matches!(result, Ok(None)), "warming must not flush a volatile fragment");
+            let result = state.forward_fragment(VolatileFragment::default().anchor(point, PoolId::new([0; 28])));
+            assert!(matches!(result, Ok(())), "warming must not flush a volatile fragment");
         }
 
         max_height.into()

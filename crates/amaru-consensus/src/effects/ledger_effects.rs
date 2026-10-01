@@ -20,14 +20,14 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{AttachedSpan, NoParent, TraceContext, amaru::consensus::block::VALIDATE};
 use amaru_ouroboros_traits::{
     BlockValidationError, CanReadBlockBuilderConstraints, CanValidateBlocks, CanValidateTxs, FindCommonAncestorResult,
-    ForkSwitchOutcome, HasStakePools, Nonces, PoolSummaries, TransactionValidationError, ValidationMode,
+    ForkSwitchOutcome, HasStakePools, Nonces, TransactionValidationError, ValidationMode,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
 use anyhow::anyhow;
 use opentelemetry::trace::FutureExt;
 
-use crate::validate_header::ValidateHeaderError;
+use crate::{effects::ResourcePoolSummaries, validate_header::ValidateHeaderError};
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
@@ -151,7 +151,6 @@ pub type ResourceTxValidation = Arc<dyn CanValidateTxs<VolatileFragment> + Send 
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 pub type ResourceEraHistory = EraHistory;
 pub type ResourceConsensusParameters = Arc<ConsensusParameters>;
-pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
@@ -279,7 +278,7 @@ impl ExternalEffectAPI for ValidateHeaderEffect {
             let pool_summaries = resources
                 .get::<ResourcePoolSummaries>()
                 .expect("ValidateHeaderEffect requires a ResourcePoolSummaries resource")
-                .clone();
+                .snapshot();
             let era_history = resources
                 .get::<ResourceEraHistory>()
                 .expect("ValidateHeaderEffect requires a ResourceEraHistory resource")

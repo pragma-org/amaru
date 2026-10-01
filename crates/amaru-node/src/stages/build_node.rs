@@ -19,7 +19,7 @@ use amaru_consensus::{
     effects::{
         ConsensusMode, ResourceBlockBuilderConstraints, ResourceBlockValidation, ResourceConsensusParameters,
         ResourceEraHistory, ResourceHasStakePools, ResourceMeter, ResourcePoolSummaries, ResourceTxValidation,
-        find_best_candidate,
+        StakeDistributionSource, find_best_candidate,
     },
     performance::{BlockDelayWindow, Performance},
     stages::track_peers::TrackPeersMsg,
@@ -435,13 +435,14 @@ pub fn build_node(
     let chain_store = make_chain_store(config)?;
 
     // Make the ledger state and get its tip
-    let (mut state, pool_summaries) =
+    let (mut state, initial_pool_summaries) =
         make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
     state.set_observers(config.observers.clone());
     let ledger_tip = state.tip().into_owned();
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
 
-    let max_epoch = pool_summaries.max_epoch();
+    let (stake_distribution_publisher, pool_summaries) = StakeDistributionSource::new(initial_pool_summaries);
+    let max_epoch = pool_summaries.snapshot().max_epoch();
     let protocol_version = state.protocol_version();
 
     // Production restarts drop the volatile ledger, so the chain store can be ahead of the
@@ -505,12 +506,9 @@ pub fn build_node(
     );
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
-    // Weak: the callback is stored on `block_validator`, which lives in these same
-    // resources. A strong capture would leak every node (RocksDB FDs included).
-    let resources = stage_builder.resources().downgrade();
     block_validator.set_on_stake_dist_updated(Arc::new(move |new_summaries| {
         let max_epoch = new_summaries.max_epoch();
-        resources.replace::<ResourcePoolSummaries>(|old_summaries| Arc::new(old_summaries.update(new_summaries)));
+        stake_distribution_publisher.publish(new_summaries);
         let send = async {
             if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
                 amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
@@ -521,6 +519,7 @@ pub fn build_node(
         let rt = tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
         rt.block_on(send);
     }));
+    block_validator.start_background_computations();
 
     // Open a port to listen for downstream peers
     stage_builder
@@ -554,7 +553,7 @@ fn register_resources(
     stage_graph: &mut impl StageGraph,
     chain_store: Arc<dyn ChainStore>,
     global_parameters: &GlobalParameters,
-    pool_summaries: PoolSummaries,
+    pool_summaries: StakeDistributionSource,
     block_validator: Arc<BlockValidator>,
     consensus_parameters: Arc<ConsensusParameters>,
     era_history: EraHistory,
@@ -573,7 +572,7 @@ fn register_resources(
     let ledger_thread = block_validator.thread_stop();
     // NOTE: used in WorldLoop::stop() and impl Drop for World
     stage_graph.resources().put(ledger_thread.clone());
-    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
+    stage_graph.resources().put::<ResourcePoolSummaries>(pool_summaries);
     let connections =
         Arc::new(TokioConnections::with_bind_outbound_to_listen_port(65535, config.bind_outbound_to_listen_port));
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());

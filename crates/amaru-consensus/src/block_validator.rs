@@ -69,6 +69,7 @@ enum LedgerRequest {
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
     BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraintsResponse>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
+    StartBackgroundComputations,
 }
 
 /// Worker activity reported when ledger cleanup is still pending.
@@ -210,6 +211,11 @@ impl BlockValidator {
     /// The provided PoolSummaries should be used to update resources for header validation.
     pub fn set_on_stake_dist_updated(&self, callback: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
         self.send(LedgerRequest::SetOnStakeDistUpdated(callback)).unwrap_or(())
+    }
+
+    /// Start any rewards and stake-distribution work eligible at the current ledger tip.
+    pub fn start_background_computations(&self) {
+        self.send(LedgerRequest::StartBackgroundComputations).unwrap_or(())
     }
 
     fn send(&self, request: LedgerRequest) -> Result<(), LedgerThreadTerminated> {
@@ -371,6 +377,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send + Sync + 'static> LedgerThread
             LedgerRequest::SetOnStakeDistUpdated(callback) => {
                 *phase.lock() = LedgerThreadPhase::UpdatingStakeDistributionCallback;
                 self.state.set_on_stake_dist_updated(callback);
+            }
+            LedgerRequest::StartBackgroundComputations => {
+                self.state.start_background_computations();
             }
         }
     }

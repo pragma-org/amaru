@@ -68,6 +68,11 @@ impl PoolSummaries {
         self.by_epoch.contains_key(epoch)
     }
 
+    /// Obtain `pool` from an already selected stake-distribution epoch.
+    pub fn get_pool_at_epoch(&self, epoch: Epoch, pool: &PoolId) -> Option<PoolSummary> {
+        self.by_epoch.get(&epoch)?.get(pool).copied()
+    }
+
     pub fn keys(&self) -> impl Iterator<Item = &Epoch> {
         self.by_epoch.keys()
     }
