@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeight, IsHeader, Peer};
+use amaru_kernel::{BlockHeight, IsHeader, ORIGIN_HASH, Peer, Point};
 use amaru_observability::tracing::Level;
 use amaru_ouroboros_traits::MissingBlocks;
 use amaru_protocols::manager::ManagerMessage;
@@ -133,6 +133,37 @@ fn test_new_tip_forwards_stored_unvalidated_block() {
         ],
     );
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_recover_stored_blocks_at_origin_keeps_the_stage() {
+    let prep = test_prep();
+    let msg = FetchBlocksMsg::recover_stored_blocks(Point::Origin, ORIGIN_HASH);
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let mut expected = prep.state.clone();
+    expected.trace_context = Some(Default::default());
+    assert_trace(&running, &[te_state("fb-1", &prep.state), te_input("fb-1", &msg), te_state("fb-1", &expected)]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_recover_stored_blocks_origin_ledger_with_a_stored_candidate_terminates() {
+    let prep = test_prep();
+    let msg = FetchBlocksMsg::recover_stored_blocks(Point::Origin, prep.headers.h2.hash());
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_terminate("fb-1"),
+            te_terminated("fb-1", TerminationReason::Voluntary),
+        ],
+    );
+    logs.assert_and_remove(Level::ERROR, &["blocks.recover_inconsistent", "ledger_tip_is_origin"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]

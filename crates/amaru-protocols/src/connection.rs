@@ -355,25 +355,21 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
 /// the case for every connection this node opens. Peer sharing is included when this side
 /// advertises it. The limits match the `max_buffer` each responder's `Register` installs.
 /// Any protocol id absent from this list still fails the connection.
-fn initial_mux_buffers(role: Role, initiator_only: bool, advertisable: bool) -> Vec<(ProtocolId<Erased>, usize)> {
-    let mut buffers = Vec::with_capacity(6);
-    // The mux looks up the opposite of the wire id. A responder receives the initiator's
-    // handshake (wire id 0) and must already be holding the responder id.
-    let handshake = match role {
-        Role::Initiator => PROTO_HANDSHAKE.erase(),
-        Role::Responder => PROTO_HANDSHAKE.responder().erase(),
-    };
-    buffers.push((handshake, 5760));
-    if role == Role::Responder || !initiator_only {
-        buffers.extend([
-            (PROTO_N2N_CHAIN_SYNC.responder().erase(), 5760),
-            (PROTO_N2N_BLOCK_FETCH.responder().erase(), 2_500_000),
-            (PROTO_N2N_TX_SUB.responder().erase(), 2_500_000),
-            (PROTO_N2N_KEEP_ALIVE.responder().erase(), 65535),
-        ]);
-        if advertisable {
-            buffers.push((PROTO_N2N_PEER_SHARE.responder().erase(), MAX_MESSAGE_BYTES));
-        }
+fn early_mini_protocol_buffers(advertisable: bool) -> Vec<(ProtocolId<Erased>, usize)> {
+    let mut both = vec![
+        (PROTO_HANDSHAKE, 5760),
+        (PROTO_N2N_CHAIN_SYNC, 5760),
+        (PROTO_N2N_BLOCK_FETCH, 2_500_000),
+        (PROTO_N2N_TX_SUB, 2_500_000),
+        (PROTO_N2N_KEEP_ALIVE, 65535),
+    ];
+    if advertisable {
+        both.push((PROTO_N2N_PEER_SHARE, MAX_MESSAGE_BYTES));
+    }
+    let mut buffers = Vec::with_capacity(both.len() * 2);
+    for (id, limit) in both {
+        buffers.push((id.erase(), limit));
+        buffers.push((id.responder().erase(), limit));
     }
     buffers
 }
@@ -387,10 +383,10 @@ async fn do_initialize(
     // when it advertises full duplex. Those are the protocols the mux may hold before `Register`.
     let initiator_only = false;
     let advertisable = true;
-    let mux_buffers = initial_mux_buffers(*role, initiator_only, advertisable);
     let muxer = eff.stage("mux", mux::stage).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
-    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &mux_buffers, *role, peer)).await;
+    let early = early_mini_protocol_buffers(advertisable);
+    let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &early, *role, peer)).await;
 
     let handshake_result = eff.me_ref().contramap(ConnectionMessage::Handshake);
 
@@ -867,29 +863,6 @@ mod tests {
         // Verify state remains the same
         let state = running.get_state(&connection_stage).unwrap();
         assert_eq!(state.state, connection_state);
-    }
-
-    #[test]
-    fn initial_mux_buffers_follow_the_advertised_responders() {
-        let advertised = initial_mux_buffers(Role::Initiator, false, true);
-        assert_eq!(
-            advertised,
-            vec![
-                (PROTO_HANDSHAKE.erase(), 5760),
-                (PROTO_N2N_CHAIN_SYNC.responder().erase(), 5760),
-                (PROTO_N2N_BLOCK_FETCH.responder().erase(), 2_500_000),
-                (PROTO_N2N_TX_SUB.responder().erase(), 2_500_000),
-                (PROTO_N2N_KEEP_ALIVE.responder().erase(), 65535),
-                (PROTO_N2N_PEER_SHARE.responder().erase(), MAX_MESSAGE_BYTES),
-            ]
-        );
-        // Responder still serves when the advertisement is initiator-only. The initiator does not.
-        assert_eq!(initial_mux_buffers(Role::Initiator, true, true), vec![(PROTO_HANDSHAKE.erase(), 5760)]);
-        let responder = initial_mux_buffers(Role::Responder, true, false);
-        assert_eq!(responder.len(), 5);
-        assert_eq!(responder[0], (PROTO_HANDSHAKE.responder().erase(), 5760));
-        assert!(responder.iter().all(|(id, _)| *id != PROTO_N2N_PEER_SHARE.responder().erase()));
-        assert!(responder.iter().any(|(id, _)| *id == PROTO_N2N_CHAIN_SYNC.responder().erase()));
     }
 
     // HELPERS

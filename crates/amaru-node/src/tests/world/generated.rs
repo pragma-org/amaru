@@ -179,11 +179,19 @@ struct SyncRun {
 
 impl SyncRun {
     fn new(label: &str) -> Self {
-        Self::with_provider(label, provider)
+        Self::new_seeded(label, None)
     }
 
-    fn with_provider(label: &str, make: impl FnOnce(u64) -> Arc<WorldConnectionProvider>) -> Self {
-        let seed = draw_test_seed();
+    fn new_seeded(label: &str, seed: Option<u64>) -> Self {
+        Self::with_provider_seed(label, seed, provider)
+    }
+
+    fn with_provider_seed(
+        label: &str,
+        seed: Option<u64>,
+        make: impl FnOnce(u64) -> Arc<WorldConnectionProvider>,
+    ) -> Self {
+        let seed = seed.unwrap_or_else(draw_test_seed);
         eprintln!("world {label} seed={seed:#x}");
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
         let handle = runtime.handle().clone();
@@ -277,6 +285,10 @@ fn assert_has_bodies(world: &WorldLoop, graph: usize, headers: &[Header], seed: 
     }
 }
 
+/// Handshake accept and the peer's first mini-protocol segments share one simulated
+/// instant under this seed (`unknown protocol 32770` before handlers were registered).
+const BUNCHED_HANDSHAKE_SEED: u64 = 0x838e_6961_2d7f_14fd;
+
 /// Two production-shaped nodes (`build_node` × SimulationBuilder × SimulationRunning)
 /// over one WorldConnectionProvider, driven only by WorldLoop.
 ///
@@ -291,7 +303,16 @@ fn assert_has_bodies(world: &WorldLoop, graph: usize, headers: &[Header], seed: 
 /// That panics inside an existing Tokio context. WorldLoop is therefore synchronous.
 #[test]
 fn test_world_owns_production_nodes_boot_connect_exchange() {
-    let run = SyncRun::with_provider("boot_connect_exchange", |seed| {
+    run_boot_connect_exchange(None);
+}
+
+#[test]
+fn test_world_owns_production_nodes_boot_connect_exchange_bunched_handshake() {
+    run_boot_connect_exchange(Some(BUNCHED_HANDSHAKE_SEED));
+}
+
+fn run_boot_connect_exchange(seed: Option<u64>) {
+    let run = SyncRun::with_provider_seed("boot_connect_exchange", seed, |seed| {
         Arc::new(WorldConnectionProvider::with_long_tail_payload_delay(seed))
     });
     let headers = generated_headers(2, run.seed);
@@ -412,12 +433,25 @@ fn run_blockfetch_generated_chain(n: NonZeroU8, base_port: u16) {
     assert_has_bodies(&world, 1, &headers, run.seed, "node");
 }
 
+/// Same burst as [`BUNCHED_HANDSHAKE_SEED`], on the duplex inbound from A to B.
+/// B stayed on the ancestor (five blocks short of the fragment head).
+const DUPLEX_BUNCHED_HANDSHAKE_SEED: u64 = 0x73e4_56d4_83e1_783d;
+
 /// Injector → A → B. A dials the injector and B (duplex handshake). B has no
 /// static upstreams; it must promote the inbound from A and fetch the fragment
 /// over that bearer.
 #[test]
 fn test_world_duplex_inbound_upstream_syncs_injector_chain() {
-    let run = SyncRun::new("duplex_inbound_upstream");
+    run_duplex_inbound_upstream(None);
+}
+
+#[test]
+fn test_world_duplex_inbound_upstream_syncs_injector_chain_bunched_handshake() {
+    run_duplex_inbound_upstream(Some(DUPLEX_BUNCHED_HANDSHAKE_SEED));
+}
+
+fn run_duplex_inbound_upstream(seed: Option<u64>) {
+    let run = SyncRun::new_seeded("duplex_inbound_upstream", seed);
     let injector_addr = loopback(9820);
     let listen_a = node_listen(9820, 0);
     let listen_b = node_listen(9820, 1);
