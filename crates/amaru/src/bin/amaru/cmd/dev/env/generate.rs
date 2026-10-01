@@ -33,6 +33,10 @@ pub struct Args {
     /// Override the default value of an environment variable.
     #[arg(long = "override", value_name = value_names::STR_KEY_VALUE)]
     overrides: Vec<EnvironmentOverride>,
+
+    /// Generate a JSON object instead of .env textual config
+    #[arg(long)]
+    json: bool,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -42,33 +46,86 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 async fn run(args: Args) -> anyhow::Result<()> {
     let mut variables = collect_environment_variables(&cli::command(version::display_version()))?;
     apply_overrides(&mut variables, args.overrides)?;
-    let output = render_environment_variables(&variables);
+    let output = if args.json {
+        render_environment_variables::<Json>(&variables)
+    } else {
+        render_environment_variables::<Env>(&variables)
+    };
     io::stdout().write_all(output.as_bytes()).context("failed to write environment configuration")?;
     Ok(())
 }
 
-fn render_environment_variables(variables: &BTreeMap<String, EnvironmentVariable>) -> String {
+trait FormatArgs {
+    fn begin(_output: &mut String) {}
+    fn write_var(output: &mut String, name: &str, var: &EnvironmentVariable, is_last: bool);
+    fn end(_output: &mut String) {}
+}
+
+struct Env;
+impl FormatArgs for Env {
+    fn write_var(output: &mut String, name: &str, var: &EnvironmentVariable, _is_last: bool) {
+        output.push_str("# <");
+        output.push_str(&var.meta_type);
+        output.push_str("> ");
+        output.push_str(&var.description);
+        output.push('\n');
+        if var.default_value.is_none() {
+            output.push_str("# ");
+        }
+        output.push_str(name);
+        output.push('=');
+        if let Some(value) = var.default_value.as_ref() {
+            output.push_str(&if is_scalar(value) { value.to_string() } else { shell_quote(value) })
+        }
+        output.push('\n');
+    }
+    fn end(_: &mut String) {}
+}
+
+struct Json;
+impl FormatArgs for Json {
+    fn begin(output: &mut String) {
+        output.push_str("[\n");
+    }
+
+    fn write_var(output: &mut String, name: &str, var: &EnvironmentVariable, is_last: bool) {
+        output.push_str("  {");
+        output.push_str(format!("\n    \"var\": \"{}\",", name).as_str());
+        output.push_str(format!("\n    \"type\": \"{}\",", var.meta_type).as_str());
+        output.push_str(format!("\n    \"description\": \"{}\",", var.description).as_str());
+        output.push_str(
+            format!(
+                "\n    \"default\": {}",
+                if let Some(value) = var.default_value.as_ref() {
+                    if is_scalar(value) { value.to_string() } else { shell_quote(value) }
+                } else {
+                    "null".to_string()
+                }
+            )
+            .as_str(),
+        );
+        output.push_str("\n  }");
+        output.push_str(if is_last { "\n" } else { "," });
+    }
+
+    fn end(output: &mut String) {
+        output.push(']');
+    }
+}
+
+fn render_environment_variables<F: FormatArgs>(variables: &BTreeMap<String, EnvironmentVariable>) -> String {
     let mut output = String::new();
+
+    F::begin(&mut output);
 
     for (index, (name, variable)) in variables.iter().enumerate() {
         if index > 0 {
             output.push('\n');
         }
-        output.push_str("# <");
-        output.push_str(&variable.meta_type);
-        output.push_str("> ");
-        output.push_str(&variable.description);
-        output.push('\n');
-        if variable.default_value.is_none() {
-            output.push_str("# ");
-        }
-        output.push_str(name);
-        output.push('=');
-        if let Some(value) = variable.default_value.as_ref() {
-            output.push_str(&if is_scalar(value) { value.to_string() } else { shell_quote(value) })
-        }
-        output.push('\n');
+        F::write_var(&mut output, name, variable, index == variables.len() - 1);
     }
+
+    F::end(&mut output);
 
     output
 }
@@ -241,6 +298,7 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use clap::{Arg, Command};
+    use indoc::indoc;
 
     use super::*;
 
@@ -267,8 +325,27 @@ mod tests {
         extend_environment_variables(&mut variables, &command).expect("arguments are valid");
 
         assert_eq!(
-            render_environment_variables(&variables),
+            render_environment_variables::<Env>(&variables),
             "# <BOOL> The first variable.\nAMARU_FIRST=false\n\n# <FILEPATH> The second variable.\n# AMARU_SECOND=\n"
+        );
+        assert_eq!(
+            render_environment_variables::<Json>(&variables),
+            indoc! {
+                r#"[
+                  {
+                    "var": "AMARU_FIRST",
+                    "type": "BOOL",
+                    "description": "The first variable.",
+                    "default": false
+                  },
+                  {
+                    "var": "AMARU_SECOND",
+                    "type": "FILEPATH",
+                    "description": "The second variable.",
+                    "default": null
+                  }
+                ]"#
+            },
         );
     }
 
