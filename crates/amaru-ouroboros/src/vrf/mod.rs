@@ -33,8 +33,11 @@ use zeroize::Zeroizing;
 pub struct SecretKey(SecretKey03);
 
 impl SecretKey {
-    /// Size of a VRF secret key, in bytes.
+    /// Size of the VRF seed, in bytes.
     pub const SIZE: usize = 32;
+
+    /// Bytes in a cardano-cli signing-key file: the seed followed by the verification key.
+    const FILE_LEN: usize = Self::SIZE + PublicKey::SIZE;
 
     /// `type` field of the cardano-cli envelope that wraps a VRF signing key.
     const ENVELOPE_TYPE: &str = "VrfSigningKey_PraosVRF";
@@ -45,6 +48,8 @@ impl SecretKey {
     }
 
     /// Load a key from an unencrypted envelope file written by cardano-cli.
+    ///
+    /// The CBOR payload is a 64-byte string: the 32-byte seed followed by the verification key.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, SecretKeyError> {
         let envelope = Zeroizing::new(fs::read(path)?);
         Ok(serde_json::from_slice(&envelope)?)
@@ -70,15 +75,21 @@ impl<'de> Deserialize<'de> for SecretKey {
         let mut payload = Zeroizing::new(vec![0u8; cbor_hex.len() / 2]);
         hex::decode_to_slice(cbor_hex.as_bytes(), &mut payload).map_err(de::Error::custom)?;
         let mut decoder = cbor::Decoder::new(&payload);
-        let seed = cbor::decode_bytes(&mut decoder).map_err(de::Error::custom)?;
+        let raw = cbor::decode_bytes(&mut decoder).map_err(de::Error::custom)?;
         if decoder.position() != payload.len() {
             return Err(de::Error::custom(SecretKeyError::TrailingEnvelopeBytes(payload.len() - decoder.position())));
         }
-        let seed_len = seed.len();
-        let Ok(seed) = <[u8; SecretKey::SIZE]>::try_from(seed.as_ref()) else {
-            return Err(de::Error::custom(SecretKeyError::InvalidSecretKeySize(seed_len)));
+        let raw_len = raw.len();
+        let Ok(raw) = <[u8; SecretKey::FILE_LEN]>::try_from(raw.as_ref()) else {
+            return Err(de::Error::custom(SecretKeyError::InvalidSecretKeySize(raw_len)));
         };
-        Ok(SecretKey::from(&seed))
+        let mut seed = Zeroizing::new([0u8; SecretKey::SIZE]);
+        seed.copy_from_slice(&raw[..SecretKey::SIZE]);
+        let key = SecretKey::from(&*seed);
+        if PublicKey::from(&key).as_ref() != &raw[SecretKey::SIZE..] {
+            return Err(de::Error::custom(SecretKeyError::VerificationKeyMismatch));
+        }
+        Ok(key)
     }
 }
 
@@ -286,8 +297,13 @@ pub enum SecretKeyError {
     UnexpectedEnvelopeType { expected: &'static str, found: String },
     #[error("VRF key envelope payload has {0} trailing bytes")]
     TrailingEnvelopeBytes(usize),
-    #[error("VRF signing key must be {SIZE} bytes", SIZE = SecretKey::SIZE)]
+    #[error(
+        "VRF signing key must be {FILE_LEN} bytes (32-byte seed followed by its verification key), found {0}",
+        FILE_LEN = SecretKey::FILE_LEN
+    )]
     InvalidSecretKeySize(usize),
+    #[error("VRF signing key verification key does not match the seed")]
+    VerificationKeyMismatch,
     #[error("failed to read VRF key file: {0}")]
     Io(#[from] std::io::Error),
     #[error("malformed VRF key envelope: {0}")]
@@ -318,7 +334,9 @@ mod serde_remote {
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::cbor;
     use proptest::prelude::*;
+    use serde::Deserialize;
 
     use super::*;
 
@@ -421,27 +439,30 @@ mod tests {
     }
 
     const GOLDEN_SEED: &str = "adb9c97bec60189aa90d01d113e3ef405f03477d82a94f81da926c90cd46a374";
+    const GOLDEN_VK: &str = "e0ff2371508ac339431b50af7d69cde0f120d952bb876806d3136f9a7fda4381";
 
     fn envelope(r#type: &str, cbor_hex: &str) -> String {
         format!(r#"{{"type":"{type}","description":"VRF Signing Key","cborHex":"{cbor_hex}"}}"#)
     }
 
+    /// CBOR byte string of seed || verification key, as `cardano-cli conway node key-gen-VRF` writes it.
+    fn golden_cbor_hex() -> String {
+        format!("5840{GOLDEN_SEED}{GOLDEN_VK}")
+    }
+
     #[test]
     fn deserializes_from_cardano_cli_vrf_skey() {
-        let json = envelope(SecretKey::ENVELOPE_TYPE, &format!("5820{GOLDEN_SEED}"));
+        let json = envelope(SecretKey::ENVELOPE_TYPE, &golden_cbor_hex());
         let key: SecretKey = serde_json::from_str(&json).unwrap();
         assert_eq!(hex::encode(key.to_bytes()), GOLDEN_SEED);
-        assert_eq!(
-            hex::encode(PublicKey::from(&key).as_ref()),
-            "e0ff2371508ac339431b50af7d69cde0f120d952bb876806d3136f9a7fda4381"
-        );
+        assert_eq!(hex::encode(PublicKey::from(&key).as_ref()), GOLDEN_VK);
     }
 
     #[test]
     fn loads_from_vrf_skey_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("vrf.skey");
-        std::fs::write(&path, envelope(SecretKey::ENVELOPE_TYPE, &format!("5820{GOLDEN_SEED}"))).unwrap();
+        std::fs::write(&path, envelope(SecretKey::ENVELOPE_TYPE, &golden_cbor_hex())).unwrap();
         let key = SecretKey::from_file(&path).unwrap();
         assert_eq!(hex::encode(key.to_bytes()), GOLDEN_SEED);
     }
@@ -454,13 +475,49 @@ mod tests {
 
     #[test]
     fn deserialize_rejects_wrong_type_and_truncated_cbor() {
-        let wrong_type = envelope("VrfVerificationKey_PraosVRF", &format!("5820{GOLDEN_SEED}"));
+        let wrong_type = envelope("VrfVerificationKey_PraosVRF", &golden_cbor_hex());
         let err = serde_json::from_str::<SecretKey>(&wrong_type).map(|_| ()).unwrap_err().to_string();
         assert!(err.contains("unexpected VRF key envelope type"), "{err}");
 
-        // Definite byte string of 16 bytes, not a signing seed.
+        // Definite byte string of 16 bytes, not seed || verification key.
         let short = envelope(SecretKey::ENVELOPE_TYPE, &format!("5810{}", "00".repeat(16)));
         let err = serde_json::from_str::<SecretKey>(&short).map(|_| ()).unwrap_err().to_string();
-        assert!(err.contains("32 bytes"), "{err}");
+        assert!(err.contains("64 bytes"), "{err}");
+
+        // The seed alone is not the file cardano-cli writes.
+        let seed_only = envelope(SecretKey::ENVELOPE_TYPE, &format!("5820{GOLDEN_SEED}"));
+        let err = serde_json::from_str::<SecretKey>(&seed_only).map(|_| ()).unwrap_err().to_string();
+        assert!(err.contains("64 bytes"), "{err}");
+
+        let mut mismatched = format!("{GOLDEN_SEED}{GOLDEN_VK}");
+        mismatched.pop();
+        mismatched.push('0');
+        let mismatched = envelope(SecretKey::ENVELOPE_TYPE, &format!("5840{mismatched}"));
+        let err = serde_json::from_str::<SecretKey>(&mismatched).map(|_| ()).unwrap_err().to_string();
+        assert!(err.contains("verification key"), "{err}");
+    }
+
+    #[test]
+    fn cardano_cli_vrf_skey_proves_against_its_vkey() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/forging/vrf.skey");
+        let key = SecretKey::from_file(&path).unwrap();
+        let vkey_bytes =
+            envelope_byte_string(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/forging/vrf.vkey"));
+        assert_eq!(PublicKey::from(&key).as_ref(), vkey_bytes.as_slice());
+        let input = Input::from(&[11u8; Input::SIZE]);
+        let proof = key.prove(&input);
+        proof.verify(&PublicKey::from(&key), &input).unwrap();
+    }
+
+    fn envelope_byte_string(path: &std::path::Path) -> Vec<u8> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Envelope {
+            cbor_hex: String,
+        }
+        let envelope: Envelope = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let payload = hex::decode(envelope.cbor_hex).unwrap();
+        let mut decoder = cbor::Decoder::new(&payload);
+        cbor::decode_bytes(&mut decoder).unwrap().into_owned()
     }
 }
