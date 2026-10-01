@@ -59,14 +59,15 @@ pub enum ProtocolError {
     /// One or more received tx bodies had a CBOR size that did not match the size advertised
     /// in `ReplyTxIds` (beyond `MAX_TX_SIZE_DISCREPANCY`).
     TxSizeError(Vec<TxSizeMismatch>),
-    /// The peer advertised a tx whose size exceeds the per-batch `fetch_batch_bytes` budget.
-    /// Since `fetch_batch_bytes >= max_transaction_size`, such a tx
-    /// could never be fetched and would also be rejected by the ledger.
+    /// The peer advertised a tx we will never fetch.
     ///
-    /// We compare the transaction size to `fetch_batch_bytes` instead of `max_transaction_size`
-    /// because this is what could prevent a batch to be created and progress to be made. We
-    /// *could* check the transaction size against `max_transaction_size` but this is era dependent
-    /// and would complicate the code for no real benefit.
+    /// `budget` is the smaller of `fetch_batch_bytes` and the body size that fits in one
+    /// `ReplyTxs` under the mux ingress limit. A larger tx could not be drained and would stall
+    /// the window. It would also exceed `max_transaction_size` when `fetch_batch_bytes` is the
+    /// tighter of the two, since that budget is at least the ledger maximum.
+    ///
+    /// The check uses this budget rather than `max_transaction_size` directly: the ledger maximum
+    /// is era-dependent, and the stall comes from the budget, not from the era.
     ///
     /// Note: this is stricter than the Haskell `ouroboros-network` V2 inbound side, which
     /// admits any advertised size and only verifies received-vs-advertised after the body is
@@ -120,7 +121,10 @@ impl Display for ProtocolError {
                 write!(f, "peer sent transactions whose body sizes did not match the advertised sizes: {mismatches:?}")
             }
             ProtocolError::TxAdvertisedSizeTooLarge { tx_id, advertised, budget } => {
-                write!(f, "peer advertised tx {tx_id} with size {advertised} exceeding per-batch fetch budget {budget}")
+                write!(
+                    f,
+                    "peer advertised tx {tx_id} with size {advertised} exceeding the maximum fetchable size {budget}"
+                )
             }
             ProtocolError::AckedTooManyTxids => {
                 write!(f, "peer acknowledged more txids than are currently outstanding")

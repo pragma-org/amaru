@@ -19,6 +19,12 @@ use std::{
 
 use amaru_kernel::{NonZeroDuration, cbor};
 
+/// How many of a peer's transactions this node will hold or fetch at once.
+///
+/// `max_window` caps outstanding tx ids. `fetch_batch_bytes` caps the advertised body bytes in
+/// one `RequestTxs`. Either value may be larger than the mux ingress buffer; the responder then
+/// asks for fewer ids or fewer bodies per round, so the peer's reply still fits. One advertised
+/// transaction that cannot fit in a single reply is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponderParams {
     pub max_window: NonZeroU16,

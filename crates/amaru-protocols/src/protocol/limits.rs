@@ -45,6 +45,9 @@ pub const CHAIN_SYNC_INGRESS: usize = safety(300 * 1400);
 pub const BLOCK_FETCH_INGRESS: usize = safety(larger(10 * 2_097_154, 100 * 90_112));
 
 /// Tx-submission v2: `addSafetyMargin (10 * (44 + 65_540))`.
+///
+/// The responder does not ask for a `ReplyTxIds` or `ReplyTxs` larger than this. A configured
+/// batch that would not fit is requested across smaller rounds.
 pub const TX_SUBMISSION_INGRESS: usize = safety(10 * (44 + 65_540));
 
 /// Keep-alive: `addSafetyMargin 1280`.

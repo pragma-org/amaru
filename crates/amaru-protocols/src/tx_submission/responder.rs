@@ -30,7 +30,8 @@ use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
     protocol::{
-        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, miniprotocol, outcome,
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, TX_SUBMISSION_INGRESS,
+        miniprotocol, outcome,
     },
     tx_submission::{
         Blocking, EraTaggedTxId, Message, ProtocolError, ResponderParams, State, TerminationCause, TxSizeMismatch,
@@ -40,6 +41,52 @@ use crate::{
 /// Tolerance applied when comparing a received tx body's CBOR size against the size advertised
 /// in `ReplyTxIds`
 const MAX_TX_SIZE_DISCREPANCY: u32 = 32;
+
+/// CBOR bytes around the list in `ReplyTxs` or `ReplyTxIds`: `array(2)`, the message label, and a
+/// definite list header long enough for any `u32` length.
+const REPLY_LIST_HEADER: usize = 7;
+
+/// Bytes wrapped around one transaction body in `ReplyTxs`, excluding the body: the era array, CBOR
+/// tag 24, and the longest definite byte-string header.
+const REPLY_TX_FRAMING: usize = 11;
+
+/// Upper bound on one `ReplyTxIds` entry. This is the 44-byte allowance in the ingress formula
+/// `10 * (44 + 65_540)`: the era-tagged 32-byte id, its size, and the pair's CBOR.
+const REPLY_TX_ID_ENTRY: usize = 44;
+
+/// CBOR size of a `ReplyTxs` whose transaction bodies sum to `body_bytes`, excluding the size
+/// tolerance applied when the bodies arrive.
+fn reply_txs_wire_bytes(count: usize, body_bytes: u64) -> u64 {
+    let framing = REPLY_LIST_HEADER.saturating_add(count.saturating_mul(REPLY_TX_FRAMING)) as u64;
+    body_bytes.saturating_add(framing)
+}
+
+/// Upper bound on a `ReplyTxs` we might actually buffer: each body may be
+/// [`MAX_TX_SIZE_DISCREPANCY`] bytes larger than advertised and still be accepted.
+fn reply_txs_ingress_bytes(count: usize, advertised_sum: u64) -> u64 {
+    let slack = u64::from(MAX_TX_SIZE_DISCREPANCY).saturating_mul(u64::try_from(count).unwrap_or(u64::MAX));
+    reply_txs_wire_bytes(count, advertised_sum.saturating_add(slack))
+}
+
+fn reply_fits_ingress(count: usize, advertised_sum: u64) -> bool {
+    reply_txs_ingress_bytes(count, advertised_sum) <= TX_SUBMISSION_INGRESS as u64
+}
+
+/// Largest advertised size `txs_to_request` can drain in one reply.
+fn max_advertised_tx_bytes(fetch_batch_bytes: u64) -> u64 {
+    let one = reply_txs_ingress_bytes(1, 0);
+    fetch_batch_bytes.min((TX_SUBMISSION_INGRESS as u64).saturating_sub(one))
+}
+
+fn reply_tx_ids_max_bytes(count: usize) -> usize {
+    REPLY_LIST_HEADER.saturating_add(count.saturating_mul(REPLY_TX_ID_ENTRY))
+}
+
+/// Largest `ReplyTxIds` we can ask for without the reply exceeding `limit`.
+fn max_reply_tx_ids(limit: usize) -> u16 {
+    let n = u16::try_from(limit.saturating_sub(REPLY_LIST_HEADER) / REPLY_TX_ID_ENTRY).unwrap_or(u16::MAX);
+    if reply_tx_ids_max_bytes(usize::from(n)) <= limit { n } else { n.saturating_sub(1) }
+}
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
@@ -336,10 +383,11 @@ impl TxSubmissionResponder {
             return terminate_outcome(TxIdsEmptyInBlockingReply);
         }
 
-        // Reject the first advertised size larger than the per-batch fetch budget: such a tx
-        // could never be drained by `txs_to_request` and would also exceed the chain's
-        // `max_transaction_size` (since `fetch_batch_bytes >= max_transaction_size`).
-        let budget = self.params.fetch_batch_bytes.get();
+        // Reject an advertised size `txs_to_request` can never drain. That is anything past the
+        // configured batch, and anything that cannot fit in one `ReplyTxs` under the ingress
+        // limit. Such a tx would also exceed `max_transaction_size` when the batch is the tighter
+        // cap (`fetch_batch_bytes >= max_transaction_size`).
+        let budget = max_advertised_tx_bytes(self.params.fetch_batch_bytes.get());
         if let Some((tx_id, advertised)) = tx_ids.iter().find(|(_, size)| (*size as u64) > budget) {
             return terminate_outcome(TxAdvertisedSizeTooLarge { tx_id: *tx_id, advertised: *advertised, budget });
         }
@@ -412,12 +460,15 @@ impl TxSubmissionResponder {
             ack = ack.checked_add(1).expect("ack overflow: protocol invariant violated");
         }
 
-        let req = self
+        let window_room = self
             .params
             .max_window
             .get()
             .checked_sub(self.unacked.len() as u16)
             .expect("req underflow: protocol invariant violated");
+        // A `ReplyTxIds` of `max_window` entries can be larger than the ingress buffer. Ask for
+        // only as many as fit; the rest are requested on a later round.
+        let req = window_room.min(max_reply_tx_ids(TX_SUBMISSION_INGRESS));
 
         let blocking = if self.unacked.is_empty() { Blocking::Yes } else { Blocking::No };
         debug!(
@@ -435,10 +486,12 @@ impl TxSubmissionResponder {
     ///
     /// - the mempool's `is_near_capacity` (otherwise we won't be able to insert them in the mempool)
     /// - the per-batch byte budget `fetch_batch_bytes`
+    /// - the mux ingress limit, so the resulting `ReplyTxs` (including CBOR framing and the
+    ///   accepted size tolerance) fits in `TX_SUBMISSION_INGRESS`
     ///
     /// A single Pending tx always fits on its own: `process_tx_ids_reply` rejects any advertised
-    /// size that exceeds `fetch_batch_bytes`, and `fetch_batch_bytes >= max_transaction_size`.
-    /// So when this returns empty with Pending entries remaining, the cause is mempool capacity.
+    /// size past `max_advertised_tx_bytes`. So when this returns empty with Pending entries
+    /// remaining, the cause is mempool capacity.
     #[allow(clippy::expect_used)]
     async fn txs_to_request(&mut self, mempool: &dyn AsyncMempool) -> Vec<TransactionId> {
         let mut tx_ids = Vec::new();
@@ -458,7 +511,10 @@ impl TxSubmissionResponder {
             };
             let next_total = reserved.saturating_add(size as u64);
 
-            if mempool.is_near_capacity(next_total).await || next_total > budget {
+            if mempool.is_near_capacity(next_total).await
+                || next_total > budget
+                || !reply_fits_ingress(tx_ids.len() + 1, next_total)
+            {
                 break;
             }
 
@@ -812,7 +868,10 @@ mod tests {
     use super::*;
     use crate::{
         mux::{HandlerMessage, MuxMessage, Sent},
-        tx_submission::{EraTaggedTx, assert_actions_eq, tests::create_transactions},
+        tx_submission::{
+            DEFAULT_FETCH_BATCH_BYTES, DEFAULT_MAX_OUTSTANDING_TX_IDS, EraTaggedTx, assert_actions_eq,
+            tests::create_transactions,
+        },
     };
 
     fn test_era() -> EraName {
@@ -902,6 +961,97 @@ mod tests {
             ],
         );
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn advertised_size_exceeding_ingress_limit_terminates_the_protocol() -> anyhow::Result<()> {
+        let txs = create_transactions(1);
+        let mempool = Arc::new(InMemoryMempool::default());
+        let fetch_batch_bytes = std::num::NonZeroU64::new(1_000_000).expect("batch");
+        let params = ResponderParams::new(DEFAULT_MAX_OUTSTANDING_TX_IDS, fetch_batch_bytes);
+        let budget = max_advertised_tx_bytes(fetch_batch_bytes.get());
+        assert!(budget < fetch_batch_bytes.get(), "ingress cap is tighter than this batch");
+        let advertised = (budget + 1) as u32;
+
+        let actions = run_stage_and_return_state_with(
+            responder_with(params),
+            mempool,
+            vec![init(), ResponderResult::ReplyTxIds(vec![(txs[0].tx_id(), advertised)])],
+        )
+        .await?
+        .0;
+        assert_actions_eq(
+            &actions,
+            &[
+                request_tx_ids(0, 10, Blocking::Yes),
+                error_action(TxAdvertisedSizeTooLarge { tx_id: txs[0].tx_id(), advertised, budget }),
+            ],
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn large_fetch_budget_stops_before_the_reply_exceeds_ingress() -> anyhow::Result<()> {
+        let txs = create_transactions(50);
+        // The default mempool fills up before the ingress limit does, which would hide the cap.
+        let mempool = open_mempool();
+        let params = ResponderParams::new(
+            std::num::NonZeroU16::new(50).expect("window"),
+            std::num::NonZeroU64::new(1_000_000).expect("batch"),
+        );
+        let advertised = 16_000u32;
+        let tx_ids: Vec<_> = txs.iter().map(|tx| (tx.tx_id(), advertised)).collect();
+
+        let actions = run_stage_and_return_state_with(
+            responder_with(params),
+            mempool,
+            vec![init(), ResponderResult::ReplyTxIds(tx_ids)],
+        )
+        .await?
+        .0;
+
+        let ResponderAction::SendRequestTxs(requested) = &actions[1] else {
+            panic!("expected a body request, got {actions:?}");
+        };
+        assert!(requested.len() < txs.len(), "the full window must not be requested in one reply");
+        assert!(reply_fits_ingress(requested.len(), advertised as u64 * requested.len() as u64));
+        assert!(!reply_fits_ingress(txs.len(), advertised as u64 * txs.len() as u64));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tx_id_request_is_capped_at_the_ingress_limit() -> anyhow::Result<()> {
+        let mempool = Arc::new(InMemoryMempool::default());
+        let params =
+            ResponderParams::new(std::num::NonZeroU16::new(u16::MAX).expect("window"), DEFAULT_FETCH_BATCH_BYTES);
+        let mut responder = responder_with(params);
+
+        let (ack, req, blocking) = responder.request_tx_ids(mempool.as_ref()).await;
+        let cap = max_reply_tx_ids(TX_SUBMISSION_INGRESS);
+        assert_eq!((ack, req, blocking), (0, cap, Blocking::Yes));
+        assert!(req < u16::MAX);
+        assert!(reply_tx_ids_max_bytes(usize::from(req)) <= TX_SUBMISSION_INGRESS);
+        assert!(reply_tx_ids_max_bytes(usize::from(req) + 1) > TX_SUBMISSION_INGRESS);
+        Ok(())
+    }
+
+    #[test]
+    fn default_params_and_encoded_replies_fit_the_ingress_limit() {
+        let count = usize::from(DEFAULT_MAX_OUTSTANDING_TX_IDS.get());
+        assert!(reply_fits_ingress(count, DEFAULT_FETCH_BATCH_BYTES.get()));
+        assert!(reply_tx_ids_max_bytes(count) <= TX_SUBMISSION_INGRESS);
+        assert!(usize::from(max_reply_tx_ids(TX_SUBMISSION_INGRESS)) >= count);
+
+        let txs = create_transactions(4);
+        let era = test_era();
+        let body: u64 = txs.iter().map(|tx| to_cbor(tx).len() as u64).sum();
+        let reply_txs = Message::ReplyTxs(txs.iter().cloned().map(|tx| EraTaggedTx { era, tx }).collect());
+        assert!(to_cbor(&reply_txs).len() as u64 <= reply_txs_wire_bytes(txs.len(), body));
+
+        let reply_ids = Message::ReplyTxIds(
+            txs.iter().map(|tx| (EraTaggedTxId { era, id: tx.tx_id() }, to_cbor(tx).len() as u32)).collect(),
+        );
+        assert!(to_cbor(&reply_ids).len() <= reply_tx_ids_max_bytes(txs.len()));
     }
 
     #[tokio::test]
@@ -1031,10 +1181,14 @@ mod tests {
     }
 
     fn new_responder() -> TxSubmissionResponder {
+        responder_with(test_params())
+    }
+
+    fn responder_with(params: ResponderParams) -> TxSubmissionResponder {
         TxSubmissionResponder::new(
             Peer::for_test(3006),
             StageRef::<MuxMessage>::blackhole(),
-            test_params(),
+            params,
             TxOrigin::Local,
             StageRef::<MempoolMsg>::blackhole(),
             Arc::new(EraHistory::default()),
@@ -1461,6 +1615,15 @@ mod tests {
                 })
                 // never report contained txs to force the responder to fetch them.
                 .with_contains(|_inner, _tx_id| false)
+                .build(),
+        )
+    }
+
+    /// A mempool that never reports being at capacity, so batching stops on the byte budget only.
+    fn open_mempool() -> Arc<dyn AsyncMempool> {
+        Arc::new(
+            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
+                .with_is_near_capacity(|_inner, _additional| false)
                 .build(),
         )
     }
