@@ -24,7 +24,7 @@ use crate::{
     arena::Arena,
     binder::{Binder, DeBruijn},
     builtin::DefaultFunction,
-    constant::{Constant, IntegerExt},
+    constant::Constant,
     ledger_value::{CurrencyEntry, LedgerValue, TokenEntry, check_quantity_range, count_stats},
     machine::MachineVersion,
     program::Program,

@@ -13,12 +13,11 @@
 // limitations under the License.
 
 use bumpalo::collections::Vec as BumpVec;
-use malachite_base::num::arithmetic::traits::UnsignedAbs;
-use malachite_nz::natural::Natural;
+use dashu_base::UnsignedAbs;
 
 use crate::{
     arena::Arena,
-    constant::{Integer, IntegerExt, integer},
+    constant::{Integer, IntegerExt, Natural, integer},
     data::PlutusData,
 };
 

@@ -14,10 +14,15 @@
 
 use std::cell::OnceCell;
 
-use malachite_base::num::{basic::traits::Zero, logic::traits::SignificantBits};
-use malachite_nz::{integer::Integer, natural::Natural};
+use dashu_base::BitTest;
 
-use crate::{binder::Eval, constant::Constant, data::PlutusData, ledger_value::LedgerValue, machine::value::Value};
+use crate::{
+    binder::Eval,
+    constant::{Constant, Integer, IntegerExt, Natural},
+    data::PlutusData,
+    ledger_value::LedgerValue,
+    machine::value::Value,
+};
 
 // -------------------------------------------------------------------------------------------------
 // CostArgument
@@ -135,13 +140,13 @@ impl IntoMachineSize for str {
 
 impl IntoMachineSize for Natural {
     fn size(&self) -> i64 {
-        if self == &Natural::ZERO { 1 } else { 1 + ((self.significant_bits() - 1) as i64) / 64 }
+        if self == &Natural::ZERO { 1 } else { 1 + ((self.bit_len() - 1) as i64) / 64 }
     }
 }
 
 impl IntoMachineSize for Integer {
     fn size(&self) -> i64 {
-        if self == &Integer::ZERO { 1 } else { 1 + ((self.significant_bits() - 1) as i64) / 64 }
+        if self.is_zero() { 1 } else { 1 + ((self.bits() - 1) as i64) / 64 }
     }
 }
 
@@ -241,14 +246,12 @@ impl IntoMachineSize for DataNodeCount<'_> {
 
 /// Compute the base-2 logarithm expected by the ledger's integer-to-bytes limit checks.
 pub(crate) fn integer_log2(integer: &Integer) -> i64 {
-    if integer == &Integer::ZERO { 0 } else { (integer.significant_bits() - 1) as i64 }
+    if integer.is_zero() { 0 } else { (integer.bits() - 1) as i64 }
 }
 
 #[cfg(test)]
 mod tests {
     use std::{cell::Cell, str::FromStr};
-
-    use malachite_base::num::basic::traits::Zero;
 
     use super::{CostArgument, IntoMachineSize, integer_log2};
     use crate::constant::Integer;

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use malachite_base::num::basic::traits::Zero;
-
 use super::FlatEncodeError;
 use crate::{
     constant::{Integer, integer_to_u8},

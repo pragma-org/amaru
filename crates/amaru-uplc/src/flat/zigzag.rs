@@ -25,7 +25,7 @@ impl ZigZag for &Integer {
     type Zag = Integer;
 
     fn zigzag(self) -> Self::Zag {
-        if *self >= 0 {
+        if self >= &Integer::ZERO {
             // For non-negative numbers, just multiply by 2 (left shift by 1)
             self.clone() << 1
         } else {

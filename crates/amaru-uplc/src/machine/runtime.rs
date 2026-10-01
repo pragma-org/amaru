@@ -18,11 +18,7 @@ use core::str;
 use std::array::TryFromSliceError;
 
 use bumpalo::collections::{CollectIn, String as BumpString, Vec as BumpVec};
-use malachite_base::num::{
-    arithmetic::traits::{DivMod, DivRem, ExtendedGcd, Mod, ModPow, UnsignedAbs},
-    basic::traits::Zero,
-};
-use malachite_nz::natural::Natural;
+use dashu_base::{BitTest, DivRem, RemEuclid, UnsignedAbs, ring::ExtendedGcd};
 
 use super::{Machine, MachineError, RuntimeError, value::Value};
 use crate::{
@@ -31,7 +27,8 @@ use crate::{
     bls::{Compressable, SCALAR_PERIOD},
     builtin::DefaultFunction,
     constant::{
-        self, Constant, Integer, IntegerExt, integer_from_bytes, integer_to_u8, integer_to_usize, natural_to_u64,
+        self, Constant, Integer, IntegerExt, Natural, integer_from_bytes, integer_to_u8, integer_to_usize,
+        natural_to_u64,
     },
     data::PlutusData,
     ledger_value::{self, LedgerValue, ValueError},
@@ -60,7 +57,7 @@ fn fits_signed_integer_range(integer: &Integer, maximum_bits: u64) -> bool {
         return false;
     }
 
-    integer.clone().unsigned_abs() == Natural::from(1u8) << maximum_bits
+    integer.clone().unsigned_abs() == Natural::from(1u8) << maximum_bits as usize
 }
 
 /// Check that an integer fits in a signed 4096-bit range: [-(2^4095), 2^4095 - 1].
@@ -72,8 +69,8 @@ fn check_multi_scalar_range(int: &Integer) -> Result<(), RuntimeError<'_>> {
 /// Reduce scalar mod SCALAR_PERIOD, convert to LE bytes, and append to the output buffer.
 /// Caller must validate the scalar range first via `check_multi_scalar_range`.
 fn prepare_msm_scalar(si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_bytes: &mut Vec<u8>) {
-    let si = si.mod_op(&*SCALAR_PERIOD);
-    let be_bytes = constant::integer_to_bytes(&si, true);
+    let si = si.rem_euclid(&*SCALAR_PERIOD);
+    let be_bytes = si.to_be_bytes();
 
     // Zero-padded big-endian scalar on the stack (always 32 bytes).
     const SIZE: usize = size_of::<blst::blst_scalar>();
@@ -84,6 +81,33 @@ fn prepare_msm_scalar(si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_b
         blst::blst_scalar_from_bendian(scalar_buf as *mut _, padded.as_ptr() as *const _);
     }
     scalar_bytes.extend_from_slice(&scalar_buf.b);
+}
+
+/// Raise `base` to `exponent` modulo `modulus` without materializing the full power.
+fn modular_pow(mut base: Natural, mut exponent: Natural, modulus: &Natural) -> Natural {
+    let mut result = Natural::from(1u8) % modulus;
+
+    while exponent != Natural::ZERO {
+        if exponent.bit(0) {
+            result = (result * &base) % modulus;
+        }
+
+        exponent >>= 1usize;
+        base = (&base * &base) % modulus;
+    }
+
+    result
+}
+
+/// Divide with a quotient rounded toward negative infinity and a divisor-signed remainder.
+fn floor_div_mod(dividend: &Integer, divisor: &Integer) -> (Integer, Integer) {
+    let (quotient, remainder) = dividend.div_rem(divisor);
+
+    if remainder != Integer::ZERO && dividend.is_negative() != divisor.is_negative() {
+        (quotient - Integer::from(1u8), remainder + divisor)
+    } else {
+        (quotient, remainder)
+    }
 }
 
 #[derive(Debug)]
@@ -300,7 +324,7 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let byte: u8 = if self.costs.semantics.cons_byte_string_range_checks() {
-                    if *arg1 > 255u8 || *arg1 < 0 {
+                    if *arg1 > Integer::from(255u8) || *arg1 < Integer::ZERO {
                         return Err(MachineError::byte_string_cons_not_a_byte(arg1));
                     }
                     integer_to_u8(arg1).expect("should cast to u8 just fine")
@@ -375,7 +399,7 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 if !arg2.is_zero() {
-                    let (result, _) = arg1.div_mod(arg2);
+                    let (result, _) = floor_div_mod(arg1, arg2);
 
                     let new = self.arena.alloc_integer(result);
 
@@ -765,7 +789,7 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 if !arg2.is_zero() {
-                    let (_, result) = arg1.div_mod(arg2);
+                    let (_, result) = floor_div_mod(arg1, arg2);
                     let result = self.arena.alloc_integer(result);
                     let value = Value::integer(self.arena, result);
 
@@ -898,7 +922,7 @@ impl<'a> Machine<'a> {
 
                 let skip: usize = if *arg1 < Integer::ZERO {
                     0
-                } else if *arg1 > arg3.len() {
+                } else if *arg1 > Integer::from(arg3.len()) {
                     arg3.len()
                 } else {
                     integer_to_usize(arg1).expect("should cast to usize just fine")
@@ -906,7 +930,7 @@ impl<'a> Machine<'a> {
 
                 let take: usize = if *arg2 < Integer::ZERO {
                     0
-                } else if *arg2 > arg3.len() {
+                } else if *arg2 > Integer::from(arg3.len()) {
                     arg3.len()
                 } else {
                     integer_to_usize(arg2).expect("should cast to usize just fine")
@@ -1276,8 +1300,8 @@ impl<'a> Machine<'a> {
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.mod_op(&*SCALAR_PERIOD);
-                let mut arg1 = constant::integer_to_bytes(&arg1, true);
+                let arg1 = arg1.rem_euclid(&*SCALAR_PERIOD);
+                let mut arg1 = arg1.to_be_bytes().into_vec();
 
                 if size_scalar > arg1.len() {
                     let diff = size_scalar - arg1.len();
@@ -1438,9 +1462,9 @@ impl<'a> Machine<'a> {
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.mod_op(&*SCALAR_PERIOD);
+                let arg1 = arg1.rem_euclid(&*SCALAR_PERIOD);
 
-                let mut arg1 = constant::integer_to_bytes(&arg1, true);
+                let mut arg1 = arg1.to_be_bytes().into_vec();
 
                 if size_scalar > arg1.len() {
                     let diff = size_scalar - arg1.len();
@@ -1601,7 +1625,7 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::integer_to_byte_string_negative_size(size));
                 }
 
-                if *size > INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                if *size > Integer::from(INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
                     return Err(MachineError::integer_to_byte_string_size_too_big(
                         size,
                         INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
@@ -1831,7 +1855,7 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::read_bit_out_of_bounds(bit_index, bytes.len() * 8));
                 }
 
-                let (byte_index, bit_offset) = bit_index.div_rem(&8.into());
+                let (byte_index, bit_offset) = bit_index.div_rem(&Integer::from(8u8));
                 let bit_offset = integer_to_usize(&bit_offset).unwrap();
 
                 let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
@@ -1862,7 +1886,7 @@ impl<'a> Machine<'a> {
                         return Err(MachineError::write_bits_out_of_bounds(bit_index, bytes.len() * 8));
                     }
 
-                    let (byte_index, bit_offset) = bit_index.div_rem(&8.into());
+                    let (byte_index, bit_offset) = bit_index.div_rem(&Integer::from(8u8));
                     let bit_offset = integer_to_usize(&bit_offset).unwrap();
                     let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
                     let bit_mask: u8 = 1 << bit_offset;
@@ -1885,7 +1909,7 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::replicate_byte_negative_size(size));
                 }
 
-                if *size > INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                if *size > Integer::from(INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
                     return Err(MachineError::replicate_byte_size_too_big(
                         size,
                         INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
@@ -2037,12 +2061,12 @@ impl<'a> Machine<'a> {
                     return Ok(Value::byte_string(self.arena, result));
                 }
 
-                let shift = shift.mod_op(&Integer::from(length * 8));
-                if shift == Integer::ZERO {
+                let shift = shift.rem_euclid(&Integer::from(length * 8));
+                if shift == Natural::ZERO {
                     return Ok(Value::byte_string(self.arena, result));
                 }
-                let byte_shift = integer_to_usize(&(&shift / &Integer::from(8))).unwrap();
-                let bit_shift = integer_to_usize(&(shift % Integer::from(8))).unwrap();
+                let byte_shift = usize::try_from(&(&shift / &Natural::from(8u8))).unwrap();
+                let bit_shift = usize::try_from(&(shift % Natural::from(8u8))).unwrap();
 
                 if bit_shift == 0 {
                     // left rotation is the same as shift left
@@ -2145,18 +2169,17 @@ impl<'a> Machine<'a> {
                 let is_negative_exponent = exponent.is_negative();
                 let modulus = modulus_integer.clone().unsigned_abs();
                 let base_integer = base;
-                let base = base_integer.mod_op(modulus_integer).unsigned_abs();
+                let base = base_integer.rem_euclid(modulus_integer);
                 let exponent = exponent.clone().unsigned_abs();
-
                 let result = if is_negative_exponent {
-                    let (gcd, inverse, _) = base_integer.extended_gcd(modulus_integer);
-                    if gcd != 1u8 {
+                    let (gcd, inverse, _) = base_integer.gcd_ext(modulus_integer);
+                    if gcd != Natural::from(1u8) {
                         return Err(MachineError::ExplicitErrorTerm);
                     }
 
-                    inverse.mod_op(modulus_integer).unsigned_abs().mod_pow(exponent, &modulus)
+                    modular_pow(inverse.rem_euclid(modulus_integer), exponent, &modulus)
                 } else {
-                    base.mod_pow(exponent, &modulus)
+                    modular_pow(base, exponent, &modulus)
                 };
 
                 let value = Value::integer(self.arena, self.arena.alloc_integer(Integer::from(result)));
@@ -2182,7 +2205,7 @@ impl<'a> Machine<'a> {
                     return Ok(value);
                 }
 
-                let elements_to_drop_usize = if *elements_to_drop > usize::MAX {
+                let elements_to_drop_usize = if *elements_to_drop > Integer::from(usize::MAX) {
                     list.len()
                 } else {
                     usize::try_from(elements_to_drop).unwrap_or(0)
