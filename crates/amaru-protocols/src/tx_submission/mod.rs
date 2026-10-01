@@ -40,7 +40,7 @@ pub use tests::*;
 use crate::{
     connection::ConnectionMessage,
     mux,
-    protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT},
+    protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT, ingress_limit},
 };
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
@@ -106,13 +106,14 @@ pub async fn register_tx_submission(
         (tx_submission.contramap(Inputs::<ResponderLocalIn>::Network), None)
     };
 
+    let protocol = PROTO_N2N_TX_SUB.for_role(role).erase();
     eff.send(
         &muxer,
         mux::MuxMessage::Register {
-            protocol: PROTO_N2N_TX_SUB.for_role(role).erase(),
+            protocol,
             frame: mux::Frame::OneCborItem,
             handler,
-            max_buffer: 2_500_000,
+            max_buffer: ingress_limit(protocol),
         },
     )
     .await;

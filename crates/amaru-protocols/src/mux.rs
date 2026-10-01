@@ -265,8 +265,16 @@ pub async fn install_done_trap<M: SendData>(
     let trap = eff.stage("done-trap", done_trap).await;
     let trap = eff.supervise(trap, tombstone);
     let trap = eff.wire_up(trap, peer).await;
-    eff.send(muxer, MuxMessage::Register { protocol, frame: Frame::OneCborItem, handler: trap, max_buffer: 5760 })
-        .await;
+    eff.send(
+        muxer,
+        MuxMessage::Register {
+            protocol,
+            frame: Frame::OneCborItem,
+            handler: trap,
+            max_buffer: crate::protocol::ingress_limit(protocol),
+        },
+    )
+    .await;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -21,11 +21,16 @@ use std::{
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 
 mod check;
+mod limits;
 mod miniprotocol;
 mod pipeline;
 mod want_next;
 
 pub use check::ProtoSpec;
+pub use limits::{
+    BLOCK_FETCH_INGRESS, CHAIN_SYNC_INGRESS, HANDSHAKE_INGRESS, KEEP_ALIVE_INGRESS, PEER_SHARING_INGRESS,
+    TX_SUBMISSION_INGRESS, ingress_limit,
+};
 pub use miniprotocol::{
     Inputs, Internal, Miniprotocol, Outcome, ProtocolState, Pull, StageState, Timeout, from_wire, miniprotocol, outcome,
 };
@@ -42,7 +47,7 @@ pub enum Input<L, R> {
 // TODO(network) find right value
 pub const NETWORK_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ProtocolId<T: RoleT>(u16, PhantomData<T>);
 
 impl<T: RoleT> ProtocolId<T> {
@@ -80,12 +85,6 @@ impl<T: RoleT> PartialOrd for ProtocolId<T> {
 }
 
 impl<T: RoleT> Eq for ProtocolId<T> {}
-
-impl<T: RoleT> PartialEq for ProtocolId<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 && self.1 == other.1
-    }
-}
 
 impl<T: RoleT> std::fmt::Debug for ProtocolId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -186,6 +185,44 @@ pub const PROTO_N2N_TX_SUB: ProtocolId<Initiator> = ProtocolId::<Initiator>(4, P
 pub const PROTO_N2N_KEEP_ALIVE: ProtocolId<Initiator> = ProtocolId::<Initiator>(8, PhantomData);
 pub const PROTO_N2N_PEER_SHARE: ProtocolId<Initiator> = ProtocolId::<Initiator>(10, PhantomData);
 
+pub enum KnownProtocol {
+    Handshake,
+    ChainSync,
+    BlockFetch,
+    TxSubmission,
+    KeepAlive,
+    PeerShare,
+}
+
+impl KnownProtocol {
+    pub fn protocol_id<R: RoleT>(&self) -> ProtocolId<R> {
+        match self {
+            KnownProtocol::Handshake => PROTO_HANDSHAKE.for_role_t(),
+            KnownProtocol::ChainSync => PROTO_N2N_CHAIN_SYNC.for_role_t(),
+            KnownProtocol::BlockFetch => PROTO_N2N_BLOCK_FETCH.for_role_t(),
+            KnownProtocol::TxSubmission => PROTO_N2N_TX_SUB.for_role_t(),
+            KnownProtocol::KeepAlive => PROTO_N2N_KEEP_ALIVE.for_role_t(),
+            KnownProtocol::PeerShare => PROTO_N2N_PEER_SHARE.for_role_t(),
+        }
+    }
+}
+
+impl<R: RoleT> TryFrom<ProtocolId<R>> for KnownProtocol {
+    type Error = ProtocolId<R>;
+
+    fn try_from(protocol_id: ProtocolId<R>) -> Result<Self, Self::Error> {
+        match protocol_id.for_role_t::<Initiator>() {
+            PROTO_HANDSHAKE => Ok(KnownProtocol::Handshake),
+            PROTO_N2N_CHAIN_SYNC => Ok(KnownProtocol::ChainSync),
+            PROTO_N2N_BLOCK_FETCH => Ok(KnownProtocol::BlockFetch),
+            PROTO_N2N_TX_SUB => Ok(KnownProtocol::TxSubmission),
+            PROTO_N2N_KEEP_ALIVE => Ok(KnownProtocol::KeepAlive),
+            PROTO_N2N_PEER_SHARE => Ok(KnownProtocol::PeerShare),
+            _ => Err(protocol_id),
+        }
+    }
+}
+
 // The below are only for information regarding the allocated numbers, Amaru will not implement N2C protocols.
 
 // pub const PROTO_N2C_CHAIN_SYNC: ProtocolId<Initiator> = ProtocolId::<Initiator>(5, PhantomData);
@@ -217,6 +254,14 @@ impl<R: RoleT> ProtocolId<R> {
         match (role, self.role()) {
             (Role::Initiator, Role::Initiator) | (Role::Responder, Role::Responder) => self.erase(),
             (Role::Initiator, Role::Responder) | (Role::Responder, Role::Initiator) => self.opposite().erase(),
+        }
+    }
+
+    pub const fn for_role_t<R2: RoleT>(self) -> ProtocolId<R2> {
+        match R2::ROLE {
+            Some(Role::Initiator) => ProtocolId(self.for_role(Role::Initiator).0, PhantomData),
+            Some(Role::Responder) => ProtocolId(self.for_role(Role::Responder).0, PhantomData),
+            None => ProtocolId(self.0, PhantomData),
         }
     }
 

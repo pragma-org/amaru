@@ -28,13 +28,10 @@ use crate::{
     keepalive::{self, register_keepalive},
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, MuxMessage},
-    peer_sharing::{
-        MAX_MESSAGE_BYTES, PeerSharingMessage, ShareResult, register_peer_sharing_initiator,
-        register_peer_sharing_responder,
-    },
+    peer_sharing::{PeerSharingMessage, ShareResult, register_peer_sharing_initiator, register_peer_sharing_responder},
     protocol::{
         Erased, Inputs, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE,
-        PROTO_N2N_PEER_SHARE, PROTO_N2N_TX_SUB, ProtocolId, Role,
+        PROTO_N2N_PEER_SHARE, PROTO_N2N_TX_SUB, ProtocolId, Role, ingress_limit,
     },
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
@@ -353,23 +350,18 @@ async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMe
 ///
 /// A responder always serves. An initiator serves when it advertises full duplex, which is
 /// the case for every connection this node opens. Peer sharing is included when this side
-/// advertises it. The limits match the `max_buffer` each responder's `Register` installs.
-/// Any protocol id absent from this list still fails the connection.
+/// advertises it. Each direction asks [`ingress_limit`] for its own protocol id (the responder
+/// bit included). Any protocol id absent from this list still fails the connection.
 fn early_mini_protocol_buffers(advertisable: bool) -> Vec<(ProtocolId<Erased>, usize)> {
-    let mut both = vec![
-        (PROTO_HANDSHAKE, 5760),
-        (PROTO_N2N_CHAIN_SYNC, 5760),
-        (PROTO_N2N_BLOCK_FETCH, 2_500_000),
-        (PROTO_N2N_TX_SUB, 2_500_000),
-        (PROTO_N2N_KEEP_ALIVE, 65535),
-    ];
+    let mut both =
+        vec![PROTO_HANDSHAKE, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_BLOCK_FETCH, PROTO_N2N_TX_SUB, PROTO_N2N_KEEP_ALIVE];
     if advertisable {
-        both.push((PROTO_N2N_PEER_SHARE, MAX_MESSAGE_BYTES));
+        both.push(PROTO_N2N_PEER_SHARE);
     }
     let mut buffers = Vec::with_capacity(both.len() * 2);
-    for (id, limit) in both {
-        buffers.push((id.erase(), limit));
-        buffers.push((id.responder().erase(), limit));
+    for id in both {
+        buffers.push((id.erase(), ingress_limit(id)));
+        buffers.push((id.responder().erase(), ingress_limit(id.responder())));
     }
     buffers
 }
@@ -425,8 +417,11 @@ async fn do_initialize(
         Role::Initiator => PROTO_HANDSHAKE.erase(),
         Role::Responder => PROTO_HANDSHAKE.responder().erase(),
     };
-    eff.send(&muxer, MuxMessage::Register { protocol, frame: mux::Frame::OneCborItem, handler, max_buffer: 5760 })
-        .await;
+    eff.send(
+        &muxer,
+        MuxMessage::Register { protocol, frame: mux::Frame::OneCborItem, handler, max_buffer: ingress_limit(protocol) },
+    )
+    .await;
 
     State::Handshake { muxer, handshake }
 }
@@ -787,6 +782,33 @@ mod tests {
     use tokio::runtime::Runtime;
 
     use super::*;
+
+    /// Limits installed for each mini-protocol id, initiator and responder.
+    ///
+    /// These are the mux ingress sizes from ouroboros-network `maximumIngressQueue`
+    /// (network-spec table 3.15; handshake is the 4×1440 transmission unit). The
+    /// assertion goes through [`early_mini_protocol_buffers`], which is what the mux
+    /// is constructed with — not a second copy of that table.
+    #[test]
+    fn ingress_limit_for_each_protocol_and_role() {
+        let buffers = early_mini_protocol_buffers(true);
+        let installed = |id: ProtocolId<Erased>| -> usize {
+            buffers.iter().find(|(proto, _)| *proto == id).map(|(_, n)| *n).expect("protocol is buffered")
+        };
+        for (id, expected) in [
+            (PROTO_HANDSHAKE, 5_760usize),
+            (PROTO_N2N_CHAIN_SYNC, 462_000),
+            (PROTO_N2N_BLOCK_FETCH, 23_068_694),
+            (PROTO_N2N_TX_SUB, 721_424),
+            (PROTO_N2N_KEEP_ALIVE, 1_408),
+            (PROTO_N2N_PEER_SHARE, 5_760),
+        ] {
+            assert_eq!(ingress_limit(id), expected, "initiator {id}");
+            assert_eq!(ingress_limit(id.responder()), expected, "responder {}", id.responder());
+            assert_eq!(installed(id.erase()), ingress_limit(id), "early initiator {id}");
+            assert_eq!(installed(id.responder().erase()), ingress_limit(id.responder()), "early responder {id}");
+        }
+    }
 
     #[test]
     fn test_fetch_blocks_in_initial_state_reschedules() {

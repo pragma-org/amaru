@@ -36,7 +36,7 @@ pub use responder::{PeerSharingResponder, ResponderMessage, register_peer_sharin
 
 use crate::{
     mux::{Frame, MuxMessage},
-    protocol::{PROTO_N2N_PEER_SHARE, ProtoSpec, ProtocolState, RoleT},
+    protocol::{PROTO_N2N_PEER_SHARE, ProtoSpec, ProtocolState, RoleT, ingress_limit},
 };
 
 /// Reply from peer selection with addresses to advertise in `MsgSharePeers`.
@@ -99,7 +99,7 @@ pub async fn register_peer_sharing_initiator<M: amaru_pure_stage::SendData>(
             protocol: PROTO_N2N_PEER_SHARE.erase(),
             frame: Frame::OneCborItem,
             handler: ps.contramap(Inputs::<PeerSharingMessage>::Network),
-            max_buffer: MAX_MESSAGE_BYTES,
+            max_buffer: ingress_limit(PROTO_N2N_PEER_SHARE),
         },
     )
     .await;

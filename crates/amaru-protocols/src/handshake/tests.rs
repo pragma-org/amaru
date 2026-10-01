@@ -37,7 +37,7 @@ use crate::{
     handshake::{self, Message},
     mux::{self, MuxMessage},
     network_effects::create_connection,
-    protocol::{Inputs, PROTO_HANDSHAKE, Role},
+    protocol::{Inputs, PROTO_HANDSHAKE, Role, ingress_limit},
     protocol_messages::{
         version_data::{PeerSharing, VersionData},
         version_number::VersionNumber,
@@ -91,7 +91,7 @@ fn test_against_node() {
                 protocol: PROTO_HANDSHAKE.erase(),
                 frame: mux::Frame::OneCborItem,
                 handler: handshake_bytes,
-                max_buffer: 5760,
+                max_buffer: ingress_limit(PROTO_HANDSHAKE),
             }],
         )
         .unwrap();
@@ -163,7 +163,7 @@ fn test_against_node_with_tokio() {
                 protocol: PROTO_HANDSHAKE.erase(),
                 frame: mux::Frame::OneCborItem,
                 handler: handshake_bytes,
-                max_buffer: 5760,
+                max_buffer: ingress_limit(PROTO_HANDSHAKE),
             }],
         )
         .unwrap();
@@ -214,8 +214,15 @@ async fn haskell_ping_handshake_negotiates_over_tcp() {
     graph.resources().put::<ConnectionsResource>(Arc::new(connections));
 
     let mux = graph.stage("mux", mux::stage);
-    let mux = graph
-        .wire_up(mux, mux::State::new(conn_id, &[(PROTO_HANDSHAKE.responder().erase(), 5760)], Role::Responder, peer));
+    let mux = graph.wire_up(
+        mux,
+        mux::State::new(
+            conn_id,
+            &[(PROTO_HANDSHAKE.responder().erase(), ingress_limit(PROTO_HANDSHAKE.responder()))],
+            Role::Responder,
+            peer,
+        ),
+    );
 
     let (output, mut rx) = graph.output::<handshake::HandshakeResult>("handshake_result", 10);
     let handshake = graph.stage("handshake", handshake::responder());
@@ -234,7 +241,7 @@ async fn haskell_ping_handshake_negotiates_over_tcp() {
                 protocol: PROTO_HANDSHAKE.responder().erase(),
                 frame: mux::Frame::OneCborItem,
                 handler: handshake.contramap(Inputs::Network),
-                max_buffer: 5760,
+                max_buffer: ingress_limit(PROTO_HANDSHAKE),
             }],
         )
         .unwrap();
