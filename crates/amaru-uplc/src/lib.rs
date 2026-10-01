@@ -376,7 +376,7 @@ mod tests {
     fn arithmetic_rejects_out_of_range_integers_from_v11() {
         let arena = Arena::new();
         let version = MachineVersion::V1_1_0;
-        let out_of_range = arena.alloc_integer(Integer::from(1u8) << 262_143u64);
+        let out_of_range = arena.alloc_integer(Integer::from(1u8) << 262_143usize);
         let term = Term::add_integer(&arena)
             .apply(&arena, Term::integer(&arena, out_of_range))
             .apply(&arena, Term::integer_from(&arena, 0));

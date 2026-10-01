@@ -25,7 +25,7 @@ use super::{
 use crate::{
     arena::Arena,
     bls::Compressable,
-    constant::{self, Constant, Integer, IntegerExt},
+    constant::{self, Constant, Integer},
     data::PlutusData,
     ledger_value::LedgerValue,
     typ::Type,
