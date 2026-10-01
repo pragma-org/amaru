@@ -28,7 +28,8 @@ RUN mkdir -p /var/lib/amaru && chown amaru:amaru /var/lib/amaru
 
 # Copy the pre-compiled binary
 COPY --chown=amaru:amaru ./dist/bin/amaru /usr/local/bin/amaru
-RUN chmod 0755 /usr/local/bin/amaru
+COPY --chown=amaru:amaru ./dist/bin/amaru-kes-signer /usr/local/bin/amaru-kes-signer
+RUN chmod 0755 /usr/local/bin/amaru /usr/local/bin/amaru-kes-signer
 
 # Initialize entrypoint & default command
 USER amaru

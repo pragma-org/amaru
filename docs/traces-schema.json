@@ -4279,7 +4279,7 @@
       "name": "forge_failed",
       "level": "TRACE",
       "target": "amaru::consensus::forge",
-      "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}.",
+      "description": "Forging the header or storing it failed. Signing failures miss the slot; validation and storage failures shut down the node. Step ∈ {sign_header, validate_header, store_header, store_block}.",
       "public": true
     },
     "amaru::consensus::forge::KES_PERIOD": {
@@ -4297,7 +4297,7 @@
       "name": "kes_period",
       "level": "TRACE",
       "target": "amaru::consensus::forge",
-      "description": "The in-memory KES key moved to a new period.",
+      "description": "The KES key used for signing moved to a new period.",
       "public": true
     },
     "amaru::consensus::forge::MISSED_SLOT": {
@@ -4360,6 +4360,28 @@
       "level": "TRACE",
       "target": "amaru::consensus::forge",
       "description": "Leader schedules still held, with how many led slots remain in each epoch and how many of k blocks since freeze have been adopted. `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.",
+      "public": true
+    },
+    "amaru::consensus::forge::SIGNER_STATUS": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "detail"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "signer_status",
+      "level": "TRACE",
+      "target": "amaru::consensus::forge",
+      "description": "Status of the separate KES signer process.",
       "public": true
     },
     "amaru::consensus::perf::fork::SWITCH": {
