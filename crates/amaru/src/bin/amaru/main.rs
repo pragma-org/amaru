@@ -21,7 +21,7 @@ use amaru::{
     panic::panic_handler,
     version,
 };
-use amaru_observability::error;
+use amaru_observability::{Level, error, event_enabled};
 use amaru_tui as tui;
 use anyhow::{Context, anyhow};
 
@@ -39,11 +39,15 @@ fn main() -> ExitCode {
     match try_main() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            error!(
-                cli::ERROR,
-                description = format!("{err:#}"),
-                cause = @err.source().as_ref().map(|e| tracing::field::display(e.to_string())),
-            );
+            if event_enabled!(amaru_observability::amaru::cli::ERROR::TARGET, Level::ERROR) {
+                error!(
+                    cli::ERROR,
+                    description = format!("{err:#}"),
+                    cause = @err.source().as_ref().map(|e| tracing::field::display(e.to_string())),
+                );
+            } else {
+                eprintln!("error: {err:#}");
+            }
             ExitCode::FAILURE
         }
     }

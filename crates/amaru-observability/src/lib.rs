@@ -53,9 +53,16 @@ pub use span_encode::{
 };
 pub use telemetry_capture::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
 pub use trace_context::TraceContext;
-pub use tracing::{self, Instrument};
+pub use tracing::{self, Instrument, Level};
 pub use tracing_opentelemetry;
 pub use tracing_subscriber;
+
+#[macro_export]
+macro_rules! event_enabled {
+    ($target:expr, $level:expr $(,)?) => {
+        $crate::tracing::event_enabled!(target: $target, $level)
+    };
+}
 
 #[macro_export]
 macro_rules! trace_event {
