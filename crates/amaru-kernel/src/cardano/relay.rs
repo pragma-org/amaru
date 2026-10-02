@@ -198,10 +198,11 @@ impl Arbitrary for Relay {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
-    #[expect(clippy::unwrap_used)]
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         let any_port = || option::of(any::<u32>());
-        let any_dns_name = || any::<String>().prop_map(|name| MaxString128::try_from(name).unwrap());
+        let any_dns_name = || {
+            any::<String>().prop_filter_map("DNS name must fit MaxString128", |name| MaxString128::try_from(name).ok())
+        };
         let any_ipv4 = option::of(any::<[u8; 4]>().prop_map(|octets| Bytes::from(Vec::from(octets))));
         let any_ipv6 = option::of(any::<[u8; 16]>().prop_map(|octets| Bytes::from(Vec::from(octets))));
 

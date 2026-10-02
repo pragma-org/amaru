@@ -137,7 +137,11 @@ mod tests {
                 (121_u64..=127, Just(None)),
                 (1280_u64..=1400, Just(None))
             ];
-            let any_fields = prop::collection::vec(any_with::<PlutusData>(Depth(depth - 1)), 0..depth as usize);
+            let any_fields = if depth == 0 {
+                Just(Vec::new()).boxed()
+            } else {
+                prop::collection::vec(any_with::<PlutusData>(Depth(depth - 1)), 0..depth as usize).boxed()
+            };
 
             (any_tag, any_fields)
                 .prop_map(|((tag, any_constructor), fields)| Constr { tag, any_constructor, fields })

@@ -161,7 +161,6 @@ impl Arbitrary for GovernanceAction {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
-    #[allow(clippy::unwrap_used)]
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         let parameter_change =
             (any::<Option<ProposalId>>(), any::<ProtocolParamUpdate>(), any::<Option<Hash<{ hash::size::SCRIPT }>>>())
@@ -172,25 +171,27 @@ impl Arbitrary for GovernanceAction {
         let hard_fork_initiation = (any::<Option<ProposalId>>(), any::<ProtocolVersion>())
             .prop_map(|(parent, version)| GovernanceAction::HardForkInitiation(parent, version));
 
-        let treasury_withdrawals =
-            (collection::vec(any::<(RewardAccount, Lovelace)>(), 0..3), any::<Option<Hash<{ hash::size::SCRIPT }>>>())
-                .prop_map(|(withdrawals, guardrails)| {
-                    GovernanceAction::TreasuryWithdrawals(KeyValuePairs::try_from(withdrawals).unwrap(), guardrails)
-                });
+        let treasury_withdrawals = (
+            collection::btree_map(any::<RewardAccount>(), any::<Lovelace>(), 0..3),
+            any::<Option<Hash<{ hash::size::SCRIPT }>>>(),
+        )
+            .prop_map(|(withdrawals, guardrails)| {
+                GovernanceAction::TreasuryWithdrawals(KeyValuePairs::from(withdrawals), guardrails)
+            });
 
         let no_confidence = any::<Option<ProposalId>>().prop_map(GovernanceAction::NoConfidence);
 
         let update_committee = (
             any::<Option<ProposalId>>(),
             collection::btree_set(any::<Credential>(), 0..3),
-            collection::vec(any::<(Credential, Epoch)>(), 0..3),
+            collection::btree_map(any::<Credential>(), any::<Epoch>(), 0..3),
             any::<RationalNumber>(),
         )
             .prop_map(|(parent, to_remove, to_add, quorum)| {
                 GovernanceAction::UpdateCommittee(
                     parent,
                     to_remove.into_iter().collect(),
-                    KeyValuePairs::try_from(to_add).unwrap(),
+                    KeyValuePairs::from(to_add),
                     quorum,
                 )
             });
