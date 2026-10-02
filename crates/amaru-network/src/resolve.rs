@@ -28,7 +28,10 @@ use std::{
 
 use amaru_kernel::{DnsName, Peer, PeerCandidate};
 use amaru_observability::warn;
-use hickory_resolver::{TokioResolver, proto::rr::rdata::SRV};
+use hickory_resolver::{
+    TokioResolver,
+    proto::rr::{RData, Record},
+};
 
 static RESOLVER: OnceLock<TokioResolver> = OnceLock::new();
 
@@ -53,7 +56,8 @@ pub fn init_resolver() -> Result<(), ResolverInitError> {
         return Ok(());
     }
     let builder = TokioResolver::builder_tokio().map_err(|error| ResolverInitError { message: error.to_string() })?;
-    let _ = RESOLVER.set(builder.build());
+    let resolver = builder.build().map_err(|error| ResolverInitError { message: error.to_string() })?;
+    let _ = RESOLVER.set(resolver);
     Ok(())
 }
 
@@ -80,13 +84,16 @@ impl SrvChoice {
     }
 }
 
-fn srv_choice(srv: &SRV) -> Option<SrvChoice> {
-    if srv.port() == 0 || srv.target().is_root() {
+fn srv_choice(record: &Record) -> Option<SrvChoice> {
+    let RData::SRV(srv) = &record.data else {
+        return None;
+    };
+    if srv.port == 0 || srv.target.is_root() {
         return None;
     }
-    let target = srv.target().to_string();
+    let target = srv.target.to_string();
     let target = target.trim_end_matches('.').to_string();
-    let choice = SrvChoice { priority: srv.priority(), port: srv.port(), target };
+    let choice = SrvChoice { priority: srv.priority, port: srv.port, target };
     choice.is_usable().then_some(choice)
 }
 
@@ -115,7 +122,7 @@ async fn resolve_srv(name: &DnsName) -> Option<Peer> {
             return None;
         }
     };
-    let records = ordered_usable_srv(lookup.iter().filter_map(srv_choice));
+    let records = ordered_usable_srv(lookup.answers().iter().filter_map(srv_choice));
     for record in records {
         if let Some(peer) = resolve_host(&record.target, record.port).await {
             return Some(peer);
