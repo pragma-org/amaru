@@ -189,16 +189,23 @@ fn analyze_slow_evals(threshold: Duration) {
         })
 }
 
-#[divan::bench(sample_count = SAMPLES.len() as u32)]
+#[divan::bench(sample_count = SAMPLES.len() as u32, sample_size = 3)]
 fn turbo_decode_eval(bencher: Bencher<'_, '_>) {
     let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
-    let mut scripts = collect_scripts(&SAMPLES);
-    bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, plutus_version)| {
-        arena.reset();
-        let (program, _) = flat::decode::<DeBruijn>(&arena, &flat, PROTOCOL_VERSION).expect("Failed to decode");
-        let result = program.eval(&arena, cost_model(plutus_version), ExBudget::max());
-        let _term = result.term.expect("Failed to evaluate");
-    });
+    let scripts = collect_scripts(&SAMPLES);
+    let mut i = 0;
+    bencher
+        .with_inputs(|| {
+            let (_, ref flat, plutus_version) = scripts[i % scripts.len()];
+            i += 1;
+            (flat, cost_model(plutus_version))
+        })
+        .bench_local_values(|(flat, costs)| {
+            arena.reset();
+            let (program, _) = flat::decode::<DeBruijn>(&arena, flat, PROTOCOL_VERSION).expect("Failed to decode");
+            let result = program.eval(&arena, costs, ExBudget::max());
+            let _term = result.term.expect("Failed to evaluate");
+        });
 }
 
 #[divan::bench(sample_count = SAMPLES.len() as u32)]
