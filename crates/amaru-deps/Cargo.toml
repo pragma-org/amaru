@@ -23,6 +23,7 @@ ignored = [
   "bytes",
   "clap",
   "clap_builder",
+  "crc32fast",
   "console",
   "criterion",
   "crossbeam-epoch",
@@ -140,6 +141,7 @@ insta = { version = "1", features = ["yaml"] }
 itertools = { version = "0.13" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
+num-bigint = { version = "0.4" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1", features = ["critical-section"] }
@@ -193,6 +195,7 @@ hashbrown = { version = "0.17", default-features = false, features = ["default-h
 itertools = { version = "0.13" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
+num-bigint = { version = "0.4" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1", features = ["critical-section"] }
@@ -232,7 +235,6 @@ ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -248,7 +250,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
@@ -264,7 +265,6 @@ ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -280,7 +280,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
@@ -296,7 +295,6 @@ ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -312,7 +310,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
@@ -328,7 +325,6 @@ ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -344,7 +340,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
@@ -361,7 +356,6 @@ ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -378,7 +372,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
@@ -392,7 +385,6 @@ hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "cl
 ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -407,7 +399,6 @@ windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_Fil
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 libc = { version = "0.2" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
@@ -422,7 +413,6 @@ getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-f
 js-sys = { version = "0.3" }
 libc = { version = "0.2" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 uuid = { version = "1", default-features = false, features = ["js"] }
@@ -436,7 +426,6 @@ futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 js-sys = { version = "0.3" }
 libc = { version = "0.2" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 slab = { version = "0.4" }
@@ -452,7 +441,6 @@ ipnet = { version = "2", features = ["serde"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
@@ -467,7 +455,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }

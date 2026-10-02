@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::str::FromStr;
-
 use dashu_base::{BitTest, Signed, UnsignedAbs};
 use dashu_int::{IBig, UBig};
 
@@ -67,15 +65,6 @@ pub(crate) fn integer_from_bytes(bytes: &[u8], big_endian: bool) -> Integer {
 pub(crate) fn integer_to_bytes(integer: &Integer, big_endian: bool) -> Vec<u8> {
     let magnitude = integer.unsigned_abs();
     if big_endian { magnitude.to_be_bytes().into() } else { magnitude.to_le_bytes().into() }
-}
-
-pub(crate) fn integer_from_num_bigint(integer: num_bigint::BigInt) -> Integer {
-    Integer::from_str(&integer.to_string()).unwrap_or_else(|_| unreachable!("decimal BigInt must parse as an Integer"))
-}
-
-pub(crate) fn integer_to_num_bigint(integer: &Integer) -> num_bigint::BigInt {
-    num_bigint::BigInt::from_str(&integer.to_string())
-        .unwrap_or_else(|_| unreachable!("decimal Integer must parse as a BigInt"))
 }
 
 pub(crate) fn integer_to_usize(integer: &Integer) -> Option<usize> {

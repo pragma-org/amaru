@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_minicbor_extra::{decode_bigint, encode_bigint, encode_bytestring};
+use amaru_minicbor_extra::{decode_integer, encode_bytestring, encode_integer};
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
 use stacksafe::stacksafe;
 
-use crate::{
-    constant::{integer_from_num_bigint, integer_to_num_bigint},
-    data::PlutusData,
-    flat::SimpleCtx,
-};
+use crate::{data::PlutusData, flat::SimpleCtx};
 
 impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> {
     #[stacksafe]
@@ -105,7 +101,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 
                 match tag.try_into() {
                     Ok(IanaTag::PosBignum | IanaTag::NegBignum) => {
-                        let integer = ctx.arena.alloc_integer(integer_from_num_bigint(decode_bigint(decoder)?));
+                        let integer = ctx.arena.alloc_integer(decode_integer(decoder)?);
 
                         Ok(PlutusData::integer(ctx.arena, integer))
                     }
@@ -163,7 +159,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
             | minicbor::data::Type::I32
             | minicbor::data::Type::I64
             | minicbor::data::Type::Int => {
-                let integer = ctx.arena.alloc_integer(integer_from_num_bigint(decode_bigint(decoder)?));
+                let integer = ctx.arena.alloc_integer(decode_integer(decoder)?);
 
                 Ok(PlutusData::integer(ctx.arena, integer))
             }
@@ -237,8 +233,7 @@ impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
                 }
             }
             PlutusData::Integer(n) => {
-                let n = integer_to_num_bigint(n);
-                encode_bigint(e, &n)?;
+                encode_integer(e, n)?;
             }
             // we match the haskell implementation by encoding bytestrings longer than 64
             // bytes as indefinite lists of bytes

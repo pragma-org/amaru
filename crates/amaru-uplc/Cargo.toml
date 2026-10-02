@@ -29,7 +29,6 @@ dashu-int.workspace = true
 hamming.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["std"] }
-num-bigint.workspace = true
 once_cell.workspace = true
 ripemd.workspace = true
 secp256k1.workspace = true
