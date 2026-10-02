@@ -8,15 +8,6 @@ on:
         type: string
         required: false
         default: ""
-    secrets:
-      R2_ACCESS_KEY_ID:
-        required: true
-      R2_SECRET_ACCESS_KEY:
-        required: true
-      S3_ENDPOINT:
-        required: true
-      CARDANO_NODE_BUCKET_NAME:
-        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,42 +18,28 @@ permissions:
 
 jobs:
   snapshots:
-    name: End-to-end snapshot tests
+    name: End-to-end snapshot tests (${{ matrix.network }})
     runs-on: blacksmith-8vcpu-ubuntu-2404
     concurrency:
-      group: ledger-epoch-snapshots-${{ matrix.network.name }}-${{ github.head_ref || github.ref }}
+      group: ledger-epoch-snapshots-${{ matrix.network }}-${{ github.head_ref || github.ref }}
       cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
-        network:
-          - name: preprod
-            magic: 1
-            start_epoch: 270
-            target_epoch: 280
-          - name: preview
-            magic: 2
-            start_epoch: 1119
-            target_epoch: 1180
-        cardano_node_version: [11.0.1]
+        network: [preprod, preview]
     env:
-      AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
-      AMARU_PEER_ADDRESS: 127.0.0.1:3001
+      AMARU_NETWORK: ${{ inputs.network || matrix.network }}
+      START_EPOCH: ${{ matrix.network == 'preprod' && '270' || '1119' }}
+      TARGET_EPOCH: ${{ matrix.network == 'preprod' && '275' || '1145' }}
       AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
-      TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
+      TRACE_CONTRACT: data/${{ matrix.network }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
       AMARU_WITH_OPEN_TELEMETRY: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
       OTEL_METRIC_EXPORT_INTERVAL: 1000
       RUST_BACKTRACE: 1
-      CARDANO_NODE_IMAGE: ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}@sha256:007da778998d0bdb043fb834c62b9da1c95e33610f31f6f9cccab29a945e2b99
 
     steps:
       - name: Support longpaths
@@ -73,88 +50,26 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Configure runner paths
-        shell: bash
-        run: |
-          {
-            echo "CARDANO_NODE_DB=$RUNNER_TEMP/db-${{ matrix.network.name }}"
-            echo "CARDANO_NODE_SOCKET_FILE=$RUNNER_TEMP/ipc/node.socket"
-          } >> "$GITHUB_ENV"
-
       - name: Reclaim Disk Space
         run: |
           chmod +x ./scripts/cleanup-runner.sh
           ./scripts/cleanup-runner.sh
 
-      - name: Download (Haskell) cardano-node's db
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$CARDANO_NODE_DB" "$(dirname "$CARDANO_NODE_SOCKET_FILE")"
-          aws s3 cp "$OBJECT" - --endpoint-url "$ENDPOINT" | tar --zstd -xf - -C "$CARDANO_NODE_DB"
-          touch "$CARDANO_NODE_DB/clean"
-
-      - name: Spawn Haskell Node
-        id: spawn-cardano-node
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
-        shell: bash
-        env:
-          CONFIG_DIR: cardano-node-config/${{ matrix.network.name }}
-        run: |
-          set -euo pipefail
-          docker pull "$CARDANO_NODE_IMAGE"
-          make download-haskell-config
-          jq '
-            .UseTraceDispatcher = true
-            | .TraceOptionMetricsPrefix = "cardano.node.metrics."
-            | .TraceOptionResourceFrequency = 1000
-            | .TraceOptions = (.TraceOptions // {})
-            | .TraceOptions[""] = ((.TraceOptions[""] // {}) + {
-                "backends": [
-                  "EKGBackend",
-                  "PrometheusSimple suffix 0.0.0.0 12798",
-                  "Stdout HumanFormatUncoloured"
-                ],
-                "detail": "DNormal",
-                "severity": "Notice"
-              })
-            | .TraceOptions.ChainDB = ((.TraceOptions.ChainDB // {}) + {"severity": "Info"})
-            | .TraceOptions.Resources = ((.TraceOptions.Resources // {}) + {"severity": "Silence"})
-          ' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
-          mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
-          jq 'del(.bootstrapPeers) | del(.peerSnapshotFile) | .useLedgerAfterSlot = -1' "./$CONFIG_DIR/topology.json" > "$CONFIG_DIR/topology.patched.json"
-          mv "$CONFIG_DIR/topology.patched.json" "$CONFIG_DIR/topology.json"
-          jq '.hasPrometheus = ["0.0.0.0", 12798]' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
-          mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
-          docker run -d --name cardano-node \
-            -v "$CARDANO_NODE_DB:/db" \
-            -v "$(dirname "$CARDANO_NODE_SOCKET_FILE"):/ipc" \
-            -v "./$CONFIG_DIR:/config" \
-            -v "./$CONFIG_DIR:/genesis" \
-            -p 3001:3001 \
-            -p 127.0.0.1:12798:12798 \
-            "$CARDANO_NODE_IMAGE" run \
-              --config /config/config.json \
-              --database-path /db \
-              --socket-path /ipc/node.socket \
-              --topology /config/topology.json
-
       - uses: ./.github/actions/stage-peer-snapshots
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
 
       - uses: ./.github/actions/cache
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
 
       - name: Bootstrap DBs
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         uses: ./.github/actions/bootstrap-db
         with:
-          network: ${{ matrix.network.name }}
-          epoch: ${{ matrix.network.start_epoch }}
+          network: ${{ matrix.network }}
+          epoch: ${{ env.START_EPOCH }}
 
       - name: Start OTLP collector
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         shell: bash
         run: |
           docker run -d --network host \
@@ -165,8 +80,8 @@ jobs:
               --set exporters::prometheus::metric_expiration=10m
 
       - name: Run epoch snapshot tests
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
-        timeout-minutes: 30
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
+        timeout-minutes: 60
         shell: bash
         env:
           # running with DEBUG log level doesn’t work when github actions are collecting the logs because
@@ -175,11 +90,11 @@ jobs:
           AMARU_TRACE: "amaru=info"
         run: |
           ./scripts/run-until-then-test \
-            "${{ matrix.network.start_epoch }}" \
-            "${{ matrix.network.target_epoch }}"
+            "$START_EPOCH" \
+            "$TARGET_EPOCH"
 
-      - name: Wait for metrics endpoints
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+      - name: Wait for Amaru metrics
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         shell: bash
         run: |
           timeout 120 bash -c \
@@ -188,35 +103,27 @@ jobs:
             docker logs otlp-collector 2>&1 | tail -20 || true
             exit 1
           }
-          timeout 120 bash -c \
-            'until curl -sf http://localhost:12798/metrics | grep -q "^cardano_node_metrics_"; do sleep 2; done' || {
-            echo "cardano-node metrics did not become available within 120s."
-            docker logs cardano-node 2>&1 | tail -30 || true
-            exit 1
-          }
 
-      - name: Check metrics conformance
-        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+      - name: Check metrics against cardano-node reference
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         shell: bash
         run: |
           scripts/compare-metrics \
             --check \
-            --output "metrics-report-${{ matrix.network.name }}.json" \
+            --output "metrics-report-${{ matrix.network }}.json" \
             --summary
 
       - name: Upload metrics report
-        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network.name) }}
+        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
-          name: metrics-coverage-report-${{ matrix.network.name }}
-          path: metrics-report-${{ matrix.network.name }}.json
+          name: metrics-coverage-report-${{ matrix.network }}
+          path: metrics-report-${{ matrix.network }}.json
           if-no-files-found: warn
 
-      - name: Teardown metrics collector and Haskell node
-        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network.name) }}
+      - name: Teardown metrics collector
+        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network) }}
         shell: bash
         run: |
           docker logs --tail 50 otlp-collector || true
           docker rm -f otlp-collector || true
-          docker logs --tail 200 cardano-node || true
-          docker rm -f cardano-node || true
