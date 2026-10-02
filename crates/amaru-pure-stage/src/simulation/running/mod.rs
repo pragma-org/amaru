@@ -42,7 +42,7 @@ use crate::{
         random::EvalStrategy,
         running::{
             resume::{
-                resume_add_stage_internal, resume_call_internal, resume_call_send_internal,
+                ReceiveResume, resume_add_stage_internal, resume_call_internal, resume_call_send_internal,
                 resume_cancel_schedule_internal, resume_clock_internal, resume_detach_internal,
                 resume_external_internal, resume_receive_internal, resume_schedule_internal, resume_send_internal,
                 resume_wait_internal, resume_wire_stage_internal,
@@ -1057,31 +1057,44 @@ impl SimulationRunning {
 
         match effect {
             Effect::Receive { at_stage: to } => {
-                match resume_receive_internal(self, &to) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        // nothing in the mailbox
-                        return None;
-                    }
+                let resumed = match resume_receive_internal(self, &to) {
+                    Ok(resumed) => resumed,
                     Err(err) => {
                         tracing::warn!(%to, ?err, "cannot resume receive, shutting down simulation");
                         let terminated =
                             err.downcast::<resume::UnsupervisedChildTermination>().map(|e| e.0).unwrap_or(to);
                         return Some(Blocked::Terminated(terminated));
                     }
+                };
+                // Only a bulk pop frees a mailbox slot. A tombstone, timeout, or priority
+                // message leaves the bulk mailbox full, so a blocked sender stays blocked.
+                if resumed != ReceiveResume::Bulk {
+                    return None;
                 }
-                let data_to = self.stages.get_mut(&to)?;
-                // resuming receive has removed one message from the mailbox, so check for blocked senders
-                let (from, msg) = data_to.senders.pop_front()?;
-                post_message(data_to, self.mailbox_size, msg);
+                let from = {
+                    let data_to = self.stages.get_mut(&to)?;
+                    let (from, msg) = data_to.senders.pop_front()?;
+                    match post_message(data_to, self.mailbox_size, msg) {
+                        DeliverMessageResult::Delivered(_) => from,
+                        DeliverMessageResult::Full(data_to, msg) => {
+                            data_to.senders.push_front((from, msg));
+                            return None;
+                        }
+                        DeliverMessageResult::NotFound => return None,
+                    }
+                };
                 let data_from = skip_if_terminated(self.stages.get_mut(&from), &from)?;
+                // A queued call stays suspended: the reply path or the original deadline completes it.
+                if matches!(data_from.waiting, Some(StageEffect::Call(_, _, _))) {
+                    return None;
+                }
                 resume_send_internal(
                     data_from,
                     &mut |name, response| {
                         tracing::debug!(%name, ?response, "enqueuing stage");
                         self.runnable.push_back((name, response));
                     },
-                    to.clone(),
+                    to,
                     &mut None,
                 )
                 .expect("call is always runnable");
@@ -1113,7 +1126,7 @@ impl SimulationRunning {
                             data_to,
                             run,
                             Some(id),
-                            msg.expect("scheduled call response must preserve payload"),
+                            Some(msg.expect("scheduled call response must preserve payload")),
                         )
                         .ok();
                     }
@@ -1366,6 +1379,10 @@ impl SimulationRunning {
         let senders = std::mem::take(&mut data.senders);
         for (waiting, _) in senders {
             let data = expect_stage(self.stages.get_mut(&waiting), &waiting, "which cannot send");
+            // The deadline wakeup still completes a queued call. Resuming it as a send only logs a failure.
+            if matches!(data.waiting, Some(StageEffect::Call(_, _, _))) {
+                continue;
+            }
             if let Err(err) = resume_send_internal(data, run, at_stage.clone(), &mut None) {
                 tracing::error!(from = %waiting, to = %at_stage, %err, "failed to resume send");
                 continue;

@@ -165,6 +165,22 @@ impl ScheduleIds {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CallTimeout;
 
+impl CallTimeout {
+    /// The value a caller observes when the call deadline elapses before a reply.
+    pub(crate) fn boxed() -> Box<dyn SendData> {
+        Box::new(Self)
+    }
+
+    /// Build the [`StageResponse`] for a finished call.
+    ///
+    /// `Some` is a reply that arrived before the deadline. `None` is the timeout sentinel.
+    /// This does not decide whether a request is queued, abandoned, or delivered; each
+    /// runtime does that and then reports the outcome through here.
+    pub(crate) fn response(reply: Option<Box<dyn SendData>>) -> StageResponse {
+        StageResponse::CallResponse(reply.unwrap_or_else(Self::boxed))
+    }
+}
+
 impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
@@ -189,10 +205,19 @@ impl<M> Effects<M> {
         })
     }
 
-    /// Call the given stage, blocking the current stage until the response is received.
+    /// Call the given stage, blocking the current stage until the response is received
+    /// or the timeout elapses.
     ///
     /// The `msg` closure is called with a reference to the call effect, which can be used
     /// to respond to the call.
+    ///
+    /// The timeout is one deadline starting when the call is issued. It covers both waiting
+    /// for a free slot in the target mailbox and waiting for the reply. A slot that frees
+    /// before the deadline delivers the request and leaves the caller suspended until the
+    /// reply or that same deadline. If the request has not entered the mailbox when the
+    /// deadline elapses, it is abandoned and is not delivered later. A reply that arrives
+    /// after the deadline is ignored. If the target stage is already gone, the caller still
+    /// waits out the deadline and then observes a timeout.
     ///
     /// The returned future will resolve to `Some(resp)` if the call was successful, or `None`
     /// if the call timed out.
@@ -201,7 +226,6 @@ impl<M> Effects<M> {
     ///
     /// - If `target` is a call-context StageRef (i.e., carries an `extra()`), which would imply a nested call.
     ///   This restriction may be lifted in the future.
-    // TODO(rkuhn): lift nested call restriction if/when needed.
     #[expect(clippy::panic)]
     #[track_caller]
     pub fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
