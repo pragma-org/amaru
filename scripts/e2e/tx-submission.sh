@@ -43,8 +43,6 @@ AMARU_LEDGER_DIR="${AMARU_LEDGER_DIR:-$RUNDIR/amaru/ledger.$NETWORK.db}"
 AMARU_LOG_FILE="${AMARU_LOG_FILE:-$LOGDIR/amaru.log}"
 AMARU_LISTEN_ADDRESS="${AMARU_LISTEN_ADDRESS:-127.0.0.1:4001}"
 AMARU_SUBMIT_API_ADDRESS="${AMARU_SUBMIT_API_ADDRESS:-127.0.0.1:8090}"
-AMARU_PEER_ADDRESS="${AMARU_PEER_ADDRESS:-}"
-AMARU_UPSTREAM_PEERS="${AMARU_UPSTREAM_PEERS:-1}"
 AMARU_MANAGED="${E2E_TX_MANAGE_AMARU:-true}"
 
 CARDANO_CLI_RELEASE_VERSION="${CARDANO_CLI_RELEASE_VERSION:-11.0.0.0}"
@@ -97,9 +95,9 @@ Usage: scripts/e2e/tx-submission.sh <wallet|setup|run|self-test>
   run        Start Amaru, submit one transaction, and verify confirmation through Koios.
   self-test  Test the strict response parsers without starting Amaru.
 
-AMARU_PEER_ADDRESS defaults to a public peer for preprod and preview. Set it
-explicitly for mainnet. Set E2E_TX_MANAGE_AMARU=false when Amaru is already
-running with its Submit API enabled.
+Amaru uses its normal peer selection defaults. Set AMARU_PEER_ADDRESS and
+AMARU_UPSTREAM_PEERS to override them. Set E2E_TX_MANAGE_AMARU=false when
+Amaru is already running with its Submit API enabled.
 EOF
 }
 
@@ -114,16 +112,6 @@ cardano_cli_network_args() {
 
 require_cardano_cli() {
   [[ -x "$CARDANO_CLI" ]] || die "CARDANO_CLI is not executable: $CARDANO_CLI"
-}
-
-resolve_public_peer() {
-  [[ -n "$AMARU_PEER_ADDRESS" ]] && return
-  case "$NETWORK" in
-    preprod) AMARU_PEER_ADDRESS=preprod-node.play.dev.cardano.org:3001 ;;
-    preview) AMARU_PEER_ADDRESS=preview-node.play.dev.cardano.org:3001 ;;
-    mainnet) die "set AMARU_PEER_ADDRESS to a public mainnet peer" ;;
-    *) die "unsupported network for public transaction submission: $NETWORK" ;;
-  esac
 }
 
 target_profile_dir() {
@@ -231,7 +219,6 @@ runner_wallet() {
 runner_setup() {
   runner_wallet
   mkdir -p "$RESULTS_DIR"
-  resolve_public_peer
   ensure_amaru_binary
   ensure_amaru_databases
   setup_log "transaction submission E2E prerequisites are ready"
@@ -263,7 +250,7 @@ start_amaru() {
   fi
   mkdir -p "$LOGDIR"
   : >"$AMARU_LOG_FILE"
-  e2e_log "starting Amaru from current source; upstream=$AMARU_PEER_ADDRESS submit_api=$AMARU_SUBMIT_API_ADDRESS"
+  e2e_log "starting Amaru from current source; upstream=${AMARU_PEER_ADDRESS:-network defaults} submit_api=$AMARU_SUBMIT_API_ADDRESS"
   AMARU_WITH_OPEN_TELEMETRY=false \
     AMARU_COLOR=never \
     AMARU_LOG="${AMARU_LOG:-info}" \
@@ -272,8 +259,6 @@ start_amaru() {
       --migrate-chain-db \
       --no-tui \
       --network "$NETWORK" \
-      --peer-address "$AMARU_PEER_ADDRESS" \
-      --upstream-peers "$AMARU_UPSTREAM_PEERS" \
       --listen-address "$AMARU_LISTEN_ADDRESS" \
       --submit-api-address "$AMARU_SUBMIT_API_ADDRESS" \
       --chain-dir "$AMARU_CHAIN_DIR" \
