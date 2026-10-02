@@ -21,6 +21,7 @@ pub mod peer_selection;
 pub mod select_chain;
 pub mod track_peers;
 pub mod validate_block;
+pub mod validation;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

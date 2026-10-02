@@ -228,17 +228,18 @@ impl Default for LedgerConfig {
     }
 }
 
-/// Whether or not data is stored on disk or in memory.
+/// Open a RocksDB store or reuse an existing store handle.
 #[derive(Clone)]
 pub enum StoreType<S> {
-    InMem(S),
+    /// Reuse the supplied handle, whether persistent or in memory.
+    Existing(S),
     RocksDb(RocksDbConfig),
 }
 
 impl<S> Display for StoreType<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StoreType::InMem(..) => write!(f, "<mem>"),
+            StoreType::Existing(..) => write!(f, "<existing>"),
             StoreType::RocksDb(config) => write!(f, "{}", config),
         }
     }
@@ -298,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_store_path_display() {
-        assert_eq!(format!("{}", StoreType::InMem(())), "<mem>");
+        assert_eq!(format!("{}", StoreType::Existing(())), "<existing>");
         assert_eq!(
             format!("{}", StoreType::<()>::RocksDb(RocksDbConfig::new(PathBuf::from("/path/to/store")))),
             "RocksDbConfig { dir: /path/to/store }"

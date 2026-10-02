@@ -23,21 +23,18 @@ use amaru_consensus::{
     performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{
-    ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader, PeerCandidate, Point, Transaction,
-};
+use amaru_kernel::{Epoch, GlobalParameters, HeaderHash, IsHeader, PeerCandidate, Point, ProtocolVersion, Transaction};
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
     state::State,
     store::{OpenErrorKind, StoreError as LedgerStoreError},
 };
-use amaru_mempool::{InMemoryMempool, MempoolConfig};
+use amaru_mempool::InMemoryMempool;
 use amaru_metrics::Meter;
 use amaru_network::{connection::TokioConnections, resolve::init_resolver};
 use amaru_observability::warn;
 use amaru_ouroboros::{
-    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
-    StoreError as ChainStoreError,
+    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, ResourceMempool, StoreError as ChainStoreError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
@@ -45,7 +42,7 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_pure_stage::{
-    BoxFuture, Name, Sender, StageGraph, StageGraphRunning,
+    BoxFuture, Name, SendData, Sender, StageGraph, StageGraphRunning,
     drop_guard::DropGuard,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
@@ -57,7 +54,7 @@ use thiserror::Error;
 use tokio::runtime::Handle;
 
 use crate::{
-    chain_realign::{ReconcileError, ReconcileMode, ensure_store_consistency, reconcile_chain_store},
+    chain_realign::{ClearValidity, ensure_store_consistency, realign_chain_store_to, resolve_stored_point},
     stages::{
         build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
@@ -65,6 +62,72 @@ use crate::{
 };
 
 const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Ledger and stores prepared for either a network source or immutable replay.
+pub(crate) struct PreparedNode {
+    pub ledger_tip: Point,
+    pub max_epoch: Epoch,
+    pub protocol_version: ProtocolVersion,
+    pub block_validator: Arc<BlockValidator>,
+}
+
+/// Open stores, align the chain, and install the resources and workers shared by every source.
+pub(crate) fn prepare_node<T>(
+    config: &Config,
+    stage_graph: &mut impl StageGraph,
+    on_startup: Option<StartupHook<RocksDB>>,
+    prepare_chain: impl FnOnce(&dyn ChainStore, Point) -> anyhow::Result<T>,
+) -> anyhow::Result<(PreparedNode, T)> {
+    let chain_store = make_chain_store(config)?;
+    let mut state = make_state(&config.ledger_config, on_startup, chain_store.clone())?;
+    state.set_observers(config.observers.clone());
+    let ledger_tip = state.tip().into_owned();
+    let source_state = prepare_chain(chain_store.as_ref(), ledger_tip)?;
+    let ledger_tip =
+        resolve_stored_point(chain_store.as_ref(), ledger_tip.into()).ok_or(anyhow!("ledger tip header not found"))?;
+    let pool_summaries = state.pool_summaries();
+    let max_epoch = pool_summaries.max_epoch();
+    let protocol_version = state.protocol_version();
+    let ledger_config = &config.ledger_config;
+    let block_validator = Arc::new(make_block_validator(ledger_config, state, chain_store.clone())?);
+    stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
+    stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
+    stage_graph.resources().put::<ResourceConsensusParameters>(Arc::new(ledger_config.to_consensus_parameters()));
+    stage_graph.resources().put::<ResourceEraHistory>(ledger_config.era_history.clone());
+    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
+    stage_graph.resources().put(ConsensusMode::Sync);
+    let ledger_thread = block_validator.thread_stop();
+    // Used by simulation WorldLoop::stop() and World::drop().
+    stage_graph.resources().put(ledger_thread.clone());
+    let performance = make_performance(config);
+    let join_performance = Box::new(performance.shutdown_callback());
+    stage_graph.resources().put::<ResourcePerformance>(Arc::new(performance));
+    stage_graph.resources().put(NodeLifecycle { ledger_thread, connections: None, performance: join_performance });
+    Ok((PreparedNode { ledger_tip, max_epoch, protocol_version, block_validator }, source_state))
+}
+
+/// Keep the stage resources current when the ledger computes a new stake distribution.
+pub(crate) fn on_stake_dist_updated<M: SendData>(
+    stage_graph: &impl StageGraph,
+    block_validator: &BlockValidator,
+    sender: Sender<M>,
+    message: impl Fn(Epoch) -> M + Send + Sync + 'static,
+) {
+    let resources = stage_graph.resources().downgrade();
+    block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
+        let max_epoch = summaries.max_epoch();
+        resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
+        let send = async {
+            if sender.send(message(max_epoch)).await.is_err() {
+                amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
+            }
+        };
+        // This runs on the ledger thread; its join also covers notification delivery.
+        #[expect(clippy::expect_used)]
+        let rt = tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
+        rt.block_on(send);
+    }));
+}
 
 /// A startup failure that an embedding host can handle without inspecting error text.
 #[derive(Debug, Error)]
@@ -123,7 +186,7 @@ impl From<anyhow::Error> for NodeStartError {
 
 struct NodeLifecycle {
     ledger_thread: LedgerThreadStop,
-    connections: Arc<TokioConnections>,
+    connections: Option<Arc<TokioConnections>>,
     performance: Box<dyn FnOnce() -> std::thread::Result<()> + Send + Sync>,
 }
 
@@ -190,17 +253,28 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
         .listen_address()
         .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
     init_resolver().map_err(NodeStartError::other)?;
-    let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
+    let ((mempool_sender, connections), stages) = launch_stages(&config, runtime, |stage_builder| {
+        let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
+        let node_stages = build_node(&config, config.global_parameters(), meter, stage_builder)?;
+        let connections = stage_builder.resources().get::<Arc<TokioConnections>>()?.clone();
+        Ok((stage_builder.input(node_stages.mempool_stage()), connections))
+    })?;
+    Ok(NodeRunning { stages, mempool_sender, connections, listen_address })
+}
+
+/// Launch a source's graph with the common clock, trace buffer, and owned worker lifecycle.
+pub(crate) fn launch_stages<T>(
+    config: &Config,
+    runtime: &Handle,
+    build: impl FnOnce(&mut TokioBuilder) -> anyhow::Result<T>,
+) -> anyhow::Result<(T, RunningStages)> {
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default()
-        .with_trace_buffer(trace_buffer)
-        .with_global_epoch_offset(config.compute_global_clock_offset());
-
-    let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
+        .with_global_epoch_offset(config.compute_global_clock_offset())
+        .with_trace_buffer(trace_buffer);
+    let stages = build(&mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
-    let mempool_sender = stage_builder.input(node_stages.mempool_stage());
-    let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, listen_address })
+    Ok((stages, RunningStages { tokio_running: stage_builder.run(runtime.clone()), lifecycle }))
 }
 
 async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
@@ -210,7 +284,7 @@ async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeR
     });
     let readiness = tokio::select! {
         biased;
-        result = running.lifecycle.connections.wait_for_listener() => {
+        result = running.connections.wait_for_listener() => {
             result.map_err(|source| {
                 let address = running.listen_address;
                 if source.kind() == std::io::ErrorKind::AddrInUse {
@@ -223,7 +297,7 @@ async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeR
         () = running.termination() => Err(NodeStartError::Terminated { failures: Vec::new() }),
     };
     let mut error = match readiness {
-        Ok(address) if !running.tokio_running.is_terminated() => {
+        Ok(address) if !running.stages.tokio_running.is_terminated() => {
             running.listen_address = address;
             return Ok(DropGuard::into_inner(running));
         }
@@ -254,9 +328,9 @@ async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeR
 /// its result before reopening the stores.
 #[must_use = "call shutdown().await to release all node resources deterministically"]
 pub struct NodeRunning {
-    tokio_running: TokioRunning,
+    stages: RunningStages,
     mempool_sender: Sender<MempoolMsg>,
-    lifecycle: NodeLifecycle,
+    connections: Arc<TokioConnections>,
     listen_address: SocketAddr,
 }
 
@@ -271,23 +345,23 @@ impl NodeRunning {
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
-        self.tokio_running.trace_buffer()
+        self.stages.tokio_running.trace_buffer()
     }
 
     pub fn termination(&self) -> BoxFuture<'static, ()> {
-        self.tokio_running.termination()
+        self.stages.tokio_running.termination()
     }
 
     /// Request cancellation of all stage tasks without consuming this handle (safe from any thread).
     ///
     /// This does not wait for cleanup; call [`Self::shutdown`] to finalize the node.
     pub fn request_abort(&self) {
-        self.tokio_running.request_abort();
+        self.stages.tokio_running.request_abort();
     }
 
     /// Return a non-blocking abort callback that does not own the node's shutdown result.
     pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
-        self.tokio_running.abort_callback()
+        self.stages.tokio_running.abort_callback()
     }
 
     /// Stop and join every node-owned task, then close listeners and stores.
@@ -297,26 +371,51 @@ impl NodeRunning {
     /// Cancelling this future does not stop worker joins already running on the blocking pool
     /// and does not establish that cleanup completed.
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
-        let Self { tokio_running, mempool_sender, lifecycle, listen_address: _ } = self;
-        let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
-
-        tokio_running.request_abort();
+        let Self { stages, mempool_sender, connections, listen_address: _ } = self;
         drop(mempool_sender);
+        drop(connections);
+        stages.shutdown().await
+    }
+}
+
+/// Owns stage tasks and workers independently of the block source.
+pub(crate) struct RunningStages {
+    tokio_running: TokioRunning,
+    lifecycle: NodeLifecycle,
+}
+
+impl RunningStages {
+    pub(crate) fn termination(&self) -> BoxFuture<'static, ()> {
+        self.tokio_running.termination()
+    }
+
+    pub(crate) async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
+        self.shutdown_with_timeout(LEDGER_THREAD_STOP_TIMEOUT).await
+    }
+
+    pub(crate) async fn shutdown_with_timeout(self, timeout: Duration) -> Result<ShutdownReport, ShutdownError> {
+        let Self { tokio_running, lifecycle } = self;
+        let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
+        tokio_running.request_abort();
         let mut unexpected_exits = match tokio_running.join().await {
             Ok(report) => {
                 report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
             }
             Err(error) => vec![ComponentFailure::Stage(error.to_string())],
         };
-        unexpected_exits.extend(
-            connections.shutdown().await.into_iter().map(|error| ComponentFailure::NetworkListener(error.to_string())),
-        );
-        drop(connections);
-        let (ledger, performance) = tokio::task::spawn_blocking(move || {
-            (ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT), performance())
-        })
-        .await
-        .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
+        if let Some(connections) = connections {
+            unexpected_exits.extend(
+                connections
+                    .shutdown()
+                    .await
+                    .into_iter()
+                    .map(|error| ComponentFailure::NetworkListener(error.to_string())),
+            );
+        }
+        let (ledger, performance) =
+            tokio::task::spawn_blocking(move || (ledger_thread.join_timeout(timeout), performance()))
+                .await
+                .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
         let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
         let ledger = match ledger {
             Ok(()) => None,
@@ -338,7 +437,7 @@ impl NodeRunning {
 /// 5. The stage graph preloads `peer_selection` to connect to configured upstream peers.
 /// 6. Register a listener for downstream connections.
 ///
-/// Return a refererence to the `Manager` stage to have the possibility to send internal messages for
+/// Return a reference to the `Manager` stage to have the possibility to send internal messages for
 /// testing.
 ///
 pub fn build_node(
@@ -350,66 +449,33 @@ pub fn build_node(
     let listen_address = config
         .listen_address()
         .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
-    // NOTE: Open the chain store first so incompatible DB versions fail before the slower ledger open.
-    let chain_store = make_chain_store(config)?;
-
-    // Make the ledger state and get its tip
-    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
-    state.set_observers(config.observers.clone());
-    let ledger_tip = state.tip().into_owned();
+    let (
+        PreparedNode { ledger_tip, max_epoch, protocol_version, block_validator },
+        (recovery_best_hash, ledger_parent),
+    ) = prepare_node(config, stage_builder, Some(with_startup_hook::<RocksDB>), |chain_store, ledger_tip| {
+        if config.realign_chain_store {
+            initialize_chain_store(chain_store, ledger_tip)?;
+        } else {
+            ensure_store_consistency(chain_store, ledger_tip)?;
+        }
+        let recovery_best_hash = find_best_candidate(chain_store)?;
+        let ledger_parent = tip_parent(chain_store, &ledger_tip)?;
+        if let Some(credentials) = &config.forging_credentials {
+            amaru_ouroboros::ensure_operational_certificate_accepted(credentials.as_ref(), chain_store, &ledger_tip)?;
+            let issuer = credentials.issuer_fields();
+            amaru_observability::info!(
+                node::build::FORGING,
+                pool_id = credentials.pool_id(),
+                sequence = issuer.operational_cert.operational_cert_sequence_number,
+                kes_period = issuer.operational_cert.operational_cert_kes_period,
+            );
+        }
+        Ok((recovery_best_hash, ledger_parent))
+    })?;
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
-
-    let pool_summaries = state.pool_summaries();
-    let max_epoch = pool_summaries.max_epoch();
-    let protocol_version = state.protocol_version();
-
-    // Production restarts drop the volatile ledger, so the chain store can be ahead of the
-    // persisted ledger tip. Rewind the best-chain pointer to that tip.
-    if config.realign_chain_store {
-        initialize_chain_store(chain_store.clone(), ledger_tip)?;
-    } else {
-        ensure_store_consistency(chain_store.as_ref(), ledger_tip)?;
-    }
-    let ledger_tip = chain_store.load_point(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
-
-    // The best hash for blocks that were possibly downloaded and validated before a restart,
-    // i.e. before the volatile ledger was dropped.
-    let recovery_best_hash = find_best_candidate(chain_store.as_ref())?;
-    let ledger_parent = tip_parent(chain_store.as_ref(), &ledger_tip)?;
-    if let Some(credentials) = &config.forging_credentials {
-        amaru_ouroboros::ensure_operational_certificate_accepted(
-            credentials.as_ref(),
-            chain_store.as_ref(),
-            &ledger_tip,
-        )?;
-        let issuer = credentials.issuer_fields();
-        amaru_observability::info!(
-            node::build::FORGING,
-            pool_id = credentials.pool_id(),
-            sequence = issuer.operational_cert.operational_cert_sequence_number,
-            kes_period = issuer.operational_cert.operational_cert_kes_period,
-        );
-    }
-    let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
-
-    // Make resources
     let era_history = &config.era_history();
 
-    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history()));
-
-    // Register resources
-    register_resources(
-        stage_builder,
-        chain_store,
-        global_parameters,
-        pool_summaries,
-        block_validator.clone(),
-        consensus_parameters,
-        config.era_history().clone(),
-        meter,
-        config.mempool.clone(),
-        config,
-    );
+    register_network_resources(stage_builder, global_parameters, block_validator.clone(), meter, config)?;
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
     let node_stages = build_stage_graph(
@@ -422,23 +488,12 @@ pub fn build_node(
         stage_builder,
     );
 
-    let track_peers_sender = node_stages.track_peers_stake_dist_sender();
-    // Weak: the callback is stored on `block_validator`, which lives in these same
-    // resources. A strong capture would leak every node (RocksDB FDs included).
-    let resources = stage_builder.resources().downgrade();
-    block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
-        let max_epoch = summaries.max_epoch();
-        resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
-        let send = async {
-            if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
-                amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
-            }
-        };
-        // The callback runs on the ledger thread; its join also covers notification delivery.
-        #[expect(clippy::expect_used)]
-        let rt = tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
-        rt.block_on(send);
-    }));
+    on_stake_dist_updated(
+        stage_builder,
+        &block_validator,
+        node_stages.track_peers_stake_dist_sender(),
+        TrackPeersMsg::StakeDistUpdated,
+    );
 
     // Open a port to listen for downstream peers
     stage_builder
@@ -465,44 +520,32 @@ fn tip_parent(store: &dyn ChainStore, tip: &Point) -> anyhow::Result<Point> {
     Ok(store.load_point(&parent_hash).unwrap_or(Point::Origin))
 }
 
-/// Register the resources required by the external effects invoked by the stages in the stage graph.
-/// It is possible to override those resources later on.
-#[allow(clippy::too_many_arguments)]
-fn register_resources(
+/// Install networking and transaction resources for the live node.
+fn register_network_resources(
     stage_graph: &mut impl StageGraph,
-    chain_store: Arc<dyn ChainStore>,
     global_parameters: &GlobalParameters,
-    pool_summaries: PoolSummaries,
     block_validator: Arc<BlockValidator>,
-    consensus_parameters: Arc<ConsensusParameters>,
-    era_history: EraHistory,
     meter: Arc<Meter>,
-    mempool_config: MempoolConfig,
     config: &Config,
-) {
-    stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
+) -> anyhow::Result<()> {
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
 
-    stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
-    stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
-    let ledger_thread = block_validator.thread_stop();
-    // NOTE: used in WorldLoop::stop() and impl Drop for World
-    stage_graph.resources().put(ledger_thread.clone());
-    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
+    stage_graph.resources().put::<ResourceTxValidation>(block_validator);
     let connections = Arc::new(TokioConnections::new(65535));
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
-
-    stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
-    stage_graph.resources().put::<ResourceEraHistory>(era_history);
-    stage_graph.resources().put(ConsensusMode::Sync);
+    stage_graph.resources().put(connections.clone());
+    stage_graph.resources().get_mut::<NodeLifecycle>()?.connections = Some(connections);
+    stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(config.mempool.clone())));
 
     stage_graph.resources().put::<ResourceMeter>(meter);
     stage_graph
         .resources()
         .put::<amaru_consensus::stages::forge_block::ResourceForgingCredentials>(config.forging_credentials.clone());
+    Ok(())
+}
 
+fn make_performance(config: &Config) -> Performance {
     let mut static_peers = BTreeSet::new();
     for address in &config.upstream_peers {
         match address.parse::<PeerCandidate>() {
@@ -521,18 +564,13 @@ fn register_resources(
         .map(PeerCandidate::from)
         .chain(config.peer_snapshot_unresolved.iter().cloned())
         .collect();
-    let performance =
-        Performance::with_peer_sources(static_peers, snapshot_candidates, Default::default(), config.peer_mix.clone());
-    let join_performance = Box::new(performance.shutdown_callback());
-    stage_graph.resources().put::<ResourcePerformance>(Arc::new(performance));
-
-    stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });
+    Performance::with_peer_sources(static_peers, snapshot_candidates, Default::default(), config.peer_mix.clone())
 }
 
 /// This function migrates the database if necessary
 fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
     let chain_store: Arc<dyn ChainStore> = match config.chain_store {
-        StoreType::InMem(ref chain_store) => chain_store.clone(),
+        StoreType::Existing(ref chain_store) => chain_store.clone(),
         StoreType::RocksDb(ref rocks_db_config) => {
             Arc::new(open_chain_store(rocks_db_config, config.migrate_chain_db)?)
         }
@@ -596,18 +634,13 @@ pub(crate) fn ledger_store_error(error: LedgerStoreError) -> NodeStartError {
     }
 }
 
-fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {
+fn initialize_chain_store(chain_store: &dyn ChainStore, ledger_tip: Point) -> anyhow::Result<()> {
     // Previously validated blocks have not been applied to this process's volatile ledger, so
     // their valid flags are stale. Invalid flags are cleared too: a false reject from an earlier
     // run must not hide that chain from `find_best_candidate` (which skips `valid=false` and does
     // not walk its children). Re-validation either repeats the error or, if the bug is gone, adopts
     // the chain. Runtime `FindBestCandidate` still skips blocks marked invalid in *this* run.
-    reconcile_chain_store(chain_store.as_ref(), ledger_tip, ReconcileMode::Restart).map(|_| ()).map_err(|error| {
-        match error {
-            ReconcileError::Incompatible(source) => source.into(),
-            ReconcileError::Store { source, .. } => source,
-        }
-    })
+    realign_chain_store_to(chain_store, ledger_tip, ClearValidity::All)
 }
 
 #[cfg(test)]

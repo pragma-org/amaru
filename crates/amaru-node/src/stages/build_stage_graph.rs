@@ -25,16 +25,21 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{ConsensusParameters, Epoch, EraHistory, GlobalParameters, HeaderHash, Point, ProtocolVersion};
+use amaru_kernel::{
+    ConsensusParameters, Epoch, EraHistory, GlobalParameters, HeaderHash, Point, ProtocolVersion, Slot,
+};
 use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage, PeerSelectionNotify},
 };
-use amaru_pure_stage::{Sender, StageGraph, StageRef};
+use amaru_pure_stage::{Receiver, Sender, StageGraph, StageRef};
 
-use crate::stages::config::Config;
+use crate::{
+    mithril::{MithrilBlockEvent, MithrilBlockSource, MithrilInput, mithril_block_source},
+    stages::config::Config,
+};
 
 /// Create a graph of processing stages for the node.
 ///
@@ -72,7 +77,7 @@ pub fn build_stage_graph(
     let peer_selection_ref = peer_selection.sender();
 
     // Candidate sources + peer-mix are installed only on Performance construction
-    // (`register_resources` → `with_peer_sources`).
+    // (`make_performance` → `with_peer_sources`).
     let peer_selection = stage_graph.wire_up(
         peer_selection,
         PeerSelection::new(
@@ -105,8 +110,6 @@ pub fn build_stage_graph(
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);
     let select_chain = stage_graph.stage("select_chain", select_chain::stage);
     let fetch_blocks = stage_graph.stage("fetch_blocks", fetch_blocks::stage);
-    let validate_block = stage_graph.stage("validate_block", validate_block::stage);
-    let adopt_chain = stage_graph.stage("adopt_chain", adopt_chain::stage);
     let mempool_stage = stage_graph.stage("mempool", mempool::stage);
     let block_source_stage = stage_graph.stage("block_source", block_source::stage);
     let block_source_sender = block_source_stage.sender();
@@ -118,29 +121,16 @@ pub fn build_stage_graph(
     // larger because those headers also consume resources.
     let max_peer_lead = 1000;
 
-    // Wire mempool (from main) — kept for its own use even if not passed to adopt_chain in this resolution
     let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
 
-    // Keep branch's peer_selection integration for block_source and adopt_chain/fetch_blocks
     let _block_source = stage_graph.wire_up(
         block_source_stage,
         BlockSource::new(ledger_tip, config.block_source_max_tip_distance, peer_selection_ref.clone()),
     );
 
-    let forge = config.forging_credentials.as_ref().map(|credentials| {
+    let forge_sender = config.forging_credentials.as_ref().map(|credentials| {
         let forge = stage_graph.stage("forge_block", forge_block::stage);
         let sender = forge.sender();
-        (forge, sender, credentials)
-    });
-
-    let mut adopt =
-        AdoptChain::new(manager.sender(), block_source_sender.clone(), mempool_stage.clone(), k, ledger_tip);
-    if let Some((_, sender, _)) = &forge {
-        adopt = adopt.with_forge(sender.clone());
-    }
-    let adopt_chain = stage_graph.wire_up(adopt_chain, adopt);
-
-    if let Some((forge, _, credentials)) = forge {
         let forge = stage_graph.wire_up(
             forge,
             ForgeBlock::new(
@@ -159,17 +149,18 @@ pub fn build_stage_graph(
                 .preload(&forge, [ForgeBlockMsg::from(AdoptedTip { tip: ledger_tip, parent: ledger_parent })])
                 .expect("forge tip must be preloaded");
         }
-    }
+        sender
+    });
 
-    let validate_block = stage_graph.wire_up(
-        validate_block,
-        ValidateBlock::new(
-            adopt_chain.without_state(),
-            select_chain.sender(),
-            block_source_sender.clone(),
-            k,
-            ledger_tip,
-        ),
+    let validate_block = wire_validation_stages(
+        stage_graph,
+        ledger_tip,
+        k,
+        manager.sender(),
+        Some(block_source_sender.clone()),
+        Some(mempool_stage.clone()),
+        select_chain.sender(),
+        forge_sender,
     );
     let validate_block_input = validate_block.contramap(|msg| {
         let DownloadedBlock { tip, parent, max_block_height, trace_context } = msg;
@@ -186,7 +177,6 @@ pub fn build_stage_graph(
             peer_selection_ref.clone(),
         ),
     );
-    // Include main's useful RecoverStoredBlocks preload
     #[expect(clippy::expect_used)]
     stage_graph
         .preload(
@@ -217,13 +207,11 @@ pub fn build_stage_graph(
     let track_peers_stake_dist_sender = stage_graph.input(&track_peers_wired);
     let track_peers_input = track_peers_wired.contramap(TrackPeersMsg::FromUpstream);
 
-    // Keep branch's peer_selection initialization preload (core to the peer_selection work)
     #[expect(clippy::expect_used)]
     stage_graph
         .preload(&peer_selection, [PeerSelectionMsg::Initialize])
         .expect("initialization message must be preloaded");
 
-    // Manager creation — use main's style with tx_submission_params (now supported in our extended config)
     let manager_stage = stage_graph
         .wire_up(
             manager,
@@ -240,6 +228,73 @@ pub fn build_stage_graph(
         )
         .without_state();
     NodeStages { manager_stage, mempool_stage, track_peers_stake_dist_sender }
+}
+
+/// Wire the ledger validation and chain adoption path for any block source.
+#[expect(clippy::too_many_arguments)]
+pub(crate) fn wire_validation_stages(
+    stage_graph: &mut impl StageGraph,
+    ledger_tip: Point,
+    security_param: u64,
+    manager: StageRef<ManagerMessage>,
+    block_source: Option<StageRef<block_source::BlockSourceMsg>>,
+    mempool: Option<StageRef<MempoolMsg>>,
+    validation_results: StageRef<SelectChainMsg>,
+    forge: Option<StageRef<ForgeBlockMsg>>,
+) -> StageRef<ValidateBlockMsg> {
+    let validate_block = stage_graph.stage("validate_block", validate_block::stage);
+    let adopt_chain = stage_graph.stage("adopt_chain", adopt_chain::stage);
+    let mut adopt = AdoptChain::new(manager, block_source.clone(), mempool, security_param, ledger_tip);
+    if let Some(forge) = forge {
+        adopt = adopt.with_forge(forge);
+    }
+    let adopt_chain = stage_graph.wire_up(adopt_chain, adopt);
+    stage_graph
+        .wire_up(
+            validate_block,
+            ValidateBlock::new(
+                adopt_chain.without_state(),
+                validation_results,
+                block_source,
+                security_param,
+                ledger_tip,
+            ),
+        )
+        .without_state()
+}
+
+/// Attach a Mithril source to the same validation and adoption stages as the live node.
+#[expect(clippy::wildcard_enum_match_arm)]
+pub(crate) fn wire_mithril_stages(
+    stage_graph: &mut impl StageGraph,
+    ledger_tip: Point,
+    security_param: u64,
+    until_slot: Option<Slot>,
+) -> (Sender<MithrilInput>, Receiver<MithrilBlockEvent>) {
+    let (events_ref, events) = stage_graph.output::<MithrilBlockEvent>("mithril_events", 2);
+    let source = stage_graph.stage("mithril_blocks", mithril_block_source);
+    let manager = source.sender().contramap(|message: ManagerMessage| match message {
+        ManagerMessage::NewTip(point, _) => MithrilInput::Adopted(point),
+        other => MithrilInput::Unexpected(format!("unexpected manager message: {other:?}")),
+    });
+    let validate_block = wire_validation_stages(
+        stage_graph,
+        ledger_tip,
+        security_param,
+        manager,
+        None,
+        None,
+        source.sender().contramap(|message: SelectChainMsg| match message {
+            SelectChainMsg::BlockValidationResult(point, valid, ..) => MithrilInput::Validation { point, valid },
+            other => MithrilInput::Unexpected(format!("unexpected validation message: {other:?}")),
+        }),
+        None,
+    );
+    let source = stage_graph.wire_up(
+        source,
+        MithrilBlockSource { validate_block, events: events_ref, tip: ledger_tip, until_slot, pending: None },
+    );
+    (stage_graph.input(source), events)
 }
 
 /// This data types encapsulates stage references that we need to export in order to
