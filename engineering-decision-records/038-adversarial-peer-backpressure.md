@@ -66,16 +66,56 @@ Both interpreters implement it. The simulation does not park the sender on the d
 The timeout passed to `Effects::call` covers mailbox admission and the wait for the reply. It starts when the effect starts.
 
 - If the deadline fires before the request is admitted, the request is discarded. It must not enter the callee mailbox afterwards. Tokio cancels the `send` future; the simulation already removes the pending sender.
-- If the request was admitted and the reply does not arrive in the remaining time, the caller receives `None`. A late reply finds the oneshot dropped and is discarded by the callee, as today.
-- `None` means "not accepted, or accepted and not answered in time". It does not mean "the peer has the bytes".
+- If the request was admitted and the reply does not arrive in the remaining time, the oneshot is dropped and a late reply is discarded by the callee, as today.
+- The runtime distinguishes "reply arrived" from "deadline, or the mux refused the bytes". That distinction is not handed to a handler as `Option`. The typestate `call` maps it onto the outcome enum below. A reply means the mux accepted the bytes into the egress cap. It still does not mean the peer has read them.
 
 This is the bug fix, not a new timeout. `NETWORK_SEND_TIMEOUT` (1s) is already the value handlers pass. The simulation's current deadline behaviour is the one both runtimes keep. A regression test has a callee that never reads: the caller resumes within the timeout, and the callee's mailbox does not gain the request after that.
 
 ### A timed-out call does not enter remote agency
 
-A handler that gets `None` from `call` has not put a message on the wire. It stays in the switch state (block-fetch `Idle`), does not send `WantNext`, and does not arm the agency timer. The pipeline slot is free for the next local request. Entering `Busy` and waiting 60s for an answer to a message that was never sent is what turns one slow mux into an occupied slot.
+A handler that takes the failure token has not put a message on the wire. It stays in the switch state (block-fetch `Idle`), does not send `WantNext`, and does not arm the agency timer. The pipeline slot is free for the next local request. Entering `Busy` and waiting 60s for an answer to a message that was never sent is what turns one slow mux into an occupied slot.
 
-The typestate remainder for that `Call` needs a local failure edge back to the switch state. That edge is not a wire message and is ignored by the spec projection of [EDR-036](./036-session-types-typestate-projection.md). The handler reports the failure to its collector (block fetch already has `NoBlocks` for "this peer will not serve this range"; a send that was never accepted is the same outcome for scoring). It does not tear the connection down.
+The handler reports that failure to its collector. Block fetch already has `NoBlocks` for "this peer will not serve this range"; a request that was never accepted is the same outcome for scoring. It does not tear the connection down.
+
+The result of typestate `call` is not `Option<Reply>`. `Option` lets the handler discard the reply and `finish` into the next state, which is what `let (_, s) = ….call(…).await; s.finish()` does today. The result is an outcome enum whose variants each hold a token. The token is fed back into the session, and that is what yields the remainder for that arm. `finish` is not available on the session `call` returns. Feeding a token the call did not return does not compile: the token types have a private field, and only `call` constructs them.
+
+```rust
+enum Submitted<T> {
+    Sent(Sent<T>),
+    NotSent(NotSent),
+}
+
+on_receive!(Idle as PipelineIdleIn {
+    Fetch => {
+        Call<ToMux, RequestRange> => {
+            Sent<RequestRange> => Busy
+            | NotSent => { SendAny<ToCollector> => Idle }
+        }
+    }
+});
+
+let (outcome, session) = idle.receive(&fetch, eff).call(&mux, range).await;
+match outcome {
+    Submitted::Sent(token) => session.feed(token).finish(), // Busy
+    Submitted::NotSent(token) => {
+        session.feed(token).send_any(&collector, Blocks::NoBlocks(id, peer)).await.finish()
+    }
+}
+```
+
+`Sent<T>` is the success token and carries the wire payload. `NotSent` is the failure token. A reply value, when a call has one, rides inside the success variant; the token, not the value, selects the remainder. `ClientDone` uses the same enum. Its success token is the only way into `Done`.
+
+The nested block is not a `|` the handler may pick. Both arms sit behind the `Call`, and `feed` is the only way into either of them. `Feed<Sent<RequestRange>>` yields the `Busy` remainder. `Feed<NotSent>` yields the collector remainder. A token from another call is a different type and does not implement `Feed` for this remainder.
+
+Projection changes to match ([EDR-036](./036-session-types-typestate-projection.md)):
+
+- A `Call` is ignored. It is mux admission, not a wire send, even when its payload is in `wire_payload`. Today the opposite is true: `Call<ToResponder, RequestRange>` is why the projected machine has `Idle --> Busy: RequestRange`.
+- The wire send is deduced only from a success token being supplied. `feed(Sent<RequestRange>)` is the edge `!RequestRange`. Structural equality compares that edge to the network spec, and `check_timeouts` / `check_want_next` follow only that arm into remote agency.
+- `feed(NotSent)` emits no wire edge. The arm is checked, not compared: no peer payload, no `WantNext`, no agency timer, finishes in the switch state it started from, and its only visible effect is the collector signal.
+- A `Call` whose success token is never supplied contributes no wire edge, so the spec comparison fails. Performing the call is not enough to claim the bytes were sent.
+- A choice that is not the token continuation of a `Call` is unchanged. `MixedHidableWireChoice` still rejects a local input that mixes a wire arm and a hidable arm on its own.
+
+The network-spec diagram does not gain an edge. This is a change to what the projection treats as a send, not to which wire messages are legal.
 
 ### The mux never waits on a handler
 
@@ -90,7 +130,7 @@ If a deferred frame is still undeliverable after the handler's agency timeout, t
 Egress keeps today's split with the writer, tightened:
 
 - At most one SDU is admitted to the writer. The mux therefore cannot observe a full writer mailbox; a `try_send` of `Full` toward the writer means the invariant broke, the segment stays queued, and the mux still does not block.
-- Each protocol's unsent egress is capped at one segment (64KiB, the existing `MAX_SEGMENT_SIZE`). `Sent` means "accepted into that cap", not "written to the socket". When the cap is full, the mux completes the `call` with `None` in the same transition and does not append the bytes. Callers unblock immediately instead of sitting for the remainder of `NETWORK_SEND_TIMEOUT`. Unbounded `PerProto::outgoing` growth while a writer is stuck on TCP is not allowed.
+- Each protocol's unsent egress is capped at one segment (64KiB, the existing `MAX_SEGMENT_SIZE`). The mux reply `Sent` means "accepted into that cap", not "written to the socket". Typestate `call` turns that reply into `Submitted::Sent`. When the cap is full, the mux rejects the `call` in the same transition and does not append the bytes, and typestate `call` turns the rejection into the failure token. The handler does not sit for the rest of `NETWORK_SEND_TIMEOUT`. Unbounded `PerProto::outgoing` growth while a writer is stuck on TCP is not allowed.
 
 ### The connection never waits on a child
 
@@ -107,7 +147,14 @@ While a connection is still handshaking it may keep today's behaviour of resched
 
 The manager's `FetchBlocks` and `NewTip` arms, and `track_peers`'s `RequestNext` and `Done` sends, become `try_send` loops. A `Full` peer is skipped; the loop continues; the transition returns.
 
-`track_peers` remembers at most one owed `RequestNext` per peer when admission fails. It retries on the next event for that same peer, and with one coalesced self-wakeup so a quiet peer still receives it once the handler mailbox drains. Under-pipelining that peer for one round-trip is the failure mode. Stalling header processing for every other peer is not.
+`track_peers` does not collapse a failed `RequestNext` into one owed retry. The initiator reaches depth `PIPELINE_DEPTH` only on `IntersectFound`, which is the one send of `RequestNext(PIPELINE_DEPTH)`. After that the window moves by one local `RequestNext(1)` per header, and it shrinks by one for every request that does not hit the wire. Nothing else refills it. Restarting the mini-protocol is the only path back to a full window today, so a forgotten drop is a permanently shorter pipeline.
+
+Each drop increments a per-peer counter, capped at `PIPELINE_DEPTH`:
+
+- `try_send(RequestNext)` returns `Full` or `Gone`. The handler never saw the message.
+- The handler admits `RequestNext` but `feed`s the failure token. It does not increment `CanAwait` / `MustReply` and does not send `WantNext`. It reports the drop to `track_peers` (a local result, not a wire message). `track_peers` cannot see the token on its own, and without that report the counter would miss the drop that actually failed to reach the peer. Chain sync's initiator is not on typestate yet; the failure token is how this drop is reported once that handler moves.
+
+While the counter is non-zero, `track_peers` admits one `RequestNext` at a time: on the next event for that same peer, and from one coalesced self-wakeup. `Queued` decrements the counter. The handler's ordinary arm then puts `RequestNext(1)` on the wire. Further drops once the counter sits at `PIPELINE_DEPTH` are not counted. The window is never deeper than that, and a stuck handler stops producing new headers once its own mailbox and the `track_peers` mailbox have drained, so the uncounted tail does not grow with the peer's silence. Header processing for other peers still continues. Forgetting the drops would leave this peer's window short until the next intersection.
 
 ### Pipeline slots do not die when they are busy
 
@@ -115,7 +162,7 @@ The block-fetch pipeliner (`N = blockfetch_pipeline_n`, default 2) currently ter
 
 When no slot is idle the pipeliner stashes one `Fetch`. A newer stash replaces the older one: only the latest range is worth sending when a slot returns to `Idle`. `Close` stays sticky, as `pending_close` already is on the lock-step instance. The instance's existing `pending_fetch` path is the behaviour; the pipeliner has to stop rejecting the message before the instance can see it.
 
-An in-flight range whose `call` **did** succeed is in remote agency. Nothing in this design aborts it on the wire. `ClientDone` is only legal from `Idle`. That slot stays busy until the peer answers or the agency timer fires, and during that wait the handler is reading its mailbox. The next range uses another idle slot or the one stash. Other peers are unaffected because nobody awaits this handler.
+An in-flight range whose success token was fed is in remote agency. Nothing in this design aborts it on the wire. `ClientDone` is only legal from `Idle`. That slot stays busy until the peer answers or the agency timer fires, and during that wait the handler is reading its mailbox. The next range uses another idle slot or the one stash. Other peers are unaffected because nobody awaits this handler.
 
 ### Liveness timers are armed first
 
@@ -140,7 +187,8 @@ The mailbox has to hold the messages **this node** may have in flight while a ha
 
 - A peer that stops reading, or a handler that stops reading, delays only its own socket's writer and its own protocol. The manager finishes every fan-out. Fetch keeps arming timeouts. Chain selection keeps being asked for the next tip, so a newer header is pushed once the current attempt ends.
 - `PeersAsked` names peers whose block-fetch handler actually admitted the request, which is what the timeout scorer wants. A peer skipped because its mailbox was full is not recorded as a fetch failure for a request it never saw.
-- `None` from `call` becomes a control-flow input. Handlers that today discard the reply (`let (_, session) = ….call(…).await`) have to branch. The spec diagrams do not gain a wire message.
+- Typestate `call` returns an outcome enum of tokens instead of `Option`. Handlers that discard the reply and `finish` (`let (_, s) = ….call(…).await; s.finish()`) stop compiling. The network-spec diagrams do not gain a wire message. `project` ignores `Call` and compares the edge deduced from the success token.
+- Chain sync keeps a per-peer deficit counter so a `RequestNext` that never hits the wire is retried without restarting the mini-protocol. The counter and the local "not sent" result are new. The wire messages are not.
 - Simulation traces of manager and `track_peers` fan-out change from a suspending `Send` to a `TrySend` with an admission result. Tests that match those sends need to expect a skip as a normal result, not as a stalled sender.
 - Per-stage mailbox size is a new stage-graph knob. The default for every stage that does not opt in stays 10, including in tests that construct a `SimulationBuilder`.
 - Shutdown of a mini-protocol that is not reading is bounded by the existing stop timer, not by that handler's mailbox draining.
@@ -153,3 +201,4 @@ The mailbox has to hold the messages **this node** may have in flight while a ha
 - Aborting the other four in-flight block fetches when the first body arrives was rejected. Those handlers, once their `call` has returned, are in remote agency and the spec only allows `ClientDone` from `Idle`. The failure mode to remove is the unbounded `call` admission, not the legal wait for a peer that has agency.
 - Replying `Sent` only after the TCP write completes was rejected. It would put the handler's `call` on the writer, and the writer is allowed to sit until the SDU timer (30s) when the peer does not read. `Sent` meaning "inside the one-segment cap" keeps that wait on the writer alone. The caller finds out the send was refused when the cap is full, instead of discovering it 30s later.
 - Routing block fetch from the manager straight at the handler, skipping the connection stage, was rejected. The connection is what reschedules across handshake and what decides the initiator exists. The connection answers `PeersAsked` itself so the manager does not have to wait to find out whether the child admitted the message.
+- A handler-chosen `|` between "request sent" and "not sent", next to the `Call` rather than behind it, was rejected. The handler could take the wire arm after a failed call, or the failure arm after a successful one, and projection would believe it. The success token is the only evidence the projection accepts that the bytes were submitted.
