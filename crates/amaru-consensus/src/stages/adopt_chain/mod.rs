@@ -55,13 +55,12 @@ use crate::{
 ///   never moves backward; may be a no-op if no suitable anchor found).
 /// - Then log each adopted header. While syncing, at most one info line per second is emitted
 ///   and the rest are debug, counted in `suppressed`. While live, every adoption is info.
-///   A fork switch logs each forward point, not only the new tip. Three `eff.send`s follow,
-///   for the new tip, in this exact order:
+///   A fork switch logs each forward point, not only the new tip. Notifications follow for the new tip, in this order:
 ///   1. `MempoolMsg::NewTip(tip)` — to the mempool (to flush invalidated txs
-///      and adjust to the new tip).
+///      and adjust to the new tip), when configured.
 ///   2. `ManagerMessage::NewTip(tip)` — to the downstream manager/peer layer.
 ///   3. `BlockSourceMsg::AdoptedTip(tip)` — to block_source (so it can adjust
-///      its tip distance / fetch window for the newly adopted chain).
+///      its tip distance / fetch window for the newly adopted chain), when configured.
 /// - During `drag_anchor_forward`: every adopted block is `record_block_valid` (chain
 ///   selection reports the new tip as well; the second report emits nothing), then
 ///   `Performance::prune_below(tip.height - k, now)` drops peer availability claims and any
@@ -84,8 +83,8 @@ use crate::{
 ///
 /// `max_block_height` is unconditionally updated (`.max`) on every message
 /// (even skipped ones) and is only surfaced in adoption logging.
-/// The stage holds `StageRef`s to exactly three external actors (downstream
-/// manager, block_source, mempool) and the k parameter; it never spawns
+/// The stage holds a downstream manager ref and optional block source and mempool refs,
+/// along with the k parameter; it never spawns
 /// children or wires additional stages. Initial `current_best_tip` is
 /// supplied at construction (commonly `Point::Origin`); the in-memory copy
 /// is the source of truth for quick height guards and is kept in sync with
@@ -100,8 +99,8 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AdoptChain {
     downstream: StageRef<ManagerMessage>,
-    block_source: StageRef<BlockSourceMsg>,
-    mempool: StageRef<MempoolMsg>,
+    block_source: Option<StageRef<BlockSourceMsg>>,
+    mempool: Option<StageRef<MempoolMsg>>,
     /// Present when this node has forging credentials. Absent on a follower.
     forge: Option<StageRef<ForgeBlockMsg>>,
     consensus_security_param: u64,
@@ -114,15 +113,15 @@ pub struct AdoptChain {
 impl AdoptChain {
     pub fn new(
         downstream: StageRef<ManagerMessage>,
-        block_source: StageRef<BlockSourceMsg>,
-        mempool: StageRef<MempoolMsg>,
+        block_source: impl Into<Option<StageRef<BlockSourceMsg>>>,
+        mempool: impl Into<Option<StageRef<MempoolMsg>>>,
         consensus_security_param: u64,
         current_best_tip: Point,
     ) -> Self {
         Self {
             downstream,
-            block_source,
-            mempool,
+            block_source: block_source.into(),
+            mempool: mempool.into(),
             forge: None,
             consensus_security_param,
             current_best_tip,
@@ -261,9 +260,13 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         for point in &adopted_points {
             log_adopted_tip(&mut state, point, now, mode);
         }
-        eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
+        if let Some(mempool) = &state.mempool {
+            eff.send(mempool, MempoolMsg::NewTip(msg)).await;
+        }
         eff.send(&state.downstream, ManagerMessage::NewTip(msg, trace_context)).await;
-        eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
+        if let Some(block_source) = &state.block_source {
+            eff.send(block_source, BlockSourceMsg::AdoptedTip(msg)).await;
+        }
         if let Some(forge) = &state.forge {
             // The previous best is the parent only on a roll-forward. A fork switch displaces
             // that tip, so a later same-slot forge has to extend the adopted header's parent.
@@ -323,7 +326,7 @@ async fn drag_anchor_forward<S>(
     eff: &Effects<AdoptChainMsg>,
 ) -> Result<Instant, StoreError> {
     let target_height = tip.block_height() - consensus_security_param;
-    if let Some(new_anchor) = store.find_anchor_for_tip(*tip, consensus_security_param).await? {
+    if let Some(new_anchor) = store.find_anchor_at_height(target_height).await {
         store.set_anchor_point(&new_anchor).await?;
     }
     let now = eff.clock().await;
