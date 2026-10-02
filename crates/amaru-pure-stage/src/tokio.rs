@@ -363,51 +363,28 @@ fn run_stage_boxed(
         inner.trace_buffer.lock().push_state(&stage_name, &state);
 
         'outer: loop {
-            let poll_timers = !timers.is_empty();
-            // if multiple timers have fired since the last poll, we need them all so that we can deliver them in order
-            let mut timer_chunks = (&mut timers).ready_chunks(1000);
+            // Messages queued while the previous transition was awaiting an effect are already
+            // ingress. Taking them before `select` keeps a due schedule ahead of newer bulk mail.
+            if msgs.is_empty() {
+                let poll_timers = !timers.is_empty();
+                // if multiple timers have fired since the last poll, we need them all so that we can deliver them in order
+                let mut timer_chunks = (&mut timers).ready_chunks(1000);
 
-            // Prefer due scheduled (priority) messages over bulk mailbox traffic.
-            tokio::select! { biased;
-                Some(res) = timer_chunks.next(), if poll_timers => {
-                    let mut scheduled = Vec::new();
-                    for msg in res {
-                        match msg {
-                            PriorityMessage::Scheduled(msg, id, cancellation) => {
-                                // A fired timer is priority ingress. Cancel no longer sees it,
-                                // matching the simulation once `deliver_priority` has run.
-                                // The outstanding budget stays until the message is received,
-                                // unless cancel already released it.
-                                cancel_senders.remove(&id);
-                                if !*cancellation.borrow() {
-                                    scheduled.push((id, msg));
-                                }
-                            }
-                            PriorityMessage::TimeoutFired(slot, id) => {
-                                if timeouts.fire(slot, id)
-                                    && let Some(msg) = timeouts.take_due()
-                                {
-                                    msgs.push((msg, false));
-                                }
-                            }
-                            PriorityMessage::TimerCancelled(_id) => {}
-                            PriorityMessage::Tombstone(msg) => msgs.push((msg, false)),
-                        }
+                // Prefer due scheduled (priority) messages over bulk mailbox traffic.
+                tokio::select! { biased;
+                    Some(res) = timer_chunks.next(), if poll_timers => {
+                        collect_ingress(res, &mut cancel_senders, &mut timeouts, &mut msgs);
                     }
-                    // ensure that earliest timer is delivered first
-                    scheduled.sort_by_key(|(id, _)| *id);
-                    for (_id, msg) in scheduled {
-                        msgs.push((msg, true));
+                    Some(msg) = rx.recv() => msgs.push((msg, false)),
+                    else => {
+                        tracing::error!(%stage_name, "stage sender dropped");
+                        break;
                     }
-                }
-                Some(msg) = rx.recv() => msgs.push((msg, false)),
-                else => {
-                    tracing::error!(%stage_name, "stage sender dropped");
-                    break;
                 }
             }
 
-            for (msg, release_budget) in msgs.drain(..) {
+            let batch = std::mem::take(&mut msgs);
+            for (msg, release_budget) in batch {
                 if release_budget {
                     scheduled_pending = scheduled_pending.saturating_sub(1);
                 }
@@ -429,6 +406,7 @@ fn run_stage_boxed(
                     &mut cancel_senders,
                     &mut scheduled_pending,
                     &mut timeouts,
+                    &mut msgs,
                     f,
                 )
                 .await;
@@ -494,6 +472,69 @@ fn tokio_rearm_timeouts(
     }));
 }
 
+/// Move due priority-path messages into `msgs`.
+///
+/// A schedule is ingress at this point, including when the stage is inside `Wait`, `Call`,
+/// `Send`, or an external effect. That matches simulation `deliver_priority`. Cancel after
+/// this returns false and the message is still delivered. The budget is released when the
+/// message is received, unless cancel already released it.
+fn collect_ingress(
+    chunk: Vec<PriorityMessage>,
+    cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
+    timeouts: &mut TimeoutHeap,
+    msgs: &mut Vec<(Box<dyn SendData>, bool)>,
+) {
+    let mut scheduled = Vec::new();
+    for msg in chunk {
+        match msg {
+            PriorityMessage::Scheduled(msg, id, cancellation) => {
+                cancel_senders.remove(&id);
+                if !*cancellation.borrow() {
+                    scheduled.push((id, msg));
+                }
+            }
+            PriorityMessage::TimeoutFired(slot, id) => {
+                if timeouts.fire(slot, id)
+                    && let Some(msg) = timeouts.take_due()
+                {
+                    msgs.push((msg, false));
+                }
+            }
+            PriorityMessage::TimerCancelled(_id) => {}
+            PriorityMessage::Tombstone(msg) => msgs.push((msg, false)),
+        }
+    }
+    // ensure that earliest timer is delivered first
+    scheduled.sort_by_key(|(id, _)| *id);
+    for (_id, msg) in scheduled {
+        msgs.push((msg, true));
+    }
+}
+
+/// Poll `effect`, and also the priority timer set, until `effect` completes.
+///
+/// Due timers are taken first when both are ready, so a paused clock that jumps across
+/// several deadlines still records the schedule as ingress before the effect returns.
+async fn poll_with_ingress<T>(
+    effect: impl Future<Output = T>,
+    timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
+    cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
+    timeouts: &mut TimeoutHeap,
+    msgs: &mut Vec<(Box<dyn SendData>, bool)>,
+) -> T {
+    let mut effect = std::pin::pin!(effect);
+    loop {
+        let poll_timers = !timers.is_empty();
+        let mut timer_chunks = (&mut *timers).ready_chunks(1000);
+        tokio::select! { biased;
+            Some(chunk) = timer_chunks.next(), if poll_timers => {
+                collect_ingress(chunk, cancel_senders, timeouts, msgs);
+            }
+            result = &mut effect => return result,
+        }
+    }
+}
+
 /// Wait out one call deadline, covering enqueue and the reply.
 ///
 /// `send` is cancel-safe: if the deadline wins before the message is queued, dropping the
@@ -545,6 +586,7 @@ async fn interpreter(
     cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
     scheduled_pending: &mut usize,
     timeouts: &mut TimeoutHeap,
+    msgs: &mut Vec<(Box<dyn SendData>, bool)>,
     mut stage: BoxFuture<'static, Box<dyn SendData>>,
 ) -> Option<Box<dyn SendData>> {
     let mut last_yield = tokio::time::Instant::now();
@@ -592,7 +634,7 @@ async fn interpreter(
                     #[expect(clippy::expect_used)]
                     senders.get(&target).expect("stage ref contained unknown name").clone()
                 };
-                tx.send(msg).await.ok();
+                poll_with_ingress(tx.send(msg), timers, cancel_senders, timeouts, msgs).await.ok();
                 StageResponse::Unit
             }
             StageEffect::Call(target, duration, msg) => {
@@ -609,11 +651,11 @@ async fn interpreter(
                 tb().push_suspend_call(name, &target, duration, &*msg);
 
                 let tx_call = if target.is_empty() { None } else { inner.senders.lock().get(&target).cloned() };
-                await_call(tx_call, msg, rx, duration).await
+                poll_with_ingress(await_call(tx_call, msg, rx, duration), timers, cancel_senders, timeouts, msgs).await
             }
             StageEffect::Clock => StageResponse::ClockResponse(inner.clock.now(inner.global_epoch_offset)),
             StageEffect::Wait(duration) => {
-                tokio::time::sleep(duration).await;
+                poll_with_ingress(tokio::time::sleep(duration), timers, cancel_senders, timeouts, msgs).await;
                 StageResponse::WaitResponse(inner.clock.now(inner.global_epoch_offset))
             }
             StageEffect::External(effect) => {
@@ -626,7 +668,10 @@ async fn interpreter(
                     last_yield = now;
                     tokio::task::yield_now().await;
                 }
-                StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
+                let response =
+                    poll_with_ingress(effect.run(inner.resources.clone()), timers, cancel_senders, timeouts, msgs)
+                        .await;
+                StageResponse::ExternalResponse(response)
             }
             StageEffect::Detach(effect, inject) => {
                 tracing::debug!("stage `{name}` detach effect: {:?}", effect);
