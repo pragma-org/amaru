@@ -32,25 +32,36 @@ use crate::{
 #[error("stage `{0}` terminated by unsupervised child termination")]
 pub struct UnsupervisedChildTermination(pub Name);
 
+/// What [`resume_receive_internal`] took, if it resumed the stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReceiveResume {
+    /// Not waiting on receive, or every ingress queue was empty.
+    Idle,
+    /// Popped the bulk mailbox. One blocked sender may move into the freed slot.
+    Bulk,
+    /// Popped a tombstone, a due timeout, or a priority message. The bulk mailbox is unchanged.
+    Other,
+}
+
 /// Try to resume a receive effect.
 ///
-/// Returns `Ok(true)` if the receive was in fact resumed, `Ok(false)` if the stage was not waiting for a receive effect,
-/// or `Err` if the simulation should be terminated due to a bug or a top-level stage termination.
-pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Name) -> anyhow::Result<bool> {
-    let rearm_timeouts = {
+/// `Err` means the simulation should be terminated due to a bug or a top-level stage termination.
+pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Name) -> anyhow::Result<ReceiveResume> {
+    let (rearm_timeouts, from_bulk) = {
         let mut rearm_timeouts = false;
         let data = simulation
             .stages
             .get_mut(at_stage)
             .ok_or_else(|| anyhow::anyhow!("stage `{}` was already terminated", at_stage))?;
         let Some(waiting_for) = data.waiting.as_ref() else {
-            return Ok(false);
+            return Ok(ReceiveResume::Idle);
         };
 
         if !matches!(waiting_for, StageEffect::Receive) {
-            return Ok(false);
+            return Ok(ReceiveResume::Idle);
         }
 
+        let mut from_bulk = false;
         let msg = match data.tombstones.pop_front() {
             Some(Ok(msg)) => msg,
             Some(Err(name)) => {
@@ -66,7 +77,7 @@ pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Na
                 supervisor.tombstones.push_back(msg);
                 resume_receive_internal(simulation, &supervised_by)
                     .with_context(|| format!("sending tombstone from `{}`", at_stage))?;
-                return Ok(false);
+                return Ok(ReceiveResume::Idle);
             }
             None => {
                 if let Some(msg) = data.timeouts.take_due() {
@@ -78,8 +89,9 @@ pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Na
                     msg
                 } else {
                     let Some(msg) = data.mailbox.pop_front() else {
-                        return Ok(false);
+                        return Ok(ReceiveResume::Idle);
                     };
+                    from_bulk = true;
                     msg
                 }
             }
@@ -96,14 +108,14 @@ pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Na
         data.state = StageState::Running((data.transition)(state, msg));
 
         simulation.runnable.push_back((data.name.clone(), StageResponse::Unit));
-        rearm_timeouts
+        (rearm_timeouts, from_bulk)
     };
     if rearm_timeouts {
         let now = simulation.clock.now(simulation.global_epoch_offset);
         let data = simulation.stages.get_mut(at_stage).expect("stage was just resumed");
         super::rearm_timeouts(data, &mut simulation.scheduled, &simulation.schedule_ids, now);
     }
-    Ok(true)
+    Ok(if from_bulk { ReceiveResume::Bulk } else { ReceiveResume::Other })
 }
 
 pub fn resume_send_internal(
@@ -225,7 +237,7 @@ pub fn resume_call_send_internal(
                 sim.runnable.push_back((name, response));
             },
             Some(id),
-            Box::new(CallTimeout),
+            None,
         );
         if wakeup.is_ok()
             && let Some(real_to) = real_to
@@ -245,7 +257,7 @@ pub fn resume_call_internal(
     data: &mut StageData,
     run: &mut dyn FnMut(Name, StageResponse),
     id: Option<ScheduleId>,
-    msg: Box<dyn SendData>,
+    msg: Option<Box<dyn SendData>>,
 ) -> anyhow::Result<()> {
     let waiting_for =
         data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
@@ -257,7 +269,7 @@ pub fn resume_call_internal(
     // it is important that all validations (i.e. `?``) happen before this point
     data.waiting = None;
 
-    run(data.name.clone(), StageResponse::CallResponse(msg));
+    run(data.name.clone(), CallTimeout::response(msg));
     Ok(())
 }
 
