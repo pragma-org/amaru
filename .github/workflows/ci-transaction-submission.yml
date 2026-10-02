@@ -17,13 +17,12 @@ concurrency:
 jobs:
   transaction-submission:
     name: End-to-end transaction submission
+    # Only run on main branch even if triggered by workflow_dispatch. This is to avoid exposing the funded signing key to untrusted revisions.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 105
     env:
       AMARU_NETWORK: preprod
-      AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
-      AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       E2E_TX_WORK_DIR: ${{ github.workspace }}/e2e-tx-submission-output
@@ -50,14 +49,15 @@ jobs:
       - uses: ./.github/actions/cache
 
       - name: Run transaction submission test
-        timeout-minutes: 45
+        # Allow time for building, bootstrapping, and confirmation around the sync wait.
+        timeout-minutes: 90
         shell: bash
         env:
           AMARU_LOG: "info,amaru::consensus=debug"
           E2E_TX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-preprod
           TX_PAYMENT_SKEY_BASE64: ${{ secrets.PREPROD_TX_PAYMENT_SKEY_BASE64 }}
-          # A fresh Amaru bootstrap can be several epochs behind the public tip.
-          TX_SYNC_TIMEOUT_SECONDS: 1200
+          # Catching up several epochs from public peers can take more than 20 minutes.
+          TX_SYNC_TIMEOUT_SECONDS: 3600
         run: |
           set -euo pipefail
           ./scripts/e2e/tx-submission.sh run
