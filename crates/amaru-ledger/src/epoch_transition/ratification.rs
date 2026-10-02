@@ -410,10 +410,14 @@ fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Ballot, CertificatePointer, DRep, GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
-        RewardAccount, Vote, Voter, any_hash28, any_proposal_id, any_reward_account, safe_ratio,
+        Ballot, CertificatePointer, DRep, GovernanceAction, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        PREPROD_ERA_HISTORY, RewardAccount, Vote, Voter, safe_ratio,
     };
-    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+    use proptest::{
+        prelude::{Strategy, any},
+        strategy::ValueTree,
+        test_runner::TestRunner,
+    };
 
     use super::*;
     use crate::{
@@ -461,15 +465,15 @@ mod tests {
         let mut runner = TestRunner::default();
         let epoch = Epoch::from(10);
 
-        let ratified_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
-        let expired_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
+        let ratified_id = any::<ProposalId>().new_tree(&mut runner).unwrap().current();
+        let expired_id = any::<ProposalId>().new_tree(&mut runner).unwrap().current();
 
-        let account = any_reward_account().new_tree(&mut runner).unwrap().current();
+        let account = any::<RewardAccount>().new_tree(&mut runner).unwrap().current();
 
         let ratified = any_withdrawal_proposal(&mut runner, epoch + 5, BTreeMap::from([(account, 70_000)]));
         let expired = any_information_proposal(&mut runner, epoch);
 
-        let drep = any_hash28().new_tree(&mut runner).unwrap().current();
+        let drep = any::<Hash<28>>().new_tree(&mut runner).unwrap().current();
         let mut distribution = empty_stake_distribution(epoch);
         distribution.dreps_voting_stake = 1_000_000_000_000;
         distribution.dreps = BTreeMap::from([(

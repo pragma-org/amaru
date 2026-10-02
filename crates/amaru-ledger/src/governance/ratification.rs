@@ -416,8 +416,8 @@ mod tests {
 
         use amaru_kernel::{
             GovernanceAction, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalId, ProposalPointer, ProposalsRootsRc,
-            ProtocolParamUpdate, ProtocolVersion, RatificationStatus, RationalNumber, TransactionPointer,
-            any_proposal_pointer, safe_ratio, utils::tests::assert_strategy_sometimes_fails,
+            ProtocolParamUpdate, ProtocolVersion, RatificationStatus, RationalNumber, TransactionPointer, safe_ratio,
+            utils::tests::assert_strategy_sometimes_fails,
         };
         use proptest::{prelude::*, test_runner::RngSeed};
 
@@ -555,7 +555,7 @@ mod tests {
 
         proptest! {
             #[test]
-            fn prop_era_history_yields_within_epoch_bounds(pointer in any_proposal_pointer(u64::MAX)) {
+            fn prop_era_history_yields_within_epoch_bounds(pointer in any::<ProposalPointer>()) {
                 let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
                 prop_assert!(
                     epoch >= Epoch::from(MIN_ARBITRARY_EPOCH) && epoch <= Epoch::from(MAX_ARBITRARY_EPOCH),
@@ -567,7 +567,7 @@ mod tests {
         #[test]
         fn prop_proposal_pointer_sometimes_min_epoch() {
             assert_strategy_sometimes_fails(
-                any_proposal_pointer(u64::MAX),
+                any::<ProposalPointer>(),
                 ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
                 |pointer| {
                     let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
@@ -580,7 +580,7 @@ mod tests {
         #[test]
         fn prop_proposal_pointer_sometimes_max_epoch() {
             assert_strategy_sometimes_fails(
-                any_proposal_pointer(u64::MAX),
+                any::<ProposalPointer>(),
                 ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() },
                 |pointer| {
                     let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();

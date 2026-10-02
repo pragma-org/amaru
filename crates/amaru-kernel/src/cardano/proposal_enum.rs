@@ -14,6 +14,9 @@
 
 use std::{cmp::Ordering, collections::BTreeMap, rc::Rc};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, prop_oneof};
+
 use crate::{
     Constitution, ConstitutionalCommitteeUpdate, GovernanceAction, OrphanProposal, ProposalId, ProtocolParamUpdate,
     ProtocolVersion, into_safe_ratio,
@@ -173,37 +176,25 @@ impl From<GovernanceAction> for ProposalEnum {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for ProposalEnum {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use std::rc::Rc;
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let protocol_parameters = (any::<Option<ProposalId>>(), any::<ProtocolParamUpdate>())
+            .prop_map(|(parent, update)| ProposalEnum::ProtocolParameters(Box::new(update), parent.map(Rc::new)));
 
-    use proptest::{option, prelude::*};
+        let hard_fork = (any::<Option<ProposalId>>(), any::<ProtocolVersion>())
+            .prop_map(|(parent, version)| ProposalEnum::HardFork(version, parent.map(Rc::new)));
 
-    use crate::{
-        ProposalEnum, any_constitution, any_constitutional_committee_update, any_epoch, any_orphan_proposal,
-        any_proposal_id, any_protocol_params_update, any_protocol_version,
-    };
+        let constitutional_committee = (any::<Option<ProposalId>>(), any::<ConstitutionalCommitteeUpdate>())
+            .prop_map(|(parent, committee)| ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new)));
 
-    pub fn any_proposal_enum() -> impl Strategy<Value = ProposalEnum> {
-        let any_protocol_parameters =
-            (option::of(any_proposal_id()), any_protocol_params_update()).prop_map(|(parent, params_update)| {
-                ProposalEnum::ProtocolParameters(Box::new(params_update), parent.map(Rc::new))
-            });
-
-        let any_hard_fork = (option::of(any_proposal_id()), any_protocol_version())
-            .prop_map(|(parent, protocol_version)| ProposalEnum::HardFork(protocol_version, parent.map(Rc::new)));
-
-        let any_constitutional_committee =
-            (option::of(any_proposal_id()), any_constitutional_committee_update(any_epoch()))
-                .prop_map(|(parent, committee)| ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new)));
-
-        let any_constitution = (option::of(any_proposal_id()), any_constitution())
+        let constitution = (any::<Option<ProposalId>>(), any::<Constitution>())
             .prop_map(|(parent, constitution)| ProposalEnum::Constitution(constitution, parent.map(Rc::new)));
 
-        let any_orphan = any_orphan_proposal().prop_map(ProposalEnum::Orphan);
+        let orphan = any::<OrphanProposal>().prop_map(ProposalEnum::Orphan);
 
-        prop_oneof![any_protocol_parameters, any_hard_fork, any_constitutional_committee, any_constitution, any_orphan,]
+        prop_oneof![protocol_parameters, hard_fork, constitutional_committee, constitution, orphan].boxed()
     }
 }

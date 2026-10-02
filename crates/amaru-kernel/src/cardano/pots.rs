@@ -14,6 +14,9 @@
 
 //! This modules captures protocol-wide value pots such as treasury and reserves accounts.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{Lovelace, cbor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -77,30 +80,21 @@ impl<'a, C> cbor::Decode<'a, C> for Pots {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Pots {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<(Lovelace, Lovelace, Lovelace, Lovelace)>()
+            .prop_map(|(treasury, reserves, fees, donations)| Pots { treasury, reserves, fees, donations })
+            .boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
-
-    use super::*;
+    use super::Pots;
     use crate::prop_cbor_roundtrip;
 
-    prop_compose! {
-        pub fn any_pots()(
-            treasury in any::<Lovelace>(),
-            reserves in any::<Lovelace>(),
-            fees in any::<Lovelace>(),
-            donations in any::<Lovelace>(),
-        ) -> Pots {
-            Pots {
-                treasury,
-                reserves,
-                fees,
-                donations,
-            }
-        }
-    }
-
-    prop_cbor_roundtrip!(prop_cbor_roundtrip_pots, Pots, any_pots());
+    prop_cbor_roundtrip!(Pots);
 }

@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{ProposalId, Voter, cbor};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,36 +59,19 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for BallotId {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for BallotId {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<ProposalId>(), any::<Voter>()).prop_map(|(proposal, voter)| BallotId { proposal, voter }).boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::{prelude::*, prop_compose};
-
     use super::BallotId;
-    use crate::{Voter, any_hash28, any_proposal_id, prop_cbor_roundtrip};
+    use crate::prop_cbor_roundtrip;
 
-    prop_cbor_roundtrip!(BallotId, any_ballot_id());
-
-    pub fn any_voter() -> impl Strategy<Value = Voter> {
-        prop_oneof![
-            any_hash28().prop_map(Voter::ConstitutionalCommitteeKey),
-            any_hash28().prop_map(Voter::ConstitutionalCommitteeScript),
-            any_hash28().prop_map(Voter::DRepKey),
-            any_hash28().prop_map(Voter::DRepScript),
-            any_hash28().prop_map(Voter::StakePoolKey),
-        ]
-    }
-
-    prop_compose! {
-        pub fn any_ballot_id()(
-            proposal in any_proposal_id(),
-            voter in any_voter(),
-        ) -> BallotId {
-            BallotId {
-                proposal,
-                voter,
-            }
-        }
-    }
+    prop_cbor_roundtrip!(BallotId);
 }

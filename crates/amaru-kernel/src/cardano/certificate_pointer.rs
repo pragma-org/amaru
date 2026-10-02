@@ -14,6 +14,11 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, any_with};
+
+#[cfg(any(test, feature = "test-utils"))]
+use crate::SlotUpperBound;
 use crate::{Slot, TransactionPointer, cbor};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -57,50 +62,40 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for CertificatePointer {
+    type Parameters = SlotUpperBound;
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{prelude::*, prop_compose};
-
-    use super::*;
-    use crate::{any_transaction_pointer, prop_cbor_roundtrip};
-
-    prop_cbor_roundtrip!(CertificatePointer, any_certificate_pointer(u64::MAX));
-
-    prop_compose! {
-        pub fn any_certificate_pointer(max_slot: u64)(
-            transaction in any_transaction_pointer(max_slot),
-            certificate_index in any::<usize>(),
-        ) -> CertificatePointer {
-            CertificatePointer {
-                transaction,
-                certificate_index,
-            }
-        }
+    fn arbitrary_with(bound: Self::Parameters) -> Self::Strategy {
+        (any_with::<TransactionPointer>(bound), any::<usize>())
+            .prop_map(|(transaction, certificate_index)| CertificatePointer { transaction, certificate_index })
+            .boxed()
     }
+}
 
-    #[cfg(test)]
-    mod internal {
-        use test_case::test_case;
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
 
-        use super::*;
+    use super::CertificatePointer;
+    use crate::{Slot, TransactionPointer, prop_cbor_roundtrip};
 
-        #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
-        #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
-        #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
-        #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
-        #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
-        fn test_pointers(
-            left: (u64, usize, usize),
-            right: (u64, usize, usize),
-        ) -> (CertificatePointer, CertificatePointer) {
-            let new_pointer = |args: (Slot, usize, usize)| CertificatePointer {
-                transaction: TransactionPointer { slot: args.0, transaction_index: args.1 },
-                certificate_index: args.2,
-            };
+    prop_cbor_roundtrip!(CertificatePointer);
 
-            (new_pointer((Slot::from(left.0), left.1, left.2)), new_pointer((Slot::from(right.0), right.1, right.2)))
-        }
+    #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
+    #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
+    #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
+    #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
+    #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
+    fn test_pointers(
+        left: (u64, usize, usize),
+        right: (u64, usize, usize),
+    ) -> (CertificatePointer, CertificatePointer) {
+        let new_pointer = |args: (Slot, usize, usize)| CertificatePointer {
+            transaction: TransactionPointer { slot: args.0, transaction_index: args.1 },
+            certificate_index: args.2,
+        };
+
+        (new_pointer((Slot::from(left.0), left.1, left.2)), new_pointer((Slot::from(right.0), right.1, right.2)))
     }
 }

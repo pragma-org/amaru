@@ -77,7 +77,7 @@ mod tests {
         sync::LazyLock,
     };
 
-    use amaru_kernel::{Ballot, BallotId, ProposalId, Voter, any_ballot, any_proposal, any_proposal_id, any_voter};
+    use amaru_kernel::{Ballot, BallotId, Proposal, ProposalId, Voter};
     use amaru_ledger::store::{ReadStore, Store};
     use proptest::{
         collection::{btree_map, btree_set},
@@ -95,7 +95,7 @@ mod tests {
     });
 
     prop_compose! {
-        fn any_proposal_row()(proposal in any_proposal()) -> proposals::Row {
+        fn any_proposal_row()(proposal in any::<Proposal>()) -> proposals::Row {
             proposals::Row {
                 proposed_in: Default::default(),
                 valid_until: Default::default(),
@@ -107,8 +107,8 @@ mod tests {
     proptest! {
         #[test]
         fn remove(
-            proposals in btree_map(any_proposal_id(), any_proposal_row(), 2..=3),
-            votes in btree_map(any_voter(), any_ballot(), 100),
+            proposals in btree_map(any::<ProposalId>(), any_proposal_row(), 2..=3),
+            votes in btree_map(any::<Voter>(), any::<Ballot>(), 100),
             indices_to_remove in btree_set(any::<usize>(), 1..=3),
         ) {
             DB.clear().unwrap();

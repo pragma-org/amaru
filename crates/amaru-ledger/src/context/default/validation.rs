@@ -484,10 +484,8 @@ impl BalanceSlice for DefaultValidationContext {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{
-        Proposal, Slot, TransactionPointer, any_credential, any_proposal, any_proposal_id, any_rational_number,
-        utils::tests::run_strategy,
-    };
+    use amaru_kernel::{Proposal, RationalNumber, Slot, TransactionPointer, utils::tests::run_strategy};
+    use proptest::prelude::any;
     use test_case::test_case;
 
     use super::*;
@@ -688,9 +686,9 @@ mod tests {
 
     #[test]
     fn proposal_acknowledgement_does_not_modify_committee_state() {
-        let proposal_id = run_strategy(any_proposal_id());
+        let proposal_id = run_strategy(any::<ProposalId>());
 
-        let cold_credential = run_strategy(any_credential());
+        let cold_credential = run_strategy(any::<Credential>());
 
         let committee_update_adding_members = ProposalState {
             proposed_in: Default::default(),
@@ -700,9 +698,9 @@ mod tests {
                     None,
                     Default::default(),
                     vec![(cold_credential, Default::default())].try_into().unwrap(),
-                    run_strategy(any_rational_number()),
+                    run_strategy(any::<RationalNumber>()),
                 ),
-                ..run_strategy(any_proposal())
+                ..run_strategy(any::<Proposal>())
             },
         };
 

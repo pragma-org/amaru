@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, prop_oneof};
+
 use crate::{
     AddressType, Hash, cbor,
     size::{CREDENTIAL, KEY, SCRIPT},
@@ -127,18 +130,15 @@ impl From<BorrowedCredential<'_>> for Credential {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Credential {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use crate::{Credential, Hash};
-
-    pub fn any_credential() -> impl Strategy<Value = Credential> {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         prop_oneof![
-            any::<[u8; 28]>().prop_map(|hash| Credential::KeyHash(Hash::new(hash))),
-            any::<[u8; 28]>().prop_map(|hash| Credential::ScriptHash(Hash::new(hash))),
+            any::<Hash<KEY>>().prop_map(Credential::KeyHash),
+            any::<Hash<SCRIPT>>().prop_map(Credential::ScriptHash),
         ]
+        .boxed()
     }
 }

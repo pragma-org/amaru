@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -104,5 +107,41 @@ impl fmt::Display for DRepVotingThresholds {
             hard_fork_initiation={hard_fork_initiation} \
             }}",
         )
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for DRepVotingThresholds {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<[RationalNumber; 10]>()
+            .prop_map(
+                |[
+                    motion_no_confidence,
+                    committee_normal,
+                    committee_no_confidence,
+                    update_constitution,
+                    hard_fork_initiation,
+                    pp_network_group,
+                    pp_economic_group,
+                    pp_technical_group,
+                    pp_governance_group,
+                    treasury_withdrawal,
+                ]| DRepVotingThresholds {
+                    motion_no_confidence,
+                    committee_normal,
+                    committee_no_confidence,
+                    update_constitution,
+                    hard_fork_initiation,
+                    pp_network_group,
+                    pp_economic_group,
+                    pp_technical_group,
+                    pp_governance_group,
+                    treasury_withdrawal,
+                },
+            )
+            .boxed()
     }
 }

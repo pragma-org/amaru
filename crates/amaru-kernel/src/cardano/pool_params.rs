@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    collection,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any},
+};
+
 use crate::{
     Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
@@ -82,76 +88,22 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PoolParams
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for PoolParams {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{option, prelude::*, prop_compose};
-
-    use super::*;
-    use crate::{
-        Bytes, MaxString128, RationalNumber, Relay, any_hash28, any_hash32, any_reward_account, prop_cbor_roundtrip,
-    };
-
-    prop_cbor_roundtrip!(PoolParams, any_pool_params());
-
-    fn any_optional_port() -> impl Strategy<Value = Option<u32>> {
-        option::of(any::<u32>())
-    }
-
-    fn any_optional_ipv4() -> impl Strategy<Value = Option<Bytes>> {
-        option::of(any::<[u8; 4]>().prop_map(|a| Vec::from(a).into()))
-    }
-
-    fn any_optional_ipv6() -> impl Strategy<Value = Option<Bytes>> {
-        option::of(any::<[u8; 16]>().prop_map(|a| Vec::from(a).into()))
-    }
-
-    prop_compose! {
-        fn single_host_addr()(
-            port in any_optional_port(),
-            ipv4 in any_optional_ipv4(),
-            ipv6 in any_optional_ipv6()
-        ) -> Relay {
-            Relay::SingleHostAddr(port, ipv4, ipv6)
-        }
-    }
-
-    prop_compose! {
-        #[expect(clippy::unwrap_used)]
-        fn single_host_name()(
-            port in any_optional_port(),
-            dnsname in any::<String>(),
-        ) -> Relay {
-            Relay::SingleHostName(port, MaxString128::try_from(dnsname).unwrap())
-        }
-    }
-
-    prop_compose! {
-        #[expect(clippy::unwrap_used)]
-        fn multi_host_name()(
-            dnsname in any::<String>(),
-        ) -> Relay {
-            Relay::MultiHostName(MaxString128::try_from(dnsname).unwrap())
-        }
-    }
-
-    fn any_relay() -> BoxedStrategy<Relay> {
-        prop_oneof![single_host_addr(), single_host_name(), multi_host_name(),].boxed()
-    }
-
-    prop_compose! {
-        pub fn any_pool_params()(
-            id in any_hash28(),
-            vrf in any_hash32(),
-            pledge in any::<u64>(),
-            cost in any::<u64>(),
-            margin in 0..100u64,
-            reward_account in any_reward_account(),
-            owners in proptest::collection::vec(any_hash28(), 1..3),
-            relays in proptest::collection::vec(any_relay(), 0..10),
-        ) -> PoolParams {
-            PoolParams {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (
+            any::<PoolId>(),
+            any::<Hash<VRF_KEY>>(),
+            any::<u64>(),
+            any::<u64>(),
+            0..100u64,
+            any::<RewardAccount>(),
+            collection::vec(any::<Hash<KEY>>(), 1..3),
+            collection::vec(any::<Relay>(), 0..10),
+        )
+            .prop_map(|(id, vrf, pledge, cost, margin, reward_account, owners, relays)| PoolParams {
                 id,
                 vrf,
                 pledge,
@@ -161,7 +113,14 @@ mod tests {
                 owners,
                 relays,
                 metadata: None,
-            }
-        }
+            })
+            .boxed()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{PoolParams, prop_cbor_roundtrip};
+
+    prop_cbor_roundtrip!(PoolParams);
 }

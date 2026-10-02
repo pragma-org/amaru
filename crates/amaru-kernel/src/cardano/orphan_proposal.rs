@@ -14,6 +14,12 @@
 
 use std::{collections::BTreeMap, fmt};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    collection,
+    prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof},
+};
+
 use crate::{Credential, Lovelace};
 
 #[derive(Debug, Clone)]
@@ -36,20 +42,16 @@ impl fmt::Display for OrphanProposal {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for OrphanProposal {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{collection, prelude::*};
-
-    use crate::{OrphanProposal, any_credential};
-
-    pub fn any_orphan_proposal() -> impl Strategy<Value = OrphanProposal> {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         let any_nice_poll = Just(OrphanProposal::NicePoll);
 
-        let any_treasury_withdrawal = collection::btree_map(any_credential(), 1..(u64::MAX / 3), 1..3)
+        let any_treasury_withdrawal = collection::btree_map(any::<Credential>(), 1..(u64::MAX / 3), 1..3)
             .prop_map(OrphanProposal::TreasuryWithdrawal);
 
-        prop_oneof![any_nice_poll, any_treasury_withdrawal]
+        prop_oneof![any_nice_poll, any_treasury_withdrawal].boxed()
     }
 }

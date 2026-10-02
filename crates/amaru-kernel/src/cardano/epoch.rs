@@ -157,22 +157,10 @@ impl CheckedSub for Epoch {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
-
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
-
     use super::*;
 
-    prop_compose! {
-        pub fn any_epoch()(epoch in any::<u64>()) -> Epoch {
-            Epoch::from(epoch)
-        }
-    }
-
-    #[cfg(test)]
     mod serde_format {
         use super::*;
 

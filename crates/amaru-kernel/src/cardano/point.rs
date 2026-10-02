@@ -17,6 +17,9 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
+
 use crate::{BlockHeight, HeaderHash, NetworkPoint, ORIGIN_HASH, Slot};
 
 /// In-memory chain point: slot, header hash, and block height.
@@ -220,143 +223,121 @@ impl schemars::JsonSchema for Point {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Point {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        let any_specific = (0u64..=1000, any::<HeaderHash>(), any::<BlockHeight>())
+            .prop_map(|(slot, header_hash, block_height)| Point::Specific(Slot::from(slot), header_hash, block_height));
+
+        prop_oneof![1 => Just(Point::Origin), 3 => any_specific].boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
+    use test_case::test_case;
 
-    use crate::{Point, Slot, any_block_height, any_header_hash};
+    use crate::{BlockHeight, Hash, Point, Slot};
 
-    prop_compose! {
-        fn any_slot()(n in 0u64..=1000) -> Slot {
-            Slot::from(n)
-        }
+    const SAMPLE_HASH: [u8; 32] = [
+        254, 252, 156, 3, 124, 63, 156, 139, 79, 183, 138, 155, 15, 19, 123, 94, 208, 128, 60, 61, 70, 189, 45, 14, 64,
+        197, 159, 169, 12, 160, 2, 193,
+    ];
+
+    fn sample_specific(height: u64) -> Point {
+        Point::Specific(Slot::from(42), Hash::new(SAMPLE_HASH), BlockHeight::from(height))
     }
 
-    prop_compose! {
-        pub fn any_specific_point()(
-            slot in any_slot(),
-            header_hash in any_header_hash(),
-            block_height in any_block_height(),
-        ) -> Point {
-            Point::Specific(slot, header_hash, block_height)
-        }
+    #[test_case(Point::Origin => "Origin")]
+    #[test_case(
+        sample_specific(7) => "Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1, 7)";
+        "specific"
+    )]
+    fn better_debug_point(point: Point) -> String {
+        format!("{point:?}")
     }
 
-    pub fn any_point() -> impl Strategy<Value = Point> {
-        prop_oneof![
-            1 => Just(Point::Origin),
-            3 => any_specific_point(),
-        ]
+    #[test_case(
+        Point::Origin => "origin";
+       "origin"
+    )]
+    #[test_case(
+        sample_specific(7) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
+        "specific"
+    )]
+    fn better_display_point(point: Point) -> String {
+        format!("{point}")
     }
 
-    #[cfg(test)]
-    mod internal {
-        use test_case::test_case;
+    #[test]
+    fn test_parse_point() {
+        let error = Point::try_from("42.0123456789abcdef").unwrap_err();
+        assert_eq!(error, "missing '(' for block height");
+    }
 
-        use super::*;
-        use crate::{BlockHeight, Hash};
+    #[test]
+    fn json_schema_uses_draft07_tuple_items() {
+        let schema = serde_json::to_value(schemars::schema_for!(Point).schema).expect("schema");
+        assert!(schema.get("prefixItems").is_none());
+        let specific = &schema["oneOf"][1];
+        assert!(specific["items"].is_array());
+        assert_eq!(specific["minItems"], 3);
+        assert_eq!(specific["maxItems"], 3);
+        assert_eq!(specific["items"][1]["pattern"], "^[0-9a-f]{64}$");
+        assert!(specific["items"][1].get("contentEncoding").is_none());
+    }
 
-        const SAMPLE_HASH: [u8; 32] = [
-            254, 252, 156, 3, 124, 63, 156, 139, 79, 183, 138, 155, 15, 19, 123, 94, 208, 128, 60, 61, 70, 189, 45, 14,
-            64, 197, 159, 169, 12, 160, 2, 193,
-        ];
+    #[test]
+    fn json() {
+        let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
+        let point = Point::try_from(point_str).expect("failed to parse from string");
+        let point_json = serde_json::to_string(&point).expect("failed to serialize");
+        assert_eq!(point_json, "[42,\"fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1\",7]");
+        assert_eq!(point, serde_json::from_str(&point_json).expect("failed to deserialize"));
+        assert_eq!(serde_json::to_string(&Point::Origin).expect("origin"), "[]");
+        assert_eq!(Point::Origin, serde_json::from_str("[]").expect("origin"));
+    }
 
-        fn sample_specific(height: u64) -> Point {
-            Point::Specific(Slot::from(42), Hash::new(SAMPLE_HASH), BlockHeight::from(height))
-        }
+    #[test]
+    fn cbor_specific_encodes_hash_as_byte_string() {
+        let point = sample_specific(7);
+        let mut buf = Vec::new();
+        cbor4ii::serde::to_writer(&mut buf, &point).expect("encode");
+        let decoded: Point = cbor4ii::serde::from_slice(&buf).expect("decode");
+        assert_eq!(decoded, point);
 
-        #[test_case(Point::Origin => "Origin")]
-        #[test_case(
-            sample_specific(7) => "Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1, 7)";
-            "specific"
-        )]
-        fn better_debug_point(point: Point) -> String {
-            format!("{point:?}")
-        }
+        // CBOR major type 2, 32-byte header: 0x58 0x20. A hex *text* string would be 0x78 0x40.
+        assert!(buf.windows(2).any(|w| w == [0x58, 0x20]), "hash must be a definite 32-byte CBOR byte string");
+    }
 
-        #[test_case(
-            Point::Origin => "origin";
-           "origin"
-        )]
-        #[test_case(
-            sample_specific(7) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
-            "specific"
-        )]
-        fn better_display_point(point: Point) -> String {
-            format!("{point}")
-        }
-
-        #[test]
-        fn test_parse_point() {
-            let error = Point::try_from("42.0123456789abcdef").unwrap_err();
-            assert_eq!(error, "missing '(' for block height");
-        }
-
-        #[test]
-        fn json_schema_uses_draft07_tuple_items() {
-            let schema = serde_json::to_value(schemars::schema_for!(Point).schema).expect("schema");
-            assert!(schema.get("prefixItems").is_none());
-            let specific = &schema["oneOf"][1];
-            assert!(specific["items"].is_array());
-            assert_eq!(specific["minItems"], 3);
-            assert_eq!(specific["maxItems"], 3);
-            assert_eq!(specific["items"][1]["pattern"], "^[0-9a-f]{64}$");
-            assert!(specific["items"][1].get("contentEncoding").is_none());
-        }
-
-        #[test]
-        fn json() {
-            let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
-            let point = Point::try_from(point_str).expect("failed to parse from string");
-            let point_json = serde_json::to_string(&point).expect("failed to serialize");
-            assert_eq!(point_json, "[42,\"fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1\",7]");
-            assert_eq!(point, serde_json::from_str(&point_json).expect("failed to deserialize"));
-            assert_eq!(serde_json::to_string(&Point::Origin).expect("origin"), "[]");
-            assert_eq!(Point::Origin, serde_json::from_str("[]").expect("origin"));
-        }
-
-        #[test]
-        fn cbor_specific_encodes_hash_as_byte_string() {
-            let point = sample_specific(7);
-            let mut buf = Vec::new();
-            cbor4ii::serde::to_writer(&mut buf, &point).expect("encode");
-            let decoded: Point = cbor4ii::serde::from_slice(&buf).expect("decode");
-            assert_eq!(decoded, point);
-
-            // CBOR major type 2, 32-byte header: 0x58 0x20. A hex *text* string would be 0x78 0x40.
-            assert!(buf.windows(2).any(|w| w == [0x58, 0x20]), "hash must be a definite 32-byte CBOR byte string");
-        }
-
-        #[test]
-        fn test_parse_real_point() {
-            let point =
-                Point::try_from("70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d(123)")
-                    .unwrap();
-            match point {
-                Point::Specific(slot, _hash, height) => {
-                    assert_eq!(70070379, slot.as_u64());
-                    assert_eq!(123, height.as_u64());
-                }
-                _ => panic!("expected a specific point"),
+    #[test]
+    fn test_parse_real_point() {
+        let point =
+            Point::try_from("70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d(123)").unwrap();
+        match point {
+            Point::Specific(slot, _hash, height) => {
+                assert_eq!(70070379, slot.as_u64());
+                assert_eq!(123, height.as_u64());
             }
+            _ => panic!("expected a specific point"),
         }
+    }
 
-        #[test]
-        fn ord_is_slot_then_hash_then_height() {
-            let hash_lo = Hash::new([1; 32]);
-            let hash_hi = Hash::new([2; 32]);
-            let origin = Point::Origin;
-            let slot1_lo_h10 = Point::Specific(Slot::from(1), hash_lo, BlockHeight::from(10));
-            let slot1_lo_h11 = Point::Specific(Slot::from(1), hash_lo, BlockHeight::from(11));
-            let slot1_hi_h1 = Point::Specific(Slot::from(1), hash_hi, BlockHeight::from(1));
-            let slot2_lo_h1 = Point::Specific(Slot::from(2), hash_lo, BlockHeight::from(1));
+    #[test]
+    fn ord_is_slot_then_hash_then_height() {
+        let hash_lo = Hash::new([1; 32]);
+        let hash_hi = Hash::new([2; 32]);
+        let origin = Point::Origin;
+        let slot1_lo_h10 = Point::Specific(Slot::from(1), hash_lo, BlockHeight::from(10));
+        let slot1_lo_h11 = Point::Specific(Slot::from(1), hash_lo, BlockHeight::from(11));
+        let slot1_hi_h1 = Point::Specific(Slot::from(1), hash_hi, BlockHeight::from(1));
+        let slot2_lo_h1 = Point::Specific(Slot::from(2), hash_lo, BlockHeight::from(1));
 
-            assert!(origin < slot1_lo_h10);
-            assert!(slot1_lo_h10 < slot1_hi_h1, "same slot: hash is the second key");
-            assert!(slot1_hi_h1 < slot2_lo_h1, "slot is the first key");
-            assert!(slot1_lo_h10 < slot1_lo_h11, "same slot and hash: height is the third key");
-        }
+        assert!(origin < slot1_lo_h10);
+        assert!(slot1_lo_h10 < slot1_hi_h1, "same slot: hash is the second key");
+        assert!(slot1_hi_h1 < slot2_lo_h1, "slot is the first key");
+        assert!(slot1_lo_h10 < slot1_lo_h11, "same slot and hash: height is the third key");
     }
 }

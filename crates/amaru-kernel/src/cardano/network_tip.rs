@@ -22,6 +22,9 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{BlockHeight, HeaderHash, NetworkPoint, Point, Slot, cbor};
 
 /// Wire and external form of a chain tip: a network point together with its block height.
@@ -161,79 +164,71 @@ impl<'de> serde::Deserialize<'de> for NetworkTip {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for NetworkTip {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<NetworkPoint>(), any::<BlockHeight>())
+            .prop_map(|(point, block_height)| NetworkTip::new(point, block_height))
+            .boxed()
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
+    use test_case::test_case;
 
-    use crate::{NetworkTip, any_block_height, any_network_point, prop_cbor_roundtrip};
+    use crate::{BlockHeight, Hash, NetworkPoint, NetworkTip, Point, Slot, prop_cbor_roundtrip};
 
-    prop_cbor_roundtrip!(NetworkTip, any_network_tip());
+    prop_cbor_roundtrip!(NetworkTip);
 
-    prop_compose! {
-        pub fn any_network_tip()(
-            point in any_network_point(),
-            block_height in any_block_height(),
-        ) -> NetworkTip {
-            NetworkTip::new(point, block_height)
-        }
+    const SAMPLE_HASH: [u8; 32] = [
+        254, 252, 156, 3, 124, 63, 156, 139, 79, 183, 138, 155, 15, 19, 123, 94, 208, 128, 60, 61, 70, 189, 45, 14, 64,
+        197, 159, 169, 12, 160, 2, 193,
+    ];
+
+    fn sample_specific(height: u64) -> NetworkTip {
+        NetworkTip::new(NetworkPoint::Specific(Slot::from(42), Hash::new(SAMPLE_HASH)), BlockHeight::from(height))
     }
 
-    #[cfg(test)]
-    mod internal {
-        use test_case::test_case;
+    #[test_case(NetworkTip::origin() => "NetworkTip(Origin, 0)")]
+    #[test_case(
+        sample_specific(7) => "NetworkTip(Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1), 7)";
+        "specific"
+    )]
+    fn better_debug_network_tip(tip: NetworkTip) -> String {
+        format!("{tip:?}")
+    }
 
-        use super::*;
-        use crate::{BlockHeight, Hash, NetworkPoint, Point, Slot};
+    #[test_case(NetworkTip::origin() => "origin"; "origin")]
+    #[test_case(
+        sample_specific(7) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
+        "specific"
+    )]
+    fn better_display_network_tip(tip: NetworkTip) -> String {
+        format!("{tip}")
+    }
 
-        const SAMPLE_HASH: [u8; 32] = [
-            254, 252, 156, 3, 124, 63, 156, 139, 79, 183, 138, 155, 15, 19, 123, 94, 208, 128, 60, 61, 70, 189, 45, 14,
-            64, 197, 159, 169, 12, 160, 2, 193,
-        ];
+    #[test]
+    fn origin_normalizes_height() {
+        let tip = NetworkTip::new(NetworkPoint::Origin, BlockHeight::from(99));
+        assert_eq!(tip, NetworkTip::origin());
+        assert_eq!(tip.block_height(), BlockHeight::from(0));
+    }
 
-        fn sample_specific(height: u64) -> NetworkTip {
-            NetworkTip::new(NetworkPoint::Specific(Slot::from(42), Hash::new(SAMPLE_HASH)), BlockHeight::from(height))
-        }
+    #[test]
+    fn from_point_roundtrip() {
+        let point = Point::Specific(Slot::from(42), Hash::new(SAMPLE_HASH), BlockHeight::from(7));
+        assert_eq!(point, Point::from(NetworkTip::from(point)));
+    }
 
-        #[test_case(NetworkTip::origin() => "NetworkTip(Origin, 0)")]
-        #[test_case(
-            sample_specific(7) => "NetworkTip(Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1), 7)";
-            "specific"
-        )]
-        fn better_debug_network_tip(tip: NetworkTip) -> String {
-            format!("{tip:?}")
-        }
-
-        #[test_case(NetworkTip::origin() => "origin"; "origin")]
-        #[test_case(
-            sample_specific(7) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
-            "specific"
-        )]
-        fn better_display_network_tip(tip: NetworkTip) -> String {
-            format!("{tip}")
-        }
-
-        #[test]
-        fn origin_normalizes_height() {
-            let tip = NetworkTip::new(NetworkPoint::Origin, BlockHeight::from(99));
-            assert_eq!(tip, NetworkTip::origin());
-            assert_eq!(tip.block_height(), BlockHeight::from(0));
-        }
-
-        #[test]
-        fn from_point_roundtrip() {
-            let point = Point::Specific(Slot::from(42), Hash::new(SAMPLE_HASH), BlockHeight::from(7));
-            assert_eq!(point, Point::from(NetworkTip::from(point)));
-        }
-
-        #[test]
-        fn json() {
-            let tip_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
-            let tip = NetworkTip::try_from(tip_str).expect("failed to parse from string");
-            let tip_json = serde_json::to_string(&tip).expect("failed to serialize");
-            assert_eq!(format!("\"{tip_str}\""), tip_json);
-            assert_eq!(tip, serde_json::from_str(&tip_json).expect("failed to deserialize"));
-        }
+    #[test]
+    fn json() {
+        let tip_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
+        let tip = NetworkTip::try_from(tip_str).expect("failed to parse from string");
+        let tip_json = serde_json::to_string(&tip).expect("failed to serialize");
+        assert_eq!(format!("\"{tip_str}\""), tip_json);
+        assert_eq!(tip, serde_json::from_str(&tip_json).expect("failed to deserialize"));
     }
 }

@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{
+    option,
+    prelude::{Arbitrary, BoxedStrategy, Strategy, any},
+};
+
 use crate::{Anchor, Vote, cbor};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -70,23 +76,19 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Ballot {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for Ballot {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::{option, prelude::*};
-
-    use super::Ballot;
-    use crate::{any_anchor, any_vote, prop_cbor_roundtrip};
-
-    prop_compose! {
-        pub fn any_ballot()(
-            vote in any_vote(),
-            anchor in option::of(any_anchor()),
-        ) -> Ballot  {
-            Ballot::new(vote, anchor)
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<Vote>(), option::of(any::<Anchor>())).prop_map(|(vote, anchor)| Ballot::new(vote, anchor)).boxed()
     }
+}
 
-    prop_cbor_roundtrip!(Ballot, any_ballot());
+#[cfg(test)]
+mod tests {
+    use super::Ballot;
+    use crate::prop_cbor_roundtrip;
+
+    prop_cbor_roundtrip!(Ballot);
 }

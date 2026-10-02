@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::{CertificatePointer, DRepState, Epoch, Lovelace};
 
 #[derive(Debug, Copy, Clone)]
@@ -29,22 +32,13 @@ impl DRepRegistration {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for DRepRegistration {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::DRepRegistration;
-    use crate::{any_certificate_pointer, any_epoch, any_lovelace};
-
-    prop_compose! {
-        pub fn any_drep_registration()(
-            deposit in any_lovelace() ,
-            registered_at in any_certificate_pointer(u64::MAX),
-            valid_until in any_epoch(),
-        ) -> DRepRegistration {
-            DRepRegistration { deposit, registered_at, valid_until }
-        }
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (any::<Lovelace>(), any::<CertificatePointer>(), any::<Epoch>())
+            .prop_map(|(deposit, registered_at, valid_until)| DRepRegistration { deposit, registered_at, valid_until })
+            .boxed()
     }
 }

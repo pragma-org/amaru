@@ -536,9 +536,9 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            any_credential, any_epoch, any_proposal, any_proposal_id, any_proposal_pointer, any_rational_number,
-            utils::tests::run_strategy,
+            ProposalPointer, RationalNumber, utils::tests::run_strategy,
         };
+        use proptest::prelude::any;
 
         use super::super::resolve_committee;
         use crate::{
@@ -576,8 +576,8 @@ mod tests {
                         }
 
                         let proposal_state = ProposalState {
-                            proposed_in: run_strategy(any_proposal_pointer(u64::MAX)),
-                            valid_until: run_strategy(any_epoch()),
+                            proposed_in: run_strategy(any::<ProposalPointer>()),
+                            valid_until: run_strategy(any::<Epoch>()),
                             proposal: proposal.clone(),
                         };
 
@@ -618,7 +618,7 @@ mod tests {
             fn iter_proposals(&self) -> Result<impl Iterator<Item = (ProposalId, proposals::Row)>, StoreError> {
                 Ok(self.stable_proposals.iter().map(|proposal| {
                     (
-                        run_strategy(any_proposal_id()),
+                        run_strategy(any::<ProposalId>()),
                         proposals::Row {
                             proposal: proposal.clone(),
                             ..run_strategy(proposals::tests::any_row(u64::MAX))
@@ -643,15 +643,15 @@ mod tests {
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
-                run_strategy(any_rational_number()),
+                run_strategy(any::<RationalNumber>()),
             );
 
-            Proposal { gov_action, ..run_strategy(any_proposal()) }
+            Proposal { gov_action, ..run_strategy(any::<Proposal>()) }
         }
 
         #[test]
         fn recently_evicted_cc_members_still_in_proposals_are_resolved_for_certificates() {
-            let cold_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
 
             let mock = Mock {
                 volatile_cc_members: vec![(cold_credential, Existence::Gone)],
@@ -667,7 +667,7 @@ mod tests {
 
         #[test]
         fn candidate_of_a_stable_proposal_with_no_row_is_resolved_for_certificates() {
-            let cold_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
 
             let mock =
                 Mock { stable_proposals: vec![any_update_committee_proposal(cold_credential)], ..Default::default() };
@@ -679,9 +679,9 @@ mod tests {
 
         #[test]
         fn candidate_of_a_volatile_proposal_with_no_row_is_resolved_for_certificates() {
-            let cold_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
 
-            let proposal_id = run_strategy(any_proposal_id());
+            let proposal_id = run_strategy(any::<ProposalId>());
             let proposal = any_update_committee_proposal(cold_credential);
 
             let mock = Mock { volatile_proposals: vec![(proposal_id, proposal)], ..Default::default() };
@@ -693,9 +693,9 @@ mod tests {
 
         #[test]
         fn candidate_of_a_volatile_proposal_pruned_at_the_pending_boundary_is_not_resolved() {
-            let cold_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
 
-            let proposal_id = run_strategy(any_proposal_id());
+            let proposal_id = run_strategy(any::<ProposalId>());
             let proposal = any_update_committee_proposal(cold_credential);
 
             let mock = Mock {
@@ -711,8 +711,8 @@ mod tests {
 
         #[test]
         fn unknown_credential_is_not_resolved_by_proposals_naming_others() {
-            let cold_credential: Credential = run_strategy(any_credential());
-            let candidate: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
+            let candidate = run_strategy(any::<Credential>());
 
             let mock = Mock { stable_proposals: vec![any_update_committee_proposal(candidate)], ..Default::default() };
 
@@ -723,8 +723,8 @@ mod tests {
 
         #[test]
         fn recently_evicted_cc_members_still_in_proposals_are_not_resolved_for_votes() {
-            let cold_credential: Credential = run_strategy(any_credential());
-            let hot_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
+            let hot_credential = run_strategy(any::<Credential>());
 
             let mock = Mock {
                 volatile_cc_members: vec![(cold_credential, Existence::Gone)],
@@ -740,8 +740,8 @@ mod tests {
 
         #[test]
         fn recent_volatile_hot_delegation_is_used_in_status_resolution_of_elected_member() {
-            let cold_credential: Credential = run_strategy(any_credential());
-            let hot_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
+            let hot_credential = run_strategy(any::<Credential>());
 
             let mock = Mock {
                 volatile_cc_members: vec![(
@@ -762,8 +762,8 @@ mod tests {
 
         #[test]
         fn unelected_cc_members_with_delegation_are_resolved_for_votes() {
-            let cold_credential: Credential = run_strategy(any_credential());
-            let hot_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
+            let hot_credential = run_strategy(any::<Credential>());
 
             let mock = Mock {
                 volatile_cc_members: vec![(
@@ -784,8 +784,8 @@ mod tests {
 
         #[test]
         fn all_recently_evicted_cc_members_still_in_proposals_are_resolved_for_certificates() {
-            let first_cold_credential: Credential = run_strategy(any_credential());
-            let second_cold_credential: Credential = run_strategy(any_credential());
+            let first_cold_credential = run_strategy(any::<Credential>());
+            let second_cold_credential = run_strategy(any::<Credential>());
 
             let mock = Mock {
                 volatile_cc_members: vec![
@@ -817,8 +817,8 @@ mod tests {
 
         #[test]
         fn stable_hot_delegation_is_resolved_for_votes_without_volatile_entry() {
-            let cold_credential: Credential = run_strategy(any_credential());
-            let hot_credential: Credential = run_strategy(any_credential());
+            let cold_credential = run_strategy(any::<Credential>());
+            let hot_credential = run_strategy(any::<Credential>());
 
             let mock = Mock {
                 stable_cc_members: vec![(cold_credential, Some(Epoch::default()), Some(hot_credential.into()))],

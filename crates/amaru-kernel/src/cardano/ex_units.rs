@@ -14,6 +14,9 @@
 
 use std::{fmt, ops::Add};
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+
 use crate::cbor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
@@ -36,5 +39,15 @@ impl Add for &ExUnits {
 impl fmt::Display for ExUnits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{mem={}, cpu={}}}", self.mem, self.steps)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl Arbitrary for ExUnits {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<(u64, u64)>().prop_map(|(mem, steps)| ExUnits { mem, steps }).boxed()
     }
 }

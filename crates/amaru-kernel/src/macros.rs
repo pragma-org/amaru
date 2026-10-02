@@ -25,6 +25,9 @@
 /// #
 /// # // Or with an explicit test title in case a module contains multiple calls to the macro:
 /// # prop_cbor_roundtrip!(prop_cbor_roundtrip_MyType, MyType, my_strategy())
+/// #
+/// # // Or with just the type when it implements `proptest::Arbitrary`:
+/// # prop_cbor_roundtrip!(MyType)
 /// # ```
 #[macro_export]
 macro_rules! prop_cbor_roundtrip {
@@ -41,6 +44,10 @@ macro_rules! prop_cbor_roundtrip {
 
     ($ty:ty, $strategy:expr) => {
         $crate::prop_cbor_roundtrip!(prop_cbor_roundtrip, $ty, $strategy);
+    };
+
+    ($ty:ty) => {
+        $crate::prop_cbor_roundtrip!(prop_cbor_roundtrip, $ty, proptest::prelude::any::<$ty>());
     };
 }
 

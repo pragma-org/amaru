@@ -26,12 +26,12 @@ pub mod tests {
     };
 
     #[cfg(not(target_os = "windows"))]
-    use amaru_kernel::any_proposal_id;
+    use amaru_kernel::ProposalId;
     use amaru_kernel::{
-        Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, Credential, DRepRegistration, Epoch,
-        EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot, TransactionInput,
-        any_certificate_pointer, any_credential, any_hash28, any_lovelace, any_pool_params,
+        Anchor, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential,
+        DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot,
+        TransactionInput,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -47,7 +47,11 @@ pub mod tests {
             },
         },
     };
-    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+    use proptest::{
+        prelude::{Strategy, any},
+        strategy::ValueTree,
+        test_runner::TestRunner,
+    };
 
     #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]
@@ -96,7 +100,7 @@ pub mod tests {
         let utxos_iter = std::iter::once((txin, output.clone()));
 
         // accounts
-        let account_key = any_credential().new_tree(runner).unwrap().current();
+        let account_key = any::<Credential>().new_tree(runner).unwrap().current();
         let account_key_clone = account_key;
 
         let account_row =
@@ -123,15 +127,15 @@ pub mod tests {
         ));
 
         // pools
-        let pool_params = any_pool_params().new_tree(runner).unwrap().current();
-        let registered_at = any_certificate_pointer(u64::MAX).new_tree(runner).unwrap().current();
-        let deposit = any_lovelace().new_tree(runner).unwrap().current();
+        let pool_params = any::<PoolParams>().new_tree(runner).unwrap().current();
+        let registered_at = any::<CertificatePointer>().new_tree(runner).unwrap().current();
+        let deposit = any::<Lovelace>().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 
         let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit));
 
         // dreps
-        let drep_key = any_credential().new_tree(runner).unwrap().current();
+        let drep_key = any::<Credential>().new_tree(runner).unwrap().current();
         let mut drep_row =
             amaru_ledger::store::columns::dreps::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
 
@@ -156,7 +160,7 @@ pub mod tests {
         // proposals (Does not generate proposal row on Windows due to stack overflow)
         #[cfg(not(target_os = "windows"))]
         let (proposal_iter, proposal_key, proposal_row) = {
-            let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
+            let proposal_key = any::<ProposalId>().new_tree(runner).unwrap().current();
             let proposal_row =
                 amaru_ledger::store::columns::proposals::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
             (std::iter::once((proposal_key, proposal_row.clone())), proposal_key, proposal_row)
@@ -168,12 +172,12 @@ pub mod tests {
         let votes_iter = std::iter::empty();
 
         // cc_members
-        let cc_member_key = any_credential().new_tree(runner).unwrap().current();
+        let cc_member_key = any::<Credential>().new_tree(runner).unwrap().current();
         let mut cc_member_row =
             amaru_ledger::store::columns::cc_members::tests::any_row().new_tree(runner).unwrap().current();
 
         // Ensure hot_credential is always Some
-        cc_member_row.status.get_or_insert_with(|| any_credential().new_tree(runner).unwrap().current().into());
+        cc_member_row.status.get_or_insert_with(|| any::<Credential>().new_tree(runner).unwrap().current().into());
 
         let member_status = cc_member_row.status.unwrap();
 
@@ -181,7 +185,7 @@ pub mod tests {
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot, Hash::from([0u8; 32]), BlockHeight::from(u64::from(slot)));
-        let slot_leader = any_hash28().new_tree(runner).unwrap().current();
+        let slot_leader = any::<PoolId>().new_tree(runner).unwrap().current();
 
         {
             let context = store.create_transaction();
@@ -534,7 +538,7 @@ pub mod tests {
         assert_eq!(rewards_after, rewards_before + refund_amount, "Rewards should increase by refund amount");
 
         {
-            let unknown = any_credential().new_tree(runner).unwrap().current();
+            let unknown = any::<Credential>().new_tree(runner).unwrap().current();
             assert_ne!(unknown, fixture.account_key);
 
             let context = store.create_transaction();
@@ -597,7 +601,7 @@ pub mod tests {
             "an enacted withdrawal must be credited to the target account"
         );
 
-        let unknown = any_credential().new_tree(runner).unwrap().current();
+        let unknown = any::<Credential>().new_tree(runner).unwrap().current();
         assert_ne!(unknown, fixture.account_key);
 
         let context = store.create_transaction();
