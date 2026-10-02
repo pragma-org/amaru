@@ -93,6 +93,8 @@ fn register() -> amaru_pure_stage::DeserializerGuards {
         Box::new(amaru_pure_stage::register_data_deserializer::<Mail>()),
         Box::new(amaru_pure_stage::register_data_deserializer::<Out>()),
         Box::new(amaru_pure_stage::register_data_deserializer::<Caller>()),
+        Box::new(amaru_pure_stage::register_data_deserializer::<ParentMsg>()),
+        Box::new(amaru_pure_stage::register_data_deserializer::<Kick>()),
         Box::new(amaru_pure_stage::register_data_deserializer::<u8>()),
         Box::new(amaru_pure_stage::register_data_deserializer::<u32>()),
     ]
@@ -625,76 +627,150 @@ fn cancel_does_not_double_free_priority_slot(runtime: Runtime) {
     }
 }
 
-fn install_terminating_call(graph: &mut impl StageGraph) -> Ends {
-    let callee = graph.stage("callee", async |out: StageRef<Out>, msg: Mail, eff| {
-        match msg {
-            Mail::Occupy => {
-                eff.send(&out, Out::Holding).await;
-                eff.wait(SLOT_WAIT).await;
-                return eff.terminate().await;
-            }
-            Mail::Filler(n) => eff.send(&out, Out::Saw(n)).await,
-            Mail::Ping(reply) => {
-                eff.send(&out, Out::Saw(9)).await;
-                eff.send(&reply, 7u32).await;
-            }
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum ParentMsg {
+    Boot,
+    Occupy,
+    Fill(u8),
+    Gone,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum Kick {
+    Bind(StageRef<Mail>),
+    Go,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct ParentSt {
+    out: StageRef<Out>,
+    caller: StageRef<Kick>,
+    callee: Option<StageRef<Mail>>,
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct BoundCaller {
+    out: StageRef<Out>,
+    callee: Option<StageRef<Mail>>,
+}
+
+struct SupervisedEnds {
+    parent: StageRef<ParentMsg>,
+    to_parent: Sender<ParentMsg>,
+    caller: StageRef<Kick>,
+    to_caller: Sender<Kick>,
+    out: Receiver<Out>,
+}
+
+/// Callee is a supervised child. A root callee stops the simulation at `terminate` and, on
+/// Tokio, aborts every statically wired stage, both before the call deadline.
+fn install_supervised_terminating_call(graph: &mut impl StageGraph) -> SupervisedEnds {
+    let caller = graph.stage("caller", async |mut st: BoundCaller, msg: Kick, eff| match msg {
+        Kick::Bind(callee) => {
+            st.callee = Some(callee);
+            st
         }
-        out
-    });
-    let caller = graph.stage("caller", async |st: Caller, _msg: u8, eff| {
-        match eff.call(&st.callee, CALL_TIMEOUT, Mail::Ping).await {
-            Some(value) => eff.send(&st.out, Out::Responded(value)).await,
-            None => eff.send(&st.out, Out::Timeout).await,
+        Kick::Go => {
+            let callee = st.callee.clone().expect("callee bound");
+            match eff.call(&callee, CALL_TIMEOUT, Mail::Ping).await {
+                Some(value) => eff.send(&st.out, Out::Responded(value)).await,
+                None => eff.send(&st.out, Out::Timeout).await,
+            }
+            st
         }
-        st
     });
-    let (out, rx) = graph.output("out", 8);
-    let callee_ref = callee.sender();
     let caller_ref = caller.sender();
-    graph.wire_up(callee, out.clone());
-    graph.wire_up(caller, Caller { callee: callee_ref.clone(), out });
-    let to_callee = graph.input(&callee_ref);
+    let (out, rx) = graph.output("out", 8);
+    graph.wire_up(caller, BoundCaller { out: out.clone(), callee: None });
+
+    let parent = graph.stage("parent", async |mut st: ParentSt, msg: ParentMsg, eff| match msg {
+        ParentMsg::Boot => {
+            let callee = eff
+                .stage("callee", async |out: StageRef<Out>, msg: Mail, eff| {
+                    match msg {
+                        Mail::Occupy => {
+                            eff.send(&out, Out::Holding).await;
+                            eff.wait(SLOT_WAIT).await;
+                            return eff.terminate().await;
+                        }
+                        Mail::Filler(n) => eff.send(&out, Out::Saw(n)).await,
+                        Mail::Ping(reply) => {
+                            eff.send(&out, Out::Saw(9)).await;
+                            eff.send(&reply, 7u32).await;
+                        }
+                    }
+                    out
+                })
+                .await;
+            let callee = eff.supervise(callee, ParentMsg::Gone);
+            let callee = eff.wire_up(callee, st.out.clone()).await;
+            eff.send(&st.caller, Kick::Bind(callee.clone())).await;
+            st.callee = Some(callee);
+            st
+        }
+        ParentMsg::Occupy => {
+            let callee = st.callee.clone().expect("booted");
+            eff.send(&callee, Mail::Occupy).await;
+            st
+        }
+        ParentMsg::Fill(n) => {
+            let callee = st.callee.clone().expect("booted");
+            eff.send(&callee, Mail::Filler(n)).await;
+            st
+        }
+        ParentMsg::Gone => st,
+    });
+    let parent_ref = parent.sender();
+    graph.wire_up(parent, ParentSt { out, caller: caller_ref.clone(), callee: None });
+    let to_parent = graph.input(&parent_ref);
     let to_caller = graph.input(&caller_ref);
-    Ends { callee: callee_ref, caller: caller_ref, to_callee, to_caller, out: rx }
+    SupervisedEnds { parent: parent_ref, to_parent, caller: caller_ref, to_caller, out: rx }
 }
 
 fn callee_terminates_during_call(runtime: Runtime, queued: bool) {
     let _guards = register();
     let succeeded = |msg: &Out| matches!(msg, Out::Responded(_) | Out::Saw(9));
+    let assert_timeout = |msgs: &[Out]| {
+        assert!(msgs.contains(&Out::Timeout), "caller must time out after the callee is gone: {msgs:?}");
+        assert!(msgs.iter().all(|msg| !succeeded(msg)), "{msgs:?}");
+    };
     match runtime {
         Runtime::Simulation => {
             let mut network = SimulationBuilder::default().with_mailbox_size(1);
-            let mut ends = install_terminating_call(&mut network);
+            let mut ends = install_supervised_terminating_call(&mut network);
             let mut sim = network.run(test_runtime().handle());
-            sim.enqueue_msg(&ends.callee, [Mail::Occupy]);
+            sim.enqueue_msg(&ends.parent, [ParentMsg::Boot]);
+            sim.run(Run::skip_wakeups()).assert_idle();
+            sim.enqueue_msg(&ends.parent, [ParentMsg::Occupy]);
             sim.run(Run::default()).assert_sleeping();
             assert_eq!(ends.out.try_next(), Some(Out::Holding));
             if queued {
-                sim.enqueue_msg(&ends.callee, [Mail::Filler(1)]);
+                sim.enqueue_msg(&ends.parent, [ParentMsg::Fill(1)]);
+                sim.run(Run::default()).assert_sleeping();
             }
-            sim.enqueue_msg(&ends.caller, [0]);
-            let blocked = sim.run(Run::skip_wakeups());
-            let msgs = ends.out.drain().collect::<Vec<_>>();
-            assert!(msgs.iter().all(|msg| !succeeded(msg)), "{msgs:?}");
-            blocked.assert_terminated(ends.callee.name());
+            sim.enqueue_msg(&ends.caller, [Kick::Go]);
+            sim.run(Run::skip_wakeups()).assert_idle();
+            assert_timeout(&ends.out.drain().collect::<Vec<_>>());
         }
         Runtime::Tokio => {
             let rt = paused_runtime();
             let mut network = TokioBuilder::default().with_mailbox_size(1);
-            let mut ends = install_terminating_call(&mut network);
+            let mut ends = install_supervised_terminating_call(&mut network);
             let running = network.run(rt.handle().clone());
             rt.block_on(async move {
-                ends.to_callee.send(Mail::Occupy).await.unwrap();
+                ends.to_parent.send(ParentMsg::Boot).await.unwrap();
+                settle().await;
+                ends.to_parent.send(ParentMsg::Occupy).await.unwrap();
                 settle().await;
                 assert_eq!(ends.out.try_next(), Some(Out::Holding));
                 if queued {
-                    ends.to_callee.send(Mail::Filler(1)).await.unwrap();
+                    ends.to_parent.send(ParentMsg::Fill(1)).await.unwrap();
+                    settle().await;
                 }
-                ends.to_caller.send(0).await.unwrap();
+                ends.to_caller.send(Kick::Go).await.unwrap();
                 tokio::time::sleep(CALL_TIMEOUT).await;
                 settle().await;
-                let msgs = ends.out.drain().collect::<Vec<_>>();
-                assert!(msgs.iter().all(|msg| !succeeded(msg)), "{msgs:?}");
+                assert_timeout(&ends.out.drain().collect::<Vec<_>>());
             });
             running.abort();
         }
