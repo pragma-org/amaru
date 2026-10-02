@@ -414,10 +414,10 @@ dependencies = [
  "amaru-deps",
  "anyhow",
  "cbor4ii",
+ "dashu-base",
+ "dashu-int",
  "hex",
  "minicbor",
- "num",
- "num-bigint",
  "proptest",
  "serde",
  "serde_json",
@@ -762,7 +762,6 @@ dependencies = [
  "insta",
  "itertools 0.15.0",
  "minicbor",
- "num-bigint",
  "once_cell",
  "ouroboros",
  "pretty_assertions",
@@ -1008,9 +1007,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.151.0"
+version = "1.152.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c82d4b41fe41bfca3c9e1de55645d9a525868ef5ce5e14cee9499ccaf1fc7225"
+checksum = "004d5acbd6850ab58789a43822e0a2ef23927a46b012c17f8fa51253103db9f8"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -4367,9 +4366,9 @@ dependencies = [
 
 [[package]]
 name = "num-modular"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd8e500409e6cd603b03e477c26a6caecdc27ac58979a53e881c75eafc079f44"
+checksum = "26ac76200f74e658124f95fa63e1a82b2fd2181c5b2fdde80b3d89d2d3f905e7"
 
 [[package]]
 name = "num-order"
