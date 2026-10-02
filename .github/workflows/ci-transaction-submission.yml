@@ -17,6 +17,8 @@ concurrency:
 jobs:
   transaction-submission:
     name: End-to-end transaction submission
+    # Only run on main branch even if triggered by workflow_dispatch. This is to avoid exposing the funded signing key to untrusted revisions.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 105
     env:
