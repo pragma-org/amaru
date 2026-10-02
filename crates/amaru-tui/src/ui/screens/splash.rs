@@ -32,7 +32,7 @@ use crate::{
 
 pub(in crate::ui) fn render_splash(frame: &mut Frame<'_>, area: Rect, model: &Model, _views: &mut Views) {
     let progress_states = model.initial_stake_distributions().collect::<Vec<_>>();
-    let progress_height = splash_progress_height(progress_states.len());
+    let progress_height = splash_progress_height(progress_states.len() as u16);
     let logo_area =
         Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(progress_height) };
     let logo = splash_logo(logo_area, model.interaction_mode);
@@ -66,13 +66,8 @@ struct SplashLogo {
     lines: Vec<Line<'static>>,
 }
 
-fn splash_progress_slots(progress_count: usize) -> usize {
-    progress_count.max(2)
-}
-
-fn splash_progress_height(progress_count: usize) -> u16 {
-    let slots = splash_progress_slots(progress_count);
-    (slots as u16).saturating_mul(2).saturating_add(1)
+fn splash_progress_height(len: u16) -> u16 {
+    len.saturating_mul(2).saturating_add(1)
 }
 
 fn render_splash_progress(
@@ -99,11 +94,10 @@ fn render_splash_progress(
     let inner = block.inner(block_area);
     let gauge_width = inner.width;
     let mut y = inner.y;
-    let display_count = splash_progress_slots(progress_states.len());
 
     frame.render_widget(block, block_area);
 
-    for index in 0..display_count {
+    for index in 0..progress_states.len() {
         let (ratio, label) = if let Some(state) = progress_states.get(index) {
             (
                 state.progress.clamp(0.0, 1.0),

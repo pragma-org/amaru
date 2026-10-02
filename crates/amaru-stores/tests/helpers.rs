@@ -14,7 +14,7 @@
 
 use std::{
     borrow::BorrowMut,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     fmt::{Debug, Display},
     str::FromStr,
     sync::{Arc, Mutex},
@@ -97,12 +97,12 @@ pub fn assert_invalid_switch_to_fork_from<I, S, HS, E>(
 
 /// Create an initial ledger state
 pub fn make_state() -> State<MockStore, RocksDBHistoricalStores> {
-    make_state_in_epoch(Epoch::default()).0
+    make_state_in_epoch(Epoch::default() + 2).0
 }
 
 /// Create an initial ledger state anchored to a given epoch
 pub fn make_state_in_epoch(epoch: Epoch) -> (State<MockStore, RocksDBHistoricalStores>, Arc<Mutex<Vec<Point>>>) {
-    make_state_in_epoch_with_snapshots(epoch, &[epoch])
+    make_state_in_epoch_with_snapshots(epoch, &[epoch - 2, epoch - 1])
 }
 
 /// Create an initial ledger state anchored to a given epoch + snapshots for the given epochs.
@@ -118,7 +118,7 @@ pub fn make_state_in_epoch_with_store(
     epoch: Epoch,
     mock_store: MockStore,
 ) -> (State<MockStore, RocksDBHistoricalStores>, Arc<Mutex<Vec<Point>>>) {
-    make_state_in_epoch_with_snapshots_and_store(epoch, &[epoch], mock_store)
+    make_state_in_epoch_with_snapshots_and_store(epoch, &[epoch - 2, epoch - 1], mock_store)
 }
 
 #[expect(clippy::expect_used)]
@@ -167,7 +167,6 @@ pub fn make_state_in_epoch_with_snapshots_and_store(
         protocol_parameters,
         GovernanceActivity::default(),
         None,
-        VecDeque::new(),
     );
     (state, stable)
 }
@@ -250,7 +249,7 @@ pub fn empty_block_at(slot: u64) -> Block {
 #[expect(clippy::expect_used)]
 pub fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, point: Point) {
     let issuer = Hash::new([0u8; 28]);
-    state.push_fragment(VolatileFragment::default().anchor(point, issuer)).expect("forward");
+    state.forward_fragment(VolatileFragment::default().anchor(point, issuer)).expect("forward");
 }
 
 pub fn point(slot: u64) -> Point {

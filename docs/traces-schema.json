@@ -5946,19 +5946,22 @@
     "amaru::ledger::stake_distribution::ROTATE": {
       "type": "object",
       "properties": {
-        "available_stake_distributions": {
-          "type": "string"
+        "new_stake_distribution": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
         }
       },
       "required": [
-        "available_stake_distributions"
+        "new_stake_distribution"
       ],
       "optional": [],
       "additionalProperties": false,
       "name": "rotate",
       "level": "TRACE",
       "target": "amaru::ledger::stake_distribution",
-      "description": "Rotate stake distributions at an epoch boundary",
+      "description": "Rotate stake distributions after background calculation during the epoch.",
       "public": true
     },
     "amaru::ledger::stake_distribution::SNAPSHOT": {

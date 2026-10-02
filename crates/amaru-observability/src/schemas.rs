@@ -769,9 +769,9 @@ define_schemas! {
                 public COMPUTE {
                     required epoch: amaru_kernel::Epoch
                 }
-                /// Rotate stake distributions at an epoch boundary
+                /// Rotate stake distributions after background calculation during the epoch.
                 public ROTATE {
-                    required available_stake_distributions: String
+                    required new_stake_distribution: amaru_kernel::Epoch
                 }
                 /// Snapshot of the stake distribution taken at an epoch boundary
                 public SNAPSHOT {

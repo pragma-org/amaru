@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, btree_map::Entry},
     mem,
+    sync::Arc,
 };
 
 use amaru_kernel::{
@@ -24,6 +25,7 @@ use amaru_kernel::{
 };
 
 use crate::{
+    StakeDistribution,
     context::ProposalStateSlim,
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
@@ -291,6 +293,13 @@ impl VolatileDB {
         self.overlay.most_recent_snapshot(snapshots)
     }
 
+    /// The latest stake distribution available. This only returns `Some(..)` during the beginning
+    /// of an epoch, prior to the entering the stability window. After that, the next stake
+    /// distribution is computed asynchronously and collected at the epoch boundary.
+    pub fn most_recent_stake_distribution(&self) -> Option<Arc<StakeDistribution>> {
+        self.overlay.stake_distribution()
+    }
+
     /// The protocol parameters carried by an in-flight epoch transition, if any.
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
@@ -383,6 +392,7 @@ impl VolatileDB {
 
     pub fn transition(
         &mut self,
+        stake_distribution: Arc<StakeDistribution>,
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
@@ -408,7 +418,14 @@ impl VolatileDB {
             "transitioning volatile series while a draining series is still present; two epoch boundaries inside the k-block window?"
         );
         self.draining = mem::take(&mut self.current);
-        self.overlay.transition(effective_rewards, pools_updates, governance_updates, donations, account_exists);
+        self.overlay.transition(
+            stake_distribution,
+            effective_rewards,
+            pools_updates,
+            governance_updates,
+            donations,
+            account_exists,
+        );
     }
 
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
@@ -574,6 +591,7 @@ mod tests {
     /// Define a type with various `From` instance to ease the notations below and avoid repetition
     /// which requires annoying maintenance.
     struct EpochTransition {
+        stake_distribution: StakeDistribution,
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
@@ -583,6 +601,7 @@ mod tests {
     impl EpochTransition {
         fn default() -> Self {
             Self {
+                stake_distribution: Default::default(),
                 effective_rewards: Default::default(),
                 pools_updates: Default::default(),
                 governance_updates: GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()),
@@ -591,7 +610,14 @@ mod tests {
         }
 
         fn transition(self, db: &mut VolatileDB) {
-            db.transition(self.effective_rewards, self.pools_updates, self.governance_updates, self.donations, |_| true)
+            db.transition(
+                Arc::new(self.stake_distribution),
+                self.effective_rewards,
+                self.pools_updates,
+                self.governance_updates,
+                self.donations,
+                |_| true,
+            )
         }
     }
 

@@ -627,7 +627,7 @@ impl MithrilSynchronizer {
         let ledger_config = ledger_config_for_network(self.network, self.ledger_dir.clone())?;
         let era_history = Arc::new(ledger_config.era_history.clone());
         let consensus_parameters = Arc::new(ledger_config.to_consensus_parameters());
-        let state = make_state(&ledger_config, None, chain_store.clone())
+        let (state, pool_summaries) = make_state(&ledger_config, None, chain_store.clone())
             .map_err(|source| MithrilSyncError::Startup(source.into()))?;
         let stable_tip = state.tip().into_owned();
         if NetworkPoint::from(stable_tip) != NetworkPoint::from(resume_point) {
@@ -636,13 +636,16 @@ impl MithrilSynchronizer {
                 stored: NetworkPoint::from(stable_tip),
             });
         }
-        let (pool_summaries_tx, pool_summaries_rx) = watch::channel(state.pool_summaries());
+        let (pool_summaries_tx, pool_summaries_rx) = watch::channel(pool_summaries);
         let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())
             .map_err(|source| store_error("start ledger worker", source))?;
         let ledger_stop = block_validator.thread_stop();
-        block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
-            pool_summaries_tx.send_replace(summaries);
+        block_validator.set_on_stake_dist_updated(Arc::new(move |new_summaries| {
+            pool_summaries_tx.send_modify(|summaries| {
+                *summaries = summaries.update(new_summaries);
+            })
         }));
+        block_validator.start_background_computations();
 
         let before = Instant::now();
         let ingestion_store = chain_store.clone();
@@ -994,7 +997,7 @@ async fn wait_for_stake_distribution(
     cancellation: &MithrilCancellation,
 ) -> Result<bool, MithrilSyncError> {
     loop {
-        if pool_summaries.borrow().by_epoch.contains_key(&target) {
+        if pool_summaries.borrow().has_epoch(&target) {
             return Ok(true);
         }
         tokio::select! {
@@ -1197,7 +1200,8 @@ mod tests {
             test_config.chain_store.set_anchor_point(&header.point()).unwrap();
             let config = test_config.make_node_configuration().unwrap();
             let idle_references = Arc::strong_count(&test_config.chain_store);
-            let state = make_state(&config.ledger_config, None, test_config.chain_store.clone()).unwrap();
+            let (state, _pool_summaries) =
+                make_state(&config.ledger_config, None, test_config.chain_store.clone()).unwrap();
             let validator =
                 make_block_validator(&config.ledger_config, state, test_config.chain_store.clone()).unwrap();
             let stop = validator.thread_stop();
@@ -1577,9 +1581,7 @@ mod tests {
         let (sender, mut receiver) = watch::channel(PoolSummaries::default());
         let update = tokio::spawn(async move {
             tokio::task::yield_now().await;
-            sender.send_modify(|summaries| {
-                summaries.by_epoch.insert(target, BTreeMap::new());
-            });
+            sender.send_modify(|summaries| *summaries = summaries.update(PoolSummaries::new(target, BTreeMap::new())))
         });
 
         assert!(wait_for_stake_distribution(&mut receiver, target, &MithrilCancellation::new()).await.unwrap());

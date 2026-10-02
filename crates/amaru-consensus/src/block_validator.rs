@@ -60,6 +60,7 @@ enum LedgerRequest {
     ValidateTx(Box<Transaction>, oneshot::Sender<Result<(), TransactionValidationError>>),
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
+    StartBackgroundComputations,
 }
 
 /// Wait-handle for the ledger worker spawned by [`BlockValidator::new`].
@@ -138,7 +139,7 @@ impl BlockValidator {
     ) -> std::io::Result<Self>
     where
         S: Store + Send + 'static,
-        HS: HistoricalStores + Send + 'static,
+        HS: HistoricalStores + Send + Sync + 'static,
     {
         let (sender, mut receiver) = mpsc::channel(REQUEST_QUEUE_BOUND);
         // The ledger thread does not inherit a thread-local subscriber. Keep the dispatch that
@@ -164,6 +165,11 @@ impl BlockValidator {
     /// The provided PoolSummaries should be used to update resources for header validation.
     pub fn set_on_stake_dist_updated(&self, callback: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
         self.send(LedgerRequest::SetOnStakeDistUpdated(callback)).unwrap_or(())
+    }
+
+    /// Start any rewards and stake-distribution work eligible at the current ledger tip.
+    pub fn start_background_computations(&self) {
+        self.send(LedgerRequest::StartBackgroundComputations).unwrap_or(())
     }
 
     fn send(&self, request: LedgerRequest) -> Result<(), LedgerThreadTerminated> {
@@ -268,7 +274,7 @@ struct LedgerThread<S: Store, HS: HistoricalStores> {
     vm_eval_pool: ArenaPool,
 }
 
-impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS> {
+impl<S: Store + Send, HS: HistoricalStores + Send + Sync + 'static> LedgerThread<S, HS> {
     fn handle(&mut self, request: LedgerRequest) {
         match request {
             LedgerRequest::RollForwardBlock(block, reply) => {
@@ -296,6 +302,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
             }
             LedgerRequest::SetOnStakeDistUpdated(callback) => {
                 self.state.set_on_stake_dist_updated(callback);
+            }
+            LedgerRequest::StartBackgroundComputations => {
+                self.state.start_background_computations();
             }
         }
     }

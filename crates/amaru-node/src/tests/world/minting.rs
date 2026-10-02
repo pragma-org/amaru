@@ -36,15 +36,16 @@ use amaru_kernel::{
     TransactionPointer, VrfCert, cardano::network_block::NetworkBlock, ed25519,
 };
 use amaru_ledger::{
+    StakeSummary,
     epoch_transition::GovernanceActivity,
-    state::initial_stake_distributions,
     store::{
-        Columns, Store, TransactionalContext,
+        Columns, HistoricalStores, Store, TransactionalContext,
         columns::{accounts, pools},
     },
+    summary::governance::GovernanceSummary,
 };
 use amaru_ouroboros::{BaseReadChainStore, ChainStore, WriteChainStore};
-use amaru_ouroboros_traits::{ForgingCredentials, HeaderDraft, Nonces, PoolSummaries, PoolSummary, kes_message};
+use amaru_ouroboros_traits::{ForgingCredentials, HeaderDraft, Nonces, PoolSummaries, kes_message};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::simulation::SimulationRunning;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
@@ -567,33 +568,23 @@ fn synthesized_snapshot_splits_stake_evenly() {
     let network = mint_network(MintGeometry::standard());
     let fixture = synthesize(&network);
     let snapshots = RocksDBHistoricalStores::new(&RocksDbConfig::new(fixture.ledger_dir.clone()), 0);
-    let distributions =
-        initial_stake_distributions(NetworkName::Preprod, &snapshots, &network.era_history, false).expect("stake");
-    let epoch2 = distributions.iter().find(|distribution| distribution.epoch == Epoch::from(2)).expect("epoch 2");
+
+    let snapshot2 = snapshots.for_epoch(Epoch::from(2)).expect("failed to acquire snapshot for epoch 2");
+    let epoch2 = StakeSummary::new(
+        &snapshot2,
+        GovernanceSummary::new(&snapshot2, &network.era_history)
+            .expect("couldn't compute governance summary for epoch 2"),
+        NetworkName::Preprod,
+        |_| (),
+    )
+    .expect("couldn't compute initial stake distribution")
+    .stake_distribution;
+
     assert_eq!(epoch2.pools.len(), POOLS, "five pools");
     let stakes: Vec<_> = epoch2.pools.values().map(|pool| pool.stake).collect();
     assert!(stakes.iter().all(|stake| *stake == stakes[0] && *stake > 0), "{stakes:?}");
     assert_eq!(epoch2.active_stake, stakes[0] * POOLS as u64);
-
-    let mut by_epoch = BTreeMap::new();
-    for distribution in &distributions {
-        let pools = distribution
-            .pools
-            .iter()
-            .map(|(id, state)| {
-                (
-                    *id,
-                    PoolSummary {
-                        vrf: state.parameters.vrf,
-                        stake: state.stake,
-                        active_stake: distribution.active_stake,
-                    },
-                )
-            })
-            .collect();
-        by_epoch.insert(distribution.epoch, pools);
-    }
-    let summaries = PoolSummaries { by_epoch };
+    let summaries = PoolSummaries::from(&epoch2);
     let slot = Slot::from(4 * network.global_parameters.epoch_length());
     for credentials in &fixture.pools {
         let summary =

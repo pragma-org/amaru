@@ -137,6 +137,11 @@ impl Schedule {
         self.epochs.contains_key(&epoch)
     }
 
+    /// Whether `epoch` is still awaiting exactly `nonce`.
+    pub fn is_pending(&self, epoch: Epoch, nonce: Nonce) -> bool {
+        matches!(self.epochs.get(&epoch), Some(ScheduleState::Pending(pending)) if *pending == nonce)
+    }
+
     /// Led slots in time order, across every ready epoch.
     pub fn leads(&self) -> impl Iterator<Item = LeadSlot<'_>> {
         self.ready().flat_map(|schedule| schedule.slots.iter().map(|(&slot, cert)| LeadSlot { slot, cert }))
@@ -166,5 +171,25 @@ impl Schedule {
             ScheduleState::Ready(schedule) => Some(schedule),
             ScheduleState::Pending(_) => None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{Epoch, Nonce};
+
+    use super::*;
+
+    #[test]
+    fn replaces_a_pending_schedule_when_the_nonce_changes() {
+        let epoch = Epoch::from(42);
+        let old = Nonce::from([1; 32]);
+        let current = Nonce::from([2; 32]);
+        let mut schedules = Schedule::default();
+
+        assert!(schedules.request(epoch, old));
+        assert!(schedules.request(epoch, current));
+        assert!(!schedules.is_pending(epoch, old));
+        assert!(schedules.is_pending(epoch, current));
     }
 }

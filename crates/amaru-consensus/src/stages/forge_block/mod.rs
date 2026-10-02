@@ -36,9 +36,10 @@ pub use calc::FreezeWatch;
 #[cfg(any(test, feature = "test-utils"))]
 pub use credentials::{TEST_COLD_KEY, TEST_VRF_SEED, TestCredentials, test_vrf_key};
 pub use effects::{
-    ForgedBody, LeaderScheduleEffect, ResourceForgingCredentials, SignHeaderEffect, SignHeaderError, TakeForForgeEffect,
+    ForgedBody, GetStakeDistributionEffect, LeaderScheduleEffect, ResourceForgingCredentials, SignHeaderEffect,
+    SignHeaderError, TakeForForgeEffect,
 };
-pub use protocol::{AdoptedTip, DueLead, ForgeBlockMsg, LeaderSchedule, Live, SelectChainOut, stage};
+pub use protocol::{AdoptedTip, DueLead, ForgeBlockMsg, LeaderSchedule, LeaderStake, Live, SelectChainOut, stage};
 use schedule::Schedule;
 
 use crate::stages::select_chain::SelectChainMsg;

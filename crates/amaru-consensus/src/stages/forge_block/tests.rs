@@ -25,13 +25,13 @@ use amaru_kernel::{
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::{kes, praos::header::AssertKesSignatureError};
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, DiagnosticChainStore, ForgingCredentials, Nonces, WriteChainStore,
+    BaseReadChainStore, DiagnosticChainStore, ForgingCredentials, Nonces, PoolSummary, WriteChainStore,
     in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_pure_stage::simulation::Run;
 
 use super::{
-    ForgeBlockMsg, FreezeWatch,
+    ForgeBlockMsg, FreezeWatch, LeaderStake,
     protocol::{AdoptedTip, DueLead},
     schedule::{EpochSchedule, Schedule},
     test_setup::{TestCredentials, TestPrep, setup, setup_until_sleeping, test_prep, vrf_key},
@@ -109,6 +109,27 @@ fn stale_lead_slot_does_not_forge() {
     // The stale handler does not reschedule, so the generation stays put.
     assert_eq!(state.schedule_generation, 2);
     assert!(state.next_lead.is_none());
+}
+
+#[test]
+fn stale_stake_distribution_does_not_replace_the_pending_schedule() {
+    let mut prep = test_prep();
+    let epoch = start_in_era().epoch;
+    let current = Nonce::from([2; 32]);
+    prep.state.data.schedule.request(epoch, current);
+    let msg = LeaderStake {
+        epoch,
+        nonce: Nonce::from([1; 32]),
+        pool_summary: Some(PoolSummary { vrf: ORIGIN_HASH, active_stake: 1, stake: 1 }),
+        from: start_in_era().slot,
+        until: start_in_era().slot + 1,
+    }
+    .into();
+    let (running, _guards, mut logs, stage) = setup(&prep, msg);
+
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    let state = running.get_state(&stage).cloned().expect("forge state").data;
+    assert!(state.schedule.is_pending(epoch, current));
 }
 
 #[test]

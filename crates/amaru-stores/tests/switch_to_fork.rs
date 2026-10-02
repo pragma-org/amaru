@@ -270,6 +270,7 @@ fn the_volatile_db_is_restored_when_there_is_a_failed_epoch_transition() {
 
     // Set a ledger state with a store that will fail the epoch transition.
     let (mut state, stable) = make_state_in_epoch_with_store(epoch, MockStore::failing_transition_progress());
+
     // Initialize the ledger with roll forwards
     for slot in first_slot..boundary {
         forward_to(&mut state, point(slot));
