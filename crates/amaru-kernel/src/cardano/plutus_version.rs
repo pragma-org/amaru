@@ -30,14 +30,15 @@ use crate::cbor;
 )]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(index_only)]
+#[repr(u8)]
 pub enum PlutusVersion {
     #[n(0)]
-    V1,
+    V1 = 1,
     #[n(1)]
-    V2,
+    V2 = 2,
     #[n(2)]
     #[default]
-    V3,
+    V3 = 3,
 }
 
 // TODO: Unify with amaru-plutus::plutus_data::{IsKnownPlutusVersion} #[doc(hidden)]

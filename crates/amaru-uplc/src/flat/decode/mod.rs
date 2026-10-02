@@ -14,7 +14,6 @@
 
 use amaru_kernel::{PlutusScript, PlutusVersion, ProtocolVersion, ToBytes, reify_plutus_version};
 use bumpalo::collections::Vec as BumpVec;
-use num::Zero;
 use stacksafe::stacksafe;
 
 use super::{
@@ -388,10 +387,9 @@ fn decode_constant_tag(d: &mut Decoder<'_>) -> Result<u8, FlatDecodeError> {
 mod tests {
     use amaru_kernel::PROTOCOL_VERSION_10;
     use hex;
-    use num::BigInt;
 
     use super::*;
-    use crate::{arena::Arena, binder::DeBruijn};
+    use crate::{arena::Arena, binder::DeBruijn, constant::Integer};
 
     #[test]
     fn decode_program_big_constr_tag() {
@@ -414,7 +412,7 @@ mod tests {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
-                assert_eq!(term, &Term::Constant(&Constant::Integer(&BigInt::from(129))));
+                assert_eq!(term, &Term::Constant(&Constant::Integer(&Integer::from(129))));
             }
             Err(_) => {
                 panic!();
@@ -450,7 +448,7 @@ mod tests {
                 let term = eval_result.term.unwrap();
                 assert_eq!(
                     term,
-                    &Term::Constant(&Constant::Integer(&BigInt::from(1_000_000_000_000_000_000_000_000_000i128)))
+                    &Term::Constant(&Constant::Integer(&Integer::from(1_000_000_000_000_000_000_000_000_000i128)))
                 );
             }
             Err(e) => {
@@ -484,7 +482,7 @@ mod tests {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
                 let term = eval_result.term.unwrap();
-                assert_eq!(term, &Term::Constant(&Constant::Integer(&BigInt::from(28))));
+                assert_eq!(term, &Term::Constant(&Constant::Integer(&Integer::from(28))));
             }
             Err(e) => {
                 panic!("{}", e);
