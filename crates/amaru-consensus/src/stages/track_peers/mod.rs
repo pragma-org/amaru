@@ -24,12 +24,11 @@ use amaru_kernel::{
 };
 use amaru_observability::{Instrument, TraceContext, debug, debug_record, debug_span, error, info, trace, warn};
 use amaru_ouroboros::ConnectionId;
-use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     store_effects::{GetBestChainTipEffect, Store},
 };
-use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
+use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
 
 use super::peer_selection::PeerSelectionMsg;
 use crate::{
@@ -37,9 +36,10 @@ use crate::{
         CHAIN_LAG_LOG_INTERVAL, ChainLagSample, ChainLagWatch, ConsensusMode, LIVE_TIP_LAG, classify, judge_chain_lag,
         tip_lateness,
     },
-    effects::{Ledger, LedgerOps, VolatileTipEffect},
+    effects::{Ledger, VolatileTipEffect},
     errors::{ConsensusError, HeaderSlotTooFarInFuture, InvalidHeaderParentData, InvalidHeaderPoint},
     performance::{HeaderLifecycleOutcome, Performance},
+    stages::validation::{HeaderLinkError, validate_and_store_header, validate_header_link},
 };
 
 /// Poll interval while headers are deferred on applied ledger height.
@@ -454,8 +454,8 @@ impl TrackPeers {
     ///
     /// If the store already holds evolved nonces for this header, it went through full validation
     /// before (nonces are only stored together with a validated header), so the header is skipped
-    /// and `None` is returned. Otherwise the header is validated and the point of its parent is
-    /// returned, together with the nonces to store alongside it.
+    /// and `None` is returned. Otherwise the header and its nonces are stored together and the
+    /// point of its parent is returned.
     ///
     /// Note: a header can already sit in the chain store without carrying any nonces (legacy
     /// imports or incomplete migrations). Those still need to be validated so descendants can
@@ -471,7 +471,7 @@ impl TrackPeers {
         ledger: &Ledger,
         store: &Store,
         current_time: Instant,
-    ) -> Result<Option<(Point, Nonces)>, ConsensusError> {
+    ) -> Result<Option<Point>, ConsensusError> {
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
             return Err(ConsensusError::EraNameMismatch { from_raw_header: variant, from_slot: era_name });
@@ -480,20 +480,18 @@ impl TrackPeers {
         let Some((current, _highest)) = self.upstream.get(&conn_id).and_then(PerPeer::established) else {
             return Err(ConsensusError::UnknownPeer(*peer));
         };
-        if header.parent_hash().unwrap_or(ORIGIN_HASH) != current.hash() {
-            return Err(ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
-                peer: *peer,
-                forwarded: header.point(),
-                actual: header.parent_hash(),
-                expected: *current,
-            })));
-        }
-        if header.block_height() != current.block_height() + 1 {
-            return Err(ConsensusError::InvalidHeaderHeight {
-                actual: header.block_height(),
-                expected: current.block_height() + 1,
-            });
-        }
+        validate_header_link(Some(header.parent_hash().unwrap_or(ORIGIN_HASH)), header.block_height(), *current)
+            .map_err(|error| match error {
+                HeaderLinkError::Parent => ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
+                    peer: *peer,
+                    forwarded: header.point(),
+                    actual: header.parent_hash(),
+                    expected: *current,
+                })),
+                HeaderLinkError::Height { actual, expected } => {
+                    ConsensusError::InvalidHeaderHeight { actual, expected }
+                }
+            })?;
 
         // this is the point up to which the upstream peer has validated its best chain, which
         // can be less advanced than the currently transmitted header
@@ -530,16 +528,7 @@ impl TrackPeers {
             return Err(ConsensusError::HeaderSlotInNearFuture(header.slot()));
         }
 
-        // Stored nonces are the durable proof that a header was fully validated: they are only
-        // written together with the header they belong to, once it passed all the Praos checks.
-        if store.get_nonces(&header.hash()).await.is_some() {
-            return Ok(None);
-        }
-        let nonces = ledger
-            .validate_header(header)
-            .await
-            .map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
-        Ok(Some((*current, nonces)))
+        Ok(validate_and_store_header(header, ledger, store).await?.then_some(*current))
     }
 
     async fn roll_forward(&mut self, conn_id: ConnectionId, header: &Header, tip: Point) {
@@ -748,6 +737,17 @@ impl TrackPeers {
         let validated = match result {
             Ok(validated) => validated,
             Err(error) => {
+                if matches!(error, ConsensusError::StoreHeaderFailed(..)) {
+                    error!(
+                        consensus::perf::header::LIFECYCLE,
+                        peer,
+                        header_hash = header.hash(),
+                        error = error.to_string(),
+                        outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
+                    );
+                    record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
+                    return eff.terminate().await;
+                }
                 if let Some(dh) = self.try_defer_for_stake(&args, &error) {
                     return Err(dh);
                 } else if let Some(dh) = self.try_defer_for_clock_skew(&args, &error, eff).await {
@@ -797,23 +797,7 @@ impl TrackPeers {
                 ))
                 .await;
             }
-            Some((parent, nonces)) => {
-                // the header and its nonces are stored atomically, so that stored nonces always
-                // denote a fully validated header, and follow-up headers can be validated
-                store
-                    .store_validated_header(&header, &nonces)
-                    .or_terminate_with(eff, async |e| {
-                        let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
-                        error!(
-                            consensus::perf::header::LIFECYCLE,
-                            peer,
-                            header_hash = current.hash(),
-                            error = error.to_string(),
-                            outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
-                        );
-                        record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
-                    })
-                    .await;
+            Some(parent) => {
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
                 let slot_onset = self.slot_onset(header_tip.slot());
                 let already_stored = false;
