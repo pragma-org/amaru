@@ -73,7 +73,7 @@ macro_rules! hash {
                 panic!("invalid hash literal length");
             }
         };
-        $crate::Hash::from(hex::decode($str).unwrap().as_slice())
+        $crate::Hash::try_from(hex::decode($str).unwrap().as_slice()).unwrap()
     }};
 }
 

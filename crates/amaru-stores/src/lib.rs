@@ -462,9 +462,11 @@ pub mod tests {
     ///
     /// A surviving authorization still satisfies the `VotersDoNotExist` check, which deliberately
     /// filters on neither the term nor election, so the removed member could keep voting.
+    #[allow(clippy::expect_used)]
     pub fn test_remove_cc_member_at_epoch_boundary(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
-        let committee =
-            ConstitutionalCommitteeStatus::Trusted { threshold: RationalNumber { numerator: 1, denominator: 2 } };
+        let committee = ConstitutionalCommitteeStatus::Trusted {
+            threshold: RationalNumber::new(1, 2).expect("1/2 is a valid rational number"),
+        };
 
         let status = fixture.cc_member_row.status.expect("fixture seeds a non empty status");
         let term = Epoch::from(100);

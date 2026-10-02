@@ -31,7 +31,7 @@ impl DiagnosticChainStore for RocksDBStore {
                 if k.len() != CONSENSUS_PREFIX_LEN + HEADER {
                     return None;
                 }
-                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                let hash = Hash::try_from(&k[CONSENSUS_PREFIX_LEN..]).ok()?;
                 from_cbor(v.as_ref()).map(|header| header_addressed_by(header, &hash))
             }
             Err(err) => panic!("error iterating over headers: {}", err),
@@ -42,7 +42,7 @@ impl DiagnosticChainStore for RocksDBStore {
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
         Box::new(self.db.prefix_iterator(NONCES_PREFIX).filter_map(|item| match item {
             Ok((k, v)) => {
-                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                let hash = Hash::try_from(&k[CONSENSUS_PREFIX_LEN..]).ok()?;
                 from_cbor(&v).map(|nonces| (hash, nonces))
             }
             Err(err) => panic!("error iterating over nonces: {}", err),
@@ -53,7 +53,8 @@ impl DiagnosticChainStore for RocksDBStore {
     fn load_opcert_sequence_numbers(&self) -> Box<dyn Iterator<Item = (PoolId, Slot, HeaderHash, u64)> + '_> {
         Box::new(self.db.prefix_iterator(OPCERT_PREFIX).filter_map(|item| match item {
             Ok((k, v)) => {
-                let pool_id = PoolId::from(&k[CONSENSUS_PREFIX_LEN..CONSENSUS_PREFIX_LEN + size::POOL_COLD_KEY]);
+                let pool_id = PoolId::try_from(&k[CONSENSUS_PREFIX_LEN..CONSENSUS_PREFIX_LEN + size::POOL_COLD_KEY])
+                    .unwrap_or_else(|e| panic!("malformed opcert key: {e}"));
                 let (slot, hash) = decode_opcert_key(&k).unwrap_or_else(|_| panic!("can't decode the opcert key"));
                 from_cbor(&v).map(|seq: u64| (pool_id, slot, hash, seq))
             }
@@ -67,7 +68,8 @@ impl DiagnosticChainStore for RocksDBStore {
         opts.set_iterate_range(PrefixRange(&BLOCK_PREFIX[..]));
         Box::new(self.db.iterator_opt(IteratorMode::Start, opts).map(|item| match item {
             Ok((k, v)) => {
-                let hash = Hash::from(&k[CONSENSUS_PREFIX_LEN..]);
+                let hash =
+                    Hash::try_from(&k[CONSENSUS_PREFIX_LEN..]).unwrap_or_else(|e| panic!("malformed block key: {e}"));
                 let block = RawBlock::from(v);
                 (hash, block_addressed_by(block, &hash))
             }

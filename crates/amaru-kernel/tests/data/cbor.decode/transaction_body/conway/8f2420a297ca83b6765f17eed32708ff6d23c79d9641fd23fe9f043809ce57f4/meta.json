@@ -1,1 +1,1 @@
-{"well_formed":true,"era":"conway","kind":"transaction_body","description":"cuddle-positive #0022","source":"cuddle","seed":64,"exact_re_encoding":false}
+{"well_formed":true,"era":"conway","kind":"transaction_body","description":"cuddle-positive #0022","source":"cuddle","seed":64,"known_amaru_divergence":true,"known_amaru_divergence_reason":"the ledger bounds this field to the interval [0, 1] (UnitInterval), which the CDDL does not express, so the generator produced an out-of-range ratio","exact_re_encoding":false}

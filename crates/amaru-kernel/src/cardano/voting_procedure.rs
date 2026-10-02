@@ -24,8 +24,7 @@ pub struct VotingProcedure {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for VotingProcedure {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(2)?;
+        cbor::heterogeneous_array_v12_indefinite(d, ctx, 2, |d, ctx| {
             let vote = d.decode_with(ctx)?;
             let anchor = d.decode_with(ctx)?;
             Ok(Self { vote, anchor })

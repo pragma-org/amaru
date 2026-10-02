@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_minicbor_extra::{decode_bigint, encode_bigint, encode_bytestring};
+use amaru_minicbor_extra::{
+    assert_bounded_chunk, decode_bigint, encode_bigint, encode_bytestring, heterogeneous_array,
+};
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
 use stacksafe::stacksafe;
@@ -60,15 +62,8 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 
                             Ok(data)
                         }
-                        102 => {
-                            let mut fields = BumpVec::new_in(ctx.arena.as_bump());
-
-                            let count = decoder.array()?;
-                            if count != Some(2) {
-                                return Err(minicbor::decode::Error::message(
-                                    "expected array of length 2 following plutus data tag 102",
-                                ));
-                            }
+                        102 => heterogeneous_array(decoder, |decoder, assert_len| {
+                            assert_len(2)?;
 
                             let discriminator_i128: i128 = decoder.int()?.into();
                             let discriminator: u64 = match u64::try_from(discriminator_i128) {
@@ -80,16 +75,15 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
                                 }
                             };
 
+                            let mut fields = BumpVec::new_in(ctx.arena.as_bump());
                             for x in decoder.array_iter_with(ctx)? {
                                 fields.push(x?);
                             }
 
                             let fields = ctx.arena.alloc(fields);
 
-                            let data = PlutusData::constr(ctx.arena, discriminator, fields);
-
-                            Ok(data)
-                        }
+                            Ok(PlutusData::constr(ctx.arena, discriminator, fields))
+                        }),
                         _ => {
                             let e =
                                 minicbor::decode::Error::message(format!("unknown tag for plutus data tag: {tag}",));
@@ -131,6 +125,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 
                 for chunk in decoder.bytes_iter()? {
                     let chunk = chunk?;
+                    assert_bounded_chunk(chunk)?;
 
                     bs.extend_from_slice(chunk);
                 }
@@ -259,6 +254,8 @@ impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
     use crate::arena::Arena;
 
@@ -377,5 +374,37 @@ mod tests {
         let mut v = vec![];
         minicbor::encode(PlutusData::Integer(n), &mut v).expect("invalid PlutusData");
         hex::encode(v)
+    }
+
+    /// A definite-length byte string header for `len` bytes, followed by `len` zeroes.
+    fn bytes(len: usize) -> Vec<u8> {
+        [vec![0x58, len as u8], vec![0x00; len]].concat()
+    }
+
+    /// Plutus bounds each leaf byte string of a `Data` to 64 bytes on the wire, per chunk: a
+    /// longer value is legal only when split into chunks of at most that size.
+    /// See *Note [The 64-byte limit]* in `PlutusCore.Data`.
+    #[test_case(bytes(64)                                              => matches Ok(_)  ; "definite at the limit")]
+    #[test_case(bytes(65)                                              => matches Err(_) ; "definite one byte over")]
+    #[test_case([vec![0x5f], bytes(64), bytes(64), vec![0xff]].concat() => matches Ok(_)  ; "two chunks at the limit")]
+    #[test_case([vec![0x5f], bytes(65), vec![0xff]].concat()            => matches Err(_) ; "a chunk one byte over")]
+    #[test_case([vec![0xc2], bytes(65)].concat()                        => matches Err(_) ; "bignum payload over the limit")]
+    #[test_case([vec![0xc2], bytes(64)].concat()                        => matches Ok(_)  ; "bignum payload at the limit")]
+    fn decode_bounds_byte_strings_per_chunk(cbor: Vec<u8>) -> Result<(), String> {
+        let arena = Arena::new();
+        PlutusData::from_cbor(&arena, &cbor).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// Plutus reads the tag-102 pair with `decodeListLenOrIndef`, so both array forms are legal;
+    /// the indefinite one must break right after the two elements.
+    /// `d8 66` is tag 102, `00` the discriminator, `80`/`9fff` the empty argument list.
+    #[test_case(&[0xd8, 0x66, 0x82, 0x00, 0x80]                   => matches Ok(_)  ; "definite pair")]
+    #[test_case(&[0xd8, 0x66, 0x9f, 0x00, 0x80, 0xff]             => matches Ok(_)  ; "indefinite pair")]
+    #[test_case(&[0xd8, 0x66, 0x9f, 0x00, 0x80, 0x80, 0xff]       => matches Err(_) ; "indefinite with a third element")]
+    #[test_case(&[0xd8, 0x66, 0x83, 0x00, 0x80, 0x80]             => matches Err(_) ; "definite with three elements")]
+    #[test_case(&[0xd8, 0x66, 0x81, 0x00]                         => matches Err(_) ; "definite with one element")]
+    fn decode_tag_102_accepts_both_array_forms(cbor: &[u8]) -> Result<(), String> {
+        let arena = Arena::new();
+        PlutusData::from_cbor(&arena, cbor).map(|_| ()).map_err(|e| e.to_string())
     }
 }

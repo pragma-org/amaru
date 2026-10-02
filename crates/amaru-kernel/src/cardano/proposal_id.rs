@@ -19,7 +19,7 @@ use crate::{Hash, cbor, size::TRANSACTION_BODY};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProposalId {
     pub transaction_id: Hash<{ TRANSACTION_BODY }>,
-    pub proposal_index: u32,
+    pub proposal_index: u16,
 }
 
 impl fmt::Display for ProposalId {
@@ -50,8 +50,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for ProposalId {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ProposalId {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(2)?;
+        cbor::heterogeneous_array_v12_indefinite(d, ctx, 2, |d, ctx| {
             Ok(Self { transaction_id: d.decode_with(ctx)?, proposal_index: d.decode_with(ctx)? })
         })
     }
@@ -72,7 +71,7 @@ mod tests {
     prop_compose! {
         pub fn any_proposal_id()(
             transaction_id in any::<[u8; 32]>(),
-            proposal_index in any::<u32>(),
+            proposal_index in any::<u16>(),
         ) -> ProposalId {
             ProposalId {
                 transaction_id: Hash::new(transaction_id),

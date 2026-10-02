@@ -38,7 +38,7 @@ pub type ResourceForgingCredentials = Option<Arc<dyn ForgingCredentials>>;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ForgedBody {
     pub hash: Hash<32>,
-    pub size: u64,
+    pub size: u32,
     /// Body items encoded once. [`Self::seal`] prefixes the signed header; it does not encode the body again.
     parts: BodyParts,
 }

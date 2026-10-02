@@ -341,8 +341,13 @@ mod tests {
         let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
         assert!(
-            flat::decode::<DeBruijn>(&arena, &flat::encode::<DeBruijn>(program).unwrap(), PROTOCOL_VERSION_10,)
-                .is_err(),
+            flat::decode::<DeBruijn>(
+                &arena,
+                &flat::encode::<DeBruijn>(program).unwrap(),
+                PlutusVersion::V3,
+                PROTOCOL_VERSION_10,
+            )
+            .is_err(),
             "builtin introduced in v11 should not be decoded successfully in v10"
         );
     }
@@ -371,7 +376,13 @@ mod tests {
         let program = Program::<DeBruijn>::new(&arena, version, term(&arena));
 
         assert!(
-            flat::decode::<DeBruijn>(&arena, &flat::encode::<DeBruijn>(program).unwrap(), PROTOCOL_VERSION_11,).is_ok(),
+            flat::decode::<DeBruijn>(
+                &arena,
+                &flat::encode::<DeBruijn>(program).unwrap(),
+                PlutusVersion::V3,
+                PROTOCOL_VERSION_11,
+            )
+            .is_ok(),
             "builtin introduced in v11 should be decoded successfully in v11"
         );
 

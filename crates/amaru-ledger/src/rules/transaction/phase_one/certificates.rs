@@ -208,7 +208,7 @@ where
             // slot_to_epoch computes a different current epoch, making the range check reject
             // transactions that the Haskell node accepts.
             let current_epoch = era_history.slot_to_epoch_unchecked_horizon(pointer.slot())?;
-            let max_epoch = current_epoch + protocol_parameters.stake_pool_max_retirement_epoch;
+            let max_epoch = current_epoch + u64::from(protocol_parameters.stake_pool_max_retirement_epoch);
             if retirement_epoch <= current_epoch || retirement_epoch > max_epoch {
                 return Err(InvalidCertificates::PoolRetirementWrongEpoch {
                     epoch: retirement_epoch,
@@ -313,7 +313,7 @@ where
             }
 
             let valid_until = era_history.slot_to_epoch_unchecked_horizon(pointer.slot())?
-                + protocol_parameters.drep_expiry
+                + u64::from(protocol_parameters.drep_expiry)
                 - governance_activity.consecutive_dormant_epochs as u64;
 
             DRepsSlice::register(

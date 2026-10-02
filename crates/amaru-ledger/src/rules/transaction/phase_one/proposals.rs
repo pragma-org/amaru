@@ -106,9 +106,9 @@ where
         context.produce_lovelace(proposal.deposit);
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
-        let id = ProposalId { transaction_id: *transaction.0, proposal_index: proposal_index as u32 };
+        let id = ProposalId { transaction_id: *transaction.0, proposal_index: proposal_index as u16 };
         let valid_until = era_history.slot_to_epoch(transaction.1.slot, transaction.1.slot)?
-            + protocol_parameters.gov_action_lifetime;
+            + u64::from(protocol_parameters.gov_action_lifetime);
 
         context.acknowledge(id, ProposalState { proposed_in: pointer, valid_until, proposal })
     }

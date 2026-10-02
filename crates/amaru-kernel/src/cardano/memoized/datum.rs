@@ -97,7 +97,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
                         return Err(cbor::decode::Error::message("unknown tag for datum tag"));
                     }
                     let plutus_data: MemoizedPlutusData =
-                        cbor::decode_with(&cbor::decode_bytes_v12_indefinite(d, ctx)?, ctx)?;
+                        cbor::from_cbor_no_leftovers_with(&cbor::decode_bytes_v12_indefinite(d, ctx)?, ctx)?;
                     Ok(MemoizedDatum::from(plutus_data))
                 }
                 _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
@@ -109,10 +109,8 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let raw = cbor::decode_bytes_v12_indefinite(d, ctx)?;
-        if raw.len() != 32 {
-            return Err(cbor::decode::Error::message(format!("expected datum hash of length 32, got {}", raw.len())));
-        }
-        Ok(Legacy(MemoizedDatum::from(Hash::<DATUM>::from(&raw[..]))))
+        let hash = Hash::<DATUM>::try_from(&raw[..]).map_err(|e| cbor::decode::Error::message(e.to_string()))?;
+        Ok(Legacy(MemoizedDatum::from(hash)))
     }
 }
 
@@ -138,5 +136,25 @@ impl<C> cbor::Encode<C> for MemoizedDatum {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+    use crate::protocol_version::PROTOCOL_VERSION_10;
+
+    /// An inline datum is `[1, #6.24(bytes)]`, the byte string wrapping one Plutus datum.
+    ///
+    /// The ledger reads that payload with `decodeFull'`, so bytes left over after the datum make
+    /// the whole thing invalid.
+    #[test_case(&[0x82, 0x01, 0xd8, 0x18, 0x41, 0x00]             => matches Ok(_)  ; "exactly one datum")]
+    #[test_case(&[0x82, 0x01, 0xd8, 0x18, 0x42, 0x00, 0x00]       => matches Err(_) ; "a second datum left over")]
+    #[test_case(&[0x82, 0x01, 0xd8, 0x18, 0x42, 0x00, 0xff]       => matches Err(_) ; "junk left over")]
+    fn inline_datum_must_consume_the_whole_payload(bytes: &[u8]) -> Result<MemoizedDatum, cbor::decode::Error> {
+        let mut version = PROTOCOL_VERSION_10;
+        cbor::from_cbor_no_leftovers_with(bytes, &mut version)
     }
 }

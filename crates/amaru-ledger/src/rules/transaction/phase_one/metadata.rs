@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryData, Bytes, Hash, ProtocolVersion, TransactionBody};
+use amaru_kernel::{AuxiliaryData, Hash, ProtocolVersion, TransactionBody};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_uplc::{
     arena::Arena,
@@ -23,7 +23,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
     #[error("missing metadata: auxiliary data hash {0}")]
-    MissingTransactionMetadata(Bytes),
+    MissingTransactionMetadata(Hash<{ AuxiliaryData::HASH_SIZE }>),
 
     #[error("missing auxiliary data hash: metadata hash {0}")]
     MissingTransactionAuxiliaryDataHash(Hash<{ AuxiliaryData::HASH_SIZE }>),
@@ -46,9 +46,8 @@ pub fn execute(
     match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data.map(|aux| (aux, aux.hash()))) {
         (None, None) => Ok(()),
         (None, Some((_data, hash))) => Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash)),
-        (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(adh.clone())),
-        (Some(supplied_hash), Some((data, expected))) => {
-            let supplied = Hash::from(&supplied_hash[..]);
+        (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(*adh)),
+        (Some(&supplied), Some((data, expected))) => {
             if expected != supplied {
                 return Err(InvalidTransactionMetadata::ConflictingMetadataHash { supplied, expected });
             }

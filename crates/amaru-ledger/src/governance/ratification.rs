@@ -416,7 +416,7 @@ mod tests {
 
         use amaru_kernel::{
             GovernanceAction, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalId, ProposalPointer, ProposalsRootsRc,
-            ProtocolParamUpdate, ProtocolVersion, RatificationStatus, RationalNumber, TransactionPointer,
+            ProtocolParamUpdate, ProtocolVersion, RatificationStatus, TransactionPointer, UnitRationalNumber,
             any_proposal_pointer, safe_ratio, utils::tests::assert_strategy_sometimes_fails,
         };
         use proptest::{prelude::*, test_runner::RngSeed};
@@ -457,7 +457,7 @@ mod tests {
         }
 
         fn ratification_context(distribution: &StakeDistribution) -> RatificationContext<'_> {
-            let zero = RationalNumber { numerator: 0, denominator: 1 };
+            let zero = UnitRationalNumber::zero();
             let mut protocol_parameters = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
             protocol_parameters.min_committee_size = 0;
             protocol_parameters.pool_voting_thresholds.hard_fork_initiation = zero;
@@ -483,7 +483,7 @@ mod tests {
             let mut ctx = ratification_context(&distribution);
             let lowered_thresholds = ctx.protocol_parameters.drep_voting_thresholds.clone();
             ctx.protocol_parameters.drep_voting_thresholds.hard_fork_initiation =
-                RationalNumber { numerator: 1, denominator: 1 };
+                UnitRationalNumber::new(1, 1).unwrap();
 
             let (roots, pruned_proposals) = ctx
                 .ratify_proposals(

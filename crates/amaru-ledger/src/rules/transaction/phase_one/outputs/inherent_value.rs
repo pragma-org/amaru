@@ -78,18 +78,19 @@ mod tests {
 
     #[test]
     fn large_maps_with_indefinite_length_headers_are_valid_with_the_cardano_node_encoding() {
-        // Maps with less than or equal to 255 entries have the same size regardless of the encoding
+        // The policy map and the asset maps both switch to an indefinite-length header past 23
+        // entries, which is what the node emits, so the ledger-side measurement and the wire
+        // encoding agree byte for byte at every size.
         let multiassets = multiassets_of(20);
         assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
 
         let multiassets = multiassets_of(100);
         assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
 
-        // From 256 entries on, there is a one-byte difference:
-        // The indefinite-length header is one byte shorter than the definite-length header.
-        // The ledger size is therefore one byte smaller than the amaru encoding.
+        // Past 255 entries a definite-length header would need one more byte than the
+        // indefinite-length one; the two sizes staying equal is what pins the node encoding.
         let multiassets = multiassets_of(324);
-        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len() - 1);
+        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
 
         let bytes = to_cbor(&(2000000, multiassets.deref()));
         let output = output_with(from_cbor(&bytes).expect("valid value"));
@@ -105,7 +106,7 @@ mod tests {
         // 303): 358 assets across 6 policies, one of them holding 324 assets. The network
         // accepted it at exactly maxValueSize=5000 while our the amaru encoding originally returned 5001.
         let value: Value = amaru_kernel::include_cbor!("phase-one/preprod/b2c00c16/output-1-value.cbor");
-        let ledger_size = count_bytes(&value) as u64;
+        let ledger_size = count_bytes(&value) as u32;
         assert_eq!(ledger_size, 5000, "the ledger-side size must be 5000 bytes");
 
         let output = output_with(value);
@@ -128,7 +129,10 @@ mod tests {
     fn multiassets_of(n: u16) -> Multiasset<PositiveCoin> {
         let assets =
             NonEmptyKeyValuePairs::try_from(vec![(AssetName::empty(), PositiveCoin::try_from(1).unwrap())]).unwrap();
-        (0..n).map(|_| (Hash::from(random_bytes(28).as_slice()), assets.clone())).collect::<BTreeMap<_, _>>().into()
+        (0..n)
+            .map(|_| (Hash::try_from(random_bytes(28).as_slice()).unwrap(), assets.clone()))
+            .collect::<BTreeMap<_, _>>()
+            .into()
     }
 
     fn output_with(value: Value) -> MemoizedTransactionOutput {
@@ -137,7 +141,7 @@ mod tests {
         MemoizedTransactionOutput::new(false, address, value, MemoizedDatum::None, None)
     }
 
-    fn protocol_parameters_with_max_size(max_value_size: u64) -> ProtocolParameters {
+    fn protocol_parameters_with_max_size(max_value_size: u32) -> ProtocolParameters {
         ProtocolParameters { max_value_size, lovelace_per_utxo_byte: 0, ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone() }
     }
 }

@@ -536,7 +536,7 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            any_credential, any_epoch, any_proposal, any_proposal_id, any_proposal_pointer, any_rational_number,
+            any_credential, any_epoch, any_proposal, any_proposal_id, any_proposal_pointer, any_unit_rational_number,
             utils::tests::run_strategy,
         };
 
@@ -643,7 +643,7 @@ mod tests {
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
-                run_strategy(any_rational_number()),
+                run_strategy(any_unit_rational_number()),
             );
 
             Proposal { gov_action, ..run_strategy(any_proposal()) }
