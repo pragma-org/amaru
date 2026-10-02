@@ -225,7 +225,7 @@ pub fn resume_call_send_internal(
                 sim.runnable.push_back((name, response));
             },
             Some(id),
-            Box::new(CallTimeout),
+            CallTimeout::boxed(),
         );
         if wakeup.is_ok()
             && let Some(real_to) = real_to

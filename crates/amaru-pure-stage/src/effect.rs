@@ -165,6 +165,25 @@ impl ScheduleIds {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CallTimeout;
 
+impl CallTimeout {
+    /// The value a caller observes when the call deadline elapses before a reply.
+    pub(crate) fn boxed() -> Box<dyn SendData> {
+        Box::new(Self)
+    }
+
+    /// Resolve a call from a single deadline measured when the call is issued.
+    ///
+    /// That deadline covers waiting for a free mailbox slot and waiting for the reply.
+    /// `reply` is `Some` only when a response arrived before the deadline. `None` means
+    /// the deadline won. A request that had not yet entered the target mailbox must
+    /// already have been abandoned, so it is not delivered later. A request that did
+    /// enter the mailbox stays there; a late reply is ignored. The target stage
+    /// disappearing does not complete the call early.
+    pub(crate) fn response(reply: Option<Box<dyn SendData>>) -> StageResponse {
+        StageResponse::CallResponse(reply.unwrap_or_else(Self::boxed))
+    }
+}
+
 impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
@@ -189,10 +208,18 @@ impl<M> Effects<M> {
         })
     }
 
-    /// Call the given stage, blocking the current stage until the response is received.
+    /// Call the given stage, blocking the current stage until the response is received
+    /// or the timeout elapses.
     ///
     /// The `msg` closure is called with a reference to the call effect, which can be used
     /// to respond to the call.
+    ///
+    /// The timeout is one deadline starting when the call is issued. It covers both waiting
+    /// for a free slot in the target mailbox and waiting for the reply. If the request has
+    /// not entered the mailbox when the deadline elapses, it is abandoned and is not
+    /// delivered later. A reply that arrives after the deadline is ignored. If the target
+    /// stage is already gone, the caller still waits out the deadline and then observes a
+    /// timeout.
     ///
     /// The returned future will resolve to `Some(resp)` if the call was successful, or `None`
     /// if the call timed out.
