@@ -127,7 +127,7 @@ fn an_accepted_lead_arms_the_following_slot() {
     let wall = SystemTime::UNIX_EPOCH + Duration::from_millis(prep.state.data.system_start_unix_ms) + onset;
     let timestamp = super::calc::format_utc_timestamp(wall).unwrap();
     logs.assert_and_remove(Level::WARN, &["ocert_not_yet_valid"])
-        .assert_and_remove(Level::INFO, &[timestamp.as_str()])
+        .assert_and_remove(Level::DEBUG, &[timestamp.as_str()])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 
     let state = running.get_state(&stage).cloned().unwrap().data;

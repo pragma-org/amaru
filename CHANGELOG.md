@@ -70,6 +70,7 @@ Other guiding principles:
 - **amaru-node**: startup fails when the chain store is missing the ledger tip header. A bootstrap snapshot stores that tip without its parent block. Forging in the snapshot tip's own slot is skipped when that parent header is absent.
 - **amaru**: report errors on stderr when tracing isn't available on specific commands.
 - **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
+- **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
@@ -585,3 +586,4 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
+[#1453]: https://github.com/pragma-org/amaru/issues/1453
