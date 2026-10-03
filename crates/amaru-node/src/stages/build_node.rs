@@ -68,6 +68,24 @@ use crate::{
 
 const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Store open attempted when startup found a store already in use.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StoreOpenOperation {
+    Chain,
+    LedgerReadOnly,
+    LedgerWritable,
+}
+
+impl std::fmt::Display for StoreOpenOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Chain => f.write_str("opening the chain store"),
+            Self::LedgerReadOnly => f.write_str("checking the ledger read-only"),
+            Self::LedgerWritable => f.write_str("opening the ledger for writing"),
+        }
+    }
+}
+
 /// A startup failure that an embedding host can handle without inspecting error text.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -90,8 +108,13 @@ pub enum NodeStartError {
         source: Box<NodeStartError>,
         cleanup: ShutdownError,
     },
-    #[error("store at '{}' is already in use", path.display())]
-    StoreInUse { path: PathBuf },
+    #[error("store at '{}' is already in use while {operation}: {source}", path.display())]
+    StoreInUse {
+        path: PathBuf,
+        operation: StoreOpenOperation,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     #[error("incompatible store at '{}': {source}", path.display())]
     IncompatibleStore {
         path: PathBuf,
@@ -545,14 +568,18 @@ fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
 
 pub(crate) fn open_chain_store(config: &RocksDbConfig, migrate: bool) -> Result<RocksDBStore, NodeStartError> {
     let open = if migrate { RocksDBStore::open_and_migrate } else { RocksDBStore::open };
-    open(config).map_err(|error| match error {
-        ChainStoreError::Locked { path } => NodeStartError::StoreInUse { path },
-        error @ ChainStoreError::IncompatibleChainStoreVersions { .. } => {
+    open(config).map_err(|error| match &error {
+        ChainStoreError::Locked { path } => NodeStartError::StoreInUse {
+            path: path.clone(),
+            operation: StoreOpenOperation::Chain,
+            source: Box::new(error),
+        },
+        ChainStoreError::IncompatibleChainStoreVersions { .. } => {
             NodeStartError::IncompatibleStore { path: config.dir.clone(), source: Box::new(error) }
         }
-        error @ (ChainStoreError::WriteError { .. }
-        | ChainStoreError::ReadError { .. }
-        | ChainStoreError::OpenError { .. }) => NodeStartError::other(error),
+        ChainStoreError::WriteError { .. } | ChainStoreError::ReadError { .. } | ChainStoreError::OpenError { .. } => {
+            NodeStartError::other(error)
+        }
     })
 }
 
@@ -573,7 +600,8 @@ pub fn make_state(
     on_startup: Option<StartupHook<RocksDB>>,
     chain_store: Arc<dyn BaseReadChainStore>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
-    let store = RocksDB::new(&config.ledger_store).map_err(ledger_store_error)?;
+    let store = RocksDB::new(&config.ledger_store)
+        .map_err(|error| ledger_store_error(error, StoreOpenOperation::LedgerWritable))?;
     store.set_chain_store(chain_store);
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
     Ok(State::new(
@@ -587,15 +615,11 @@ pub fn make_state(
     )?)
 }
 
-pub(crate) fn ledger_store_error(error: LedgerStoreError) -> NodeStartError {
-    match error {
-        LedgerStoreError::Open(OpenErrorKind::Locked { file, .. }) => NodeStartError::StoreInUse { path: file },
-        error @ (LedgerStoreError::Internal(_)
-        | LedgerStoreError::Undecodable(_)
-        | LedgerStoreError::Send
-        | LedgerStoreError::Open(_)
-        | LedgerStoreError::Missing(..)) => NodeStartError::other(error),
+pub(crate) fn ledger_store_error(error: LedgerStoreError, operation: StoreOpenOperation) -> NodeStartError {
+    if let LedgerStoreError::Open(OpenErrorKind::Locked { file, .. }) = &error {
+        return NodeStartError::StoreInUse { path: file.clone(), operation, source: Box::new(error) };
     }
+    NodeStartError::other(error)
 }
 
 fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {
@@ -609,7 +633,10 @@ fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -
 
 #[cfg(test)]
 mod tests {
-    use std::net::{SocketAddr, TcpListener};
+    use std::{
+        error::Error,
+        net::{SocketAddr, TcpListener},
+    };
 
     use amaru_kernel::{IsHeader, NetworkName, make_header};
     use amaru_ouroboros::WriteChainStore;
@@ -618,6 +645,22 @@ mod tests {
 
     use super::*;
     use crate::tests::configuration::NodeTestConfig;
+
+    #[test]
+    fn ledger_lock_startup_error_keeps_source_and_operation() {
+        for operation in [StoreOpenOperation::LedgerReadOnly, StoreOpenOperation::LedgerWritable] {
+            let error = LedgerStoreError::Open(OpenErrorKind::locked("db/live", anyhow::anyhow!("lock held")));
+            let startup_error = ledger_store_error(error, operation);
+            let NodeStartError::StoreInUse { path, operation: actual_operation, source } = &startup_error else {
+                panic!("expected store-in-use error: {startup_error:?}");
+            };
+            assert_eq!(path, &PathBuf::from("db/live"));
+            assert_eq!(*actual_operation, operation);
+            assert!(source.downcast_ref::<LedgerStoreError>().is_some());
+            assert!(startup_error.source().is_some());
+            assert!(startup_error.to_string().contains("lock held"));
+        }
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn listener_bind_failure_is_a_startup_error() -> anyhow::Result<()> {

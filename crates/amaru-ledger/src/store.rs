@@ -56,13 +56,13 @@ pub use epoch_transition::*;
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub enum OpenErrorKind {
-    #[error("IO error with file '{file}'")]
+    #[error("IO error with file '{file}': {source}")]
     IO {
         file: PathBuf,
         #[source]
         source: io::Error,
     },
-    #[error("Ledger store at '{file}' is locked")]
+    #[error("Ledger store at '{file}' is locked: {source}")]
     Locked {
         file: PathBuf,
         #[source]
@@ -90,15 +90,14 @@ pub enum StoreError {
     Send,
 
     #[error(
-        "{}",
+        "{}: {}",
         if .0.is_locked() {
-            "Failed to connect to the ledger store because it is locked. Another Amaru \
-            process may still be using it, or a stale LOCK file may remain after an \
-            unclean shutdown. Stop any process using the ledger database before retrying; \
-            only remove the LOCK file after confirming no process is using it."
+            "Failed to connect to the ledger store because it is locked. Stop any process \
+            using the ledger database before retrying"
         } else {
-            "Failed to create ledger. Did you bootstrap your node?"
-        }
+            "Failed to open the ledger store. If it is missing, did you bootstrap your node?"
+        },
+        .0
     )]
     Open(#[source] OpenErrorKind),
 
@@ -896,6 +895,9 @@ mod tests {
         let error = StoreError::Open(OpenErrorKind::locked(PathBuf::from("db/live"), anyhow!("lock held")));
         let message = format!("{error:#}");
         assert!(message.contains("Failed to connect to the ledger store because it is locked"));
+        assert!(message.contains("db/live"));
+        assert!(message.contains("lock held"));
+        assert!(!message.contains("remove the LOCK file"));
         assert!(!message.contains("Did you bootstrap your node?"));
     }
 
@@ -904,6 +906,8 @@ mod tests {
         let error = StoreError::Open(OpenErrorKind::io_with_file(PathBuf::from("db/live"), io::Error::other("foo")));
         let message = format!("{error:#}");
         assert!(!message.contains("Failed to connect to the ledger store because it is locked"));
-        assert!(message.contains("Did you bootstrap your node?"));
+        assert!(message.contains("If it is missing, did you bootstrap your node?"));
+        assert!(message.contains("db/live"));
+        assert!(message.contains("foo"));
     }
 }
