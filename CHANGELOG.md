@@ -74,6 +74,7 @@ Other guiding principles:
 - **amaru-uplc**: prevent a crash when using integers outside [0, 2^256) in constrData.
 - **amaru-uplc**: reject out of range indexByteString and indexArray indices.
 - **amaru-uplc**: saturate dropList cost instead of panicking beyond a u64.
+- **amaru-uplc**: fix a panic when shiftByteString is called with a whole byte shift.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
