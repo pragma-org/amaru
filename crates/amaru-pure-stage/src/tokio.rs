@@ -19,7 +19,7 @@
 
 use std::{
     any::Any,
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     future::{Future, poll_fn},
     marker::PhantomData,
     sync::{
@@ -358,14 +358,16 @@ fn run_stage_boxed(
             tb.lock().push_terminated_aborted(&stage_name)
         });
 
-        let mut msgs = Vec::new();
+        let mut msgs = VecDeque::new();
 
         inner.trace_buffer.lock().push_state(&stage_name, &state);
 
         'outer: loop {
             // Messages queued while the previous transition was awaiting an effect are already
             // ingress. Taking them before `select` keeps a due schedule ahead of newer bulk mail.
-            if msgs.is_empty() {
+            // A fired timeout stays in `TimeoutHeap::due` until it is chosen here, so
+            // the next slot is not armed while this one is still unreceived.
+            if msgs.is_empty() && !timeouts.has_due() {
                 let poll_timers = !timers.is_empty();
                 // if multiple timers have fired since the last poll, we need them all so that we can deliver them in order
                 let mut timer_chunks = (&mut timers).ready_chunks(1000);
@@ -375,7 +377,7 @@ fn run_stage_boxed(
                     Some(res) = timer_chunks.next(), if poll_timers => {
                         collect_ingress(res, &mut cancel_senders, &mut timeouts, &mut msgs);
                     }
-                    Some(msg) = rx.recv() => msgs.push((msg, false)),
+                    Some(msg) = rx.recv() => msgs.push_back((msg, false)),
                     else => {
                         tracing::error!(%stage_name, "stage sender dropped");
                         break;
@@ -383,45 +385,53 @@ fn run_stage_boxed(
                 }
             }
 
-            let batch = std::mem::take(&mut msgs);
-            for (msg, release_budget) in batch {
-                if release_budget {
-                    scheduled_pending = scheduled_pending.saturating_sub(1);
-                }
+            // Receive order matches the simulation: tombstones, then a parked timeout, then
+            // schedules and bulk mail queued while the previous transition was running.
+            let (msg, release_budget) = if let Some(tombstone) = take_tombstone(&mut msgs) {
+                tombstone
+            } else if let Some(msg) = timeouts.take_due() {
+                (msg, false)
+            } else if let Some(next) = msgs.pop_front() {
+                next
+            } else {
+                continue;
+            };
+            if release_budget {
+                scheduled_pending = scheduled_pending.saturating_sub(1);
+            }
 
-                if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
-                    tracing::debug!("stage `{stage_name}` terminates because of an unsupervised child termination");
-                    tb.lock().push_terminated_supervision(&stage_name, child);
+            if let Ok(CanSupervise(child)) = msg.cast_ref::<CanSupervise>() {
+                tracing::debug!("stage `{stage_name}` terminates because of an unsupervised child termination");
+                tb.lock().push_terminated_supervision(&stage_name, child);
+                break 'outer;
+            }
+
+            inner.trace_buffer.lock().push_input(&stage_name, &msg);
+
+            let f = (transition)(state, msg);
+            let result = interpreter(
+                &inner,
+                &effect,
+                &stage_name,
+                &mut timers,
+                &mut cancel_senders,
+                &mut scheduled_pending,
+                &mut timeouts,
+                &mut msgs,
+                f,
+            )
+            .await;
+            tokio_rearm_timeouts(&inner, &mut timeouts, &mut timers, &stage_name);
+            match result {
+                Some(st) => state = st,
+                None => {
+                    tracing::debug!(%stage_name, "terminated");
+                    tb.lock().push_terminated_voluntary(&stage_name);
                     break 'outer;
                 }
-
-                inner.trace_buffer.lock().push_input(&stage_name, &msg);
-
-                let f = (transition)(state, msg);
-                let result = interpreter(
-                    &inner,
-                    &effect,
-                    &stage_name,
-                    &mut timers,
-                    &mut cancel_senders,
-                    &mut scheduled_pending,
-                    &mut timeouts,
-                    &mut msgs,
-                    f,
-                )
-                .await;
-                tokio_rearm_timeouts(&inner, &mut timeouts, &mut timers, &stage_name);
-                match result {
-                    Some(st) => state = st,
-                    None => {
-                        tracing::debug!(%stage_name, "terminated");
-                        tb.lock().push_terminated_voluntary(&stage_name);
-                        break 'outer;
-                    }
-                }
-
-                inner.trace_buffer.lock().push_state(&stage_name, &state);
             }
+
+            inner.trace_buffer.lock().push_state(&stage_name, &state);
         }
 
         DropGuard::into_inner(tb);
@@ -472,17 +482,25 @@ fn tokio_rearm_timeouts(
     }));
 }
 
-/// Move due priority-path messages into `msgs`.
+fn take_tombstone(msgs: &mut VecDeque<(Box<dyn SendData>, bool)>) -> Option<(Box<dyn SendData>, bool)> {
+    let pos = msgs.iter().position(|(msg, _)| msg.is::<CanSupervise>())?;
+    msgs.remove(pos)
+}
+
+/// Move ready schedules and tombstones into `msgs`.
 ///
 /// A schedule is ingress at this point, including when the stage is inside `Wait`, `Call`,
 /// `Send`, or an external effect. That matches simulation `deliver_priority`. Cancel after
 /// this returns false and the message is still delivered. The budget is released when the
 /// message is received, unless cancel already released it.
+///
+/// A protocol timeout stays in [`TimeoutHeap`] until the stage receives it. The next slot
+/// is armed only after that receive.
 fn collect_ingress(
     chunk: Vec<PriorityMessage>,
     cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
     timeouts: &mut TimeoutHeap,
-    msgs: &mut Vec<(Box<dyn SendData>, bool)>,
+    msgs: &mut VecDeque<(Box<dyn SendData>, bool)>,
 ) {
     let mut scheduled = Vec::new();
     for msg in chunk {
@@ -494,20 +512,18 @@ fn collect_ingress(
                 }
             }
             PriorityMessage::TimeoutFired(slot, id) => {
-                if timeouts.fire(slot, id)
-                    && let Some(msg) = timeouts.take_due()
-                {
-                    msgs.push((msg, false));
-                }
+                // Park until receive. Taking it here would clear `due` and let the next slot
+                // arm before this message is delivered, so a later clear could not drop it.
+                timeouts.fire(slot, id);
             }
             PriorityMessage::TimerCancelled(_id) => {}
-            PriorityMessage::Tombstone(msg) => msgs.push((msg, false)),
+            PriorityMessage::Tombstone(msg) => msgs.push_back((msg, false)),
         }
     }
     // ensure that earliest timer is delivered first
     scheduled.sort_by_key(|(id, _)| *id);
     for (_id, msg) in scheduled {
-        msgs.push((msg, true));
+        msgs.push_back((msg, true));
     }
 }
 
@@ -520,7 +536,7 @@ async fn poll_with_ingress<T>(
     timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
     cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
     timeouts: &mut TimeoutHeap,
-    msgs: &mut Vec<(Box<dyn SendData>, bool)>,
+    msgs: &mut VecDeque<(Box<dyn SendData>, bool)>,
 ) -> T {
     let mut effect = std::pin::pin!(effect);
     loop {
@@ -586,7 +602,7 @@ async fn interpreter(
     cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
     scheduled_pending: &mut usize,
     timeouts: &mut TimeoutHeap,
-    msgs: &mut Vec<(Box<dyn SendData>, bool)>,
+    msgs: &mut VecDeque<(Box<dyn SendData>, bool)>,
     mut stage: BoxFuture<'static, Box<dyn SendData>>,
 ) -> Option<Box<dyn SendData>> {
     let mut last_yield = tokio::time::Instant::now();
