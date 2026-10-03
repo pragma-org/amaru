@@ -118,6 +118,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tokio-util",
+ "zeroize",
  "zstd",
 ]
 
