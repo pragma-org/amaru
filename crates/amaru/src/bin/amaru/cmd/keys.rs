@@ -19,10 +19,48 @@ use std::{
 };
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_ouroboros::kes::SecretKey;
+use amaru_ouroboros::kes::{PublicKey, SecretKey};
 use anyhow::{Context, ensure};
 use clap::{Args, Subcommand};
 use tempfile::NamedTempFile;
+use zeroize::Zeroizing;
+
+/// A cardano-cli text envelope for a KES key.
+struct TextEnvelope<'a> {
+    r#type: &'static str,
+    description: &'static str,
+    cbor_prefix: &'static str,
+    bytes: &'a [u8],
+}
+
+impl<'a> TextEnvelope<'a> {
+    fn kes_signing(key: &'a SecretKey) -> Self {
+        // SAFETY: The CLI needs the secret bytes to write the requested signing-key file.
+        // Both the encoded payload and envelope are wiped after use.
+        let bytes = unsafe { &key.leak_into_bytes()[..SecretKey::SIZE] };
+        Self { r#type: "KesSigningKey_ed25519_kes_2^6", description: "KES Signing Key", cbor_prefix: "590260", bytes }
+    }
+
+    fn kes_verification(key: &'a PublicKey) -> Self {
+        Self {
+            r#type: "KesVerificationKey_ed25519_kes_2^6",
+            description: "KES Verification Key",
+            cbor_prefix: "5820",
+            bytes: key.as_ref(),
+        }
+    }
+
+    fn encode(&self) -> Zeroizing<String> {
+        let mut cbor_hex = Zeroizing::new(hex::encode(self.bytes));
+        cbor_hex.insert_str(0, self.cbor_prefix);
+        Zeroizing::new(format!(
+            r#"{{"type":"{}","description":"{}","cborHex":"{}"}}"#,
+            self.r#type,
+            self.description,
+            cbor_hex.as_str()
+        ))
+    }
+}
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum KeysCommand {
@@ -67,8 +105,8 @@ fn create(args: CreateArgs) -> anyhow::Result<()> {
     let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
     let mut signing = NamedTempFile::new_in(parent(&signing_key_file))?;
     let mut verification = NamedTempFile::new_in(parent(&verification_key_file))?;
-    signing.write_all(secret.text_envelope().as_bytes())?;
-    verification.write_all(public.text_envelope().as_bytes())?;
+    signing.write_all(TextEnvelope::kes_signing(&secret).encode().as_bytes())?;
+    verification.write_all(TextEnvelope::kes_verification(&public).encode().as_bytes())?;
 
     verification.persist_noclobber(&verification_key_file)?;
     signing.persist_noclobber(&signing_key_file).inspect_err(|_| {

@@ -53,17 +53,6 @@ impl SecretKey {
         Ok((Self { bytes }, PublicKey(public)))
     }
 
-    /// Encode the signing key in the cardano-cli text-envelope format.
-    pub fn text_envelope(&self) -> Zeroizing<String> {
-        let mut cbor_hex = Zeroizing::new(hex::encode(&self.bytes[..Self::SIZE]));
-        cbor_hex.insert_str(0, "590260");
-        Zeroizing::new(format!(
-            r#"{{"type":"{}","description":"KES Signing Key","cborHex":"{}"}}"#,
-            Self::ENVELOPE_TYPE,
-            cbor_hex.as_str()
-        ))
-    }
-
     /// Take ownership of raw key bytes at period 0.
     pub fn from_bytes(sk_bytes: Vec<u8>) -> Result<Self, KesError> {
         let sk_bytes = Zeroizing::new(sk_bytes);
@@ -171,14 +160,6 @@ pub struct PublicKey(kes::PublicKey);
 impl PublicKey {
     /// Size of a KES public key, in bytes;
     pub const SIZE: usize = 32;
-
-    /// Encode the verification key in the cardano-cli text-envelope format.
-    pub fn text_envelope(&self) -> String {
-        format!(
-            r#"{{"type":"KesVerificationKey_ed25519_kes_2^6","description":"KES Verification Key","cborHex":"5820{}"}}"#,
-            hex::encode(self.as_ref())
-        )
-    }
 }
 
 impl AsRef<[u8]> for PublicKey {
