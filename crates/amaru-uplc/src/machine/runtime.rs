@@ -358,7 +358,15 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::type_mismatch(Type::Data, runtime.args[1].unwrap_constant()?));
                 }
 
-                let tag = tag.try_into().expect("should cast to u64 just fine");
+                // NOTE:
+                // From pv11, Haskell requires the tag to fit in a Word64, so a tag outside
+                // [0, 2^64) fails the evaluation exactly as it does here. At protocol version 10,
+                // Haskell accepts any Integer tag and evaluation can carry on with a Constr that
+                // PlutusData cannot represent.
+                //
+                // We fail those too, which diverges from Haskell only if a historical pv10 transaction builds such a tag and still succeeds.
+                // No such transaction has been seen, but one could, in theory, exist on a private network.
+                let tag = u64::try_from(tag).map_err(|_| MachineError::constr_tag_out_of_bounds(tag))?;
                 let fields: BumpVec<'_, _> = fields
                     .iter()
                     .map(|d| match d {
