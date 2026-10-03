@@ -31,6 +31,10 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Node(cmd::node::NodeCommand),
 
+    /// Generate KES signing keys.
+    #[command(subcommand)]
+    Keys(cmd::keys::KeysCommand),
+
     /// Manage bootstrap snapshots.
     #[command(subcommand)]
     Snapshot(cmd::snapshot::SnapshotCommand),
@@ -91,6 +95,7 @@ impl Command {
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
             Command::Node(cmd) => cmd.into_runnable(),
+            Command::Keys(cmd) => cmd.into_runnable(),
             Command::Snapshot(cmd) => cmd.into_runnable(),
             #[cfg(feature = "mithril")]
             Command::Mithril(cmd) => cmd.into_runnable(),

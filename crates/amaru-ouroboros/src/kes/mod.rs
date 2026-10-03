@@ -40,6 +40,19 @@ impl SecretKey {
     /// `type` field of the cardano-cli envelope that wraps a KES signing key.
     pub(crate) const ENVELOPE_TYPE: &str = "KesSigningKey_ed25519_kes_2^6";
 
+    /// Generate a period-zero Sum6 KES key pair from operating-system randomness.
+    pub fn generate() -> Result<(Self, PublicKey), getrandom::Error> {
+        let mut seed = Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *seed)?;
+        let mut bytes = Zeroizing::new(vec![0u8; Self::SIZE + 4].into_boxed_slice());
+        let public = {
+            let (secret, public) = Sum6Kes::keygen(&mut bytes, &mut seed[..]);
+            let _secret = ManuallyDrop::new(secret);
+            public
+        };
+        Ok((Self { bytes }, PublicKey(public)))
+    }
+
     /// Take ownership of raw key bytes at period 0.
     pub fn from_bytes(sk_bytes: Vec<u8>) -> Result<Self, KesError> {
         let sk_bytes = Zeroizing::new(sk_bytes);

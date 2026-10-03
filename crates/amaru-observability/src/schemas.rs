@@ -607,7 +607,8 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required reason: String
                 }
-                /// Forging the header or storing it failed. The node shuts down.
+                /// Forging the header or storing it failed. Signing failures miss the slot;
+                /// validation and storage failures shut down the node.
                 /// Step ∈ {sign_header, validate_header, store_header, store_block}.
                 public FORGE_FAILED {
                     required slot: amaru_kernel::Slot
@@ -629,9 +630,14 @@ define_schemas! {
                     required header_hash: amaru_kernel::HeaderHash
                     required parent: amaru_kernel::HeaderHash
                 }
-                /// The in-memory KES key moved to a new period.
+                /// The KES key used for signing moved to a new period.
                 public KES_PERIOD {
                     required period: %amaru_kernel::KesPeriod
+                }
+                /// Status of the separate KES signer process.
+                public SIGNER_STATUS {
+                    required status: String
+                    required detail: String
                 }
             }
             peer {
