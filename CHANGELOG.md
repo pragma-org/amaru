@@ -72,6 +72,8 @@ Other guiding principles:
 - **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
 - **amaru-uplc**: prevent a crash by wrapping negative consByteString input modulo 256 for Plutus V1/v2. This matches the Haskell behavior.
 - **amaru-uplc**: prevent a crash when using integers outside [0, 2^256) in constrData.
+- **amaru-uplc**: reject out of range indexByteString and indexArray indices.
+
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
 ### Added

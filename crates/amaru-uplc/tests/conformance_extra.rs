@@ -35,7 +35,7 @@ fn run_conformance_with_params(
 
     let arena = Arena::new();
 
-    let v3_costs = &[
+    let v3_costs: &[i64] = &[
         100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000, 100,
         16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010,
         178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 123203, 7305, -900, 1716, 549, 57, 85848, 0, 1, 1, 1000, 42921,
@@ -62,6 +62,7 @@ fn run_conformance_with_params(
     let costs: &[i64] = match plutus_version {
         PlutusVersion::V1 => &CostModel::DEFAULT_V1,
         PlutusVersion::V2 => &CostModel::DEFAULT_V2,
+        PlutusVersion::V3 if protocol_version >= PROTOCOL_VERSION_11 => &CostModel::DEFAULT_V3,
         PlutusVersion::V3 => v3_costs,
     };
 
@@ -134,6 +135,36 @@ regression_case!(
 regression_case!(
     builtin_semantics_divideinteger_v3_diagonal_c11_regression,
     "conformance_extra/textual/builtin/semantics/divideInteger/v3-diagonal-c11/v3-diagonal-c11.uplc"
+);
+regression_case!(
+    builtin_semantics_indexarray_v3_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexArray/v3-index-beyond-i128/v3-index-beyond-i128.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_indexarray_v3_negative_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexArray/v3-negative-index-beyond-i128/v3-negative-index-beyond-i128.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_indexarray_v3_index_2pow64_plus_one_regression,
+    "conformance_extra/textual/builtin/semantics/indexArray/v3-index-2pow64-plus-one/v3-index-2pow64-plus-one.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_indexbytestring_v3_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexByteString/v3-index-beyond-i128/v3-index-beyond-i128.uplc"
+);
+regression_case!(
+    builtin_semantics_indexbytestring_v3_negative_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexByteString/v3-negative-index-beyond-i128/v3-negative-index-beyond-i128.uplc"
+);
+regression_case!(
+    builtin_semantics_indexbytestring_v3_index_2pow64_plus_one_regression,
+    "conformance_extra/textual/builtin/semantics/indexByteString/v3-index-2pow64-plus-one/v3-index-2pow64-plus-one.uplc"
 );
 regression_case!(
     builtin_semantics_modinteger_v3_below_diagonal_constant_regression,
