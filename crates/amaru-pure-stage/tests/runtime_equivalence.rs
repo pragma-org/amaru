@@ -1017,3 +1017,68 @@ fn many_callers_are_fifo_simulation() {
 fn many_callers_are_fifo_tokio() {
     many_callers_are_fifo(Runtime::Tokio);
 }
+
+fn install_sibling_timeout(graph: &mut impl StageGraph) -> (StageRef<u8>, Sender<u8>, Receiver<u8>) {
+    let stage = graph.stage("timeouts", async |out: StageRef<u8>, msg: u8, eff| {
+        match msg {
+            0 => {
+                // Same deadline: only slot 0 is armed. Slot 1 stays stored until 0 is received.
+                eff.set_timeout_at(0, Duration::from_millis(10), 1u8).await;
+                eff.set_timeout_at(1, Duration::from_millis(10), 2u8).await;
+                eff.wait(Duration::from_millis(40)).await;
+                // Rearm is attempted here, while slot 0's message is still unreceived.
+                eff.set_timeout_at(2, Duration::from_secs(30), 3u8).await;
+                eff.wait(Duration::ZERO).await;
+                eff.clear_timeout_at(1).await;
+                eff.clear_timeout_at(2).await;
+                eff.send(&out, 0u8).await;
+            }
+            other => eff.send(&out, other).await,
+        }
+        out
+    });
+    let (out, rx) = graph.output("out", 8);
+    let stage_ref = stage.sender();
+    graph.wire_up(stage, out);
+    let tx = graph.input(&stage_ref);
+    (stage_ref, tx, rx)
+}
+
+/// A later slot whose deadline has already passed is dropped by `clear_timeout_at` while an
+/// earlier fired timeout is still waiting to be received.
+fn cleared_sibling_timeout_is_not_delivered(runtime: Runtime) {
+    let _guards = register();
+    match runtime {
+        Runtime::Simulation => {
+            let mut network = SimulationBuilder::default();
+            let (stage, _tx, mut out) = install_sibling_timeout(&mut network);
+            let mut sim = network.run(test_runtime().handle());
+            sim.enqueue_msg(&stage, [0]);
+            sim.run(Run::skip_wakeups()).assert_idle();
+            assert_eq!(out.drain().collect::<Vec<_>>(), vec![0, 1]);
+        }
+        Runtime::Tokio => {
+            let rt = paused_runtime();
+            let mut network = TokioBuilder::default();
+            let (_stage, tx, mut out) = install_sibling_timeout(&mut network);
+            let running = network.run(rt.handle().clone());
+            rt.block_on(async move {
+                tx.send(0).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                settle().await;
+                assert_eq!(out.drain().collect::<Vec<_>>(), vec![0, 1]);
+            });
+            running.abort();
+        }
+    }
+}
+
+#[test]
+fn cleared_sibling_timeout_is_not_delivered_simulation() {
+    cleared_sibling_timeout_is_not_delivered(Runtime::Simulation);
+}
+
+#[test]
+fn cleared_sibling_timeout_is_not_delivered_tokio() {
+    cleared_sibling_timeout_is_not_delivered(Runtime::Tokio);
+}
