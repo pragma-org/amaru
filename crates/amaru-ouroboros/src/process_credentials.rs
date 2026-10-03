@@ -40,6 +40,7 @@ use crate::{
 
 const RESTART_INTERVAL: Duration = Duration::from_secs(1);
 const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const SIGNER_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
 const SIGN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The node's public and VRF credentials, with KES signing delegated to a child.
@@ -85,7 +86,7 @@ impl ProcessCredentials {
         let (signer, requests) = mpsc::channel();
         thread::Builder::new()
             .name("amaru-kes-signer".into())
-            .spawn(move || supervise_signer(requests, process, config))?;
+            .spawn(move || supervise_signer(requests, process, config, SIGN_RESPONSE_TIMEOUT))?;
 
         Ok(Self {
             issuer: IssuerFields {
@@ -188,6 +189,10 @@ impl SignerRequestError {
 
 struct SignerProcess {
     child: Child,
+    io: Option<SignerIo>,
+}
+
+struct SignerIo {
     input: BufWriter<ChildStdin>,
     output: BufReader<ChildStdout>,
 }
@@ -210,19 +215,38 @@ impl SignerProcess {
             .stdout(Stdio::piped())
             .spawn()
             .map_err(|error| error.to_string())?;
-        let input = BufWriter::new(child.stdin.take().ok_or("KES signer stdin unavailable")?);
-        let output = BufReader::new(child.stdout.take().ok_or("KES signer stdout unavailable")?);
-        let mut signer = Self { child, input, output };
-        let mut line = String::new();
-        signer.output.read_line(&mut line).map_err(|error| error.to_string())?;
-        let public_key: VerificationKey =
-            serde_json::from_str(&line).map_err(|error| format!("KES signer handshake: {error}"))?;
-        if public_key != config.expected_key {
-            return Err("KES verification key does not match the operational certificate hot key".into());
-        }
-        Ok(signer)
+        let (input, output) = read_signer_handshake(&mut child, config.expected_key, SIGNER_STARTUP_TIMEOUT)?;
+        Ok(Self { child, io: Some(SignerIo { input, output }) })
     }
 
+    fn sign(
+        &mut self,
+        period: KesPeriod,
+        message: &[u8],
+        timeout: Duration,
+    ) -> Result<KesSignature, SignerRequestError> {
+        let mut io = self.io.take().ok_or_else(|| SignerRequestError::Transport("KES signer unavailable".into()))?;
+        let message = message.to_vec();
+        let (reply, response) = mpsc::sync_channel(1);
+        thread::Builder::new()
+            .name("amaru-kes-signer-request".into())
+            .spawn(move || {
+                let result = io.sign(period, &message);
+                let _ = reply.send((io, result));
+            })
+            .map_err(|error| SignerRequestError::Transport(error.to_string()))?;
+        let (io, result) = response.recv_timeout(timeout).map_err(|error| match error {
+            RecvTimeoutError::Timeout => {
+                SignerRequestError::Transport(format!("KES signer request timed out after {timeout:?}"))
+            }
+            RecvTimeoutError::Disconnected => SignerRequestError::Transport("KES signer request worker stopped".into()),
+        })?;
+        self.io = Some(io);
+        result
+    }
+}
+
+impl SignerIo {
     fn sign(&mut self, period: KesPeriod, message: &[u8]) -> Result<KesSignature, SignerRequestError> {
         let request = WireRequest { period, message: message.to_vec() };
         serde_json::to_writer(&mut self.input, &request)
@@ -239,6 +263,47 @@ impl SignerProcess {
     }
 }
 
+fn read_signer_handshake(
+    child: &mut Child,
+    expected_key: VerificationKey,
+    timeout: Duration,
+) -> Result<(BufWriter<ChildStdin>, BufReader<ChildStdout>), String> {
+    let deadline = Instant::now() + timeout;
+    let handshake = (|| {
+        let input = BufWriter::new(child.stdin.take().ok_or("KES signer stdin unavailable")?);
+        let output = child.stdout.take().ok_or("KES signer stdout unavailable")?;
+        let (reply, response) = mpsc::sync_channel(1);
+        thread::Builder::new()
+            .name("amaru-kes-signer-handshake".into())
+            .spawn(move || {
+                let mut output = BufReader::new(output);
+                let mut line = String::new();
+                let result = output.read_line(&mut line);
+                let _ = reply.send((output, line, result));
+            })
+            .map_err(|error| error.to_string())?;
+        let (output, line, result) =
+            response.recv_timeout(deadline.saturating_duration_since(Instant::now())).map_err(|error| match error {
+                RecvTimeoutError::Timeout => format!("KES signer handshake timed out after {timeout:?}"),
+                RecvTimeoutError::Disconnected => "KES signer handshake reader stopped".into(),
+            })?;
+        if result.map_err(|error| error.to_string())? == 0 {
+            return Err("KES signer closed its output before the handshake".into());
+        }
+        let public_key: VerificationKey =
+            serde_json::from_str(&line).map_err(|error| format!("KES signer handshake: {error}"))?;
+        if public_key != expected_key {
+            return Err("KES verification key does not match the operational certificate hot key".into());
+        }
+        Ok((input, output))
+    })();
+    if handshake.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    handshake
+}
+
 impl Drop for SignerProcess {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -246,7 +311,12 @@ impl Drop for SignerProcess {
     }
 }
 
-fn supervise_signer(requests: Receiver<SignRequest>, first: SignerProcess, config: SignerConfig) {
+fn supervise_signer(
+    requests: Receiver<SignRequest>,
+    first: SignerProcess,
+    config: SignerConfig,
+    request_timeout: Duration,
+) {
     let mut process = Some(first);
     let mut last_attempt = Instant::now();
     loop {
@@ -278,7 +348,7 @@ fn supervise_signer(requests: Receiver<SignRequest>, first: SignerProcess, confi
         match requests.recv_timeout(SUPERVISOR_POLL_INTERVAL) {
             Ok(request) => {
                 let result = match process.as_mut() {
-                    Some(signer) => signer.sign(request.period, &request.message),
+                    Some(signer) => signer.sign(request.period, &request.message, request_timeout),
                     None => Err(SignerRequestError::Transport("KES signer unavailable".into())),
                 };
                 if matches!(result, Err(SignerRequestError::Transport(_))) {
