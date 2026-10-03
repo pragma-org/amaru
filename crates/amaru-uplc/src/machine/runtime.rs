@@ -2177,7 +2177,7 @@ impl<'a> Machine<'a> {
                 let elements_to_drop = runtime.args[0].unwrap_integer()?;
                 let (list_type, list) = runtime.args[1].unwrap_list()?;
 
-                let arg0: i64 = u64::try_from(elements_to_drop.abs()).unwrap().try_into().unwrap_or(i64::MAX);
+                let arg0: i64 = i64::try_from(elements_to_drop.abs()).unwrap_or(i64::MAX);
 
                 let budget = self
                     .costs

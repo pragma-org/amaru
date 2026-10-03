@@ -171,6 +171,18 @@ regression_case!(
     "conformance_extra/textual/builtin/semantics/modInteger/v3-below-diagonal-constant/v3-below-diagonal-constant.uplc"
 );
 regression_case!(
+    builtin_semantics_droplist_v3_count_beyond_u64_regression,
+    "conformance_extra/textual/builtin/semantics/dropList/v3-count-beyond-u64/v3-count-beyond-u64.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_droplist_v3_negative_count_beyond_u64_regression,
+    "conformance_extra/textual/builtin/semantics/dropList/v3-negative-count-beyond-u64/v3-negative-count-beyond-u64.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
     builtin_semantics_equalsbytestring_v3_off_diagonal_intercept_regression,
     "conformance_extra/textual/builtin/semantics/equalsByteString/v3-off-diagonal-intercept/v3-off-diagonal-intercept.uplc"
 );
