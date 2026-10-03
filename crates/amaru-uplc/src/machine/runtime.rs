@@ -329,8 +329,8 @@ impl<'a> Machine<'a> {
                     }
                     integer_to_u8(arg1).expect("should cast to u8 just fine")
                 } else {
-                    let wrap = arg1 % Integer::from(256);
-                    integer_to_u8(&wrap).expect("should cast to u8 just fine")
+                    let wrap = arg1.rem_euclid(&Integer::from(256u16));
+                    u8::try_from(&wrap).expect("a value reduced mod 256 fits in a u8")
                 };
 
                 let mut ret = BumpVec::with_capacity_in(arg2.len() + 1, self.arena.as_bump());

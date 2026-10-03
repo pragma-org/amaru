@@ -37,6 +37,9 @@ Other guiding principles:
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
+### Fixed
+- **amaru-uplc**: prevent a crash by wrapping negative consByteString input modulo 256 for Plutus V1/v2. This matches the Haskell behavior.
+
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
 ### Added
