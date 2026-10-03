@@ -290,8 +290,8 @@ impl<'a> Machine<'a> {
                     }
                     arg1.try_into().expect("should cast to u8 just fine")
                 } else {
-                    let wrap: Integer = arg1 % 256;
-                    wrap.try_into().expect("should cast to u64 just fine")
+                    let wrap: Integer = arg1.mod_floor(&Integer::from(256));
+                    wrap.try_into().expect("a value reduced mod 256 fits in a u8")
                 };
 
                 let mut ret = BumpVec::with_capacity_in(arg2.len() + 1, self.arena.as_bump());
@@ -319,7 +319,15 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::type_mismatch(Type::Data, runtime.args[1].unwrap_constant()?));
                 }
 
-                let tag = tag.try_into().expect("should cast to u64 just fine");
+                // NOTE:
+                // From pv11, Haskell requires the tag to fit in a Word64, so a tag outside
+                // [0, 2^64) fails the evaluation exactly as it does here. At protocol version 10,
+                // Haskell accepts any Integer tag and evaluation can carry on with a Constr that
+                // PlutusData cannot represent.
+                //
+                // We fail those too, which diverges from Haskell only if a historical pv10 transaction builds such a tag and still succeeds.
+                // No such transaction has been seen, but one could, in theory, exist on a private network.
+                let tag = u64::try_from(tag).map_err(|_| MachineError::constr_tag_out_of_bounds(tag))?;
                 let fields: BumpVec<'_, _> = fields
                     .iter()
                     .map(|d| match d {
@@ -507,16 +515,15 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let index: i128 = arg2.try_into().unwrap();
+                match usize::try_from(arg2).ok().and_then(|index| arg1.get(index)) {
+                    Some(byte) => {
+                        let result: Integer = (*byte).into();
+                        let new = self.arena.alloc_integer(result);
+                        let value = Value::integer(self.arena, new);
 
-                if 0 <= index && (index as usize) < arg1.len() {
-                    let result: Integer = arg1[index as usize].into();
-                    let new = self.arena.alloc_integer(result);
-                    let value = Value::integer(self.arena, new);
-
-                    Ok(value)
-                } else {
-                    Err(MachineError::byte_string_out_of_bounds(arg1, arg2))
+                        Ok(value)
+                    }
+                    None => Err(MachineError::byte_string_out_of_bounds(arg1, arg2)),
                 }
             }
             DefaultFunction::LengthOfByteString => {
@@ -1970,7 +1977,7 @@ impl<'a> Machine<'a> {
                 if is_shift_left {
                     if bit_shift == 0 {
                         // If we can shift entire bytes, that's much simpler
-                        let copy_len = length - bit_shift;
+                        let copy_len = length - byte_shift;
                         // For example, consider the following byte array [1,0,1,0,1] being shifted 8 bits (1 byte)
                         // Result: [0,1,0,1,0]
                         result[..copy_len].copy_from_slice(&bytes[byte_shift..]);
@@ -2170,7 +2177,7 @@ impl<'a> Machine<'a> {
                 let elements_to_drop = runtime.args[0].unwrap_integer()?;
                 let (list_type, list) = runtime.args[1].unwrap_list()?;
 
-                let arg0: i64 = u64::try_from(elements_to_drop.abs()).unwrap().try_into().unwrap_or(i64::MAX);
+                let arg0: i64 = i64::try_from(elements_to_drop.abs()).unwrap_or(i64::MAX);
 
                 let budget = self
                     .costs
@@ -2234,14 +2241,12 @@ impl<'a> Machine<'a> {
                     self.costs.builtin_costs.get_cost(DefaultFunction::IndexArray, &[(&array).into(), arg1.into()]);
                 self.spend_budget(budget)?;
 
-                let index: i128 = arg1.try_into().unwrap();
-
-                if 0 <= index && (index as usize) < array.len() {
-                    let element = array[index as usize];
-                    let value = Value::con(self.arena, element);
-                    Ok(value)
-                } else {
-                    Err(MachineError::index_array_out_of_bounds(arg1, array.len()))
+                match usize::try_from(arg1).ok().and_then(|index| array.get(index)) {
+                    Some(element) => {
+                        let value = Value::con(self.arena, element);
+                        Ok(value)
+                    }
+                    None => Err(MachineError::index_array_out_of_bounds(arg1, array.len())),
                 }
             }
             DefaultFunction::Bls12_381_G1_MultiScalarMul => {

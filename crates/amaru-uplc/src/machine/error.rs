@@ -87,6 +87,8 @@ pub enum RuntimeError<'a> {
     MkConsTypeMismatch(&'a Constant<'a>),
     #[error("Byte string cons not a byte")]
     ByteStringConsNotAByte(&'a Integer),
+    #[error("constrData: tag {0} is not within the bounds of a Word64")]
+    ConstrTagOutOfBounds(&'a Integer),
     #[error(transparent)]
     Secp256k1(#[from] secp256k1::Error),
     #[error(transparent)]
@@ -189,6 +191,10 @@ where
 
     pub fn byte_string_cons_not_a_byte(byte: &'a Integer) -> Self {
         MachineError::runtime(RuntimeError::ByteStringConsNotAByte(byte))
+    }
+
+    pub fn constr_tag_out_of_bounds(tag: &'a Integer) -> Self {
+        MachineError::runtime(RuntimeError::ConstrTagOutOfBounds(tag))
     }
 
     pub fn secp256k1(error: secp256k1::Error) -> Self {

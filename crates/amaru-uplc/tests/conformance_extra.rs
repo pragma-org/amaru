@@ -12,23 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{PlutusVersion, protocol_version};
+use amaru_kernel::{
+    PlutusVersion, ProtocolVersion,
+    protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
+};
 use amaru_uplc::{
     arena::Arena,
     machine::{CostModel, ExBudget},
     syn::parse_program,
 };
 
-fn run_conformance_with_params(file_contents: &str, expected_output: &str, expected_budget: &str) {
+fn run_conformance_with_params(
+    plutus_version: PlutusVersion,
+    protocol_version: ProtocolVersion,
+    file_contents: &str,
+    expected_output: &str,
+    expected_budget: &str,
+) {
     let file_contents = &file_contents.replace("\r\n", "\n");
     let expected_output = &expected_output.replace("\r\n", "\n");
     let expected_budget = &expected_budget.replace("\r\n", "\n");
 
     let arena = Arena::new();
 
-    let plutus_version = PlutusVersion::V3;
-    let protocol_version = protocol_version::PROTOCOL_VERSION_10;
-    let costs = &[
+    let v3_costs: &[i64] = &[
         100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000, 100,
         16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010,
         178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 123203, 7305, -900, 1716, 549, 57, 85848, 0, 1, 1, 1000, 42921,
@@ -50,6 +57,13 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
         pretty_assertions::assert_eq!("parse error", expected_output.trim_end());
         pretty_assertions::assert_eq!("parse error", expected_budget.trim_end());
         return;
+    };
+
+    let costs: &[i64] = match plutus_version {
+        PlutusVersion::V1 => &CostModel::DEFAULT_V1,
+        PlutusVersion::V2 => &CostModel::DEFAULT_V2,
+        PlutusVersion::V3 if protocol_version >= PROTOCOL_VERSION_11 => &CostModel::DEFAULT_V3,
+        PlutusVersion::V3 => v3_costs,
     };
 
     let result = program.eval(&arena, CostModel::new(plutus_version, protocol_version, costs), ExBudget::default());
@@ -74,9 +88,14 @@ fn run_conformance_with_params(file_contents: &str, expected_output: &str, expec
 
 macro_rules! regression_case {
     ($name:ident, $path:literal) => {
+        regression_case!($name, $path, PlutusVersion::V3, PROTOCOL_VERSION_10);
+    };
+    ($name:ident, $path:literal, $plutus_version:expr, $protocol_version:expr) => {
         #[test]
         fn $name() {
             run_conformance_with_params(
+                $plutus_version,
+                $protocol_version,
                 include_str!($path),
                 include_str!(concat!($path, ".expected")),
                 include_str!(concat!($path, ".budget.expected")),
@@ -86,6 +105,30 @@ macro_rules! regression_case {
 }
 
 regression_case!(
+    builtin_semantics_consbytestring_v2_negative_wraps_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/consByteString/v2-negative-wraps/v2-negative-wraps.uplc",
+    PlutusVersion::V2,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_consbytestring_v2_negative_wraps_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/consByteString/v2-negative-wraps/v2-negative-wraps.uplc",
+    PlutusVersion::V2,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_constrdata_v3_negative_tag_regression,
+    "conformance_extra/textual/builtin/semantics/constrData/v3-negative-tag/v3-negative-tag.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_constrdata_v3_tag_above_word64_regression,
+    "conformance_extra/textual/builtin/semantics/constrData/v3-tag-above-word64/v3-tag-above-word64.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
     builtin_semantics_divideinteger_v3_below_diagonal_constant_regression,
     "conformance_extra/textual/builtin/semantics/divideInteger/v3-below-diagonal-constant/v3-below-diagonal-constant.uplc"
 );
@@ -94,12 +137,58 @@ regression_case!(
     "conformance_extra/textual/builtin/semantics/divideInteger/v3-diagonal-c11/v3-diagonal-c11.uplc"
 );
 regression_case!(
+    builtin_semantics_indexarray_v3_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexArray/v3-index-beyond-i128/v3-index-beyond-i128.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_indexarray_v3_negative_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexArray/v3-negative-index-beyond-i128/v3-negative-index-beyond-i128.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_indexarray_v3_index_2pow64_plus_one_regression,
+    "conformance_extra/textual/builtin/semantics/indexArray/v3-index-2pow64-plus-one/v3-index-2pow64-plus-one.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_indexbytestring_v3_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexByteString/v3-index-beyond-i128/v3-index-beyond-i128.uplc"
+);
+regression_case!(
+    builtin_semantics_indexbytestring_v3_negative_index_beyond_i128_regression,
+    "conformance_extra/textual/builtin/semantics/indexByteString/v3-negative-index-beyond-i128/v3-negative-index-beyond-i128.uplc"
+);
+regression_case!(
+    builtin_semantics_indexbytestring_v3_index_2pow64_plus_one_regression,
+    "conformance_extra/textual/builtin/semantics/indexByteString/v3-index-2pow64-plus-one/v3-index-2pow64-plus-one.uplc"
+);
+regression_case!(
     builtin_semantics_modinteger_v3_below_diagonal_constant_regression,
     "conformance_extra/textual/builtin/semantics/modInteger/v3-below-diagonal-constant/v3-below-diagonal-constant.uplc"
 );
 regression_case!(
+    builtin_semantics_droplist_v3_count_beyond_u64_regression,
+    "conformance_extra/textual/builtin/semantics/dropList/v3-count-beyond-u64/v3-count-beyond-u64.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_droplist_v3_negative_count_beyond_u64_regression,
+    "conformance_extra/textual/builtin/semantics/dropList/v3-negative-count-beyond-u64/v3-negative-count-beyond-u64.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
     builtin_semantics_equalsbytestring_v3_off_diagonal_intercept_regression,
     "conformance_extra/textual/builtin/semantics/equalsByteString/v3-off-diagonal-intercept/v3-off-diagonal-intercept.uplc"
+);
+regression_case!(
+    builtin_semantics_shiftbytestring_v3_left_shift_whole_byte_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-left-shift-whole-byte/v3-left-shift-whole-byte.uplc"
 );
 regression_case!(
     builtin_semantics_verifysignature_legacy_alias_test_vector_25_regression,
