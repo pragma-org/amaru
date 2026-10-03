@@ -554,16 +554,15 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let index: i128 = arg2.try_into().unwrap();
+                match usize::try_from(arg2).ok().and_then(|index| arg1.get(index)) {
+                    Some(byte) => {
+                        let result: Integer = (*byte).into();
+                        let new = self.arena.alloc_integer(result);
+                        let value = Value::integer(self.arena, new);
 
-                if 0 <= index && (index as usize) < arg1.len() {
-                    let result: Integer = arg1[index as usize].into();
-                    let new = self.arena.alloc_integer(result);
-                    let value = Value::integer(self.arena, new);
-
-                    Ok(value)
-                } else {
-                    Err(MachineError::byte_string_out_of_bounds(arg1, arg2))
+                        Ok(value)
+                    }
+                    None => Err(MachineError::byte_string_out_of_bounds(arg1, arg2)),
                 }
             }
             DefaultFunction::LengthOfByteString => {
@@ -2262,14 +2261,12 @@ impl<'a> Machine<'a> {
                     self.costs.builtin_costs.get_cost(DefaultFunction::IndexArray, &[(&array).into(), arg1.into()]);
                 self.spend_budget(budget)?;
 
-                let index: i128 = arg1.try_into().unwrap();
-
-                if 0 <= index && (index as usize) < array.len() {
-                    let element = array[index as usize];
-                    let value = Value::con(self.arena, element);
-                    Ok(value)
-                } else {
-                    Err(MachineError::index_array_out_of_bounds(arg1, array.len()))
+                match usize::try_from(arg1).ok().and_then(|index| array.get(index)) {
+                    Some(element) => {
+                        let value = Value::con(self.arena, element);
+                        Ok(value)
+                    }
+                    None => Err(MachineError::index_array_out_of_bounds(arg1, array.len())),
                 }
             }
             DefaultFunction::Bls12_381_G1_MultiScalarMul => {

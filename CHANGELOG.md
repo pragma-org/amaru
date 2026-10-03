@@ -40,6 +40,7 @@ Other guiding principles:
 ### Fixed
 - **amaru-uplc**: prevent a crash by wrapping negative consByteString input modulo 256 for Plutus V1/v2. This matches the Haskell behavior.
 - **amaru-uplc**: prevent a crash when using integers outside [0, 2^256) in constrData.
+- **amaru-uplc**: reject out of range indexByteString and indexArray indices.
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
