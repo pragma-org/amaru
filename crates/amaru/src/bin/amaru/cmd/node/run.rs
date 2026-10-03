@@ -243,6 +243,17 @@ pub struct Args {
     )]
     peer_mix: String,
 
+    /// Skip the startup check that the operating system keeps the wall clock synchronized with NTP.
+    #[arg(
+        long,
+        env = amaru::env_vars::NO_CLOCK_CHECK,
+        action = ArgAction::SetTrue,
+        default_value_t = false,
+        display_order = 0,
+        help_heading = "Advanced Options",
+    )]
+    no_clock_check: bool,
+
     /// Path to the PID file managed by Amaru.
     #[arg(
         long,
@@ -399,6 +410,7 @@ impl tui::RuntimeSettingsSource for Args {
             "max_extra_ledger_snapshots" => Some(self.max_extra_ledger_snapshots.to_string()),
             "peer_removal_cooldown_secs" => Some(self.peer_removal_cooldown_secs.to_string()),
             "peer_mix" => Some(self.peer_mix.clone()),
+            "no_clock_check" => Some(self.no_clock_check.to_string()),
             "pid_file" => Some(
                 self.pid_file
                     .as_deref()
@@ -460,11 +472,15 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Result<()> {
     let _pid_file = optional_pid_file(args.pid_file.clone());
+    let no_clock_check = args.no_clock_check;
 
     let mut config = parse_args(args)?;
     let trace_dump_path = config.trace_dump_path.clone();
     let submit_api_address = config.submit_api_address()?;
     pre_flight_checks()?;
+    if !no_clock_check {
+        amaru::clock::check();
+    }
 
     let meter = Arc::new(meter);
     let metrics = track_system_metrics(meter.clone())?;

@@ -82,6 +82,7 @@ tikv-jemallocator.workspace = true
 amaru-deps.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+libc.workspace = true
 rlimit = "0.10.2"
 
 [dev-dependencies]
