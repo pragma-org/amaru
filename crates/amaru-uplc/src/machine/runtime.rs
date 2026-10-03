@@ -1990,7 +1990,7 @@ impl<'a> Machine<'a> {
                 if is_shift_left {
                     if bit_shift == 0 {
                         // If we can shift entire bytes, that's much simpler
-                        let copy_len = length - bit_shift;
+                        let copy_len = length - byte_shift;
                         // For example, consider the following byte array [1,0,1,0,1] being shifted 8 bits (1 byte)
                         // Result: [0,1,0,1,0]
                         result[..copy_len].copy_from_slice(&bytes[byte_shift..]);

@@ -187,6 +187,10 @@ regression_case!(
     "conformance_extra/textual/builtin/semantics/equalsByteString/v3-off-diagonal-intercept/v3-off-diagonal-intercept.uplc"
 );
 regression_case!(
+    builtin_semantics_shiftbytestring_v3_left_shift_whole_byte_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-left-shift-whole-byte/v3-left-shift-whole-byte.uplc"
+);
+regression_case!(
     builtin_semantics_verifysignature_legacy_alias_test_vector_25_regression,
     "conformance_extra/textual/builtin/semantics/verifySignature/legacy-alias-test-vector-25/legacy-alias-test-vector-25.uplc"
 );
