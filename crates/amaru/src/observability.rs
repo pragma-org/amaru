@@ -15,7 +15,7 @@
 use std::{
     env::{VarError, var},
     error::Error,
-    io::{self, IsTerminal},
+    io::IsTerminal,
     str::FromStr,
     sync::{OnceLock, mpsc},
     time::{Duration, Instant},
@@ -38,6 +38,7 @@ use amaru_observability::{
     },
     warn,
 };
+use amaru_progress_bar::{ProgressLogWriter, progress_log_writer};
 use opentelemetry::{KeyValue, metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
@@ -184,7 +185,7 @@ impl TracingSubscriber<Registry> {
                 registry
                     .with(
                         tracing_subscriber::fmt::layer()
-                            .with_writer(io::stderr as fn() -> io::Stderr)
+                            .with_writer(progress_log_writer as fn() -> ProgressLogWriter)
                             .with_ansi(color)
                             .fmt_fields(console_field_formatter())
                             .with_span_events(FmtSpan::CLOSE)
@@ -199,7 +200,7 @@ impl TracingSubscriber<Registry> {
                 layered
                     .with(
                         tracing_subscriber::fmt::layer()
-                            .with_writer(io::stderr as fn() -> io::Stderr)
+                            .with_writer(progress_log_writer as fn() -> ProgressLogWriter)
                             .with_ansi(color)
                             .fmt_fields(console_field_formatter())
                             .with_span_events(FmtSpan::CLOSE)

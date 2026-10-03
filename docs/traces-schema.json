@@ -6825,6 +6825,54 @@
       "description": "Rebuild an invalid local immutable cache before retrying once",
       "public": true
     },
+    "amaru::mithril::snapshot::REDOWNLOAD_CACHE": {
+      "type": "object",
+      "properties": {
+        "from_chunk": {
+          "type": "integer"
+        },
+        "through_chunk": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_chunk",
+        "through_chunk",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "redownload_cache",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Cached immutable files did not verify, so fetch the selected range again",
+      "public": true
+    },
+    "amaru::mithril::snapshot::REUSE_CACHE": {
+      "type": "object",
+      "properties": {
+        "from_chunk": {
+          "type": "integer"
+        },
+        "through_chunk": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from_chunk",
+        "through_chunk"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reuse_cache",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Reuse cached immutable files after verifying them against the selected snapshot",
+      "public": true
+    },
     "amaru::mithril::snapshot::VERIFY_DATABASE": {
       "type": "object",
       "properties": {
