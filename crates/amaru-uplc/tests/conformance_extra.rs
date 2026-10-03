@@ -116,6 +116,18 @@ regression_case!(
     PROTOCOL_VERSION_11
 );
 regression_case!(
+    builtin_semantics_constrdata_v3_negative_tag_regression,
+    "conformance_extra/textual/builtin/semantics/constrData/v3-negative-tag/v3-negative-tag.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_constrdata_v3_tag_above_word64_regression,
+    "conformance_extra/textual/builtin/semantics/constrData/v3-tag-above-word64/v3-tag-above-word64.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
     builtin_semantics_divideinteger_v3_below_diagonal_constant_regression,
     "conformance_extra/textual/builtin/semantics/divideInteger/v3-below-diagonal-constant/v3-below-diagonal-constant.uplc"
 );
