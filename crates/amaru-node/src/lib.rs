@@ -65,8 +65,8 @@ pub use mithril::{
 };
 pub use stages::{
     build_node::{
-        ComponentFailure, NodeRunning, NodeStartError, ShutdownError, ShutdownReport, build_and_run_node, build_node,
-        make_state,
+        ComponentFailure, NodeRunning, NodeStartError, ShutdownError, ShutdownReport, StoreOpenOperation,
+        build_and_run_node, build_node, make_state,
     },
     config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
 };
