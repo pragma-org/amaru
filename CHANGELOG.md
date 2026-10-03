@@ -39,6 +39,8 @@ Other guiding principles:
 ### Added
 
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
+- **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--kes-signing-key-file`, `--vrf-signing-key-file`, and `--operational-certificate` (unencrypted cardano-cli files). Install `amaru-kes-signer` beside `amaru`; it loads the KES key and signs blocks in a separate process. Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the keys do not match the certificate, its cold signature does not verify, or its sequence number is not the chain's counter for that pool or exactly one ahead.
+- **amaru**: `amaru keys kes create --signing-key-file PATH --verification-key-file PATH` generates cardano-cli compatible KES key files without replacing existing files.
 
 ### Changed
 
@@ -49,6 +51,8 @@ Other guiding principles:
 - **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 - **amaru-kernel**: fixed the ordering of multi assets.
+- **amaru**: a KES signer that stops answering signing requests is terminated and restarted, allowing later requests to proceed.
+- **amaru**: node startup reports a KES signer failure after 5 seconds if the signer stays alive without sending its verification key.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -70,8 +74,6 @@ Other guiding principles:
 
 ### Added
 
-- **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--kes-signing-key-file`, `--vrf-signing-key-file`, and `--operational-certificate` (unencrypted cardano-cli files). Install `amaru-kes-signer` beside `amaru`; it loads the KES key and signs blocks in a separate process. Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the keys do not match the certificate, its cold signature does not verify, or its sequence number is not the chain's counter for that pool or exactly one ahead.
-- **amaru**: `amaru keys kes create --signing-key-file PATH --verification-key-file PATH` generates cardano-cli compatible KES key files without replacing existing files.
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 - **amaru**: `amaru dev env generate` to generate a (curated) list of environment variables available for Amaru main commands, acting as a configuration file.
@@ -85,8 +87,6 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru**: a KES signer that stops answering signing requests is terminated and restarted, allowing later requests to proceed.
-- **amaru**: node startup reports a KES signer failure after 5 seconds if the signer stays alive without sending its verification key.
 - **amaru**: a VRF signing key from `cardano-cli conway node key-gen-VRF` loads. The file is the 32-byte seed followed by the verification key.
 - **amaru-protocols**: chainsync no longer closes the connection when a peer pipelines headers. The ingress buffer for that protocol was 5760 bytes (the handshake and peer-sharing limit) instead of 462000 bytes. Block-fetch, tx-submission, and keep-alive now use the same ingress limits as cardano-node.
 - **amaru-protocols**: a new connection no longer drops when the peer's first chainsync (and other mini-protocol) segments arrive in the same burst as the handshake accept. Those segments are held until the handlers are registered, instead of being rejected as an unknown protocol.
