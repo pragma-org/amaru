@@ -53,6 +53,8 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru**: a KES signer that stops answering signing requests is terminated and restarted, allowing later requests to proceed.
+- **amaru**: node startup reports a KES signer failure after 5 seconds if the signer stays alive without sending its verification key.
 - **amaru**: a VRF signing key from `cardano-cli conway node key-gen-VRF` loads. The file is the 32-byte seed followed by the verification key.
 - **amaru-protocols**: chainsync no longer closes the connection when a peer pipelines headers. The ingress buffer for that protocol was 5760 bytes (the handshake and peer-sharing limit) instead of 462000 bytes. Block-fetch, tx-submission, and keep-alive now use the same ingress limits as cardano-node.
 - **amaru-protocols**: a new connection no longer drops when the peer's first chainsync (and other mini-protocol) segments arrive in the same burst as the handshake accept. Those segments are held until the handlers are registered, instead of being rejected as an unknown protocol.
