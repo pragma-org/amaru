@@ -36,7 +36,7 @@ use amaru_ledger::{
     store::{Columns, Store, TransactionalContext},
 };
 use amaru_observability::info;
-use amaru_progress_bar::ProgressBarFactory;
+use amaru_progress_bar::{ProgressBarExt, ProgressBarFactory};
 use anyhow::anyhow;
 
 use super::{extract_snapshot_chain_state_after_ledger, mempack, parse_state_snapshot_prefix};
@@ -235,8 +235,9 @@ where
         }
     }
 
-    progress.finish();
-    info!(bootstrap::import::UTXO, size = actual_size);
+    progress.finish(|| {
+        info!(bootstrap::import::UTXO, size = actual_size);
+    });
 
     Ok(())
 }

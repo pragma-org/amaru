@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ use indicatif::ProgressStyle;
 
 use super::ProgressBar;
 
-/// A simple progress bar in ther terminal.
+/// A simple progress bar in the terminal.
 pub struct TerminalProgressBar {
     inner: indicatif::ProgressBar,
 }
@@ -39,9 +39,17 @@ impl TerminalProgressBar {
         Box::new(self)
     }
 
-    /// Finish a terminal progress bar that is shared with progress-reporting callbacks.
-    pub fn finish_and_clear(&self) {
+    /// Cancel a terminal progress bar shared with progress-reporting callbacks.
+    pub fn clear_shared(&self) {
         self.inner.finish_and_clear();
+    }
+
+    /// Clear a shared terminal progress bar, then log the completed work.
+    ///
+    /// Stop progress-reporting callbacks before calling this method.
+    pub fn finish_shared(&self, summary: impl FnOnce()) {
+        self.clear_shared();
+        summary();
     }
 }
 
@@ -51,10 +59,6 @@ impl ProgressBar for TerminalProgressBar {
     }
 
     fn clear(self: Box<Self>) {
-        self.finish_and_clear();
-    }
-
-    fn finish(self: Box<Self>) {
-        self.inner.finish();
+        self.clear_shared();
     }
 }

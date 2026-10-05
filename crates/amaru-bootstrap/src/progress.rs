@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{Epoch, NetworkPoint};
 use amaru_observability::info;
-use amaru_progress_bar::{NoProgressBar, ProgressBar, ProgressBarFactory, TerminalProgressBar};
+use amaru_progress_bar::{NoProgressBar, ProgressBar, ProgressBarExt, ProgressBarFactory, TerminalProgressBar};
 
 const STRUCTURED_DOWNLOAD_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -118,6 +118,7 @@ enum DefaultRenderer {
 struct TerminalRenderer {
     total_bytes: Option<u64>,
     downloaded_bytes: u64,
+    completed_snapshots: usize,
     download_progress: Option<Box<dyn ProgressBar>>,
 }
 
@@ -134,16 +135,24 @@ impl TerminalRenderer {
                     .boxed(),
                 );
             }
-            BootstrapProgress::DownloadProgress { downloaded_bytes, .. } => {
+            BootstrapProgress::DownloadProgress { downloaded_bytes, completed_snapshots } => {
                 let delta = downloaded_bytes.saturating_sub(self.downloaded_bytes);
                 self.downloaded_bytes = downloaded_bytes;
+                self.completed_snapshots = completed_snapshots;
                 if let Some(progress) = self.download_progress.as_ref() {
                     progress.tick(usize::try_from(delta).unwrap_or(usize::MAX));
                 }
             }
             BootstrapProgress::StageChanged { .. } | BootstrapProgress::Completed { .. } => {
                 if let Some(progress) = self.download_progress.take() {
-                    progress.finish();
+                    progress.finish(|| {
+                        info!(
+                            bootstrap::progress::PHASE_COMPLETED,
+                            phase = "download_snapshots",
+                            downloaded_bytes = self.downloaded_bytes,
+                            completed_snapshots = self.completed_snapshots
+                        );
+                    });
                 }
             }
         }

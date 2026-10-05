@@ -148,7 +148,6 @@ async fn run(args: Args) -> anyhow::Result<()> {
         } else {
             info!(cli::snapshot::UPLOAD, archive = relative_path(&archive_path)?.display().to_string());
             s3.upload_object(&archive_path, &object_key).await?;
-            info!(cli::snapshot::UPLOADED, archive = relative_path(&archive_path)?.display().to_string());
         }
     }
 

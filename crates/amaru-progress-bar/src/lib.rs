@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ const _: () = amaru_deps::AMARU_DEPS_USED;
 /// the platform.
 ///
 /// A progress bar is active from creation until either [`ProgressBar::clear`] or
-/// [`ProgressBar::finish`] consumes it. It cannot be restarted after either terminal operation.
+/// [`ProgressBarExt::finish`] consumes it. It cannot be restarted after either terminal operation.
 pub trait ProgressBar: Send + Sync {
     /// Advance the reported progress by `size` caller-defined units.
     ///
@@ -51,14 +51,25 @@ pub trait ProgressBar: Send + Sync {
     /// Cancellation is terminal, so this consumes the progress-bar handle. No subsequent ticks or
     /// terminal operation are possible through that handle.
     fn clear(self: Box<Self>);
+}
 
-    /// Mark the tracked operation as successfully completed and remove its visual indicator.
+/// Completion helpers implemented for every progress bar, including trait objects.
+///
+/// Keeping generic callbacks here allows [`ProgressBar`] to remain object-safe and avoids
+/// allocating the summary callback.
+pub trait ProgressBarExt: ProgressBar {
+    /// Complete the operation, remove its visual indicator, then emit its summary.
     ///
-    /// Renderers that distinguish completion from cancellation can override this method. The
-    /// default treats completion as a clear. Completion is terminal and may occur before the
-    /// declared length is reached, so this consumes the progress-bar handle.
-    fn finish(self: Box<Self>) {
+    /// Callers must supply a callback that logs the completed work. The callback runs exactly once,
+    /// after clearing the indicator, including for renderers without a visual representation.
+    /// Completion is terminal and may occur before the declared length is reached.
+    fn finish(self: Box<Self>, summary: impl FnOnce());
+}
+
+impl<P: ProgressBar + ?Sized> ProgressBarExt for P {
+    fn finish(self: Box<Self>, summary: impl FnOnce()) {
         self.clear();
+        summary();
     }
 }
 

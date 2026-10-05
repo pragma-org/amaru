@@ -44,6 +44,10 @@ Other guiding principles:
 - **amaru-uplc**: saturate dropList cost instead of panicking beyond a u64.
 - **amaru-uplc**: fix a panic when shiftByteString is called with a whole byte shift.
 
+### Changed
+
+- **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
+
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
 ### Added

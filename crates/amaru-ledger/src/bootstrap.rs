@@ -35,7 +35,7 @@ use amaru_kernel::{
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
 };
 use amaru_observability::{info, warn};
-use amaru_progress_bar::ProgressBarFactory;
+use amaru_progress_bar::{ProgressBarExt, ProgressBarFactory};
 use anyhow::anyhow;
 
 use crate::{
@@ -169,7 +169,7 @@ fn import_rewards(
     with_progress: &impl ProgressBarFactory,
 ) -> anyhow::Result<u64> {
     let checkpoint = decoder.checkpoint_handle();
-    let (progress, unclaimed_rewards) = decoder.stream_map(
+    let (progress, unclaimed_rewards, size) = decoder.stream_map(
         |d| {
             let credential = d.decode()?;
             let SerialisedAsSet(rewards): SerialisedAsSet<Vec<Reward>> = d.decode()?;
@@ -184,9 +184,10 @@ fn import_rewards(
                     "{spinner:.green} Importing rewards {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
                 ),
                 0_u64,
+                0_usize,
             )
         },
-        |(progress, unclaimed_rewards), entries| {
+        |(progress, unclaimed_rewards, size), entries| {
             for batch in entries.chunks(BATCH_SIZE) {
                 let transaction = db.create_transaction();
                 for (credential, amount) in batch {
@@ -195,12 +196,15 @@ fn import_rewards(
                 transaction.commit()?;
                 checkpoint.as_ref().map_or(Ok(()), |checkpoint| checkpoint())?;
                 progress.tick(batch.len());
+                *size += batch.len();
             }
             Ok(())
         },
     )?;
 
-    progress.finish();
+    progress.finish(|| {
+        info!(bootstrap::progress::PHASE_COMPLETED, phase = "import_rewards", size);
+    });
     Ok(unclaimed_rewards)
 }
 
@@ -256,9 +260,9 @@ fn import_accounts(
         },
     )?;
 
-    progress.finish();
-
-    info!(bootstrap::accounts::IMPORT, size);
+    progress.finish(|| {
+        info!(bootstrap::accounts::IMPORT, size);
+    });
 
     Ok(ImportedAccounts { awaiting_default_deposit, recently_unregistered_accounts, account_len: size })
 }
@@ -308,9 +312,10 @@ fn import_default_account_deposits(
         return Ok(());
     }
 
+    let size = accounts.len();
     let progress = with_progress.create_for(
         "adjust_account_deposits",
-        accounts.len(),
+        size,
         "{spinner:.green} Adjusting default account deposits {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
     );
 
@@ -319,7 +324,9 @@ fn import_default_account_deposits(
 
     save_bootstrap_account_batches(db, awaiting, |size| progress.tick(size), checkpoint)?;
 
-    progress.finish();
+    progress.finish(|| {
+        info!(bootstrap::progress::PHASE_COMPLETED, phase = "adjust_account_deposits", size);
+    });
     Ok(())
 }
 
@@ -375,7 +382,9 @@ fn decode_initial_snapshot(
         d.skip()?;
         Ok(d.input()[start..d.position()].to_vec())
     })?;
-    pool_state_progress.finish();
+    pool_state_progress.finish(|| {
+        info!(bootstrap::progress::PHASE_COMPLETED, phase = "read_pool_state");
+    });
 
     let ImportedAccounts { recently_unregistered_accounts, awaiting_default_deposit, account_len } =
         import_accounts(decoder, db, point, network, previous_accounts, with_progress)
@@ -505,7 +514,9 @@ fn decode_initial_snapshot(
         .map_err(|err| anyhow!("decode rewards update: {err}"))?;
     remaining_state_progress.increment();
 
-    remaining_state_progress.finish();
+    remaining_state_progress.finish(|| {
+        info!(bootstrap::progress::PHASE_COMPLETED, phase = "read_ledger_state");
+    });
 
     let (delta_treasury, delta_reserves, unclaimed_rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
