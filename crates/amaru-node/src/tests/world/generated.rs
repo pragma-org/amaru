@@ -51,7 +51,7 @@ use amaru_protocols::{
 use amaru_pure_stage::{
     StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
-    trace_buffer::TraceBuffer,
+    trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::{Handle, Runtime};
 use tracing::field::Visit;
@@ -876,6 +876,60 @@ struct AdversarialOutcome {
     honest_peers: Vec<SocketAddr>,
     adopted: bool,
     log: Vec<HeapLogEntry>,
+    /// Printed if the calling test panics. Held so the dump outlives the assertions.
+    #[expect(dead_code)]
+    trace_on_failure: TraceOnFailure,
+}
+
+/// Graph trace buffers captured before the world is stopped.
+///
+/// Assertions run after [`WorldLoop::stop`] drops the graphs. This prints those
+/// buffers when the test unwinds.
+struct TraceOnFailure {
+    label: String,
+    graphs: Vec<String>,
+}
+
+impl Drop for TraceOnFailure {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            return;
+        }
+        eprintln!("--- trace buffer at failure: {} ---", self.label);
+        for (index, trace) in self.graphs.iter().enumerate() {
+            eprintln!("--- graph {index} ---");
+            eprintln!("{trace}");
+        }
+    }
+}
+
+fn capture_traces(label: &str, world: &WorldLoop) -> TraceOnFailure {
+    let graphs = world
+        .graphs()
+        .iter()
+        .map(|graph| {
+            let buffer = graph.trace_buffer().lock();
+            let mut events = 0usize;
+            let mut states = 0usize;
+            let mut body = String::new();
+            for (at, entry) in buffer.iter_entries() {
+                // A state line is the whole stage, including every mux lane. The
+                // suspend/resume/input sequence is what shows a stuck effect.
+                if matches!(entry, TraceEntry::State { .. }) {
+                    states += 1;
+                    continue;
+                }
+                events += 1;
+                body.push_str(&format!("{at} {entry}\n"));
+            }
+            format!(
+                "{} entries, {} dropped, {events} events, {states} state snapshots omitted\n{body}",
+                buffer.len(),
+                buffer.dropped_messages(),
+            )
+        })
+        .collect();
+    TraceOnFailure { label: label.to_string(), graphs }
 }
 
 struct AdversarialSetup<'a> {
@@ -999,6 +1053,7 @@ fn run_adversarial_with(setup: AdversarialSetup<'_>) -> AdversarialOutcome {
         | HeapLogKind::GraphWake { .. } => None,
     });
     let requested_peers = std::mem::take(&mut *requested_peers.lock().expect("requested peers"));
+    let trace_on_failure = capture_traces(label, &world);
     eprintln!(
         "adversarial {label} seed={:#x} adopted={adopted} adopted_at={adopted_at:?} finished_at={finished_at} heights={heights:?} mailbox={mailbox_len}/{mailbox_size} high={mailbox_high} requested={} fault_at={fault_at:?} last_peers={:?}",
         run.seed,
@@ -1020,6 +1075,7 @@ fn run_adversarial_with(setup: AdversarialSetup<'_>) -> AdversarialOutcome {
         honest_peers,
         adopted,
         log,
+        trace_on_failure,
     }
 }
 

@@ -57,7 +57,7 @@ pub struct OpenedLedger {
 ///
 /// [`DEFAULT_MAILBOX_SIZE`] plus one slot for each allowed upstream and downstream peer.
 fn peer_mailbox_size(upstream: usize, downstream: usize) -> usize {
-    DEFAULT_MAILBOX_SIZE.saturating_add(upstream).saturating_add(downstream)
+    DEFAULT_MAILBOX_SIZE.saturating_add(upstream).saturating_add(downstream).saturating_mul(20)
 }
 
 pub fn build_stage_graph(
@@ -77,6 +77,7 @@ pub fn build_stage_graph(
     // Either stage can be inside a send to the other. Room for one message per allowed
     // peer, on top of the default margin, keeps that send from waiting on a full mailbox.
     let peer_mailbox = peer_mailbox_size(config.target_upstream_peers, config.target_downstream_peers);
+    tracing::info!(peer_mailbox, "peer mailbox size");
     let manager = stage_graph.stage_with_mailbox_size("manager", manager::stage, peer_mailbox);
     let peer_selection = stage_graph.stage_with_mailbox_size("peer_selection", peer_selection::stage, peer_mailbox);
     let peer_selection_ref = peer_selection.sender();

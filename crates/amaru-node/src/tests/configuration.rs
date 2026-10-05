@@ -146,7 +146,7 @@ impl Default for NodeTestConfig {
             chain_length: 10,
             upstream_peers: vec![Peer::for_test(3001)],
             listen_address: "127.0.0.1:3000".to_string(),
-            mailbox_size: 10000,
+            mailbox_size: 10,
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::default())),
             seed: 42,
             actions: Vec::new(),
