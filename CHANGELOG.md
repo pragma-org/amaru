@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
+### Changed
+
+- **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
+
 ### Fixed
 - **amaru-uplc**: prevent a crash by wrapping negative consByteString input modulo 256 for Plutus V1/v2. This matches the Haskell behavior.
 - **amaru-uplc**: prevent a crash when using integers outside [0, 2^64) in constrData.

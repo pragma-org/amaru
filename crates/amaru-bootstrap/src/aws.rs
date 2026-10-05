@@ -21,6 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{NetworkName, NetworkPoint};
+use amaru_observability::info;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use anyhow::{Context, anyhow};
 use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
@@ -220,7 +221,13 @@ impl S3Client {
             .await
             .map(|_| ())
             .map_err(Into::into);
-        progress.finish_and_clear();
+        if result.is_ok() {
+            progress.finish_shared(|| {
+                info!(cli::snapshot::UPLOADED, archive = src.display().to_string());
+            });
+        } else {
+            progress.clear_shared();
+        }
         result
     }
 

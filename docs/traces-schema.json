@@ -635,6 +635,37 @@
       "description": "Report absolute aggregate snapshot download progress",
       "public": true
     },
+    "amaru::bootstrap::progress::PHASE_COMPLETED": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "downloaded_bytes": {
+          "type": "integer"
+        },
+        "completed_snapshots": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase"
+      ],
+      "optional": [
+        "size",
+        "downloaded_bytes",
+        "completed_snapshots"
+      ],
+      "additionalProperties": false,
+      "name": "phase_completed",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::progress",
+      "description": "A bootstrap phase completed; size counts entries and downloaded_bytes counts bytes",
+      "public": true
+    },
     "amaru::bootstrap::progress::SNAPSHOTS_SELECTED": {
       "type": "object",
       "properties": {
@@ -6695,6 +6726,33 @@
       "level": "TRACE",
       "target": "amaru::mithril::progress",
       "description": "Absolute block ingestion progress",
+      "public": true
+    },
+    "amaru::mithril::progress::PHASE_COMPLETED": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "downloaded_bytes": {
+          "type": "integer"
+        },
+        "completed_files": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase"
+      ],
+      "optional": [
+        "downloaded_bytes",
+        "completed_files"
+      ],
+      "additionalProperties": false,
+      "name": "phase_completed",
+      "level": "TRACE",
+      "target": "amaru::mithril::progress",
+      "description": "A Mithril phase completed successfully",
       "public": true
     },
     "amaru::mithril::progress::SNAPSHOT": {

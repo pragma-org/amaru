@@ -38,7 +38,7 @@ use amaru_mithril::{
 };
 use amaru_observability::info;
 use amaru_ouroboros::{ChainStore, PoolSummaries, can_validate_blocks::CanValidateBlocks};
-use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+use amaru_progress_bar::{ProgressBar, ProgressBarExt, TerminalProgressBar};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use anyhow::anyhow;
 use futures_util::FutureExt;
@@ -181,12 +181,48 @@ struct StructuredRenderer {
     last_download_at: Option<Instant>,
     last_ingest_at: Option<Instant>,
     completed_files: u64,
+    downloaded_bytes: Option<u64>,
+    verification_phase: Option<&'static str>,
 }
 
 impl StructuredRenderer {
     fn render(&mut self, progress: MithrilProgress) {
+        match &progress {
+            MithrilProgress::Downloaded { downloaded_bytes, .. } => {
+                self.downloaded_bytes = Some(*downloaded_bytes);
+            }
+            MithrilProgress::StageChanged { stage } => {
+                if let Some(phase) = self.verification_phase.take() {
+                    info!(mithril::progress::PHASE_COMPLETED, phase);
+                }
+                if *stage != MithrilStage::Downloading {
+                    self.finish_download();
+                }
+                self.verification_phase = match stage {
+                    MithrilStage::ValidatingCertificate | MithrilStage::VerifyingDatabase { .. } => {
+                        Some(stage.as_str())
+                    }
+                    MithrilStage::ResolvingResumePoint
+                    | MithrilStage::FetchingSnapshot
+                    | MithrilStage::Downloading
+                    | MithrilStage::DatabaseVerified
+                    | MithrilStage::RecoveringStores
+                    | MithrilStage::Ingesting => None,
+                };
+            }
+            MithrilProgress::Completed { .. } => self.finish_download(),
+            MithrilProgress::SnapshotSelected { .. }
+            | MithrilProgress::CertificateValidated
+            | MithrilProgress::BlocksIngested { .. } => {}
+        }
         if self.should_render(&progress, Instant::now()) {
             render_structured(progress);
+        }
+    }
+
+    fn finish_download(&mut self) {
+        if let Some(downloaded_bytes) = self.downloaded_bytes.take() {
+            info!(mithril::progress::PHASE_COMPLETED, phase = MithrilStage::Downloading.as_str(), downloaded_bytes);
         }
     }
 
@@ -217,7 +253,7 @@ struct TerminalRenderer {
     downloaded_bytes: u64,
     total_bytes: Option<u64>,
     download: Option<Box<dyn ProgressBar>>,
-    verification: Option<Box<dyn ProgressBar>>,
+    verification: Option<(&'static str, Box<dyn ProgressBar>)>,
 }
 
 impl TerminalRenderer {
@@ -243,13 +279,21 @@ impl TerminalRenderer {
                 self.total_bytes = total_bytes;
             }
             MithrilProgress::StageChanged { stage } => {
-                if let Some(verification) = self.verification.take() {
-                    verification.clear();
+                if let Some((phase, verification)) = self.verification.take() {
+                    verification.finish(|| {
+                        info!(mithril::progress::PHASE_COMPLETED, phase);
+                    });
                 }
                 if stage != MithrilStage::Downloading
                     && let Some(download) = self.download.take()
                 {
-                    download.finish();
+                    download.finish(|| {
+                        info!(
+                            mithril::progress::PHASE_COMPLETED,
+                            phase = MithrilStage::Downloading.as_str(),
+                            downloaded_bytes = self.downloaded_bytes
+                        );
+                    });
                 }
                 let template = match stage {
                     MithrilStage::ValidatingCertificate => Some(
@@ -265,16 +309,23 @@ impl TerminalRenderer {
                     | MithrilStage::RecoveringStores
                     | MithrilStage::Ingesting => None,
                 };
-                self.verification = template.map(|template| TerminalProgressBar::new(0_u64, template).boxed());
+                self.verification =
+                    template.map(|template| (stage.as_str(), TerminalProgressBar::new(0_u64, template).boxed()));
             }
             MithrilProgress::CertificateValidated => {
-                if let Some(verification) = &self.verification {
+                if let Some((_, verification)) = &self.verification {
                     verification.increment();
                 }
             }
             MithrilProgress::Completed { .. } => {
                 if let Some(download) = self.download.take() {
-                    download.finish();
+                    download.finish(|| {
+                        info!(
+                            mithril::progress::PHASE_COMPLETED,
+                            phase = MithrilStage::Downloading.as_str(),
+                            downloaded_bytes = self.downloaded_bytes
+                        );
+                    });
                 }
             }
             MithrilProgress::SnapshotSelected { .. } | MithrilProgress::BlocksIngested { .. } => {}

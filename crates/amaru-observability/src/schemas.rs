@@ -1322,6 +1322,13 @@ define_schemas! {
                     required downloaded_bytes: u64
                     required completed_snapshots: usize
                 }
+                /// A bootstrap phase completed; size counts entries and downloaded_bytes counts bytes
+                public PHASE_COMPLETED {
+                    required phase: String
+                    optional size: usize
+                    optional downloaded_bytes: u64
+                    optional completed_snapshots: usize
+                }
                 /// Report successful bootstrap completion
                 public COMPLETE {
                     required epoch: amaru_kernel::Epoch
@@ -1649,6 +1656,12 @@ define_schemas! {
                 /// Mithril synchronization entered a new stage
                 public STAGE {
                     required stage: String
+                }
+                /// A Mithril phase completed successfully
+                public PHASE_COMPLETED {
+                    required phase: String
+                    optional downloaded_bytes: u64
+                    optional completed_files: u64
                 }
                 /// Selected the applicable Mithril snapshot
                 public SNAPSHOT {

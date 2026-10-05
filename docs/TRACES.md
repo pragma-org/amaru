@@ -301,6 +301,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `complete` | `TRACE` | public | Report successful bootstrap completion | epoch, point |  |
 | `download` | `TRACE` | public | Report absolute aggregate snapshot download progress | downloaded_bytes, completed_snapshots |  |
+| `phase_completed` | `TRACE` | public | A bootstrap phase completed; size counts entries and downloaded_bytes counts bytes | phase | size, downloaded_bytes, completed_snapshots |
 | `snapshots_selected` | `TRACE` | public | Report the selected snapshot window and its aggregate compressed size | snapshot_count | total_bytes |
 | `stage` | `TRACE` | public | Enter a canonical bootstrap stage | stage |  |
 
@@ -319,6 +320,17 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `downloaded_bytes` | `integer` | ✓ |
 | `completed_snapshots` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `phase_completed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `phase` | `string` | ✓ |
+| `size` | `integer` |  |
+| `downloaded_bytes` | `integer` |  |
+| `completed_snapshots` | `integer` |  |
 
 </details>
 
@@ -2431,6 +2443,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `complete` | `TRACE` | public | Mithril synchronization completed successfully | point, processed_blocks |  |
 | `download` | `TRACE` | public | Absolute Mithril database download progress | downloaded_bytes, completed_files, total_files | total_bytes |
 | `ingest` | `TRACE` | public | Absolute block ingestion progress | blocks, point |  |
+| `phase_completed` | `TRACE` | public | A Mithril phase completed successfully | phase | downloaded_bytes, completed_files |
 | `snapshot` | `TRACE` | public | Selected the applicable Mithril snapshot | hash, through_chunk |  |
 | `stage` | `TRACE` | public | Mithril synchronization entered a new stage | stage |  |
 
@@ -2460,6 +2473,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `blocks` | `integer` | ✓ |
 | `point` | `array` | ✓ |
+
+</details>
+
+<details><summary>span: `phase_completed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `phase` | `string` | ✓ |
+| `downloaded_bytes` | `integer` |  |
+| `completed_files` | `integer` |  |
 
 </details>
 

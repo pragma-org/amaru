@@ -21,7 +21,7 @@ use std::{
 
 use amaru_kernel::{NetworkName, Point, Slot};
 use amaru_observability::{info, warn};
-use amaru_progress_bar::ProgressBar;
+use amaru_progress_bar::{ProgressBar, ProgressBarExt};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use mithril_client::{
@@ -45,6 +45,18 @@ pub enum MithrilDownloadStage {
     Downloading { files: u64 },
     VerifyingDatabase { from_chunk: u64, through_chunk: u64, files: u64 },
     DatabaseVerified,
+}
+
+impl MithrilDownloadStage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::FetchingSnapshot => "fetching_snapshot",
+            Self::ValidatingCertificate => "validating_certificate",
+            Self::Downloading { .. } => "downloading",
+            Self::VerifyingDatabase { .. } => "verifying_database",
+            Self::DatabaseVerified => "database_verified",
+        }
+    }
 }
 
 /// Renderer-independent progress produced by a Mithril database download.
@@ -150,13 +162,13 @@ struct ProgressBarObserver {
 
 #[derive(Default)]
 struct ProgressBarState {
-    progress: Option<Box<dyn ProgressBar>>,
+    progress: Option<(MithrilDownloadStage, Box<dyn ProgressBar>)>,
     completed_files: u64,
 }
 
 impl Drop for ProgressBarState {
     fn drop(&mut self) {
-        if let Some(progress) = self.progress.take() {
+        if let Some((_, progress)) = self.progress.take() {
             progress.clear();
         }
     }
@@ -167,8 +179,18 @@ impl MithrilDownloadObserver for ProgressBarObserver {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match progress {
             MithrilDownloadProgress::StageChanged { stage } => {
-                if let Some(progress) = state.progress.take() {
-                    progress.clear();
+                if let Some((phase, progress)) = state.progress.take() {
+                    progress.finish(|| {
+                        if matches!(phase, MithrilDownloadStage::Downloading { .. }) {
+                            info!(
+                                mithril::progress::PHASE_COMPLETED,
+                                phase = phase.as_str(),
+                                completed_files = state.completed_files
+                            );
+                        } else {
+                            info!(mithril::progress::PHASE_COMPLETED, phase = phase.as_str());
+                        }
+                    });
                 }
                 let (length, template) = match stage {
                     MithrilDownloadStage::FetchingSnapshot => {
@@ -191,15 +213,16 @@ impl MithrilDownloadObserver for ProgressBarObserver {
                     ),
                     MithrilDownloadStage::DatabaseVerified => return,
                 };
-                state.progress = Some((self.with_progress)(usize::try_from(length).unwrap_or(usize::MAX), &template));
+                state.progress =
+                    Some((stage, (self.with_progress)(usize::try_from(length).unwrap_or(usize::MAX), &template)));
             }
             MithrilDownloadProgress::CertificateValidated => {
-                if let Some(progress) = &state.progress {
+                if let Some((_, progress)) = &state.progress {
                     progress.increment();
                 }
             }
             MithrilDownloadProgress::Downloaded { completed_files, .. } => {
-                if let Some(progress) = &state.progress {
+                if let Some((_, progress)) = &state.progress {
                     progress.tick(
                         usize::try_from(completed_files.saturating_sub(state.completed_files)).unwrap_or(usize::MAX),
                     );
