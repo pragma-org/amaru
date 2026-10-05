@@ -21,15 +21,13 @@ use crate::{AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutco
 /// Rules for data types whose bytes are hashed. For those data types the,
 /// where the encoding is part of the format since a different encoding is a different hash.
 /// This means that the re-encoding of such a value must match the original bytes exactly.
-const BYTE_EXACT: &[&str] = &[
-    "auxiliary_data",
-    "header",
-    "native_script",
-    "plutus_data",
-    "redeemers",
-    "transaction_body",
-    "transaction_witness_set",
-];
+// NOTE: `auxiliary_data` is deliberately absent. It re-encodes in the era form it was decoded
+// from, which is what the ledger's memoised bytes achieve, but it rebuilds that form from the
+// decoded contents rather than replaying the bytes. A sample written with an indefinite-length
+// container or a chunked string therefore comes back in its canonical spelling, which normalising
+// both sides forgives.
+const BYTE_EXACT: &[&str] =
+    &["header", "native_script", "plutus_data", "redeemers", "transaction_body", "transaction_witness_set"];
 
 /// Recorded when amaru decodes a sample that should be rejected.
 const DECODED_BUT_SHOULD_BE_REJECTED: &str = "decoded successfully, should be rejected";
