@@ -103,7 +103,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "reqwest",
  "rlimit",
  "rocksdb",
@@ -171,7 +171,7 @@ dependencies = [
  "criterion",
  "hex",
  "opentelemetry",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "pprof",
  "pretty_assertions",
  "proptest",
@@ -395,7 +395,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "anyhow",
  "assertables",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "tokio",
 ]
 
@@ -456,7 +456,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "hickory-resolver",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
@@ -497,7 +497,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "quote",
  "reqwest",
  "rocksdb",
@@ -595,7 +595,7 @@ dependencies = [
  "amaru-metrics",
  "anyhow",
  "async-trait",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "rand 0.9.5",
  "serde",
  "thiserror 2.0.21",
@@ -664,7 +664,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "hex",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "poolshark",
  "pretty_assertions",
  "rand 0.9.5",
@@ -691,7 +691,7 @@ dependencies = [
  "cbor4ii",
  "clap",
  "hex",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "proptest",
  "rand 0.9.5",
  "rand_distr",
@@ -716,7 +716,7 @@ dependencies = [
  "amaru-plutus",
  "anyhow",
  "hex",
- "parking_lot",
+ "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "proptest",
  "rand 0.9.5",
  "rocksdb",
@@ -2124,7 +2124,7 @@ dependencies = [
  "bitflags 2.13.2",
  "crossterm_winapi",
  "mio",
- "parking_lot",
+ "parking_lot 0.12.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustix 0.38.44",
  "signal-hook",
  "signal-hook-mio",
@@ -2142,7 +2142,7 @@ dependencies = [
  "derive_more",
  "document-features",
  "mio",
- "parking_lot",
+ "parking_lot 0.12.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustix 1.1.5",
  "signal-hook",
  "signal-hook-mio",
@@ -3169,7 +3169,7 @@ dependencies = [
  "moka",
  "ndk-context",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.10.3",
  "resolv-conf",
  "smallvec",
@@ -3930,6 +3930,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lock_api"
+version = "0.4.14"
+source = "git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d#43d5007a252ddcf4b9ed9e784e6ad4f7bf1ae82d"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
 name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4245,7 +4253,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "equivalent",
- "parking_lot",
+ "parking_lot 0.12.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "portable-atomic",
  "smallvec",
  "tagptr",
@@ -4725,8 +4733,17 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
 dependencies = [
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parking_lot_core 0.9.12 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.12.5"
+source = "git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d#43d5007a252ddcf4b9ed9e784e6ad4f7bf1ae82d"
+dependencies = [
+ "lock_api 0.4.14 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
+ "parking_lot_core 0.9.12 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
 ]
 
 [[package]]
@@ -4737,7 +4754,18 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.18",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.9.12"
+source = "git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d#43d5007a252ddcf4b9ed9e784e6ad4f7bf1ae82d"
+dependencies = [
+ "libc",
+ "redox_syscall 0.9.4",
  "smallvec",
  "windows-link",
 ]
@@ -5290,6 +5318,15 @@ name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
+dependencies = [
+ "bitflags 2.13.2",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "737970939a87c6fa31e7acad13307bccbb017a073b695b6089a2c484f929e20e"
 dependencies = [
  "bitflags 2.13.2",
 ]
@@ -6140,7 +6177,7 @@ version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 dependencies = [
- "lock_api",
+ "lock_api 0.4.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -6149,7 +6186,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
 dependencies = [
- "lock_api",
+ "lock_api 0.4.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
