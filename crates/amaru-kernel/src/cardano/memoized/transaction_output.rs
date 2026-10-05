@@ -129,7 +129,7 @@ fn decode_legacy_output<C: cbor::HasProtocolVersion>(
     Ok(MemoizedTransactionOutput {
         original_size: 0,
         is_legacy: true,
-        address: decode_address(&cbor::decode_bytes_v12_indefinite(d, ctx)?)?,
+        address: decode_address(&cbor::decode_bytes_v12(d, ctx)?)?,
         value: d.decode_with(ctx)?,
         datum: match len {
             Some(2) => MemoizedDatum::None,
@@ -167,7 +167,7 @@ fn decode_modern_output<C: cbor::HasProtocolVersion>(
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = Some(decode_address(&cbor::decode_bytes_v12_indefinite(d, ctx)?)?),
+                0 => state.0 = Some(decode_address(&cbor::decode_bytes_v12(d, ctx)?)?),
                 1 => state.1 = Some(d.decode_with(ctx)?),
                 2 => state.2 = d.decode_with(ctx)?,
                 3 => {

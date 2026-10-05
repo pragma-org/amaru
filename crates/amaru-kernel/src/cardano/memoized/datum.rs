@@ -99,7 +99,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
                         return Err(cbor::decode::Error::message("unknown tag for datum tag"));
                     }
                     let plutus_data: MemoizedPlutusData =
-                        cbor::from_cbor_no_leftovers_with(&cbor::decode_bytes_v12_indefinite(d, ctx)?, ctx)?;
+                        cbor::from_cbor_no_leftovers_with(&cbor::decode_bytes_v12(d, ctx)?, ctx)?;
                     Ok(MemoizedDatum::from(plutus_data))
                 }
                 _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
@@ -110,7 +110,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let raw = cbor::decode_bytes_v12_indefinite(d, ctx)?;
+        let raw = cbor::decode_bytes_v12(d, ctx)?;
         let hash = Hash::<DATUM>::try_from(&raw[..]).map_err(|e| cbor::decode::Error::message(e.to_string()))?;
         Ok(Legacy(MemoizedDatum::from(hash)))
     }

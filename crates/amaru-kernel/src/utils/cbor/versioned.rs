@@ -50,7 +50,7 @@ impl HasProtocolVersion for ProtocolParameters {
 ///
 /// See <https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Decoding/Decoder.hs>
 /// (`decodeBytes = ifDecoderVersionAtLeast (natVersion @12) ...`).
-pub fn decode_bytes_v12_indefinite<'b, C: HasProtocolVersion>(
+pub fn decode_bytes_v12<'b, C: HasProtocolVersion>(
     d: &mut cbor::Decoder<'b>,
     ctx: &C,
 ) -> Result<Cow<'b, [u8]>, cbor::decode::Error> {
@@ -71,7 +71,7 @@ pub fn decode_bytes_v12_indefinite<'b, C: HasProtocolVersion>(
 ///
 /// See <https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Decoding/Decoder.hs>
 /// (`decodeString = ifDecoderVersionAtLeast (natVersion @12) ...`).
-pub fn decode_string_v12_indefinite<'b, C: HasProtocolVersion>(
+pub fn decode_string_v12<'b, C: HasProtocolVersion>(
     d: &mut cbor::Decoder<'b>,
     ctx: &C,
 ) -> Result<Cow<'b, str>, cbor::decode::Error> {
@@ -91,7 +91,7 @@ pub fn decode_string_v12_indefinite<'b, C: HasProtocolVersion>(
 /// This mirrors the `Decode`/`RecD` combinator the Haskell Cardano node applies below version 12,
 /// which checks for the closing break before reading any field and so rejects the indefinite form,
 /// against `decodeRecordNamed` from version 12, which accepts both.
-pub fn heterogeneous_array_v12_indefinite<'b, C: HasProtocolVersion, A>(
+pub fn heterogeneous_array_v12<'b, C: HasProtocolVersion, A>(
     d: &mut cbor::Decoder<'b>,
     ctx: &mut C,
     len: u64,
@@ -126,45 +126,45 @@ mod tests {
     fn definite_bytes_decode_at_any_version() {
         for version in [PROTOCOL_VERSION_11, PROTOCOL_VERSION_12] {
             let mut d = cbor::Decoder::new(DEFINITE);
-            assert_eq!(decode_bytes_v12_indefinite(&mut d, &version).unwrap().as_ref(), [1, 2, 3, 4]);
+            assert_eq!(decode_bytes_v12(&mut d, &version).unwrap().as_ref(), [1, 2, 3, 4]);
         }
     }
 
     #[test]
     fn indefinite_bytes_rejected_below_version_12() {
         let mut d = cbor::Decoder::new(CHUNKED);
-        assert!(decode_bytes_v12_indefinite(&mut d, &PROTOCOL_VERSION_11).is_err());
+        assert!(decode_bytes_v12(&mut d, &PROTOCOL_VERSION_11).is_err());
     }
 
     #[test]
     fn indefinite_bytes_accepted_from_version_12() {
         let mut d = cbor::Decoder::new(CHUNKED);
-        assert_eq!(decode_bytes_v12_indefinite(&mut d, &PROTOCOL_VERSION_12).unwrap().as_ref(), [1, 2, 3, 4]);
+        assert_eq!(decode_bytes_v12(&mut d, &PROTOCOL_VERSION_12).unwrap().as_ref(), [1, 2, 3, 4]);
     }
 
     #[test]
     fn definite_text_decodes_at_any_version() {
         for version in [PROTOCOL_VERSION_11, PROTOCOL_VERSION_12] {
             let mut d = cbor::Decoder::new(DEFINITE_TEXT);
-            assert_eq!(decode_string_v12_indefinite(&mut d, &version).unwrap().as_ref(), "abcd");
+            assert_eq!(decode_string_v12(&mut d, &version).unwrap().as_ref(), "abcd");
         }
     }
 
     #[test]
     fn chunked_text_is_rejected_before_version_12() {
         let mut d = cbor::Decoder::new(CHUNKED_TEXT);
-        assert!(decode_string_v12_indefinite(&mut d, &PROTOCOL_VERSION_11).is_err());
+        assert!(decode_string_v12(&mut d, &PROTOCOL_VERSION_11).is_err());
     }
 
     #[test]
     fn chunked_text_decodes_from_version_12() {
         let mut d = cbor::Decoder::new(CHUNKED_TEXT);
-        assert_eq!(decode_string_v12_indefinite(&mut d, &PROTOCOL_VERSION_12).unwrap().as_ref(), "abcd");
+        assert_eq!(decode_string_v12(&mut d, &PROTOCOL_VERSION_12).unwrap().as_ref(), "abcd");
     }
 
     #[test]
     fn unit_context_decodes_strictly() {
         let mut d = cbor::Decoder::new(CHUNKED);
-        assert!(decode_bytes_v12_indefinite(&mut d, &()).is_err());
+        assert!(decode_bytes_v12(&mut d, &()).is_err());
     }
 }
