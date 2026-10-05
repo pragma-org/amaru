@@ -16,8 +16,8 @@
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{
-    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
-    ProtocolParamUpdate, ProtocolVersion, RationalNumber, UnitRationalNumber, cbor,
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParamUpdate,
+    ProtocolVersion, RationalNumber, UnitRationalNumber, cbor,
 };
 
 mod default;
@@ -97,26 +97,7 @@ impl ProtocolParameters {
         set(&mut self.min_pool_cost, u.min_pool_cost);
         set(&mut self.lovelace_per_utxo_byte, u.ada_per_utxo_byte);
         if let Some(cost_models) = u.cost_models_for_script_languages {
-            // NOTE: This code may looks a little convoluted here, but it exists for the sake of
-            // generating a compiler error in due time. Should we not do that, and add a new language,
-            // it is highly likely that we may forget to apply the corresponding cost model update for
-            // that language.
-            //
-            // Now, we'll get the following pattern-match to fail due to non exhaustivness.
-            match PlutusVersion::V1 {
-                PlutusVersion::V1 => {
-                    if let Some(plutus_v1) = cost_models.plutus_v1 {
-                        self.cost_models.plutus_v1 = Some(plutus_v1);
-                    }
-                }
-                PlutusVersion::V2 | PlutusVersion::V3 => (),
-            }
-            if let Some(plutus_v2) = cost_models.plutus_v2 {
-                self.cost_models.plutus_v2 = Some(plutus_v2);
-            }
-            if let Some(plutus_v3) = cost_models.plutus_v3 {
-                self.cost_models.plutus_v3 = Some(plutus_v3);
-            }
+            self.cost_models.update(cost_models);
         }
         set(&mut self.prices, u.execution_costs);
         set(&mut self.max_tx_ex_units, u.max_tx_ex_units);
@@ -365,25 +346,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
         let min_pool_cost = d.u64()?;
         let lovelace_per_utxo_byte = d.u64()?;
 
-        let mut plutus_v1 = None;
-        let mut plutus_v2 = None;
-        let mut plutus_v3 = None;
-        let i = d.map_iter_with::<C, u8, CostModel>(ctx)?;
-        for item in i {
-            let (k, v) = item?;
-            match k {
-                0 => {
-                    plutus_v1 = Some(v);
-                }
-                1 => {
-                    plutus_v2 = Some(v);
-                }
-                2 => {
-                    plutus_v3 = Some(v);
-                }
-                _ => unreachable!("unexpected language version: {k}"),
-            }
-        }
+        let cost_models = d.decode_with(ctx)?;
         let prices = d.decode_with(ctx)?;
         let max_tx_ex_units = d.decode_with(ctx)?;
         let max_block_ex_units = d.decode_with(ctx)?;
@@ -416,7 +379,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
             treasury_expansion_rate,
             min_pool_cost,
             lovelace_per_utxo_byte,
-            cost_models: CostModels { plutus_v1, plutus_v2, plutus_v3, unknown: Default::default() },
+            cost_models,
             prices,
             max_tx_ex_units,
             max_block_ex_units,
@@ -472,30 +435,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.u64(self.min_pool_cost)?;
         e.u64(self.lovelace_per_utxo_byte)?;
 
-        let mut count = 0;
-        if self.cost_models.plutus_v1.is_some() {
-            count += 1;
-        }
-        if self.cost_models.plutus_v2.is_some() {
-            count += 1;
-        }
-        if self.cost_models.plutus_v3.is_some() {
-            count += 1;
-        }
-        e.map(count)?;
-        if let Some(v) = self.cost_models.plutus_v1.as_ref() {
-            e.u8(0)?;
-            e.encode_with(v, ctx)?;
-        }
-        if let Some(v) = self.cost_models.plutus_v2.as_ref() {
-            e.u8(1)?;
-            e.encode_with(v, ctx)?;
-        }
-        if let Some(v) = self.cost_models.plutus_v3.as_ref() {
-            e.u8(2)?;
-            e.encode_with(v, ctx)?;
-        }
-
+        e.encode_with(&self.cost_models, ctx)?;
         e.encode_with(&self.prices, ctx)?;
         e.encode_with(self.max_tx_ex_units, ctx)?;
         e.encode_with(self.max_block_ex_units, ctx)?;

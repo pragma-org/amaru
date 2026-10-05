@@ -16,11 +16,11 @@ use std::{collections::BTreeMap, fmt};
 
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::{
-    option,
+    collection, option,
     prelude::{Arbitrary, BoxedStrategy, Strategy, any},
 };
 
-use crate::{CostModel, cbor};
+use crate::{CostModel, PlutusVersion, cbor};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CostModels {
@@ -41,6 +41,43 @@ pub struct CostModels {
     /// the Haskell node, and hashes taken over the parameters agree.
     #[serde(default)]
     pub unknown: BTreeMap<u8, CostModel>,
+}
+
+impl CostModels {
+    /// Apply an update on top of these cost models.
+    ///
+    /// A language carried by the update replaces the model currently held for it; languages absent
+    /// from the update keep their model. Unknown languages are merged with the update taking
+    /// precedence, and an unknown entry is dropped once a model for that language is held as a
+    /// known one, so that a node which has learned a new Plutus version ends up with the same cost
+    /// models as one which has not.
+    pub fn update(&mut self, update: CostModels) {
+        let CostModels { plutus_v1, plutus_v2, plutus_v3, unknown } = update;
+
+        // NOTE: the exhaustive match is here so that adding a Plutus version fails to compile
+        // rather than silently skipping that language's cost model update.
+        match PlutusVersion::V1 {
+            PlutusVersion::V1 | PlutusVersion::V2 | PlutusVersion::V3 => {
+                if let Some(cost_model) = plutus_v1 {
+                    self.plutus_v1 = Some(cost_model);
+                }
+                if let Some(cost_model) = plutus_v2 {
+                    self.plutus_v2 = Some(cost_model);
+                }
+                if let Some(cost_model) = plutus_v3 {
+                    self.plutus_v3 = Some(cost_model);
+                }
+            }
+        }
+
+        self.unknown.extend(unknown);
+
+        for (language, cost_model) in [(0, &self.plutus_v1), (1, &self.plutus_v2), (2, &self.plutus_v3)] {
+            if cost_model.is_some() {
+                self.unknown.remove(&language);
+            }
+        }
+    }
 }
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for CostModels {
@@ -125,12 +162,17 @@ impl Arbitrary for CostModels {
         let any_cost_model =
             || any::<[Option<i64>; 3]>().prop_map(|costs| costs.into_iter().flatten().collect::<CostModel>());
 
-        (option::of(any_cost_model()), option::of(any_cost_model()), option::of(any_cost_model()))
-            .prop_map(|(plutus_v1, plutus_v2, plutus_v3)| CostModels {
+        (
+            option::of(any_cost_model()),
+            option::of(any_cost_model()),
+            option::of(any_cost_model()),
+            collection::btree_map(3u8..=u8::MAX, any_cost_model(), 0..3),
+        )
+            .prop_map(|(plutus_v1, plutus_v2, plutus_v3, unknown)| CostModels {
                 plutus_v1,
                 plutus_v2,
                 plutus_v3,
-                unknown: BTreeMap::new(),
+                unknown,
             })
             .boxed()
     }
@@ -152,5 +194,54 @@ mod tests {
     fn decode_rejects_duplicate_languages(bytes: &[u8]) -> Result<CostModels, cbor::decode::Error> {
         let mut version = PROTOCOL_VERSION_10;
         cbor::from_cbor_no_leftovers_with(bytes, &mut version)
+    }
+
+    fn cost_model(value: i64) -> CostModel {
+        [value].into_iter().collect()
+    }
+
+    #[test]
+    fn update_replaces_only_the_languages_it_carries() {
+        let mut models = CostModels {
+            plutus_v1: Some(cost_model(1)),
+            plutus_v2: Some(cost_model(2)),
+            plutus_v3: None,
+            unknown: BTreeMap::new(),
+        };
+
+        models.update(CostModels { plutus_v2: Some(cost_model(20)), ..CostModels::default() });
+
+        assert_eq!(models.plutus_v1, Some(cost_model(1)), "an absent language keeps its model");
+        assert_eq!(models.plutus_v2, Some(cost_model(20)), "a carried language is replaced");
+        assert_eq!(models.plutus_v3, None, "an absent language stays absent");
+    }
+
+    #[test]
+    fn update_merges_unknown_languages_and_wins_on_conflict() {
+        let mut models =
+            CostModels { unknown: BTreeMap::from([(3, cost_model(3)), (4, cost_model(4))]), ..CostModels::default() };
+
+        models.update(CostModels {
+            unknown: BTreeMap::from([(4, cost_model(40)), (5, cost_model(5))]),
+            ..CostModels::default()
+        });
+
+        assert_eq!(
+            models.unknown,
+            BTreeMap::from([(3, cost_model(3)), (4, cost_model(40)), (5, cost_model(5))]),
+            "the update wins on a shared language, the rest are merged"
+        );
+    }
+
+    /// A node that has learned a Plutus version reads its model as a known one, while a node that
+    /// has not keeps it under `unknown`. Dropping the stale entry is what keeps the two in step.
+    #[test]
+    fn update_drops_an_unknown_entry_once_the_language_is_known() {
+        let mut models = CostModels { unknown: BTreeMap::from([(2, cost_model(99))]), ..CostModels::default() };
+
+        models.update(CostModels { plutus_v3: Some(cost_model(3)), ..CostModels::default() });
+
+        assert_eq!(models.plutus_v3, Some(cost_model(3)));
+        assert!(models.unknown.is_empty(), "the entry for a now-known language is dropped");
     }
 }
