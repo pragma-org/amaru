@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock};
 use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
@@ -58,9 +61,10 @@ const FETCH_WIDEN_DELAYS: [Duration; 3] =
 /// ## Input messages and behaviour
 /// - `NewTip(tip, parent)`: Update tracked block_height, assert no outstanding missing,
 ///   delegate to `request_missing_blocks` which queries store for gaps and (if any)
-///   selects covering peers via `Performance::select_peers_for_fetch`, sends
-///   `ManagerMessage::FetchBlocks` (peer list or all-connections fallback when selection is
-///   weak) then schedules a `Timeout(req_id)` and the first widen wakeup. Later delays are armed when the previous one fires.
+///   selects covering peers via `Performance::select_peers_for_fetch`, schedules the 5s
+///   `Timeout(req_id)` and then sends `ManagerMessage::FetchBlocks` (peer list or
+///   all-connections fallback when selection is weak). The first widen wakeup is armed
+///   after that send. Later delays are armed when the previous one fires.
 /// - `RecoverStoredBlocks { from, to }`: Startup recovery only, where `from` is the ledger tip and
 ///   `to` the best stored candidate. Walks the stored headers from `to` back down to `from` and
 ///   replays them downstream for re-validation (using `ancestors_between` + `has_block` checks),
@@ -78,17 +82,27 @@ const FETCH_WIDEN_DELAYS: [Duration; 3] =
 ///   an accepted block, clear missing/timeout, signal `FetchNextFrom(boundary)` upstream to retry.
 /// - `Widen(req_id)`: While any block in this batch is still missing, ask the performance
 ///   resource for covering peers not yet contacted and send those to the manager for the
-///   remaining range. A broadcast that has not reported `PeersAsked` yet is left alone. The
+///   remaining range. An open broadcast is left alone for the whole attempt: `PeersAsked`
+///   names only connections that admitted the request, so a full or not-yet-confirmed peer
+///   is not in `asked` and must not be selected again. The
 ///   next delay is armed from `fetch_started_at`. A prefix of the batch does not cancel it:
 ///   the wakeup is dropped only once the batch is fully satisfied.
-/// - `PeersAsked(req_id, peers)`: Union manager-contacted peers into the timeout set, excluding
-///   peers already settled (a late `PeersAsked` cannot re-add `NoBlocks`). The first wave is
-///   stamped with the batch start; a later wave uses the clock, so each peer's fetch latency
-///   starts when that peer was asked.
+/// - `PeersAsked(req_id, peers)`: Union peers whose handler admitted the request into the timeout
+///   set, excluding peers already settled (a late `PeersAsked` cannot re-add `NoBlocks`). Each
+///   peer is stamped with the instant this attempt chose to ask them: `fetch_started_at` for the
+///   initial set (one confirmation per connection shares that instant), and the widen clock for
+///   a peer added by a later wakeup. The stamp does not depend on `fetch_peers` being empty.
+///   A confirmation does not end an open broadcast.
 /// - `NoBlocks(req_id, peer)`: Mark the peer settled, `record_fetch_failure` once, and drop them
 ///   from the timeout set.
 /// - `NoPeersAvailable(req_id)`: If matches current, log INFO that fetch is paused; leave the
 ///   5s timeout armed so retry is rate-limited without ERROR.
+/// - `NoneAccepted(req_id)`: Every candidate connection refused this offer. Ask peers this
+///   attempt has not already chosen. A broadcast already covered every initiating connection,
+///   and asking the same full mailboxes again would spin, so when no other peer is asked and
+///   nobody is in flight, pause on that same timeout. Peers already confirmed keep their
+///   timeout scoring. `asked` is left in place so widen does not re-offer to the connections
+///   that just refused.
 ///
 /// ## Child stages and their protocols
 /// - **cleanup_replies** (dynamic, `StageRef<Blocks>`, lazily `ensure_child`'d on every
@@ -96,6 +110,7 @@ const FETCH_WIDEN_DELAYS: [Duration; 3] =
 ///   - Receives `Blocks` replies routed by manager (because `cr` passed in FetchBlocks).
 ///   - `NoBlocks(id, peer)`: forward `FetchBlocksMsg::NoBlocks(id, peer)` for active ids.
 ///   - `NoPeersAvailable(id)`: forward `FetchBlocksMsg::NoPeersAvailable(id)` to parent.
+///   - `NoneAccepted(id)`: forward `FetchBlocksMsg::NoneAccepted(id)` to parent.
 ///   - `PeersAsked(id, peers)`: forward `FetchBlocksMsg::PeersAsked(id, peers)` to parent.
 ///   - `Block(id, peer, nb)`: decode header (adversarial on fail + return), ALWAYS
 ///     `BlockSourceMsg::BlockReceived {peer, tip}` (for stats/selection), forward as
@@ -142,7 +157,10 @@ pub struct FetchBlocks {
     peer_selection: StageRef<PeerSelectionMsg>,
     cleanup_replies: StageRef<Blocks>,
     timeout: Option<ScheduleId>,
-    /// Set when the manager reports no initiating peers; suppresses ERROR on the next timeout.
+    /// Set when nobody can be asked right now; suppresses ERROR on the next timeout.
+    ///
+    /// The manager reports this both when no initiating connection exists and when every
+    /// candidate refused and no other peer was asked.
     no_peers_pause: bool,
     block_height: BlockHeight,
     /// Trace context originating from the reception of a new tip. Additional spans created by
@@ -158,11 +176,20 @@ pub struct FetchBlocks {
     fetch_contributors: BTreeSet<Peer>,
     /// Peers this batch has already chosen to ask, including ones the manager has not confirmed.
     asked: BTreeSet<Peer>,
+    /// Instant at which this attempt chose to ask the peer.
+    ///
+    /// Confirmations arrive once per connection. Peers chosen together share this instant.
+    /// A widen records its own clock. A broadcast, which names nobody up front, is absent here
+    /// and falls back to [`Self::fetch_started_at`].
+    asked_at: BTreeMap<Peer, amaru_pure_stage::Instant>,
     /// Which [`FETCH_WIDEN_DELAYS`] entry is armed in [`Self::widen`], or the length of that array once all have fired.
     widen_index: u8,
     /// The single widen wakeup still waiting to fire. Cancelled when the batch is fully satisfied.
     widen: Option<ScheduleId>,
-    /// The initial request asked every initiating connection, and `PeersAsked` has not named them yet.
+    /// The initial request asked every initiating connection.
+    ///
+    /// Widen does not add peers while this is set, including after a partial `PeersAsked`.
+    /// Cleared when the attempt ends or when the manager reports that nobody could be contacted.
     awaiting_broadcast: bool,
 }
 
@@ -192,6 +219,7 @@ impl FetchBlocks {
             fetch_settled: BTreeSet::new(),
             fetch_contributors: BTreeSet::new(),
             asked: BTreeSet::new(),
+            asked_at: BTreeMap::new(),
             widen_index: 0,
             widen: None,
             awaiting_broadcast: false,
@@ -425,9 +453,16 @@ impl FetchBlocks {
             None
         } else {
             self.asked.extend(selected.peers.iter().copied());
+            for peer in &selected.peers {
+                self.asked_at.insert(*peer, now);
+            }
             Some(selected.peers)
         };
 
+        // Arm the retry before any send. A later stall must not leave the attempt without a timeout.
+        self.fetch_started_at = Some(now);
+        let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
+        self.timeout = Some(timeout);
         eff.send(
             &self.manager,
             ManagerMessage::FetchBlocks {
@@ -439,10 +474,7 @@ impl FetchBlocks {
             },
         )
         .await;
-        self.fetch_started_at = Some(now);
         eff.external(Performance::record_blocks_requested(requested, now)).await;
-        let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
-        self.timeout = Some(timeout);
         self.arm_next_widen(&eff).await;
     }
 
@@ -472,6 +504,7 @@ impl FetchBlocks {
         self.fetch_settled.clear();
         self.fetch_contributors.clear();
         self.asked.clear();
+        self.asked_at.clear();
         self.awaiting_broadcast = false;
         self.widen_index = 0;
     }
@@ -492,19 +525,32 @@ impl FetchBlocks {
         }
         self.widen_index = self.widen_index.saturating_add(1);
         self.arm_next_widen(eff).await;
-        // A broadcast has not named its peers yet. Asking now would hit the same connections twice.
-        if self.awaiting_broadcast && self.fetch_peers.is_empty() {
+        // A broadcast already offered this request to every initiating connection. Confirmed
+        // peers land in `asked`; a full mailbox never confirms, and a slow one has not confirmed
+        // yet. Selecting now would ask those peers again. Targeted fetch does not have this hole:
+        // it inserts `asked` before the send.
+        if self.awaiting_broadcast {
             return;
         }
+        self.ask_unasked(eff).await;
+    }
+
+    /// Offer the still-missing range to peers this attempt has not chosen yet.
+    ///
+    /// Returns whether a request was sent. A weak or empty selection sends nothing.
+    /// Callers that already offered every initiating connection must not call this:
+    /// those peers are not in `asked` until they confirm, so a new selection would
+    /// hand the request straight back to the mailboxes that just refused it.
+    async fn ask_unasked(&mut self, eff: &Effects<FetchBlocksMsg>) -> bool {
         let already = self.asked.union(&self.fetch_peers).count();
         let room = MAX_FETCH_PEERS.saturating_sub(already);
         if room == 0 {
-            return;
+            return false;
         }
         let Some((from, through)) =
             self.missing.as_ref().and_then(MissingBlocks::from_to).map(|(from, through)| (*from, *through))
         else {
-            return;
+            return false;
         };
         let need: Vec<HeaderHash> = self
             .missing
@@ -512,7 +558,7 @@ impl FetchBlocks {
             .map(|missing| missing.missing_points().into_iter().map(|point| point.hash()).collect())
             .unwrap_or_default();
         if need.is_empty() {
-            return;
+            return false;
         }
         let exclude: Vec<Peer> = self.asked.union(&self.fetch_peers).copied().collect();
         let now = eff.clock().await;
@@ -520,7 +566,7 @@ impl FetchBlocks {
             .external(Performance::select_peers_for_fetch(SelectPeersParams { need, max_peers: room, exclude, now }))
             .await;
         if selected.weak {
-            return;
+            return false;
         }
         let fresh: Vec<Peer> = selected
             .peers
@@ -528,9 +574,12 @@ impl FetchBlocks {
             .filter(|peer| !self.asked.contains(peer) && !self.fetch_peers.contains(peer))
             .collect();
         if fresh.is_empty() {
-            return;
+            return false;
         }
         self.asked.extend(fresh.iter().copied());
+        for peer in &fresh {
+            self.asked_at.insert(*peer, now);
+        }
         eff.send(
             &self.manager,
             ManagerMessage::FetchBlocks {
@@ -542,6 +591,7 @@ impl FetchBlocks {
             },
         )
         .await;
+        true
     }
 
     pub async fn block(&mut self, peer: Peer, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
@@ -647,12 +697,12 @@ impl FetchBlocks {
             .into_iter()
             .filter(|peer| !self.fetch_settled.contains(peer) && !self.fetch_peers.contains(peer))
             .collect();
-        let first_wave = self.fetch_peers.is_empty();
         for peer in &fresh {
             self.fetch_peers.insert(*peer);
             self.asked.insert(*peer);
         }
-        self.awaiting_broadcast = false;
+        // Leave `awaiting_broadcast` set. This list is only the connections that admitted the
+        // request, not every peer the broadcast attempted.
         if fresh.is_empty() {
             return;
         }
@@ -664,17 +714,23 @@ impl FetchBlocks {
         if hashes.is_empty() {
             return;
         }
-        // The initial set shares the time the fetch was handed to the manager. A later wave uses
-        // the clock, so each peer's fetch latency starts when that peer was asked.
-        let at = if first_wave {
-            match self.fetch_started_at {
-                Some(at) => at,
-                None => eff.clock().await,
+        // Stamp by the instant this attempt chose the peer, not by whether an earlier
+        // confirmation in the same attempt already filled `fetch_peers`.
+        let mut grouped: BTreeMap<amaru_pure_stage::Instant, Vec<Peer>> = BTreeMap::new();
+        let mut unstamped = Vec::new();
+        for peer in fresh {
+            match self.asked_at.get(&peer).copied().or(self.fetch_started_at) {
+                Some(at) => grouped.entry(at).or_default().push(peer),
+                None => unstamped.push(peer),
             }
-        } else {
-            eff.clock().await
-        };
-        eff.external(Performance::record_peers_asked(hashes, fresh, at)).await;
+        }
+        for (at, asked) in grouped {
+            eff.external(Performance::record_peers_asked(hashes.clone(), asked, at)).await;
+        }
+        if !unstamped.is_empty() {
+            let at = eff.clock().await;
+            eff.external(Performance::record_peers_asked(hashes, unstamped, at)).await;
+        }
     }
 
     pub async fn no_blocks(&mut self, req_id: u64, peer: Peer, eff: Effects<FetchBlocksMsg>) {
@@ -700,9 +756,33 @@ impl FetchBlocks {
         self.fetch_peers.clear();
         self.fetch_settled.clear();
         self.fetch_contributors.clear();
-        // Nobody was contacted. A later widen may ask peers that announce after this pause.
+        // Nobody was contacted. Drop both the names and their stamps so a later widen, or a
+        // late confirmation, does not treat this pause as an earlier choice.
         self.asked.clear();
+        self.asked_at.clear();
         self.awaiting_broadcast = false;
+    }
+
+    /// Every candidate refused this offer.
+    ///
+    /// Ask peers not already chosen. A broadcast already covered every initiating
+    /// connection, and another immediate offer to those full mailboxes would spin.
+    /// When no other peer is asked and nobody is in flight, pause on the armed
+    /// timeout, the same backoff as [`Self::no_peers_available`]. `asked` stays, so
+    /// widen does not offer the request to the connections that just refused it.
+    /// Peers already confirmed are left for that timeout to score.
+    pub async fn none_accepted(&mut self, req_id: u64, eff: Effects<FetchBlocksMsg>) {
+        if req_id != self.req_id || self.missing.is_none() {
+            return;
+        }
+        if !self.awaiting_broadcast && self.ask_unasked(&eff).await {
+            return;
+        }
+        if !self.fetch_peers.is_empty() {
+            return;
+        }
+        info!(consensus::blocks::NONE_ACCEPTED, req_id);
+        self.no_peers_pause = true;
     }
 
     pub async fn timeout(&mut self, req_id: u64, eff: Effects<FetchBlocksMsg>) {
@@ -777,6 +857,8 @@ pub enum FetchBlocksMsg {
     /// Peer reported no blocks in the requested range.
     NoBlocks(u64, Peer),
     NoPeersAvailable(u64),
+    /// Every candidate connection refused this request.
+    NoneAccepted(u64),
 }
 
 impl FetchBlocksMsg {
@@ -806,6 +888,7 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
         FetchBlocksMsg::PeersAsked(req_id, peers) => state.peers_asked(req_id, peers, eff).await,
         FetchBlocksMsg::NoBlocks(req_id, peer) => state.no_blocks(req_id, peer, eff).await,
         FetchBlocksMsg::NoPeersAvailable(req_id) => state.no_peers_available(req_id, eff).await,
+        FetchBlocksMsg::NoneAccepted(req_id) => state.none_accepted(req_id, eff).await,
     }
     state
 }
@@ -840,6 +923,9 @@ async fn cleanup_replies(mut state: Cleanup, msg: Blocks, eff: Effects<Blocks>) 
         }
         Blocks::NoPeersAvailable(id) => {
             eff.send(&state.fetch, FetchBlocksMsg::NoPeersAvailable(id)).await;
+        }
+        Blocks::NoneAccepted(id) => {
+            eff.send(&state.fetch, FetchBlocksMsg::NoneAccepted(id)).await;
         }
         Blocks::PeersAsked(id, peers) => {
             if id >= state.curr_id {

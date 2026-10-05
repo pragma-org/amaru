@@ -191,10 +191,24 @@ pub fn build_injector(
     seed: u64,
     tokio_handle: &Handle,
 ) -> anyhow::Result<(SimulationRunning, Arc<InjectorShared>)> {
+    build_injector_with_mailbox(source, connections, listen, seed, amaru_pure_stage::DEFAULT_MAILBOX_SIZE, tokio_handle)
+}
+
+/// [`build_injector`] with an explicit bulk mailbox. The world loop paces reveals against
+/// [`SimulationRunning::mailbox_size`], so a test of admission passes the production default.
+pub fn build_injector_with_mailbox(
+    source: Arc<dyn BaseReadChainStore>,
+    connections: ConnectionsResource,
+    listen: SocketAddr,
+    seed: u64,
+    mailbox_size: usize,
+    tokio_handle: &Handle,
+) -> anyhow::Result<(SimulationRunning, Arc<InjectorShared>)> {
     let serving = Arc::new(InMemoryChainStore::new());
     let inventory = scan_inventory(source.as_ref());
     let mut stage_graph = SimulationBuilder::default()
         .with_seed(seed)
+        .with_mailbox_size(mailbox_size)
         .with_eval_strategy(Fifo)
         .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000));
     put_serve_resources(&mut stage_graph, connections, serving.clone());

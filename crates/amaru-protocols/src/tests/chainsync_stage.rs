@@ -162,6 +162,9 @@ pub(super) async fn store_fetched_blocks(
         StoreFetchedBlocksMessage::Blocks(Blocks::NoPeersAvailable(id)) => {
             panic!("unexpected NoPeersAvailable for request {id}: test expects connected peers");
         }
+        StoreFetchedBlocksMessage::Blocks(Blocks::NoneAccepted(id)) => {
+            panic!("unexpected NoneAccepted for request {id}: test expects a peer to accept");
+        }
         StoreFetchedBlocksMessage::Blocks(Blocks::Block(id, _peer, network_block)) => {
             if !matches!(state.current.as_ref(), Some(current) if current.id == id) {
                 return state;

@@ -15,13 +15,15 @@
 use std::future::Future;
 
 use amaru_kernel::{NonEmptyBytes, cbor};
+use amaru_observability::warn;
 use amaru_pure_stage::{
-    BoxFuture, Effects, OrTerminateWith, SendData, StageRef, TryInStage, Void, err, typestate::FromMailbox,
+    BoxFuture, CallAdmission, Effects, OrTerminateWith, SendData, StageRef, TryInStage, Void, err,
+    typestate::FromMailbox,
 };
 
 use crate::{
-    mux::{HandlerMessage, MuxMessage},
-    protocol::{NETWORK_SEND_TIMEOUT, ProtocolId, RoleT},
+    mux::{HandlerMessage, MuxMessage, Sent},
+    protocol::{ProtocolId, RoleT, egress_admission_deadline},
 };
 
 /// Driver-injected input shared by lock-step and pipelined handlers.
@@ -172,6 +174,45 @@ pub trait StageState<Proto: ProtocolState<R>, R: RoleT>: Sized + SendData {
     fn muxer(&self) -> &StageRef<MuxMessage>;
 }
 
+/// Accept `send` into the mux, then emit `WantNext`.
+///
+/// `WantNext` is sent only after the mux has accepted the payload. A deadline
+/// miss leaves the caller's protocol state untouched: this returns `false` and
+/// the driver terminates the handler. That closes the connection. The peer is
+/// not recorded as adversarial.
+async fn commit_send<M, R, W>(
+    eff: Effects<M>,
+    muxer: StageRef<MuxMessage>,
+    proto_id: ProtocolId<R>,
+    send: Option<W>,
+    want_next: bool,
+) -> bool
+where
+    M: Send,
+    R: RoleT,
+    W: cbor::Encode<()> + Send,
+{
+    if let Some(msg) = send {
+        let msg = NonEmptyBytes::encode(&msg);
+        let timeout = egress_admission_deadline(msg.len().get());
+        match eff.call_with_admission(&muxer, timeout, move |cr| MuxMessage::Send(proto_id.erase(), msg, cr)).await {
+            CallAdmission::Reply(Sent) => {}
+            CallAdmission::NotAdmitted(_) => {
+                warn!(protocols::EGRESS_DEADLINE, proto = proto_id.to_string(), reason = "not_admitted");
+                return false;
+            }
+            CallAdmission::TimedOut(_) => {
+                warn!(protocols::EGRESS_DEADLINE, proto = proto_id.to_string(), reason = "deadline");
+                return false;
+            }
+        }
+    }
+    if want_next {
+        eff.send(&muxer, MuxMessage::WantNext(proto_id.erase())).await;
+    }
+    true
+}
+
 pub type Miniprotocol<A, B, R>
 where
     A: ProtocolState<R>,
@@ -211,17 +252,11 @@ where
                     } else {
                         proto.init().or_terminate(&eff, err("failed to initialize protocol state")).await
                     };
+                    if !commit_send(eff.clone(), stage.muxer().clone(), proto_id, outcome.send, outcome.want_next).await
+                    {
+                        return eff.terminate().await;
+                    }
                     proto = s;
-                    if outcome.want_next {
-                        eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase())).await;
-                    }
-                    if let Some(msg) = outcome.send {
-                        let msg = NonEmptyBytes::encode(&msg);
-                        eff.call(stage.muxer(), NETWORK_SEND_TIMEOUT, move |cr| {
-                            MuxMessage::Send(proto_id.erase(), msg, cr)
-                        })
-                        .await;
-                    }
                     outcome.result.map(LocalOrNetwork::Network).unwrap_or(LocalOrNetwork::None)
                 }
                 Inputs::Local(input) => LocalOrNetwork::Local(input),
@@ -253,21 +288,14 @@ where
             if let Some(action) = action {
                 let (outcome, s) =
                     proto.local(action).or_terminate(&eff, err("failed to step protocol state (local)")).await;
-                proto = s;
                 if let Some(e) = outcome.terminate_with {
                     err("protocol error")(e).await;
                     return eff.terminate().await;
                 }
-                if outcome.want_next {
-                    eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase())).await;
+                if !commit_send(eff.clone(), stage.muxer().clone(), proto_id, outcome.send, outcome.want_next).await {
+                    return eff.terminate().await;
                 }
-                if let Some(msg) = outcome.send {
-                    let msg = NonEmptyBytes::encode(&msg);
-                    eff.call(stage.muxer(), NETWORK_SEND_TIMEOUT, move |cr| {
-                        MuxMessage::Send(proto_id.erase(), msg, cr)
-                    })
-                    .await;
-                }
+                proto = s;
                 if outcome.finished {
                     return eff.terminate().await;
                 }

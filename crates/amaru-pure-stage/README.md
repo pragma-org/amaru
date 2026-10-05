@@ -8,6 +8,7 @@ Design goals:
 - fully back-pressured
 - ability for biased reading from inputs (which is necessary to avoid deadlocks with back-pressure)
 - scheduled self-messages (`schedule_at` / `schedule_after`) are control traffic: guaranteed delivery independent of bulk mailbox capacity, preferred over ordinary messages, with a configurable outstanding cap per stage (default `PRIORITY_MAILBOX_SIZE` = 10 via `with_priority_mailbox_size`; exceeding panics)
+- bulk mailboxes default to 10 messages waiting (`DEFAULT_MAILBOX_SIZE`). `StageBuildRef::with_mailbox_size` sets one stage, including a stage created with `eff.stage`; the builder’s `with_mailbox_size` is only the default. Zero is a rendezvous. `Effects::try_send` admits immediately (`Queued` / `Full` / `Gone`) and does not park the sender; a parked blocking `send` keeps the next free slot. `Effects::call_with_admission` reports `NotAdmitted` when the deadline fired before admission (the request is never delivered) and `TimedOut` when the request was admitted and then the deadline passed (it stays queued; a late reply is ignored)
 - `Effects::detach` runs an `ExternalEffect` without occupying the airlock: the transition is resumed with `()` immediately, and `run()`’s value is later injected into the calling stage’s bulk mailbox (e.g. `eff.detach(Resolve::new(name), Msg::Resolved).await`)
 - `Effects::set_timeout` / `clear_timeout` (and `_at` slot variants) arm coalesced protocol timers without storing a `ScheduleId`
 - wiring code should be nicely readable

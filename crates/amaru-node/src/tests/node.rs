@@ -74,13 +74,17 @@ impl Node {
 
     /// This function installs a breakpoint that will be triggered when the node is initialized.
     /// We currently consider that it is initialized if the chainsync protocol has been registered.
+    #[expect(clippy::wildcard_enum_match_arm)]
     fn install_breakpoint_for_initialization(&mut self) {
         use HandlerMessage::Registered;
         use Inputs::Network;
 
         self.running.breakpoint("chainsync_registered", move |eff| {
-            let Effect::Send { msg, .. } = eff else {
-                return false;
+            // The mux delivers `Registered` with `try_send`. A `Send`-only match never sees it,
+            // and node setup then runs without bound.
+            let msg = match eff {
+                Effect::Send { msg, .. } | Effect::TrySend { msg, .. } => msg,
+                _ => return false,
             };
             if let Ok(Network(Registered(proto))) = msg.cast_ref::<Inputs<InitiatorMessage>>() {
                 *proto == PROTO_N2N_CHAIN_SYNC.erase()

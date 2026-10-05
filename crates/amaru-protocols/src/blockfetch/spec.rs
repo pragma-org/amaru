@@ -22,7 +22,7 @@ use amaru_pure_stage::{
 
 use super::{
     BLOCKFETCH_AGENCY_TIMEOUT, BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch,
-    initiator::{self, Busy, Done, Idle, Streaming},
+    initiator::{self, Done, Idle, Requested, Streaming},
     responder,
 };
 use crate::protocol::{Pull, ToMux, check_want_next};
@@ -32,14 +32,14 @@ pub(crate) fn session_spec() -> SessionSpec {
     session_spec! {
         Message;
         [*] --> Idle
-        Idle --> Busy: RequestRange
+        Idle --> Requested: RequestRange
         Idle --> Done: ClientDone
-        Busy --> Idle: NoBlocks
-        Busy --> Streaming: StartBatch
+        Requested --> Idle: NoBlocks
+        Requested --> Streaming: StartBatch
         Streaming --> Streaming: Block
         Streaming --> Idle: BatchDone
         note left of Idle: Initiator
-        note left of Busy: Responder timeout BLOCKFETCH_AGENCY_TIMEOUT
+        note left of Requested: Responder timeout BLOCKFETCH_AGENCY_TIMEOUT
         note left of Streaming: Responder timeout BLOCKFETCH_AGENCY_TIMEOUT
     }
 }

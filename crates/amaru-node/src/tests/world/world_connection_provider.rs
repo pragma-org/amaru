@@ -160,6 +160,10 @@ pub enum NetworkEvent {
     Close { conn: ConnectionId },
     /// Fault: close one live pair, chosen when this hop pops.
     PeerDisconnect,
+    /// Fault: `peer` stops reading. Later sends toward that listener withhold `SendAck`.
+    StalledReader { peer: SocketAddr },
+    /// Fault: stop delivering bytes on connections to `peer`. `SendAck` still completes.
+    SilentResponder { peer: SocketAddr },
 }
 
 /// Heap tokens for one `connect()`: the SYN hop and its deadline.
@@ -222,6 +226,8 @@ pub enum HeapLogKind {
     Deliver { conn: ConnectionId, data_len: usize },
     Close { conn: ConnectionId },
     PeerDisconnect,
+    StalledReader { peer: SocketAddr },
+    SilentResponder { peer: SocketAddr },
     Reveal { hash: HeaderHash },
     GraphWake { graph: usize, reason: GraphWakeReason },
 }
@@ -244,6 +250,8 @@ impl From<&WorldHeapEntry> for HeapLogEntry {
                     NetworkEvent::Deliver { conn, data } => HeapLogKind::Deliver { conn: *conn, data_len: data.len() },
                     NetworkEvent::Close { conn } => HeapLogKind::Close { conn: *conn },
                     NetworkEvent::PeerDisconnect => HeapLogKind::PeerDisconnect,
+                    NetworkEvent::StalledReader { peer } => HeapLogKind::StalledReader { peer: *peer },
+                    NetworkEvent::SilentResponder { peer } => HeapLogKind::SilentResponder { peer: *peer },
                 },
                 WorldHeapItem::Graph { index, reason } => HeapLogKind::GraphWake { graph: *index, reason: *reason },
                 WorldHeapItem::Reveal { hash } => HeapLogKind::Reveal { hash: *hash },
@@ -275,6 +283,18 @@ struct WorldInner {
     last_scheduled_connect: Option<ScheduledConnect>,
     disconnect_picks: u64,
     faulted_conns: BTreeSet<ConnectionId>,
+    /// Listeners whose accepted side never reads.
+    stalled_reader_addrs: BTreeSet<SocketAddr>,
+    /// Endpoints that withhold `SendAck` for bytes aimed at them.
+    stalled_readers: BTreeSet<ConnectionId>,
+    /// Listeners that have stopped answering.
+    silent_responder_addrs: BTreeSet<SocketAddr>,
+    /// Destinations that no longer receive `Deliver`.
+    silent_deliver: BTreeSet<ConnectionId>,
+    /// Sender endpoints with a withheld `SendAck`. Later sends on that endpoint stay behind it.
+    withheld_sends: BTreeSet<ConnectionId>,
+    /// Destinations with a withheld `Deliver`. Later payloads on that connection cannot pass it.
+    withheld_delivers: BTreeSet<ConnectionId>,
 }
 
 struct Listener {
@@ -290,6 +310,8 @@ struct ConnectionEndpoint {
     inbox: VecDeque<Bytes>,
     read_buffer: BytesMut,
     peer_conn_id: ConnectionId,
+    /// Listener address for the accepted side; ephemeral address for the dialer.
+    local_addr: SocketAddr,
 }
 
 impl WorldConnectionProvider {
@@ -329,6 +351,12 @@ impl WorldConnectionProvider {
                 last_scheduled_connect: None,
                 disconnect_picks: 0,
                 faulted_conns: BTreeSet::new(),
+                stalled_reader_addrs: BTreeSet::new(),
+                stalled_readers: BTreeSet::new(),
+                silent_responder_addrs: BTreeSet::new(),
+                silent_deliver: BTreeSet::new(),
+                withheld_sends: BTreeSet::new(),
+                withheld_delivers: BTreeSet::new(),
             }),
         }
     }
@@ -435,7 +463,63 @@ impl WorldConnectionProvider {
         let mut inner = self.inner.lock();
         let endpoint = inner.endpoints.remove(&conn)?;
         inner.last_deliver_at.remove(&conn);
+        inner.stalled_readers.remove(&conn);
+        inner.silent_deliver.remove(&conn);
+        inner.withheld_sends.remove(&conn);
+        inner.withheld_delivers.remove(&conn);
         inner.endpoints.contains_key(&endpoint.peer_conn_id).then_some(endpoint.peer_conn_id)
+    }
+
+    /// Peer endpoint of `conn`, if that side is still installed.
+    #[cfg(test)]
+    pub(super) fn peer_conn(&self, conn: ConnectionId) -> Option<ConnectionId> {
+        self.inner.lock().endpoints.get(&conn).map(|endpoint| endpoint.peer_conn_id)
+    }
+
+    /// True when a popped `Deliver` must not be written into `conn`'s inbox.
+    pub(super) fn delivery_silenced(&self, conn: ConnectionId) -> bool {
+        self.inner.lock().silent_deliver.contains(&conn)
+    }
+
+    /// From `at_nanos`, `peer` never reads. Sends toward that listener withhold `SendAck`
+    /// and are not delivered. A later send on that connection cannot pass the withheld bytes.
+    pub fn schedule_stalled_reader(&self, peer: SocketAddr, at_nanos: u64) {
+        let mut inner = self.inner.lock();
+        schedule_event_locked(&mut inner, at_nanos, NetworkEvent::StalledReader { peer });
+    }
+
+    /// From `at_nanos`, stop delivering on connections to `peer`. Writes still complete
+    /// (`SendAck`). A later payload is not delivered ahead of an earlier one.
+    pub fn schedule_silent_responder(&self, peer: SocketAddr, at_nanos: u64) {
+        let mut inner = self.inner.lock();
+        schedule_event_locked(&mut inner, at_nanos, NetworkEvent::SilentResponder { peer });
+    }
+
+    /// Mark `peer` as a stalled reader. Connections accepted there now, and later, withhold reads.
+    pub(super) fn stall_reader(&self, peer: SocketAddr) {
+        let mut inner = self.inner.lock();
+        inner.stalled_reader_addrs.insert(peer);
+        let responders: Vec<ConnectionId> =
+            inner.endpoints.iter().filter(|(_, endpoint)| endpoint.local_addr == peer).map(|(id, _)| *id).collect();
+        for id in responders {
+            inner.stalled_readers.insert(id);
+        }
+    }
+
+    /// Mark `peer` as a silent responder. Both directions of its connections stop receiving bytes.
+    pub(super) fn silence_responder(&self, peer: SocketAddr) {
+        let mut inner = self.inner.lock();
+        inner.silent_responder_addrs.insert(peer);
+        let pairs: Vec<(ConnectionId, ConnectionId)> = inner
+            .endpoints
+            .iter()
+            .filter(|(_, endpoint)| endpoint.local_addr == peer)
+            .map(|(id, endpoint)| (*id, endpoint.peer_conn_id))
+            .collect();
+        for (id, peer_conn) in pairs {
+            inner.silent_deliver.insert(id);
+            inner.silent_deliver.insert(peer_conn);
+        }
     }
 
     /// True when `conn` exists and its peer endpoint is still installed.
@@ -533,6 +617,11 @@ fn schedule_wire_locked(inner: &mut WorldInner, event: NetworkEvent) -> u64 {
 }
 
 fn schedule_payload_locked(inner: &mut WorldInner, event: NetworkEvent) {
+    if let NetworkEvent::Deliver { conn, .. } = &event
+        && withhold_deliver_locked(inner, *conn)
+    {
+        return;
+    }
     let delay = match inner.payload_delay {
         PayloadDelay::Uniform { min_nanos, max_nanos } => {
             delay_nanos(inner.seed, inner.latency_samples, min_nanos, max_nanos)
@@ -553,9 +642,22 @@ fn schedule_payload_locked(inner: &mut WorldInner, event: NetworkEvent) {
         | NetworkEvent::ConnectTimeout { .. }
         | NetworkEvent::SendAck { .. }
         | NetworkEvent::Close { .. }
-        | NetworkEvent::PeerDisconnect => hop,
+        | NetworkEvent::PeerDisconnect
+        | NetworkEvent::StalledReader { .. }
+        | NetworkEvent::SilentResponder { .. } => hop,
     };
     schedule_event_locked(inner, time_nanos, event);
+}
+
+/// Skip `Deliver` once this destination is silent or already holding an earlier payload.
+/// The watermark stays at [`u64::MAX`] so a later schedule cannot jump ahead of the hold.
+fn withhold_deliver_locked(inner: &mut WorldInner, conn: ConnectionId) -> bool {
+    if !inner.silent_deliver.contains(&conn) && !inner.withheld_delivers.contains(&conn) {
+        return false;
+    }
+    inner.withheld_delivers.insert(conn);
+    inner.last_deliver_at.insert(conn, u64::MAX);
+    true
 }
 
 fn try_complete_recv_locked(
@@ -591,12 +693,14 @@ fn pair_connect_locked(inner: &mut WorldInner, target_addr: SocketAddr) -> Conne
     let initiator_conn = inner.next_conn_id.get_and_increment();
     let responder_conn = inner.next_conn_id.get_and_increment();
 
+    let initiator_addr = SocketAddr::from(([127, 0, 0, 1], 5000 + initiator_conn.as_u64() as u16));
     inner.endpoints.insert(
         initiator_conn,
         ConnectionEndpoint {
             inbox: VecDeque::new(),
             read_buffer: BytesMut::with_capacity(65536),
             peer_conn_id: responder_conn,
+            local_addr: initiator_addr,
         },
     );
     inner.endpoints.insert(
@@ -605,14 +709,19 @@ fn pair_connect_locked(inner: &mut WorldInner, target_addr: SocketAddr) -> Conne
             inbox: VecDeque::new(),
             read_buffer: BytesMut::with_capacity(65536),
             peer_conn_id: initiator_conn,
+            local_addr: target_addr,
         },
     );
+    if inner.stalled_reader_addrs.contains(&target_addr) {
+        inner.stalled_readers.insert(responder_conn);
+    }
+    if inner.silent_responder_addrs.contains(&target_addr) {
+        inner.silent_deliver.insert(initiator_conn);
+        inner.silent_deliver.insert(responder_conn);
+    }
 
     let listener = inner.listeners.get_mut(&target_addr).expect("pair_connect requires a listener");
-    listener.pending_handshakes.push_back(PendingHandshake {
-        responder_conn,
-        initiator_addr: SocketAddr::from(([127, 0, 0, 1], 5000 + initiator_conn.as_u64() as u16)),
-    });
+    listener.pending_handshakes.push_back(PendingHandshake { responder_conn, initiator_addr });
 
     initiator_conn
 }
@@ -658,17 +767,30 @@ impl ConnectionProvider for WorldConnectionProvider {
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {
         let mut inner = self.inner.lock();
-        let peer_live =
-            inner.endpoints.get(&conn).is_some_and(|endpoint| inner.endpoints.contains_key(&endpoint.peer_conn_id));
-        if peer_live {
-            let peer_id = inner.endpoints[&conn].peer_conn_id;
-            let time_nanos = inner.current_time_nanos;
-            schedule_event_locked(&mut inner, time_nanos, NetworkEvent::SendAck { conn });
-            schedule_payload_locked(
-                &mut inner,
-                NetworkEvent::Deliver { conn: peer_id, data: Bytes::copy_from_slice(&data) },
-            );
+        let Some(peer_id) = inner.endpoints.get(&conn).map(|endpoint| endpoint.peer_conn_id) else {
+            drop(inner);
+            return Box::pin(std::future::pending());
+        };
+        if !inner.endpoints.contains_key(&peer_id) {
+            drop(inner);
+            return Box::pin(std::future::pending());
         }
+        // The far side is not reading, or an earlier send on this endpoint is already withheld.
+        // Either way this write does not complete and its bytes are not delivered, so a later
+        // send cannot pass them.
+        if inner.stalled_readers.contains(&peer_id) || inner.withheld_sends.contains(&conn) {
+            inner.withheld_sends.insert(conn);
+            inner.withheld_delivers.insert(peer_id);
+            inner.last_deliver_at.insert(peer_id, u64::MAX);
+            drop(inner);
+            return Box::pin(std::future::pending());
+        }
+        let time_nanos = inner.current_time_nanos;
+        schedule_event_locked(&mut inner, time_nanos, NetworkEvent::SendAck { conn });
+        schedule_payload_locked(
+            &mut inner,
+            NetworkEvent::Deliver { conn: peer_id, data: Bytes::copy_from_slice(&data) },
+        );
         drop(inner);
         Box::pin(std::future::pending())
     }

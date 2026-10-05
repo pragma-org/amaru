@@ -224,6 +224,16 @@ impl ExternalEffectAPI for SendEffect {
     type Response = Result<(), SendError>;
     const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
 
+    fn simulated_duration_dist(&self) -> DurationDist {
+        // Tests that install a modelled link override this effect as Handled, so
+        // `wrap` is not called and this distribution is not checked against the const.
+        #[cfg(test)]
+        if let Some(delay) = modelled_link::send_delay(self.data.len().get()) {
+            return DurationDist::Constant(delay);
+        }
+        Self::SIMULATED_DURATION
+    }
+
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap(|this| async move {
             #[expect(clippy::expect_used)]
@@ -380,4 +390,49 @@ pub async fn create_connection(conn: &dyn amaru_ouroboros::ConnectionProvider) -
         Ok(conn.connect(peer, Duration::from_secs(5)).await?)
     })
     .await?
+}
+
+/// Simulated wire delay for mux egress tests.
+///
+/// Installing a rate makes [`SendEffect::simulated_duration_dist`] return the
+/// exact drain time of that segment at `bps` (`bytes * 8 / bps`, in nanoseconds;
+/// 500 kbps and 250 kbps divide evenly). The test must override the effect as
+/// `Handled`, because [`ExternalEffectAPI::wrap`] asserts the distribution still
+/// matches [`DurationDist::UntilResolved`] and would also open a real socket.
+///
+/// The reader is not given a new distribution. [`reader_hold`] is a one-shot
+/// `eff.wait` so the simulation stays Sleeping and `Run::until` can advance.
+/// Tests finish well under that hold; the following `recv` is never reached.
+#[cfg(test)]
+pub(crate) mod modelled_link {
+    use std::{cell::Cell, time::Duration};
+
+    thread_local! {
+        static BPS: Cell<Option<u64>> = const { Cell::new(None) };
+    }
+
+    pub(crate) struct Guard;
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            BPS.set(None);
+        }
+    }
+
+    pub(crate) fn install(bps: u64) -> Guard {
+        BPS.set(Some(bps));
+        Guard
+    }
+
+    pub(crate) fn send_delay(bytes: usize) -> Option<Duration> {
+        let bps = BPS.get()?;
+        let bytes = u128::from(u64::try_from(bytes).unwrap_or(u64::MAX));
+        let nanos = bytes.saturating_mul(8).saturating_mul(1_000_000_000) / u128::from(bps);
+        Some(Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX)))
+    }
+
+    /// How long `read_segment` sleeps while a modelled link is installed.
+    pub(crate) fn reader_hold() -> Option<Duration> {
+        BPS.get().map(|_| Duration::from_secs(3_600))
+    }
 }

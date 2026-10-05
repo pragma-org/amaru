@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroU8, sync::Arc, tim
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg};
-use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
+use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, TrySend, register_data_deserializer};
 
 use crate::{
     accept::{self, PullAccept},
@@ -82,6 +82,13 @@ pub enum ManagerMessage {
     ///
     /// When `peers` is `Some`, only those peers' initiating connections are asked.
     /// When `None`, every initiating connection is asked (cold-start / empty-selection fallback).
+    ///
+    /// Each connection is offered the request without waiting. One that cannot take it is
+    /// skipped. [`Blocks::NoPeersAvailable`] is sent when no initiating connection exists
+    /// to attempt. [`Blocks::NoneAccepted`] is sent when at least one did and none admitted
+    /// the request, so the fetch stage can ask other peers, or pause, without waiting out
+    /// the timeout in silence. The connection reports [`Blocks::PeersAsked`] itself once its
+    /// block-fetch handler has admitted the request.
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64, peers: Option<Vec<Peer>> },
     /// Start periodic peer-sharing requests on one outbound connection.
     ///
@@ -604,15 +611,23 @@ impl Manager {
         eff: &Effects<ManagerMessage>,
     ) {
         debug!(protocols::manager::blocks::FETCH, from, through, peers = format!("{peers:?}"));
-        let mut contacted = Vec::new();
+        let mut candidates = 0usize;
+        let mut admitted = 0usize;
+        let offer = async |stage: &StageRef<ConnectionMessage>| {
+            let outcome =
+                eff.try_send(stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+            outcome == TrySend::Queued
+        };
         match peers {
             None => {
                 for conn in self.connections.values() {
                     if !conn.may_initiate {
                         continue;
                     }
-                    contacted.push(conn.peer);
-                    eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+                    candidates += 1;
+                    if offer(&conn.stage).await {
+                        admitted += 1;
+                    }
                 }
             }
             Some(wanted) => {
@@ -620,17 +635,24 @@ impl Manager {
                     let Some(conn) = self.connections.values().find(|c| c.may_initiate && c.peer == peer) else {
                         continue;
                     };
-                    contacted.push(peer);
-                    eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+                    candidates += 1;
+                    if offer(&conn.stage).await {
+                        admitted += 1;
+                    }
                 }
             }
         }
-        if contacted.is_empty() {
+        // No initiating connection is a pause. Connections that exist but all refused
+        // are reported at once: the fetch stage asks someone it has not already chosen,
+        // or pauses on the timeout it already armed, instead of staying silent.
+        if candidates == 0 {
             debug!(protocols::manager::blocks::FETCH_NO_PEERS, id);
             eff.send(&cr, Blocks::NoPeersAvailable(id)).await;
+        } else if admitted == 0 {
+            debug!(protocols::manager::blocks::FETCH_NONE_ACCEPTED, id, candidates);
+            eff.send(&cr, Blocks::NoneAccepted(id)).await;
         } else {
-            debug!(protocols::manager::blocks::FETCH_SENT, id, sent = contacted.len());
-            eff.send(&cr, Blocks::PeersAsked(id, contacted)).await;
+            debug!(protocols::manager::blocks::FETCH_SENT, id, sent = admitted);
         }
     }
 
@@ -731,7 +753,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::NewTip(tip, trace_context) => {
                 for conn in manager.connections.values() {
-                    eff.send(&conn.stage, ConnectionMessage::NewTip(tip, trace_context.clone())).await;
+                    // A tip that does not fit is skipped. The next header sends the newer one.
+                    let _ = eff.try_send(&conn.stage, ConnectionMessage::NewTip(tip, trace_context.clone())).await;
                 }
             }
             ManagerMessage::FetchBlocks { from, through, cr, id, peers } => {
@@ -791,4 +814,365 @@ pub fn register_deserializers() -> DeserializerGuards {
     ];
     guards.extend(connector::register_deserializers());
     guards
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use amaru_kernel::PREPROD_ERA_HISTORY;
+    use amaru_pure_stage::{
+        DEFAULT_MAILBOX_SIZE, StageGraph, StageResponse, TraceMatch,
+        simulation::{Run, SimulationBuilder, SimulationRunning},
+        trace_buffer::{TraceBuffer, TraceEntry},
+        trace_match::{
+            assert_trace_match_filter, tm_input, tm_resume_try_send, tm_send, tm_state_match, tm_try_send_match,
+        },
+    };
+    use tokio::runtime::Runtime;
+
+    use super::*;
+
+    async fn hold(_state: (), _msg: ConnectionMessage, eff: Effects<ConnectionMessage>) {
+        eff.wait(Duration::from_secs(3600)).await;
+    }
+
+    fn drop_other_stages(keep: &str) -> TraceMatch<'static> {
+        let keep = keep.to_string();
+        let description = format!("stage other than {keep}");
+        TraceMatch::Property(
+            Box::new(move |src| {
+                src.entry().and_then(|entry| entry.at_stage()).is_some_and(|stage| stage.as_str() != keep)
+            }),
+            description,
+        )
+    }
+
+    /// Drops resumes other than [`StageResponse::TrySend`]. The admission result is that resume.
+    fn drop_resume_except_try_send() -> TraceMatch<'static> {
+        TraceMatch::Property(
+            Box::new(|src| match src.entry() {
+                Some(TraceEntry::Resume { response: StageResponse::TrySend(_), .. }) => false,
+                Some(TraceEntry::Resume { .. }) => true,
+                _ => false,
+            }),
+            "Resume other than TrySend".to_string(),
+        )
+    }
+
+    struct Fanout {
+        manager: amaru_pure_stage::stage_ref::StageStateRef<ManagerMessage, Manager>,
+        full: amaru_pure_stage::stage_ref::StageStateRef<ConnectionMessage, ()>,
+        open: amaru_pure_stage::stage_ref::StageStateRef<ConnectionMessage, ()>,
+        replies: amaru_pure_stage::stage_ref::StageStateRef<Blocks, Vec<Blocks>>,
+        replies_ref: StageRef<Blocks>,
+        full_peer: Peer,
+        open_peer: Peer,
+        running: SimulationRunning,
+        guards: amaru_pure_stage::DeserializerGuards,
+    }
+
+    fn fanout(fill_open: bool) -> Fanout {
+        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
+        let manager = network.stage("manager", stage);
+        let full = network.stage("peer-full", hold);
+        let open = network.stage("peer-open", hold);
+        let replies = network.stage("replies", async |mut seen: Vec<Blocks>, msg: Blocks, _eff: Effects<Blocks>| {
+            seen.push(msg);
+            seen
+        });
+        let full_sender = full.sender();
+        let open_sender = open.sender();
+        let replies_sender = replies.sender();
+        let full = network.wire_up(full, ());
+        let open = network.wire_up(open, ());
+        let replies = network.wire_up(replies, Vec::new());
+
+        let full_peer = Peer::for_test(3001);
+        let open_peer = Peer::for_test(3002);
+        let mut ids = ConnectionId::initial();
+        let full_id = ids.get_and_increment();
+        let open_id = ids.get_and_increment();
+        let mut state = Manager::new(
+            NetworkMagic::PREPROD,
+            ManagerConfig::default(),
+            Arc::new(PREPROD_ERA_HISTORY.clone()),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+        );
+        state.connections.insert(
+            full_id,
+            Connection {
+                peer: full_peer,
+                stage: full_sender,
+                direction: ConnectionDirection::Outbound,
+                may_initiate: true,
+                full_duplex_capable: true,
+            },
+        );
+        state.connections.insert(
+            open_id,
+            Connection {
+                peer: open_peer,
+                stage: open_sender,
+                direction: ConnectionDirection::Outbound,
+                may_initiate: true,
+                full_duplex_capable: true,
+            },
+        );
+        let manager = network.wire_up(manager, state);
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        let _guards = crate::deserializers::register_deserializers();
+        running.run(Run::default()).assert_idle();
+        park(&mut running, &full);
+        park(&mut running, &open);
+        stuff(&mut running, &full);
+        if fill_open {
+            stuff(&mut running, &open);
+        }
+        running.trace_buffer().lock().clear();
+        Fanout {
+            manager,
+            full,
+            open,
+            replies,
+            replies_ref: replies_sender,
+            full_peer,
+            open_peer,
+            running,
+            guards: _guards,
+        }
+    }
+
+    fn park(running: &mut SimulationRunning, stage: &impl AsRef<StageRef<ConnectionMessage>>) {
+        running.enqueue_msg(stage, [ConnectionMessage::new_tip(Point::Origin)]);
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(running.mailbox_len(stage), 0);
+    }
+
+    fn stuff(running: &mut SimulationRunning, stage: &impl AsRef<StageRef<ConnectionMessage>>) {
+        for _ in 0..DEFAULT_MAILBOX_SIZE {
+            running.enqueue_msg(stage, [ConnectionMessage::new_tip(Point::Origin)]);
+        }
+        assert_eq!(running.mailbox_len(stage), DEFAULT_MAILBOX_SIZE);
+    }
+
+    fn fetch(id: u64, cr: StageRef<Blocks>, peers: Option<Vec<Peer>>) -> ManagerMessage {
+        ManagerMessage::FetchBlocks { from: Point::Origin, through: Point::Origin, cr, id, peers }
+    }
+
+    #[test]
+    fn nonblocking_fetch_skips_full_peer() {
+        let Fanout { manager, full, open, replies, replies_ref, full_peer, open_peer, mut running, guards: _guards } =
+            fanout(false);
+        let msg = fetch(7, replies_ref, Some(vec![full_peer, open_peer]));
+        running.enqueue_msg(&manager, [msg.clone()]);
+        running.run(Run::default()).assert_sleeping();
+
+        assert!(running.get_state(&manager).is_some(), "manager waited on a full peer");
+        assert_eq!(running.mailbox_len(&full), DEFAULT_MAILBOX_SIZE);
+        assert_eq!(running.mailbox_len(&open), 1);
+        assert!(running.get_state(&replies).unwrap().is_empty(), "manager does not emit PeersAsked");
+
+        let name = manager.name().as_str();
+        assert_trace_match_filter(
+            &running,
+            &[
+                tm_input(name, &msg),
+                tm_try_send_match(name, "peer-full", |sent: &ConnectionMessage| {
+                    matches!(sent, ConnectionMessage::FetchBlocks { id: 7, .. })
+                }),
+                tm_resume_try_send(name, TrySend::Full),
+                tm_try_send_match(name, "peer-open", |sent: &ConnectionMessage| {
+                    matches!(sent, ConnectionMessage::FetchBlocks { id: 7, .. })
+                }),
+                tm_resume_try_send(name, TrySend::Queued),
+                tm_state_match(name, |state: &Manager| state.connections.len() == 2),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
+
+    #[test]
+    fn nonblocking_fetch_all_full_notifies_immediately() {
+        let Fanout { manager, full, open, replies, replies_ref, full_peer, open_peer, mut running, guards: _guards } =
+            fanout(true);
+        let msg = fetch(7, replies_ref, Some(vec![full_peer, open_peer]));
+        running.enqueue_msg(&manager, [msg.clone()]);
+        running.run(Run::default()).assert_sleeping();
+
+        assert!(running.get_state(&manager).is_some(), "manager waited on a full peer");
+        assert_eq!(running.mailbox_len(&full), DEFAULT_MAILBOX_SIZE);
+        assert_eq!(running.mailbox_len(&open), DEFAULT_MAILBOX_SIZE);
+        assert_eq!(running.get_state(&replies).unwrap().as_slice(), &[Blocks::NoneAccepted(7)]);
+
+        let name = manager.name().as_str();
+        assert_trace_match_filter(
+            &running,
+            &[
+                tm_input(name, &msg),
+                tm_try_send_match(name, "peer-full", |sent: &ConnectionMessage| {
+                    matches!(sent, ConnectionMessage::FetchBlocks { id: 7, .. })
+                }),
+                tm_resume_try_send(name, TrySend::Full),
+                tm_try_send_match(name, "peer-open", |sent: &ConnectionMessage| {
+                    matches!(sent, ConnectionMessage::FetchBlocks { id: 7, .. })
+                }),
+                tm_resume_try_send(name, TrySend::Full),
+                tm_send(name, "replies", Blocks::NoneAccepted(7)),
+                tm_state_match(name, |state: &Manager| state.connections.len() == 2),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
+
+    #[test]
+    fn nonblocking_fetch_all_gone_notifies_immediately() {
+        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
+        let manager = network.stage("manager", stage);
+        let replies = network.stage("replies", async |mut seen: Vec<Blocks>, msg: Blocks, _eff: Effects<Blocks>| {
+            seen.push(msg);
+            seen
+        });
+        let replies_sender = replies.sender();
+        let replies = network.wire_up(replies, Vec::new());
+        let peer = Peer::for_test(3001);
+        let mut state = Manager::new(
+            NetworkMagic::PREPROD,
+            ManagerConfig::default(),
+            Arc::new(PREPROD_ERA_HISTORY.clone()),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+        );
+        state.connections.insert(
+            ConnectionId::initial(),
+            Connection {
+                peer,
+                stage: StageRef::named_for_tests("peer-gone"),
+                direction: ConnectionDirection::Outbound,
+                may_initiate: true,
+                full_duplex_capable: true,
+            },
+        );
+        let manager = network.wire_up(manager, state);
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        let _guards = crate::deserializers::register_deserializers();
+        running.run(Run::default()).assert_idle();
+        running.trace_buffer().lock().clear();
+
+        let msg = fetch(7, replies_sender, Some(vec![peer]));
+        running.enqueue_msg(&manager, [msg.clone()]);
+        running.run(Run::default()).assert_idle();
+        assert_eq!(running.get_state(&replies).unwrap().as_slice(), &[Blocks::NoneAccepted(7)]);
+
+        let name = manager.name().as_str();
+        assert_trace_match_filter(
+            &running,
+            &[
+                tm_input(name, &msg),
+                tm_try_send_match(name, "peer-gone", |sent: &ConnectionMessage| {
+                    matches!(sent, ConnectionMessage::FetchBlocks { id: 7, .. })
+                }),
+                tm_resume_try_send(name, TrySend::Gone),
+                tm_send(name, "replies", Blocks::NoneAccepted(7)),
+                tm_state_match(name, |state: &Manager| state.connections.len() == 1),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
+
+    #[test]
+    fn nonblocking_fetch_without_candidates_emits_no_peers() {
+        let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer);
+        let manager = network.stage("manager", stage);
+        let replies = network.stage("replies", async |mut seen: Vec<Blocks>, msg: Blocks, _eff: Effects<Blocks>| {
+            seen.push(msg);
+            seen
+        });
+        let replies_sender = replies.sender();
+        let replies = network.wire_up(replies, Vec::new());
+        let state = Manager::new(
+            NetworkMagic::PREPROD,
+            ManagerConfig::default(),
+            Arc::new(PREPROD_ERA_HISTORY.clone()),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+        );
+        let manager = network.wire_up(manager, state);
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        let _guards = crate::deserializers::register_deserializers();
+        running.run(Run::default()).assert_idle();
+        running.trace_buffer().lock().clear();
+
+        let msg = fetch(7, replies_sender, None);
+        running.enqueue_msg(&manager, [msg.clone()]);
+        running.run(Run::default()).assert_idle();
+        assert_eq!(running.get_state(&replies).unwrap().as_slice(), &[Blocks::NoPeersAvailable(7)]);
+
+        let name = manager.name().as_str();
+        assert_trace_match_filter(
+            &running,
+            &[
+                tm_input(name, &msg),
+                tm_send(name, "replies", Blocks::NoPeersAvailable(7)),
+                tm_state_match(name, |state: &Manager| state.connections.is_empty()),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
+
+    #[test]
+    fn nonblocking_new_tip_skips_full_peer() {
+        let Fanout {
+            manager,
+            full,
+            open,
+            replies: _,
+            replies_ref: _,
+            full_peer: _,
+            open_peer: _,
+            mut running,
+            guards: _guards,
+        } = fanout(false);
+        let tip = Point::Origin;
+        let msg = ManagerMessage::new_tip(tip);
+        running.enqueue_msg(&manager, [msg.clone()]);
+        running.run(Run::default()).assert_sleeping();
+
+        assert!(running.get_state(&manager).is_some(), "manager waited on a full peer");
+        assert_eq!(running.mailbox_len(&full), DEFAULT_MAILBOX_SIZE);
+        assert_eq!(running.mailbox_len(&open), 1);
+
+        let name = manager.name().as_str();
+        assert_trace_match_filter(
+            &running,
+            &[
+                tm_input(name, &msg),
+                tm_try_send_match(
+                    name,
+                    "peer-full",
+                    |sent: &ConnectionMessage| matches!(sent, ConnectionMessage::NewTip(point, _) if *point == tip),
+                ),
+                tm_resume_try_send(name, TrySend::Full),
+                tm_try_send_match(
+                    name,
+                    "peer-open",
+                    |sent: &ConnectionMessage| matches!(sent, ConnectionMessage::NewTip(point, _) if *point == tip),
+                ),
+                tm_resume_try_send(name, TrySend::Queued),
+                tm_state_match(name, |state: &Manager| state.connections.len() == 2),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
 }

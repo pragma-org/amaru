@@ -47,6 +47,12 @@ pub enum Input<L, R> {
 // TODO(network) find right value
 pub const NETWORK_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// Slowest sustained rate a single lane is still only slow.
+///
+/// Per-lane bandwidth is assumed to be at least 500 kbps. A lane below that is
+/// faulted, not scored as adversarial. Bits per second.
+pub const MIN_PEER_BANDWIDTH_BPS: u64 = 500_000;
+
 #[derive(serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ProtocolId<T: RoleT>(u16, PhantomData<T>);
 
@@ -223,6 +229,48 @@ impl<R: RoleT> TryFrom<ProtocolId<R>> for KnownProtocol {
     }
 }
 
+/// Bytes on the wire for one message of `payload` bytes.
+///
+/// Each segment carries [`crate::mux::SEGMENT_HEADER_LEN`] extra bytes. An empty
+/// payload contributes nothing. Other lanes are not included.
+fn wire_bytes(payload: usize) -> u64 {
+    if payload == 0 {
+        return 0;
+    }
+    let payload = u64::try_from(payload).unwrap_or(u64::MAX);
+    let segment = u64::try_from(crate::mux::MAX_SEGMENT_SIZE).unwrap_or(u64::MAX);
+    let header = u64::try_from(crate::mux::SEGMENT_HEADER_LEN).unwrap_or(u64::MAX);
+    let segments = payload.div_ceil(segment);
+    payload.saturating_add(segments.saturating_mul(header))
+}
+
+/// Time to drain one full egress buffer at [`MIN_PEER_BANDWIDTH_BPS`].
+///
+/// The buffer holds [`crate::mux::MAX_SEGMENT_SIZE`] bytes. One handler runs
+/// on a lane and submits the next message only after the previous message's
+/// last byte is already in that buffer, so a call waits on at most one
+/// in-flight segment and one full buffer.
+pub(crate) fn egress_buffer_drain() -> Duration {
+    let bytes = u128::from(u64::try_from(crate::mux::MAX_SEGMENT_SIZE).unwrap_or(u64::MAX));
+    let nanos = bytes.saturating_mul(8).saturating_mul(1_000_000_000) / u128::from(MIN_PEER_BANDWIDTH_BPS);
+    Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
+}
+
+/// How long the mux may take to accept one message of `payload_len` bytes.
+///
+/// A lane is assumed to have at least [`MIN_PEER_BANDWIDTH_BPS`]. A lane below
+/// that rate is faulted and is not recorded as adversarial. Other lanes are
+/// not part of this budget.
+///
+/// The slack is one full egress buffer, not a fixed second: one sequential
+/// handler per lane means the previous message's last byte is already in the
+/// one-segment buffer. The rest is this message's own wire time at 500 kbps,
+/// including segment headers.
+pub fn egress_admission_deadline(payload_len: usize) -> Duration {
+    let millis = wire_bytes(payload_len).saturating_mul(8).saturating_mul(1000).div_ceil(MIN_PEER_BANDWIDTH_BPS);
+    Duration::from_millis(millis) + egress_buffer_drain()
+}
+
 // The below are only for information regarding the allocated numbers, Amaru will not implement N2C protocols.
 
 // pub const PROTO_N2C_CHAIN_SYNC: ProtocolId<Initiator> = ProtocolId::<Initiator>(5, PhantomData);
@@ -285,5 +333,38 @@ impl ProtocolId<Initiator> {
 impl ProtocolId<Responder> {
     pub const fn initiator(self) -> ProtocolId<Initiator> {
         ProtocolId(self.0 & !RESPONDER, PhantomData)
+    }
+}
+
+#[cfg(test)]
+mod egress_deadline_tests {
+    use super::*;
+
+    #[test]
+    fn block_deadline_is_one_buffer_drain_plus_its_own_wire_time() {
+        let block = crate::blockfetch::BLOCKFETCH_MAX_BLOCK_WIRE_BYTES;
+        assert_eq!(block, 96 * 1024);
+        // wire(98304) = 98304 + 2 * 8 = 98320
+        // ceil(98320 * 8 * 1000 / 500_000) = 1574 ms
+        // drain(65535) = 65535 * 8 * 1e9 / 500_000 = 1_048_560_000 ns
+        assert_eq!(wire_bytes(block), 98_320);
+        assert_eq!(egress_buffer_drain(), Duration::from_nanos(1_048_560_000));
+        let deadline = egress_admission_deadline(block);
+        assert_eq!(deadline, Duration::from_millis(1_574) + Duration::from_nanos(1_048_560_000));
+        assert_eq!(deadline, Duration::from_nanos(2_622_560_000));
+    }
+
+    #[test]
+    fn just_over_one_segment_is_longer_than_a_one_second_slack() {
+        // wire(65537) = 65537 + 2 * 8 = 65553
+        // ceil(65553 * 8 * 1000 / 500_000) = 1049 ms
+        // A fixed 1 s slack made the deadline 2049 ms. One full buffer is 1048.56 ms.
+        let payload = crate::mux::MAX_SEGMENT_SIZE + 2;
+        assert_eq!(payload, 65_537);
+        assert_eq!(wire_bytes(payload), 65_553);
+        let deadline = egress_admission_deadline(payload);
+        assert_eq!(deadline, Duration::from_millis(1_049) + egress_buffer_drain());
+        assert_eq!(deadline, Duration::from_nanos(2_097_560_000));
+        assert!(deadline > Duration::from_millis(2_049));
     }
 }

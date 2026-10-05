@@ -26,10 +26,10 @@ use amaru_observability::{Instrument, TraceContext, debug, debug_record, debug_s
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
-    chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
+    chainsync::{self, ChainSyncInitiatorMsg, HeaderContent, PIPELINE_DEPTH},
     store_effects::{GetBestChainTipEffect, Store},
 };
-use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
+use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef, TrySend};
 
 use super::peer_selection::PeerSelectionMsg;
 use crate::{
@@ -44,6 +44,17 @@ use crate::{
 
 /// Poll interval while headers are deferred on applied ledger height.
 pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Timeout slot for `RequestNext`s a chain-sync handler did not accept.
+///
+/// Distinct from [`TrackPeers::recheck_timer`], which is a schedule id, not a timeout slot.
+const REQUEST_RETRY_SLOT: u64 = 1;
+
+/// Wait before offering owed `RequestNext`s again.
+///
+/// A handler that did not accept one is busy for a short call, not for a network
+/// timeout. 100ms is long enough for it to finish that call and read its mailbox.
+const REQUEST_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 /// Permissible header clock skew: slots whose onset is at most this far in the future are deferred.
 /// Further ahead is treated as adversarial.
@@ -129,8 +140,13 @@ pub const MAX_HEADER_CLOCK_SKEW: Duration = Duration::from_secs(2);
 /// - **Effects**: `VolatileTipEffect`, ledger `validate_header`, store load / has / store, `clock`,
 ///   `schedule_at` / `cancel_schedule` (coalesced deferred recheck). Trace context is attached via
 ///   [`TraceContext`] on ledger and store operations.
-/// - **Sends**: per-peer `RequestNext` / `Done`; `Adversarial(peer, TraceContext)` to peer selection;
-///   [`NewTip`] to downstream when a new header is stored.
+/// - **Sends**: per-peer `RequestNext` / `Done` with `try_send` (a full or gone handler does not
+///   stall this stage); `Adversarial(peer, TraceContext)` to peer selection; [`NewTip`] to
+///   downstream when a new header is stored. A `RequestNext` that finds a full mailbox is
+///   counted, up to [`PIPELINE_DEPTH`], and retried from the next message for that peer and from
+///   one coalesced 100ms timeout. That retry offers
+///   every owed `RequestNext` the handler will accept, then arms the same slot again only while
+///   some live session still owes one. `Gone` drops that session's count and is not tried again.
 ///
 /// Logging: INFO (init / intersect / rollback), DEBUG (store / defer), TRACE (roll-forward entry),
 /// ERROR (failures), WARN (unknown intersect).
@@ -149,6 +165,8 @@ pub struct TrackPeers {
     deferred: Vec<DeferredHeader>,
     /// Single outstanding self-schedule for height/clock deferred rechecks.
     recheck_timer: Option<ScheduleId>,
+    /// `REQUEST_RETRY_SLOT` is armed while any session still owes a `RequestNext`.
+    request_retry_armed: bool,
     /// Last time a near-now header was compared with the adopted tip.
     last_chain_lag_check: Option<Instant>,
     /// Lateness of the adopted tip at that check, while the tip was still behind.
@@ -161,7 +179,19 @@ enum PerPeer {
     /// Session started (`Initialize`); intersection not yet established.
     Connecting { peer: Peer },
     /// Intersection established; tips are tracked.
-    Established { peer: Peer, current: Point, highest: Point },
+    Established {
+        peer: Peer,
+        current: Point,
+        highest: Point,
+        /// `RequestNext`s a live handler has not accepted. Capped at [`PIPELINE_DEPTH`].
+        /// Dropped when `try_send` returns [`TrySend::Gone`].
+        owed: u8,
+        /// Last handler for this session, used to retry owed `RequestNext`s.
+        handler: Option<StageRef<chainsync::InitiatorMessage>>,
+        /// The last `try_send` to `handler` returned [`TrySend::Gone`].
+        /// Further offers to that same handler are skipped.
+        handler_gone: bool,
+    },
 }
 
 impl PerPeer {
@@ -312,6 +342,8 @@ pub enum TrackPeersMsg {
     StakeDistUpdated(Epoch),
     /// Self-scheduled message to check if ledger height has advanced enough for deferred headers.
     RecheckLedgerHeight,
+    /// Self-scheduled retry of `RequestNext`s a handler did not accept.
+    RetryRequestNext,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -330,7 +362,7 @@ impl NewTip {
 pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {
     match msg {
         TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg { peer, conn_id, handler, msg }) => {
-            state.handle_from_upstream(peer, conn_id, handler, msg, eff).await;
+            state.handle_from_upstream(peer, conn_id, handler, msg, &eff).await;
         }
         TrackPeersMsg::StakeDistUpdated(max_epoch) => {
             state.max_epoch = max_epoch;
@@ -340,7 +372,12 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
             state.recheck_timer = None;
             state.recheck_deferred(&eff).await;
         }
+        TrackPeersMsg::RetryRequestNext => {
+            state.request_retry_armed = false;
+            state.retry_owed(&eff).await;
+        }
     }
+    state.ensure_request_retry(&eff).await;
     state
 }
 
@@ -363,6 +400,7 @@ impl TrackPeers {
             ledger_last_checked_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
             max_epoch,
             recheck_timer: None,
+            request_retry_armed: false,
             last_chain_lag_check: None,
             chain_lag: None,
         }
@@ -371,7 +409,17 @@ impl TrackPeers {
     /// Insert or replace an established session's tips. For use in tests.
     #[cfg(test)]
     pub fn insert_peer(&mut self, peer: Peer, conn_id: ConnectionId, current: Point, highest: Point) {
-        self.upstream.insert(conn_id, PerPeer::Established { peer, current, highest });
+        self.upstream.insert(
+            conn_id,
+            PerPeer::Established {
+                peer,
+                current,
+                highest,
+                owed: 0,
+                handler: Some(StageRef::blackhole()),
+                handler_gone: false,
+            },
+        );
     }
 
     /// Record a connecting session. For use in tests.
@@ -770,7 +818,9 @@ impl TrackPeers {
         self.roll_forward(*conn_id, header, *tip).await;
 
         // now we can destructure to consume the pieces
-        let RollForwardArgs { peer, header, tip, sent_request_next, handler, trace_context, received_at, .. } = args;
+        let RollForwardArgs {
+            peer, conn_id, header, tip, sent_request_next, handler, trace_context, received_at, ..
+        } = args;
         let header_tip = header.point();
         let current = header_tip;
         let header_parent = header.parent_hash();
@@ -833,9 +883,105 @@ impl TrackPeers {
         }
 
         if !sent_request_next {
-            eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
+            self.offer_request_next(conn_id, &handler, eff, false).await;
         }
         Ok(())
+    }
+
+    fn owed(&self, conn_id: ConnectionId) -> u8 {
+        match self.upstream.get(&conn_id) {
+            Some(PerPeer::Established { owed, .. }) => *owed,
+            Some(PerPeer::Connecting { .. }) | None => 0,
+        }
+    }
+
+    /// Count a `RequestNext` a live handler did not accept, or clear one that a retry admitted.
+    ///
+    /// A new `Queued` does not change the counter: that request was admitted, and any earlier
+    /// miss is still owed. A retry `Queued` clears one owed slot.
+    /// `Full` on a new request increments, saturating at [`PIPELINE_DEPTH`]. `Full` on a retry
+    /// leaves the counter unchanged: that slot is still owed once.
+    /// `Gone` drops the counter. The handler is gone, so nothing remains to deliver.
+    fn record_request_next(&mut self, conn_id: ConnectionId, outcome: TrySend, retry: bool) {
+        let Some(PerPeer::Established { owed, handler_gone, .. }) = self.upstream.get_mut(&conn_id) else {
+            return;
+        };
+        *handler_gone = matches!(outcome, TrySend::Gone);
+        match outcome {
+            TrySend::Gone => *owed = 0,
+            TrySend::Queued if retry => *owed = owed.saturating_sub(1),
+            TrySend::Full if !retry => *owed = owed.saturating_add(1).min(PIPELINE_DEPTH),
+            TrySend::Queued | TrySend::Full => {}
+        }
+    }
+
+    /// `true` when this session already saw [`TrySend::Gone`] for `handler`.
+    fn handler_is_gone(&self, conn_id: ConnectionId, handler: &StageRef<chainsync::InitiatorMessage>) -> bool {
+        match self.upstream.get(&conn_id) {
+            Some(PerPeer::Established { handler_gone: true, handler: Some(stored), .. }) => stored == handler,
+            Some(PerPeer::Established { .. } | PerPeer::Connecting { .. }) | None => false,
+        }
+    }
+
+    /// Offer one `RequestNext`. `retry` admits an already-counted slot; otherwise this is a new one.
+    ///
+    /// A handler already known to be gone is not offered again.
+    async fn offer_request_next(
+        &mut self,
+        conn_id: ConnectionId,
+        handler: &StageRef<chainsync::InitiatorMessage>,
+        eff: &Effects<TrackPeersMsg>,
+        retry: bool,
+    ) {
+        if self.handler_is_gone(conn_id, handler) || (retry && self.owed(conn_id) == 0) {
+            return;
+        }
+        let outcome = eff.try_send(handler, chainsync::InitiatorMessage::RequestNext).await;
+        self.record_request_next(conn_id, outcome, retry);
+        if let Some(PerPeer::Established { handler: stored, .. }) = self.upstream.get_mut(&conn_id) {
+            *stored = Some(handler.clone());
+        }
+    }
+
+    /// Offer every owed `RequestNext` each session's handler will accept.
+    ///
+    /// `Full` stops that session: the slot is still owed once, and another try in this wakeup
+    /// would not admit it. `Gone` drops the count, so the loop stops. The counter stays capped
+    /// at [`PIPELINE_DEPTH`]. One timeout is armed afterwards, and only while something remains owed.
+    async fn retry_owed(&mut self, eff: &Effects<TrackPeersMsg>) {
+        let due: Vec<_> = self
+            .upstream
+            .iter()
+            .filter_map(|(conn_id, peer)| match peer {
+                PerPeer::Established { owed, handler: Some(handler), .. } if *owed > 0 => {
+                    Some((*conn_id, handler.clone()))
+                }
+                PerPeer::Established { .. } | PerPeer::Connecting { .. } => None,
+            })
+            .collect();
+        for (conn_id, handler) in due {
+            while self.owed(conn_id) > 0 {
+                let before = self.owed(conn_id);
+                self.offer_request_next(conn_id, &handler, eff, true).await;
+                if self.owed(conn_id) == before {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Arm one retry timeout while any session owes a `RequestNext`, and clear it otherwise.
+    async fn ensure_request_retry(&mut self, eff: &Effects<TrackPeersMsg>) {
+        let owed = self.upstream.values().any(|peer| matches!(peer, PerPeer::Established { owed, .. } if *owed > 0));
+        if owed {
+            if !self.request_retry_armed {
+                eff.set_timeout_at(REQUEST_RETRY_SLOT, REQUEST_RETRY_DELAY, TrackPeersMsg::RetryRequestNext).await;
+                self.request_retry_armed = true;
+            }
+        } else if self.request_retry_armed {
+            eff.clear_timeout_at(REQUEST_RETRY_SLOT).await;
+            self.request_retry_armed = false;
+        }
     }
 
     async fn handle_from_upstream(
@@ -844,7 +990,7 @@ impl TrackPeers {
         conn_id: ConnectionId,
         handler: StageRef<chainsync::InitiatorMessage>,
         msg: chainsync::InitiatorResult,
-        eff: Effects<TrackPeersMsg>,
+        eff: &Effects<TrackPeersMsg>,
     ) {
         use amaru_protocols::chainsync::InitiatorResult::*;
         match msg {
@@ -861,13 +1007,17 @@ impl TrackPeers {
             Terminated => {
                 info!(consensus::chainsync::TERMINATED, peer, conn_id = conn_id.as_u64());
                 self.purge_connection(conn_id);
-                self.clear_availability_if_gone(&peer, &eff).await;
+                self.clear_availability_if_gone(&peer, eff).await;
             }
             IntersectFound(current, tip) => {
                 let current_tip = Store::new(eff.clone()).load_point(&current.hash()).await;
                 let Some(current_tip) = current_tip else {
                     warn!(consensus::chainsync::UNKNOWN_INTERSECTION_POINT, peer, current, highest = tip);
-                    eff.send(&handler, chainsync::InitiatorMessage::Done).await;
+                    // One attempt. This session was never established, so `Done` is not an owed
+                    // `RequestNext`. `Gone`: the handler does not exist, and there is nothing to
+                    // retry. `Full`: the mailbox did not accept it; that miss is not counted and
+                    // not retried.
+                    let _ = eff.try_send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
                 info!(
@@ -879,7 +1029,17 @@ impl TrackPeers {
                 );
                 let now = eff.clock().await;
                 eff.external(Performance::record_intersection(peer, current_tip, None, now)).await;
-                self.upstream.insert(conn_id, PerPeer::Established { peer, current: current_tip, highest: tip });
+                self.upstream.insert(
+                    conn_id,
+                    PerPeer::Established {
+                        peer,
+                        current: current_tip,
+                        highest: tip,
+                        owed: 0,
+                        handler: Some(handler.clone()),
+                        handler_gone: false,
+                    },
+                );
             }
             IntersectNotFound(tip) => {
                 info!(consensus::chainsync::INTERSECT_NOT_FOUND, peer, highest = tip);
@@ -891,7 +1051,7 @@ impl TrackPeers {
                 )
                 .await;
                 self.purge_connection(conn_id);
-                self.clear_availability_if_gone(&peer, &eff).await;
+                self.clear_availability_if_gone(&peer, eff).await;
             }
             RollForward(header_content, tip) => {
                 let span = debug_span!(root, consensus::roll_forward::PROCESS, tip, peer);
@@ -916,7 +1076,7 @@ impl TrackPeers {
                                 error = error.to_string(),
                                 outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
-                            record_header_rejected(&eff, HeaderLifecycleOutcome::UndecodableHeader).await;
+                            record_header_rejected(eff, HeaderLifecycleOutcome::UndecodableHeader).await;
                             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context.clone()))
                                 .await;
                             return;
@@ -925,7 +1085,9 @@ impl TrackPeers {
                     debug_record!(consensus::roll_forward::PROCESS, header_hash = header.hash());
 
                     let now = eff.clock().await;
-                    self.note_chain_lag(&eff, peer, &header, now).await;
+                    self.note_chain_lag(eff, peer, &header, now).await;
+                    // One owed slot, if any, before this header decides whether it generates a new one.
+                    self.offer_request_next(conn_id, &handler, eff, true).await;
 
                     if self.is_deferred(conn_id) {
                         self.defer(DeferredHeader {
@@ -965,11 +1127,11 @@ impl TrackPeers {
                             trace_context,
                             received_at: now,
                         });
-                        self.ensure_recheck_armed(&eff).await;
+                        self.ensure_recheck_armed(eff).await;
                         return;
                     }
 
-                    eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
+                    self.offer_request_next(conn_id, &handler, eff, false).await;
                     let args = RollForwardArgs {
                         peer,
                         conn_id,
@@ -981,9 +1143,9 @@ impl TrackPeers {
                         trace_context,
                         received_at: now,
                     };
-                    if let Err(dh) = self.try_roll_forward(args, &eff, now).await {
+                    if let Err(dh) = self.try_roll_forward(args, eff, now).await {
                         self.defer(dh);
-                        self.ensure_recheck_armed(&eff).await;
+                        self.ensure_recheck_armed(eff).await;
                     }
                 }
                 .instrument(span)
@@ -994,7 +1156,8 @@ impl TrackPeers {
                 let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
-                    eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
+                    self.offer_request_next(conn_id, &handler, eff, true).await;
+                    self.offer_request_next(conn_id, &handler, eff, false).await;
 
                     let store = Store::new(eff.clone()).with_trace_context(&trace_context);
                     match self.roll_backward(&peer, conn_id, current, tip, &store).await {

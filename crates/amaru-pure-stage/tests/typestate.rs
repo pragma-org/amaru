@@ -276,8 +276,8 @@ impl IntoRoleCall<ToEcho, u32> for EchoDest {
     type Reply = u32;
     const TIMEOUT: Duration = Duration::from_secs(1);
 
-    fn encode(&self, n: u32, reply: StageRef<u32>) -> EchoMail {
-        EchoMail::Ask(n, reply)
+    fn into_call(self, n: u32) -> (Duration, impl FnOnce(StageRef<u32>) -> EchoMail + std::marker::Send + 'static) {
+        (Self::TIMEOUT, move |reply| EchoMail::Ask(n, reply))
     }
 }
 
@@ -305,7 +305,13 @@ fn call_waits_for_the_reply() {
             Ok(AskingIn::Ping(ping)) => {
                 let n = ping.0;
                 let (reply, s) = asking.receive(&ping, eff).call(&state.echo, n).await;
-                RpcServer { live: s.finish().into(), got: reply, echo: state.echo }
+                let got = match reply {
+                    amaru_pure_stage::CallAdmission::Reply(v) => Some(v),
+                    amaru_pure_stage::CallAdmission::NotAdmitted(_) | amaru_pure_stage::CallAdmission::TimedOut(_) => {
+                        None
+                    }
+                };
+                RpcServer { live: s.finish().into(), got, echo: state.echo }
             }
             Err(_msg) => RpcServer { live: asking.into(), ..state },
         },

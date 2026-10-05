@@ -32,7 +32,7 @@ use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage, PeerSelectionNotify},
 };
-use amaru_pure_stage::{Sender, StageGraph, StageRef};
+use amaru_pure_stage::{DEFAULT_MAILBOX_SIZE, Sender, StageGraph, StageRef};
 
 use crate::stages::config::Config;
 
@@ -53,6 +53,13 @@ pub struct OpenedLedger {
     pub protocol_version: ProtocolVersion,
 }
 
+/// Bulk mailbox for the connection manager and peer selection.
+///
+/// [`DEFAULT_MAILBOX_SIZE`] plus one slot for each allowed upstream and downstream peer.
+fn peer_mailbox_size(upstream: usize, downstream: usize) -> usize {
+    DEFAULT_MAILBOX_SIZE.saturating_add(upstream).saturating_add(downstream)
+}
+
 pub fn build_stage_graph(
     config: &Config,
     era_history: &EraHistory,
@@ -67,8 +74,11 @@ pub fn build_stage_graph(
     let protocol_version = opened.protocol_version;
     let span = debug_span!(consensus::node::INITIALIZE);
     let trace_context = (&span).into();
-    let manager = stage_graph.stage("manager", manager::stage);
-    let peer_selection = stage_graph.stage("peer_selection", peer_selection::stage);
+    // Either stage can be inside a send to the other. Room for one message per allowed
+    // peer, on top of the default margin, keeps that send from waiting on a full mailbox.
+    let peer_mailbox = peer_mailbox_size(config.target_upstream_peers, config.target_downstream_peers);
+    let manager = stage_graph.stage_with_mailbox_size("manager", manager::stage, peer_mailbox);
+    let peer_selection = stage_graph.stage_with_mailbox_size("peer_selection", peer_selection::stage, peer_mailbox);
     let peer_selection_ref = peer_selection.sender();
 
     // Candidate sources + peer-mix are installed only on Performance construction
@@ -264,5 +274,18 @@ impl NodeStages {
 
     pub fn track_peers_stake_dist_sender(&self) -> Sender<TrackPeersMsg> {
         self.track_peers_stake_dist_sender.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_pure_stage::DEFAULT_MAILBOX_SIZE;
+
+    use super::peer_mailbox_size;
+
+    #[test]
+    fn peer_mailbox_holds_one_message_per_allowed_peer() {
+        assert_eq!(peer_mailbox_size(40, 10), DEFAULT_MAILBOX_SIZE + 50);
+        assert_eq!(peer_mailbox_size(0, 0), DEFAULT_MAILBOX_SIZE);
     }
 }

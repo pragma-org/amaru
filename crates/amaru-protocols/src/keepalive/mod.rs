@@ -18,6 +18,8 @@ mod responder;
 #[cfg(test)]
 mod tests;
 
+use std::time::Duration;
+
 use amaru_kernel::Peer;
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, StageRef, Void};
@@ -29,6 +31,16 @@ use crate::{
     mux,
     protocol::{Inputs, PROTO_N2N_KEEP_ALIVE, ProtocolState, ingress_limit},
 };
+
+/// Delay before the first keep-alive cookie.
+///
+/// The first cookie is the only one the remote node expects inside five seconds.
+pub const KEEPALIVE_FIRST_DELAY: Duration = Duration::from_secs(1);
+
+/// Idle interval between later keep-alive cookies.
+///
+/// This is the longest timer the keep-alive protocol arms.
+pub const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
     vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()

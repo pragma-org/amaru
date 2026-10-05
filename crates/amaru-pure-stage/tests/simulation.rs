@@ -24,10 +24,10 @@ use std::{
 
 use amaru_pure_stage::{
     BoxFuture, DurationDist, Effect, ExternalEffectAPI, Instant, OrTerminateWith, OutputEffect, PRIORITY_MAILBOX_SIZE,
-    Receiver, Resources, ScheduleId, SendData, StageGraph, StageGraphRunning, StageRef, assert_effect_match,
+    Receiver, Resources, ScheduleId, SendData, StageGraph, StageGraphRunning, StageRef, TrySend, assert_effect_match,
     assert_trace_contains,
     simulation::{RandStdRng, Run, SimulationBuilder, running::OverrideResult},
-    tm_add_stage, tm_call, tm_external_effect, tm_send, tm_wire_stage,
+    tm_add_stage, tm_call, tm_external_effect, tm_resume_try_send, tm_send, tm_try_send, tm_wire_stage,
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use rand::{SeedableRng, rngs::StdRng};
@@ -978,4 +978,31 @@ fn default_run_does_not_skip_sleep() {
     let wakeup = running.run(Run::default()).assert_sleeping();
     assert_eq!(wakeup.sim_elapsed(), Duration::from_secs(60));
     assert_eq!(running.now().sim_elapsed(), Duration::ZERO);
+}
+
+/// `try_send` applies a [`StageRef::contramap`] injection before admission, and the trace
+/// records the injected payload. Connection stages send to handlers through such refs.
+#[test]
+fn try_send_through_contramap_delivers_the_injected_message() {
+    let _guard = amaru_pure_stage::register_data_deserializer::<u32>();
+    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000));
+    let dest = network.stage("dest", async |_seen: u32, msg: u32, _eff| msg);
+    let dest = network.wire_up(dest, 0);
+    let mapped = dest.contramap(|n: u8| u32::from(n) + 1);
+    let probe = network.stage("probe", async |dest: StageRef<u8>, _msg: u8, eff| {
+        assert_eq!(eff.try_send(&dest, 3u8).await, TrySend::Queued);
+        dest
+    });
+    let probe_name = probe.name.as_str().to_string();
+    let probe = network.wire_up(probe, mapped);
+    let mut running = network.run(test_runtime().handle());
+    running.run(Run::default()).assert_idle();
+    running.enqueue_msg(&probe, [0]);
+    running.run(Run::default()).assert_idle();
+    assert_eq!(*running.get_state(&dest).unwrap(), 4);
+    // `assert_trace_contains` drops resumes. The admission result is the resume.
+    let trace = running.trace_buffer().lock().hydrate_without_timestamps();
+    assert_trace_contains(&running, &[tm_try_send(&probe_name, "dest", 4u32)]);
+    let queued = tm_resume_try_send(&probe_name, TrySend::Queued);
+    assert!(trace.iter().any(|entry| queued == *entry), "try_send response missing from the trace: {trace:?}");
 }

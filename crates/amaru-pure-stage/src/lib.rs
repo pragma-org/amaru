@@ -46,7 +46,8 @@ pub mod typestate;
 
 pub use duration_dist::DurationDist;
 pub use effect::{
-    Effect, Effects, ExternalEffect, ExternalEffectAPI, ScheduleIds, StageResponse, UnknownExternalEffect,
+    CallAdmission, CallNotAdmitted, CallTimeout, Effect, Effects, ExternalEffect, ExternalEffectAPI, ScheduleIds,
+    StageResponse, TrySend, UnknownExternalEffect,
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;
@@ -68,10 +69,11 @@ pub use trace_match::{
     Detached, MatchSrc, TraceMatch, assert_effect_match, assert_trace_contains, assert_trace_does_not_contain,
     assert_trace_match, assert_trace_match_filter, tm_add_stage, tm_call, tm_clock, tm_clock_between, tm_effect,
     tm_external_effect, tm_external_effect_any, tm_external_effect_any_match, tm_external_effect_match, tm_input,
-    tm_resume, tm_resume_external, tm_resume_external_match, tm_resume_unit, tm_send, tm_state, tm_terminate,
-    tm_terminated, tm_wire_stage,
+    tm_resume, tm_resume_external, tm_resume_external_match, tm_resume_try_send, tm_resume_unit, tm_send, tm_state,
+    tm_terminate, tm_terminated, tm_try_send, tm_try_send_match, tm_try_send_type, tm_wire_stage,
 };
 pub use types::{
-    BLACKHOLE_NAME, BoxFuture, Name, OrTerminateWith, PRIORITY_MAILBOX_SIZE, SendData, TryInStage, Void, err, warn,
+    BLACKHOLE_NAME, BoxFuture, DEFAULT_MAILBOX_SIZE, Name, OrTerminateWith, PRIORITY_MAILBOX_SIZE, SendData,
+    TryInStage, Void, err, warn,
 };
 pub use typetag;

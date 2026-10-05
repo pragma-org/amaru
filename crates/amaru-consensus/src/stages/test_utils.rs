@@ -137,6 +137,12 @@ impl Logs {
         Self { entries }
     }
 
+    /// Drop captured lines that contain `substring`.
+    pub fn discard_containing(&mut self, substring: &str) -> &mut Self {
+        self.entries.retain(|entry| !entry.line.contains(substring));
+        self
+    }
+
     /// Asserts that at least one log message exists at the given level containing the substring,
     /// removes the first matching message, and returns `self` for method chaining.
     #[track_caller]

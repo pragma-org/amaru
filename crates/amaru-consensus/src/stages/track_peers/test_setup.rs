@@ -32,8 +32,9 @@ use amaru_protocols::{
     },
 };
 use amaru_pure_stage::{
-    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageRef,
+    DeserializerGuards, Effect, Effects, Instant, Name, ScheduleId, ScheduleIds, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
+    stage_ref::StageStateRef,
     trace_buffer::TraceEntry,
 };
 use tokio::runtime::{Handle, Runtime};
@@ -143,7 +144,9 @@ pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
         start_times.epoch.checked_sub(Epoch::TWO).unwrap(),
     );
     let rt = crate::stages::test_utils::test_runtime();
-    let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
+    // A blackhole admits `try_send` (`Queued`) without adding a second stage to the trace.
+    // A name that was never wired is `Gone` and drops the owed count instead of arming a retry.
+    let handler = StageRef::<InitiatorMessage>::blackhole();
     let conn_id = ConnectionId::initial();
     let h1 = make_block_header(1, 1, None);
     let h2 = make_block_header(2, 2, Some(h1.hash()));
@@ -367,7 +370,7 @@ fn setup_inner(
     use amaru_pure_stage::StageGraph;
 
     let mode = if advance_wakeups { SimulationRunMode::UntilBlocked } else { SimulationRunMode::UntilSleeping };
-    run_simulation_with(
+    let (running, guards, mut logs) = run_simulation_with(
         rt,
         register_guards(),
         |mut network| {
@@ -376,22 +379,146 @@ fn setup_inner(
             network.preload(&tp, msg).unwrap();
             network
         },
-        |resources| {
-            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
-                crate::performance::Performance::new(),
-            ));
-            resources.put::<ResourceHeaderStore>(store.clone());
-            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip()));
-            resources.put::<ResourceBlockValidation>(block_validation.clone());
-            resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
-            let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
-            let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
-            let cp = Arc::new(ConsensusParameters::new(global, &era_history));
-            resources.put::<ResourceConsensusParameters>(cp);
-            resources.put::<ResourceEraHistory>(era_history);
-            resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
-        },
+        |resources| install_track_peers_resources(resources, store.clone()),
         overrides,
         mode,
-    )
+    );
+    // The stand-in handler is a blackhole, so each admitted `RequestNext` logs this drop.
+    logs.discard_containing("try_send to blackhole dropped");
+    (running, guards, logs)
+}
+
+/// How the stand-in chain-sync handler treats messages after the one it is parked on.
+pub enum HandlerHold {
+    /// The first message waits 1ms. Later messages return, so firing that wait drains the mailbox.
+    FirstMillis,
+    /// Every message waits an hour, so the mailbox stays full across a retry.
+    Hour,
+}
+
+pub struct OpenedFanout {
+    pub running: SimulationRunning,
+    /// Kept alive so trace deserializers stay registered for the whole test.
+    #[expect(dead_code)]
+    pub guards: DeserializerGuards,
+    pub tp: StageStateRef<TrackPeersMsg, TrackPeers>,
+    pub handler: StageStateRef<InitiatorMessage, bool>,
+}
+
+/// Wire `track_peers` and a holding handler, then stop before any upstream message.
+pub fn open_fanout(rt: &Handle, state: TrackPeers, store: Arc<InMemoryChainStore>, hold: HandlerHold) -> OpenedFanout {
+    use amaru_pure_stage::StageGraph;
+
+    let mut opened = None;
+    let (running, guards, _logs) = run_simulation_with(
+        rt,
+        register_guards(),
+        |mut network| {
+            let tp = network.stage("tp", stage);
+            let tp = network.wire_up(tp, state);
+            let handler = match hold {
+                HandlerHold::FirstMillis => {
+                    let handler = network.stage("handler", hold_first);
+                    network.wire_up(handler, true)
+                }
+                HandlerHold::Hour => {
+                    let handler = network.stage("handler", hold_hour);
+                    network.wire_up(handler, true)
+                }
+            };
+            opened = Some((tp, handler));
+            network
+        },
+        |resources| install_track_peers_resources(resources, store.clone()),
+        |running| {
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+                OverrideResult::handled(Ok(Nonces::for_tests()))
+            });
+        },
+        SimulationRunMode::UntilSleeping,
+    );
+    let (tp, handler) = opened.expect("fan-out stages wired");
+    OpenedFanout { running, guards, tp, handler }
+}
+
+pub struct OpenedQuick {
+    pub running: SimulationRunning,
+    #[expect(dead_code)]
+    pub guards: DeserializerGuards,
+    pub tp: StageStateRef<TrackPeersMsg, TrackPeers>,
+    pub handler: StageStateRef<InitiatorMessage, u8>,
+}
+
+/// Wire a handler that waits 1ms for its first `quick` messages, then an hour.
+///
+/// Advancing those short waits frees one mailbox slot each, and the hour wait
+/// then leaves those slots free until a later retry.
+pub fn open_fanout_quick_then_hour(
+    rt: &Handle,
+    state: TrackPeers,
+    store: Arc<InMemoryChainStore>,
+    quick: u8,
+) -> OpenedQuick {
+    use amaru_pure_stage::StageGraph;
+
+    let mut opened = None;
+    let (running, guards, _logs) = run_simulation_with(
+        rt,
+        register_guards(),
+        |mut network| {
+            let tp = network.stage("tp", stage);
+            let tp = network.wire_up(tp, state);
+            let handler = network.stage("handler", hold_quick_then_hour);
+            let handler = network.wire_up(handler, quick);
+            opened = Some((tp, handler));
+            network
+        },
+        |resources| install_track_peers_resources(resources, store.clone()),
+        |running| {
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+                OverrideResult::handled(Ok(Nonces::for_tests()))
+            });
+        },
+        SimulationRunMode::UntilSleeping,
+    );
+    let (tp, handler) = opened.expect("fan-out stages wired");
+    OpenedQuick { running, guards, tp, handler }
+}
+
+fn install_track_peers_resources(resources: &amaru_pure_stage::Resources, store: Arc<InMemoryChainStore>) {
+    resources.put::<crate::performance::ResourcePerformance>(Arc::new(crate::performance::Performance::new()));
+    resources.put::<ResourceHeaderStore>(store.clone());
+    let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip()));
+    resources.put::<ResourceBlockValidation>(block_validation);
+    resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
+    let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
+    let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
+    let cp = Arc::new(ConsensusParameters::new(global, &era_history));
+    resources.put::<ResourceConsensusParameters>(cp);
+    resources.put::<ResourceEraHistory>(era_history);
+    resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
+}
+
+async fn hold_first(hold: bool, _msg: InitiatorMessage, eff: Effects<InitiatorMessage>) -> bool {
+    if hold {
+        eff.wait(Duration::from_millis(1)).await;
+    }
+    false
+}
+
+async fn hold_hour(hold: bool, _msg: InitiatorMessage, eff: Effects<InitiatorMessage>) -> bool {
+    if hold {
+        eff.wait(Duration::from_secs(3600)).await;
+    }
+    true
+}
+
+async fn hold_quick_then_hour(left: u8, _msg: InitiatorMessage, eff: Effects<InitiatorMessage>) -> u8 {
+    if left > 0 {
+        eff.wait(Duration::from_millis(1)).await;
+        left - 1
+    } else {
+        eff.wait(Duration::from_secs(3600)).await;
+        0
+    }
 }

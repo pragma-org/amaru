@@ -22,9 +22,10 @@ use std::time::Duration;
 
 use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Peer, Point, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
-use amaru_observability::{debug, error};
+use amaru_observability::{debug, error, warn};
 use amaru_pure_stage::{
-    DeserializerGuards, Effects, StageRef, Void, define_role_tag, make_states, on_receive, typestate::prelude::*,
+    CallAdmission, DeserializerGuards, Effects, StageRef, Void, define_role_tag, make_states, on_receive,
+    typestate::prelude::*,
 };
 
 use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
@@ -54,6 +55,11 @@ on_receive!(Idle as ServerIdleIn {
     ClientDone => { Send<ToMux, WantNext> => Done }
 });
 on_receive!(Done as DoneIn {});
+on_receive!(Done, Stay => Idle);
+
+/// The spec edge for `ClientDone` ends in [`Done`]. The handler is still registered,
+/// so this token continues that session back to [`Idle`].
+struct Stay;
 
 /// Range of points to fetch, newest first, at least one point.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
@@ -171,8 +177,8 @@ where
     type Reply = Sent;
     const TIMEOUT: Duration = NETWORK_SEND_TIMEOUT;
 
-    fn encode(&self, msg: T, reply: StageRef<Sent>) -> MuxMessage {
-        self.encode_send(Message::from(msg), reply)
+    fn into_call(self, msg: T) -> (Duration, impl FnOnce(StageRef<Sent>) -> MuxMessage + std::marker::Send + 'static) {
+        self.call_encoded(&Message::from(msg))
     }
 }
 
@@ -224,33 +230,46 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                         let metrics_eff = eff.clone();
                         let for_err = eff.clone();
                         let metrics = Metrics::new(&metrics_eff);
-                        let (_, mut session) = idle.receive(&range, eff).call(&mux, StartBatch).await;
+                        let (admission, mut session) = idle.receive(&range, eff).call(&mux, StartBatch).await;
+                        if !matches!(admission, CallAdmission::Reply(_)) {
+                            return fault_egress(peer, "start_batch", for_err).await;
+                        }
                         loop {
                             let (block, rest) = match points.next_block(&store).await {
                                 Ok(pair) => pair,
                                 Err(err) => return invalid(peer, "Streaming", err, for_err).await,
                             };
                             metrics.record(ServedBlockCountMetrics { count: 1 }.into()).await;
-                            (_, session) = session.call(&mux, Block { body: block.to_vec() }).await;
+                            let admission;
+                            (admission, session) = session.call(&mux, Block { body: block.to_vec() }).await;
+                            if !matches!(admission, CallAdmission::Reply(_)) {
+                                return fault_egress(peer, "block", for_err.clone()).await;
+                            }
                             match rest {
                                 Some(next) => points = next,
                                 None => break,
                             }
                         }
-                        let (_, session) = session.discard_repeat().call(&mux, BatchDone).await;
+                        let (admission, session) = session.discard_repeat().call(&mux, BatchDone).await;
+                        if !matches!(admission, CallAdmission::Reply(_)) {
+                            return fault_egress(peer, "batch_done", for_err).await;
+                        }
                         session.send(&mux, WantNext).await.finish().into()
                     }
                     Ok(None) => {
-                        let (_, session) = idle.receive(&range, eff).call(&mux, NoBlocks).await;
+                        let (admission, session) = idle.receive(&range, eff.clone()).call(&mux, NoBlocks).await;
+                        if !matches!(admission, CallAdmission::Reply(_)) {
+                            return fault_egress(peer, "no_blocks", eff).await;
+                        }
                         session.send(&mux, WantNext).await.finish().into()
                     }
                     Err(err) => return invalid(peer, idle.name(), err, eff).await,
                 }
             }
             Ok(ServerIdleIn::ClientDone(done)) => {
-                // Remainder dest is spec Done; live token restarts Idle on this mux registration.
-                let _: Done = idle.receive(&done, eff).send(&mux, WantNext).await.finish();
-                initial_state::<Idle>().into()
+                // Spec remainder is Done. The handler is still registered, so Stay continues to Idle.
+                let done_state: Done = idle.receive(&done, eff.clone()).send(&mux, WantNext).await.finish();
+                done_state.receive(&Stay, eff).finish().into()
             }
             Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
             Err(mail) => return invalid(peer, idle.name(), mail, eff).await,
@@ -263,6 +282,11 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
         },
     };
     Instance { proto, mux, peer }
+}
+
+async fn fault_egress(peer: Peer, reason: &'static str, eff: Effects<Mail>) -> Instance {
+    warn!(protocols::EGRESS_DEADLINE, proto = "block_fetch", peer, reason = reason);
+    eff.terminate().await
 }
 
 async fn invalid(peer: Peer, state: &str, input: impl std::fmt::Debug, eff: Effects<Mail>) -> Instance {
@@ -322,7 +346,7 @@ pub mod tests {
     use super::*;
     use crate::{
         mux::{MuxMessage, Sent},
-        protocol::Inputs,
+        protocol::{Inputs, egress_admission_deadline},
         store_effects::ResourceHeaderStore,
     };
 
@@ -557,7 +581,9 @@ pub mod tests {
             | MuxMessage::FromNetwork(..)
             | MuxMessage::Written
             | MuxMessage::Terminate
-            | MuxMessage::SetSduTimeout(_) => {}
+            | MuxMessage::SetSduTimeout(_)
+            | MuxMessage::IngressRetry
+            | MuxMessage::EgressRetry => {}
         }
         log
     }
@@ -604,6 +630,127 @@ pub mod tests {
         assert_eq!(log.sends, vec!["StartBatch", "Block", "Block", "Block", "BatchDone"]);
         assert_eq!(log.wants, 2);
         assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
+    }
+
+    #[test]
+    fn slow_reader_faults_after_the_size_deadline_and_an_honest_reader_does_not() {
+        use amaru_pure_stage::{
+            Effect,
+            simulation::Blocked,
+            trace_buffer::{TraceBuffer, TraceEntry},
+        };
+
+        let _mux = crate::mux::register_deserializers();
+
+        async fn maybe_hold(hold_blocks: bool, msg: MuxMessage, eff: Effects<MuxMessage>) -> bool {
+            if let MuxMessage::Send(_, bytes, cr) = msg {
+                let decoded: Message = cbor::decode(bytes.as_ref()).expect("cbor");
+                if hold_blocks && matches!(decoded, Message::Block(_)) {
+                    eff.wait(Duration::from_secs(3600)).await;
+                } else {
+                    eff.send(&cr, Sent).await;
+                }
+            }
+            hold_blocks
+        }
+
+        let (store, chain) = make_store_with_chain(1);
+        store_blocks(store.clone(), &chain);
+        let expected: Vec<Duration> = chain
+            .iter()
+            .map(|block| {
+                let msg = Message::from(Block { body: block.raw.as_ref().to_vec() });
+                egress_admission_deadline(NonEmptyBytes::encode(&msg).len().get())
+            })
+            .collect();
+        assert!(expected.iter().all(|d| *d > NETWORK_SEND_TIMEOUT));
+
+        let trace = TraceBuffer::new_shared(400, 1_000_000);
+        let mut honest = SimulationBuilder::default().with_trace_buffer(trace);
+        honest.resources().put::<ResourceHeaderStore>(store.clone());
+        let mux = honest.stage("mux", maybe_hold);
+        let mux_ref = mux.sender();
+        let _mux = honest.wire_up(mux, false);
+        let handler_b = honest.stage("bf", instance);
+        let handler = honest.wire_up(handler_b, Instance::new(MuxClient::new(mux_ref, proto()), Peer::for_test(3001)));
+        honest
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(proto())),
+                    wire(RequestRange {
+                        from: chain[0].header.point().into(),
+                        through: chain[0].header.point().into(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = honest.run(test_runtime());
+        let later = running.now() + expected[0] + Duration::from_secs(1);
+        running.run(Run::until(later)).assert_idle();
+        assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
+
+        let trace = TraceBuffer::new_shared(400, 1_000_000);
+        let mut slow = SimulationBuilder::default().with_trace_buffer(trace);
+        slow.resources().put::<ResourceHeaderStore>(store);
+        let mux = slow.stage("mux", maybe_hold);
+        let mux_ref = mux.sender();
+        let _mux = slow.wire_up(mux, true);
+        let handler_b = slow.stage("bf", instance);
+        let handler = slow.wire_up(handler_b, Instance::new(MuxClient::new(mux_ref, proto()), Peer::for_test(3001)));
+        slow.preload(
+            &handler,
+            [
+                Inputs::Network(HandlerMessage::Registered(proto())),
+                wire(RequestRange { from: chain[0].header.point().into(), through: chain[0].header.point().into() }),
+            ],
+        )
+        .unwrap();
+        let mut running = slow.run(test_runtime());
+        let Blocked::Sleeping { next_wakeup } = running.run(Run::default()) else {
+            panic!("block send should wait out its deadline");
+        };
+        let entries: Vec<TraceEntry> = running.trace_buffer().lock().iter_entries().map(|(_, e)| e).collect();
+        let call = entries.iter().rev().find_map(|entry| match entry {
+            TraceEntry::Suspend(Effect::Call { from, duration, msg, .. }) if from == handler.name() => {
+                let MuxMessage::Send(_, bytes, _) = msg.cast_ref::<MuxMessage>().expect("mux message") else {
+                    panic!("block call was not a send");
+                };
+                Some((*duration, bytes.clone()))
+            }
+            TraceEntry::Suspend(_)
+            | TraceEntry::Resume { .. }
+            | TraceEntry::Clock(_)
+            | TraceEntry::Input { .. }
+            | TraceEntry::State { .. }
+            | TraceEntry::Terminated { .. }
+            | TraceEntry::InvalidBytes(..) => None,
+        });
+        let (call_duration, sent) = call.expect("call");
+        let encoded = NonEmptyBytes::encode(&Message::from(Block { body: chain[0].raw.as_ref().to_vec() }));
+        assert_eq!(sent.as_ref(), encoded.as_ref());
+        assert_ne!(sent.len().get(), chain[0].raw.as_ref().len());
+        assert_eq!(call_duration, egress_admission_deadline(sent.len().get()));
+        assert_eq!(call_duration, expected[0]);
+        let early =
+            running.now() + next_wakeup.saturating_since(running.now()).saturating_sub(Duration::from_millis(1));
+        assert!(matches!(running.run(Run::until(early)), Blocked::Sleeping { .. }));
+        let _alive = running.mailbox_len(&handler);
+        let blocked = running.run(Run::until(next_wakeup));
+        assert!(matches!(blocked, Blocked::Terminated(ref name) if name == handler.name()), "{blocked:?}");
+        let entries: Vec<TraceEntry> = running.trace_buffer().lock().iter_entries().map(|(_, e)| e).collect();
+        let wants = entries
+            .iter()
+            .filter(|entry| {
+                matches!(
+                    entry,
+                    TraceEntry::Suspend(Effect::Send { from, msg, .. })
+                        if from == handler.name()
+                            && msg.cast_ref::<MuxMessage>().is_ok_and(|m| matches!(m, MuxMessage::WantNext(_)))
+                )
+            })
+            .count();
+        assert_eq!(wants, 1, "the batch must not ask for the next message after a failed block send");
     }
 
     #[test]

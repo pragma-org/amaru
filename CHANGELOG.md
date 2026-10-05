@@ -37,9 +37,22 @@ Other guiding principles:
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
+### Added
+
+- **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
+
 ### Fixed
 
+- **amaru**: the node keeps adopting blocks when a peer disconnects while its allowed upstream and downstream peers are connected.
+- **amaru-protocols**: a protocol handler that stops reading no longer stalls the other protocols on that connection. If it still will not accept buffered data before that protocol's ingress deadline, the connection is closed and the peer is not marked adversarial.
+- **amaru-protocols**: the mux no longer waits on the peer while accepting a send. A peer slower than 500 kbps loses the connection and is not marked adversarial.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
+- **amaru**: one peer that is not reading no longer stops block fetch from asking the other peers. `block.requested` lists only peers whose block-fetch handler accepted the request. The 5s fetch timeout is armed before the request is handed to the connection manager.
+- **amaru**: a broadcast block fetch no longer asks a peer again 30ms later when that peer's mailbox was full or its confirmation has not arrived yet. The broadcast covers those peers until the 5s timeout. A fetch that names its peers still asks further peers on that schedule.
+- **amaru**: when every peer offered a block-fetch request refuses it, the node asks peers it has not already chosen. If there are none, it pauses on the same 5s retry used when no peers are connected, instead of staying silent until that timeout. It does not immediately offer the request to the same full mailboxes again.
+- **amaru**: a peer-sharing start that the child does not accept is offered again on the connection's next message. A full child no longer loses that round for the life of the connection.
+- **amaru**: one peer whose chain-sync handler is not reading no longer stops header processing for the other peers. Requests for the next header that do not fit are offered again together, 100ms later, for as many as that handler will accept. A handler that is gone is not asked again.
+- **amaru-protocols**: a block-fetch range that arrives while every pipeline slot is busy is kept and sent when a slot is idle again, instead of dropping the peer. A newer range replaces the one still waiting. Close waits until the ranges already on the wire have finished, and a range that arrives after that `ClientDone` is not sent.
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 

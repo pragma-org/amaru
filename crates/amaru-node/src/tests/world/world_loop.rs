@@ -557,8 +557,12 @@ impl WorldLoop {
                 }
             }
             NetworkEvent::Deliver { conn, data } => {
-                self.provider.deliver_to_inbox(*conn, data.clone());
-                self.drain_recvs(*conn)
+                if self.provider.delivery_silenced(*conn) {
+                    Vec::new()
+                } else {
+                    self.provider.deliver_to_inbox(*conn, data.clone());
+                    self.drain_recvs(*conn)
+                }
             }
             NetworkEvent::Close { conn } => {
                 let peer = self.provider.close_endpoint(*conn);
@@ -576,6 +580,14 @@ impl WorldLoop {
                 Some(conn) => self.completions_for_event(&NetworkEvent::Close { conn }),
                 None => Vec::new(),
             },
+            NetworkEvent::StalledReader { peer } => {
+                self.provider.stall_reader(*peer);
+                Vec::new()
+            }
+            NetworkEvent::SilentResponder { peer } => {
+                self.provider.silence_responder(*peer);
+                Vec::new()
+            }
         }
     }
 

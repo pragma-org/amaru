@@ -67,9 +67,17 @@ impl Nodes {
 
     /// Initialize nodes by running until the chainsync protocol is registered on all nodes.
     /// This uses a breakpoint to detect when the node under test is ready to receive chainsync messages.
-    pub fn initialize(&mut self, rng: &mut RandStdRng) {
+    pub fn initialize(&mut self, rng: &mut RandStdRng) -> anyhow::Result<()> {
+        /// Chain-sync `Registered` is delivered with `try_send`. A breakpoint that only
+        /// matches `Effect::Send` never fires, and this loop retains memory on every step.
+        const MAX_INITIALIZE_STEPS: u64 = 50_000;
         let mut initialized_nodes = BTreeSet::<String>::new();
+        let mut steps = 0u64;
         loop {
+            steps += 1;
+            if steps > MAX_INITIALIZE_STEPS {
+                anyhow::bail!("nodes did not register chain-sync within {MAX_INITIALIZE_STEPS} steps");
+            }
             // First all the nodes for inputs
             for node in self.nodes.iter_mut() {
                 node.advance_inputs();
@@ -93,6 +101,7 @@ impl Nodes {
                 break;
             }
         }
+        Ok(())
     }
 
     /// Run nodes with fine-grained interleaving.

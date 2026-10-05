@@ -221,6 +221,10 @@ define_schemas! {
                 public PAUSED {
                     required req_id: u64
                 }
+                /// Every candidate connection refused the request, and no other peer was asked
+                public NONE_ACCEPTED {
+                    required req_id: u64
+                }
                 /// Retry block fetching after a no-peers pause
                 RETRY {
                     required req_id: u64
@@ -2146,6 +2150,11 @@ define_schemas! {
                     public FETCH_NO_PEERS {
                         required id: u64
                     }
+                    /// Every candidate connection refused a block-fetch request
+                    public FETCH_NONE_ACCEPTED {
+                        required id: u64
+                        required candidates: usize
+                    }
                 }
                 sharing {
                     /// No initiating connection was available to request shared peers from
@@ -2615,6 +2624,15 @@ define_schemas! {
                 TERMINATING {
                     required role: String
                 }
+            }
+            /// A protocol send missed the bandwidth deadline, so the connection is closed.
+            /// The peer is not recorded as adversarial.
+            /// Reason ∈ {range_deadline, client_done_not_admitted, client_done_deadline,
+            /// start_batch, block, batch_done, no_blocks, not_admitted, deadline}.
+            public EGRESS_DEADLINE {
+                required proto: String
+                required reason: String
+                optional peer: %amaru_kernel::Peer
             }
             /// A protocol handler received invalid input
             public INVALID_INPUT {

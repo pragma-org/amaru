@@ -1260,7 +1260,9 @@ mod tests {
                 | MuxMessage::FromNetwork(..)
                 | MuxMessage::Written
                 | MuxMessage::Terminate
-                | MuxMessage::SetSduTimeout(_) => panic!("unexpected mux message: {msg:?}"),
+                | MuxMessage::SetSduTimeout(_)
+                | MuxMessage::IngressRetry
+                | MuxMessage::EgressRetry => panic!("unexpected mux message: {msg:?}"),
             }
             state
         });

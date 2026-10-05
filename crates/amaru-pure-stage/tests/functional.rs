@@ -242,12 +242,11 @@ fn scheduling() {
     fn graph(builder: &mut impl StageGraph) {
         let trigger = builder.stage("trigger", async |id: Option<ScheduleId>, msg: u32, eff| match msg {
             0 => {
-                // A large enough delay ensures that those delays won't be effectively passed
-                // when we effectively schedule them with the tokio runtime.
-                // Otherwise they might trigger in the wrong expected order.
-                eff.schedule_after(3, dur(3)).await;
-                let id = eff.schedule_after(2, dur(2)).await;
-                eff.schedule_after(1, dur(1)).await;
+                // 100ms gaps keep Tokio delivery in schedule order. A 1ms gap can let the
+                // middle timer run before its cancel when the runtime is busy.
+                eff.schedule_after(3, dur(300)).await;
+                let id = eff.schedule_after(2, dur(200)).await;
+                eff.schedule_after(1, dur(100)).await;
                 Some(id)
             }
             1 => {
@@ -263,9 +262,9 @@ fn scheduling() {
         builder.preload(trigger, [0]).unwrap();
     }
     let schedule_ids = ScheduleIds::default();
-    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(3), Duration::ZERO));
-    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(2), Duration::ZERO));
-    let schedule_id_3 = schedule_ids.next_at(Instant::at_offset(dur(1), Duration::ZERO));
+    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(300), Duration::ZERO));
+    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(200), Duration::ZERO));
+    let schedule_id_3 = schedule_ids.next_at(Instant::at_offset(dur(100), Duration::ZERO));
 
     let expected = {
         [

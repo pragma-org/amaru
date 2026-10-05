@@ -2756,6 +2756,24 @@
       "description": "A header required for block fetching could not be loaded from the store",
       "public": true
     },
+    "amaru::consensus::blocks::NONE_ACCEPTED": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "req_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "none_accepted",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Every candidate connection refused the request, and no other peer was asked",
+      "public": true
+    },
     "amaru::consensus::blocks::NOTHING_TO_FETCH": {
       "type": "object",
       "properties": {
@@ -7055,6 +7073,33 @@
       "description": "The transaction submission HTTP server stopped with an error",
       "public": true
     },
+    "amaru::protocols::EGRESS_DEADLINE": {
+      "type": "object",
+      "properties": {
+        "proto": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "peer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "proto",
+        "reason"
+      ],
+      "optional": [
+        "peer"
+      ],
+      "additionalProperties": false,
+      "name": "egress_deadline",
+      "level": "TRACE",
+      "target": "amaru::protocols",
+      "description": "A protocol send missed the bandwidth deadline, so the connection is closed. The peer is not recorded as adversarial. Reason ∈ {range_deadline, client_done_not_admitted, client_done_deadline, start_batch, block, batch_done, no_blocks, not_admitted, deadline}.",
+      "public": true
+    },
     "amaru::protocols::INVALID_INPUT": {
       "type": "object",
       "properties": {
@@ -7253,6 +7298,28 @@
       "level": "TRACE",
       "target": "amaru::protocols::keepalive::peer",
       "description": "Measured round-trip time for a keepalive exchange on an established peer connection.",
+      "public": true
+    },
+    "amaru::protocols::manager::blocks::FETCH_NONE_ACCEPTED": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "candidates": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "candidates"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch_none_accepted",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::blocks",
+      "description": "Every candidate connection refused a block-fetch request",
       "public": true
     },
     "amaru::protocols::manager::blocks::FETCH_NO_PEERS": {

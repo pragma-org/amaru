@@ -64,9 +64,17 @@ where
 ///
 /// Unlike [`IntoRoleMail`], there is no blanket [`From`] impl: the mailbox
 /// message must carry [`StageRef<Reply>`] so the callee can answer.
+///
+/// [`into_call`](Self::into_call) returns the deadline and a closure that only
+/// attaches the reply slot. Serialise the payload there, once. The deadline is
+/// the length of those bytes, and the closure sends that same buffer.
 pub trait IntoRoleCall<Tag: RoleTag, T>: Role<Tag> {
     type Reply: SendData + DeserializeOwned;
-    /// How long [`SessionOps::call`](super::SessionOps::call) waits for [`Self::Reply`].
+    /// Deadline for a payload this role does not size itself.
     const TIMEOUT: Duration;
-    fn encode(&self, msg: T, reply: StageRef<Self::Reply>) -> Self::Mailbox;
+    fn into_call(self, msg: T) -> (Duration, impl FnOnce(StageRef<Self::Reply>) -> Self::Mailbox + Send + 'static)
+    where
+        Self: 'static,
+        Tag: 'static,
+        T: 'static;
 }

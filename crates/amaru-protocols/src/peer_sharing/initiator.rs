@@ -48,7 +48,7 @@ pub fn initiator() -> Miniprotocol<State, PeerSharingInitiator, Initiator> {
 }
 
 /// Local messages into the peer-sharing initiator stage.
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PeerSharingMessage {
     /// Begin (or restart) periodic share requests for this connection.
     ///

@@ -103,3 +103,6 @@ dist/
 
 # Python scripts
 __pycache__
+
+# exported logs from amaru TUI
+/amaru-logs-*.txt

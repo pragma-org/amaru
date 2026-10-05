@@ -81,7 +81,7 @@ pub fn create_nodes(
     // Initialize the nodes by running until the chainsync protocol is registered
     tracing::info!("Initializing nodes");
     let mut nodes = Nodes::new(nodes);
-    nodes.initialize(rng);
+    nodes.initialize(rng)?;
     Ok(nodes)
 }
 

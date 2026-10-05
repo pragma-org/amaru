@@ -20,7 +20,7 @@
 use std::{net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use amaru_kernel::{NonEmptyBytes, PREPROD_ERA_HISTORY, Peer};
-use amaru_ouroboros::{ConnectionId, ConnectionsResource};
+use amaru_ouroboros::{ConnectionId, ConnectionProvider, ConnectionsResource};
 use amaru_protocols::network_effects::{
     AcceptEffect, AcceptError, ConnectEffect, ConnectError, ListenEffect, ListenError, Network, NetworkOps,
     ReceiveError, RecvEffect, SendEffect, SendError,
@@ -1615,4 +1615,165 @@ async fn test_sleeping_graph_does_not_run_before_earlier_deliver() {
         .expect("Sleeping graph wake")
         .sequence;
     assert!(deliver_seq < wake_seq, "earlier Deliver must have a lower sequence than the later graph wake");
+}
+
+fn payload(bytes: &'static [u8]) -> NonEmptyBytes {
+    NonEmptyBytes::try_from(Bytes::from_static(bytes)).expect("non-empty")
+}
+
+fn pair_listener(provider: &WorldConnectionProvider, addr: SocketAddr) -> (ConnectionId, ConnectionId) {
+    drop(provider.listen(addr));
+    let initiator = provider.pair_if_listening(addr).expect("listener is bound");
+    let responder = provider.peer_conn(initiator).expect("paired peer");
+    (initiator, responder)
+}
+
+fn inbox_bytes(provider: &WorldConnectionProvider, conn: ConnectionId) -> Vec<u8> {
+    let mut out = Vec::new();
+    while let Some(Ok(bytes)) = provider.try_complete_recv(conn, NonZeroUsize::new(1).unwrap()) {
+        out.extend_from_slice(bytes.as_ref());
+    }
+    out
+}
+
+/// A stalled reader withholds `SendAck` and does not take the bytes. A later send on that
+/// connection is withheld too, so it cannot pass the first. The stalled side can still write,
+/// and another connection is unaffected.
+#[test]
+fn test_stalled_reader_withholds_send_ack_and_keeps_later_bytes_behind() {
+    let provider = provider();
+    let bad: SocketAddr = "127.0.0.1:9610".parse().unwrap();
+    let good: SocketAddr = "127.0.0.1:9611".parse().unwrap();
+    provider.schedule_stalled_reader(bad, 0);
+    let mut world = WorldLoop::new(provider.clone(), vec![]);
+    world.run_until_horizon(0);
+    assert!(
+        world.heap_log().iter().any(|entry| entry.kind == HeapLogKind::StalledReader { peer: bad }),
+        "fault hop must pop: {:?}",
+        world.heap_log()
+    );
+
+    let (bad_init, bad_resp) = pair_listener(&provider, bad);
+    let (good_init, good_resp) = pair_listener(&provider, good);
+    drop(provider.send(bad_init, payload(b"one")));
+    drop(provider.send(bad_init, payload(b"two")));
+    drop(provider.send(bad_resp, payload(b"back")));
+    drop(provider.send(good_init, payload(b"ok")));
+
+    let pending = world.heap_contents();
+    assert!(
+        pending.iter().all(|entry| !matches!(entry.kind, HeapLogKind::Deliver { conn, .. } if conn == bad_resp)),
+        "neither outbound payload may be delivered, and the second must not pass the first: {pending:?}"
+    );
+    assert!(
+        pending.iter().all(|entry| !matches!(entry.kind, HeapLogKind::SendAck { conn } if conn == bad_init)),
+        "a stalled reader withholds SendAck: {pending:?}"
+    );
+    assert!(
+        pending.iter().any(|entry| matches!(entry.kind, HeapLogKind::SendAck { conn } if conn == bad_resp)),
+        "the stalled side can still write: {pending:?}"
+    );
+
+    world.run_until_horizon(WIRE_DELAY_MAX_NANOS);
+    assert_eq!(inbox_bytes(&provider, bad_resp), b"");
+    assert_eq!(inbox_bytes(&provider, bad_init), b"back");
+    assert_eq!(inbox_bytes(&provider, good_resp), b"ok");
+}
+
+/// A silent responder completes `SendAck` and then delivers nothing. An in-flight payload
+/// stays ahead of a later one: the later bytes are not scheduled, and they are not in the
+/// inbox before or after the earlier hop pops.
+#[test]
+fn test_silent_responder_stops_deliver_and_does_not_let_later_bytes_pass() {
+    let provider = provider();
+    let silent: SocketAddr = "127.0.0.1:9612".parse().unwrap();
+    let other: SocketAddr = "127.0.0.1:9613".parse().unwrap();
+    let (init, resp) = pair_listener(&provider, silent);
+    provider.schedule_event_at(20_000_000, NetworkEvent::Deliver { conn: resp, data: Bytes::from_static(b"first") });
+    provider.schedule_silent_responder(silent, 0);
+
+    let mut world = WorldLoop::new(provider.clone(), vec![]);
+    world.run_until_horizon(0);
+    assert!(
+        world
+            .heap_log()
+            .iter()
+            .any(|entry| matches!(entry.kind, HeapLogKind::SilentResponder { peer } if peer == silent)),
+        "fault hop must pop: {:?}",
+        world.heap_log()
+    );
+
+    drop(provider.send(init, payload(b"second")));
+    let (other_init, other_resp) = pair_listener(&provider, other);
+    drop(provider.send(other_init, payload(b"Z")));
+
+    let pending = world.heap_contents();
+    assert!(
+        pending.iter().any(|entry| matches!(entry.kind, HeapLogKind::Deliver { conn, data_len: 5 } if conn == resp)),
+        "the earlier payload stays queued behind the fault: {pending:?}"
+    );
+    assert!(
+        pending.iter().all(|entry| !matches!(entry.kind, HeapLogKind::Deliver { data_len: 6, .. })),
+        "the later payload must not be scheduled, so it cannot pass the earlier one: {pending:?}"
+    );
+    assert!(
+        pending.iter().any(|entry| matches!(entry.kind, HeapLogKind::SendAck { conn } if conn == init)),
+        "a silent responder still acknowledges the write: {pending:?}"
+    );
+
+    world.run_until_horizon(10_000_000);
+    assert_eq!(inbox_bytes(&provider, resp), b"", "later bytes must not arrive before the withheld payload");
+
+    world.run_until_horizon(20_000_000);
+    assert_eq!(inbox_bytes(&provider, resp), b"", "a silent responder does not deliver the withheld bytes");
+    assert_eq!(inbox_bytes(&provider, other_resp), b"Z", "another connection still delivers");
+}
+
+/// The parked `send` toward a stalled reader does not complete. The fault applies to a
+/// connection that already exists when the hop pops.
+#[tokio::test]
+async fn test_stalled_reader_send_stays_parked() {
+    let handle = tokio::runtime::Handle::current();
+    let provider = provider();
+    let listener_addr: SocketAddr = "127.0.0.1:9614".parse().unwrap();
+    let finished = observed::<bool>();
+    let finished_b = finished.clone();
+    provider.schedule_stalled_reader(listener_addr, 10_000_000);
+
+    let mut graph_a = SimulationBuilder::default().with_eval_strategy(Fifo);
+    graph_a.resources().put::<ConnectionsResource>(provider.clone());
+    let stage_a = graph_a.stage("node_a", move |_state: (), _unit: (), eff| async move {
+        let net = Network::new(&eff);
+        net.listen(listener_addr).await.unwrap();
+        let (_peer, conn) = net.accept(listener_addr).await.unwrap();
+        let _ = net.recv(conn, NonZeroUsize::new(1).unwrap(), None).await;
+    });
+    let stage_a = graph_a.wire_up(stage_a, ());
+    let mut sim_a = graph_a.run(&handle);
+    sim_a.enqueue_msg(&stage_a, [()]);
+
+    let mut graph_b = SimulationBuilder::default().with_eval_strategy(Fifo);
+    graph_b.resources().put::<ConnectionsResource>(provider.clone());
+    let stage_b = graph_b.stage("node_b", move |_state: (), _unit: (), eff| {
+        let finished_b = finished_b.clone();
+        async move {
+            let net = Network::new(&eff);
+            let conn = net.connect(peer_addr(listener_addr), Duration::from_secs(1)).await.unwrap();
+            eff.wait(Duration::from_millis(20)).await;
+            net.send(conn, NonEmptyBytes::try_from(Bytes::from_static(b"x")).unwrap(), None).await.unwrap();
+            set_observed(&finished_b, true);
+        }
+    });
+    let stage_b = graph_b.wire_up(stage_b, ());
+    let mut sim_b = graph_b.run(&handle);
+    sim_b.enqueue_msg(&stage_b, [()]);
+
+    let mut world = WorldLoop::new(provider, vec![sim_a, sim_b]);
+    world.run_until_horizon(50_000_000);
+    assert_eq!(*finished.lock(), None, "send toward a stalled reader must stay parked");
+    assert!(
+        world.heap_log().iter().any(|entry| matches!(entry.kind, HeapLogKind::StalledReader { .. })),
+        "fault hop must pop: {:?}",
+        world.heap_log()
+    );
 }

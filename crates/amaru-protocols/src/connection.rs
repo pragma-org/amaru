@@ -17,7 +17,7 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{Instrument, TraceContext, debug_span, error, info};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
+use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, TrySend, Void, register_data_deserializer};
 
 use crate::{
     blockfetch::{self, BlockFetchMessage, Blocks, register_blockfetch_initiator, register_blockfetch_responder},
@@ -132,6 +132,17 @@ struct Established {
     blockfetch_responder: Option<StageRef<Void>>,
     peer_sharing_responder: Option<StageRef<crate::peer_sharing::ResponderMessage>>,
     stopping: BTreeSet<ChildId>,
+    /// Latest tip the chainsync responder did not accept.
+    ///
+    /// Flushed with `try_send` at the start of the next transition. A newer tip replaces the
+    /// stored one. `Queued` or `Gone` drops it; `Full` keeps it for the transition after that.
+    pending_tip: Option<(Point, TraceContext)>,
+    /// One `PeerSharingMessage::Start` the peer-sharing child did not accept.
+    ///
+    /// Flushed with `try_send` at the start of the next transition. A newer Start replaces the
+    /// stored one. `Queued` or `Gone` drops it; `Full` keeps it. Cleared when that child is
+    /// stopped or dies.
+    pending_share: Option<PeerSharingMessage>,
 }
 
 /// Identity of a supervised child stage of a connection.
@@ -217,6 +228,8 @@ pub async fn stage(
     };
 
     async move {
+        let state = flush_pending_tip(state, &eff).await;
+        let state = flush_pending_share(state, &eff).await;
         let state = match (state, msg) {
             (state, ConnectionMessage::Disconnect) => {
                 return teardown(state, &params, &eff).await;
@@ -237,7 +250,7 @@ pub async fn stage(
                     conn_id = conn_id.as_u64(),
                     child = child.to_string()
                 );
-                return teardown(state, &params, &eff).await;
+                return teardown(clear_pending_share(state, child), &params, &eff).await;
             }
             (State::Established(s), ConnectionMessage::StopTimeout) => {
                 if s.stopping.is_empty() {
@@ -253,25 +266,42 @@ pub async fn stage(
             (State::Established(s), ConnectionMessage::FetchBlocks { from, through, id, cr }) => {
                 if !s.stopping.contains(&ChildId::BlockFetch)
                     && let Some(blockfetch) = &s.blockfetch_initiator
+                    && eff
+                        .try_send(blockfetch, BlockFetchMessage::RequestRange { from, through, id, cr: cr.clone() })
+                        .await
+                        == TrySend::Queued
                 {
-                    eff.send(blockfetch, BlockFetchMessage::RequestRange { from, through, id, cr }).await;
+                    // Only a handler that admitted the range was asked. `Full` and a missing
+                    // initiator say nothing: no `PeersAsked`, and no `NoBlocks`.
+                    eff.send(&cr, Blocks::PeersAsked(id, vec![params.peer])).await;
                 }
                 State::Established(s)
             }
             (
-                State::Established(s),
+                State::Established(mut s),
                 ConnectionMessage::RequestSharePeers { amount, initial_delay, interval, reply_to },
             ) => {
                 if !s.stopping.contains(&ChildId::PeerSharing)
-                    && let Some(ps) = &s.peer_sharing_initiator
+                    && let Some(ps) = s.peer_sharing_initiator.clone()
                 {
-                    eff.send(ps, PeerSharingMessage::Start { amount, initial_delay, interval, reply_to }).await;
+                    let start = PeerSharingMessage::Start { amount, initial_delay, interval, reply_to };
+                    match eff.try_send(&ps, start.clone()).await {
+                        TrySend::Full => s.pending_share = Some(start),
+                        TrySend::Queued | TrySend::Gone => s.pending_share = None,
+                    }
+                } else {
+                    s.pending_share = None;
                 }
                 State::Established(s)
             }
-            (State::Established(s), ConnectionMessage::NewTip(tip, trace_context)) => {
-                if let Some(cs) = &s.chainsync_responder {
-                    eff.send(cs, chainsync::ResponderMessage::NewTip(tip, trace_context)).await;
+            (State::Established(mut s), ConnectionMessage::NewTip(tip, trace_context)) => {
+                if let Some(cs) = s.chainsync_responder.clone() {
+                    match eff.try_send(&cs, chainsync::ResponderMessage::NewTip(tip, trace_context.clone())).await {
+                        TrySend::Full => s.pending_tip = Some((tip, trace_context)),
+                        TrySend::Queued | TrySend::Gone => s.pending_tip = None,
+                    }
+                } else {
+                    s.pending_tip = None;
                 }
                 State::Established(s)
             }
@@ -317,6 +347,61 @@ pub async fn stage(
         stopping,
     ))
     .await
+}
+
+/// Offer a stored tip to the chainsync responder before this transition handles its message.
+///
+/// `Queued` and `Gone` drop the stored tip. `Full` keeps it for the following transition.
+async fn flush_pending_tip(state: State, eff: &Effects<ConnectionMessage>) -> State {
+    let State::Established(mut established) = state else {
+        return state;
+    };
+    let Some((tip, trace_context)) = established.pending_tip.clone() else {
+        return State::Established(established);
+    };
+    let Some(responder) = established.chainsync_responder.clone() else {
+        established.pending_tip = None;
+        return State::Established(established);
+    };
+    match eff.try_send(&responder, chainsync::ResponderMessage::NewTip(tip, trace_context)).await {
+        TrySend::Queued | TrySend::Gone => established.pending_tip = None,
+        TrySend::Full => {}
+    }
+    State::Established(established)
+}
+
+/// Offer a stored peer-sharing `Start` before this transition handles its message.
+///
+/// `Queued` and `Gone` drop the stored start. `Full` keeps it for the following transition.
+/// A missing initiator drops it: there is no child left to retry.
+async fn flush_pending_share(state: State, eff: &Effects<ConnectionMessage>) -> State {
+    let State::Established(mut established) = state else {
+        return state;
+    };
+    let Some(start) = established.pending_share.clone() else {
+        return State::Established(established);
+    };
+    let Some(initiator) = established.peer_sharing_initiator.clone() else {
+        established.pending_share = None;
+        return State::Established(established);
+    };
+    match eff.try_send(&initiator, start).await {
+        TrySend::Queued | TrySend::Gone => established.pending_share = None,
+        TrySend::Full => {}
+    }
+    State::Established(established)
+}
+
+/// A dead peer-sharing child will not accept the stored `Start`.
+fn clear_pending_share(state: State, child: ChildId) -> State {
+    if child != ChildId::PeerSharing {
+        return state;
+    }
+    let State::Established(mut established) = state else {
+        return state;
+    };
+    established.pending_share = None;
+    State::Established(established)
 }
 
 /// Notify track_peers that the initiator chainsync session ended, then terminate this connection.
@@ -375,7 +460,7 @@ async fn do_initialize(
     // when it advertises full duplex. Those are the protocols the mux may hold before `Register`.
     let initiator_only = false;
     let advertisable = true;
-    let muxer = eff.stage("mux", mux::stage).await;
+    let muxer = eff.stage_with_mailbox_size("mux", mux::stage, mux::MUX_MAILBOX_SIZE).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
     let early = early_mini_protocol_buffers(advertisable);
     let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &early, *role, peer)).await;
@@ -487,6 +572,8 @@ async fn do_handshake(
         blockfetch_responder: None,
         peer_sharing_responder: None,
         stopping: BTreeSet::new(),
+        pending_tip: None,
+        pending_share: None,
     };
 
     if run_responders {
@@ -572,25 +659,26 @@ async fn begin_stop(mut s: Established, params: &Params, eff: &Effects<Connectio
     if drop_diffusion {
         if let Some(cs) = &s.chainsync_initiator {
             s.stopping.insert(ChildId::ChainSync);
-            eff.send(cs, chainsync::InitiatorMessage::Done).await;
+            let _ = eff.try_send(cs, chainsync::InitiatorMessage::Done).await;
         }
         if let Some(bf) = &s.blockfetch_initiator {
             s.stopping.insert(ChildId::BlockFetch);
-            eff.send(bf, BlockFetchMessage::Close).await;
+            let _ = eff.try_send(bf, BlockFetchMessage::Close).await;
         }
         if let Some(tx) = &s.tx_submission_initiator {
             s.stopping.insert(ChildId::TxSubmission);
-            eff.send(tx, tx_submission::InitiatorLocalIn::Close).await;
+            let _ = eff.try_send(tx, tx_submission::InitiatorLocalIn::Close).await;
         }
     }
     if drop_maintenance {
         if let Some(ka) = &s.keepalive_initiator {
             s.stopping.insert(ChildId::KeepAlive);
-            eff.send(ka, keepalive::InitiatorMessage::Close).await;
+            let _ = eff.try_send(ka, keepalive::InitiatorMessage::Close).await;
         }
         if let Some(ps) = &s.peer_sharing_initiator {
             s.stopping.insert(ChildId::PeerSharing);
-            eff.send(ps, PeerSharingMessage::Close).await;
+            s.pending_share = None;
+            let _ = eff.try_send(ps, PeerSharingMessage::Close).await;
         }
     }
 
@@ -660,6 +748,7 @@ async fn on_expected_stop(
         }
         ChildId::PeerSharing => {
             s.peer_sharing_initiator = None;
+            s.pending_share = None;
             mux::install_done_trap(
                 &s.muxer,
                 PROTO_N2N_PEER_SHARE.erase(),
@@ -774,14 +863,23 @@ pub fn register_deserializers() -> DeserializerGuards {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::PREPROD_ERA_HISTORY;
+    use std::time::Duration;
+
+    use amaru_kernel::{BlockHeight, HeaderHash, PREPROD_ERA_HISTORY, Slot};
     use amaru_pure_stage::{
-        Effect, StageGraph,
-        simulation::{Run, SimulationBuilder},
+        DEFAULT_MAILBOX_SIZE, Effect, Name, SendData, StageGraph, StageResponse, TraceMatch,
+        simulation::{Run, SimulationBuilder, SimulationRunning},
+        stage_ref::StageStateRef,
+        trace_buffer::{TraceBuffer, TraceEntry},
+        trace_match::{
+            assert_trace_contains, assert_trace_match_filter, tm_resume_try_send, tm_send, tm_state_match,
+            tm_try_send_match,
+        },
     };
     use tokio::runtime::Runtime;
 
     use super::*;
+    use crate::protocol_messages::version_data::PeerSharing;
 
     /// Limits installed for each mini-protocol id, initiator and responder.
     ///
@@ -887,6 +985,29 @@ mod tests {
         assert_eq!(state.state, connection_state);
     }
 
+    #[test]
+    fn mux_is_created_with_the_burst_mailbox() {
+        let _guards = trace_guards();
+        let mut network = SimulationBuilder::default();
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(connection, test_connection(State::Initial));
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.breakpoint(
+            "mux-wire",
+            |eff| matches!(eff, Effect::WireStage { name, .. } if name.as_str().starts_with("mux")),
+        );
+        running.enqueue_msg(&connection, [ConnectionMessage::Initialize]);
+        running.run(Run::default()).assert_breakpoint("mux-wire");
+        let hit = running.breakpoint_effect();
+        let Effect::WireStage { mailbox_size, .. } = hit.effect() else {
+            panic!("expected the mux to be wired");
+        };
+        assert_eq!(mux::MUX_MAILBOX_SIZE, 24);
+        assert_eq!(*mailbox_size, 24);
+        assert_eq!(*mailbox_size, mux::MUX_MAILBOX_SIZE);
+    }
+
     // HELPERS
 
     fn test_connection(state: State) -> Connection {
@@ -904,5 +1025,650 @@ mod tests {
             },
             state,
         }
+    }
+
+    fn tip(slot: u64, byte: u8) -> Point {
+        Point::Specific(Slot::from(slot), HeaderHash::new([byte; 32]), BlockHeight::from(slot))
+    }
+
+    fn established(
+        blockfetch: Option<StageRef<BlockFetchMessage>>,
+        chainsync: Option<StageRef<chainsync::ResponderMessage>>,
+    ) -> Connection {
+        test_connection(State::Established(Established {
+            desired_use: LocalUse::Diffusion,
+            actual_use: LocalUse::Diffusion,
+            duplex: true,
+            version_number: VersionNumber::CURRENT,
+            version_data: VersionData::new(NetworkMagic::PREPROD, false, PeerSharing::Disabled, false),
+            muxer: StageRef::blackhole(),
+            handshake: StageRef::blackhole(),
+            keepalive_initiator: None,
+            tx_submission_initiator: None,
+            chainsync_initiator: None,
+            blockfetch_initiator: blockfetch,
+            peer_sharing_initiator: None,
+            chainsync_responder: chainsync,
+            blockfetch_responder: None,
+            peer_sharing_responder: None,
+            stopping: BTreeSet::new(),
+            pending_tip: None,
+            pending_share: None,
+        }))
+    }
+
+    fn established_sharing(
+        peer_sharing: Option<StageRef<PeerSharingMessage>>,
+        pending: Option<PeerSharingMessage>,
+        stopping: BTreeSet<ChildId>,
+    ) -> Connection {
+        let mut connection = established(None, None);
+        let State::Established(established) = &mut connection.state else {
+            unreachable!("established() builds Established");
+        };
+        established.peer_sharing_initiator = peer_sharing;
+        established.pending_share = pending;
+        established.stopping = stopping;
+        connection
+    }
+
+    fn connection_input<'a>(
+        stage: &'a str,
+        predicate: impl Fn(&ConnectionMessage) -> bool + Send + 'a,
+    ) -> TraceMatch<'a> {
+        let stage = stage.to_string();
+        let description = format!("Input at {stage}");
+        TraceMatch::Property(
+            Box::new(move |src| {
+                let Some(TraceEntry::Input { stage: got, input }) = src.entry() else {
+                    return false;
+                };
+                got.as_str() == stage && input.cast_ref::<ConnectionMessage>().is_ok_and(&predicate)
+            }),
+            description,
+        )
+    }
+
+    fn traced() -> SimulationBuilder {
+        SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000))
+    }
+
+    fn trace_guards() -> amaru_pure_stage::DeserializerGuards {
+        let mut guards = crate::deserializers::register_deserializers();
+        guards.push(register_data_deserializer::<Inputs<BlockFetchMessage>>().boxed());
+        guards.push(register_data_deserializer::<Inputs<chainsync::ResponderMessage>>().boxed());
+        guards.push(register_data_deserializer::<Inputs<PeerSharingMessage>>().boxed());
+        guards
+    }
+
+    fn drop_other_stages(keep: &str) -> TraceMatch<'static> {
+        let keep = keep.to_string();
+        let description = format!("stage other than {keep}");
+        TraceMatch::Property(
+            Box::new(move |src| {
+                src.entry().and_then(|entry| entry.at_stage()).is_some_and(|stage| stage.as_str() != keep)
+            }),
+            description,
+        )
+    }
+
+    /// Drops resumes other than [`StageResponse::TrySend`]. The admission result is that resume.
+    fn drop_resume_except_try_send() -> TraceMatch<'static> {
+        TraceMatch::Property(
+            Box::new(|src| match src.entry() {
+                Some(TraceEntry::Resume { response: StageResponse::TrySend(_), .. }) => false,
+                Some(TraceEntry::Resume { .. }) => true,
+                _ => false,
+            }),
+            "Resume other than TrySend".to_string(),
+        )
+    }
+
+    async fn hold_blockfetch(_state: (), _msg: Inputs<BlockFetchMessage>, eff: Effects<Inputs<BlockFetchMessage>>) {
+        eff.wait(Duration::from_secs(3600)).await;
+    }
+
+    async fn hold_chainsync(
+        _state: (),
+        _msg: Inputs<chainsync::ResponderMessage>,
+        eff: Effects<Inputs<chainsync::ResponderMessage>>,
+    ) {
+        eff.wait(Duration::from_secs(3600)).await;
+    }
+
+    async fn collect_blocks(mut seen: Vec<Blocks>, msg: Blocks, _eff: Effects<Blocks>) -> Vec<Blocks> {
+        seen.push(msg);
+        seen
+    }
+
+    fn fill_to_capacity<Msg: SendData>(
+        running: &mut SimulationRunning,
+        stage: &impl AsRef<StageRef<Msg>>,
+        msg: impl Fn() -> Msg,
+    ) {
+        running.enqueue_msg(stage, [msg()]);
+        running.run(Run::default()).assert_sleeping();
+        for _ in 0..DEFAULT_MAILBOX_SIZE {
+            running.enqueue_msg(stage, [msg()]);
+        }
+        assert_eq!(running.mailbox_len(stage), DEFAULT_MAILBOX_SIZE);
+    }
+
+    fn pending_share_of(connection: &Connection) -> Option<PeerSharingMessage> {
+        let State::Established(established) = &connection.state else {
+            panic!("connection left Established");
+        };
+        established.pending_share.clone()
+    }
+
+    fn share_start(amount: u8) -> PeerSharingMessage {
+        PeerSharingMessage::Start {
+            amount,
+            initial_delay: Duration::from_secs(1),
+            interval: Duration::from_secs(60),
+            reply_to: StageRef::blackhole(),
+        }
+    }
+
+    fn share_request(amount: u8) -> ConnectionMessage {
+        ConnectionMessage::RequestSharePeers {
+            amount,
+            initial_delay: Duration::from_secs(1),
+            interval: Duration::from_secs(60),
+            reply_to: StageRef::blackhole(),
+        }
+    }
+
+    fn is_local_start(amount: u8) -> impl Fn(&Inputs<PeerSharingMessage>) -> bool {
+        move |msg| matches!(msg, Inputs::Local(PeerSharingMessage::Start { amount: got, .. }) if *got == amount)
+    }
+
+    fn is_start(amount: u8) -> impl Fn(&PeerSharingMessage) -> bool {
+        move |msg| matches!(msg, PeerSharingMessage::Start { amount: got, .. } if *got == amount)
+    }
+
+    async fn hold_share(_state: (), _msg: Inputs<PeerSharingMessage>, eff: Effects<Inputs<PeerSharingMessage>>) {
+        eff.wait(Duration::from_secs(3600)).await;
+    }
+
+    fn pending_point(connection: &Connection) -> Option<Point> {
+        let State::Established(established) = &connection.state else {
+            panic!("connection left Established");
+        };
+        established.pending_tip.as_ref().map(|(point, _)| *point)
+    }
+
+    fn is_local_tip(point: Point) -> impl Fn(&Inputs<chainsync::ResponderMessage>) -> bool {
+        move |msg| matches!(msg, Inputs::Local(chainsync::ResponderMessage::NewTip(got, _)) if *got == point)
+    }
+
+    #[test]
+    fn nonblocking_fetch_full_child_emits_nothing() {
+        let _guards = trace_guards();
+        let mut network = traced();
+        let blockfetch = network.stage("blockfetch", hold_blockfetch);
+        let blockfetch_sender = blockfetch.sender();
+        let blockfetch = network.wire_up(blockfetch, ());
+        let asked = network.stage("asked", collect_blocks);
+        let asked_sender = asked.sender();
+        let asked = network.wire_up(asked, Vec::new());
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(
+            connection,
+            established(Some(blockfetch_sender.contramap(Inputs::<BlockFetchMessage>::Local)), None),
+        );
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.run(Run::default()).assert_idle();
+        fill_to_capacity(&mut running, &blockfetch, || Inputs::Local(BlockFetchMessage::Close));
+        running.trace_buffer().lock().clear();
+
+        let msg =
+            ConnectionMessage::FetchBlocks { from: Point::Origin, through: Point::Origin, id: 7, cr: asked_sender };
+        running.enqueue_msg(&connection, [msg]);
+        running.run(Run::default()).assert_sleeping();
+
+        assert!(running.get_state(&connection).is_some(), "connection waited on a full block-fetch handler");
+        assert!(running.get_state(&asked).unwrap().is_empty());
+        assert_eq!(running.mailbox_len(&blockfetch), DEFAULT_MAILBOX_SIZE);
+
+        let name = connection.name().as_str();
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name, |sent| matches!(sent, ConnectionMessage::FetchBlocks { id: 7, .. })),
+                tm_try_send_match(name, "blockfetch", |sent: &Inputs<BlockFetchMessage>| {
+                    matches!(sent, Inputs::Local(BlockFetchMessage::RequestRange { id: 7, .. }))
+                }),
+                tm_resume_try_send(name, TrySend::Full),
+                tm_state_match(name, |state: &Connection| pending_point(state).is_none()),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
+
+    #[test]
+    fn nonblocking_fetch_queued_child_reports_peers_asked() {
+        let _guards = trace_guards();
+        let mut network = traced();
+        let blockfetch = network.stage("blockfetch", hold_blockfetch);
+        let blockfetch_sender = blockfetch.sender();
+        let blockfetch = network.wire_up(blockfetch, ());
+        let asked = network.stage("asked", collect_blocks);
+        let asked_sender = asked.sender();
+        let asked = network.wire_up(asked, Vec::new());
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(
+            connection,
+            established(Some(blockfetch_sender.contramap(Inputs::<BlockFetchMessage>::Local)), None),
+        );
+        let peer = Peer::for_test(3009);
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.run(Run::default()).assert_idle();
+        running.trace_buffer().lock().clear();
+
+        let msg =
+            ConnectionMessage::FetchBlocks { from: Point::Origin, through: Point::Origin, id: 7, cr: asked_sender };
+        running.enqueue_msg(&connection, [msg]);
+        running.run(Run::default()).assert_sleeping();
+
+        assert!(running.get_state(&connection).is_some());
+        assert_eq!(running.get_state(&asked).unwrap().as_slice(), &[Blocks::PeersAsked(7, vec![peer])]);
+        assert_eq!(running.mailbox_len(&blockfetch), 0, "the child took the one admitted request");
+
+        let name = connection.name().as_str();
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name, |sent| matches!(sent, ConnectionMessage::FetchBlocks { id: 7, .. })),
+                tm_try_send_match(name, "blockfetch", |sent: &Inputs<BlockFetchMessage>| {
+                    matches!(sent, Inputs::Local(BlockFetchMessage::RequestRange { id: 7, .. }))
+                }),
+                tm_resume_try_send(name, TrySend::Queued),
+                tm_send(name, "asked", Blocks::PeersAsked(7, vec![peer])),
+                tm_state_match(name, |state: &Connection| pending_point(state).is_none()),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
+
+    #[test]
+    fn nonblocking_new_tip_keeps_latest_and_flushes_once() {
+        let _guards = trace_guards();
+        let mut network = traced();
+        let chainsync = network.stage("chainsync", hold_chainsync);
+        let chainsync_sender = chainsync.sender();
+        let chainsync = network.wire_up(chainsync, ());
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(
+            connection,
+            established(None, Some(chainsync_sender.contramap(Inputs::<chainsync::ResponderMessage>::Local))),
+        );
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.run(Run::default()).assert_idle();
+        let parked = fill_and_remember_wakeup(&mut running, &chainsync);
+        running.trace_buffer().lock().clear();
+
+        let first = tip(1, 1);
+        let second = tip(2, 2);
+        let name = connection.name().clone();
+        offer_tip(&mut running, &connection, &name, first);
+        assert_eq!(pending_point(running.get_state(&connection).unwrap()), Some(first));
+
+        running.trace_buffer().lock().clear();
+        running.enqueue_msg(&connection, [ConnectionMessage::new_tip(second)]);
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(pending_point(running.get_state(&connection).unwrap()), Some(second));
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(
+                    name.as_str(),
+                    move |sent| matches!(sent, ConnectionMessage::NewTip(got, _) if *got == second),
+                ),
+                tm_try_send_match(name.as_str(), "chainsync", is_local_tip(first)),
+                tm_resume_try_send(name.as_str(), TrySend::Full),
+                tm_try_send_match(name.as_str(), "chainsync", is_local_tip(second)),
+                tm_resume_try_send(name.as_str(), TrySend::Full),
+                tm_state_match(name.as_str(), move |state: &Connection| pending_point(state) == Some(second)),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+
+        running.run(Run::until(parked)).assert_sleeping();
+        assert_eq!(running.mailbox_len(&chainsync), DEFAULT_MAILBOX_SIZE - 1);
+        running.trace_buffer().lock().clear();
+
+        running.enqueue_msg(&connection, [ConnectionMessage::StopTimeout]);
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(pending_point(running.get_state(&connection).unwrap()), None);
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name.as_str(), |sent| matches!(sent, ConnectionMessage::StopTimeout)),
+                tm_try_send_match(name.as_str(), "chainsync", is_local_tip(second)),
+                tm_resume_try_send(name.as_str(), TrySend::Queued),
+                tm_state_match(name.as_str(), |state: &Connection| pending_point(state).is_none()),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+    }
+
+    fn fill_and_remember_wakeup(
+        running: &mut SimulationRunning,
+        stage: &StageStateRef<Inputs<chainsync::ResponderMessage>, ()>,
+    ) -> amaru_pure_stage::Instant {
+        running.enqueue_msg(
+            stage,
+            [Inputs::Local(chainsync::ResponderMessage::NewTip(Point::Origin, TraceContext::none()))],
+        );
+        let parked = running.run(Run::default()).assert_sleeping();
+        for _ in 0..DEFAULT_MAILBOX_SIZE {
+            running.enqueue_msg(
+                stage,
+                [Inputs::Local(chainsync::ResponderMessage::NewTip(Point::Origin, TraceContext::none()))],
+            );
+        }
+        assert_eq!(running.mailbox_len(stage), DEFAULT_MAILBOX_SIZE);
+        parked
+    }
+
+    fn offer_tip(
+        running: &mut SimulationRunning,
+        connection: &StageStateRef<ConnectionMessage, Connection>,
+        name: &Name,
+        point: Point,
+    ) {
+        running.enqueue_msg(connection, [ConnectionMessage::new_tip(point)]);
+        running.run(Run::default()).assert_sleeping();
+        assert_trace_match_filter(
+            running,
+            &[
+                connection_input(
+                    name.as_str(),
+                    move |sent| matches!(sent, ConnectionMessage::NewTip(got, _) if *got == point),
+                ),
+                tm_try_send_match(name.as_str(), "chainsync", is_local_tip(point)),
+                tm_resume_try_send(name.as_str(), TrySend::Full),
+                tm_state_match(name.as_str(), move |state: &Connection| pending_point(state) == Some(point)),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+    }
+
+    fn fill_share(
+        running: &mut SimulationRunning,
+        stage: &StageStateRef<Inputs<PeerSharingMessage>, ()>,
+    ) -> amaru_pure_stage::Instant {
+        running.enqueue_msg(stage, [Inputs::Local(PeerSharingMessage::Tick)]);
+        let parked = running.run(Run::default()).assert_sleeping();
+        for _ in 0..DEFAULT_MAILBOX_SIZE {
+            running.enqueue_msg(stage, [Inputs::Local(PeerSharingMessage::Tick)]);
+        }
+        assert_eq!(running.mailbox_len(stage), DEFAULT_MAILBOX_SIZE);
+        parked
+    }
+
+    /// A full peer-sharing child keeps the one Start. A second Start replaces it. The next
+    /// transition flushes that latest Start once.
+    #[test]
+    fn nonblocking_share_keeps_latest_start_and_flushes_once() {
+        let _guards = trace_guards();
+        let mut network = traced();
+        let sharing = network.stage("sharing", hold_share);
+        let sharing_sender = sharing.sender();
+        let sharing = network.wire_up(sharing, ());
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(
+            connection,
+            established_sharing(
+                Some(sharing_sender.contramap(Inputs::<PeerSharingMessage>::Local)),
+                None,
+                BTreeSet::new(),
+            ),
+        );
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.run(Run::default()).assert_idle();
+        let parked = fill_share(&mut running, &sharing);
+        running.trace_buffer().lock().clear();
+
+        let name = connection.name().clone();
+        running.enqueue_msg(&connection, [share_request(1)]);
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(pending_share_of(running.get_state(&connection).unwrap()), Some(share_start(1)));
+        assert_eq!(running.mailbox_len(&sharing), DEFAULT_MAILBOX_SIZE);
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name.as_str(), |sent| {
+                    matches!(sent, ConnectionMessage::RequestSharePeers { amount: 1, .. })
+                }),
+                tm_try_send_match(name.as_str(), "sharing", is_local_start(1)),
+                tm_resume_try_send(name.as_str(), TrySend::Full),
+                tm_state_match(name.as_str(), |state: &Connection| pending_share_of(state) == Some(share_start(1))),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+
+        running.enqueue_msg(&connection, [share_request(2)]);
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(pending_share_of(running.get_state(&connection).unwrap()), Some(share_start(2)));
+        assert_eq!(
+            running.mailbox_len(&sharing),
+            DEFAULT_MAILBOX_SIZE,
+            "a second Start must not be queued beside the first"
+        );
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name.as_str(), |sent| {
+                    matches!(sent, ConnectionMessage::RequestSharePeers { amount: 2, .. })
+                }),
+                tm_try_send_match(name.as_str(), "sharing", is_local_start(1)),
+                tm_resume_try_send(name.as_str(), TrySend::Full),
+                tm_try_send_match(name.as_str(), "sharing", is_local_start(2)),
+                tm_resume_try_send(name.as_str(), TrySend::Full),
+                tm_state_match(name.as_str(), |state: &Connection| pending_share_of(state) == Some(share_start(2))),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+
+        running.run(Run::until(parked)).assert_sleeping();
+        assert_eq!(running.mailbox_len(&sharing), DEFAULT_MAILBOX_SIZE - 1);
+        running.trace_buffer().lock().clear();
+
+        running.enqueue_msg(&connection, [ConnectionMessage::StopTimeout]);
+        running.run(Run::default()).assert_sleeping();
+        assert_eq!(pending_share_of(running.get_state(&connection).unwrap()), None);
+        assert_eq!(running.mailbox_len(&sharing), DEFAULT_MAILBOX_SIZE);
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name.as_str(), |sent| matches!(sent, ConnectionMessage::StopTimeout)),
+                tm_try_send_match(name.as_str(), "sharing", is_local_start(2)),
+                tm_resume_try_send(name.as_str(), TrySend::Queued),
+                tm_state_match(name.as_str(), |state: &Connection| pending_share_of(state).is_none()),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+    }
+
+    #[test]
+    fn nonblocking_share_gone_clears_pending_start() {
+        let _guards = trace_guards();
+        let mut network = traced();
+        let connection = network.stage("connection", stage);
+        let gone = StageRef::<PeerSharingMessage>::named_for_tests("missing-share");
+        let connection =
+            network.wire_up(connection, established_sharing(Some(gone), Some(share_start(1)), BTreeSet::new()));
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.run(Run::default()).assert_idle();
+        running.trace_buffer().lock().clear();
+
+        let name = connection.name().clone();
+        running.enqueue_msg(&connection, [ConnectionMessage::StopTimeout]);
+        running.run(Run::default()).assert_idle();
+        assert_eq!(pending_share_of(running.get_state(&connection).unwrap()), None);
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name.as_str(), |sent| matches!(sent, ConnectionMessage::StopTimeout)),
+                tm_try_send_match(name.as_str(), "missing-share", is_start(1)),
+                tm_resume_try_send(name.as_str(), TrySend::Gone),
+                tm_state_match(name.as_str(), |state: &Connection| pending_share_of(state).is_none()),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+
+        running.enqueue_msg(&connection, [share_request(2)]);
+        running.run(Run::default()).assert_idle();
+        assert_eq!(pending_share_of(running.get_state(&connection).unwrap()), None);
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name.as_str(), |sent| {
+                    matches!(sent, ConnectionMessage::RequestSharePeers { amount: 2, .. })
+                }),
+                tm_try_send_match(name.as_str(), "missing-share", is_start(2)),
+                tm_resume_try_send(name.as_str(), TrySend::Gone),
+                tm_state_match(name.as_str(), |state: &Connection| pending_share_of(state).is_none()),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name.as_str())],
+        );
+    }
+
+    #[test]
+    fn nonblocking_share_child_died_clears_pending_start() {
+        let _guards = trace_guards();
+        let mut network = traced();
+        let sharing = network.stage("sharing", hold_share);
+        let sharing_sender = sharing.sender();
+        let sharing = network.wire_up(sharing, ());
+        let connection = network.stage("connection", stage);
+        let mut initial = established_sharing(
+            Some(sharing_sender.contramap(Inputs::<PeerSharingMessage>::Local)),
+            Some(share_start(1)),
+            BTreeSet::from([ChildId::PeerSharing]),
+        );
+        let State::Established(established) = &mut initial.state else {
+            unreachable!("established_sharing builds Established");
+        };
+        // Desired use None so the expected stop does not start a replacement child.
+        established.desired_use = LocalUse::None;
+        established.actual_use = LocalUse::None;
+        let connection = network.wire_up(connection, initial);
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.run(Run::default()).assert_idle();
+        fill_share(&mut running, &sharing);
+        running.trace_buffer().lock().clear();
+
+        let name = connection.name().clone();
+        running.enqueue_msg(&connection, [ConnectionMessage::ChildDied(ChildId::PeerSharing)]);
+        running.run(Run::default()).assert_sleeping();
+
+        let state = running.get_state(&connection).expect("expected child death finishes the transition");
+        let State::Established(established) = &state.state else {
+            panic!("connection left Established");
+        };
+        assert_eq!(established.pending_share, None);
+        assert!(established.peer_sharing_initiator.is_none());
+        assert!(established.stopping.is_empty());
+        assert_eq!(running.mailbox_len(&sharing), DEFAULT_MAILBOX_SIZE);
+        // `assert_trace_contains` drops resumes. The admission result is the resume.
+        let trace = running.trace_buffer().lock().hydrate_without_timestamps();
+        assert_trace_contains(
+            &running,
+            &[
+                connection_input(name.as_str(), |sent| {
+                    matches!(sent, ConnectionMessage::ChildDied(ChildId::PeerSharing))
+                }),
+                tm_try_send_match(name.as_str(), "sharing", is_local_start(1)),
+                tm_state_match(name.as_str(), |state: &Connection| pending_share_of(state).is_none()),
+            ],
+        );
+        let full = tm_resume_try_send(name.as_str(), TrySend::Full);
+        assert!(trace.iter().any(|entry| full == *entry), "try_send response missing from the trace: {trace:?}");
+    }
+
+    #[test]
+    fn nonblocking_close_full_child_arms_stop_timeout() {
+        let _guards = trace_guards();
+        let mut network = traced();
+        let blockfetch = network.stage("blockfetch", hold_blockfetch);
+        let blockfetch_sender = blockfetch.sender();
+        let blockfetch = network.wire_up(blockfetch, ());
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(
+            connection,
+            established(Some(blockfetch_sender.contramap(Inputs::<BlockFetchMessage>::Local)), None),
+        );
+
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.run(Run::default()).assert_idle();
+        fill_to_capacity(&mut running, &blockfetch, || Inputs::Local(BlockFetchMessage::Close));
+        running.trace_buffer().lock().clear();
+
+        running.enqueue_msg(&connection, [ConnectionMessage::SetLocalUse(LocalUse::None)]);
+        running.run(Run::default()).assert_sleeping();
+
+        let state = running.get_state(&connection).expect("connection waited on a full close");
+        let State::Established(established) = &state.state else {
+            panic!("connection left Established");
+        };
+        assert_eq!(established.stopping, BTreeSet::from([ChildId::BlockFetch]));
+        assert_eq!(established.desired_use, LocalUse::None);
+        assert_eq!(established.actual_use, LocalUse::Diffusion);
+
+        let name = connection.name().as_str();
+        let delay = ManagerConfig::default().diffusion_stop_timeout;
+        assert_trace_match_filter(
+            &running,
+            &[
+                connection_input(name, |sent| matches!(sent, ConnectionMessage::SetLocalUse(LocalUse::None))),
+                tm_try_send_match(name, "blockfetch", |sent: &Inputs<BlockFetchMessage>| {
+                    matches!(sent, Inputs::Local(BlockFetchMessage::Close))
+                }),
+                tm_resume_try_send(name, TrySend::Full),
+                stop_timeout(name, delay),
+                tm_state_match(name, |state: &Connection| {
+                    let State::Established(established) = &state.state else {
+                        return false;
+                    };
+                    established.stopping == BTreeSet::from([ChildId::BlockFetch])
+                }),
+            ],
+            &[drop_resume_except_try_send(), drop_other_stages(name)],
+        );
+    }
+
+    fn stop_timeout(stage: &str, delay: Duration) -> TraceMatch<'static> {
+        let stage = stage.to_string();
+        let description = format!("SetTimeout(slot {STOP_TIMEOUT_SLOT}, {delay:?}, StopTimeout) at {stage}");
+        TraceMatch::Property(
+            Box::new(move |src| {
+                let Some(Effect::SetTimeout { at_stage, slot, delay: got, msg }) = src.suspend() else {
+                    return false;
+                };
+                at_stage.as_str() == stage
+                    && *slot == STOP_TIMEOUT_SLOT
+                    && *got == delay
+                    && msg
+                        .cast_ref::<ConnectionMessage>()
+                        .is_ok_and(|message| matches!(message, ConnectionMessage::StopTimeout))
+            }),
+            description,
+        )
     }
 }
