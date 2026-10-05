@@ -24,7 +24,7 @@ use proptest::{
 };
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::safe_ratio;
+use crate::UnitRationalNumber;
 use crate::{Credential, Epoch, SafeRatio};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

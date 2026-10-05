@@ -92,6 +92,7 @@ impl Arbitrary for PoolParams {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
+    #[expect(clippy::expect_used)]
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         (
             any::<PoolId>(),

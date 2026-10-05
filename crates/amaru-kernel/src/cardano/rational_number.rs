@@ -133,9 +133,10 @@ impl Arbitrary for RationalNumber {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
+    #[expect(clippy::unwrap_used)]
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         (any::<u64>(), 1..u64::MAX)
-            .prop_map(|(numerator, denominator)| RationalNumber { numerator, denominator })
+            .prop_map(|(numerator, denominator)| RationalNumber::new(numerator, denominator).unwrap())
             .boxed()
     }
 }

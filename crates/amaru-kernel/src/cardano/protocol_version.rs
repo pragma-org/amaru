@@ -72,7 +72,7 @@ impl Arbitrary for ProtocolVersion {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        (0..=Self::MAX_MAJOR, any::<u64>()).prop_map(|(major, minor)| ProtocolVersion::new(major, minor)).boxed()
+        (0..=Self::MAX_MAJOR, any::<u32>()).prop_map(|(major, minor)| ProtocolVersion::new(major, minor)).boxed()
     }
 }
 

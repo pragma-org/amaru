@@ -14,6 +14,9 @@
 
 use std::fmt;
 
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy};
+
 use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
@@ -83,23 +86,17 @@ impl TryFrom<RationalNumber> for UnitRationalNumber {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tests::*;
+impl Arbitrary for UnitRationalNumber {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
 
-#[cfg(any(test, feature = "test-utils"))]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::*;
-
-    prop_compose! {
-        #[expect(clippy::unwrap_used)]
-        pub fn any_unit_rational_number()(
-            denominator in 1..u64::MAX,
-        )(
-          delta in 0..denominator,
-          denominator in Just(denominator),
-      ) -> UnitRationalNumber {
-            UnitRationalNumber(RationalNumber::new(denominator - delta, denominator).unwrap())
-        }
+    #[expect(clippy::unwrap_used)]
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (1..u64::MAX)
+            .prop_flat_map(|denominator| (0..denominator, Just(denominator)))
+            .prop_map(|(delta, denominator)| {
+                UnitRationalNumber(RationalNumber::new(denominator - delta, denominator).unwrap())
+            })
+            .boxed()
     }
 }

@@ -94,14 +94,6 @@ impl<const BYTES: usize> Arbitrary for Hash<BYTES> {
     }
 }
 
-impl<const BYTES: usize> From<&[u8]> for Hash<BYTES> {
-    fn from(value: &[u8]) -> Self {
-        let mut hash = [0; BYTES];
-        hash.copy_from_slice(value);
-        Self::new(hash)
-    }
-}
-
 /// A slice whose length does not match the digest it was meant to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("invalid hash size: expected {expected} bytes, got {got}")]

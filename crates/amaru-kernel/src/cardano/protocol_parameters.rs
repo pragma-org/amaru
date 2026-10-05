@@ -17,7 +17,7 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{
     CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
-    ProtocolParamUpdate, ProtocolVersion, UnitRationalNumber, cbor,
+    ProtocolParamUpdate, ProtocolVersion, RationalNumber, UnitRationalNumber, cbor,
 };
 
 mod default;
@@ -526,29 +526,29 @@ impl Arbitrary for ProtocolParameters {
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         let network =
-            (any::<u64>(), any::<u64>(), any::<u16>(), any::<ExUnits>(), any::<ExUnits>(), any::<u64>(), any::<u16>());
+            (any::<u32>(), any::<u32>(), any::<u16>(), any::<ExUnits>(), any::<ExUnits>(), any::<u32>(), any::<u16>());
         let economic = (
             any::<Lovelace>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
-            any::<RationalNumber>(),
-            any::<RationalNumber>(),
+            any::<UnitRationalNumber>(),
+            any::<UnitRationalNumber>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
             any::<ExUnitPrices>(),
             any::<RationalNumber>(),
         );
-        let technical = (any::<u64>(), any::<u16>(), any::<RationalNumber>(), any::<u16>(), any::<CostModels>());
+        let technical = (any::<u32>(), any::<u16>(), any::<RationalNumber>(), any::<u16>(), any::<CostModels>());
         let governance = (
             any::<PoolVotingThresholds>(),
             any::<DRepVotingThresholds>(),
             any::<u16>(),
-            any::<u64>(),
-            any::<u64>(),
+            any::<u32>(),
+            any::<u32>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
-            any::<u64>(),
+            any::<u32>(),
         );
 
         (any::<ProtocolVersion>(), network, economic, technical, governance)

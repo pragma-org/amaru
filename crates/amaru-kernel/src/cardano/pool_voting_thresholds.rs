@@ -91,7 +91,7 @@ impl Arbitrary for PoolVotingThresholds {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[RationalNumber; 5]>()
+        any::<[UnitRationalNumber; 5]>()
             .prop_map(
                 |[
                     motion_no_confidence,

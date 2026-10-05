@@ -65,7 +65,7 @@ impl Arbitrary for ProposalId {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        (any::<Hash<TRANSACTION_BODY>>(), any::<u32>())
+        (any::<Hash<TRANSACTION_BODY>>(), any::<u16>())
             .prop_map(|(transaction_id, proposal_index)| ProposalId { transaction_id, proposal_index })
             .boxed()
     }

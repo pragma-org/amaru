@@ -26,7 +26,7 @@ use std::{
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
 
-use crate::{BlockHeight, Hash, HeaderHash, ORIGIN_HASH, Point, Slot, cbor, size::HEADER};
+use crate::{BlockHeight, Hash, HeaderHash, ORIGIN_HASH, Point, Slot, cbor};
 
 #[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum NetworkPoint {

@@ -316,7 +316,7 @@ impl Arbitrary for ProtocolParamUpdate {
             option::of(any::<u32>()),
             option::of(any::<u32>()),
             option::of(any::<u16>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
             option::of(any::<ExUnits>()),
             option::of(any::<ExUnits>()),
             option::of(any::<u16>()),
@@ -327,7 +327,7 @@ impl Arbitrary for ProtocolParamUpdate {
             option::of(any::<Lovelace>()),
             option::of(any::<Lovelace>()),
             option::of(any::<UnitRationalNumber>()),
-            option::of(any::<RationalNumber>()),
+            option::of(any::<UnitRationalNumber>()),
             option::of(any::<Lovelace>()),
             option::of(any::<Lovelace>()),
             option::of(any::<ExUnitPrices>()),
@@ -344,11 +344,11 @@ impl Arbitrary for ProtocolParamUpdate {
             option::of(any::<PoolVotingThresholds>()),
             option::of(any::<DRepVotingThresholds>()),
             option::of(any::<u16>()),
-            option::of(any::<u64>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
+            option::of(any::<u32>()),
             option::of(any::<Lovelace>()),
             option::of(any::<Lovelace>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
         );
 
         (network, economic, technical, governance)

@@ -126,7 +126,12 @@ impl Arbitrary for CostModels {
             || any::<[Option<i64>; 3]>().prop_map(|costs| costs.into_iter().flatten().collect::<CostModel>());
 
         (option::of(any_cost_model()), option::of(any_cost_model()), option::of(any_cost_model()))
-            .prop_map(|(plutus_v1, plutus_v2, plutus_v3)| CostModels { plutus_v1, plutus_v2, plutus_v3 })
+            .prop_map(|(plutus_v1, plutus_v2, plutus_v3)| CostModels {
+                plutus_v1,
+                plutus_v2,
+                plutus_v3,
+                unknown: BTreeMap::new(),
+            })
             .boxed()
     }
 }

@@ -116,7 +116,7 @@ impl Arbitrary for DRepVotingThresholds {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[RationalNumber; 10]>()
+        any::<[UnitRationalNumber; 10]>()
             .prop_map(
                 |[
                     motion_no_confidence,

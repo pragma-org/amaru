@@ -15,7 +15,7 @@
 use std::{fmt, ops::Add};
 
 #[cfg(any(test, feature = "test-utils"))]
-use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
 use crate::cbor;
 
@@ -69,7 +69,8 @@ impl Arbitrary for ExUnits {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<(u64, u64)>().prop_map(|(mem, steps)| ExUnits { mem, steps }).boxed()
+        let any_ex_unit = || 0..=i64::MAX as u64;
+        (any_ex_unit(), any_ex_unit()).prop_map(|(mem, steps)| ExUnits { mem, steps }).boxed()
     }
 }
 

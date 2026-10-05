@@ -178,9 +178,7 @@ impl Arbitrary for GovernanceAction {
             collection::btree_map(any::<RewardAccount>(), any::<Lovelace>(), 0..3),
             any::<Option<Hash<{ hash::size::SCRIPT }>>>(),
         )
-            .prop_map(|(withdrawals, guardrails)| {
-                GovernanceAction::TreasuryWithdrawals(KeyValuePairs::from(withdrawals), guardrails)
-            });
+            .prop_map(|(withdrawals, guardrails)| GovernanceAction::TreasuryWithdrawals(withdrawals, guardrails));
 
         let no_confidence = any::<Option<ProposalId>>().prop_map(GovernanceAction::NoConfidence);
 
@@ -188,7 +186,7 @@ impl Arbitrary for GovernanceAction {
             any::<Option<ProposalId>>(),
             collection::btree_set(any::<Credential>(), 0..3),
             collection::btree_map(any::<Credential>(), any::<Epoch>(), 0..3),
-            any::<RationalNumber>(),
+            any::<UnitRationalNumber>(),
         )
             .prop_map(|(parent, to_remove, to_add, quorum)| {
                 GovernanceAction::UpdateCommittee(
