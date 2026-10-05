@@ -4343,6 +4343,32 @@
       "description": "A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored}.",
       "public": true
     },
+    "amaru::consensus::forge::OPCERT_INVALID": {
+      "type": "object",
+      "properties": {
+        "slot_time": {
+          "type": "string"
+        },
+        "slot_period": {
+          "type": "string"
+        },
+        "cert_period": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot_time",
+        "slot_period",
+        "cert_period"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "opcert_invalid",
+      "level": "TRACE",
+      "target": "amaru::consensus::forge",
+      "description": "At the next block opportunity there is currently no valid opcert available.",
+      "public": true
+    },
     "amaru::consensus::forge::SCHEDULE": {
       "type": "object",
       "properties": {
@@ -4355,29 +4381,29 @@
             "minimum": 0.0
           }
         },
-        "freeze_depth": {
-          "type": "integer"
-        },
         "settled": {
           "type": "boolean"
         },
         "next_slot": {
           "type": "string"
+        },
+        "freeze_depth": {
+          "type": "integer"
         }
       },
       "required": [
         "slots",
-        "freeze_depth",
         "settled"
       ],
       "optional": [
-        "next_slot"
+        "next_slot",
+        "freeze_depth"
       ],
       "additionalProperties": false,
       "name": "schedule",
       "level": "TRACE",
       "target": "amaru::consensus::forge",
-      "description": "Leader schedules still held, with how many led slots remain in each epoch and how many of k blocks since freeze have been adopted. `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.",
+      "description": "Leader schedules still held, with how many led slots remain in each epoch and how many of k blocks since freeze have been adopted. `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SSZ`.",
       "public": true
     },
     "amaru::consensus::perf::fork::SWITCH": {

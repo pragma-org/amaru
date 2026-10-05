@@ -620,12 +620,18 @@ define_schemas! {
                 }
                 /// Leader schedules still held, with how many led slots remain in each epoch
                 /// and how many of k blocks since freeze have been adopted.
-                /// `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
+                /// `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SSZ`.
                 public SCHEDULE {
                     required slots: std::collections::BTreeMap<amaru_kernel::Epoch, usize>
                     optional next_slot: String
-                    required freeze_depth: u64
+                    optional freeze_depth: u64
                     required settled: bool
+                }
+                /// At the next block opportunity there is currently no valid opcert available.
+                public OPCERT_INVALID {
+                    required slot_time: String
+                    required slot_period: %amaru_kernel::KesPeriod
+                    required cert_period: %amaru_kernel::KesPeriod
                 }
                 /// A block was forged and stored, and its tip sent to chain selection.
                 public FORGED {

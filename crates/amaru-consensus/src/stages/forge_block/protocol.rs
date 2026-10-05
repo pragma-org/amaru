@@ -258,8 +258,17 @@ async fn handle_leader_schedule(
 ) -> Idle {
     let (now, session) = idle.receive(&msg, eff).clock().await;
 
-    // A result whose nonce no longer matches the outstanding request was computed
-    // from a candidate nonce a rollback has since replaced; it is dropped.
+    for slot in msg.schedule.slots().keys() {
+        let slot_period = state.consensus_parameters.slot_to_kes_period(*slot);
+        let cert_period = state.issuer.operational_cert.operational_cert_kes_period;
+        if slot_period != cert_period
+            && let Some(slot_time) =
+                slot_timestamp(*slot, state.consensus_parameters.era_history(), state.system_start_unix_ms)
+        {
+            warn!(consensus::forge::OPCERT_INVALID, slot_time, slot_period, cert_period);
+        }
+    }
+
     state.schedule.install(msg.schedule);
 
     finish_with_next_lead!(session, state, now)
@@ -292,7 +301,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         }
     };
     if woke_late {
-        warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::WokeLate.as_str());
+        warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::WokeLate.to_string());
         let session = session.finish().receive(&Proceed, eff.clone());
         return finish_with_next_lead!(session, state, now);
     }
@@ -304,14 +313,14 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     ) {
         Ok(point) => point,
         Err(reason) => {
-            warn!(consensus::forge::MISSED_SLOT, slot, reason = reason.as_str());
+            warn!(consensus::forge::MISSED_SLOT, slot, reason = reason.to_string());
             let session = session.finish().receive(&Proceed, eff.clone());
             return finish_with_next_lead!(session, state, now);
         }
     };
 
     let Some(cert) = cert else {
-        warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::NotLed.as_str());
+        warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::NotLed.to_string());
         let session = session.finish().receive(&Proceed, eff.clone());
         return finish_with_next_lead!(session, state, now);
     };
@@ -337,7 +346,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let header = match signed {
         Ok(signature) => Header::new(header_body, signature),
         Err(SignHeaderError::Credentials(ForgingCredentialsError::Period(error))) => {
-            warn!(consensus::forge::MISSED_SLOT, slot, reason = error.to_string());
+            warn!(consensus::forge::MISSED_SLOT, slot, reason = ocert_miss(&error).to_string());
             let session = session.finish().receive(&Missed, eff.clone());
             return finish_with_next_lead!(session, state, now);
         }
@@ -395,30 +404,32 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
 
 fn log_schedule(state: &ForgeData, now: Instant) {
     let slots: BTreeMap<Epoch, usize> = state.schedule.led_counts();
-    let next_slot = next_slot_timestamp(state, now);
+    let next_slot =
+        next_slot_timestamp(state.consensus_parameters.era_history(), &state.schedule, state.system_start_unix_ms, now);
     let any_led = slots.values().any(|&count| count > 0);
     if !any_led && next_slot.is_none() && state.freeze.is_none() {
         return;
     }
-    let depth = state
-        .freeze
-        .as_ref()
-        .map(|watch| freeze_depth(watch.point.block_height(), state.adopted_tip.block_height()))
-        .unwrap_or(0);
-    let settled = schedule_settled(depth, state.k);
-    if let Some(next_slot) = next_slot {
-        info!(consensus::forge::SCHEDULE, slots, next_slot, freeze_depth = depth, settled);
-    } else {
-        info!(consensus::forge::SCHEDULE, slots, freeze_depth = depth, settled);
-    }
+    let depth =
+        state.freeze.as_ref().map(|watch| freeze_depth(watch.point.block_height(), state.adopted_tip.block_height()));
+    let settled = depth.map(|depth| schedule_settled(depth, state.k)).unwrap_or(true);
+    info!(consensus::forge::SCHEDULE, slots, @next_slot, freeze_depth = @depth, settled);
 }
 
 /// UTC onset of the next led slot that would be armed from `now`.
-fn next_slot_timestamp(state: &ForgeData, now: Instant) -> Option<String> {
-    let era_history = state.consensus_parameters.era_history();
-    let (slot, _) = next_lead_deadline(&state.schedule, era_history, now)?;
+fn next_slot_timestamp(
+    era_history: &EraHistory,
+    schedules: &Schedules,
+    system_start: u64,
+    now: Instant,
+) -> Option<String> {
+    let (slot, _) = next_lead_deadline(schedules, era_history, now)?;
+    slot_timestamp(slot, era_history, system_start)
+}
+
+fn slot_timestamp(slot: Slot, era_history: &EraHistory, system_start: u64) -> Option<String> {
     let relative = era_history.slot_to_relative_time_unchecked_horizon(slot).ok()?;
-    let start = SystemTime::UNIX_EPOCH.checked_add(Duration::from_millis(state.system_start_unix_ms))?;
+    let start = SystemTime::UNIX_EPOCH.checked_add(Duration::from_millis(system_start))?;
     format_utc_timestamp(start.checked_add(relative)?)
 }
 

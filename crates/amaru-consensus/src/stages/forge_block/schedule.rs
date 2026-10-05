@@ -81,7 +81,6 @@ impl EpochSchedule {
         self.epoch
     }
 
-    #[cfg(test)]
     pub(crate) fn slots(&self) -> &BTreeMap<Slot, VrfCert> {
         &self.slots
     }

@@ -15,9 +15,12 @@
 //! Pure decisions used by [`super::stage`]. Kept free of effects so they can be
 //! unit-tested without a simulation.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    fmt,
+    time::{Duration, SystemTime},
+};
 
-use amaru_kernel::{BlockHeight, Epoch, KesPeriodError, Point, Slot};
+use amaru_kernel::{BlockHeight, Epoch, KesPeriod, KesPeriodError, Point, Slot};
 use amaru_pure_stage::Instant;
 
 /// Forging starts this long before slot onset, so the block can diffuse as the slot begins.
@@ -38,8 +41,15 @@ pub(super) enum ParentChoice {
 /// Why a led slot was not forged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MissedSlotReason {
-    OcertNotYetValid,
-    OcertExpired,
+    OcertNotYetValid {
+        start: KesPeriod,
+        current: KesPeriod,
+    },
+    OcertExpired {
+        start: KesPeriod,
+        current: KesPeriod,
+        max_evolutions: u64,
+    },
     TipAhead,
     /// Woken for a slot the current schedule does not lead.
     NotLed,
@@ -49,15 +59,19 @@ pub(super) enum MissedSlotReason {
     ParentNotStored,
 }
 
-impl MissedSlotReason {
-    pub(super) fn as_str(self) -> &'static str {
+impl fmt::Display for MissedSlotReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::OcertNotYetValid => "ocert_not_yet_valid",
-            Self::OcertExpired => "ocert_expired",
-            Self::TipAhead => "tip_ahead",
-            Self::NotLed => "not_led",
-            Self::WokeLate => "woke_late",
-            Self::ParentNotStored => "parent_not_stored",
+            Self::OcertNotYetValid { start, current } => {
+                write!(f, "ocert_not_yet_valid: start={start} current={current}")
+            }
+            Self::OcertExpired { start, current, max_evolutions } => {
+                write!(f, "ocert_expired: start={start} current={current} max_evolutions={max_evolutions}")
+            }
+            Self::TipAhead => write!(f, "tip_ahead"),
+            Self::NotLed => write!(f, "not_led"),
+            Self::WokeLate => write!(f, "woke_late"),
+            Self::ParentNotStored => write!(f, "parent_not_stored"),
         }
     }
 }
@@ -114,8 +128,12 @@ pub(super) fn choose_parent(tip_slot: Slot, lead_slot: Slot) -> ParentChoice {
 /// Which edge of the certificate's window the credentials reported.
 pub(super) fn ocert_miss(error: &KesPeriodError) -> MissedSlotReason {
     match error {
-        KesPeriodError::StartsInTheFuture { .. } => MissedSlotReason::OcertNotYetValid,
-        KesPeriodError::Expired { .. } => MissedSlotReason::OcertExpired,
+        KesPeriodError::StartsInTheFuture { start, current } => {
+            MissedSlotReason::OcertNotYetValid { start: *start, current: *current }
+        }
+        KesPeriodError::Expired { start, current, max_evolutions } => {
+            MissedSlotReason::OcertExpired { start: *start, current: *current, max_evolutions: *max_evolutions }
+        }
     }
 }
 
@@ -322,8 +340,11 @@ mod tests {
         let period = KesPeriod::from;
         let expired = period(67).evolutions_since(period(5), 62).unwrap_err();
         let early = period(4).evolutions_since(period(5), 62).unwrap_err();
-        assert_eq!(ocert_miss(&expired), MissedSlotReason::OcertExpired);
-        assert_eq!(ocert_miss(&early), MissedSlotReason::OcertNotYetValid);
+        assert_eq!(
+            ocert_miss(&expired),
+            MissedSlotReason::OcertExpired { start: period(5), current: period(67), max_evolutions: 62 }
+        );
+        assert_eq!(ocert_miss(&early), MissedSlotReason::OcertNotYetValid { start: period(5), current: period(4) });
     }
 
     #[test]

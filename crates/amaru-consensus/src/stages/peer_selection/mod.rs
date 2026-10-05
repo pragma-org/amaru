@@ -60,14 +60,6 @@ const UNINTERESTING_RETRY_AFTER_ROLLBACK: Duration = Duration::from_secs(180);
 /// After a dial or a connection failure, do not dial that peer again until this elapses.
 const DIAL_HOLDOFF: Duration = Duration::from_secs(2);
 
-fn default_churn_interval_base() -> Duration {
-    CHURN_INTERVAL_BASE
-}
-
-fn default_churn_interval_fuzz() -> Duration {
-    CHURN_INTERVAL_FUZZ
-}
-
 /// `base` plus a whole number of seconds drawn uniformly from `0..=fuzz`.
 ///
 /// Fuzz is measured in whole seconds. Zero fuzz returns `base`.
