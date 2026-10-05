@@ -330,6 +330,38 @@ pub fn heterogeneous_map_with_unique_keys<C, K: Eq + Clone, S>(
     })
 }
 
+/// Decode a CBOR map straight into a [`BTreeMap`](std::collections::BTreeMap), rejecting a map
+/// that repeats a key.
+///
+/// This is the decoder for the fields the ledger models as a `Map`: the pairs are held in the
+/// key's own `Ord` order rather than the order they arrived in, which is the order the node
+/// re-encodes them in. A decoder that keeps the arrival order instead re-encodes a shuffled map
+/// differently from the node, and any hash taken over the result then disagrees.
+///
+/// See [`heterogeneous_map_unique_keys`] for why duplicates are an error.
+pub fn btree_map_with_unique_keys<C, K, V>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<std::collections::BTreeMap<K, V>, cbor::decode::Error>
+where
+    K: for<'k> cbor::Decode<'k, C> + Ord,
+    V: for<'v> cbor::Decode<'v, C>,
+{
+    heterogeneous_map_with(
+        d,
+        ctx,
+        std::collections::BTreeMap::new(),
+        |d, ctx| d.decode_with(ctx),
+        |d, ctx, map, key| {
+            let value = d.decode_with(ctx)?;
+            if map.insert(key, value).is_some() {
+                return Err(cbor::decode::Error::message("duplicate key in CBOR map"));
+            }
+            Ok(())
+        },
+    )
+}
+
 /// Collect the raw CBOR bytes of each value in a map, together with decoded keys.
 pub fn collect_map_value_bytes<K: Ord>(
     decoder: &mut cbor::Decoder<'_>,

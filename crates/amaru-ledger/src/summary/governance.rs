@@ -126,7 +126,7 @@ impl GovernanceSummary {
                     use amaru_kernel::GovernanceAction::*;
                     match row.proposal.gov_action {
                         TreasuryWithdrawals(withdrawals, _) => {
-                            for (account, withdrawal) in &withdrawals {
+                            for (account, withdrawal) in withdrawals.iter() {
                                 dreps_deposits
                                     .entry(account.credential())
                                     .and_modify(|total| *total += withdrawal)

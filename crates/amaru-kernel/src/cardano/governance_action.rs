@@ -60,10 +60,11 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Governance
 
                 2 => {
                     assert_len(3)?;
-                    // Decode first as a key/value pairs that can be empty but checks for duplicates
-                    let a: KeyValuePairs<RewardAccount, Lovelace> = d.decode_with(ctx)?;
+                    // The ledger holds the withdrawals in a `Map`, so they are kept in key order
+                    // rather than in the order they arrived in, and a repeated key is an error.
+                    let a = cbor::btree_map_with_unique_keys(d, ctx)?;
                     let b = d.decode_with(ctx)?;
-                    Ok(Self::TreasuryWithdrawals(a.into(), b))
+                    Ok(Self::TreasuryWithdrawals(a, b))
                 }
 
                 3 => {
