@@ -86,6 +86,13 @@ pub struct NodeTestConfig {
     pub blockfetch_pipeline_n: NonZeroU8,
     /// When set, overrides [`Config::share_request_initial_delay`] (production default 300s).
     pub share_request_initial_delay: Option<Duration>,
+    /// When set, overrides the caught-up churn base and whole-second fuzz (production 55m + up to 10m).
+    pub churn_interval: Option<(Duration, Duration)>,
+    /// Snapshot relays. Churn demotes outbound connections to these peers.
+    /// Static peers in [`Self::upstream_peers`] stay in the Using set.
+    pub snapshot_peers: Vec<Peer>,
+    /// When set, overrides [`Config::target_downstream_peers`] (production default is 10).
+    pub target_downstream_peers: Option<usize>,
     /// When set, replaces the network profile's global parameters.
     pub global_parameters: Option<GlobalParameters>,
     /// When set, replaces the network profile's era history.
@@ -123,6 +130,9 @@ impl Debug for NodeTestConfig {
             .field("peer_mix", &self.peer_mix)
             .field("blockfetch_pipeline_n", &self.blockfetch_pipeline_n)
             .field("share_request_initial_delay", &self.share_request_initial_delay)
+            .field("churn_interval", &self.churn_interval)
+            .field("snapshot_peers", &self.snapshot_peers)
+            .field("target_downstream_peers", &self.target_downstream_peers)
             .field("forging_credentials", &self.forging_credentials.is_some())
             .field("global_parameters", &self.global_parameters)
             .field("era_history_override", &self.era_history_override.is_some())
@@ -160,6 +170,9 @@ impl Default for NodeTestConfig {
             peer_mix: None,
             blockfetch_pipeline_n: NonZeroU8::MIN,
             share_request_initial_delay: None,
+            churn_interval: None,
+            snapshot_peers: Vec::new(),
+            target_downstream_peers: None,
             forging_credentials: None,
             global_parameters: None,
             era_history_override: None,
@@ -364,6 +377,24 @@ impl NodeTestConfig {
         self
     }
 
+    /// Caught-up churn delay. `fuzz` is a whole number of seconds drawn uniformly from `0..=fuzz`.
+    pub fn with_churn_interval(mut self, base: Duration, fuzz: Duration) -> Self {
+        self.churn_interval = Some((base, fuzz));
+        self
+    }
+
+    /// Relays from the snapshot source. Outbound connections to these peers are eligible for churn.
+    pub fn with_snapshot_peers(mut self, peers: Vec<Peer>) -> Self {
+        self.snapshot_peers = peers;
+        self
+    }
+
+    /// Cap accepted inbound peers.
+    pub fn with_target_downstream_peers(mut self, n: usize) -> Self {
+        self.target_downstream_peers = Some(n);
+        self
+    }
+
     /// Given a list of block headers:
     ///
     /// - Store them in the chain store.
@@ -425,6 +456,14 @@ impl NodeTestConfig {
         if let Some(delay) = self.share_request_initial_delay {
             config.share_request_initial_delay = delay;
         }
+        if let Some((base, fuzz)) = self.churn_interval {
+            config.churn_interval_base = base;
+            config.churn_interval_fuzz = fuzz;
+        }
+        if let Some(n) = self.target_downstream_peers {
+            config.target_downstream_peers = n;
+        }
+        config.peer_snapshot_peers.extend(self.snapshot_peers.iter().copied());
 
         if let Some(ledger_dir) = &self.ledger_dir {
             config.ledger_config.ledger_store = RocksDbConfig::new(ledger_dir.clone());

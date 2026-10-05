@@ -337,7 +337,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let header = match signed {
         Ok(signature) => Header::new(header_body, signature),
         Err(SignHeaderError::Credentials(ForgingCredentialsError::Period(error))) => {
-            warn!(consensus::forge::MISSED_SLOT, slot, reason = ocert_miss(&error).as_str());
+            warn!(consensus::forge::MISSED_SLOT, slot, reason = error.to_string());
             let session = session.finish().receive(&Missed, eff.clone());
             return finish_with_next_lead!(session, state, now);
         }

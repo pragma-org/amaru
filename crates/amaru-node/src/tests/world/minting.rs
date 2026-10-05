@@ -14,8 +14,12 @@
 
 //! Minted-chain world tests.
 //!
-//! Five pools share one synthesized stake distribution and produce the chain.
+//! The short runs use five pools that share one synthesized stake distribution.
 //! Validation and forging stay on the production path. See EDR-011 "World tests".
+//!
+//! Caught-up churn is about an hour in production and leaves static bootstrap peers
+//! in place. Every run here arms a 30s churn timer. The fifty-node run dials snapshot
+//! peers so that timer demotes live connections.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -68,6 +72,18 @@ const SMOKE_BLOCKS: u64 = 160;
 const LONG_BLOCKS: u64 = 1_000;
 /// Epochs minted after the anchor in the short-epoch run.
 const SHORT_EPOCHS: u64 = 4;
+/// Caught-up churn delay for these runs. Production waits 55 minutes plus up to 10.
+const MINT_CHURN_BASE: Duration = Duration::from_secs(30);
+/// Whole-second fuzz on [`MINT_CHURN_BASE`].
+const MINT_CHURN_FUZZ: Duration = Duration::from_secs(10);
+const FIFTY_NODES: usize = 50;
+/// Adopted blocks. At `f = 1/20` the run lasts long enough for several churn cycles.
+/// The short epoch keeps each leadership schedule at 2_500 slots.
+const FIFTY_BLOCKS: u64 = 40;
+/// Static ring degree. Churn does not demote these peers.
+const FIFTY_STATIC: usize = 2;
+/// Snapshot peers beyond the static ring. Churn demotes about 20% of the outbound set.
+const FIFTY_SNAPSHOT: usize = 18;
 
 /// Epoch geometry shared by the chain store, the ledger, and consensus.
 struct MintGeometry {
@@ -227,13 +243,18 @@ fn store_block(chain: &RocksDBStore, header: &Header, era: &EraHistory) {
     chain.store_block(&header.hash(), &raw).expect("store block");
 }
 
-fn synthesize(network: &MintNetwork) -> MintFixture {
+/// Lovelace delegated to each pool. A larger pool set splits the five-pool total.
+fn stake_per_pool(pools: usize) -> u64 {
+    POOL_STAKE * u64::try_from(POOLS).expect("pools") / u64::try_from(pools).expect("pools")
+}
+
+fn synthesize(network: &MintNetwork, pools: usize) -> MintFixture {
     let root = tempfile::tempdir().expect("tempdir");
     let ledger_dir = root.path().join("ledger");
     let chain_dir = root.path().join("chain");
     let kes_period = KesPeriod::from(0);
     let max_evolutions = u64::from(network.global_parameters.max_kes_evolution);
-    let pools: Vec<_> = (0..POOLS).map(|index| Arc::new(pool_credentials(index, kes_period, max_evolutions))).collect();
+    let pools: Vec<_> = (0..pools).map(|index| Arc::new(pool_credentials(index, kes_period, max_evolutions))).collect();
     let anchor_slot = 4 * network.global_parameters.epoch_length() - 1;
 
     let parent = header_for(
@@ -325,7 +346,7 @@ fn write_ledger(network: &MintNetwork, dir: &Path, pools: &[Arc<TestCredentials>
                     pool: amaru_ledger::state::volatile::Resettable::Set((credentials.pool_id(), pointer)),
                     drep: amaru_ledger::state::volatile::Resettable::Unchanged,
                     deposit: 0,
-                    rewards: POOL_STAKE,
+                    rewards: stake_per_pool(pools.len()),
                 },
             )
         })
@@ -410,6 +431,7 @@ fn node_log() -> (tracing::Dispatch, Arc<Mutex<Vec<LogRecord>>>) {
                         | "tip.adopt"
                         | "tip.update"
                         | "rewards.summarize"
+                        | "peer_selection.peer.demoted"
                 ))
     }));
     let dispatch = tracing::Dispatch::new(registry().with(layer));
@@ -438,12 +460,26 @@ struct NodeSpawn {
     index: usize,
     listen: SocketAddr,
     upstream: Vec<Peer>,
+    snapshot: Vec<Peer>,
+    target_upstream: usize,
+    target_downstream: Option<usize>,
+    peer_mix: String,
     credentials: Arc<dyn amaru_ouroboros_traits::ForgingCredentials>,
     dispatch: tracing::Dispatch,
 }
 
 fn spawn_node(world: &SyncWorld, network: &MintNetwork, fixture: &MintFixture, node: NodeSpawn) -> SimulationRunning {
-    let NodeSpawn { index, listen, upstream, credentials, dispatch } = node;
+    let NodeSpawn {
+        index,
+        listen,
+        upstream,
+        snapshot,
+        target_upstream,
+        target_downstream,
+        peer_mix,
+        credentials,
+        dispatch,
+    } = node;
     let node_root = tempfile::tempdir().expect("node dir");
     let ledger = node_root.path().join("ledger");
     let chain = node_root.path().join("chain");
@@ -452,18 +488,23 @@ fn spawn_node(world: &SyncWorld, network: &MintNetwork, fixture: &MintFixture, n
     // Keep the directory alive for the node by leaking it into the graph via the path copy.
     // The TempDir must outlive the node; park it in a process-lifetime holder on the running graph
     // by forgetting it after the node has opened the databases. The test process exits after the run.
-    let config = super::super::configuration::NodeTestConfig::default()
+    let mut config = super::super::configuration::NodeTestConfig::default()
         .with_listen_address(&listen.to_string())
         .with_seed(derive_seed(world.seed, index as u64))
         .with_store_dirs(&chain, &ledger)
         .with_keep_persisted_best_chain()
         .with_upstream_peers(upstream)
-        .with_target_upstream_peers(POOLS - 1)
-        .with_peer_mix("static~4, inbound~4")
+        .with_snapshot_peers(snapshot)
+        .with_target_upstream_peers(target_upstream)
+        .with_peer_mix(peer_mix)
+        .with_churn_interval(MINT_CHURN_BASE, MINT_CHURN_FUZZ)
         .with_global_parameters(network.global_parameters.clone())
         .with_era_history(network.era_history.clone())
         .with_global_epoch_offset(Duration::from_secs(4 * network.global_parameters.epoch_length()))
         .with_forging_credentials(credentials);
+    if let Some(downstream) = target_downstream {
+        config = config.with_target_downstream_peers(downstream);
+    }
     let running = tracing::dispatcher::with_default(&dispatch, || {
         build_world_node(&config, world.provider.clone(), &world.handle).expect("node")
     });
@@ -475,31 +516,32 @@ fn listen(base: u16, index: usize) -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], base + u16::try_from(index).expect("node index")))
 }
 
-/// Per-pool leadership probability at relative stake `1/5`.
-fn leadership_probability() -> f64 {
+/// Leadership probability of one pool when `pools` equal pools share the stake.
+fn leadership_probability(pools: usize) -> f64 {
     let active = 1.0 / ACTIVE_SLOT_COEFF_INVERSE;
-    let sigma = 1.0 / POOLS as f64;
+    let sigma = 1.0 / pools as f64;
     1.0 - (1.0 - active).powf(sigma)
 }
 
-/// Probability a slot has at least one leader among `nodes` of the five equal pools.
-fn occupancy(nodes: usize) -> f64 {
-    let quiet = 1.0 - leadership_probability();
-    1.0 - quiet.powi(i32::try_from(nodes).expect("node count"))
+/// Probability a slot has at least one leader among `forging` of `pools` equal pools.
+fn occupancy(forging: usize, pools: usize) -> f64 {
+    let quiet = 1.0 - leadership_probability(pools);
+    1.0 - quiet.powi(i32::try_from(forging).expect("node count"))
 }
 
-/// Probability two or more of the five pools lead the same slot.
-fn battle_probability() -> f64 {
-    let phi = leadership_probability();
+/// Probability two or more of `pools` equal pools lead the same slot.
+fn battle_probability(pools: usize) -> f64 {
+    let phi = leadership_probability(pools);
     let quiet = 1.0 - phi;
-    let none = quiet.powi(POOLS as i32);
-    let one = POOLS as f64 * phi * quiet.powi((POOLS - 1) as i32);
+    let count = i32::try_from(pools).expect("pool count");
+    let none = quiet.powi(count);
+    let one = pools as f64 * phi * quiet.powi(count - 1);
     1.0 - none - one
 }
 
-/// Slots that cover `blocks` adoptions at `nodes` pools, plus fifteen standard deviations.
-fn slots_for(blocks: u64, nodes: usize) -> u64 {
-    let probability = occupancy(nodes);
+/// Slots that cover `blocks` adoptions, plus fifteen standard deviations.
+fn slots_for(blocks: u64, forging: usize, pools: usize) -> u64 {
+    let probability = occupancy(forging, pools);
     let mean = blocks as f64 / probability;
     let sd = (blocks as f64 * (1.0 - probability)).sqrt() / probability;
     (mean + 15.0 * sd).ceil() as u64
@@ -516,26 +558,104 @@ struct MintRun {
     world: WorldLoop,
     logs: Vec<Arc<Mutex<Vec<LogRecord>>>>,
     security_param: u64,
+    pools: usize,
+}
+
+/// Each node dials the next `static_degree` peers as static and the following
+/// `snapshot_degree` as snapshot. Snapshot peers are the ones churn demotes.
+struct Ring {
+    static_degree: usize,
+    snapshot_degree: usize,
+    target_upstream: usize,
+    target_downstream: usize,
+}
+
+enum MintTopology {
+    UpwardStatic,
+    Ring(Ring),
+}
+
+struct NodeLinks {
+    upstream: Vec<Peer>,
+    snapshot: Vec<Peer>,
+    target_upstream: usize,
+    target_downstream: Option<usize>,
+    peer_mix: String,
+}
+
+fn node_links(topology: &MintTopology, nodes: usize, base_port: u16, index: usize) -> NodeLinks {
+    match topology {
+        MintTopology::UpwardStatic => NodeLinks {
+            upstream: (index + 1..nodes).map(|peer| peer_at(base_port, peer)).collect(),
+            snapshot: Vec::new(),
+            target_upstream: POOLS - 1,
+            target_downstream: None,
+            peer_mix: "static~4, inbound~4".to_string(),
+        },
+        MintTopology::Ring(ring) => {
+            let order: Vec<usize> = (1..nodes).map(|distance| (index + distance) % nodes).collect();
+            NodeLinks {
+                upstream: order.iter().take(ring.static_degree).copied().map(|peer| peer_at(base_port, peer)).collect(),
+                snapshot: order
+                    .iter()
+                    .skip(ring.static_degree)
+                    .take(ring.snapshot_degree)
+                    .copied()
+                    .map(|peer| peer_at(base_port, peer))
+                    .collect(),
+                target_upstream: ring.target_upstream,
+                target_downstream: Some(ring.target_downstream),
+                peer_mix: format!("static!{}~0, snapshot~{}", ring.static_degree, ring.snapshot_degree),
+            }
+        }
+    }
+}
+
+fn peer_at(base: u16, index: usize) -> Peer {
+    Peer::try_from(listen(base, index)).expect("peer")
 }
 
 fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: MintGeometry) -> MintRun {
+    run_mint_in(label, nodes, POOLS, base_port, until, geometry, MintTopology::UpwardStatic)
+}
+
+fn run_mint_in(
+    label: &str,
+    nodes: usize,
+    pools: usize,
+    base_port: u16,
+    until: Until,
+    geometry: MintGeometry,
+    topology: MintTopology,
+) -> MintRun {
+    assert!(nodes <= pools && nodes > 0, "each forging node needs a pool");
     let world = SyncWorld::new(label);
     let security_param = geometry.security_param;
     let network = mint_network(geometry);
-    let fixture = synthesize(&network);
+    let fixture = synthesize(&network, pools);
     let chain_start = 4 * network.global_parameters.epoch_length();
     let anchor_height = fixture.anchor.block_height().as_u64();
     let mut graphs = Vec::new();
     let mut logs = Vec::new();
     for index in 0..nodes {
         let (dispatch, records) = node_log();
-        let upstream = (index + 1..nodes).map(|peer| Peer::try_from(listen(base_port, peer)).expect("peer")).collect();
+        let links = node_links(&topology, nodes, base_port, index);
         let credentials: Arc<dyn amaru_ouroboros_traits::ForgingCredentials> = fixture.pools[index].clone();
         graphs.push(spawn_node(
             &world,
             &network,
             &fixture,
-            NodeSpawn { index, listen: listen(base_port, index), upstream, credentials, dispatch: dispatch.clone() },
+            NodeSpawn {
+                index,
+                listen: listen(base_port, index),
+                upstream: links.upstream,
+                snapshot: links.snapshot,
+                target_upstream: links.target_upstream,
+                target_downstream: links.target_downstream,
+                peer_mix: links.peer_mix,
+                credentials,
+                dispatch: dispatch.clone(),
+            },
         ));
         logs.push((dispatch, records));
     }
@@ -544,8 +664,8 @@ fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: M
         loop_.set_subscriber(index, dispatch.clone());
     }
     let horizon = match until {
-        Until::Blocks(blocks) => slots_for(blocks, nodes),
-        Until::Slot(slot) => slot - chain_start + slots_for(1, nodes),
+        Until::Blocks(blocks) => slots_for(blocks, nodes, pools),
+        Until::Slot(slot) => slot - chain_start + slots_for(1, nodes, pools),
     } * 1_000_000_000;
     loop_.run_until_horizon_on_best_chain_tip(horizon, |world| {
         let tips: Vec<_> = (0..nodes).map(|index| best_tip(world, index)).collect();
@@ -559,13 +679,13 @@ fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: M
         }
     });
     let records = logs.into_iter().map(|(_, records)| records).collect();
-    MintRun { seed: world.seed, fixture, world: loop_, logs: records, security_param }
+    MintRun { seed: world.seed, fixture, world: loop_, logs: records, security_param, pools }
 }
 
 #[test]
 fn synthesized_snapshot_splits_stake_evenly() {
     let network = mint_network(MintGeometry::standard());
-    let fixture = synthesize(&network);
+    let fixture = synthesize(&network, POOLS);
     let snapshots = RocksDBHistoricalStores::new(&RocksDbConfig::new(fixture.ledger_dir.clone()), 0);
     let distributions =
         initial_stake_distributions(NetworkName::Preprod, &snapshots, &network.era_history, false).expect("stake");
@@ -704,6 +824,41 @@ fn test_world_five_nodes_mint_short_epochs() {
     );
 }
 
+/// Fifty forging nodes. Each dials two static neighbours and eighteen snapshot peers,
+/// and accepts that many inbounds. Churn demotes the snapshot peers about every half minute.
+#[test]
+fn test_world_fifty_nodes_mint_under_churn() {
+    let upstream = FIFTY_STATIC + FIFTY_SNAPSHOT;
+    let topology = MintTopology::Ring(Ring {
+        static_degree: FIFTY_STATIC,
+        snapshot_degree: FIFTY_SNAPSHOT,
+        target_upstream: upstream,
+        // In-degree matches the ring. A few extra slots cover a peer that reconnects
+        // before the previous inbound has left.
+        target_downstream: upstream + 8,
+    });
+    let run = run_mint_in(
+        "fifty_node_churn",
+        FIFTY_NODES,
+        FIFTY_NODES,
+        15_060,
+        Until::Blocks(FIFTY_BLOCKS),
+        MintGeometry::short_epochs(),
+        topology,
+    );
+    assert_minted_chain(&run, FIFTY_BLOCKS);
+    let logs = snapshot(&run.logs);
+    let demoted = logs
+        .iter()
+        .map(|records| {
+            events(records, "peer_selection.peer.demoted")
+                .filter(|record| field_str(record, "reason") == Some("churn"))
+                .count()
+        })
+        .sum::<usize>();
+    assert!(demoted >= FIFTY_NODES, "churn demotions {demoted} seed={:#x}", run.seed);
+}
+
 fn assert_minted_chain(run: &MintRun, blocks: u64) {
     let seed = run.seed;
     let anchor = &run.fixture.anchor;
@@ -736,7 +891,7 @@ fn assert_minted_chain(run: &MintRun, blocks: u64) {
     assert_density(seed, blocks, span, anchor_height, run.security_param, &logs);
     let chain = adopted_chain(stores[0].as_ref(), tip.hash(), anchor.hash());
     assert_eq!(chain.len(), blocks as usize, "adopted headers seed={seed:#x}");
-    assert_battles(seed, span, &logs, &chain, anchor);
+    assert_battles(seed, span, run.pools, &logs, &chain, anchor);
     assert_forwarding(seed, &run.fixture, &logs, &chain, anchor);
     assert_schedules(seed, &logs);
 }
@@ -811,7 +966,7 @@ fn assert_density(seed: u64, blocks: u64, span: u64, anchor_height: u64, securit
     }
 }
 
-fn assert_battles(seed: u64, span: u64, logs: &[Vec<LogRecord>], chain: &[Header], anchor: &Header) {
+fn assert_battles(seed: u64, span: u64, pools: usize, logs: &[Vec<LogRecord>], chain: &[Header], anchor: &Header) {
     let by_slot = forged_by_slot(logs);
     let battles = by_slot
         .values()
@@ -820,7 +975,7 @@ fn assert_battles(seed: u64, span: u64, logs: &[Vec<LogRecord>], chain: &[Header
             hashes.len() >= 2
         })
         .count();
-    let probability = battle_probability();
+    let probability = battle_probability(pools);
     let mean = span as f64 * probability;
     let sd = (span as f64 * probability * (1.0 - probability)).sqrt();
     assert!(

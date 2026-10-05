@@ -45,10 +45,10 @@ pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_secs(300);
 pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(900);
 /// How many peers to request per share call (network-spec amount is `Word8`).
 pub const SHARE_REQUEST_AMOUNT: u8 = 20;
-/// Caught-up churn interval before fuzz (Haskell default).
-const CHURN_INTERVAL_BASE: Duration = Duration::from_secs(3300);
-/// Extra delay drawn uniformly from `0..=CHURN_INTERVAL_FUZZ`.
-const CHURN_INTERVAL_FUZZ: Duration = Duration::from_secs(600);
+/// Caught-up churn interval before fuzz (production default).
+pub const CHURN_INTERVAL_BASE: Duration = Duration::from_secs(3300);
+/// Extra delay drawn uniformly from `0..=CHURN_INTERVAL_FUZZ` in whole seconds.
+pub const CHURN_INTERVAL_FUZZ: Duration = Duration::from_secs(600);
 /// Fraction of Using peers to demote each cycle (at least one).
 const CHURN_FRACTION_PERCENT: usize = 20;
 /// After clean churn, the bearer stays; do not re-promote for this long.
@@ -60,11 +60,23 @@ const UNINTERESTING_RETRY_AFTER_ROLLBACK: Duration = Duration::from_secs(180);
 /// After a dial or a connection failure, do not dial that peer again until this elapses.
 const DIAL_HOLDOFF: Duration = Duration::from_secs(2);
 
-fn churn_interval(seed: [u8; 32]) -> Duration {
+fn default_churn_interval_base() -> Duration {
+    CHURN_INTERVAL_BASE
+}
+
+fn default_churn_interval_fuzz() -> Duration {
+    CHURN_INTERVAL_FUZZ
+}
+
+/// `base` plus a whole number of seconds drawn uniformly from `0..=fuzz`.
+///
+/// Fuzz is measured in whole seconds. Zero fuzz returns `base`.
+fn churn_interval(base: Duration, fuzz: Duration, seed: [u8; 32]) -> Duration {
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&seed[0..8]);
-    let fuzz_secs = u64::from_le_bytes(bytes) % (CHURN_INTERVAL_FUZZ.as_secs() + 1);
-    CHURN_INTERVAL_BASE + Duration::from_secs(fuzz_secs)
+    let span = fuzz.as_secs().saturating_add(1);
+    let extra = u64::from_le_bytes(bytes) % span;
+    base + Duration::from_secs(extra)
 }
 
 /// Peer selection stage for the Amaru consensus node.
@@ -292,6 +304,10 @@ pub struct PeerSelection {
     share_request_initial_delay: Duration,
     /// Interval between subsequent peer-sharing requests on a live outbound connection.
     share_request_interval: Duration,
+    /// Caught-up churn delay before the whole-second fuzz. Production default is 55 minutes.
+    churn_interval_base: Duration,
+    /// Whole seconds added uniformly on top of [`Self::churn_interval_base`].
+    churn_interval_fuzz: Duration,
     /// Next regular churn wake. Ignored in [`PartialEq`] (schedule id is test-unstable).
     churn_timer: Option<ScheduleId>,
     /// Peers demoted from Using that must not be re-promoted until this instant.
@@ -316,6 +332,8 @@ impl PartialEq for PeerSelection {
             && self.dial_holdoff == other.dial_holdoff
             && self.share_request_initial_delay == other.share_request_initial_delay
             && self.share_request_interval == other.share_request_interval
+            && self.churn_interval_base == other.churn_interval_base
+            && self.churn_interval_fuzz == other.churn_interval_fuzz
             && self.demoted_until == other.demoted_until
         // share_reply, churn_timer, resolve_timer, dial_holdoff_timer, and promote_timer
         // intentionally omitted: each is the single armed id for a deadline that already lives
@@ -442,6 +460,8 @@ impl PeerSelection {
             share_reply: StageRef::blackhole(),
             share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
             share_request_interval: SHARE_REQUEST_INTERVAL,
+            churn_interval_base: CHURN_INTERVAL_BASE,
+            churn_interval_fuzz: CHURN_INTERVAL_FUZZ,
             churn_timer: None,
             demoted_until: BTreeMap::new(),
             promote_timer: None,
@@ -452,6 +472,16 @@ impl PeerSelection {
     pub fn with_share_request_delays(mut self, initial: Duration, interval: Duration) -> Self {
         self.share_request_initial_delay = initial;
         self.share_request_interval = interval;
+        self
+    }
+
+    /// Override the caught-up churn cadence (production default is 55 minutes plus up to 10).
+    ///
+    /// `fuzz` is a whole number of seconds. The next wake is `base` plus a uniform draw
+    /// from `0..=fuzz`. Churn still skips static bootstrap peers.
+    pub fn with_churn_interval(mut self, base: Duration, fuzz: Duration) -> Self {
+        self.churn_interval_base = base;
+        self.churn_interval_fuzz = fuzz;
         self
     }
 }
@@ -656,7 +686,8 @@ impl PeerSelection {
 
     async fn arm_churn(&mut self, eff: &Effects<PeerSelectionMsg>) {
         let seed: [u8; 32] = eff.external(GenerateRandomSeed).await;
-        let id = eff.schedule_after(PeerSelectionMsg::Churn, churn_interval(seed)).await;
+        let delay = churn_interval(self.churn_interval_base, self.churn_interval_fuzz, seed);
+        let id = eff.schedule_after(PeerSelectionMsg::Churn, delay).await;
         self.churn_timer = Some(id);
     }
 

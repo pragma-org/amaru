@@ -92,7 +92,8 @@ pub fn build_stage_graph(
             config.target_downstream_peers,
             config.peer_removal_cooldown_secs,
         )
-        .with_share_request_delays(config.share_request_initial_delay, config.share_request_interval),
+        .with_share_request_delays(config.share_request_initial_delay, config.share_request_interval)
+        .with_churn_interval(config.churn_interval_base, config.churn_interval_fuzz),
     );
 
     let peer_selection_notify = peer_selection_ref.contramap(|n: PeerSelectionNotify| match n {

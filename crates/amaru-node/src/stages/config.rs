@@ -26,7 +26,9 @@ use amaru_consensus::{
     performance::PeerMix,
     stages::{
         forge_block::ForgingCredentials,
-        peer_selection::{SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
+        peer_selection::{
+            CHURN_INTERVAL_BASE, CHURN_INTERVAL_FUZZ, SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL,
+        },
     },
 };
 use amaru_kernel::{
@@ -93,6 +95,12 @@ pub struct Config {
 
     /// Interval between subsequent peer-sharing requests (production 900s).
     pub share_request_interval: Duration,
+
+    /// Caught-up peer-churn delay before the whole-second fuzz (production 55 minutes).
+    pub churn_interval_base: Duration,
+
+    /// Whole seconds added uniformly on top of [`Self::churn_interval_base`] (production 10 minutes).
+    pub churn_interval_fuzz: Duration,
 
     /// Optional embedder observers (adopted blocks, full stake summaries).
     pub observers: amaru_ledger::LedgerObservers,
@@ -178,6 +186,8 @@ impl Default for Config {
             blockfetch_pipeline_n: NonZeroU8::MIN,
             share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
             share_request_interval: SHARE_REQUEST_INTERVAL,
+            churn_interval_base: CHURN_INTERVAL_BASE,
+            churn_interval_fuzz: CHURN_INTERVAL_FUZZ,
             observers: amaru_ledger::LedgerObservers::default(),
             meter: None,
             realign_chain_store: true,

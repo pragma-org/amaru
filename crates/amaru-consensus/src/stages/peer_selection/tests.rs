@@ -1752,3 +1752,21 @@ fn test_using_inbound_counts_toward_upstream_target() {
     );
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
+
+#[test]
+fn churn_interval_matches_the_production_window() {
+    use std::time::Duration;
+
+    let base = CHURN_INTERVAL_BASE;
+    let fuzz = CHURN_INTERVAL_FUZZ;
+    assert_eq!(churn_interval(base, fuzz, [0; 32]), base);
+
+    let mut seed = [0u8; 32];
+    seed[..8].copy_from_slice(&600u64.to_le_bytes());
+    assert_eq!(churn_interval(base, fuzz, seed), base + fuzz);
+
+    seed[..8].copy_from_slice(&601u64.to_le_bytes());
+    assert_eq!(churn_interval(base, fuzz, seed), base);
+
+    assert_eq!(churn_interval(Duration::from_secs(30), Duration::ZERO, [0xff; 32]), Duration::from_secs(30));
+}
