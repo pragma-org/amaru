@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::str::FromStr;
+
 use bumpalo::collections::Vec as BumpVec;
 use chumsky::prelude::*;
-use num::Num;
 
 use super::{
     types::{Extra, MapExtra},
@@ -42,7 +43,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, &'a PlutusData<'a>, Extra<'a>> {
                     let state = e.state();
 
                     #[expect(clippy::unwrap_used)]
-                    let mut i = Integer::from_str_radix(v, 10).unwrap();
+                    let mut i = Integer::from_str(v).unwrap();
 
                     if maybe_negative.is_some() {
                         i = -i;

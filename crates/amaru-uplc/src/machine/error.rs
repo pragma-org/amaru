@@ -83,6 +83,8 @@ pub enum RuntimeError<'a> {
     UnexpectedEd25519SignatureLength(TryFromSliceError),
     #[error("Division by zero")]
     DivisionByZero(&'a Integer, &'a Integer),
+    #[error("Integer out of bounds")]
+    IntegerOutOfBounds(&'a Integer),
     #[error("MkCons type mismatch")]
     MkConsTypeMismatch(&'a Constant<'a>),
     #[error("Byte string cons not a byte")]
@@ -185,6 +187,10 @@ where
 
     pub fn division_by_zero(numerator: &'a Integer, denominator: &'a Integer) -> Self {
         MachineError::runtime(RuntimeError::DivisionByZero(numerator, denominator))
+    }
+
+    pub fn integer_out_of_bounds(integer: &'a Integer) -> Self {
+        MachineError::runtime(RuntimeError::IntegerOutOfBounds(integer))
     }
 
     pub fn byte_string_cons_not_a_byte(byte: &'a Integer) -> Self {

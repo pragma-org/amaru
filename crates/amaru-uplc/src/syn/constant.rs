@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::str::FromStr;
+
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 use chumsky::prelude::*;
-use num::Num;
 
 use super::{
     data, typ,
@@ -133,8 +134,6 @@ fn check_type<'a>(arena: &'a Arena, con: TempConstant<'a>, expected_type: &'a Ty
 }
 
 fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstant<'a>>) -> Option<&'a LedgerValue<'a>> {
-    use num::Zero;
-
     use crate::ledger_value::check_quantity_range;
 
     struct RawToken<'a> {
@@ -197,7 +196,7 @@ fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstan
             return None;
         }
 
-        let qty = if sum.is_zero() { arena.alloc_integer(Integer::zero()) } else { arena.alloc_integer(sum) };
+        let qty = if sum.is_zero() { arena.alloc_integer(Integer::from(0)) } else { arena.alloc_integer(sum) };
 
         result = LedgerValue::insert_coin(arena, rt.currency, rt.name, qty, result);
     }
@@ -233,7 +232,7 @@ fn value_parser<'a>() -> impl Parser<'a, &'a str, TempConstant<'a>, Extra<'a>> {
                 .map_with(|(maybe_negative, v), e: &mut MapExtra<'a, '_>| {
                     let state = e.state();
                     #[expect(clippy::unwrap_used)]
-                    let mut integer = Integer::from_str_radix(v, 10).unwrap();
+                    let mut integer = Integer::from_str(v).unwrap();
                     if maybe_negative.is_some() {
                         integer = -integer;
                     }

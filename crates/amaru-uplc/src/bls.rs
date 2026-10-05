@@ -15,7 +15,10 @@
 use bumpalo::collections::Vec as BumpVec;
 use once_cell::sync::Lazy;
 
-use crate::{arena::Arena, constant::Integer};
+use crate::{
+    arena::Arena,
+    constant::{Integer, integer_from_bytes},
+};
 
 pub static SCALAR_PERIOD: Lazy<Integer> = Lazy::new(|| {
     let bytes: [u8; 32] = [
@@ -23,7 +26,7 @@ pub static SCALAR_PERIOD: Lazy<Integer> = Lazy::new(|| {
         0xa4, 0x02, 0xff, 0xfe, 0x5b, 0xfe, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01,
     ];
 
-    Integer::from_bytes_be(num_bigint::Sign::Plus, &bytes)
+    integer_from_bytes(&bytes, true)
 });
 
 pub const BLST_P1_COMPRESSED_SIZE: usize = 48;

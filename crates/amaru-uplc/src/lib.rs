@@ -41,11 +41,19 @@ mod tests {
     use pretty_assertions::assert_eq;
     use test_case::test_case;
 
-    use super::{arena::Arena, constant::Constant, ledger_value::LedgerValue, program::Program, term::Term, typ::Type};
+    use super::{
+        arena::Arena,
+        constant::{Constant, Integer},
+        ledger_value::LedgerValue,
+        program::Program,
+        term::Term,
+        typ::Type,
+    };
     use crate::{
         binder::DeBruijn,
+        builtin::DefaultFunction,
         flat,
-        machine::{CostModel, ExBudget, MachineVersion},
+        machine::{CostModel, ExBudget, MachineError, MachineVersion, RuntimeError},
     };
 
     fn alloc_constants<'a>(
@@ -194,6 +202,54 @@ mod tests {
     }
 
     #[test]
+    fn verify_ed25519_signature_rejects_identity_key_and_signature() {
+        let arena = Arena::new();
+
+        let mut public_key = [0; 32];
+        public_key[0] = 1;
+
+        let mut signature = [0; 64];
+        signature[0] = 1;
+
+        let term = Term::verify_ed25519_signature(&arena)
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(public_key)))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(*b"any message")))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(signature)));
+
+        let result = Program::<DeBruijn>::new(&arena, MachineVersion::V1_1_0, term).eval_default(&arena);
+
+        assert_eq!(result.term.unwrap(), Term::bool(&arena, false));
+    }
+
+    #[test]
+    fn verify_ecdsa_secp256k1_signature_rejects_uncompressed_key() {
+        use secp256k1::PublicKey;
+
+        let arena = Arena::new();
+
+        let public_key = PublicKey::from_slice(
+            &hex::decode("032e433589dce61863199171f4d1e3fa946a5832621fcd29559940a0950f96fb6f").unwrap(),
+        )
+        .unwrap()
+        .serialize_uncompressed();
+
+        let message = hex::decode("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap();
+        let signature = hex::decode(
+            "4941155e2303988a1be97a021fbaf9fe6064d05ea694bc5e89328f297154e5c63a2f3e7b5f509294a4c2e22feb697a16b792fabfebe9d0f38403b1c929836b5a",
+        )
+        .unwrap();
+
+        let term = Term::verify_ecdsa_secp256k1_signature(&arena)
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(public_key)))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(message)))
+            .apply(&arena, Term::byte_string(&arena, arena.alloc(signature)));
+
+        let result = Program::<DeBruijn>::new(&arena, MachineVersion::V1_1_0, term).eval_default(&arena);
+
+        assert!(result.term.is_err());
+    }
+
+    #[test]
     fn fibonacci() {
         let arena = &Arena::new();
 
@@ -315,6 +371,76 @@ mod tests {
 
         // Base builtin budgets should be identical regardless of protocol version
         assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
+    }
+
+    // TODO: Convert into conformance test cases
+    fn out_of_range_integer_terms<'a>(arena: &'a Arena, builtin: DefaultFunction) -> Vec<&'a Term<'a, DeBruijn>> {
+        let out_of_range = arena.alloc_integer(Integer::from(1u8) << 262_143usize);
+        #[expect(clippy::wildcard_enum_match_arm)]
+        let two_operands_term = match builtin {
+            DefaultFunction::AddInteger => Term::add_integer,
+            DefaultFunction::ConsByteString => {
+                return vec![
+                    Term::cons_byte_string(arena)
+                        .apply(arena, Term::integer(arena, out_of_range))
+                        .apply(arena, Term::byte_string(arena, &[])),
+                ];
+            }
+            DefaultFunction::DivideInteger => Term::divide_integer,
+            DefaultFunction::LessThanEqualsInteger => Term::less_than_equals_integer,
+            DefaultFunction::LessThanInteger => Term::less_than_integer,
+            DefaultFunction::ModInteger => Term::mod_integer,
+            DefaultFunction::MultiplyInteger => Term::multiply_integer,
+            DefaultFunction::QuotientInteger => Term::quotient_integer,
+            DefaultFunction::RemainderInteger => Term::remainder_integer,
+            DefaultFunction::SubtractInteger => Term::subtract_integer,
+            _ => unimplemented!("unexpected builtin in 'out_of_range_integer_term' helper: {builtin:?}"),
+        };
+
+        vec![
+            two_operands_term(arena)
+                .apply(arena, Term::integer(arena, out_of_range))
+                .apply(arena, Term::integer_from(arena, 1)),
+            two_operands_term(arena)
+                .apply(arena, Term::integer_from(arena, 1))
+                .apply(arena, Term::integer(arena, out_of_range)),
+        ]
+    }
+
+    #[test_case(DefaultFunction::AddInteger)]
+    #[test_case(DefaultFunction::ConsByteString)]
+    #[test_case(DefaultFunction::DivideInteger)]
+    #[test_case(DefaultFunction::LessThanEqualsInteger)]
+    #[test_case(DefaultFunction::LessThanInteger)]
+    #[test_case(DefaultFunction::ModInteger)]
+    #[test_case(DefaultFunction::MultiplyInteger)]
+    #[test_case(DefaultFunction::QuotientInteger)]
+    #[test_case(DefaultFunction::RemainderInteger)]
+    #[test_case(DefaultFunction::SubtractInteger)]
+    fn arithmetic_rejects_out_of_range_integers_from_v11(builtin: DefaultFunction) {
+        let version = MachineVersion::V1_1_0;
+        let arena = Arena::new();
+
+        for term in out_of_range_integer_terms(&arena, builtin) {
+            let program = Program::<DeBruijn>::new(&arena, version, term);
+
+            let pre_v11 = program.eval(
+                &arena,
+                CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_10, &CostModel::DEFAULT_V2),
+                ExBudget::default(),
+            );
+            assert!(dbg!(pre_v11.term).is_ok(), "{builtin:?}");
+
+            let post_v11 = program.eval(
+                &arena,
+                CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_11, &CostModel::DEFAULT_V2),
+                ExBudget::default(),
+            );
+            assert!(
+                matches!(dbg!(post_v11.term), Err(MachineError::Runtime(RuntimeError::IntegerOutOfBounds(..)))),
+                "{builtin:?}"
+            );
+        }
     }
 
     #[test_case(exp_mod_integer_fixture; "exp_mod_integer")]

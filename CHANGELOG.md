@@ -35,6 +35,8 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
+
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
 ### Added
@@ -49,6 +51,7 @@ Other guiding principles:
 - **amaru**: a failed outbound connection attempt times out after 2 seconds. Each failure adds a large connection penalty, so healthier peers are dialed first. When no healthier peer can fill an open slot, the penalized peer is dialed anyway. A peer is not dialed again within 2 seconds of a connect attempt or a connection failure. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
 - **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
+- **amaru-kernel**: use RustCrypto hash implementations for BLAKE2b, SHA-2, SHA-3, Keccak, and RIPEMD.
 
 ### Fixed
 
@@ -70,6 +73,8 @@ Other guiding principles:
 - **amaru-node**: startup fails when the chain store is missing the ledger tip header. A bootstrap snapshot stores that tip without its parent block. Forging in the snapshot tip's own slot is skipped when that parent header is absent.
 - **amaru**: report errors on stderr when tracing isn't available on specific commands.
 - **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
+- **amaru-uplc**: reject out-of-range integer arguments to arithmetic Plutus builtins under the current ledger semantics, matching the Cardano reference evaluator.
+- **amaru-uplc**: reject weak Ed25519 identity tuples and uncompressed secp256k1 public keys in Plutus signature builtins.
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 

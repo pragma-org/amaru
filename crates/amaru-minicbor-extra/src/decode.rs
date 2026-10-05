@@ -14,12 +14,11 @@
 
 use std::{borrow::Cow, fmt::Display};
 
+use dashu_int::{IBig, UBig};
 use minicbor::{
     data::{IanaTag, Type},
     decode,
 };
-use num::One;
-use num_bigint::BigInt;
 
 use crate::cbor;
 
@@ -31,9 +30,9 @@ pub use with_size::*;
 mod with_original_bytes;
 pub use with_original_bytes::*;
 
-/// Decode an arbitrary-precision integer, accepting both CBOR native integers and the tagged
-/// bignum forms (tag 2 for positive, tag 3 for negative).
-pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error> {
+/// Decode a Dashu integer, accepting both CBOR native integers and the tagged bignum forms (tag
+/// 2 for positive, tag 3 for negative).
+pub fn decode_integer(d: &mut cbor::Decoder<'_>) -> Result<IBig, decode::Error> {
     if d.datatype()? == Type::Tag {
         let tag = d.tag()?;
         return match tag.try_into() {
@@ -43,15 +42,15 @@ pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error>
                     bytes.extend_from_slice(chunk?);
                 }
 
-                let magnitude = BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
-                Ok(if iana == IanaTag::PosBignum { magnitude } else { -magnitude - BigInt::one() })
+                let magnitude = IBig::from(UBig::from_be_bytes(&bytes));
+                Ok(if iana == IanaTag::PosBignum { magnitude } else { -magnitude - IBig::ONE })
             }
             _ => Err(decode::Error::message(format!("unexpected tag for bignum: {tag}"))),
         };
     }
 
     let i: i128 = d.int()?.into();
-    Ok(BigInt::from(i))
+    Ok(IBig::from(i))
 }
 
 /// Decode bytes, accepting both the definite-length form and the indefinite-length
