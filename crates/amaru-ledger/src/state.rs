@@ -17,7 +17,10 @@ use std::{
     cmp::max,
     collections::{BTreeMap, BTreeSet, VecDeque},
     mem,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -79,6 +82,8 @@ pub const MIN_LEDGER_SNAPSHOTS: u64 = 3;
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'GlobalParameters::consensus_security_param' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
+///
+/// Dropping the state cancels and joins the rewards worker before closing its stores.
 pub struct State<S, HS>
 where
     S: Store,
@@ -124,6 +129,8 @@ where
 
     /// Background computation calculating rewards and stake distributions
     rewards_join_handle: Option<JoinHandle<RewardsComputation>>,
+
+    rewards_cancelled: Arc<AtomicBool>,
 
     /// A local debounced tip emitter avoid flooding logs with tip updates during sync
     tip_update_emitter: TipUpdateEmitter,
@@ -260,6 +267,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             observers: LedgerObservers::default(),
 
             rewards_join_handle: None,
+            rewards_cancelled: Arc::new(AtomicBool::new(false)),
 
             tip_update_emitter: TipUpdateEmitter::default(),
         }
@@ -538,6 +546,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             };
 
             let tasks = BackgroundTasks {
+                cancelled: self.rewards_cancelled.clone(),
                 previous_epoch,
                 rewards_snapshot,
                 rotation,
@@ -1191,6 +1200,15 @@ fn pool_summaries_for<'iter>(stake_distributions: impl Iterator<Item = &'iter St
 // RewardsCalculator
 // ----------------------------------------------------------------------------
 
+impl<S: Store, HS: HistoricalStores> Drop for State<S, HS> {
+    fn drop(&mut self) {
+        self.rewards_cancelled.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.rewards_join_handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
 /// Result of the rewards background task: the rotated stake distribution, when one was due, and
 /// the rewards for the upcoming epoch transition.
 type RewardsComputation = Result<(Option<StakeDistribution>, RewardsSummary), StateError>;
@@ -1205,6 +1223,7 @@ struct StakeDistributionRotation {
 /// progresses. The thread receives everything it needs by value; results travel back through
 /// the [`JoinHandle`] consumed at the epoch transition.
 struct BackgroundTasks<Snap> {
+    cancelled: Arc<AtomicBool>,
     /// Snapshot of the previous epoch; source of the rotated stake distribution as well as the
     /// block issuers and pots for the rewards calculation.
     previous_epoch: Snap,
@@ -1222,7 +1241,12 @@ struct BackgroundTasks<Snap> {
 }
 
 impl<Snap: Snapshot> BackgroundTasks<Snap> {
+    fn check_cancelled(&self) -> Result<(), StateError> {
+        if self.cancelled.load(Ordering::Relaxed) { Err(StateError::BackgroundTaskCancelled) } else { Ok(()) }
+    }
+
     fn run(mut self) -> RewardsComputation {
+        self.check_cancelled()?;
         let rotated = match self.rotation.take() {
             Some(rotation) => Some(self.rotate_stake_distribution(rotation)?),
             None => None,
@@ -1241,6 +1265,7 @@ impl<Snap: Snapshot> BackgroundTasks<Snap> {
             self.on_ledger_snapshot.as_deref(),
             |_| {},
         )?;
+        self.check_cancelled()?;
 
         let mut summaries = rotation.retained;
         summaries.by_epoch.extend(pool_summaries_for(std::iter::once(&distribution)).by_epoch);
@@ -1259,6 +1284,7 @@ impl<Snap: Snapshot> BackgroundTasks<Snap> {
 
     /// Compute rewards for a given epoch using an anterior stake distribution.
     fn compute_rewards(&self) -> Result<RewardsSummary, StateError> {
+        self.check_cancelled()?;
         info_span!(
             ledger::rewards::COMPUTE,
             for_epoch = self.epoch,
@@ -1273,6 +1299,7 @@ impl<Snap: Snapshot> BackgroundTasks<Snap> {
             )
             .map_err(StateError::Storage)?;
 
+            self.check_cancelled()?;
             Ok(RewardsSummary::new(
                 stake_summary,
                 &self.global_parameters,
@@ -1424,6 +1451,9 @@ pub enum StateError {
 
     #[error("background task failed: task={task}")]
     BackgroundTaskFailed { task: String },
+
+    #[error("background task cancelled during ledger shutdown")]
+    BackgroundTaskCancelled,
 
     #[error("rewards summary not ready")]
     RewardsSummaryNotReady,
