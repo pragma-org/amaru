@@ -94,11 +94,22 @@ impl<const BYTES: usize> Arbitrary for Hash<BYTES> {
     }
 }
 
-impl<const BYTES: usize> From<&[u8]> for Hash<BYTES> {
-    fn from(value: &[u8]) -> Self {
-        let mut hash = [0; BYTES];
-        hash.copy_from_slice(value);
-        Self::new(hash)
+/// A slice whose length does not match the digest it was meant to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("invalid hash size: expected {expected} bytes, got {got}")]
+pub struct InvalidHashSize {
+    pub expected: usize,
+    pub got: usize,
+}
+
+/// Fallible on purpose: a slice carries no length guarantee, and silently padding or truncating
+/// one into a digest would turn malformed input into a plausible-looking hash.
+impl<const BYTES: usize> TryFrom<&[u8]> for Hash<BYTES> {
+    type Error = InvalidHashSize;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let hash: [u8; BYTES] = value.try_into().map_err(|_| InvalidHashSize { expected: BYTES, got: value.len() })?;
+        Ok(Self::new(hash))
     }
 }
 
@@ -157,7 +168,7 @@ impl<C, const BYTES: usize> cbor::Encode<C> for Hash<BYTES> {
 
 impl<'a, C: cbor::HasProtocolVersion, const BYTES: usize> cbor::Decode<'a, C> for Hash<BYTES> {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let bytes = cbor::decode_bytes_v12_indefinite(d, ctx)?;
+        let bytes = cbor::decode_bytes_v12(d, ctx)?;
         if bytes.len() == BYTES {
             let mut hash = [0; BYTES];
             hash.copy_from_slice(&bytes);

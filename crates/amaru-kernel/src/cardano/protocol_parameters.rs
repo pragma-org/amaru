@@ -16,8 +16,8 @@
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{
-    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
-    ProtocolParamUpdate, ProtocolVersion, RationalNumber, cbor,
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParamUpdate,
+    ProtocolVersion, RationalNumber, UnitRationalNumber, cbor,
 };
 
 mod default;
@@ -32,12 +32,12 @@ pub struct ProtocolParameters {
     pub protocol_version: ProtocolVersion,
 
     // Network group
-    pub max_block_body_size: u64,
-    pub max_transaction_size: u64,
+    pub max_block_body_size: u32,
+    pub max_transaction_size: u32,
     pub max_block_header_size: u16,
     pub max_tx_ex_units: ExUnits,
     pub max_block_ex_units: ExUnits,
-    pub max_value_size: u64,
+    pub max_value_size: u32,
     pub max_collateral_inputs: u16,
 
     // Economic group
@@ -45,8 +45,8 @@ pub struct ProtocolParameters {
     pub min_fee_b: u64,
     pub stake_credential_deposit: Lovelace,
     pub stake_pool_deposit: Lovelace,
-    pub monetary_expansion_rate: RationalNumber,
-    pub treasury_expansion_rate: RationalNumber,
+    pub monetary_expansion_rate: UnitRationalNumber,
+    pub treasury_expansion_rate: UnitRationalNumber,
     pub min_pool_cost: u64,
     pub lovelace_per_utxo_byte: Lovelace,
     pub prices: ExUnitPrices,
@@ -57,7 +57,7 @@ pub struct ProtocolParameters {
     pub ref_script_cost_multiplier: RationalNumber,
 
     // Technical group
-    pub stake_pool_max_retirement_epoch: u64,
+    pub stake_pool_max_retirement_epoch: u32,
     pub optimal_stake_pools_count: u16,
     pub pledge_influence: RationalNumber,
     pub collateral_percentage: u16,
@@ -67,11 +67,11 @@ pub struct ProtocolParameters {
     pub pool_voting_thresholds: PoolVotingThresholds,
     pub drep_voting_thresholds: DRepVotingThresholds,
     pub min_committee_size: u16,
-    pub max_committee_term_length: u64,
-    pub gov_action_lifetime: u64,
+    pub max_committee_term_length: u32,
+    pub gov_action_lifetime: u32,
     pub gov_action_deposit: Lovelace,
     pub drep_deposit: Lovelace,
-    pub drep_expiry: u64,
+    pub drep_expiry: u32,
 }
 
 impl ProtocolParameters {
@@ -97,26 +97,7 @@ impl ProtocolParameters {
         set(&mut self.min_pool_cost, u.min_pool_cost);
         set(&mut self.lovelace_per_utxo_byte, u.ada_per_utxo_byte);
         if let Some(cost_models) = u.cost_models_for_script_languages {
-            // NOTE: This code may looks a little convoluted here, but it exists for the sake of
-            // generating a compiler error in due time. Should we not do that, and add a new language,
-            // it is highly likely that we may forget to apply the corresponding cost model update for
-            // that language.
-            //
-            // Now, we'll get the following pattern-match to fail due to non exhaustivness.
-            match PlutusVersion::V1 {
-                PlutusVersion::V1 => {
-                    if let Some(plutus_v1) = cost_models.plutus_v1 {
-                        self.cost_models.plutus_v1 = Some(plutus_v1);
-                    }
-                }
-                PlutusVersion::V2 | PlutusVersion::V3 => (),
-            }
-            if let Some(plutus_v2) = cost_models.plutus_v2 {
-                self.cost_models.plutus_v2 = Some(plutus_v2);
-            }
-            if let Some(plutus_v3) = cost_models.plutus_v3 {
-                self.cost_models.plutus_v3 = Some(plutus_v3);
-            }
+            self.cost_models.update(cost_models);
         }
         set(&mut self.prices, u.execution_costs);
         set(&mut self.max_tx_ex_units, u.max_tx_ex_units);
@@ -146,6 +127,7 @@ mod fixture {
         CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParameters,
         ProtocolVersion, RationalNumber,
     };
+    use crate::UnitRationalNumber;
 
     // NOTE: Hand-written deserializer for the protocol parameters fixture
     //
@@ -178,19 +160,19 @@ mod fixture {
                     let mut min_fee_b: Option<u64> = None;
                     let mut min_fee_reference_scripts: Option<MinFeeReferenceScripts> = None;
                     let mut lovelace_per_utxo_byte: Option<Lovelace> = None;
-                    let mut max_block_body_size: Option<u64> = None;
+                    let mut max_block_body_size: Option<u32> = None;
                     let mut max_block_header_size: Option<u16> = None;
-                    let mut max_transaction_size: Option<u64> = None;
-                    let mut max_value_size: Option<u64> = None;
+                    let mut max_transaction_size: Option<u32> = None;
+                    let mut max_value_size: Option<u32> = None;
                     let mut max_ref_script_size_per_tx: Option<u32> = None;
                     let mut stake_credential_deposit: Option<Lovelace> = None;
                     let mut stake_pool_deposit: Option<Lovelace> = None;
-                    let mut stake_pool_max_retirement_epoch: Option<u64> = None;
+                    let mut stake_pool_max_retirement_epoch: Option<u32> = None;
                     let mut pledge_influence: Option<RationalNumber> = None;
                     let mut min_pool_cost: Option<u64> = None;
                     let mut optimal_stake_pools_count: Option<u16> = None;
-                    let mut monetary_expansion_rate: Option<RationalNumber> = None;
-                    let mut treasury_expansion_rate: Option<RationalNumber> = None;
+                    let mut monetary_expansion_rate: Option<UnitRationalNumber> = None;
+                    let mut treasury_expansion_rate: Option<UnitRationalNumber> = None;
                     let mut collateral_percentage: Option<u16> = None;
                     let mut max_collateral_inputs: Option<u16> = None;
                     let mut cost_models: Option<CostModels> = None;
@@ -199,12 +181,12 @@ mod fixture {
                     let mut max_block_ex_units: Option<ExUnits> = None;
                     let mut pool_voting_thresholds: Option<PoolVotingThresholds> = None;
                     let mut min_committee_size: Option<u16> = None;
-                    let mut max_committee_term_length: Option<u64> = None;
-                    let mut gov_action_lifetime: Option<u64> = None;
+                    let mut max_committee_term_length: Option<u32> = None;
+                    let mut gov_action_lifetime: Option<u32> = None;
                     let mut gov_action_deposit: Option<Lovelace> = None;
                     let mut drep_voting_thresholds: Option<DRepVotingThresholds> = None;
                     let mut drep_deposit: Option<Lovelace> = None;
-                    let mut drep_expiry: Option<u64> = None;
+                    let mut drep_expiry: Option<u32> = None;
 
                     macro_rules! set {
                         ($slot:ident, $key:literal) => {{
@@ -345,69 +327,41 @@ mod fixture {
     }
 }
 
-fn decode_rationale(d: &mut cbor::Decoder<'_>) -> Result<RationalNumber, cbor::decode::Error> {
-    cbor::allow_tag(d, cbor::Tag::new(30))?;
-    cbor::heterogeneous_array(d, |d, assert_len| {
-        assert_len(2)?;
-        let numerator = d.u64()?;
-        let denominator = d.u64()?;
-        Ok(RationalNumber { numerator, denominator })
-    })
-}
-
 impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let min_fee_a = d.u64()?;
         let min_fee_b = d.u64()?;
-        let max_block_body_size = d.u64()?;
-        let max_transaction_size = d.u64()?;
+        let max_block_body_size = d.u32()?;
+        let max_transaction_size = d.u32()?;
         let max_block_header_size = d.u16()?;
         let stake_credential_deposit = d.u64()?;
         let stake_pool_deposit = d.u64()?;
-        let stake_pool_max_retirement_epoch = d.u64()?;
+        let stake_pool_max_retirement_epoch = d.u32()?;
         let optimal_stake_pools_count = d.u16()?;
-        let pledge_influence = decode_rationale(d)?;
-        let monetary_expansion_rate = decode_rationale(d)?;
-        let treasury_expansion_rate = decode_rationale(d)?;
+        let pledge_influence = d.decode_with(ctx)?;
+        let monetary_expansion_rate = d.decode_with(ctx)?;
+        let treasury_expansion_rate = d.decode_with(ctx)?;
         let protocol_version = d.decode_with(ctx)?;
         let min_pool_cost = d.u64()?;
         let lovelace_per_utxo_byte = d.u64()?;
 
-        let mut plutus_v1 = None;
-        let mut plutus_v2 = None;
-        let mut plutus_v3 = None;
-        let i = d.map_iter_with::<C, u8, CostModel>(ctx)?;
-        for item in i {
-            let (k, v) = item?;
-            match k {
-                0 => {
-                    plutus_v1 = Some(v);
-                }
-                1 => {
-                    plutus_v2 = Some(v);
-                }
-                2 => {
-                    plutus_v3 = Some(v);
-                }
-                _ => unreachable!("unexpected language version: {k}"),
-            }
-        }
+        let cost_models = d.decode_with(ctx)?;
         let prices = d.decode_with(ctx)?;
         let max_tx_ex_units = d.decode_with(ctx)?;
         let max_block_ex_units = d.decode_with(ctx)?;
-        let max_value_size = d.u64()?;
+        let max_value_size = d.u32()?;
         let collateral_percentage = d.u16()?;
         let max_collateral_inputs = d.u16()?;
         let pool_voting_thresholds = d.decode_with(ctx)?;
         let drep_voting_thresholds = d.decode_with(ctx)?;
         let min_committee_size = d.u16()?;
-        let max_committee_term_length = d.u64()?;
-        let gov_action_lifetime = d.u64()?;
+        let max_committee_term_length = d.u32()?;
+        let gov_action_lifetime = d.u32()?;
         let gov_action_deposit = d.u64()?;
         let drep_deposit = d.u64()?;
         let drep_expiry = d.decode_with(ctx)?;
-        let min_fee_ref_script_lovelace_per_byte = decode_rationale(d)?;
+        let min_fee_ref_script_lovelace_per_byte = d.decode_with(ctx)?;
 
         Ok(ProtocolParameters {
             protocol_version,
@@ -425,7 +379,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
             treasury_expansion_rate,
             min_pool_cost,
             lovelace_per_utxo_byte,
-            cost_models: CostModels { plutus_v1, plutus_v2, plutus_v3 },
+            cost_models,
             prices,
             max_tx_ex_units,
             max_block_ex_units,
@@ -452,21 +406,10 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolPa
             ref_script_cost_stride: 25600,
             // Hardcoded in the haskell ledger
             // <https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85>
-            ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
+            #[expect(clippy::expect_used)]
+            ref_script_cost_multiplier: RationalNumber::new(12, 10).expect("12/10 is a valid rational number"),
         })
     }
-}
-
-fn encode_rationale<W: cbor::encode::Write>(
-    e: &mut cbor::Encoder<W>,
-    rat: &RationalNumber,
-) -> Result<(), cbor::encode::Error<W::Error>> {
-    e.tag(cbor::Tag::new(30))?;
-    e.array(2)?;
-
-    e.u64(rat.numerator)?;
-    e.u64(rat.denominator)?;
-    Ok(())
 }
 
 impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters {
@@ -478,49 +421,26 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.array(31)?;
         e.u64(self.min_fee_a)?;
         e.u64(self.min_fee_b)?;
-        e.u64(self.max_block_body_size)?;
-        e.u64(self.max_transaction_size)?;
+        e.u32(self.max_block_body_size)?;
+        e.u32(self.max_transaction_size)?;
         e.u16(self.max_block_header_size)?;
         e.u64(self.stake_credential_deposit)?;
         e.u64(self.stake_pool_deposit)?;
-        e.u64(self.stake_pool_max_retirement_epoch)?;
+        e.u32(self.stake_pool_max_retirement_epoch)?;
         e.u16(self.optimal_stake_pools_count)?;
-        encode_rationale(e, &self.pledge_influence)?;
-        encode_rationale(e, &self.monetary_expansion_rate)?;
-        encode_rationale(e, &self.treasury_expansion_rate)?;
+        e.encode_with(self.pledge_influence, ctx)?;
+        e.encode_with(self.monetary_expansion_rate, ctx)?;
+        e.encode_with(self.treasury_expansion_rate, ctx)?;
         e.encode_with(self.protocol_version, ctx)?;
         e.u64(self.min_pool_cost)?;
         e.u64(self.lovelace_per_utxo_byte)?;
 
-        let mut count = 0;
-        if self.cost_models.plutus_v1.is_some() {
-            count += 1;
-        }
-        if self.cost_models.plutus_v2.is_some() {
-            count += 1;
-        }
-        if self.cost_models.plutus_v3.is_some() {
-            count += 1;
-        }
-        e.map(count)?;
-        if let Some(v) = self.cost_models.plutus_v1.as_ref() {
-            e.u8(0)?;
-            e.encode_with(v, ctx)?;
-        }
-        if let Some(v) = self.cost_models.plutus_v2.as_ref() {
-            e.u8(1)?;
-            e.encode_with(v, ctx)?;
-        }
-        if let Some(v) = self.cost_models.plutus_v3.as_ref() {
-            e.u8(2)?;
-            e.encode_with(v, ctx)?;
-        }
-
+        e.encode_with(&self.cost_models, ctx)?;
         e.encode_with(&self.prices, ctx)?;
         e.encode_with(self.max_tx_ex_units, ctx)?;
         e.encode_with(self.max_block_ex_units, ctx)?;
 
-        e.u64(self.max_value_size)?;
+        e.u32(self.max_value_size)?;
         e.u16(self.collateral_percentage)?;
         e.u16(self.max_collateral_inputs)?;
 
@@ -528,12 +448,12 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters
         e.encode_with(&self.drep_voting_thresholds, ctx)?;
 
         e.u16(self.min_committee_size)?;
-        e.u64(self.max_committee_term_length)?;
-        e.u64(self.gov_action_lifetime)?;
+        e.u32(self.max_committee_term_length)?;
+        e.u32(self.gov_action_lifetime)?;
         e.u64(self.gov_action_deposit)?;
         e.u64(self.drep_deposit)?;
         e.encode_with(self.drep_expiry, ctx)?;
-        encode_rationale(e, &self.min_fee_ref_script_lovelace_per_byte)?;
+        e.encode_with(self.min_fee_ref_script_lovelace_per_byte, ctx)?;
 
         Ok(())
     }
@@ -546,29 +466,29 @@ impl Arbitrary for ProtocolParameters {
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         let network =
-            (any::<u64>(), any::<u64>(), any::<u16>(), any::<ExUnits>(), any::<ExUnits>(), any::<u64>(), any::<u16>());
+            (any::<u32>(), any::<u32>(), any::<u16>(), any::<ExUnits>(), any::<ExUnits>(), any::<u32>(), any::<u16>());
         let economic = (
             any::<Lovelace>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
-            any::<RationalNumber>(),
-            any::<RationalNumber>(),
+            any::<UnitRationalNumber>(),
+            any::<UnitRationalNumber>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
             any::<ExUnitPrices>(),
             any::<RationalNumber>(),
         );
-        let technical = (any::<u64>(), any::<u16>(), any::<RationalNumber>(), any::<u16>(), any::<CostModels>());
+        let technical = (any::<u32>(), any::<u16>(), any::<RationalNumber>(), any::<u16>(), any::<CostModels>());
         let governance = (
             any::<PoolVotingThresholds>(),
             any::<DRepVotingThresholds>(),
             any::<u16>(),
-            any::<u64>(),
-            any::<u64>(),
+            any::<u32>(),
+            any::<u32>(),
             any::<Lovelace>(),
             any::<Lovelace>(),
-            any::<u64>(),
+            any::<u32>(),
         );
 
         (any::<ProtocolVersion>(), network, economic, technical, governance)

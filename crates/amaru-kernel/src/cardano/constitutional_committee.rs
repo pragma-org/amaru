@@ -14,12 +14,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::{Credential, Epoch, RationalNumber, cbor};
+use crate::{Credential, Epoch, UnitRationalNumber, cbor};
 
 #[derive(Debug)]
 pub struct ConstitutionalCommittee {
     pub members: BTreeMap<Credential, Epoch>,
-    pub threshold: RationalNumber,
+    pub threshold: UnitRationalNumber,
 }
 
 impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {

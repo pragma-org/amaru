@@ -53,7 +53,10 @@ pub mod tests {
 
     #[expect(clippy::unwrap_used)]
     pub fn fake_input(transaction_id: &str, index: u16) -> TransactionInput {
-        TransactionInput { transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()), index }
+        TransactionInput {
+            transaction_id: Hash::try_from(hex::decode(transaction_id).unwrap().as_slice()).unwrap(),
+            index,
+        }
     }
 
     #[expect(clippy::expect_used)]

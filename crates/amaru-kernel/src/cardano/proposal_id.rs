@@ -22,7 +22,7 @@ use crate::{Hash, cbor, size::TRANSACTION_BODY};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProposalId {
     pub transaction_id: Hash<{ TRANSACTION_BODY }>,
-    pub proposal_index: u32,
+    pub proposal_index: u16,
 }
 
 impl fmt::Display for ProposalId {
@@ -53,8 +53,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for ProposalId {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ProposalId {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(2)?;
+        cbor::heterogeneous_array_v12(d, ctx, 2, |d, ctx| {
             Ok(Self { transaction_id: d.decode_with(ctx)?, proposal_index: d.decode_with(ctx)? })
         })
     }
@@ -66,7 +65,7 @@ impl Arbitrary for ProposalId {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        (any::<Hash<TRANSACTION_BODY>>(), any::<u32>())
+        (any::<Hash<TRANSACTION_BODY>>(), any::<u16>())
             .prop_map(|(transaction_id, proposal_index)| ProposalId { transaction_id, proposal_index })
             .boxed()
     }

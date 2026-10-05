@@ -15,7 +15,7 @@
 use crate::{
     cbor,
     cbor::IanaTag,
-    utils::cbor::versioned::{HasProtocolVersion, decode_bytes_v12_indefinite},
+    utils::cbor::versioned::{HasProtocolVersion, decode_bytes_v12},
 };
 
 /// Encode a type as tagged CBOR bytes, also known as "CBOR-in-CBOR".
@@ -47,7 +47,7 @@ impl<'d, C: HasProtocolVersion, T: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d,
             )));
         }
 
-        let bytes = decode_bytes_v12_indefinite(d, ctx)?;
+        let bytes = decode_bytes_v12(d, ctx)?;
         let data = cbor::Decoder::new(&bytes).decode_with(ctx).map_err(|e| {
             cbor::decode::Error::message(format!("failed to decode serialised {}: {e}", std::any::type_name::<T>()))
         })?;

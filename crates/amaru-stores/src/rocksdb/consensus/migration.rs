@@ -213,17 +213,19 @@ fn rewrite_chain_prefix_points(store: &RocksDBStore<DB>) -> Result<(), StoreErro
 /// Convert a 32-byte header-hash encoding to a `Point`. Returns `Ok(None)` when `bytes` is
 /// already a NetworkTip (or any other non-hash value left for the reader to reject).
 fn point_from_legacy_hash(store: &RocksDBStore<DB>, bytes: &[u8]) -> Result<Option<Point>, StoreError> {
-    if bytes.len() != HEADER {
+    let Ok(hash) = HeaderHash::try_from(bytes) else {
         return Ok(None);
-    }
-    Ok(Some(point_from_hash(store, HeaderHash::from(bytes))?))
+    };
+    Ok(Some(point_from_hash(store, hash)?))
 }
 
 /// Read a pre-v6 singleton key: a 32-byte header hash, or missing (treated as origin).
 fn read_legacy_hash(store: &RocksDBStore<DB>, key: &[u8]) -> Result<HeaderHash, StoreError> {
     match store.db.get(key).map_err(|e| StoreError::ReadError { error: e.to_string() })? {
         None => Ok(ORIGIN_HASH),
-        Some(bytes) if bytes.len() == HEADER => Ok(HeaderHash::from(&bytes[..])),
+        Some(bytes) if bytes.len() == HEADER => {
+            HeaderHash::try_from(&bytes[..]).map_err(|e| StoreError::ReadError { error: e.to_string() })
+        }
         Some(bytes) => {
             Err(StoreError::ReadError { error: format!("expected a 32-byte header hash, got {} bytes", bytes.len()) })
         }

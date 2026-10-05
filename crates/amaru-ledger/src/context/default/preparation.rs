@@ -536,7 +536,7 @@ mod tests {
 
         use amaru_kernel::{
             ConstitutionalCommitteeMemberStatus, Credential, Epoch, GovernanceAction, Proposal, ProposalId,
-            ProposalPointer, RationalNumber, utils::tests::run_strategy,
+            ProposalPointer, UnitRationalNumber, utils::tests::run_strategy,
         };
         use proptest::prelude::any;
 
@@ -643,7 +643,7 @@ mod tests {
                         .collect::<Vec<_>>(),
                 )
                 .unwrap(),
-                run_strategy(any::<RationalNumber>()),
+                run_strategy(any::<UnitRationalNumber>()),
             );
 
             Proposal { gov_action, ..run_strategy(any::<Proposal>()) }

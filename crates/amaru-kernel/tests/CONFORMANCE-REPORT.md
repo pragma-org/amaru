@@ -43,7 +43,7 @@ A rule is clean when each `_actual` equals its `_expected`. For every rule,
 
 | field    | meaning                                                                                               |
 |----------|--------------------------------------------------------------------------------------------------------|
-| `sample` | `<rule>/<category>/<file stem>`, where `<category>` is `valid` or `zap-<n>` for a mutation of severity `n` |
+| `sample` | `<rule>/<category>/<file stem>`, where `<category>` is `valid` or `invalid/zap-<n>` for severity `n`   |
 | `rule`   | the CDDL rule the sample belongs to                                                                      |
 | `class`  | `reason` collapsed into a stable label: first line only, byte offset dropped, long digit runs replaced by `N`, truncated at 96 characters |
 | `reason` | the full error text, which may span several lines and embed hex dumps                                    |

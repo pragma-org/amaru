@@ -484,7 +484,7 @@ impl BalanceSlice for DefaultValidationContext {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Proposal, RationalNumber, Slot, TransactionPointer, utils::tests::run_strategy};
+    use amaru_kernel::{Proposal, Slot, TransactionPointer, UnitRationalNumber, utils::tests::run_strategy};
     use proptest::prelude::any;
     use test_case::test_case;
 
@@ -698,7 +698,7 @@ mod tests {
                     None,
                     Default::default(),
                     vec![(cold_credential, Default::default())].try_into().unwrap(),
-                    run_strategy(any::<RationalNumber>()),
+                    run_strategy(any::<UnitRationalNumber>()),
                 ),
                 ..run_strategy(any::<Proposal>())
             },

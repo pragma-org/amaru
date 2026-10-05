@@ -409,7 +409,7 @@ impl ProposalsForest {
         //
         // This is NOT confusing at all. <insert sobbing emoji>.
         if let ProposalEnum::ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
-            let max_term_length = protocol_parameters.max_committee_term_length;
+            let max_term_length = u64::from(protocol_parameters.max_committee_term_length);
             let is_now_invalid = |valid_until| valid_until > &(self.current_epoch + 1 + max_term_length);
             if added.values().any(is_now_invalid) {
                 let invalid_members =
@@ -745,7 +745,7 @@ mod tests {
         Anchor, Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs,
         Lovelace, MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10,
         Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RatificationStatus, RationalNumber, RewardAccount, Slot, TransactionPointer,
+        ProtocolVersion, RatificationStatus, RewardAccount, Slot, TransactionPointer, UnitRationalNumber,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -759,7 +759,7 @@ mod tests {
     const MAX_TREE_SIZE: usize = 8;
 
     static PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = LazyLock::new(|| ProtocolParameters {
-        max_committee_term_length: (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH) / 2,
+        max_committee_term_length: ((MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH) / 2) as u32,
         ..(*PREPROD_DEFAULT_PROTOCOL_PARAMETERS).clone()
     });
 
@@ -871,7 +871,7 @@ mod tests {
                     None,
                     vec![],
                     KeyValuePairs::default(),
-                    RationalNumber { numerator: 0, denominator: 1 },
+                    UnitRationalNumber::new(0, 1).unwrap(),
                 ),
             )
             .unwrap();
@@ -1050,7 +1050,7 @@ mod tests {
                             prop_assert!(
                                 added
                                     .values()
-                                    .all(|valid_until| *valid_until <= forest.current_epoch + 1 + PROTOCOL_PARAMETERS.max_committee_term_length)
+                                    .all(|valid_until| *valid_until <= forest.current_epoch + 1 + u64::from(PROTOCOL_PARAMETERS.max_committee_term_length))
                             );
                         }
                     },
@@ -1200,6 +1200,7 @@ mod tests {
 
     // Generate a *somewhat meaningful* proposal forest, with relationships and links between
     // proposals.
+    #[expect(clippy::expect_used)]
     fn any_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
         let any_ids = collection::btree_set(any::<ProposalId>().prop_map(Rc::new), 5 * (MAX_TREE_SIZE + 2))
             .prop_map(|ids| ids.into_iter().collect::<Vec<_>>());
@@ -1233,10 +1234,11 @@ mod tests {
                             removed.into_iter().collect::<Vec<_>>(),
                             KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
                             #[expect(clippy::unwrap_used)]
-                            RationalNumber {
-                                numerator: threshold.numer().try_into().unwrap(),
-                                denominator: threshold.denom().try_into().unwrap(),
-                            },
+                            UnitRationalNumber::new(
+                                threshold.numer().try_into().unwrap(),
+                                threshold.denom().try_into().unwrap(),
+                            )
+                            .expect("threshold is a valid unit rational number"),
                         )
                     }
                 },
@@ -1386,7 +1388,7 @@ mod tests {
                     1..3
                 ).prop_map(|kvs|
                     GovernanceAction::TreasuryWithdrawals(
-                        KeyValuePairs::from(kvs),
+                        kvs,
                         None
                     )
                 ),

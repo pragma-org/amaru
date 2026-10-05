@@ -40,23 +40,23 @@ pub fn voting_threshold(
     match proposal {
         ProposalEnum::ProtocolParameters(params_update, _) => {
             if params_update.any_in_security_group() {
-                Some(into_safe_ratio(&voting_thresholds.security_voting_threshold))
+                Some(into_safe_ratio(voting_thresholds.security_voting_threshold.as_ratio()))
             } else {
                 Some(SafeRatio::zero())
             }
         }
 
-        ProposalEnum::HardFork(..) => Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation)),
+        ProposalEnum::HardFork(..) => Some(into_safe_ratio(voting_thresholds.hard_fork_initiation.as_ratio())),
 
         ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::NoConfidence, _) => {
-            Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
+            Some(into_safe_ratio(voting_thresholds.motion_no_confidence.as_ratio()))
         }
 
         ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { .. }, _) => {
             Some(if is_state_of_no_confidence {
-                into_safe_ratio(&voting_thresholds.committee_no_confidence)
+                into_safe_ratio(voting_thresholds.committee_no_confidence.as_ratio())
             } else {
-                into_safe_ratio(&voting_thresholds.committee_normal)
+                into_safe_ratio(voting_thresholds.committee_normal.as_ratio())
             })
         }
 
@@ -124,7 +124,7 @@ mod tests {
     use amaru_kernel::{
         CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, ExUnits, Hash, Network, PoolId,
         PoolParams, PoolVotingThresholds, ProposalEnum, ProposalId, ProtocolParamUpdate, RationalNumber, RewardAccount,
-        SafeRatio, Vote, any_vote_ref, safe_ratio,
+        SafeRatio, UnitRationalNumber, Vote, any_vote_ref, safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};
@@ -189,7 +189,7 @@ mod tests {
             let proposal_no_security_group = ProposalEnum::ProtocolParameters(Box::new(update_no_security_group), parent.clone());
             let result_no = voting_threshold(is_no_confidence, &thresholds, &proposal_no_security_group);
 
-            let is_null_threshold = thresholds.security_voting_threshold.numerator == 0;
+            let is_null_threshold = thresholds.security_voting_threshold.numerator() == 0;
 
             prop_assert!(
                 (result_in > Some(SafeRatio::zero()) || is_null_threshold) && result_no == Some(SafeRatio::zero()),
@@ -228,12 +228,12 @@ mod tests {
         let security_group = (
             option::of(any::<u64>()),
             option::of(any::<u64>()),
-            option::of(any::<u64>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
+            option::of(any::<u32>()),
             option::of(any::<u16>()),
             option::of(any::<u64>()),
             option::of(any::<ExUnits>()),
-            option::of(any::<u64>()),
+            option::of(any::<u32>()),
             option::of(any::<u64>()),
             option::of(any::<RationalNumber>()),
         );
@@ -346,7 +346,8 @@ mod tests {
                         vrf: Hash::new([7; 32]),
                         pledge: 0,
                         cost: 0,
-                        margin: RationalNumber { numerator: 0, denominator: 1 },
+                        #[expect(clippy::expect_used)]
+                        margin: UnitRationalNumber::new(0, 1).expect("valid unit ratio"),
                         reward_account: RewardAccount::new(
                             Network::Testnet,
                             Credential::ScriptHash(Hash::new([1; 28])),

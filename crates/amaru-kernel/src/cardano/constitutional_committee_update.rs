@@ -24,7 +24,7 @@ use proptest::{
 };
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::safe_ratio;
+use crate::UnitRationalNumber;
 use crate::{Credential, Epoch, SafeRatio};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,14 +73,14 @@ impl Arbitrary for ConstitutionalCommitteeUpdate {
         let any_no_confidence = Just(ConstitutionalCommitteeUpdate::NoConfidence);
 
         let any_change_members = (
-            any::<u8>(),
+            any::<UnitRationalNumber>(),
             collection::btree_set(any::<Credential>(), 0..3),
             collection::btree_map(any::<Credential>(), any_epoch, 0..3),
         )
-            .prop_map(|(numerator, removed, added)| ConstitutionalCommitteeUpdate::ChangeMembers {
+            .prop_map(|(threshold, removed, added)| ConstitutionalCommitteeUpdate::ChangeMembers {
                 removed,
                 added,
-                threshold: safe_ratio(numerator as u64, 1),
+                threshold: SafeRatio::from(threshold),
             });
 
         prop_oneof![1 => any_no_confidence, 2 => any_change_members].boxed()

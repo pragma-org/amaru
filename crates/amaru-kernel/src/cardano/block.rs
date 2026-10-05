@@ -56,7 +56,7 @@ pub type TransactionIndex = u16;
 pub struct BodyParts {
     encoded: [Vec<u8>; 4],
     hash: Hash<BLOCK_BODY>,
-    size: u64,
+    size: u32,
 }
 
 impl BodyParts {
@@ -85,13 +85,13 @@ impl BodyParts {
             amaru_minicbor_extra::to_cbor(&auxiliary),
             amaru_minicbor_extra::to_cbor(&invalid),
         ];
-        let size = encoded.iter().map(|part| part.len() as u64).sum();
+        let size = encoded.iter().map(|part| part.len() as u32).sum();
         let hash = Block::hash_body_cbor([&encoded[0], &encoded[1], &encoded[2], &encoded[3]]);
         Ok(Self { encoded, hash, size })
     }
 
     /// Body hash and serialised size of these already-encoded parts.
-    pub fn commitment(&self) -> (Hash<BLOCK_BODY>, u64) {
+    pub fn commitment(&self) -> (Hash<BLOCK_BODY>, u32) {
         (self.hash, self.size)
     }
 
@@ -122,7 +122,7 @@ impl Block {
     ///
     /// Independent of the header. A forged header commits to this pair before the block is assembled.
     /// An empty slice is a block with no transactions.
-    pub fn body_commitment(transactions: &[Transaction]) -> Result<(Hash<BLOCK_BODY>, u64), cbor::decode::Error> {
+    pub fn body_commitment(transactions: &[Transaction]) -> Result<(Hash<BLOCK_BODY>, u32), cbor::decode::Error> {
         Ok(BodyParts::from_transactions(transactions.iter().cloned())?.commitment())
     }
 
@@ -344,7 +344,7 @@ mod tests {
     macro_rules! fixture {
         ($id:expr) => {{
             (
-                Hash::from(&hex::decode($id).unwrap()[..]),
+                Hash::try_from(&hex::decode($id).unwrap()[..]).unwrap(),
                 $crate::try_include_cbor!(concat!("cbor.decode/block/", $id, "/sample.cbor")),
             )
         }};
@@ -424,7 +424,7 @@ mod tests {
         let block: Block = cbor::decode(bytes.as_slice()).expect("spliced block");
         assert_eq!(amaru_minicbor_extra::to_cbor(&block), bytes);
         assert_eq!(block.body_hash(), hash);
-        assert_eq!(block.body_len(), size);
+        assert_eq!(block.body_len(), size as u64);
         assert!(block.transaction_bodies.is_empty());
     }
 }

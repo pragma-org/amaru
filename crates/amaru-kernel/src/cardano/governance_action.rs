@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::{
     collection,
@@ -20,17 +22,17 @@ use proptest::{
 
 use crate::{
     Constitution, Credential, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
-    RationalNumber, RewardAccount, cbor, hash, utils::cbor::SerialisedAsSet,
+    RewardAccount, UnitRationalNumber, cbor, hash, utils::cbor::SerialisedAsSet,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GovernanceAction {
     ParameterChange(Option<ProposalId>, Box<ProtocolParamUpdate>, Option<Hash<{ hash::size::SCRIPT }>>),
     HardForkInitiation(Option<ProposalId>, ProtocolVersion),
-    TreasuryWithdrawals(KeyValuePairs<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
+    TreasuryWithdrawals(BTreeMap<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
     NoConfidence(Option<ProposalId>),
     // TODO: align types with ConstitutionalCommitteeUpdate
-    UpdateCommittee(Option<ProposalId>, Vec<Credential>, KeyValuePairs<Credential, Epoch>, RationalNumber),
+    UpdateCommittee(Option<ProposalId>, Vec<Credential>, KeyValuePairs<Credential, Epoch>, UnitRationalNumber),
     NewConstitution(Option<ProposalId>, Constitution),
     Information,
 }
@@ -58,7 +60,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Governance
 
                 2 => {
                     assert_len(3)?;
-                    let a = d.decode_with(ctx)?;
+                    // The ledger holds the withdrawals in a `Map`, so they are kept in key order
+                    // rather than in the order they arrived in, and a repeated key is an error.
+                    let a = cbor::btree_map_with_unique_keys(d, ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::TreasuryWithdrawals(a, b))
                 }
@@ -175,9 +179,7 @@ impl Arbitrary for GovernanceAction {
             collection::btree_map(any::<RewardAccount>(), any::<Lovelace>(), 0..3),
             any::<Option<Hash<{ hash::size::SCRIPT }>>>(),
         )
-            .prop_map(|(withdrawals, guardrails)| {
-                GovernanceAction::TreasuryWithdrawals(KeyValuePairs::from(withdrawals), guardrails)
-            });
+            .prop_map(|(withdrawals, guardrails)| GovernanceAction::TreasuryWithdrawals(withdrawals, guardrails));
 
         let no_confidence = any::<Option<ProposalId>>().prop_map(GovernanceAction::NoConfidence);
 
@@ -185,7 +187,7 @@ impl Arbitrary for GovernanceAction {
             any::<Option<ProposalId>>(),
             collection::btree_set(any::<Credential>(), 0..3),
             collection::btree_map(any::<Credential>(), any::<Epoch>(), 0..3),
-            any::<RationalNumber>(),
+            any::<UnitRationalNumber>(),
         )
             .prop_map(|(parent, to_remove, to_add, quorum)| {
                 GovernanceAction::UpdateCommittee(

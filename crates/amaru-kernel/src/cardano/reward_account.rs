@@ -137,7 +137,7 @@ impl<C> cbor::Encode<C> for RewardAccount {
 impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for RewardAccount {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let position = d.position();
-        let bytes = cbor::decode_bytes_v12_indefinite(d, ctx)?;
+        let bytes = cbor::decode_bytes_v12(d, ctx)?;
         Self::try_from(bytes.as_ref()).map_err(|e| cbor::decode::Error::message(e.to_string()).at(position))
     }
 }

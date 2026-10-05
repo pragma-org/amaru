@@ -609,7 +609,6 @@ dependencies = [
  "amaru-kernel",
  "amaru-uplc",
  "hex",
- "num",
  "pretty_assertions",
  "proptest",
  "serde",
