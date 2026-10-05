@@ -33,13 +33,28 @@ pub use with_original_bytes::*;
 /// Decode a Dashu integer, accepting both CBOR native integers and the tagged bignum forms (tag
 /// 2 for positive, tag 3 for negative).
 pub fn decode_integer(d: &mut cbor::Decoder<'_>) -> Result<IBig, decode::Error> {
+    decode_integer_with(d, |_| Ok(()))
+}
+
+/// Like [`decode_integer`], but holding each chunk of a bignum payload to [`MAX_BOUNDED_BYTES_CHUNK`].
+pub fn decode_bounded_integer(d: &mut cbor::Decoder<'_>) -> Result<IBig, decode::Error> {
+    decode_integer_with(d, assert_bounded_chunk)
+}
+
+/// Decode a Dashu integer, running `check_chunk` over each chunk of a bignum payload.
+fn decode_integer_with(
+    d: &mut cbor::Decoder<'_>,
+    check_chunk: impl Fn(&[u8]) -> Result<(), decode::Error>,
+) -> Result<IBig, decode::Error> {
     if d.datatype()? == Type::Tag {
         let tag = d.tag()?;
         return match tag.try_into() {
             Ok(iana @ (IanaTag::PosBignum | IanaTag::NegBignum)) => {
                 let mut bytes = Vec::new();
                 for chunk in d.bytes_iter()? {
-                    bytes.extend_from_slice(chunk?);
+                    let chunk = chunk?;
+                    check_chunk(chunk)?;
+                    bytes.extend_from_slice(chunk);
                 }
 
                 let magnitude = IBig::from(UBig::from_be_bytes(&bytes));

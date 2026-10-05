@@ -203,7 +203,8 @@ fn turbo_decode_eval(bencher: Bencher<'_, '_>) {
         })
         .bench_local_values(|(flat, costs)| {
             arena.reset();
-            let (program, _) = flat::decode::<DeBruijn>(&arena, flat, PlutusVersion::V2, PROTOCOL_VERSION).expect("Failed to decode");
+            let (program, _) =
+                flat::decode::<DeBruijn>(&arena, flat, PlutusVersion::V2, PROTOCOL_VERSION).expect("Failed to decode");
             let result = program.eval(&arena, costs, ExBudget::max());
             let _term = result.term.expect("Failed to evaluate");
         });

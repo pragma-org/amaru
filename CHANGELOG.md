@@ -43,6 +43,7 @@ Other guiding principles:
 - **amaru-uplc**: reject out of range indexByteString and indexArray indices.
 - **amaru-uplc**: saturate dropList cost instead of panicking beyond a u64.
 - **amaru-uplc**: fix a panic when shiftByteString is called with a whole byte shift.
+- **amaru-kernel**: fixed some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
@@ -82,7 +83,6 @@ Other guiding principles:
 - **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
 - **amaru-uplc**: reject out-of-range integer arguments to arithmetic Plutus builtins under the current ledger semantics, matching the Cardano reference evaluator.
 - **amaru-uplc**: reject weak Ed25519 identity tuples and uncompressed secp256k1 public keys in Plutus signature builtins.
-- **amaru-kernel**: fixed some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 

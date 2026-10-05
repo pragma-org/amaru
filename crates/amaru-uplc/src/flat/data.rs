@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use amaru_minicbor_extra::{
-    assert_bounded_chunk, decode_integer, encode_bytestring, encode_integer, heterogeneous_array,
+    assert_bounded_chunk, decode_bounded_integer, decode_integer, encode_bytestring, encode_integer,
+    heterogeneous_array,
 };
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
@@ -95,7 +96,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
 
                 match tag.try_into() {
                     Ok(IanaTag::PosBignum | IanaTag::NegBignum) => {
-                        let integer = ctx.arena.alloc_integer(decode_integer(decoder)?);
+                        let integer = ctx.arena.alloc_integer(decode_bounded_integer(decoder)?);
 
                         Ok(PlutusData::integer(ctx.arena, integer))
                     }
@@ -259,7 +260,7 @@ mod tests {
     use super::*;
     use crate::{
         arena::Arena,
-        constant::{integer_from_bytes, Integer},
+        constant::{Integer, integer_from_bytes},
     };
 
     #[test]

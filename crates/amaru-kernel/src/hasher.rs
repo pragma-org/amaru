@@ -73,7 +73,9 @@ macro_rules! sized_hasher {
                     unreachable!("hasher output size must match its BLAKE2b state")
                 };
 
-                Hash::from(hasher.finalize().as_slice())
+                // BLAKE2b is configured for exactly this digest size, so the conversion cannot fail.
+                Hash::try_from(hasher.finalize().as_slice())
+                    .unwrap_or_else(|_| unreachable!("BLAKE2b digest must be {} bytes", $size / 8))
             }
         }
 
