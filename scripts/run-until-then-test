@@ -236,13 +236,16 @@ echo "==> Verifying requested $network E2E test cases"
 test_list="$(
   env AMARU_NETWORK="$network" \
   cargo test --profile "$build_profile" --locked -p amaru --test summary -- \
-    --list --exact "${test_filters[@]}"
+    --list "compare_${network}_stake_distribution_with_haskell_node"
 )"
 
+test_filters=()
 missing_test_filters=()
-for test_filter in "${test_filters[@]}"; do
-  if ! grep -Fqx -- "${test_filter}: test" <<<"$test_list"; then
+for test_filter in "${test_epochs[@]}"; do
+  if ! grep -Fq -- "_${test_filter}_expects: test" <<<"$test_list"; then
     missing_test_filters+=("$test_filter")
+  else
+    test_filters+=("_${test_filter}_expects")
   fi
 done
 
@@ -254,4 +257,4 @@ fi
 
 echo "==> Validating $network ledger snapshots for epochs $bootstrap_epoch through $last_test_epoch"
 env AMARU_NETWORK="$network" \
-cargo test --profile "$build_profile" --locked -p amaru --test summary -- --exact "${test_filters[@]}"
+cargo test --profile "$build_profile" --locked -p amaru --test summary -- "${test_filters[@]}"
