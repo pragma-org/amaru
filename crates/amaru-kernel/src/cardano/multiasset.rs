@@ -75,6 +75,8 @@ impl<'d, C: cbor::HasProtocolVersion, A: for<'a> cbor::Decode<'a, C>> cbor::Deco
             return Err(cbor::decode::Error::message("multi-asset bundle must carry at least one policy"));
         }
 
+        // TODO: pass the size limit in the context during the decoding of assets, so that we can
+        // reject a bundle as soon as it exceeds the limit rather than decoding the whole thing and then checking the size.
         let size = BYTES_PER_ASSET * assets.values().map(|policy| policy.len()).sum::<usize>()
             + BYTES_PER_POLICY * assets.len();
         if size > MAX_COMPACT_REPRESENTATION_SIZE {
