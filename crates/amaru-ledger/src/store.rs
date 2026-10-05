@@ -92,12 +92,10 @@ pub enum StoreError {
     #[error(
         "{}",
         if .0.is_locked() {
-            "Failed to connect to the ledger store because it is locked. Another Amaru \
-            process may still be using it, or a stale LOCK file may remain after an \
-            unclean shutdown. Stop any process using the ledger database before retrying; \
-            only remove the LOCK file after confirming no process is using it."
+            "Failed to connect to the ledger store because it is locked. Stop any process \
+            using the ledger database before retrying"
         } else {
-            "Failed to create ledger. Did you bootstrap your node?"
+            "Failed to open the ledger store. If it is missing, did you bootstrap your node?"
         }
     )]
     Open(#[source] OpenErrorKind),
@@ -894,16 +892,21 @@ mod tests {
     #[test]
     fn better_context_on_open_locked() {
         let error = StoreError::Open(OpenErrorKind::locked(PathBuf::from("db/live"), anyhow!("lock held")));
-        let message = format!("{error:#}");
+        let message = format!("{:#}", anyhow::Error::new(error));
         assert!(message.contains("Failed to connect to the ledger store because it is locked"));
+        assert_eq!(message.matches("lock held").count(), 1);
+        assert_eq!(message.matches("db/live").count(), 1);
+        assert!(!message.contains("remove the LOCK file"));
         assert!(!message.contains("Did you bootstrap your node?"));
     }
 
     #[test]
     fn suggest_bootstrap_on_open_error() {
         let error = StoreError::Open(OpenErrorKind::io_with_file(PathBuf::from("db/live"), io::Error::other("foo")));
-        let message = format!("{error:#}");
+        let message = format!("{:#}", anyhow::Error::new(error));
         assert!(!message.contains("Failed to connect to the ledger store because it is locked"));
-        assert!(message.contains("Did you bootstrap your node?"));
+        assert!(message.contains("If it is missing, did you bootstrap your node?"));
+        assert_eq!(message.matches("foo").count(), 1);
+        assert_eq!(message.matches("db/live").count(), 1);
     }
 }

@@ -51,7 +51,7 @@ use crate::{
     chain_realign::ensure_store_consistency,
     realign_chain_store_to,
     stages::{
-        build_node::{ledger_store_error, make_block_validator, make_state, open_chain_store},
+        build_node::{StoreOpenOperation, ledger_store_error, make_block_validator, make_state, open_chain_store},
         config::LedgerConfig,
     },
 };
@@ -798,7 +798,7 @@ async fn complete_ingestion(
 
 fn resolve_ledger_tip(ledger_dir: &Path, chain_store: &dyn ChainStore) -> Result<Point, MithrilSyncError> {
     let ledger = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf()))
-        .map_err(|source| MithrilSyncError::Startup(ledger_store_error(source)))?;
+        .map_err(|source| MithrilSyncError::Startup(ledger_store_error(source, StoreOpenOperation::LedgerReadOnly)))?;
     let stored = NetworkPoint::from(ledger.tip().map_err(|source| store_error("read ledger tip", source))?);
     resolve_resume_point(chain_store, stored)
 }

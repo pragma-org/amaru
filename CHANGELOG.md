@@ -34,6 +34,11 @@ Other guiding principles:
   - **amaru-ouroboros**: properly wipe KES key material in unused method `SecretKey::from_bytes` ([#881](https://github.com/pragma-org/amaru/issues/881))
   ```
 -->
+## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
+
+### Fixed
+
+- **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 

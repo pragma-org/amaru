@@ -251,8 +251,19 @@ fn map_rocksdb_open_error(path: &Path, error: rocksdb::Error) -> StoreError {
 }
 
 fn is_rocksdb_lock_error(message: &str) -> bool {
-    let lowercase = message.to_ascii_lowercase();
-    lowercase.contains("lock") && (message.contains("/LOCK") || message.contains("\\LOCK"))
+    let Some((operation, reason)) = message.rsplit_once("LOCK:") else {
+        return false;
+    };
+    if !operation.ends_with('/') && !operation.ends_with('\\') {
+        return false;
+    }
+    let operation = operation.to_ascii_lowercase();
+    let reason = reason.trim().to_ascii_lowercase();
+    (operation.contains("lock hold by current process") && reason == "no locks available")
+        || ((operation.contains("while lock file") || operation.contains("failed to create lock file"))
+            && (reason == "resource temporarily unavailable"
+                || reason.contains("sharing violation")
+                || reason.contains("used by another process")))
 }
 
 // RocksDBReadOnly
@@ -1138,6 +1149,7 @@ mod tests {
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 
+    use super::is_rocksdb_lock_error;
     #[cfg(not(target_os = "windows"))]
     use crate::tests::test_read_proposal;
     use crate::{
@@ -1186,7 +1198,10 @@ mod tests {
 
         let result = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into()));
 
-        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(StoreError::Open(OpenErrorKind::IO { source, .. })) if source.kind() == std::io::ErrorKind::NotFound
+        ));
         assert!(!live_dir.exists());
     }
 
@@ -1207,6 +1222,28 @@ mod tests {
         let result = RocksDB::empty(&RocksDbConfig::new(dir.path().into()));
 
         assert!(matches!(result, Err(StoreError::Open(OpenErrorKind::Locked { .. }))));
+    }
+
+    #[test]
+    fn rocksdb_lock_error_requires_contention() {
+        assert!(is_rocksdb_lock_error("IO error: While lock file: db/live/LOCK: Resource temporarily unavailable"));
+        assert!(is_rocksdb_lock_error(
+            "IO error: lock hold by current process, acquire time 123 acquiring thread 456: db/live/LOCK: No locks available"
+        ));
+        assert!(is_rocksdb_lock_error(
+            "IO error: Failed to create lock file: C:\\db\\LOCK: The process cannot access the file because it is being used by another process."
+        ));
+        assert!(!is_rocksdb_lock_error("IO error: while open a file for lock: db/live/LOCK: Permission denied"));
+        assert!(!is_rocksdb_lock_error(
+            "IO error: while open a file for lock: db/live/LOCK: Resource temporarily unavailable"
+        ));
+        assert!(!is_rocksdb_lock_error(
+            "IO error: while open a file for lock: db/live/LOCK: No such file or directory"
+        ));
+        assert!(!is_rocksdb_lock_error("IO error: While lock file: db/live/LOCK: No locks available"));
+        assert!(!is_rocksdb_lock_error(
+            "IO error: While lock file: db/live/MANIFEST: Resource temporarily unavailable"
+        ));
     }
 
     #[test]
