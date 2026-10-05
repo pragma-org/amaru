@@ -63,8 +63,8 @@ impl<'a, T: IntoMachineSize> From<&'a T> for CostArgument<'a> {
 /// Indicates that data is measured by its number of nodes rather than by its usual data size.
 pub struct DataNodeCount<'a>(pub &'a PlutusData<'a>);
 
-/// Indicates that a data fragment is measured with the data-constructor overhead.
-pub struct DataSize<T>(pub T);
+/// Indicates that a list or array is measured by its length rather than by the size of its elements.
+pub struct ListLength<'a, T>(pub &'a [T]);
 
 /// Indicates a fixed size derived outside the runtime value representation.
 pub struct FixedSize(pub i64);
@@ -87,12 +87,6 @@ impl<T: IntoMachineSize + ?Sized> IntoMachineSize for &T {
 impl<L: IntoMachineSize, R: IntoMachineSize> IntoMachineSize for (L, R) {
     fn size(&self) -> i64 {
         self.0.size() + self.1.size()
-    }
-}
-
-impl<T: IntoMachineSize> IntoMachineSize for [T] {
-    fn size(&self) -> i64 {
-        self.iter().fold(0, |total, item| total + item.size())
     }
 }
 
@@ -157,7 +151,7 @@ impl IntoMachineSize for Constant<'_> {
             Constant::ByteString(bytes) => bytes.size(),
             Constant::String(string) => string.size(),
             Constant::Unit | Constant::Boolean(_) => 1,
-            Constant::ProtoList(_, items) | Constant::ProtoArray(_, items) => items.size(),
+            Constant::ProtoList(_, items) | Constant::ProtoArray(_, items) => ListLength(items).size(),
             Constant::ProtoPair(_, _, left, right) => left.size() + right.size(),
             Constant::Data(data) => data.size(),
             Constant::Bls12_381G1Element(g1) => g1.size(),
@@ -189,8 +183,10 @@ impl IntoMachineSize for LedgerValue<'_> {
 impl IntoMachineSize for PlutusData<'_> {
     fn size(&self) -> i64 {
         4 + match self {
-            PlutusData::Constr { fields, .. } | PlutusData::List(fields) => fields.size(),
-            PlutusData::Map(items) => items.size(),
+            PlutusData::Constr { fields, .. } | PlutusData::List(fields) => {
+                fields.iter().map(|field| field.size()).sum()
+            }
+            PlutusData::Map(items) => items.iter().map(|(key, value)| key.size() + value.size()).sum(),
             PlutusData::Integer(integer) => integer.size(),
             PlutusData::ByteString(bytes) => bytes.size(),
         }
@@ -215,9 +211,9 @@ impl IntoMachineSize for FixedSize {
     }
 }
 
-impl<T: IntoMachineSize> IntoMachineSize for DataSize<T> {
+impl<T> IntoMachineSize for ListLength<'_, T> {
     fn size(&self) -> i64 {
-        4 + self.0.size()
+        self.0.len() as i64
     }
 }
 
@@ -253,8 +249,15 @@ pub(crate) fn integer_log2(integer: &Integer) -> i64 {
 mod tests {
     use std::{cell::Cell, str::FromStr};
 
+    use test_case::test_case;
+
     use super::{CostArgument, IntoMachineSize, integer_log2};
-    use crate::constant::Integer;
+    use crate::{
+        arena::Arena,
+        constant::{Constant, Integer},
+        data::PlutusData,
+        typ::Type,
+    };
 
     struct CountedMachineSize<'a> {
         calls: &'a Cell<u8>,
@@ -277,6 +280,27 @@ mod tests {
         assert_eq!(argument.size(), 42);
         assert_eq!(argument.size(), 42);
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test_case(false; "list")]
+    #[test_case(true; "array")]
+    fn polymorphic_container_is_sized_by_length(is_array: bool) {
+        let arena = &Arena::new();
+        let big = arena.alloc_integer(Integer::from_str("340282366920938463463374607431768211456").unwrap());
+        let one_two = &*arena.alloc([PlutusData::integer_from(arena, 1), PlutusData::integer_from(arena, 2)]);
+        let items = &*arena.alloc([
+            Constant::data(arena, PlutusData::integer(arena, big)),
+            Constant::data(arena, PlutusData::byte_string(arena, &[0; 28])),
+            Constant::data(arena, PlutusData::constr(arena, 0, one_two)),
+        ]);
+
+        let container = if is_array {
+            Constant::proto_array(arena, Type::data(arena), items)
+        } else {
+            Constant::proto_list(arena, Type::data(arena), items)
+        };
+
+        assert_eq!(container.size(), 3);
     }
 
     #[test]

@@ -32,7 +32,7 @@ use crate::{
     },
     data::PlutusData,
     ledger_value::{self, LedgerValue, ValueError},
-    machine::cost_model::cost_argument::{DataNodeCount, DataSize, FixedSize, integer_log2},
+    machine::cost_model::cost_argument::{DataNodeCount, FixedSize, ListLength, integer_log2},
     typ::Type,
 };
 
@@ -295,7 +295,7 @@ impl<'a> Machine<'a> {
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::ChooseList, &[(&list).into(), arg2.into(), arg3.into()]);
+                    .get_cost(DefaultFunction::ChooseList, &[(&ListLength(list)).into(), arg2.into(), arg3.into()]);
 
                 self.spend_budget(budget)?;
 
@@ -349,8 +349,10 @@ impl<'a> Machine<'a> {
                 let tag = runtime.args[0].unwrap_integer()?;
                 let (typ, fields) = runtime.args[1].unwrap_list()?;
 
-                let budget =
-                    self.costs.builtin_costs.get_cost(DefaultFunction::ConstrData, &[tag.into(), (&fields).into()]);
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::ConstrData, &[tag.into(), (&ListLength(fields)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -508,7 +510,8 @@ impl<'a> Machine<'a> {
             DefaultFunction::HeadList => {
                 let (_, list) = runtime.args[0].unwrap_list()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::HeadList, &[(&list).into()]);
+                let budget =
+                    self.costs.builtin_costs.get_cost(DefaultFunction::HeadList, &[(&ListLength(list)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -648,7 +651,8 @@ impl<'a> Machine<'a> {
             DefaultFunction::ListData => {
                 let (typ, fields) = runtime.args[0].unwrap_list()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::ListData, &[(&fields).into()]);
+                let budget =
+                    self.costs.builtin_costs.get_cost(DefaultFunction::ListData, &[(&ListLength(fields)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -679,7 +683,7 @@ impl<'a> Machine<'a> {
                     ));
                 }
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::MapData, &[(&list).into()]);
+                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::MapData, &[(&ListLength(list)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -707,7 +711,10 @@ impl<'a> Machine<'a> {
                 let item = runtime.args[0].unwrap_constant()?;
                 let (typ, list) = runtime.args[1].unwrap_list()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::MkCons, &[item.into(), (&list).into()]);
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::MkCons, &[item.into(), (&ListLength(list)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -825,7 +832,8 @@ impl<'a> Machine<'a> {
             DefaultFunction::NullList => {
                 let (_, list) = runtime.args[0].unwrap_list()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::NullList, &[(&list).into()]);
+                let budget =
+                    self.costs.builtin_costs.get_cost(DefaultFunction::NullList, &[(&ListLength(list)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -980,7 +988,8 @@ impl<'a> Machine<'a> {
             DefaultFunction::TailList => {
                 let (t1, list) = runtime.args[0].unwrap_list()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::TailList, &[(&list).into()]);
+                let budget =
+                    self.costs.builtin_costs.get_cost(DefaultFunction::TailList, &[(&ListLength(list)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -1007,9 +1016,10 @@ impl<'a> Machine<'a> {
                 Ok(arg2)
             }
             DefaultFunction::UnBData => {
-                let bs = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_byte_string()?;
+                let data = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let bs = data.unwrap_byte_string()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnBData, &[(&DataSize(bs)).into()]);
+                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnBData, &[data.into()]);
 
                 self.spend_budget(budget)?;
 
@@ -1018,10 +1028,10 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::UnConstrData => {
-                let (tag, fields) = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_constr()?;
+                let data = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let (tag, fields) = data.unwrap_constr()?;
 
-                let budget =
-                    self.costs.builtin_costs.get_cost(DefaultFunction::UnConstrData, &[(&DataSize(fields)).into()]);
+                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnConstrData, &[data.into()]);
 
                 self.spend_budget(budget)?;
 
@@ -1042,9 +1052,10 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::UnIData => {
-                let i = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_integer()?;
+                let data = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let i = data.unwrap_integer()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnIData, &[(&DataSize(i)).into()]);
+                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnIData, &[data.into()]);
 
                 self.spend_budget(budget)?;
 
@@ -1053,10 +1064,10 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::UnListData => {
-                let list = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_list()?;
+                let data = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let list = data.unwrap_list()?;
 
-                let budget =
-                    self.costs.builtin_costs.get_cost(DefaultFunction::UnListData, &[(&DataSize(list)).into()]);
+                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnListData, &[data.into()]);
 
                 self.spend_budget(budget)?;
 
@@ -1071,9 +1082,10 @@ impl<'a> Machine<'a> {
                 Ok(value)
             }
             DefaultFunction::UnMapData => {
-                let map = runtime.args[0].unwrap_constant()?.unwrap_data()?.unwrap_map()?;
+                let data = runtime.args[0].unwrap_constant()?.unwrap_data()?;
+                let map = data.unwrap_map()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnMapData, &[(&DataSize(map)).into()]);
+                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::UnMapData, &[data.into()]);
 
                 self.spend_budget(budget)?;
 
@@ -1879,7 +1891,7 @@ impl<'a> Machine<'a> {
 
                 let budget = self.costs.builtin_costs.get_cost(
                     DefaultFunction::WriteBits,
-                    &[(&original_bytes).into(), (&indices).into(), (&FixedSize(1)).into()],
+                    &[(&original_bytes).into(), (&ListLength(indices)).into(), (&FixedSize(1)).into()],
                 );
 
                 self.spend_budget(budget)?;
@@ -2201,7 +2213,7 @@ impl<'a> Machine<'a> {
                 let budget = self
                     .costs
                     .builtin_costs
-                    .get_cost(DefaultFunction::DropList, &[(&FixedSize(arg0)).into(), (&list).into()]);
+                    .get_cost(DefaultFunction::DropList, &[(&FixedSize(arg0)).into(), (&ListLength(list)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -2228,7 +2240,8 @@ impl<'a> Machine<'a> {
             DefaultFunction::LengthOfArray => {
                 let (_, array) = runtime.args[0].unwrap_array()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::LengthOfArray, &[(&array).into()]);
+                let budget =
+                    self.costs.builtin_costs.get_cost(DefaultFunction::LengthOfArray, &[(&ListLength(array)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -2242,7 +2255,7 @@ impl<'a> Machine<'a> {
                 let (list_type, list) = runtime.args[0].unwrap_list()?;
 
                 let budget =
-                    self.costs.builtin_costs.get_cost(DefaultFunction::ListToArray, &[(&list).into(), (&list).into()]);
+                    self.costs.builtin_costs.get_cost(DefaultFunction::ListToArray, &[(&ListLength(list)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -2256,8 +2269,10 @@ impl<'a> Machine<'a> {
                 let (_, array) = runtime.args[0].unwrap_array()?;
                 let arg1 = runtime.args[1].unwrap_integer()?;
 
-                let budget =
-                    self.costs.builtin_costs.get_cost(DefaultFunction::IndexArray, &[(&array).into(), arg1.into()]);
+                let budget = self
+                    .costs
+                    .builtin_costs
+                    .get_cost(DefaultFunction::IndexArray, &[(&ListLength(array)).into(), arg1.into()]);
                 self.spend_budget(budget)?;
 
                 match usize::try_from(arg1).ok().and_then(|index| array.get(index)) {
