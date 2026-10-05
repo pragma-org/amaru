@@ -62,6 +62,7 @@ indoc = "2.0"
 insta = "1.48.0"
 inventory = "0.3.24"
 itertools = "0.15.0"
+libc = "0.2"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] }
 mithril-client = { version = "0.14.17", default-features = false, features = ["fs", "num-integer-backend", "rustls-tls"] }
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }

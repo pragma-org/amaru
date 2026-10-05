@@ -17,6 +17,7 @@ const _: () = amaru_deps::AMARU_DEPS_USED;
 
 use amaru_kernel::NetworkName;
 
+pub mod clock;
 pub mod exit;
 pub mod lifecycle;
 pub mod metrics;
@@ -146,6 +147,9 @@ pub mod env_vars {
 
     /// --network
     pub const NETWORK: &str = "AMARU_NETWORK";
+
+    /// --no-clock-check
+    pub const NO_CLOCK_CHECK: &str = "AMARU_NO_CLOCK_CHECK";
 
     /// --no-tui
     pub const NO_TUI: &str = "AMARU_NO_TUI";

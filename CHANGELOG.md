@@ -45,6 +45,7 @@ Other guiding principles:
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 - **amaru**: `amaru dev env generate` to generate a (curated) list of environment variables available for Amaru main commands, acting as a configuration file.
+- **amaru**: `amaru node run` checks at startup whether the operating system reports the wall clock as NTP-synchronized, when there is drift. Linux and macOS only. Disable with `--no-clock-check` or `AMARU_NO_CLOCK_CHECK=true`. [#1369][]
 
 ### Changed
 
@@ -590,3 +591,4 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
+[#1369]: https://github.com/pragma-org/amaru/issues/1369
