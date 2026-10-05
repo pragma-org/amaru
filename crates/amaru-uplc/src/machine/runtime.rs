@@ -315,7 +315,7 @@ impl<'a> Machine<'a> {
                 Ok(arg2)
             }
             DefaultFunction::ConsByteString => {
-                let arg1 = runtime.args[0].unwrap_integer()?;
+                let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
                 let arg2 = runtime.args[1].unwrap_byte_string()?;
 
                 let budget =

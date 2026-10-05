@@ -51,6 +51,7 @@ mod tests {
     };
     use crate::{
         binder::DeBruijn,
+        builtin::DefaultFunction,
         flat,
         machine::{CostModel, ExBudget, MachineError, MachineVersion, RuntimeError},
     };
@@ -372,29 +373,74 @@ mod tests {
         assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
     }
 
-    #[test]
-    fn arithmetic_rejects_out_of_range_integers_from_v11() {
-        let arena = Arena::new();
-        let version = MachineVersion::V1_1_0;
+    // TODO: Convert into conformance test cases
+    fn out_of_range_integer_terms<'a>(arena: &'a Arena, builtin: DefaultFunction) -> Vec<&'a Term<'a, DeBruijn>> {
         let out_of_range = arena.alloc_integer(Integer::from(1u8) << 262_143usize);
-        let term = Term::add_integer(&arena)
-            .apply(&arena, Term::integer(&arena, out_of_range))
-            .apply(&arena, Term::integer_from(&arena, 0));
-        let program = Program::<DeBruijn>::new(&arena, version, term);
+        #[expect(clippy::wildcard_enum_match_arm)]
+        let two_operands_term = match builtin {
+            DefaultFunction::AddInteger => Term::add_integer,
+            DefaultFunction::ConsByteString => {
+                return vec![
+                    Term::cons_byte_string(arena)
+                        .apply(arena, Term::integer(arena, out_of_range))
+                        .apply(arena, Term::byte_string(arena, &[])),
+                ];
+            }
+            DefaultFunction::DivideInteger => Term::divide_integer,
+            DefaultFunction::LessThanEqualsInteger => Term::less_than_equals_integer,
+            DefaultFunction::LessThanInteger => Term::less_than_integer,
+            DefaultFunction::ModInteger => Term::mod_integer,
+            DefaultFunction::MultiplyInteger => Term::multiply_integer,
+            DefaultFunction::QuotientInteger => Term::quotient_integer,
+            DefaultFunction::RemainderInteger => Term::remainder_integer,
+            DefaultFunction::SubtractInteger => Term::subtract_integer,
+            _ => unimplemented!("unexpected builtin in 'out_of_range_integer_term' helper: {builtin:?}"),
+        };
 
-        let pre_v11 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_10, &CostModel::DEFAULT_V2),
-            ExBudget::default(),
-        );
-        assert!(pre_v11.term.is_ok());
+        vec![
+            two_operands_term(arena)
+                .apply(arena, Term::integer(arena, out_of_range))
+                .apply(arena, Term::integer_from(arena, 1)),
+            two_operands_term(arena)
+                .apply(arena, Term::integer_from(arena, 1))
+                .apply(arena, Term::integer(arena, out_of_range)),
+        ]
+    }
 
-        let v11 = program.eval(
-            &arena,
-            CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_11, &CostModel::DEFAULT_V2),
-            ExBudget::default(),
-        );
-        assert!(matches!(v11.term, Err(MachineError::Runtime(RuntimeError::IntegerOutOfBounds(..)))));
+    #[test_case(DefaultFunction::AddInteger)]
+    #[test_case(DefaultFunction::ConsByteString)]
+    #[test_case(DefaultFunction::DivideInteger)]
+    #[test_case(DefaultFunction::LessThanEqualsInteger)]
+    #[test_case(DefaultFunction::LessThanInteger)]
+    #[test_case(DefaultFunction::ModInteger)]
+    #[test_case(DefaultFunction::MultiplyInteger)]
+    #[test_case(DefaultFunction::QuotientInteger)]
+    #[test_case(DefaultFunction::RemainderInteger)]
+    #[test_case(DefaultFunction::SubtractInteger)]
+    fn arithmetic_rejects_out_of_range_integers_from_v11(builtin: DefaultFunction) {
+        let version = MachineVersion::V1_1_0;
+        let arena = Arena::new();
+
+        for term in out_of_range_integer_terms(&arena, builtin) {
+            let program = Program::<DeBruijn>::new(&arena, version, term);
+
+            let pre_v11 = program.eval(
+                &arena,
+                CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_10, &CostModel::DEFAULT_V2),
+                ExBudget::default(),
+            );
+            assert!(dbg!(pre_v11.term).is_ok(), "{builtin:?}");
+
+            let post_v11 = program.eval(
+                &arena,
+                CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_11, &CostModel::DEFAULT_V2),
+                ExBudget::default(),
+            );
+            assert!(
+                matches!(dbg!(post_v11.term), Err(MachineError::Runtime(RuntimeError::IntegerOutOfBounds(..)))),
+                "{builtin:?}"
+            );
+        }
     }
 
     #[test_case(exp_mod_integer_fixture; "exp_mod_integer")]
