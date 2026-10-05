@@ -108,7 +108,7 @@ pub enum NodeStartError {
         source: Box<NodeStartError>,
         cleanup: ShutdownError,
     },
-    #[error("store at '{}' is already in use while {operation}: {source}", path.display())]
+    #[error("store at '{}' is already in use while {operation}", path.display())]
     StoreInUse {
         path: PathBuf,
         operation: StoreOpenOperation,
@@ -649,7 +649,8 @@ mod tests {
     #[test]
     fn ledger_lock_startup_error_keeps_source_and_operation() {
         for operation in [StoreOpenOperation::LedgerReadOnly, StoreOpenOperation::LedgerWritable] {
-            let error = LedgerStoreError::Open(OpenErrorKind::locked("db/live", anyhow::anyhow!("lock held")));
+            let source = anyhow::anyhow!("lock held").context("acquiring ledger lock");
+            let error = LedgerStoreError::Open(OpenErrorKind::locked("db/live", source));
             let startup_error = ledger_store_error(error, operation);
             let NodeStartError::StoreInUse { path, operation: actual_operation, source } = &startup_error else {
                 panic!("expected store-in-use error: {startup_error:?}");
@@ -658,7 +659,11 @@ mod tests {
             assert_eq!(*actual_operation, operation);
             assert!(source.downcast_ref::<LedgerStoreError>().is_some());
             assert!(startup_error.source().is_some());
-            assert!(startup_error.to_string().contains("lock held"));
+            let message = format!("{:#}", anyhow::Error::new(startup_error));
+            assert!(message.contains(&operation.to_string()));
+            assert!(message.contains("db/live"));
+            assert_eq!(message.matches("acquiring ledger lock").count(), 1);
+            assert_eq!(message.matches("lock held").count(), 1);
         }
     }
 
