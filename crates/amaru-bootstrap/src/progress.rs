@@ -162,6 +162,8 @@ impl TerminalRenderer {
 #[derive(Default)]
 struct StructuredRenderer {
     last_download_at: Option<Instant>,
+    stage: Option<BootstrapStage>,
+    downloaded_bytes: u64,
     completed_snapshots: usize,
 }
 
@@ -169,6 +171,10 @@ impl StructuredRenderer {
     fn render(&mut self, progress: BootstrapProgress) {
         match progress {
             BootstrapProgress::StageChanged { stage } => {
+                if stage != BootstrapStage::DownloadingSnapshots {
+                    self.finish_download();
+                }
+                self.stage = Some(stage);
                 info!(bootstrap::progress::STAGE, stage = stage.as_str().to_owned());
             }
             BootstrapProgress::SnapshotsSelected { snapshot_count, total_bytes } => {
@@ -180,6 +186,7 @@ impl StructuredRenderer {
                 let interval_elapsed = self.last_download_at.is_none_or(|last_download_at| {
                     now.duration_since(last_download_at) >= STRUCTURED_DOWNLOAD_INTERVAL
                 });
+                self.downloaded_bytes = downloaded_bytes;
                 self.completed_snapshots = completed_snapshots;
                 if snapshot_completed || interval_elapsed {
                     self.last_download_at = Some(now);
@@ -187,8 +194,20 @@ impl StructuredRenderer {
                 }
             }
             BootstrapProgress::Completed { epoch, point } => {
+                self.finish_download();
                 info!(bootstrap::progress::COMPLETE, epoch, point = point.to_string());
             }
+        }
+    }
+
+    fn finish_download(&mut self) {
+        if self.stage.take() == Some(BootstrapStage::DownloadingSnapshots) {
+            info!(
+                bootstrap::progress::PHASE_COMPLETED,
+                phase = "download_snapshots",
+                downloaded_bytes = self.downloaded_bytes,
+                completed_snapshots = self.completed_snapshots
+            );
         }
     }
 }

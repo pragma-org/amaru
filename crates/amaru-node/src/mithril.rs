@@ -181,12 +181,48 @@ struct StructuredRenderer {
     last_download_at: Option<Instant>,
     last_ingest_at: Option<Instant>,
     completed_files: u64,
+    downloaded_bytes: Option<u64>,
+    verification_phase: Option<&'static str>,
 }
 
 impl StructuredRenderer {
     fn render(&mut self, progress: MithrilProgress) {
+        match &progress {
+            MithrilProgress::Downloaded { downloaded_bytes, .. } => {
+                self.downloaded_bytes = Some(*downloaded_bytes);
+            }
+            MithrilProgress::StageChanged { stage } => {
+                if let Some(phase) = self.verification_phase.take() {
+                    info!(mithril::progress::PHASE_COMPLETED, phase);
+                }
+                if *stage != MithrilStage::Downloading {
+                    self.finish_download();
+                }
+                self.verification_phase = match stage {
+                    MithrilStage::ValidatingCertificate | MithrilStage::VerifyingDatabase { .. } => {
+                        Some(stage.as_str())
+                    }
+                    MithrilStage::ResolvingResumePoint
+                    | MithrilStage::FetchingSnapshot
+                    | MithrilStage::Downloading
+                    | MithrilStage::DatabaseVerified
+                    | MithrilStage::RecoveringStores
+                    | MithrilStage::Ingesting => None,
+                };
+            }
+            MithrilProgress::Completed { .. } => self.finish_download(),
+            MithrilProgress::SnapshotSelected { .. }
+            | MithrilProgress::CertificateValidated
+            | MithrilProgress::BlocksIngested { .. } => {}
+        }
         if self.should_render(&progress, Instant::now()) {
             render_structured(progress);
+        }
+    }
+
+    fn finish_download(&mut self) {
+        if let Some(downloaded_bytes) = self.downloaded_bytes.take() {
+            info!(mithril::progress::PHASE_COMPLETED, phase = MithrilStage::Downloading.as_str(), downloaded_bytes);
         }
     }
 
@@ -254,7 +290,7 @@ impl TerminalRenderer {
                     download.finish(|| {
                         info!(
                             mithril::progress::PHASE_COMPLETED,
-                            phase = "download",
+                            phase = MithrilStage::Downloading.as_str(),
                             downloaded_bytes = self.downloaded_bytes
                         );
                     });
@@ -286,7 +322,7 @@ impl TerminalRenderer {
                     download.finish(|| {
                         info!(
                             mithril::progress::PHASE_COMPLETED,
-                            phase = "download",
+                            phase = MithrilStage::Downloading.as_str(),
                             downloaded_bytes = self.downloaded_bytes
                         );
                     });
