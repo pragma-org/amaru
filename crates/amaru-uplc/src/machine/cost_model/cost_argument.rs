@@ -69,6 +69,14 @@ pub struct ListLength<'a, T>(pub &'a [T]);
 /// Indicates a fixed size derived outside the runtime value representation.
 pub struct FixedSize(pub i64);
 
+/// Indicates how a string argument is measured, which depends on the builtin semantics variant.
+pub enum StringSize<'a> {
+    /// The number of characters.
+    Characters(&'a str),
+    /// The UTF-8 length in bytes, divided by four.
+    Utf8Bytes(&'a str),
+}
+
 // -------------------------------------------------------------------------------------------------
 // IntoMachineSize
 // -------------------------------------------------------------------------------------------------
@@ -128,7 +136,7 @@ impl IntoMachineSize for [u8] {
 
 impl IntoMachineSize for str {
     fn size(&self) -> i64 {
-        self.len() as i64 / 4
+        self.chars().count() as i64
     }
 }
 
@@ -201,6 +209,15 @@ where
         match self {
             Value::Con(constant) => constant.size(),
             Value::Lambda { .. } | Value::Builtin(_) | Value::Delay(_, _) | Value::Constr(_, _) => 1,
+        }
+    }
+}
+
+impl IntoMachineSize for StringSize<'_> {
+    fn size(&self) -> i64 {
+        match self {
+            Self::Characters(string) => string.size(),
+            Self::Utf8Bytes(string) => string.len() as i64 / 4,
         }
     }
 }

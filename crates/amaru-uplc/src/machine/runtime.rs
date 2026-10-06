@@ -32,7 +32,7 @@ use crate::{
     },
     data::PlutusData,
     ledger_value::{self, LedgerValue, ValueError},
-    machine::cost_model::cost_argument::{DataNodeCount, FixedSize, ListLength, integer_log2},
+    machine::cost_model::cost_argument::{DataNodeCount, FixedSize, ListLength, StringSize, integer_log2},
     typ::Type,
 };
 
@@ -169,6 +169,14 @@ impl<'a> Machine<'a> {
         Ok(integer)
     }
 
+    fn string_size<'s>(&self, string: &'s str) -> StringSize<'s> {
+        if self.costs.semantics.costs_strings_by_utf8_bytes() {
+            StringSize::Utf8Bytes(string)
+        } else {
+            StringSize::Characters(string)
+        }
+    }
+
     /// The absolute shift amount used for costing, saturated to `i64::MAX` where the semantics allow larger amounts.
     fn shift_amount_cost<V>(&self, shift: &'a Integer) -> Result<i64, MachineError<'a, V>>
     where
@@ -230,8 +238,10 @@ impl<'a> Machine<'a> {
                 let arg1 = runtime.args[0].unwrap_string()?;
                 let arg2 = runtime.args[1].unwrap_string()?;
 
-                let budget =
-                    self.costs.builtin_costs.get_cost(DefaultFunction::AppendString, &[(&arg1).into(), (&arg2).into()]);
+                let budget = self.costs.builtin_costs.get_cost(
+                    DefaultFunction::AppendString,
+                    &[(&self.string_size(arg1)).into(), (&self.string_size(arg2)).into()],
+                );
 
                 self.spend_budget(budget)?;
 
@@ -438,7 +448,8 @@ impl<'a> Machine<'a> {
             DefaultFunction::EncodeUtf8 => {
                 let arg1 = runtime.args[0].unwrap_string()?;
 
-                let budget = self.costs.builtin_costs.get_cost(DefaultFunction::EncodeUtf8, &[(&arg1).into()]);
+                let budget =
+                    self.costs.builtin_costs.get_cost(DefaultFunction::EncodeUtf8, &[(&self.string_size(arg1)).into()]);
 
                 self.spend_budget(budget)?;
 
@@ -502,8 +513,10 @@ impl<'a> Machine<'a> {
                 let arg1 = runtime.args[0].unwrap_string()?;
                 let arg2 = runtime.args[1].unwrap_string()?;
 
-                let budget =
-                    self.costs.builtin_costs.get_cost(DefaultFunction::EqualsString, &[(&arg1).into(), (&arg2).into()]);
+                let budget = self.costs.builtin_costs.get_cost(
+                    DefaultFunction::EqualsString,
+                    &[(&self.string_size(arg1)).into(), (&self.string_size(arg2)).into()],
+                );
 
                 self.spend_budget(budget)?;
 

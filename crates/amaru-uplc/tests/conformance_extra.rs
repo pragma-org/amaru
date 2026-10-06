@@ -257,6 +257,48 @@ regression_case!(
     PROTOCOL_VERSION_11
 );
 regression_case!(
+    builtin_semantics_appendstring_v3_ascii_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/appendString/v3-ascii-pv10/v3-ascii-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_appendstring_v3_multibyte_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/appendString/v3-multibyte-pv10/v3-multibyte-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_encodeutf8_v3_ascii_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/encodeUtf8/v3-ascii-pv10/v3-ascii-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_encodeutf8_v3_multibyte_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/encodeUtf8/v3-multibyte-pv10/v3-multibyte-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_encodeutf8_v3_multibyte_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/encodeUtf8/v3-multibyte-pv11/v3-multibyte-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_equalsstring_v3_ascii_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/equalsString/v3-ascii-pv10/v3-ascii-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_equalsstring_v3_multibyte_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/equalsString/v3-multibyte-pv10/v3-multibyte-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
     builtin_semantics_writebits_v3_multiple_indices_regression,
     "conformance_extra/textual/builtin/semantics/writeBits/v3-multiple-indices/v3-multiple-indices.uplc",
     PlutusVersion::V3,
