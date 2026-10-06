@@ -63,7 +63,6 @@ tokio = { workspace = true, features = [
 ] }
 zstd.workspace = true
 tokio-util.workspace = true
-zeroize.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-bootstrap.workspace = true
