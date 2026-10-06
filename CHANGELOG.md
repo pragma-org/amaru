@@ -39,6 +39,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
+- **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -92,7 +93,6 @@ Other guiding principles:
 - **amaru-uplc**: lazily size builtin arguments depending on the costing function; instead of systematically doing it upfront. Mean and median VM execution time reduced by ~20% thanks to this.
 - **amaru-uplc**: reject out-of-range integer arguments to arithmetic Plutus builtins under the current ledger semantics, matching the Cardano reference evaluator.
 - **amaru-uplc**: reject weak Ed25519 identity tuples and uncompressed secp256k1 public keys in Plutus signature builtins.
-- **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 
 ## [v10.11.20260925](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260925)
 
