@@ -63,28 +63,53 @@ jobs:
           )"
           echo "Network tip at test start: slot $target_slot"
 
-          "$AMARU_BIN" node bootstrap 2>&1 | tee bootstrap.log
+          source scripts/demos/common/amaru.sh
+          amaru_pid=""
+          current_log=bootstrap.log
 
+          trap '
+            if [[ -n "$amaru_pid" ]]; then
+              kill -KILL "$amaru_pid" 2>/dev/null || true
+              wait "$amaru_pid" || true
+            fi
+          ' EXIT
+
+          fail() {
+            echo "::error::$1" >&2
+            tail -200 "$current_log" >&2
+            exit 1
+          }
+
+          check_log_errors() {
+            if strip_ansi < "$current_log" | grep -E \
+              '^[^[:space:]]+[[:space:]]+ERROR[[:space:]]|^ERROR[[:space:]:]|^error:|"level"[[:space:]]*:[[:space:]]*"ERROR"' >&2; then
+              fail "Amaru logged an error in $current_log"
+            fi
+          }
+
+          : > bootstrap.log
+          "$AMARU_BIN" node bootstrap > bootstrap.log 2>&1 &
+          amaru_pid=$!
+          while kill -0 "$amaru_pid" 2>/dev/null; do
+            check_log_errors
+            sleep 5
+          done
+          check_log_errors
+          wait "$amaru_pid" || fail "Amaru bootstrap failed"
+          amaru_pid=""
+          cat bootstrap.log
+
+          current_log=amaru.log
+          : > amaru.log
           "$AMARU_BIN" node run > amaru.log 2>&1 &
           amaru_pid=$!
 
-          cleanup() {
-            if kill -0 "$amaru_pid" 2>/dev/null; then
-              kill -INT "$amaru_pid"
-              wait "$amaru_pid" || true
-            fi
-          }
-          trap cleanup EXIT
-
-          source scripts/demos/common/amaru.sh
-
           deadline=$((SECONDS + 7200))
           while (( SECONDS < deadline )); do
+            check_log_errors
             if ! kill -0 "$amaru_pid" 2>/dev/null; then
-              wait "$amaru_pid" || true
-              echo "Amaru stopped before reaching target slot $target_slot" >&2
-              tail -200 amaru.log >&2
-              exit 1
+              check_log_errors
+              fail "Amaru stopped before reaching target slot $target_slot"
             fi
 
             adopted_slot="$(adopted_slot_from_log amaru.log)"
@@ -94,16 +119,16 @@ jobs:
               echo "Amaru reached target slot $target_slot at slot $adopted_slot"
               kill -INT "$amaru_pid"
               wait "$amaru_pid"
+              amaru_pid=""
+              check_log_errors
               trap - EXIT
               exit 0
             fi
 
-            sleep 15
+            sleep 5
           done
 
-          echo "Amaru did not reach target slot $target_slot within two hours" >&2
-          tail -200 amaru.log >&2
-          exit 1
+          fail "Amaru did not reach target slot $target_slot within two hours"
 
       - name: Upload diagnostic logs
         if: always()
