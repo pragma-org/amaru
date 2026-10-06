@@ -619,7 +619,7 @@ define_schemas! {
                 /// `next_slot` is the UTC onset of the next armed led slot, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
                 public SCHEDULE {
                     required slots: std::collections::BTreeMap<amaru_kernel::Epoch, usize>
-                    optional next_slot: String
+                    optional next_slot: Option<String>
                     required freeze_depth: u64
                     required settled: bool
                 }

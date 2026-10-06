@@ -1498,7 +1498,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `slots` | `object` | ✓ |
 | `freeze_depth` | `integer` | ✓ |
 | `settled` | `boolean` | ✓ |
-| `next_slot` | `string` |  |
+| `next_slot` | `["string","null"]` |  |
 
 </details>
 
