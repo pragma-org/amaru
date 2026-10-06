@@ -62,7 +62,6 @@ pub fn create_nodes(
 
         let mut stage_graph = SimulationBuilder::default()
             .with_seed(config.seed)
-            .with_mailbox_size(10000)
             .with_trace_buffer(config.trace_buffer.clone())
             .with_global_epoch_offset(start_in_era().relative_time);
 

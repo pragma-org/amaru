@@ -37,6 +37,7 @@ pub struct InitStageData {
     pub mailbox: VecDeque<Box<dyn SendData>>,
     pub state: InitStageState,
     pub transition: Transition,
+    pub mailbox_size: usize,
 }
 
 impl fmt::Debug for InitStageData {
@@ -63,8 +64,11 @@ impl fmt::Debug for StageState {
 
 pub(crate) struct StageData {
     pub name: Name,
-    /// Bounded bulk ingress (subject to `mailbox_size` and back-pressure).
+    /// Bounded bulk ingress. Capacity is [`Self::mailbox_size`].
     pub mailbox: VecDeque<Box<dyn SendData>>,
+    /// Messages that may wait in [`Self::mailbox`]. The message being processed does not count.
+    /// Zero admits a message only as a rendezvous with a stage already waiting to receive.
+    pub mailbox_size: usize,
     /// Due self-scheduled messages, preferred over [`Self::mailbox`] on receive.
     /// Capacity is governed by the network's configured `priority_mailbox_size` together with
     /// armed timers via [`Self::scheduled_pending`].
@@ -81,4 +85,21 @@ pub(crate) struct StageData {
     pub timeouts: TimeoutHeap,
     pub supervised_by: Name,
     pub tombstone: Option<Box<dyn SendData>>,
+}
+
+impl StageData {
+    /// Whether a new bulk message may be admitted right now.
+    ///
+    /// A non-empty [`Self::senders`] queue owns the next free slot, so admission fails even
+    /// when the mailbox has room. Capacity zero admits only when this stage is already
+    /// waiting to receive and nobody is parked ahead.
+    pub(crate) fn mailbox_accepts(&self) -> bool {
+        if !self.senders.is_empty() {
+            return false;
+        }
+        if self.mailbox.len() < self.mailbox_size {
+            return true;
+        }
+        self.mailbox_size == 0 && self.mailbox.is_empty() && matches!(self.waiting, Some(StageEffect::Receive))
+    }
 }

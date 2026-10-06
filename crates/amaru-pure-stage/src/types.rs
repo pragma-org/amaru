@@ -43,6 +43,15 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// programming error and must fail loudly).
 pub const PRIORITY_MAILBOX_SIZE: usize = 10;
 
+/// Default bulk mailbox capacity passed by [`StageGraph::stage`](crate::StageGraph::stage).
+///
+/// A different capacity is [`StageGraph::stage_with_mailbox_size`](crate::StageGraph::stage_with_mailbox_size),
+/// chosen before the stage handle exists.
+/// [`SimulationBuilder::with_mailbox_size`](crate::simulation::SimulationBuilder::with_mailbox_size)
+/// and [`TokioBuilder::with_mailbox_size`](crate::tokio::TokioBuilder::with_mailbox_size) change the
+/// value `stage` passes, including for stages those stages later create with [`Effects::stage`](crate::Effects::stage).
+pub const DEFAULT_MAILBOX_SIZE: usize = 10;
+
 /// Type constraint for messages, which must be self-contained and have a `Debug` instance.
 ///
 /// It is not possible to require an implementation of `PartialEq<Box<dyn Message>>`, but it
