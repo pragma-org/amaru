@@ -304,7 +304,7 @@ pub mod test_vectors {
 mod tests {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{EMPTY_ASSET_NAME, Hash, NonEmptyKeyValuePairs, PositiveCoin, Value};
+    use amaru_kernel::{Assets, EMPTY_ASSET_NAME, Hash, PositiveCoin, Value};
     use proptest::{
         prelude::{any, prop},
         prop_assert, proptest,
@@ -319,7 +319,7 @@ mod tests {
             .iter()
             .map(|policy| {
                 let assets =
-                    NonEmptyKeyValuePairs::try_from(vec![(EMPTY_ASSET_NAME, PositiveCoin::try_from(100u64).unwrap())])
+                    Assets::try_from(BTreeMap::from([(EMPTY_ASSET_NAME, PositiveCoin::try_from(100u64).unwrap())]))
                         .unwrap();
                 (Hash::from(*policy), assets)
             })

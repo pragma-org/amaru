@@ -20,8 +20,8 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::ShelleyAddress;
 use crate::{
-    Address, AssetName, Credential, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, StakeReference,
-    Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
+    Address, AssetName, Assets, Credential, Hash, Legacy, MemoizedDatum, MemoizedScript, StakeReference, Value, cbor,
+    serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -278,27 +278,26 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                 let policy_id = hex::decode(&policy_id)
                     .map_err(|_| serde::de::Error::custom(format!("invalid hex string: {policy_id}")))?;
 
-                let mut converted_assets = Vec::new();
+                let mut converted_assets = BTreeMap::new();
                 for (asset_name_hex, quantity) in assets {
                     let asset_name = hex::decode(&asset_name_hex)
                         .map_err(|_| serde::de::Error::custom(format!("invalid hex string: {asset_name_hex}")))?;
 
-                    converted_assets.push((
+                    converted_assets.insert(
                         AssetName::try_from(&asset_name[..])
                             .map_err(|_| serde::de::Error::custom(format!("invalid asset name; {asset_name_hex}")))?,
                         quantity
                             .try_into()
                             .map_err(|_| serde::de::Error::custom(format!("invalid quantity value: {quantity}")))?,
-                    ));
+                    );
                 }
 
                 let policy_id = Hash::<CREDENTIAL>::try_from(policy_id.as_slice())
                     .map_err(|e| serde::de::Error::custom(format!("invalid policy id: {e}")))?;
 
-                let pairs = NonEmptyKeyValuePairs::try_from(converted_assets)
-                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?;
+                let assets = Assets::try_from(converted_assets).map_err(serde::de::Error::custom)?;
 
-                multiasset.insert(policy_id, pairs);
+                multiasset.insert(policy_id, assets);
             }
 
             Value::Multiasset(coin, multiasset.into())
