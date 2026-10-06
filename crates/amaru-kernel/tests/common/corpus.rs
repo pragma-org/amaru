@@ -16,17 +16,16 @@ use std::fmt;
 
 /// The corpus of test samples to use for the conformance tests.
 ///
-/// Conway is the era, 123 is the seed, and 100 is the number of samples per rule.
-///
+/// Upstream publishes one corpus per era, named after that era.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Corpus {
-    Conway123_100,
+    Conway,
 }
 
 impl fmt::Display for Corpus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Corpus::Conway123_100 => write!(f, "conway-123-100"),
+            Corpus::Conway => write!(f, "conway"),
         }
     }
 }

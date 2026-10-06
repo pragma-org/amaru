@@ -16,20 +16,19 @@ use std::{fmt::Display, path::PathBuf};
 
 use anyhow::anyhow;
 
-use crate::{Category, Corpus, read_expected_canonical_cbor, read_file};
+use crate::{Category, read_expected_canonical_cbor, read_file, sample_name};
 
-/// A unique key for a test sample, consisting of the corpus, rule, category, and path to the sample file.
+/// A unique key for a test sample, consisting of the rule, category, and path to the sample file.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TestKey {
-    corpus: Corpus,
     rule: String,
     category: Category,
     path: PathBuf,
 }
 
 impl TestKey {
-    pub fn new(corpus: Corpus, rule: String, category: Category, path: PathBuf) -> Self {
-        Self { corpus, rule, category, path }
+    pub fn new(rule: String, category: Category, path: PathBuf) -> Self {
+        Self { rule, category, path }
     }
 
     pub fn rule(&self) -> &str {
@@ -41,8 +40,8 @@ impl TestKey {
     }
 
     pub fn key(&self) -> String {
-        let stem = self.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        format!("{}/{}/{}", self.rule, self.category, stem)
+        let name = sample_name(&self.path).unwrap_or_default();
+        format!("{}/{}/{}", self.rule, self.category, name)
     }
 
     pub fn read_bytes(&self) -> anyhow::Result<Vec<u8>> {
@@ -57,11 +56,14 @@ impl TestKey {
     /// every `valid` sample does; a missing one means the corpus is incomplete.
     pub fn read_expected_cbor(&self) -> anyhow::Result<Option<Vec<u8>>> {
         match self.category {
-            Category::Valid => Ok(Some(
-                read_expected_canonical_cbor(self.corpus, &self.rule, &self.path)?
+            Category::Valid | Category::ManualValid => Ok(Some(
+                read_expected_canonical_cbor(&self.path)?
                     .ok_or_else(|| anyhow!("no reference bytes for the valid sample {self}"))?,
             )),
-            Category::InvalidGenerated | Category::Zapped(_) => Ok(None),
+            Category::InvalidGenerated
+            | Category::Zapped(_)
+            | Category::ManualInvalid
+            | Category::VerificationDeferred => Ok(None),
         }
     }
 }

@@ -47,6 +47,8 @@ pub struct TestResults {
     pub unacknowledged: Vec<(String, String)>,
     /// The acknowledged failures that are no longer observed in the current run.
     pub stale: Vec<AcknowledgedFailure>,
+    /// Samples the corpus states no expectation for, run but not judged.
+    pub deferred: usize,
 }
 
 impl TestResults {
@@ -81,6 +83,7 @@ impl TestResults {
     /// Append the results of another run to this one, merging the failures and per-rule outcomes.
     pub fn append(&mut self, other: TestResults) {
         self.failures.extend(other.failures);
+        self.deferred += other.deferred;
         for (rule, outcome) in other.per_rule {
             self.per_rule.entry(rule).or_default().merge(outcome);
         }
@@ -93,10 +96,15 @@ impl TestResults {
         actual_cbor: Result<Vec<u8>, decode::Error>,
         expected_cbor: Option<Vec<u8>>,
     ) -> anyhow::Result<()> {
+        if !test_key.category().is_judged() {
+            self.deferred += 1;
+            return Ok(());
+        }
+
         let rule = test_key.rule();
         let outcome = self.per_rule.entry(rule.into()).or_default();
         match test_key.category() {
-            Category::Valid => {
+            Category::Valid | Category::ManualValid => {
                 let Some(expected) = expected_cbor else {
                     anyhow::bail!("no reference bytes for the valid sample {test_key}");
                 };
@@ -126,7 +134,8 @@ impl TestResults {
                     }
                 }
             }
-            Category::InvalidGenerated => {
+            Category::VerificationDeferred => unreachable!("deferred samples are not judged"),
+            Category::InvalidGenerated | Category::ManualInvalid => {
                 outcome.generated_total += 1;
                 outcome.generated_must_be_rejected_expected += 1;
                 if actual_cbor.is_err() {

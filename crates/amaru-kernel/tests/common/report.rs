@@ -127,6 +127,11 @@ fn print_summary(test_configuration: &TestConfiguration, test_results: &TestResu
     eprintln!();
     eprintln!("generated samples           {generated_total} ");
     eprintln!();
+    if test_results.deferred > 0 {
+        eprintln!("samples not judged          {} ", test_results.deferred);
+        eprintln!("(the corpus states no expectation for them)");
+        eprintln!();
+    }
     eprintln!(
         "generated samples decoded   {generated_decoded_reencoded_actual}/{generated_decoded_reencoded_expected} {check_generated_decoded_reencoded}"
     );
@@ -146,28 +151,37 @@ fn print_summary(test_configuration: &TestConfiguration, test_results: &TestResu
     eprintln!("BY RULE ");
     eprintln!("----------------------------------------------------------------------------");
     eprintln!();
-    eprintln!("  rule                          decoded and      generated         zapped");
-    eprintln!("                               re-encoded ok    rejected ok      rejected ok");
+    let rule_column =
+        test_results.per_rule.keys().map(|rule| rule.chars().count()).max().unwrap_or(0).max(RULE_HEADER.len());
+    eprintln!(
+        "{RULE_HEADER:<rule_column$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}",
+        "decoded and", "generated", "zapped"
+    );
+    eprintln!(
+        "{:<rule_column$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}",
+        "", "re-encoded ok", "rejected ok", "rejected ok"
+    );
     eprintln!();
     for (rule, t) in &test_results.per_rule {
-        let check_decoded_reencoded =
-            check(t.generated_decoded_reencoded_actual, t.generated_decoded_reencoded_expected);
-        let check_generated_rejected =
-            check(t.generated_must_be_rejected_actual, t.generated_must_be_rejected_expected);
-        let check_zapped_rejected = check(t.zap_must_be_rejected_actual, t.zap_must_be_rejected_expected);
         eprintln!(
-            "{rule:<30} {:>3}/{:<3} {}        {:>3}/{:<3} {}      {:>3}/{:<3} {}",
-            t.generated_decoded_reencoded_actual,
-            t.generated_decoded_reencoded_expected,
-            check_decoded_reencoded,
-            t.generated_must_be_rejected_actual,
-            t.generated_must_be_rejected_expected,
-            check_generated_rejected,
-            t.zap_must_be_rejected_actual,
-            t.zap_must_be_rejected_expected,
-            check_zapped_rejected
+            "{rule:<rule_column$}  {}  {}  {}",
+            counts(t.generated_decoded_reencoded_actual, t.generated_decoded_reencoded_expected),
+            counts(t.generated_must_be_rejected_actual, t.generated_must_be_rejected_expected),
+            counts(t.zap_must_be_rejected_actual, t.zap_must_be_rejected_expected)
         );
     }
+}
+
+/// Heading of the column naming the rule, and the narrowest that column is ever printed.
+const RULE_HEADER: &str = "rule";
+
+/// Display width of a count column. One wider than the string `counts` builds, because the check mark
+/// is a single character that the terminal gives two columns to.
+const COUNT_COLUMN: usize = 14;
+
+/// One `actual/expected ✅` cell of the by-rule table, padded so that every cell is the same width.
+fn counts(actual: usize, expected: usize) -> String {
+    format!("{actual:>5}/{expected:<5} {}", check(actual, expected))
 }
 
 /// Write the run's counters and failures as JSON, so another tool can diff runs or track progress.

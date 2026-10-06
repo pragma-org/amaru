@@ -9,13 +9,13 @@ AMARU_TEST_REPORT_DIRECTORY=tests/results cargo test -p amaru-kernel --test test
 ```
 
 The file is named `amaru-decoding-conformance_<corpus>_<protocol_version>.json`, for example
-`amaru-decoding-conformance_conway-123-100_10.0.json`. Its content is one pretty-printed JSON object.
+`amaru-decoding-conformance_conway_10.0.json`. Its content is one pretty-printed JSON object.
 
 ## Top level
 
 | key                | type                | meaning                                                             |
 |--------------------|---------------------|---------------------------------------------------------------------|
-| `corpus`           | string              | the dataset that was run, e.g. `conway-123-100`                      |
+| `corpus`           | string              | the dataset that was run, e.g. `conway`                              |
 | `protocol_version` | string              | the protocol version decoded against, e.g. `10.0`                    |
 | `successful`       | bool                | true when the run had no failure at all; acknowledgements do not make it true |
 | `totals`           | outcome             | the per-rule outcomes summed                                         |
@@ -43,7 +43,7 @@ A rule is clean when each `_actual` equals its `_expected`. For every rule,
 
 | field    | meaning                                                                                               |
 |----------|--------------------------------------------------------------------------------------------------------|
-| `sample` | `<rule>/<category>/<file stem>`, where `<category>` is `valid` or `invalid/zap-<n>` for severity `n`   |
+| `sample` | `<rule>/<category>/<name>`; `<category>` is `valid`, `invalid-zap-<n>`, `manual-valid` or `manual-invalid` |
 | `rule`   | the CDDL rule the sample belongs to                                                                      |
 | `class`  | `reason` collapsed into a stable label: first line only, byte offset dropped, long digit runs replaced by `N`, truncated at 96 characters |
 | `reason` | the full error text, which may span several lines and embed hex dumps                                    |
@@ -60,7 +60,21 @@ A rule is clean when each `_actual` equals its `_expected`. For every rule,
 ## Reading a report
 
 `(rule, class)` is the grouping key of the whole report, and it is also exactly what an entry of
-`acknowledged-failures.toml` names. A new `(rule, class)` pair is a new defect; a pair that disappears is progress.
+`tests/acknowledged-failures.toml` names. A new `(rule, class)` pair is a new defect; a pair that disappears is progress.
 
 `successful: false` does not fail the test run. The suite fails on failures that are *not* declared in
 `acknowledged-failures.toml`, so the report describes conformance while the acknowledgement file is what gates CI.
+
+## Samples the corpus does not judge
+
+A `verification-deferred` directory holds samples the specification rules out but the reference type decodes anyway,
+because the constraint is enforced one level up, at the field carrying the value. An implementation may enforce it at
+either level, so neither outcome is a defect and the suite judges none of them: they appear in no counter and in no
+failure, and the console prints how many were skipped. The `.reason.txt` beside each sample says why it is there.
+
+## Samples the corpus does not judge
+
+A `verification-deferred` directory holds samples the specification rules out but the reference type decodes anyway,
+because the constraint is enforced one level up, at the field carrying the value. An implementation may enforce it at
+either level, so neither outcome is a defect and the suite judges none of them: they appear in no counter and in no
+failure, and the console prints how many were skipped. The `.reason.txt` beside each sample says why it is there.

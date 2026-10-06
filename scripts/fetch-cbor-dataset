@@ -13,7 +13,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST_DIR="$REPO_ROOT/crates/amaru-kernel/tests/data/cbor.dataset"
 PIN_FILE="$DEST_DIR.pin"
-CORPUS="conway-123-100"
+CORPUS="conway"
 
 COMMIT="$(tr -d '[:space:]' < "$PIN_FILE")"
 URL="https://codeload.github.com/r2rationality/cardano-cbor-dataset/tar.gz/$COMMIT"
@@ -29,10 +29,10 @@ mkdir -p "$DEST_DIR"
 echo "Downloading cardano-cbor-dataset@$COMMIT ..."
 
 # --strip-components=2 drops the `<repo>-<commit>/dataset/` prefix, leaving `$CORPUS` directly under
-# $DEST_DIR, with its `<rule>/{valid,invalid,expected}` sub-directories. Only the Conway corpus is
-# downloaded for now.
+# $DEST_DIR, with its `<rule>/<category>` sub-directories. Only
+# the Conway corpus is downloaded for now.
 #
 # shellcheck disable=SC2086  # unquoted so an empty $WILDCARDS expands to no argument at all
 curl -Lsf "$URL" | tar -xz -C "$DEST_DIR" --strip-components=2 ${WILDCARDS:-} "*/dataset/$CORPUS/*"
 
-echo "Extracted $(find "$DEST_DIR" -name '*.cbor' | wc -l | tr -d ' ') samples into $DEST_DIR"
+echo "Extracted $(find "$DEST_DIR" -name '*.input.cbor' | wc -l | tr -d ' ') samples into $DEST_DIR"
