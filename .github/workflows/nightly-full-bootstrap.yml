@@ -51,9 +51,14 @@ jobs:
           export AMARU_CHAIN_DIR="$state_dir/chain.db"
           mkdir -p "$state_dir"
 
+          koios_host="$AMARU_NETWORK"
+          if [[ "$AMARU_NETWORK" == "mainnet" ]]; then
+            koios_host="api"
+          fi
+
           target_slot="$(
             curl --fail --silent --show-error --retry 5 --retry-all-errors \
-              "https://$AMARU_NETWORK.koios.rest/api/v1/tip" \
+              "https://$koios_host.koios.rest/api/v1/tip" \
               | jq -er '.[0].abs_slot'
           )"
           echo "Network tip at test start: slot $target_slot"
