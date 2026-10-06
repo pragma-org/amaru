@@ -1517,9 +1517,6 @@ impl<'a> Machine<'a> {
                     let diff = size_scalar - arg1.len();
 
                     let mut new_vec = vec![0; diff];
-                    unsafe {
-                        new_vec.set_len(diff);
-                    }
 
                     new_vec.append(&mut arg1);
 
@@ -1715,11 +1712,7 @@ impl<'a> Machine<'a> {
                 if input.is_zero() {
                     let mut new_bytes = BumpVec::with_capacity_in(size_unwrapped, self.arena.as_bump());
 
-                    unsafe {
-                        new_bytes.set_len(size_unwrapped);
-                    }
-
-                    new_bytes.fill(0);
+                    new_bytes.resize(size_unwrapped, 0);
 
                     let new_bytes = self.arena.alloc(new_bytes);
 
@@ -1743,11 +1736,7 @@ impl<'a> Machine<'a> {
 
                     let mut padding = BumpVec::with_capacity_in(padding_size, self.arena.as_bump());
 
-                    unsafe {
-                        padding.set_len(padding_size);
-                    }
-
-                    padding.fill(0);
+                    padding.resize(padding_size, 0);
 
                     if endianness {
                         padding.append(&mut bytes);
