@@ -63,6 +63,10 @@ impl<'a> Machine<'a> {
     where
         V: Eval<'a>,
     {
+        if !self.costs.semantics.supports_program_version(self.machine_version) {
+            return Err(MachineError::UnavailableProgramVersion(self.machine_version));
+        }
+
         self.spend_budget(self.costs.machine_costs.startup)?;
 
         let initial_context = Context::no_frame(self.arena);

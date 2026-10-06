@@ -14,7 +14,7 @@
 
 use std::array::TryFromSliceError;
 
-use super::{ExBudget, value::Value};
+use super::{ExBudget, MachineVersion, value::Value};
 use crate::{
     binder::Eval,
     bls::BlsError,
@@ -57,6 +57,8 @@ where
     MaxConstrTagExceeded(&'a Value<'a, V>),
     #[error("No cost found for builtin function: {0:?}")]
     NoCostForBuiltin(DefaultFunction),
+    #[error("Program version {}.{}.{} is not available", .0.major, .0.minor, .0.patch)]
+    UnavailableProgramVersion(MachineVersion),
 }
 
 #[derive(thiserror::Error, Debug)]

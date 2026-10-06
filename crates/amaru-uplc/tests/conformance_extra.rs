@@ -236,3 +236,69 @@ regression_case!(
     builtin_semantics_verifysignature_legacy_alias_test_vector_25_regression,
     "conformance_extra/textual/builtin/semantics/verifySignature/legacy-alias-test-vector-25/legacy-alias-test-vector-25.uplc"
 );
+regression_case!(
+    program_version_v3_2_0_0_pv10_regression,
+    "conformance_extra/textual/program/version/v3-2-0-0/v3-2-0-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v3_2_0_0_pv11_regression,
+    "conformance_extra/textual/program/version/v3-2-0-0/v3-2-0-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v3_1_2_0_pv11_regression,
+    "conformance_extra/textual/program/version/v3-1-2-0/v3-1-2-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v3_1_0_1_pv11_regression,
+    "conformance_extra/textual/program/version/v3-1-0-1/v3-1-0-1.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v3_1_1_0_pv10_regression,
+    "conformance_extra/textual/program/version/v3-1-1-0/v3-1-1-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v3_1_1_0_pv11_regression,
+    "conformance_extra/textual/program/version/v3-1-1-0/v3-1-1-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v1_2_0_0_pv11_regression,
+    "conformance_extra/textual/program/version/v1-2-0-0/v1-2-0-0.uplc",
+    PlutusVersion::V1,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v1_1_1_0_before_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-before-pv11/v1-1-1-0-before-pv11.uplc",
+    PlutusVersion::V1,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v1_1_1_0_from_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-from-pv11/v1-1-1-0-from-pv11.uplc",
+    PlutusVersion::V1,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v2_1_1_0_before_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-before-pv11/v1-1-1-0-before-pv11.uplc",
+    PlutusVersion::V2,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v2_1_1_0_from_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-from-pv11/v1-1-1-0-from-pv11.uplc",
+    PlutusVersion::V2,
+    PROTOCOL_VERSION_11
+);
