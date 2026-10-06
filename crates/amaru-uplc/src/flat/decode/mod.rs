@@ -233,7 +233,10 @@ fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder<'_>) -> Result<&'a Con
     if tags.len() > max_tags {
         return Err(FlatDecodeError::TypeHeaderTooLong(tags.len(), max_tags));
     }
-    let (ty, _) = type_from_tags(ctx, tags.as_slice())?;
+    let (ty, consumed) = type_from_tags(ctx, tags.as_slice())?;
+    if consumed != tags.len() {
+        return Err(FlatDecodeError::UnknownTypeTags(tags.to_vec()));
+    }
 
     decode_constant_with_type(ctx, d, ty)
 }
@@ -549,5 +552,17 @@ mod tests {
 
         let decoded = Arena::new();
         decode::<DeBruijn>(&decoded, &bytes, plutus_version, protocol_version).map(|_| ())
+    }
+
+    #[test_case::test_case("010100480281"         => matches Ok(_)                                    ; "integer")]
+    #[test_case::test_case("010100484015"         => matches Err(FlatDecodeError::UnknownTypeTags(_)) ; "integer with a trailing tag")]
+    #[test_case::test_case("0101004bded0800811"   => matches Ok(_)                                    ; "pair")]
+    #[test_case::test_case("0101004bded084004081" => matches Err(FlatDecodeError::UnknownTypeTags(_)) ; "pair with a trailing tag")]
+    #[test_case::test_case("0101004bd601"         => matches Ok(_)                                    ; "list")]
+    #[test_case::test_case("0101004bd61101"       => matches Err(FlatDecodeError::UnknownTypeTags(_)) ; "list with a trailing tag")]
+    fn constant_type_tags_must_be_fully_consumed(flat: &str) -> Result<(), FlatDecodeError> {
+        let bytes = hex::decode(flat).unwrap();
+        let arena = Arena::new();
+        decode::<DeBruijn>(&arena, &bytes, PlutusVersion::V3, PROTOCOL_VERSION_11).map(|_| ())
     }
 }
