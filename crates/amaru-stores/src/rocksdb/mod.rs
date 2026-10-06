@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt, fs,
+    fmt, fs, io,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
 };
@@ -293,7 +293,7 @@ impl ReadOnlyRocksDB {
 
 pub struct RocksDBSnapshot {
     epoch: Epoch,
-    db: OptimisticTransactionDB,
+    db: DB,
 }
 
 impl Snapshot for RocksDBSnapshot {
@@ -366,8 +366,16 @@ impl RocksDBHistoricalStores {
     pub fn for_epoch_with(config: &RocksDbConfig, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
         let base_dir = config.dir.clone();
         let snapshot_dir = base_dir.join(PathBuf::from(format!("{epoch}")));
+        let metadata = fs::metadata(&snapshot_dir)
+            .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(&snapshot_dir, err)))?;
+        if !metadata.is_dir() {
+            return Err(StoreError::Open(OpenErrorKind::io_with_file(
+                &snapshot_dir,
+                io::Error::new(io::ErrorKind::NotADirectory, "epoch snapshot path is not a directory"),
+            )));
+        }
         let opts = set_default_opts(config.into());
-        OptimisticTransactionDB::open(&opts, &snapshot_dir)
+        DB::open_for_read_only(&opts, &snapshot_dir, false)
             .map_err(|err| map_rocksdb_open_error(&snapshot_dir, err))
             .map(|db| RocksDBSnapshot { epoch, db })
     }

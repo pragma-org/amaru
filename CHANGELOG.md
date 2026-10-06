@@ -48,6 +48,8 @@ Other guiding principles:
 - **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
 
 ### Fixed
+- **amaru-stores**: immutable epoch snapshots allow concurrent readers, avoiding database lock failures during restarts and bootstrap handoffs.
+- **amaru-node**: shutdown cancels and joins the rewards worker before reporting cleanup complete. A worker that cannot stop within the ledger shutdown timeout reports incomplete cleanup.
 - **amaru-uplc**: prevent a crash by wrapping negative consByteString input modulo 256 for Plutus V1/v2. This matches the Haskell behavior.
 - **amaru-uplc**: prevent a crash when using integers outside [0, 2^64) in constrData.
 - **amaru-uplc**: reject out of range indexByteString and indexArray indices.
