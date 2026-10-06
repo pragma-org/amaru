@@ -26,13 +26,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use amaru_kernel::{KesPeriod, KesSignature, NetworkName, VerificationKey};
+use amaru_kernel::{KesPeriod, KesSignature, NetworkName, VerificationKey, cardano::text_envelope};
 use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError, IssuerFields};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    credentials::{CredentialsError, cold_verifying_key, load_operational_certificate},
+    credentials::{CredentialsError, OperationalCertificateFile, cold_verifying_key},
     kes,
     praos::header::AssertOperationalCertificateError,
     vrf,
@@ -62,9 +62,9 @@ impl ProcessCredentials {
         certificate_path: impl AsRef<Path>,
         max_kes_evolutions: u64,
     ) -> Result<Self, ProcessCredentialsError> {
-        let vrf = vrf::SecretKey::from_file(vrf_path).map_err(CredentialsError::Vrf)?;
-        let (operational_cert, cold) =
-            load_operational_certificate(certificate_path).map_err(CredentialsError::Certificate)?;
+        let vrf: vrf::SecretKey = text_envelope::read(vrf_path).map_err(CredentialsError::Vrf)?;
+        let OperationalCertificateFile { certificate: operational_cert, cold } =
+            text_envelope::read(certificate_path).map_err(CredentialsError::Certificate)?;
         let issuer = cold_verifying_key(&cold).ok_or(CredentialsError::ColdKey)?;
         AssertOperationalCertificateError::new(
             &operational_cert,

@@ -115,6 +115,7 @@ pub mod script_info;
 pub mod script_integrity_data;
 pub mod slot;
 pub mod stake_entry;
+pub mod text_envelope;
 pub mod time_range;
 pub mod transaction;
 pub mod transaction_body;
