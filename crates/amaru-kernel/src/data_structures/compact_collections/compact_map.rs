@@ -153,8 +153,14 @@ impl<K: Ord, V, const N: usize> CompactMap<K, V, N> {
         CompactMapIter { inner }
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = &K> {
+    /// Iterate over the keys, in order.
+    pub fn keys(&self) -> impl ExactSizeIterator<Item = &K> {
         self.iter().map(|(key, _)| key)
+    }
+
+    /// Iterate over the values, in key order.
+    pub fn values(&self) -> impl ExactSizeIterator<Item = &V> {
+        self.iter().map(|(_, value)| value)
     }
 }
 
@@ -251,6 +257,40 @@ impl<'a, K: Ord, V, const N: usize> VacantEntry<'a, K, V, N> {
 impl<K: Ord, V, const N: usize> Default for CompactMap<K, V, N> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<K: Ord + serde::Serialize, V: serde::Serialize, const N: usize> serde::Serialize for CompactMap<K, V, N> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.iter())
+    }
+}
+
+impl<'de, K: Ord + serde::Deserialize<'de>, V: serde::Deserialize<'de>, const N: usize> serde::Deserialize<'de>
+    for CompactMap<K, V, N>
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct MapVisitor<K, V, const N: usize>(std::marker::PhantomData<(K, V)>);
+
+        impl<'de, K: Ord + serde::Deserialize<'de>, V: serde::Deserialize<'de>, const N: usize> serde::de::Visitor<'de>
+            for MapVisitor<K, V, N>
+        {
+            type Value = CompactMap<K, V, N>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a map")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut access: A) -> Result<Self::Value, A::Error> {
+                let mut map = CompactMap::new();
+                while let Some((key, value)) = access.next_entry()? {
+                    map.insert(key, value);
+                }
+                Ok(map)
+            }
+        }
+
+        deserializer.deserialize_map(MapVisitor(std::marker::PhantomData))
     }
 }
 
@@ -485,6 +525,21 @@ mod tests {
                 promoted.insert(u8::MAX, 0);
                 prop_assert_ne!(&small, &promoted);
             }
+        }
+
+        /// Both views walk the entries in key order and know their length up front, whichever
+        /// storage happens to back the map.
+        #[test]
+        fn keys_and_values_are_ordered_and_exact(
+            entries in collection::btree_map(any::<u8>(), any::<u8>(), 0..3 * SMALL_CAPACITY),
+        ) {
+            let map = entries.iter().map(|(key, value)| (*key, *value)).collect::<CompactMap<u8, u8, SMALL_CAPACITY>>();
+
+            prop_assert_eq!(map.keys().len(), entries.len());
+            prop_assert_eq!(map.values().len(), entries.len());
+
+            prop_assert_eq!(map.keys().copied().collect::<Vec<_>>(), entries.keys().copied().collect::<Vec<_>>());
+            prop_assert_eq!(map.values().copied().collect::<Vec<_>>(), entries.values().copied().collect::<Vec<_>>());
         }
     }
 }

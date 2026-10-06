@@ -46,10 +46,10 @@ pub fn execute(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, ops::Deref};
+    use std::collections::BTreeMap;
 
     use amaru_kernel::{
-        Address, AssetName, Hash, MemoizedDatum, MemoizedTransactionOutput, Multiasset, NonEmptyKeyValuePairs,
+        Address, AssetName, Assets, Hash, MemoizedDatum, MemoizedTransactionOutput, Multiasset,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PositiveCoin, ProtocolParameters, Value, cbor::count_bytes, from_cbor,
         to_cbor, utils::tests::random_bytes,
     };
@@ -78,21 +78,19 @@ mod tests {
 
     #[test]
     fn large_maps_with_indefinite_length_headers_are_valid_with_the_cardano_node_encoding() {
-        // The policy map and the asset maps both switch to an indefinite-length header past 23
-        // entries, which is what the node emits, so the ledger-side measurement and the wire
-        // encoding agree byte for byte at every size.
-        let multiassets = multiassets_of(20);
-        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
+        // Up to 23 entries the node writes a definite-length header, and an indefinite one above,
+        // which is what the ledger-side measurement counts.
+        let small = to_cbor(&multiassets_of(20));
+        assert_eq!(small[0], 0xb4, "20 policies are written with a definite-length header");
+        assert_eq!(count_bytes(&multiassets_of(20)), small.len());
 
-        let multiassets = multiassets_of(100);
-        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
+        let large = to_cbor(&multiassets_of(324));
+        assert_eq!(large[0], 0xbf, "324 policies are written with an indefinite-length header");
+        assert_eq!(large[large.len() - 1], 0xff, "an indefinite-length map ends with a break");
+        assert_eq!(count_bytes(&multiassets_of(324)), large.len());
 
-        // Past 255 entries a definite-length header would need one more byte than the
-        // indefinite-length one; the two sizes staying equal is what pins the node encoding.
         let multiassets = multiassets_of(324);
-        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
-
-        let bytes = to_cbor(&(2000000, multiassets.deref()));
+        let bytes = to_cbor(&(2000000, &multiassets));
         let output = output_with(from_cbor(&bytes).expect("valid value"));
         let result = execute(&protocol_parameters_with_max_size(10700), &output);
         assert!(result.is_ok(), "the value should have been accepted {}", result.unwrap_err());
@@ -127,8 +125,8 @@ mod tests {
 
     /// A value carrying `assets` distinct single-unit assets under one policy.
     fn multiassets_of(n: u16) -> Multiasset<PositiveCoin> {
-        let assets =
-            NonEmptyKeyValuePairs::try_from(vec![(AssetName::empty(), PositiveCoin::try_from(1).unwrap())]).unwrap();
+        let assets = Assets::try_from(BTreeMap::from([(AssetName::empty(), PositiveCoin::try_from(1).unwrap())]))
+            .expect("one asset");
         (0..n)
             .map(|_| (Hash::try_from(random_bytes(28).as_slice()).unwrap(), assets.clone()))
             .collect::<BTreeMap<_, _>>()

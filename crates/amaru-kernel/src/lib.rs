@@ -130,7 +130,7 @@ pub use cardano::{
         serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
-    multiasset::{self, Multiasset},
+    multiasset::{self, Assets, EmptyAssets, Multiasset},
     native_script::{self, NativeScript},
     network::{self, Network},
     network_magic::{self, NetworkMagic},
