@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
-use crate::{KeyValuePairs, cbor, data_structures::key_value_pairs::has_duplicate};
+use crate::{IntoKeyValuePairsError, KeyValuePairs, cbor, data_structures::key_value_pairs::has_duplicate};
 
 /// A key-value map with at least one key:value element, and no duplicate keys.
 ///
@@ -28,18 +28,6 @@ pub struct NonEmptyKeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 impl<K: Eq, V> Default for NonEmptyKeyValuePairs<K, V> {
     fn default() -> Self {
         Self(Vec::new())
-    }
-}
-
-impl<K: Eq, V> From<NonEmptyKeyValuePairs<K, V>> for Vec<(K, V)> {
-    fn from(pairs: NonEmptyKeyValuePairs<K, V>) -> Self {
-        pairs.0
-    }
-}
-
-impl<K: Ord, V> From<NonEmptyKeyValuePairs<K, V>> for BTreeMap<K, V> {
-    fn from(set: NonEmptyKeyValuePairs<K, V>) -> Self {
-        BTreeMap::from_iter(Vec::from(set))
     }
 }
 
@@ -103,17 +91,31 @@ where
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let position = d.position();
+        let mut inner = Vec::new();
 
-        let kvs: KeyValuePairs<K, V> = d.decode_with(ctx)?;
-
-        let kvs: Vec<(K, V)> = Vec::from(kvs);
+        cbor::heterogeneous_map_with(
+            d,
+            ctx,
+            &mut inner,
+            |d, ctx| d.decode_with::<C, K>(ctx),
+            |d, ctx, st, k| {
+                for (j, _) in st.iter() {
+                    if j == &k {
+                        return Err(cbor::decode::Error::message(IntoNonEmptyKeyValuePairsError::HasDuplicate));
+                    }
+                }
+                let v = d.decode_with(ctx)?;
+                st.push((k, v));
+                Ok(())
+            },
+        )?;
 
         // Ensure non-empty.
-        if kvs.is_empty() {
+        if inner.is_empty() {
             return Err(cbor::decode::Error::message(IntoNonEmptyKeyValuePairsError::Empty).at(position));
         }
 
-        Ok(Self(kvs))
+        Ok(Self(inner))
     }
 }
 

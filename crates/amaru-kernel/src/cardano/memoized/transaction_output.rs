@@ -129,7 +129,7 @@ fn decode_legacy_output<C: cbor::HasProtocolVersion>(
     Ok(MemoizedTransactionOutput {
         original_size: 0,
         is_legacy: true,
-        address: decode_address(&cbor::decode_bytes_v12(d, ctx)?)?,
+        address: d.decode_with(ctx)?,
         value: d.decode_with(ctx)?,
         datum: match len {
             Some(2) => MemoizedDatum::None,
@@ -167,7 +167,7 @@ fn decode_modern_output<C: cbor::HasProtocolVersion>(
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = Some(decode_address(&cbor::decode_bytes_v12(d, ctx)?)?),
+                0 => state.0 = Some(d.decode_with(ctx)?),
                 1 => state.1 = Some(d.decode_with(ctx)?),
                 2 => state.2 = d.decode_with(ctx)?,
                 3 => {
@@ -190,10 +190,6 @@ fn decode_modern_output<C: cbor::HasProtocolVersion>(
     })
 }
 
-fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
-    Address::from_bytes(address_bytes).ok_or_else(|| cbor::decode::Error::message("invalid address"))
-}
-
 impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for MemoizedTransactionOutput {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -202,7 +198,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for MemoizedTransactionOutput 
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         if self.is_legacy {
             e.begin_array()?;
-            e.bytes(&self.address.to_vec())?;
+            e.encode_with(&self.address, ctx)?;
             e.encode_with(&self.value, ctx)?;
             match &self.datum {
                 MemoizedDatum::None => (),
@@ -216,7 +212,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for MemoizedTransactionOutput 
             e.begin_map()?;
 
             e.u8(0)?;
-            e.bytes(&self.address.to_vec())?;
+            e.encode_with(&self.address, ctx)?;
 
             e.u8(1)?;
             e.encode_with(&self.value, ctx)?;

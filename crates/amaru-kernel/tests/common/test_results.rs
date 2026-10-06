@@ -16,28 +16,43 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use minicbor::decode;
 
-use crate::{AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutcome, error_class, normalize_shape};
+use crate::{
+    AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutcome, drop_optional_set_tags, error_class,
+    forgives_optional_set_tags, normalize_shape,
+};
 
-/// Rules for data types whose bytes are hashed. For those data types the,
-/// where the encoding is part of the format since a different encoding is a different hash.
-/// This means that the re-encoding of such a value must match the original bytes exactly.
-// NOTE: `auxiliary_data` is deliberately absent. It re-encodes in the era form it was decoded
-// from, which is what the ledger's memoised bytes achieve, but it rebuilds that form from the
-// decoded contents rather than replaying the bytes. A sample written with an indefinite-length
-// container or a chunked string therefore comes back in its canonical spelling, which normalising
-// both sides forgives.
-const BYTE_EXACT: &[&str] =
-    &["header", "native_script", "plutus_data", "redeemers", "transaction_body", "transaction_witness_set"];
+/// Rules for data types whose bytes are hashed.
+///
+/// For those rules we check that a re-encoding of the original bytes is equal to the input bytes
+/// used for decoding.
+///
+/// This serves two purposes:
+///
+///  1. When transferring transactions to other nodes, this makes sure that the transaction hash still matches the encoded data.
+///  2. Script data verification: the TransactionBody::script_data_hash is recomputed over the WitnessSet members
+///     and we check that the computed value matches the one on the transaction. In order to recompute correctly
+///     we need to keep the original bytes around.
+///
+const MATCHES_INPUT_BYTES: &[&str] = &["transaction_body", "native_script", "plutus_data", "redeemers"];
+
+/// Rules whose re-encoding must reproduce the corpus reference exactly, with no normalisation.
+///
+/// The Haskell node performs a KES verification over a block header by computing it over a re-encoding
+/// of the header body attributes. Hence Amaru must do the same and make sure that its HeaderBody encoding
+/// matching exactly the one done by the Haskell node regardless of the input data (definite vs indefinite for example).
+const MATCHES_EXPECTED_BYTES: &[&str] = &["header_body"];
 
 /// Recorded when amaru decodes a sample that should be rejected.
 const DECODED_BUT_SHOULD_BE_REJECTED: &str = "decoded successfully, should be rejected";
 
-/// Recorded when amaru re-encodes a sample into bytes the (normalized) reference does not agree with.
+/// Recorded when amaru re-encodes a sample into bytes the reference does not agree with.
 const RE_ENCODING_DIFFERS: &str = "re-encoding differs from the cbor reference";
 
 /// The results of a test run, including the failures and the per-rule outcomes.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TestResults {
+    /// Every sample the run executed, whether or not the corpus states an expectation for it.
+    pub samples: BTreeSet<TestKey>,
     /// Failure by test sample
     pub failures: BTreeMap<TestKey, String>,
     /// Aggregate failure by rule
@@ -80,6 +95,7 @@ impl TestResults {
 
     /// Append the results of another run to this one, merging the failures and per-rule outcomes.
     pub fn append(&mut self, other: TestResults) {
+        self.samples.extend(other.samples);
         self.failures.extend(other.failures);
         for (rule, outcome) in other.per_rule {
             self.per_rule.entry(rule).or_default().merge(outcome);
@@ -90,13 +106,16 @@ impl TestResults {
     pub fn update(
         &mut self,
         test_key: &TestKey,
+        decoded_bytes: &[u8],
         actual_cbor: Result<Vec<u8>, decode::Error>,
         expected_cbor: Option<Vec<u8>>,
     ) -> anyhow::Result<()> {
+        self.samples.insert(test_key.clone());
+
         let rule = test_key.rule();
         let outcome = self.per_rule.entry(rule.into()).or_default();
         match test_key.category() {
-            Category::Valid => {
+            Category::Valid | Category::ManualValid => {
                 let Some(expected) = expected_cbor else {
                     anyhow::bail!("no reference bytes for the valid sample {test_key}");
                 };
@@ -104,10 +123,17 @@ impl TestResults {
                 outcome.generated_decoded_reencoded_expected += 1;
                 match actual_cbor {
                     Ok(re_encoded) => {
-                        let exact = re_encoded == expected;
-                        let agrees = exact
-                            || (!BYTE_EXACT.contains(&rule)
-                                && normalize_shape(&re_encoded)? == normalize_shape(&expected)?);
+                        // A type that replays what it read is held to the sample, a type whose encoding the
+                        // ledger re-derives is held to the reference, and every other type is held to the
+                        // reference once the shape of its containers and strings has been normalised away.
+                        let (reference, agrees) = if MATCHES_INPUT_BYTES.contains(&rule) {
+                            (decoded_bytes, re_encoded == decoded_bytes)
+                        } else if MATCHES_EXPECTED_BYTES.contains(&rule) {
+                            (expected.as_slice(), re_encoded == expected)
+                        } else {
+                            let agrees = re_encoded == expected || agrees_in_shape(rule, &re_encoded, &expected)?;
+                            (expected.as_slice(), agrees)
+                        };
                         if agrees {
                             outcome.generated_decoded_reencoded_actual += 1;
                         } else {
@@ -115,7 +141,7 @@ impl TestResults {
                                 test_key.clone(),
                                 format!(
                                     "{RE_ENCODING_DIFFERS}\n\nexpected\n\n{}\n\ngot\n\n{}\n\n",
-                                    hex::encode(&expected),
+                                    hex::encode(reference),
                                     hex::encode(&re_encoded)
                                 ),
                             );
@@ -126,7 +152,7 @@ impl TestResults {
                     }
                 }
             }
-            Category::InvalidGenerated => {
+            Category::InvalidGenerated | Category::ManualInvalid => {
                 outcome.generated_total += 1;
                 outcome.generated_must_be_rejected_expected += 1;
                 if actual_cbor.is_err() {
@@ -160,4 +186,18 @@ impl TestResults {
         // Only collect stale acknowledgements if no filter is applied, otherwise the stale list would be incomplete and misleading.
         self.stale = if test_configuration.filter().is_none() { acknowledged.stale(&observed) } else { Vec::new() };
     }
+}
+
+/// Whether a re-encoding says the same thing as the reference, once the differences the format allows are
+/// rewritten away: the shape of every container and string, and for a witness set the optional set tags.
+fn agrees_in_shape(rule: &str, re_encoded: &[u8], expected: &[u8]) -> anyhow::Result<bool> {
+    let re_encoded = normalize_shape(re_encoded)?;
+    let expected = normalize_shape(expected)?;
+
+    // We need a special case to test witness_set because the set tag #6.258 might be missing
+    if forgives_optional_set_tags(rule) {
+        return Ok(drop_optional_set_tags(rule, &re_encoded)? == drop_optional_set_tags(rule, &expected)?);
+    }
+
+    Ok(re_encoded == expected)
 }

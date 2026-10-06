@@ -327,6 +327,10 @@ pub enum AssertKesSignatureError {
 
 impl AssertKesSignatureError {
     /// Asserts the KES signature is valid. Also controls the validity of the KES period.
+    ///
+    /// The signature covers a re-serialisation of the body, not the bytes the body arrived in.
+    /// This is similar to what the Haskell node does. The conformance test in test_cbor_dataset
+    /// checks that Amaru's re-encoding is the same as Haskell's re-encoding.
     pub fn new(
         slot_kes_period: KesPeriod,
         opcert_kes_period: KesPeriod,

@@ -19,9 +19,9 @@ use amaru_minicbor_extra::encode_optional;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::to_cbor;
 use crate::{
-    AuxiliaryData, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Multiasset, NULL_HASH32,
-    Network, NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set,
-    Slot, TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY,
+    AuxiliaryData, Bytes, Certificates, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Multiasset, NULL_HASH32,
+    Network, NonEmptySet, NonZeroInt, PositiveCoin, Proposals, Set, Slot, TransactionInput, ValidityInterval,
+    VotingProcedures, Withdrawals, cbor, size::KEY,
 };
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
@@ -47,9 +47,9 @@ pub struct TransactionBody {
 
     pub validity_interval_end: Option<Slot>,
 
-    pub certificates: Option<NonEmptySet<Certificate>>,
+    pub certificates: Option<Certificates>,
 
-    pub withdrawals: Option<NonEmptyKeyValuePairs<RewardAccount, Lovelace>>,
+    pub withdrawals: Option<Withdrawals>,
 
     pub auxiliary_data_hash: Option<Hash<{ AuxiliaryData::HASH_SIZE }>>,
 
@@ -71,9 +71,9 @@ pub struct TransactionBody {
 
     pub reference_inputs: Option<NonEmptySet<TransactionInput>>,
 
-    pub votes: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
+    pub votes: Option<VotingProcedures>,
 
-    pub proposals: Option<NonEmptySet<Proposal>>,
+    pub proposals: Option<Proposals>,
 
     pub treasury_value: Option<Lovelace>,
 

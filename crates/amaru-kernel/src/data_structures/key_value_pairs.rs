@@ -31,18 +31,6 @@ impl<K: Eq, V> Default for KeyValuePairs<K, V> {
     }
 }
 
-impl<K: Eq, V> From<KeyValuePairs<K, V>> for Vec<(K, V)> {
-    fn from(pairs: KeyValuePairs<K, V>) -> Self {
-        pairs.0
-    }
-}
-
-impl<K: Ord, V> From<KeyValuePairs<K, V>> for BTreeMap<K, V> {
-    fn from(set: KeyValuePairs<K, V>) -> Self {
-        BTreeMap::from_iter(Vec::from(set))
-    }
-}
-
 impl<K: Eq, V> From<BTreeMap<K, V>> for KeyValuePairs<K, V> {
     fn from(entries: BTreeMap<K, V>) -> Self {
         Self(entries.into_iter().collect::<Vec<_>>())

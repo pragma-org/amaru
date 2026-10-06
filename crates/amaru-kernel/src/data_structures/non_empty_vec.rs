@@ -49,18 +49,6 @@ impl<T: Eq> NonEmptyVec<T> {
     }
 }
 
-impl<T: Eq> From<NonEmptyVec<T>> for Vec<T> {
-    fn from(elems: NonEmptyVec<T>) -> Self {
-        elems.0
-    }
-}
-
-impl<T: Eq + Ord> From<NonEmptyVec<T>> for BTreeSet<T> {
-    fn from(elems: NonEmptyVec<T>) -> Self {
-        BTreeSet::from_iter(Vec::from(elems))
-    }
-}
-
 impl<T: Eq + Debug> TryFrom<Vec<T>> for NonEmptyVec<T> {
     type Error = IntoNonEmptyVecError;
 

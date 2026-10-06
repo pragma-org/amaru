@@ -19,6 +19,7 @@ pub mod legacy;
 pub mod non_empty_bytes;
 pub mod non_empty_key_value_pairs;
 pub mod non_empty_set;
+pub mod non_empty_unique_vec;
 pub mod non_empty_vec;
 pub mod non_zero_duration;
 pub mod set;

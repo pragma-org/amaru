@@ -15,8 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Certificate, CertificatePointer, Credential, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, Lovelace,
-    MemoizedDatum, Network, NonEmptySet, PoolId, ProtocolParameters, RedeemerTag, RequiredScript, TransactionPointer,
+    Certificate, CertificatePointer, Certificates, Credential, DRep, DRepRegistration, Epoch, EraHistory,
+    EraHistoryError, Lovelace, MemoizedDatum, Network, PoolId, ProtocolParameters, RedeemerTag, RequiredScript,
+    TransactionPointer,
 };
 use thiserror::Error;
 
@@ -86,13 +87,13 @@ pub(crate) fn execute<C>(
     era_history: &EraHistory,
     governance_activity: GovernanceActivity,
     transaction: TransactionPointer,
-    certificates: Option<NonEmptySet<Certificate>>,
+    certificates: Option<Certificates>,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
 {
-    certificates.map(Vec::from).unwrap_or_default().into_iter().enumerate().try_for_each(
-        |(certificate_index, certificate)| {
+    if let Some(certificates) = certificates {
+        certificates.into_iter().enumerate().try_for_each(|(certificate_index, certificate)| {
             execute_one(
                 context,
                 network,
@@ -102,8 +103,10 @@ where
                 CertificatePointer { transaction, certificate_index },
                 certificate,
             )
-        },
-    )
+        })
+    } else {
+        Ok(())
+    }
 }
 
 /// A simplified version of `execute` which does not validate anything, but count deposits and
@@ -111,23 +114,26 @@ where
 pub(crate) fn count_lovelace<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
-    certificates: Option<NonEmptySet<Certificate>>,
+    certificates: Option<Certificates>,
 ) where
     C: PoolsSlice + AccountsSlice + DRepsSlice + BalanceSlice,
 {
-    let mut pools = BTreeSet::new();
-    let mut accounts = BTreeMap::new();
-    let mut dreps = BTreeMap::new();
+    if let Some(certificates) = certificates {
+        let mut pools = BTreeSet::new();
+        let mut accounts = BTreeMap::new();
+        let mut dreps = BTreeMap::new();
 
-    let mut delta: i64 = 0;
-    for certificate in certificates.map(Vec::from).unwrap_or_default() {
-        delta += count_lovelace_one(context, protocol_parameters, &mut pools, &mut accounts, &mut dreps, certificate);
-    }
+        let mut delta: i64 = 0;
+        for certificate in certificates.into_iter() {
+            delta +=
+                count_lovelace_one(context, protocol_parameters, &mut pools, &mut accounts, &mut dreps, certificate);
+        }
 
-    if delta > 0 {
-        context.produce_lovelace(delta.unsigned_abs())
-    } else if delta < 0 {
-        context.consume_lovelace(delta.unsigned_abs())
+        if delta > 0 {
+            context.produce_lovelace(delta.unsigned_abs())
+        } else if delta < 0 {
+            context.consume_lovelace(delta.unsigned_abs())
+        }
     }
 }
 
