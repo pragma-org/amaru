@@ -221,6 +221,42 @@ regression_case!(
     "conformance_extra/textual/builtin/semantics/shiftByteString/v3-left-shift-whole-byte/v3-left-shift-whole-byte.uplc"
 );
 regression_case!(
+    builtin_semantics_shiftbytestring_v3_shift_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-shift-beyond-int64-pv10/v3-shift-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_shiftbytestring_v3_negative_shift_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-negative-shift-beyond-int64-pv10/v3-negative-shift-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_shiftbytestring_v3_shift_beyond_int64_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-shift-beyond-int64-pv11/v3-shift-beyond-int64-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_rotatebytestring_v3_rotate_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/rotateByteString/v3-rotate-beyond-int64-pv10/v3-rotate-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_rotatebytestring_v3_negative_rotate_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/rotateByteString/v3-negative-rotate-beyond-int64-pv10/v3-negative-rotate-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_rotatebytestring_v3_rotate_beyond_int64_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/rotateByteString/v3-rotate-beyond-int64-pv11/v3-rotate-beyond-int64-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
     builtin_semantics_writebits_v3_multiple_indices_regression,
     "conformance_extra/textual/builtin/semantics/writeBits/v3-multiple-indices/v3-multiple-indices.uplc",
     PlutusVersion::V3,

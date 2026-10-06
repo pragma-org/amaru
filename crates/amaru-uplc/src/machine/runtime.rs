@@ -168,6 +168,20 @@ impl<'a> Machine<'a> {
         Ok(integer)
     }
 
+    /// The absolute shift amount used for costing, saturated to `i64::MAX` where the semantics allow larger amounts.
+    fn shift_amount_cost<V>(&self, shift: &'a Integer) -> Result<i64, MachineError<'a, V>>
+    where
+        V: Eval<'a>,
+    {
+        match i64::try_from(shift) {
+            Ok(shift) => Ok(shift.saturating_abs()),
+            Err(_) if self.costs.semantics.bounds_shift_amount_to_int64() => {
+                Err(MachineError::outside_usize_bounds(shift))
+            }
+            Err(_) => Ok(i64::MAX),
+        }
+    }
+
     pub fn call<V>(&mut self, runtime: &'a Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
@@ -1973,8 +1987,7 @@ impl<'a> Machine<'a> {
                 let bytes = runtime.args[0].unwrap_byte_string()?;
                 let shift = runtime.args[1].unwrap_integer()?;
 
-                let arg1: i64 =
-                    i64::try_from(shift).map_err(|_| MachineError::outside_usize_bounds(shift))?.saturating_abs();
+                let arg1 = self.shift_amount_cost(shift)?;
 
                 let budget = self
                     .costs
@@ -2064,8 +2077,7 @@ impl<'a> Machine<'a> {
                 let bytes = runtime.args[0].unwrap_byte_string()?;
                 let shift = runtime.args[1].unwrap_integer()?;
 
-                let arg1: i64 =
-                    i64::try_from(shift).map_err(|_| MachineError::outside_usize_bounds(shift))?.saturating_abs();
+                let arg1 = self.shift_amount_cost(shift)?;
 
                 let budget = self
                     .costs

@@ -71,4 +71,9 @@ impl Semantics {
     pub fn enforces_integer_bounds(&self) -> bool {
         matches!(self, Self::D | Self::E)
     }
+
+    /// Whether `shiftByteString` and `rotateByteString` reject shift amounts outside the signed 64-bit range.
+    pub fn bounds_shift_amount_to_int64(&self) -> bool {
+        matches!(self, Self::D | Self::E)
+    }
 }
