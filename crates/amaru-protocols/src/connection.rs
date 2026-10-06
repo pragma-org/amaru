@@ -375,7 +375,7 @@ async fn do_initialize(
     // when it advertises full duplex. Those are the protocols the mux may hold before `Register`.
     let initiator_only = false;
     let advertisable = true;
-    let muxer = eff.stage("mux", mux::stage).await;
+    let muxer = eff.stage_with_mailbox_size("mux", mux::stage, mux::MUX_MAILBOX_SIZE).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
     let early = early_mini_protocol_buffers(advertisable);
     let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &early, *role, peer)).await;
@@ -885,6 +885,27 @@ mod tests {
         // Verify state remains the same
         let state = running.get_state(&connection_stage).unwrap();
         assert_eq!(state.state, connection_state);
+    }
+
+    #[test]
+    fn mux_is_created_with_the_burst_mailbox() {
+        let mut network = SimulationBuilder::default();
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(connection, test_connection(State::Initial));
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.breakpoint(
+            "mux-wire",
+            |eff| matches!(eff, Effect::WireStage { name, .. } if name.as_str().starts_with("mux")),
+        );
+        running.enqueue_msg(&connection, [ConnectionMessage::Initialize]);
+        running.run(Run::default()).assert_breakpoint("mux-wire");
+        let hit = running.breakpoint_effect();
+        let Effect::WireStage { mailbox_size, .. } = hit.effect() else {
+            panic!("expected the mux to be wired");
+        };
+        assert_eq!(mux::MUX_MAILBOX_SIZE, 24);
+        assert_eq!(*mailbox_size, mux::MUX_MAILBOX_SIZE);
     }
 
     // HELPERS

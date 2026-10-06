@@ -16,7 +16,7 @@
 
 use std::{
     any::type_name,
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     mem::replace,
     sync::Arc,
     task::{Context, Poll, Waker},
@@ -31,7 +31,7 @@ use tokio::{runtime::Handle, select, sync::watch};
 
 use crate::{
     BLACKHOLE_NAME, BoxFuture, DurationDist, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
-    ScheduleId, SendData, StageRef, StageResponse,
+    ScheduleId, SendData, StageRef, StageResponse, TrySend,
     effect::{CallExtra, CanSupervise, InjectFn, ScheduleIds, StageEffect},
     effect_box::EffectBox,
     serde::{SendDataValue, to_cbor},
@@ -45,7 +45,7 @@ use crate::{
                 ReceiveResume, resume_add_stage_internal, resume_call_internal, resume_call_send_internal,
                 resume_cancel_schedule_internal, resume_clock_internal, resume_detach_internal,
                 resume_external_internal, resume_receive_internal, resume_schedule_internal, resume_send_internal,
-                resume_wait_internal, resume_wire_stage_internal,
+                resume_try_send_internal, resume_wait_internal, resume_wire_stage_internal,
             },
             scheduled_runnables::ScheduledRunnables,
         },
@@ -109,6 +109,11 @@ pub struct SimulationRunning {
     virtual_child_stages: bool,
     /// Effect that hit a breakpoint and has not yet been interpreted.
     pending_breakpoint: Option<(Name, Effect)>,
+    /// Parked calls moved into the callee mailbox after their deadline wakeup was armed.
+    ///
+    /// Keyed by the call's [`ScheduleId`]. The wakeup consumes the id and reports `TimedOut`.
+    /// A reply that arrives first removes it so the id does not stay behind.
+    admitted_calls: BTreeSet<ScheduleId>,
 }
 
 /// Borrow of the effect that hit a breakpoint. Must be dropped before the next [`SimulationRunning::run`].
@@ -202,6 +207,7 @@ impl SimulationRunning {
             tokio_handle,
             virtual_child_stages: false,
             pending_breakpoint: None,
+            admitted_calls: BTreeSet::new(),
         }
     }
 
@@ -542,7 +548,7 @@ impl SimulationRunning {
     fn deliver_detach_message(&mut self, at_stage: Name, msg: Box<dyn SendData>) {
         // `run()` does not re-enter `receive_inputs` on every step, so a detach
         // must wake Receive the same way a Send does.
-        let should_resume = match deliver_message(&mut self.stages, self.mailbox_size, at_stage.clone(), msg) {
+        let should_resume = match deliver_message(&mut self.stages, at_stage.clone(), msg) {
             DeliverMessageResult::Delivered(_) => true,
             DeliverMessageResult::Full(_, msg) => {
                 self.undelivered_detaches.push_back((at_stage.clone(), msg));
@@ -562,7 +568,7 @@ impl SimulationRunning {
         let mut parked = VecDeque::new();
         let mut resume = Vec::new();
         while let Some((name, msg)) = self.undelivered_detaches.pop_front() {
-            match deliver_message(&mut self.stages, self.mailbox_size, name.clone(), msg) {
+            match deliver_message(&mut self.stages, name.clone(), msg) {
                 DeliverMessageResult::Delivered(_) => resume.push(name),
                 DeliverMessageResult::Full(_, msg) => {
                     parked.push_back((name, msg));
@@ -677,7 +683,7 @@ impl SimulationRunning {
             if leftover.is_some() {
                 panic!("cannot enqueue to a call-reply StageRef");
             }
-            let ok = deliver_message(&mut self.stages, self.mailbox_size, name, payload);
+            let ok = deliver_message(&mut self.stages, name, payload);
             if matches!(ok, DeliverMessageResult::Full(..)) {
                 panic!("stage `{}` mailbox is full", sr.as_ref().name());
             }
@@ -694,7 +700,7 @@ impl SimulationRunning {
         expect_stage(self.stages.get(name), name, "which has no mailbox").mailbox.len()
     }
 
-    /// Capacity of each stage mailbox (the limit [`Self::enqueue_msg`] will panic on).
+    /// Default bulk mailbox capacity. A stage that set its own size does not use this.
     pub fn mailbox_size(&self) -> usize {
         self.mailbox_size
     }
@@ -763,7 +769,7 @@ impl SimulationRunning {
         let mut delivered = Vec::new();
         while let Some(mut envelope) = self.inputs.try_next() {
             let msg = replace(&mut envelope.msg, Box::new(()));
-            match deliver_message(&mut self.stages, self.mailbox_size, envelope.name.clone(), msg) {
+            match deliver_message(&mut self.stages, envelope.name.clone(), msg) {
                 DeliverMessageResult::Delivered(_) => {
                     delivered.push(envelope.name);
                     envelope.tx.send(()).ok();
@@ -1066,38 +1072,66 @@ impl SimulationRunning {
                         return Some(Blocked::Terminated(terminated));
                     }
                 };
-                // Only a bulk pop frees a mailbox slot. A tombstone, timeout, or priority
-                // message leaves the bulk mailbox full, so a blocked sender stays blocked.
-                if resumed != ReceiveResume::Bulk {
+                // A bulk pop frees one stored slot. Capacity zero never stores a message, so a
+                // receiver that is still waiting can take a parked sender as a rendezvous.
+                let offer_slot = match resumed {
+                    ReceiveResume::Bulk => true,
+                    ReceiveResume::Other => false,
+                    ReceiveResume::Idle => self.stages.get(&to).is_some_and(|data| {
+                        data.mailbox_size == 0
+                            && data.mailbox.is_empty()
+                            && matches!(data.waiting, Some(StageEffect::Receive))
+                            && !data.senders.is_empty()
+                    }),
+                };
+                if !offer_slot {
                     return None;
                 }
-                let from = {
-                    let data_to = self.stages.get_mut(&to)?;
-                    let (from, msg) = data_to.senders.pop_front()?;
-                    match post_message(data_to, self.mailbox_size, msg) {
-                        DeliverMessageResult::Delivered(_) => from,
-                        DeliverMessageResult::Full(data_to, msg) => {
-                            data_to.senders.push_front((from, msg));
-                            return None;
-                        }
-                        DeliverMessageResult::NotFound => return None,
+                if let Some(blocked) = self.admit_parked_sender(&to, resumed == ReceiveResume::Idle) {
+                    return Some(blocked);
+                }
+            }
+            Effect::TrySend { from, to, msg } => {
+                let outcome = if to.is_empty() {
+                    tracing::info!(stage = %from, "try_send to blackhole dropped");
+                    TrySend::Queued
+                } else {
+                    match self.stages.get(&to) {
+                        None => TrySend::Gone,
+                        Some(data) if data.mailbox_accepts() => TrySend::Queued,
+                        Some(_) => TrySend::Full,
                     }
                 };
-                let data_from = skip_if_terminated(self.stages.get_mut(&from), &from)?;
-                // A queued call stays suspended: the reply path or the original deadline completes it.
-                if matches!(data_from.waiting, Some(StageEffect::Call(_, _, _))) {
-                    return None;
+                if outcome == TrySend::Queued && !to.is_empty() {
+                    match deliver_message(&mut self.stages, to.clone(), msg) {
+                        DeliverMessageResult::Delivered(data_to) => {
+                            let name = data_to.name.clone();
+                            if let Err(err) = resume_receive_internal(self, &name) {
+                                tracing::warn!(%from, %to, ?err, "cannot deliver try_send, shutting down simulation");
+                                let terminated =
+                                    err.downcast::<resume::UnsupervisedChildTermination>().map(|e| e.0).unwrap_or(name);
+                                return Some(Blocked::Terminated(terminated));
+                            }
+                        }
+                        DeliverMessageResult::Full(_, _) => {
+                            panic!("stage `{to}` accepted a try_send and then refused it");
+                        }
+                        DeliverMessageResult::NotFound => {
+                            panic!("stage `{to}` disappeared during try_send");
+                        }
+                    }
                 }
-                resume_send_internal(
+                let data_from = skip_if_terminated(self.stages.get_mut(&from), &from)?;
+                resume_try_send_internal(
                     data_from,
                     &mut |name, response| {
                         tracing::debug!(%name, ?response, "enqueuing stage");
                         self.runnable.push_back((name, response));
                     },
-                    to,
-                    &mut None,
+                    &to,
+                    outcome,
                 )
-                .expect("call is always runnable");
+                .expect("try_send is always runnable");
             }
             Effect::Send { from, to, .. } if to.is_empty() => {
                 tracing::info!(stage = %from, "message send to blackhole dropped");
@@ -1120,19 +1154,20 @@ impl SimulationRunning {
                         resume_send_internal(data_from, run, to.clone(), &mut msg).expect("call is always runnable");
                     if let Some(id) = id {
                         self.scheduled.remove(&id);
+                        // The reply beat the deadline, so that wakeup will not consult this id.
+                        self.admitted_calls.remove(&id);
                         let data_to = skip_if_terminated(self.stages.get_mut(&to), &to)?;
                         // call response races with other responses and timeout, so failure to resume is okay
                         resume_call_internal(
                             data_to,
                             run,
                             Some(id),
-                            Some(msg.expect("scheduled call response must preserve payload")),
+                            msg.expect("scheduled call response must preserve payload"),
                         )
                         .ok();
                     }
                 } else {
-                    let mb = self.mailbox_size;
-                    let resume = match deliver_message(&mut self.stages, mb, to.clone(), msg) {
+                    let resume = match deliver_message(&mut self.stages, to.clone(), msg) {
                         DeliverMessageResult::Delivered(data_to) => {
                             // `to` may not be suspended on receive, so failure to resume is okay
                             let name = data_to.name.clone();
@@ -1298,7 +1333,7 @@ impl SimulationRunning {
                 let data = skip_if_terminated(self.stages.get_mut(&at_stage), &at_stage)?;
                 resume_add_stage_internal(data, run, name).expect("add stage effect is always runnable");
             }
-            Effect::WireStage { at_stage, name, initial_state, tombstone } => {
+            Effect::WireStage { at_stage, name, initial_state, tombstone, mailbox_size } => {
                 self.trace_buffer.lock().push_state(&name, &initial_state);
                 let data = skip_if_terminated(self.stages.get_mut(&at_stage), &at_stage)?;
                 let transition = resume_wire_stage_internal(data, run).expect("wire stage effect is always runnable");
@@ -1316,6 +1351,7 @@ impl SimulationRunning {
                         StageData {
                             name,
                             mailbox: VecDeque::new(),
+                            mailbox_size,
                             priority: VecDeque::new(),
                             tombstones: VecDeque::new(),
                             state: StageState::Idle(initial_state),
@@ -1334,6 +1370,80 @@ impl SimulationRunning {
         None
     }
 
+    /// Move one parked sender into `to`'s mailbox.
+    ///
+    /// `resume_receiver` is set for a capacity-zero rendezvous, where `to` is still waiting
+    /// on receive. After a bulk pop, `to` is already running and the admitted message waits
+    /// for its next receive.
+    ///
+    /// A sender that is gone, or no longer waiting to deliver here, is dropped. That includes
+    /// a call whose caller terminated while the request was only queued.
+    fn admit_parked_sender(&mut self, to: &Name, resume_receiver: bool) -> Option<Blocked> {
+        enum Parked {
+            Call(Option<ScheduleId>),
+            Send,
+        }
+        loop {
+            let (from, msg) = {
+                let data_to = self.stages.get_mut(to)?;
+                data_to.senders.pop_front()?
+            };
+            let parked = match self.stages.get(&from).and_then(|data| data.waiting.as_ref()) {
+                Some(StageEffect::Call(name, _, extra)) if name == to => {
+                    let id = match extra {
+                        CallExtra::Scheduled(id) => Some(*id),
+                        // A call is scheduled before it can park, so this carries no deadline id.
+                        CallExtra::CallFn(_) => None,
+                    };
+                    Some(Parked::Call(id))
+                }
+                Some(StageEffect::Send(name, None, _)) if name == to => Some(Parked::Send),
+                _ => None,
+            };
+            let Some(parked) = parked else {
+                continue;
+            };
+            let admitted = {
+                let data_to = self.stages.get_mut(to)?;
+                push_reserved(data_to, msg)
+            };
+            match admitted {
+                Ok(()) => {}
+                Err(msg) => {
+                    let data_to = self.stages.get_mut(to)?;
+                    data_to.senders.push_front((from, msg));
+                    return None;
+                }
+            }
+            // The deadline wakeup captured admission at schedule time. Remember a call that
+            // enters the mailbox later so that wakeup reports TimedOut.
+            if let Parked::Call(Some(id)) = &parked {
+                self.admitted_calls.insert(*id);
+            }
+            if resume_receiver && let Err(err) = resume_receive_internal(self, to) {
+                tracing::warn!(%to, ?err, "cannot resume rendezvous receive, shutting down simulation");
+                let terminated =
+                    err.downcast::<resume::UnsupervisedChildTermination>().map(|e| e.0).unwrap_or_else(|_| to.clone());
+                return Some(Blocked::Terminated(terminated));
+            }
+            if matches!(parked, Parked::Call(_)) {
+                return None;
+            }
+            let data_from = skip_if_terminated(self.stages.get_mut(&from), &from)?;
+            resume_send_internal(
+                data_from,
+                &mut |name, response| {
+                    tracing::debug!(%name, ?response, "enqueuing stage");
+                    self.runnable.push_back((name, response));
+                },
+                to.clone(),
+                &mut None,
+            )
+            .expect("parked send is always runnable");
+            return None;
+        }
+    }
+
     /// Recursively terminate the given stage and all its children.
     ///
     /// This also cleans up the state of all terminated stages in the simulation,
@@ -1346,6 +1456,11 @@ impl SimulationRunning {
         // TODO(network):
         // - add kill switch to scheduled external effects to terminate them
         // - record source stage for scheduled messages to remove them
+
+        // A call or send that was only queued must not be admitted after this stage is gone.
+        for data in self.stages.values_mut() {
+            data.senders.retain(|(from, _)| from != &at_stage);
+        }
 
         let Some(data) = self.stages.get_mut(&at_stage) else {
             tracing::warn!(name = %at_stage, "stage was already terminated, skipping terminate stage effect");
@@ -1702,7 +1817,6 @@ enum DeliverMessageResult<'a> {
 /// does not exist, or `Err` if the mailbox is full.
 fn deliver_message(
     stages: &mut BTreeMap<Name, StageData>,
-    mailbox_size: usize,
     name: Name,
     msg: Box<dyn SendData>,
 ) -> DeliverMessageResult<'_> {
@@ -1710,11 +1824,24 @@ fn deliver_message(
         return DeliverMessageResult::NotFound;
     };
 
-    post_message(data, mailbox_size, msg)
+    post_message(data, msg)
 }
 
-fn post_message(data: &mut StageData, mailbox_size: usize, msg: Box<dyn SendData>) -> DeliverMessageResult<'_> {
-    if data.mailbox.len() >= mailbox_size {
+/// Admit a message that already owns the next slot (the head of `senders`).
+///
+/// Unlike [`post_message`], this ignores other parked senders. Capacity zero may hold the
+/// message only until the waiting receiver takes it.
+fn push_reserved(data: &mut StageData, msg: Box<dyn SendData>) -> Result<(), Box<dyn SendData>> {
+    let room = data.mailbox.len() < data.mailbox_size || (data.mailbox_size == 0 && data.mailbox.is_empty());
+    if !room {
+        return Err(msg);
+    }
+    data.mailbox.push_back(msg);
+    Ok(())
+}
+
+fn post_message(data: &mut StageData, msg: Box<dyn SendData>) -> DeliverMessageResult<'_> {
+    if !data.mailbox_accepts() {
         return DeliverMessageResult::Full(data, msg);
     }
     data.mailbox.push_back(msg);
@@ -1759,4 +1886,74 @@ fn deliver_priority(sim: &mut SimulationRunning, at_stage: Name, msg: Box<dyn Se
     let name = data.name.clone();
     // Stage may already be waiting on Receive; wake it so the priority message is not stuck.
     let _ = resume_receive_internal(sim, &name);
+}
+
+#[cfg(test)]
+mod admission_cleanup {
+    use std::time::Duration;
+
+    use super::SimulationRunning;
+    use crate::{
+        StageGraph, StageRef,
+        simulation::{Run, SimulationBuilder},
+        trace_buffer::TerminationReason,
+    };
+
+    /// Mailbox size 1, one filler queued, caller blocked in `call`.
+    fn parked_call() -> (tokio::runtime::Runtime, SimulationRunning, crate::Name, crate::Name) {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+        let mut network = SimulationBuilder::default();
+        let callee = network.stage_with_mailbox_size(
+            "callee",
+            async |out: StageRef<u8>, msg: u8, eff| {
+                if msg == 0 {
+                    eff.send(&out, 1u8).await;
+                    eff.wait(Duration::from_secs(10)).await;
+                } else {
+                    eff.send(&out, msg).await;
+                }
+                out
+            },
+            1,
+        );
+        let callee_ref = callee.sender();
+        let caller = network.stage("caller", async |callee: StageRef<u8>, _: u8, eff| {
+            let _ = eff.call(&callee, Duration::from_secs(30), |_: StageRef<u8>| 9u8).await;
+            callee
+        });
+        let caller_ref = caller.sender();
+        let (out, mut rx) = network.output("out", 4);
+        network.wire_up(callee, out);
+        network.wire_up(caller, callee_ref.clone());
+        let mut sim = network.run(rt.handle());
+        sim.enqueue_msg(&callee_ref, [0u8]);
+        sim.run(Run::default()).assert_sleeping();
+        assert_eq!(rx.try_next(), Some(1));
+        sim.enqueue_msg(&callee_ref, [1u8]);
+        sim.enqueue_msg(&caller_ref, [0u8]);
+        sim.run(Run::default()).assert_sleeping();
+        let callee_name = callee_ref.name().clone();
+        let caller_name = caller_ref.name().clone();
+        assert_eq!(sim.stages.get(&callee_name).expect("callee").senders.len(), 1, "call is parked");
+        (rt, sim, callee_name, caller_name)
+    }
+
+    #[test]
+    fn terminate_drops_the_callers_parked_call() {
+        let (_rt, mut sim, callee, caller) = parked_call();
+        sim.terminate_stage(caller, TerminationReason::Voluntary);
+        let senders = &sim.stages.get(&callee).expect("callee").senders;
+        assert!(senders.is_empty(), "outbound retain must drop the parked call: {senders:?}");
+    }
+
+    #[test]
+    fn admit_drops_a_parked_sender_that_is_gone() {
+        let (_rt, mut sim, callee, caller) = parked_call();
+        let mailbox = sim.stages.get(&callee).expect("callee").mailbox.len();
+        sim.stages.remove(&caller);
+        sim.admit_parked_sender(&callee, false);
+        let data = sim.stages.get(&callee).expect("callee");
+        assert!(data.senders.is_empty(), "a gone sender is not put back on the queue");
+        assert_eq!(data.mailbox.len(), mailbox, "a gone sender is not admitted");
+    }
 }

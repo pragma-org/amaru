@@ -54,6 +54,13 @@ pub const SDU_TIMEOUT_HANDSHAKE: Duration = Duration::from_secs(10);
 /// Mux SDU assembly/send timer after that Handshake has finished.
 pub const SDU_TIMEOUT_ESTABLISHED: Duration = Duration::from_secs(30);
 
+/// Bulk mailbox of the mux stage.
+///
+/// A hot duplex connection runs up to ten handlers. One `Send` and one `WantNext`
+/// from each, plus `FromNetwork` and `Written`, is 22; 24 leaves room for a
+/// `Register` or `SetSduTimeout` in the same burst.
+pub const MUX_MAILBOX_SIZE: usize = 24;
+
 const HEADER_LEADING_EDGE: NonZeroUsize = NonZeroUsize::MIN;
 const HEADER_REST: NonZeroUsize = const {
     let ret = NonZeroUsize::new(7).expect("non-zero");

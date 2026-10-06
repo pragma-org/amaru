@@ -55,6 +55,8 @@ pub struct Effects<M> {
     resources: Resources,
     schedule_ids: ScheduleIds,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
+    /// Builder default copied onto stages this one wires up. Not this stage's own capacity.
+    mailbox_size: usize,
 }
 
 impl<M> Clone for Effects<M> {
@@ -67,6 +69,7 @@ impl<M> Clone for Effects<M> {
             global_epoch_offset: self.global_epoch_offset,
             resources: self.resources.clone(),
             trace_buffer: self.trace_buffer.clone(),
+            mailbox_size: self.mailbox_size,
         }
     }
 }
@@ -78,6 +81,7 @@ impl<M> Debug for Effects<M> {
 }
 
 impl<M: SendData> Effects<M> {
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn new(
         me: StageRef<M>,
         effect: EffectBox,
@@ -86,8 +90,9 @@ impl<M: SendData> Effects<M> {
         resources: Resources,
         schedule_ids: ScheduleIds,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
+        mailbox_size: usize,
     ) -> Self {
-        Self { me, effect, clock, global_epoch_offset, resources, schedule_ids, trace_buffer }
+        Self { me, effect, clock, global_epoch_offset, resources, schedule_ids, trace_buffer, mailbox_size }
     }
 
     /// Obtain a reference to the current stage.
@@ -120,6 +125,7 @@ impl<M: SendData> Effects<M> {
             resources: self.resources.clone(),
             schedule_ids: self.schedule_ids.clone(),
             trace_buffer: self.trace_buffer.clone(),
+            mailbox_size: self.mailbox_size,
         }
     }
 }
@@ -162,22 +168,70 @@ impl ScheduleIds {
     }
 }
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CallTimeout;
+/// Token for [`CallAdmission::TimedOut`].
+///
+/// The request was admitted, then the deadline passed. It stays queued. A later
+/// receive may use this token to allow termination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CallTimeout;
 
 impl CallTimeout {
-    /// The value a caller observes when the call deadline elapses before a reply.
+    /// The value a caller observes as [`CallAdmission::TimedOut`]: the request was admitted,
+    /// then the deadline passed. The request stays queued. A late reply is ignored.
     pub(crate) fn boxed() -> Box<dyn SendData> {
         Box::new(Self)
     }
+}
 
-    /// Build the [`StageResponse`] for a finished call.
-    ///
-    /// `Some` is a reply that arrived before the deadline. `None` is the timeout sentinel.
-    /// This does not decide whether a request is queued, abandoned, or delivered; each
-    /// runtime does that and then reports the outcome through here.
-    pub(crate) fn response(reply: Option<Box<dyn SendData>>) -> StageResponse {
-        StageResponse::CallResponse(reply.unwrap_or_else(Self::boxed))
+/// Token for [`CallAdmission::NotAdmitted`].
+///
+/// The deadline fired before admission. The request is never delivered. A later
+/// receive may use this token to open the follow-up transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CallNotAdmitted;
+
+impl CallNotAdmitted {
+    pub(crate) fn boxed() -> Box<dyn SendData> {
+        Box::new(Self)
+    }
+}
+
+/// Result of [`Effects::try_send`].
+///
+/// See that method for how each variant is chosen, including blackhole, self-send,
+/// capacity zero, and parked senders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TrySend {
+    /// The message is in the destination mailbox, or was handed straight to a waiting receiver.
+    Queued,
+    /// Not admitted, and will not be admitted later.
+    Full,
+    /// The destination stage does not exist.
+    Gone,
+}
+
+/// Result of [`Effects::call_with_admission`].
+///
+/// [`Effects::call`] maps both [`NotAdmitted`](Self::NotAdmitted) and [`TimedOut`](Self::TimedOut)
+/// to `None`.
+#[derive(Debug, PartialEq)]
+pub enum CallAdmission<T> {
+    /// A reply arrived before the deadline. The value is the callee's token.
+    Reply(T),
+    /// The deadline fired before admission. The request is never delivered.
+    NotAdmitted(CallNotAdmitted),
+    /// The request was admitted, then the deadline passed. The request stays queued.
+    /// A late reply is ignored.
+    TimedOut(CallTimeout),
+}
+
+pub(crate) fn call_admission<Resp: SendData + DeserializeOwned>(resp: Box<dyn SendData>) -> CallAdmission<Resp> {
+    if resp.typetag_name() == type_name::<CallNotAdmitted>() {
+        CallAdmission::NotAdmitted(CallNotAdmitted)
+    } else if resp.typetag_name() == type_name::<CallTimeout>() {
+        CallAdmission::TimedOut(CallTimeout)
+    } else {
+        CallAdmission::Reply(resp.cast_deserialize::<Resp>().expect("internal message type error"))
     }
 }
 
@@ -187,6 +241,37 @@ impl<M> Effects<M> {
     pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
         let (name, call, payload) = target.materialize_send(msg);
         airlock_effect(&self.effect, StageEffect::Send(name, call, payload), |_eff| Some(()))
+    }
+
+    /// Admit `msg` into `target`'s bulk mailbox, or report why it was not admitted.
+    ///
+    /// Returns immediately. The sender is not parked on the destination, so a full mailbox
+    /// does not stop this transition from continuing other work. The message is not
+    /// retried: [`TrySend::Full`] means it will never be admitted later.
+    ///
+    /// * [`TrySend::Queued`] — admitted. The message is in the destination mailbox, or the
+    ///   destination is the blackhole and the message is dropped, or the capacity is zero and
+    ///   the destination was already waiting to receive.
+    /// * [`TrySend::Full`] — not admitted. The mailbox has no free slot, or a blocking
+    ///   [`send`](Self::send) is already parked on this destination and owns the next slot.
+    /// * [`TrySend::Gone`] — the destination stage does not exist.
+    ///
+    /// The result is the effect's response ([`StageResponse::TrySend`]). The traced request
+    /// is the attempt ([`Effect::TrySend`]) and does not carry that result.
+    ///
+    /// Capacity zero admits a message only while the destination is waiting to receive, its
+    /// mailbox is empty, and no sender is already parked.
+    #[expect(clippy::panic)]
+    #[track_caller]
+    pub fn try_send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, TrySend> {
+        let (name, call, payload) = target.materialize_send(msg);
+        if call.is_some() {
+            panic!("try_send cannot answer a call ({} -> {})", self.me.name(), name);
+        }
+        airlock_effect(&self.effect, StageEffect::TrySend(name, payload), |eff| match eff {
+            Some(StageResponse::TrySend(outcome)) => Some(outcome),
+            _ => None,
+        })
     }
 
     /// Obtain the current simulation time.
@@ -211,22 +296,23 @@ impl<M> Effects<M> {
     /// The `msg` closure is called with a reference to the call effect, which can be used
     /// to respond to the call.
     ///
-    /// The timeout is one deadline starting when the call is issued. It covers both waiting
-    /// for a free slot in the target mailbox and waiting for the reply. A slot that frees
-    /// before the deadline delivers the request and leaves the caller suspended until the
-    /// reply or that same deadline. If the request has not entered the mailbox when the
-    /// deadline elapses, it is abandoned and is not delivered later. A reply that arrives
-    /// after the deadline is ignored. If the target stage is already gone, the caller still
-    /// waits out the deadline and then observes a timeout.
+    /// The timeout is one deadline starting when the call is issued. It covers admission into
+    /// the callee mailbox and, once the request is admitted, waiting for the reply. It does
+    /// not start only after the request is queued.
     ///
-    /// The returned future will resolve to `Some(resp)` if the call was successful, or `None`
-    /// if the call timed out.
+    /// * [`CallAdmission::NotAdmitted`] — the deadline fired before admission. The request
+    ///   is never delivered, including when a slot later frees or the caller has already
+    ///   terminated. [`call`](Self::call) reports `None`.
+    /// * [`CallAdmission::TimedOut`] — the request was admitted, then the deadline passed.
+    ///   The request stays queued. A late reply is ignored. [`call`](Self::call) reports `None`.
+    /// * If the target is already gone, or is a blackhole, the caller still waits out the
+    ///   deadline and then observes the not-admitted outcome. Nothing is delivered.
     ///
     /// # Panics
     ///
     /// - If `target` is a call-context StageRef (i.e., carries an `extra()`), which would imply a nested call.
     ///   This restriction may be lifted in the future.
-    #[expect(clippy::panic)]
+    // TODO(rkuhn): lift nested call restriction if/when needed.
     #[track_caller]
     pub fn call<Req: SendData, Resp: SendData + DeserializeOwned>(
         &self,
@@ -234,6 +320,28 @@ impl<M> Effects<M> {
         timeout: Duration,
         msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
+        let result = self.call_with_admission(target, timeout, msg);
+        Box::pin(async move {
+            match result.await {
+                CallAdmission::Reply(resp) => Some(resp),
+                CallAdmission::NotAdmitted(_) | CallAdmission::TimedOut(_) => None,
+            }
+        })
+    }
+
+    /// [`call`](Self::call), plus [`CallAdmission::NotAdmitted`] versus [`CallAdmission::TimedOut`].
+    ///
+    /// `NotAdmitted` means the deadline fired before admission: the request is never delivered.
+    /// `TimedOut` means the request was admitted, then the deadline passed: it stays queued and
+    /// a late reply is ignored. [`call`](Self::call) collapses both to `None`.
+    #[expect(clippy::panic)]
+    #[track_caller]
+    pub fn call_with_admission<Req: SendData, Resp: SendData + DeserializeOwned>(
+        &self,
+        target: &StageRef<Req>,
+        timeout: Duration,
+        msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
+    ) -> BoxFuture<'static, CallAdmission<Resp>> {
         let peeled = target.peel();
         if peeled.leftover.is_some() {
             panic!("cannot answer a call with a call ({} -> {})", self.me.name(), peeled.name);
@@ -250,13 +358,7 @@ impl<M> Effects<M> {
             &self.effect,
             StageEffect::Call(peeled.name, timeout, CallExtra::CallFn(NoDebug::new(msg))),
             |eff| match eff {
-                Some(StageResponse::CallResponse(resp)) => {
-                    if resp.typetag_name() == type_name::<CallTimeout>() {
-                        Some(None)
-                    } else {
-                        Some(Some(resp.cast_deserialize::<Resp>().expect("internal message type error")))
-                    }
-                }
+                Some(StageResponse::CallResponse(resp)) => Some(call_admission(resp)),
                 _ => None,
             },
         )
@@ -441,7 +543,27 @@ impl<M> Effects<M> {
     pub async fn stage<Msg, St, F, Fut>(
         &self,
         name: impl AsRef<str>,
+        f: F,
+    ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>
+    where
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
+        self.stage_with_mailbox_size(name, f, self.mailbox_size).await
+    }
+
+    /// Create a stage whose bulk mailbox holds `mailbox_size` messages.
+    ///
+    /// The size is fixed before the handle is returned. Stages this one later creates
+    /// with [`stage`](Self::stage) still use this effect's mailbox size.
+    #[expect(clippy::future_not_send)]
+    pub async fn stage_with_mailbox_size<Msg, St, F, Fut>(
+        &self,
+        name: impl AsRef<str>,
         mut f: F,
+        mailbox_size: usize,
     ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>
     where
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
@@ -463,9 +585,19 @@ impl<M> Effects<M> {
         let me = StageRef::new(name.clone());
         let trace_buffer = self.trace_buffer.clone();
         let schedule_ids = self.schedule_ids.clone();
+        let child_mailbox = self.mailbox_size;
 
         let transition = move |effect: EffectBox| {
-            let eff = Effects::new(me, effect, clock, global_epoch_offset, resources, schedule_ids, trace_buffer);
+            let eff = Effects::new(
+                me,
+                effect,
+                clock,
+                global_epoch_offset,
+                resources,
+                schedule_ids,
+                trace_buffer,
+                child_mailbox,
+            );
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg.cast_deserialize::<Msg>().expect("internal message type error");
@@ -475,7 +607,7 @@ impl<M> Effects<M> {
             }) as Transition
         };
         let can_supervise = CanSupervise(name.clone());
-        crate::StageBuildRef { name, network: (Box::new(transition), can_supervise), _ph: PhantomData }
+        crate::StageBuildRef { name, network: (Box::new(transition), can_supervise), mailbox_size, _ph: PhantomData }
     }
 
     /// Supervise the given stage by sending the tombstone when it terminates.
@@ -486,9 +618,9 @@ impl<M> Effects<M> {
         stage: crate::StageBuildRef<Msg, St, (TransitionFactory, CanSupervise)>,
         tombstone: M,
     ) -> crate::StageBuildRef<Msg, St, (TransitionFactory, M)> {
-        let StageBuildRef { name, network, .. } = stage;
+        let StageBuildRef { name, network, mailbox_size, .. } = stage;
 
-        crate::StageBuildRef { name, network: (network.0, tombstone), _ph: PhantomData }
+        crate::StageBuildRef { name, network: (network.0, tombstone), mailbox_size, _ph: PhantomData }
     }
 
     #[expect(clippy::future_not_send)]
@@ -501,12 +633,18 @@ impl<M> Effects<M> {
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData,
     {
-        let StageBuildRef { name, network, _ph } = stage;
+        let StageBuildRef { name, network, mailbox_size, _ph } = stage;
         let (transition, tombstone) = network;
 
         airlock_effect(
             &self.effect,
-            StageEffect::WireStage(name.clone(), NoDebug::new(transition), Box::new(state), Box::new(tombstone)),
+            StageEffect::WireStage(
+                name.clone(),
+                NoDebug::new(transition),
+                Box::new(state),
+                Box::new(tombstone),
+                mailbox_size,
+            ),
             |eff| match eff {
                 Some(StageResponse::Unit) => Some(()),
                 _ => None,
@@ -780,6 +918,8 @@ pub(crate) type InjectFn = Box<dyn FnOnce(Box<dyn SendData>) -> Box<dyn SendData
 pub enum StageEffect<T> {
     Receive,
     Send(Name, Option<Arc<dyn Any + Send + Sync>>, T),
+    /// Immediate bulk admission. `T` is the message; the waiting marker uses `()`.
+    TrySend(Name, T),
     Call(Name, Duration, CallExtra),
     Clock,
     Wait(Duration),
@@ -799,7 +939,8 @@ pub enum StageEffect<T> {
     Detach(Box<dyn ExternalEffect>, NoDebug<InjectFn>),
     Terminate,
     AddStage(Name),
-    WireStage(Name, NoDebug<TransitionFactory>, T, T),
+    /// Name, transition, initial state, tombstone, bulk mailbox capacity.
+    WireStage(Name, NoDebug<TransitionFactory>, T, T, usize),
 }
 
 pub type TransitionFactory = Box<dyn FnOnce(EffectBox) -> Transition + Send + 'static>;
@@ -811,6 +952,7 @@ pub enum StageResponse {
     ClockResponse(Instant),
     WaitResponse(Instant),
     CallResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
+    TrySend(TrySend),
     CancelScheduleResponse(bool),
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     AddStageResponse(Name),
@@ -831,6 +973,10 @@ impl StageResponse {
             StageResponse::CallResponse(msg) => serde_json::json!({
                 "type": "call",
                 "msg": format!("{msg}"),
+            }),
+            StageResponse::TrySend(outcome) => serde_json::json!({
+                "type": "try_send",
+                "outcome": format!("{outcome:?}"),
             }),
             StageResponse::CancelScheduleResponse(cancelled) => serde_json::json!({
                 "type": "cancel_schedule",
@@ -857,6 +1003,7 @@ impl Display for StageResponse {
             StageResponse::CallResponse(msg) => {
                 write!(f, "{}", msg.as_send_data_value().borrow())
             }
+            StageResponse::TrySend(outcome) => write!(f, "try_send-{outcome:?}"),
             StageResponse::CancelScheduleResponse(cancelled) => {
                 write!(f, "cancel_schedule-{}", cancelled)
             }
@@ -878,6 +1025,9 @@ impl StageEffect<Box<dyn SendData>> {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
             StageEffect::Send(name, call, msg) => {
                 (StageEffect::Send(name.clone(), call, ()), Effect::Send { from: at_name, to: name, msg })
+            }
+            StageEffect::TrySend(name, msg) => {
+                (StageEffect::TrySend(name.clone(), ()), Effect::TrySend { from: at_name, to: name, msg })
             }
             StageEffect::Call(name, duration, msg) => {
                 let id = schedule_ids.next_at(now + duration);
@@ -915,9 +1065,9 @@ impl StageEffect<Box<dyn SendData>> {
             StageEffect::AddStage(name) => {
                 (StageEffect::AddStage(name.clone()), Effect::AddStage { at_stage: at_name, name })
             }
-            StageEffect::WireStage(name, transition, initial_state, tombstone) => (
-                StageEffect::WireStage(name.clone(), transition, (), ()),
-                Effect::WireStage { at_stage: at_name, name, initial_state, tombstone },
+            StageEffect::WireStage(name, transition, initial_state, tombstone, mailbox_size) => (
+                StageEffect::WireStage(name.clone(), transition, (), (), mailbox_size),
+                Effect::WireStage { at_stage: at_name, name, initial_state, tombstone, mailbox_size },
             ),
         }
     }
@@ -930,6 +1080,12 @@ pub enum Effect {
         at_stage: Name,
     },
     Send {
+        from: Name,
+        to: Name,
+        #[serde(with = "crate::serde::serialize_send_data")]
+        msg: Box<dyn SendData>,
+    },
+    TrySend {
         from: Name,
         to: Name,
         #[serde(with = "crate::serde::serialize_send_data")]
@@ -994,6 +1150,7 @@ pub enum Effect {
         initial_state: Box<dyn SendData>,
         #[serde(with = "crate::serde::serialize_send_data")]
         tombstone: Box<dyn SendData>,
+        mailbox_size: usize,
     },
 }
 
@@ -1012,6 +1169,12 @@ impl Effect {
                     "msg": format!("{msg}"),
                 })
             }
+            Effect::TrySend { from, to, msg } => serde_json::json!({
+                "type": "try_send",
+                "from": from,
+                "to": to,
+                "msg": format!("{msg}"),
+            }),
             Effect::Call { from, to, duration, msg } => serde_json::json!({
                 "type": "call",
                 "from": from,
@@ -1084,12 +1247,13 @@ impl Effect {
                 "at_stage": at_stage,
                 "name": name,
             }),
-            Effect::WireStage { at_stage, name, initial_state, tombstone } => serde_json::json!({
+            Effect::WireStage { at_stage, name, initial_state, tombstone, mailbox_size } => serde_json::json!({
                 "type": "wire_stage",
                 "at_stage": at_stage,
                 "name": name,
                 "initial_state": format!("{initial_state}"),
                 "tombstone": format!("{tombstone}"),
+                "mailbox_size": mailbox_size,
             }),
         }
     }
@@ -1101,6 +1265,9 @@ impl Display for Effect {
             Effect::Receive { at_stage } => write!(f, "receive {at_stage}"),
             Effect::Send { from, to, msg } => {
                 write!(f, "send {from} -> {to}: {msg}",)
+            }
+            Effect::TrySend { from, to, msg } => {
+                write!(f, "try_send {from} -> {to}: {msg}")
             }
             Effect::Call { from, to, duration, msg } => {
                 write!(f, "call {from} -> {to}: {duration:?} {msg}")
@@ -1127,8 +1294,8 @@ impl Display for Effect {
             }
             Effect::Terminate { at_stage } => write!(f, "terminate {at_stage}"),
             Effect::AddStage { at_stage, name } => write!(f, "add_stage {at_stage} {name}"),
-            Effect::WireStage { at_stage, name, initial_state, tombstone } => {
-                write!(f, "wire_stage {at_stage} {name} {initial_state} {tombstone}")
+            Effect::WireStage { at_stage, name, initial_state, tombstone, mailbox_size } => {
+                write!(f, "wire_stage {at_stage} {name} {initial_state} {tombstone} mailbox={mailbox_size}")
             }
         }
     }
@@ -1138,6 +1305,11 @@ impl Effect {
     /// Construct a send effect.
     pub fn send(from: impl AsRef<str>, to: impl AsRef<str>, msg: Box<dyn SendData>) -> Self {
         Self::Send { from: Name::from(from.as_ref()), to: Name::from(to.as_ref()), msg }
+    }
+
+    /// Construct a try-send effect. The admission result is the effect response, not this value.
+    pub fn try_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: Box<dyn SendData>) -> Self {
+        Self::TrySend { from: Name::from(from.as_ref()), to: Name::from(to.as_ref()), msg }
     }
 
     /// Construct a call effect.
@@ -1196,6 +1368,7 @@ impl Effect {
             name: Name::from(name.as_ref()),
             initial_state,
             tombstone: tombstone.unwrap_or_else(|| SendDataValue::boxed(&CanSupervise(Name::from(name.as_ref())))),
+            mailbox_size: crate::DEFAULT_MAILBOX_SIZE,
         }
     }
 
@@ -1204,6 +1377,7 @@ impl Effect {
         match self {
             Effect::Receive { at_stage, .. } => at_stage,
             Effect::Send { from, .. } => from,
+            Effect::TrySend { from, .. } => from,
             Effect::Call { from, .. } => from,
             Effect::Clock { at_stage, .. } => at_stage,
             Effect::Wait { at_stage, .. } => at_stage,
@@ -1230,6 +1404,12 @@ impl PartialEq for Effect {
             },
             Effect::Send { from, to, msg } => match other {
                 Effect::Send { from: other_from, to: other_to, msg: other_msg } => {
+                    from == other_from && to == other_to && msg == other_msg
+                }
+                _ => false,
+            },
+            Effect::TrySend { from, to, msg } => match other {
+                Effect::TrySend { from: other_from, to: other_to, msg: other_msg } => {
                     from == other_from && to == other_to && msg == other_msg
                 }
                 _ => false,
@@ -1299,17 +1479,19 @@ impl PartialEq for Effect {
                 }
                 _ => false,
             },
-            Effect::WireStage { at_stage, name, initial_state, tombstone } => match other {
+            Effect::WireStage { at_stage, name, initial_state, tombstone, mailbox_size } => match other {
                 Effect::WireStage {
                     at_stage: other_at_stage,
                     name: other_name,
                     initial_state: other_initial_state,
                     tombstone: other_tombstone,
+                    mailbox_size: other_mailbox_size,
                 } => {
                     at_stage == other_at_stage
                         && name == other_name
                         && initial_state == other_initial_state
                         && tombstone == other_tombstone
+                        && mailbox_size == other_mailbox_size
                 }
                 _ => false,
             },

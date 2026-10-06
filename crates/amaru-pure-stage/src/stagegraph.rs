@@ -109,6 +109,27 @@ pub trait StageGraph {
         F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
         Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
+    {
+        self.stage_with_mailbox_size(name, f, crate::DEFAULT_MAILBOX_SIZE)
+    }
+
+    /// Create a stage whose bulk mailbox holds `mailbox_size` messages.
+    ///
+    /// The size is fixed before the [`StageBuildRef`] is returned. Zero is a rendezvous:
+    /// a message is admitted only when the destination is already waiting to receive and
+    /// no sender is parked ahead. The provided [`stage`](Self::stage) passes
+    /// [`crate::DEFAULT_MAILBOX_SIZE`].
+    fn stage_with_mailbox_size<Msg, St, F, Fut>(
+        &mut self,
+        name: impl AsRef<str>,
+        f: F,
+        mailbox_size: usize,
+    ) -> StageBuildRef<Msg, St, Box<dyn Any + Send>>
+    where
+        F: FnMut(St, Msg, Effects<Msg>) -> Fut + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
+        Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
     /// Finalize the given stage by providing its initial state.

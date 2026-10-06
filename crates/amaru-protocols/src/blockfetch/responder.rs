@@ -171,8 +171,9 @@ where
     type Reply = Sent;
     const TIMEOUT: Duration = NETWORK_SEND_TIMEOUT;
 
-    fn encode(&self, msg: T, reply: StageRef<Sent>) -> MuxMessage {
-        self.encode_send(Message::from(msg), reply)
+    fn into_call(self, msg: T) -> (Duration, impl FnOnce(StageRef<Sent>) -> MuxMessage + std::marker::Send + 'static) {
+        let message = Message::from(msg);
+        (NETWORK_SEND_TIMEOUT, move |reply| self.encode_send(message, reply))
     }
 }
 
