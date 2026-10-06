@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::{AssetName, Hash, cbor, protocol_version::PROTOCOL_VERSION_12, size::SCRIPT};
+use crate::{AssetName, CompactMap, Hash, cbor, protocol_version::PROTOCOL_VERSION_12, size::SCRIPT};
 
 /// The Haskell node bounds the size of the values it processes, in order to make them
 /// addressable in a memory region with a u16 offset, so the region
@@ -39,24 +39,36 @@ const BYTES_PER_ASSET: usize = 44;
 /// One [`struct@Hash`] of [`SCRIPT`] bytes per distinct policy.
 const BYTES_PER_POLICY: usize = 28;
 
+/// Policies held in a single flat allocation before the map promotes to a tree.
+///
+/// Sampled over ~480 mainnet blocks spread across several days: 95% of outputs carry at most 9
+/// policies and 99% at most 26, with a long tail reaching 111.
+const POLICIES_INLINE: usize = 16;
+
+/// Assets of one policy held in a single flat allocation.
+///
+/// Over the same sample, 95% of policies carry at most 2 assets and 99% at most 8, with a tail
+/// reaching 208.
+const ASSETS_INLINE: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
-pub struct Multiasset<A>(BTreeMap<Hash<{ SCRIPT }>, Assets<A>>);
+pub struct Multiasset<A>(CompactMap<Hash<{ SCRIPT }>, Assets<A>, POLICIES_INLINE>);
 
 /// The assets held by a single policy, in key order and never empty.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "BTreeMap<AssetName, A>")]
-pub struct Assets<A>(BTreeMap<AssetName, A>);
+pub struct Assets<A>(CompactMap<AssetName, A, ASSETS_INLINE>);
 
 impl<A> From<BTreeMap<Hash<{ SCRIPT }>, Assets<A>>> for Multiasset<A> {
     fn from(policies: BTreeMap<Hash<{ SCRIPT }>, Assets<A>>) -> Self {
-        Self(policies)
+        Self(policies.into_iter().collect())
     }
 }
 
 impl<A> Multiasset<A> {
     pub fn new() -> Self {
-        Self(BTreeMap::new())
+        Self(CompactMap::new())
     }
 
     pub fn insert(&mut self, policy: Hash<{ SCRIPT }>, assets: Assets<A>) -> Option<Assets<A>> {
@@ -81,19 +93,19 @@ impl<A> Multiasset<A> {
     }
 
     /// Iterate over the policies, in order.
-    pub fn keys(&self) -> impl ExactSizeIterator<Item = &Hash<{ SCRIPT }>> {
+    pub fn keys(&self) -> impl Iterator<Item = &Hash<{ SCRIPT }>> {
         self.0.keys()
     }
 
     /// Iterate over each policy's assets, in policy order.
     pub fn values(&self) -> impl ExactSizeIterator<Item = &Assets<A>> {
-        self.0.values()
+        self.0.iter().map(|(_, assets)| assets)
     }
 }
 
 impl<A> IntoIterator for Multiasset<A> {
     type Item = (Hash<{ SCRIPT }>, Assets<A>);
-    type IntoIter = std::collections::btree_map::IntoIter<Hash<{ SCRIPT }>, Assets<A>>;
+    type IntoIter = <CompactMap<Hash<{ SCRIPT }>, Assets<A>, POLICIES_INLINE> as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
@@ -111,7 +123,7 @@ impl<A> TryFrom<BTreeMap<AssetName, A>> for Assets<A> {
         if assets.is_empty() {
             return Err(EmptyAssets);
         }
-        Ok(Self(assets))
+        Ok(Self(assets.into_iter().collect()))
     }
 }
 
@@ -132,19 +144,19 @@ impl<A> Assets<A> {
     }
 
     /// Iterate over the asset names, in order.
-    pub fn keys(&self) -> impl ExactSizeIterator<Item = &AssetName> {
+    pub fn keys(&self) -> impl Iterator<Item = &AssetName> {
         self.0.keys()
     }
 
     /// Iterate over the amounts, in asset name order.
     pub fn values(&self) -> impl ExactSizeIterator<Item = &A> {
-        self.0.values()
+        self.0.iter().map(|(_, amount)| amount)
     }
 }
 
 impl<A> IntoIterator for Assets<A> {
     type Item = (AssetName, A);
-    type IntoIter = std::collections::btree_map::IntoIter<AssetName, A>;
+    type IntoIter = <CompactMap<AssetName, A, ASSETS_INLINE> as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
