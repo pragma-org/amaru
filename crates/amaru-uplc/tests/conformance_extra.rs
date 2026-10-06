@@ -269,6 +269,30 @@ regression_case!(
     PROTOCOL_VERSION_11
 );
 regression_case!(
+    builtin_semantics_writebits_v3_input_4096_bytes_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4096-bytes-pv11/v3-input-4096-bytes-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_input_4097_bytes_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4097-bytes-pv11/v3-input-4097-bytes-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_input_4097_bytes_empty_indices_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4097-bytes-empty-indices-pv11/v3-input-4097-bytes-empty-indices-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_input_4097_bytes_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4097-bytes-pv10/v3-input-4097-bytes-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
     builtin_semantics_verifysignature_legacy_alias_test_vector_25_regression,
     "conformance_extra/textual/builtin/semantics/verifySignature/legacy-alias-test-vector-25/legacy-alias-test-vector-25.uplc"
 );

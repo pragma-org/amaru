@@ -76,4 +76,9 @@ impl Semantics {
     pub fn bounds_shift_amount_to_int64(&self) -> bool {
         matches!(self, Self::D | Self::E)
     }
+
+    /// Whether `writeBits` rejects inputs longer than `WRITE_BITS_MAXIMUM_INPUT_LENGTH` bytes.
+    pub fn bounds_write_bits_input_length(&self) -> bool {
+        matches!(self, Self::D | Self::E)
+    }
 }

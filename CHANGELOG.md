@@ -70,6 +70,7 @@ Other guiding principles:
 - **amaru-uplc**: reject flat encoded values with extraneous tags.
 - **amaru-uplc**: do not allow case on constants at v10.
 - **amaru-uplc**: evaluate `shiftByteString` and `rotateByteString` when arg is outside i64 bounds at pv10.
+- **amaru-uplc**: bound `writeBits` input at pv11.
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 

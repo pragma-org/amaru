@@ -37,6 +37,7 @@ use crate::{
 };
 
 pub const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH: i64 = 8192;
+pub const WRITE_BITS_MAXIMUM_INPUT_LENGTH: usize = 4096;
 
 const CARDANO_INTEGER_MAXIMUM_BITS: u64 = 262_143;
 
@@ -1909,6 +1910,15 @@ impl<'a> Machine<'a> {
                 );
 
                 self.spend_budget(budget)?;
+
+                if self.costs.semantics.bounds_write_bits_input_length()
+                    && original_bytes.len() > WRITE_BITS_MAXIMUM_INPUT_LENGTH
+                {
+                    return Err(MachineError::write_bits_input_too_long(
+                        original_bytes.len(),
+                        WRITE_BITS_MAXIMUM_INPUT_LENGTH,
+                    ));
+                }
 
                 let mut bytes = original_bytes.to_vec();
 
