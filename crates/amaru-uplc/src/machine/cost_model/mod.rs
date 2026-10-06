@@ -15,7 +15,7 @@
 use amaru_kernel::{PlutusVersion, ProtocolVersion, protocol_version};
 
 use crate::machine::{
-    Semantics,
+    CaseOnConstants, Semantics,
     cost_model::{builtin_costs::BuiltinCosts, machine_costs::MachineCosts},
 };
 
@@ -37,6 +37,7 @@ pub use step_kind::*;
 #[derive(Debug, PartialEq, Default)]
 pub struct CostModel {
     pub semantics: Semantics,
+    pub case_on_constants: CaseOnConstants,
     pub machine_costs: MachineCosts,
     pub builtin_costs: BuiltinCosts,
 }
@@ -50,6 +51,7 @@ impl CostModel {
         let cost_map = ParamName::new_cost_map(plutus_version, costs);
         Self {
             semantics,
+            case_on_constants: CaseOnConstants::new(protocol_version),
             machine_costs: MachineCosts::new(&cost_map),
             builtin_costs: BuiltinCosts::new(&cost_map, semantics),
         }

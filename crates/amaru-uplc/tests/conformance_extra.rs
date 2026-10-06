@@ -302,3 +302,45 @@ regression_case!(
     PlutusVersion::V2,
     PROTOCOL_VERSION_11
 );
+regression_case!(
+    term_case_bool_before_pv11_regression,
+    "conformance_extra/textual/term/case/bool-before-pv11/bool-before-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    term_case_bool_from_pv11_regression,
+    "conformance_extra/textual/term/case/bool-from-pv11/bool-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    term_case_integer_before_pv11_regression,
+    "conformance_extra/textual/term/case/integer-before-pv11/integer-before-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    term_case_integer_from_pv11_regression,
+    "conformance_extra/textual/term/case/integer-from-pv11/integer-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    term_case_list_before_pv11_regression,
+    "conformance_extra/textual/term/case/list-before-pv11/list-before-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    term_case_list_from_pv11_regression,
+    "conformance_extra/textual/term/case/list-from-pv11/list-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    term_case_data_from_pv11_regression,
+    "conformance_extra/textual/term/case/data-from-pv11/data-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);

@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod case_on_constants;
+pub use case_on_constants::CaseOnConstants;
+
 mod cek;
 pub use cek::*;
 

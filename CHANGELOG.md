@@ -68,6 +68,7 @@ Other guiding principles:
 - **amaru-uplc**: fix a costing bug when working with some polymorphic types.
 - **amaru-uplc**: do not run scripts with disallowed plutus language versions.
 - **amaru-uplc**: reject flat encoded values with extraneous tags.
+- **amaru-uplc**: do not allow case on constants at v10.
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
