@@ -92,6 +92,10 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
+        // The entries keep the order they were read in. A field the ledger writes in key order is
+        // one it holds in a `Map` and re-encodes, and the sorting belongs at that field rather than
+        // here: transaction metadata reaches the wire through a memoised type that replays what it
+        // read, so sorting it here would rewrite bytes the auxiliary data hash is taken over.
         cbor::encode_variable_length_map(e, self.iter().map(|(k, v)| (k, v)), ctx)
     }
 }
@@ -210,7 +214,7 @@ mod tests {
     #[test_case("A0", &[], true; "empty map")]
     #[test_case("A1016161", &[(1, "a")], true; "singleton")]
     #[test_case("BF016161026162036161FF", &[(1, "a"), (2, "b"), (3, "a")], false; "indef map")]
-    #[test_case("A3046162016163026161", &[(4, "b"), (1, "c"), (2, "a")], true; "def map")]
+    #[test_case("A3046162016163026161", &[(4, "b"), (1, "c"), (2, "a")], true; "def map, keys out of order")]
     fn from_cbor_success(s: &str, expected: &[(u8, &str)], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
         match from_cbor_no_leftovers::<KeyValuePairs<u8, String>>(original_bytes.as_slice()) {

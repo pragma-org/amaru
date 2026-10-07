@@ -12,37 +12,65 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cbor;
+use std::collections::BTreeSet;
 
-static TAG_SET: u64 = 258;
+use crate::{cbor, data_structures::non_empty_unique_vec::has_duplicate};
 
-/// Encode an array-like type as a tagged set.
+/// Decode a tagged set into a collection that is not itself a set type.
+///
+/// The `#6.258` tag is optional on the wire below protocol version 12, so it is accepted either
+/// way; a repeated element is a malformed set and is turned down.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct SerialisedAsSet<T>(pub T);
 
-impl<C, T: cbor::Encode<C>> cbor::Encode<C> for SerialisedAsSet<T> {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.tag(cbor::Tag::new(TAG_SET))?;
-        e.encode_with(&self.0, ctx)?;
-        Ok(())
+const HAS_DUPLICATE: &str = "found duplicate elements in a set";
+
+/// A set kept in a `Vec`, so that a small one does not pay for a `BTreeSet`'s nodes.
+/// Duplicated elements are rejected.
+impl<'d, C, E: Eq + cbor::Decode<'d, C>> cbor::Decode<'d, C> for SerialisedAsSet<Vec<E>> {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        decode_set_tag(d)?;
+
+        let position = d.position();
+        let elements: Vec<E> = d.decode_with(ctx)?;
+
+        if has_duplicate(elements.as_slice()) {
+            return Err(cbor::decode::Error::message(HAS_DUPLICATE).at(position));
+        }
+
+        Ok(Self(elements))
     }
 }
 
-impl<'d, C, T: cbor::Decode<'d, C>> cbor::Decode<'d, C> for SerialisedAsSet<T> {
+/// A set kept in a `BTreeSet`. Duplicated elements are rejected.
+impl<'d, C, E: Ord + cbor::Decode<'d, C>> cbor::Decode<'d, C> for SerialisedAsSet<BTreeSet<E>> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        // TODO: In Conway, the tag is *optional*, with the intent to make it mandatory after.
-        if d.datatype()? == cbor::Type::Tag {
-            let tag = d.tag()?;
-            if tag != cbor::Tag::new(TAG_SET) {
-                return Err(cbor::decode::Error::message(format!("invalid set tag; expect={TAG_SET}, found={tag}")));
-            }
+        decode_set_tag(d)?;
+
+        let position = d.position();
+        let elements: Vec<E> = d.decode_with(ctx)?;
+        let length = elements.len();
+
+        let elements = BTreeSet::from_iter(elements);
+        if elements.len() != length {
+            return Err(cbor::decode::Error::message(HAS_DUPLICATE).at(position));
         }
 
-        Ok(Self(d.decode_with(ctx)?))
+        Ok(Self(elements))
     }
+}
+
+fn decode_set_tag(d: &mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error> {
+    if d.datatype()? == cbor::Type::Tag {
+        let tag = d.tag()?;
+        if tag != cbor::TAG_SET_258 {
+            return Err(cbor::decode::Error::message(format!(
+                "invalid set tag; expect={}, found={tag}",
+                cbor::TAG_SET_258
+            )));
+        }
+    }
+
+    Ok(())
 }

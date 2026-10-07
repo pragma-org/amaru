@@ -30,7 +30,6 @@ use amaru_kernel::{
         voting_procedures::VotingProcedures,
         withdrawals::Withdrawals,
     },
-    cbor,
     hash::size,
 };
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, ops::Deref};
+use std::ops::Deref;
 
 use crate::cbor;
 
@@ -134,12 +134,6 @@ macro_rules! encode_sorted_non_empty_set {
             }
         }
 
-        impl From<$name> for Vec<$element> {
-            fn from(value: $name) -> Self {
-                Self::from(value.0)
-            }
-        }
-
         impl<'b, C: $crate::cbor::HasProtocolVersion> $crate::cbor::Decode<'b, C> for $name {
             fn decode(
                 d: &mut $crate::cbor::Decoder<'b>,
@@ -155,7 +149,7 @@ macro_rules! encode_sorted_non_empty_set {
                 e: &mut $crate::cbor::Encoder<W>,
                 ctx: &mut C,
             ) -> Result<(), $crate::cbor::encode::Error<W::Error>> {
-                e.encode_with($crate::utils::cbor::EncodeSorted(self.0.as_ref()), ctx)?;
+                $crate::utils::cbor::EncodeSorted::encode_sorted(self.0.as_ref(), e, ctx)?;
                 Ok(())
             }
         }

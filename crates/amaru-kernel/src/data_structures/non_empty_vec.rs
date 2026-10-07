@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, fmt::Debug, ops::Deref};
+use std::{fmt::Debug, ops::Deref};
 
 use crate::cbor;
 
@@ -72,6 +72,12 @@ impl<T: Eq> Deref for NonEmptyVec<T> {
 
     fn deref(&self) -> &Self::Target {
         self.0.as_slice()
+    }
+}
+
+impl<T: Eq> From<NonEmptyVec<T>> for Vec<T> {
+    fn from(value: NonEmptyVec<T>) -> Self {
+        value.0
     }
 }
 

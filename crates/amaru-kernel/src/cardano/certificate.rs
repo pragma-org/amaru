@@ -16,7 +16,10 @@ pub use crate::{
     Anchor, Credential, DRep, Epoch, Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
 };
-use crate::{PoolParams, utils::cbor::SerialisedAsSet};
+use crate::{
+    PoolParams,
+    utils::cbor::{EncodeSorted, SerialisedAsSet},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Certificate {
@@ -78,7 +81,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Certificate {
                 e.encode_with(cost, ctx)?;
                 e.encode_with(margin, ctx)?;
                 e.encode_with(reward_account, ctx)?;
-                e.encode_with(SerialisedAsSet(owners), ctx)?;
+                owners.encode_sorted(e, ctx)?;
                 e.encode_with(relays, ctx)?;
                 e.encode_with(metadata, ctx)?;
             }
