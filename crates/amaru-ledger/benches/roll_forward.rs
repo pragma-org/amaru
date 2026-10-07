@@ -312,13 +312,7 @@ impl Utxo {
     }
 
     fn simple_output(output_amount: Lovelace) -> MemoizedTransactionOutput {
-        MemoizedTransactionOutput::new(
-            false,
-            DEFAULT_ADDRESS.clone(),
-            Value::Coin(output_amount),
-            MemoizedDatum::None,
-            None,
-        )
+        MemoizedTransactionOutput::new(DEFAULT_ADDRESS.clone(), Value::Coin(output_amount), MemoizedDatum::None, None)
     }
 }
 
