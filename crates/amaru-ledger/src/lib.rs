@@ -62,7 +62,6 @@ pub mod tests {
     #[expect(clippy::expect_used)]
     pub fn fake_output(address: &str) -> MemoizedTransactionOutput {
         MemoizedTransactionOutput::new(
-            false,
             Address::from_hex(address).expect("Invalid hex address"),
             Value::Coin(0),
             amaru_kernel::MemoizedDatum::None,

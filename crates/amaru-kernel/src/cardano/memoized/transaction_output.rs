@@ -17,21 +17,18 @@ use std::collections::BTreeMap;
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
-#[cfg(any(test, feature = "test-utils"))]
-use crate::ShelleyAddress;
 use crate::{
     Address, AssetName, Assets, Credential, Hash, Legacy, MemoizedDatum, MemoizedScript, StakeReference, Value, cbor,
     serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
 };
+#[cfg(any(test, feature = "test-utils"))]
+use crate::{MemoizedPlutusData, ShelleyAddress};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(from = "MemoizedTransactionOutputDe")]
 pub struct MemoizedTransactionOutput {
     #[serde(skip)]
     original_size: usize,
-
-    #[serde(skip)]
-    pub is_legacy: bool,
 
     #[serde(serialize_with = "serialize_address")]
     pub address: Address,
@@ -61,14 +58,8 @@ struct MemoizedTransactionOutputDe {
 
 impl From<MemoizedTransactionOutputDe> for MemoizedTransactionOutput {
     fn from(de: MemoizedTransactionOutputDe) -> Self {
-        let mut output = Self {
-            original_size: 0,
-            is_legacy: false,
-            address: de.address,
-            value: de.value,
-            datum: de.datum,
-            script: de.script,
-        };
+        let mut output =
+            Self { original_size: 0, address: de.address, value: de.value, datum: de.datum, script: de.script };
         output.original_size = to_cbor(&output).len();
         output
     }
@@ -77,20 +68,22 @@ impl From<MemoizedTransactionOutputDe> for MemoizedTransactionOutput {
 impl MemoizedTransactionOutput {
     /// In-memory construction, used for tests. Re-encodes once to compute the on-wire size.
     /// Decoded values populate `original_size` directly from the input position, avoiding the re-encode.
-    pub fn new(
-        is_legacy: bool,
-        address: Address,
-        value: Value,
-        datum: MemoizedDatum,
-        script: Option<MemoizedScript>,
-    ) -> Self {
-        let mut output = Self { original_size: 0, is_legacy, address, value, datum, script: script.map(Box::new) };
+    pub fn new(address: Address, value: Value, datum: MemoizedDatum, script: Option<MemoizedScript>) -> Self {
+        let mut output = Self { original_size: 0, address, value, datum, script: script.map(Box::new) };
         output.original_size = to_cbor(&output).len();
         output
     }
 
     pub fn original_size(&self) -> usize {
         self.original_size
+    }
+
+    /// Whether the output is encoded as a legacy array rather than a map (introduced in Babbage).
+    ///
+    /// This depends on the actual output data: a legacy array can hold an address, a
+    /// value and at most a datum hash. No inline datum or a script reference.
+    pub fn is_legacy(&self) -> bool {
+        self.script.is_none() && !matches!(self.datum, MemoizedDatum::Inline(..))
     }
 
     pub fn delegate(&self) -> Option<Credential> {
@@ -128,7 +121,6 @@ fn decode_legacy_output<C: cbor::HasProtocolVersion>(
 
     Ok(MemoizedTransactionOutput {
         original_size: 0,
-        is_legacy: true,
         address: decode_address(&cbor::decode_bytes_v12(d, ctx)?)?,
         value: d.decode_with(ctx)?,
         datum: match len {
@@ -182,7 +174,6 @@ fn decode_modern_output<C: cbor::HasProtocolVersion>(
 
     Ok(MemoizedTransactionOutput {
         original_size: 0,
-        is_legacy: false,
         address: address.ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Address>(0))?,
         value: value.ok_or_else(|| cbor::missing_field::<MemoizedTransactionOutput, Value>(1))?,
         datum,
@@ -200,20 +191,24 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for MemoizedTransactionOutput 
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        if self.is_legacy {
-            e.begin_array()?;
-            e.bytes(&self.address.to_vec())?;
-            e.encode_with(&self.value, ctx)?;
+        if self.is_legacy() {
             match &self.datum {
-                MemoizedDatum::None => (),
+                MemoizedDatum::None => {
+                    e.array(2)?;
+                    e.bytes(&self.address.to_vec())?;
+                    e.encode_with(&self.value, ctx)?;
+                }
                 MemoizedDatum::Hash(hash) => {
+                    e.array(3)?;
+                    e.bytes(&self.address.to_vec())?;
+                    e.encode_with(&self.value, ctx)?;
                     e.bytes(&hash.as_ref()[..])?;
                 }
-                MemoizedDatum::Inline(..) => unreachable!("legacy output with inline datum ?!"),
+                MemoizedDatum::Inline(..) => unreachable!("is_legacy excludes inline datums"),
             }
-            e.end()?;
         } else {
-            e.begin_map()?;
+            let entries = 2 + u64::from(!matches!(&self.datum, MemoizedDatum::None)) + u64::from(self.script.is_some());
+            e.map(entries)?;
 
             e.u8(0)?;
             e.bytes(&self.address.to_vec())?;
@@ -221,20 +216,15 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for MemoizedTransactionOutput 
             e.u8(1)?;
             e.encode_with(&self.value, ctx)?;
 
-            if !matches!(&self.datum, &MemoizedDatum::None) {
+            if !matches!(&self.datum, MemoizedDatum::None) {
                 e.u8(2)?;
-            }
-            e.encode_with(&self.datum, ctx)?;
-
-            match &self.script {
-                None => (),
-                Some(script) => {
-                    e.u8(3)?;
-                    e.encode_with(SerialisedAsCbor(script), ctx)?;
-                }
+                e.encode_with(&self.datum, ctx)?;
             }
 
-            e.end()?;
+            if let Some(script) = &self.script {
+                e.u8(3)?;
+                e.encode_with(SerialisedAsCbor(script), ctx)?;
+            }
         }
 
         Ok(())
@@ -342,11 +332,16 @@ impl Arbitrary for MemoizedTransactionOutput {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(format: Self::Parameters) -> Self::Strategy {
-        let is_legacy = matches!(format, OutputFormat::Legacy);
+        // The form follows what the output carries, so the parameter steers the datum: the array holds at most a
+        // datum hash, and an inline datum is what makes the map necessary.
+        let datum = match format {
+            OutputFormat::Legacy => any::<MemoizedDatum>().boxed(),
+            OutputFormat::Modern => any::<MemoizedPlutusData>().prop_map(MemoizedDatum::from).boxed(),
+        };
 
-        (any::<ShelleyAddress>(), any::<u64>(), any::<MemoizedDatum>())
-            .prop_map(move |(address, coin, datum)| {
-                MemoizedTransactionOutput::new(is_legacy, Address::Shelley(address), Value::Coin(coin), datum, None)
+        (any::<ShelleyAddress>(), any::<u64>(), datum)
+            .prop_map(|(address, coin, datum)| {
+                MemoizedTransactionOutput::new(Address::Shelley(address), Value::Coin(coin), datum, None)
             })
             .boxed()
     }
@@ -367,7 +362,6 @@ mod tests {
         let datum = MemoizedDatum::from(datum_hash);
 
         let original = MemoizedTransactionOutput::new(
-            false,
             Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
             Value::Coin(1500000),
             datum,
@@ -393,7 +387,6 @@ mod tests {
         let datum = MemoizedDatum::from(datum_hash);
 
         let original = MemoizedTransactionOutput::new(
-            true,
             Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
             Value::Coin(1500000),
             datum,
@@ -414,7 +407,6 @@ mod tests {
     #[test]
     fn test_encode_decode_output_no_datum_no_script() {
         let original = MemoizedTransactionOutput::new(
-            false,
             Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
             Value::Coin(1500000),
             MemoizedDatum::None,

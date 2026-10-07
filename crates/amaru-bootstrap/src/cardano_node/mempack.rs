@@ -28,14 +28,12 @@ pub fn decode_transaction_output(bytes: &[u8]) -> anyhow::Result<MemoizedTransac
 
     match decoder.tag()? {
         0 => make_transaction_output(
-            true,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             MemoizedDatum::None,
             None,
         ),
         1 => make_transaction_output(
-            true,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             MemoizedDatum::from(decoder.hash32()?),
@@ -44,7 +42,6 @@ pub fn decode_transaction_output(bytes: &[u8]) -> anyhow::Result<MemoizedTransac
         2 => {
             let stake = decode_stake_credential(&mut decoder)?;
             make_transaction_output(
-                true,
                 decode_address28(&mut decoder, stake)?,
                 Value::Coin(decode_compact_coin(&mut decoder)?),
                 MemoizedDatum::None,
@@ -54,7 +51,6 @@ pub fn decode_transaction_output(bytes: &[u8]) -> anyhow::Result<MemoizedTransac
         3 => {
             let stake = decode_stake_credential(&mut decoder)?;
             make_transaction_output(
-                true,
                 decode_address28(&mut decoder, stake)?,
                 Value::Coin(decode_compact_coin(&mut decoder)?),
                 MemoizedDatum::from(decoder.packed_hash32()?),
@@ -62,14 +58,12 @@ pub fn decode_transaction_output(bytes: &[u8]) -> anyhow::Result<MemoizedTransac
             )
         }
         4 => make_transaction_output(
-            false,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             MemoizedDatum::from(decode_inline_plutus_data(&mut decoder)?),
             None,
         ),
         5 => make_transaction_output(
-            false,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
             decode_datum(&mut decoder)?,
@@ -80,13 +74,12 @@ pub fn decode_transaction_output(bytes: &[u8]) -> anyhow::Result<MemoizedTransac
 }
 
 fn make_transaction_output(
-    is_legacy: bool,
     address: Address,
     value: Value,
     datum: MemoizedDatum,
     script: Option<MemoizedScript>,
 ) -> anyhow::Result<MemoizedTransactionOutput> {
-    Ok(MemoizedTransactionOutput::new(is_legacy, address, value, datum, script))
+    Ok(MemoizedTransactionOutput::new(address, value, datum, script))
 }
 
 struct Decoder<'a> {
@@ -468,10 +461,10 @@ mod tests {
 
         let output = decode_transaction_output(&bytes).unwrap();
 
-        assert!(output.is_legacy);
+        assert!(output.is_legacy());
         assert_eq!(output.address, address);
         assert_eq!(output.value, Value::Coin(42));
-        assert_eq!(cbor::to_vec(output).unwrap()[0], 0x9f);
+        assert_eq!(cbor::to_vec(output).unwrap()[0], 0x82);
     }
 
     #[test]
@@ -488,11 +481,11 @@ mod tests {
 
         let output = decode_transaction_output(&bytes).unwrap();
 
-        assert!(!output.is_legacy);
+        assert!(!output.is_legacy());
         assert_eq!(output.address, address);
         assert_eq!(output.value, Value::Coin(99));
         assert!(matches!(output.datum, MemoizedDatum::Inline(_)));
-        assert_eq!(cbor::to_vec(output).unwrap()[0], 0xbf);
+        assert_eq!(cbor::to_vec(output).unwrap()[0], 0xa3);
     }
 
     #[test]
