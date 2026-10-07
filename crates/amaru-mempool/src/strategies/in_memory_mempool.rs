@@ -15,12 +15,17 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 use amaru_kernel::{HasTransactionId, TransactionId, cbor, to_cbor};
 use amaru_ouroboros_traits::{
     MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool, mempool::Mempool,
+};
+
+use crate::inspection::{
+    MAX_MEMPOOL_SUBSCRIBERS, MempoolSnapshotEntry, ObserverQueue, PoolChange, PoolObserverError, PoolReceiver,
+    PoolSnapshot,
 };
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
@@ -48,18 +53,42 @@ impl<Tx> InMemoryMempool<Tx> {
 #[derive(Debug)]
 struct MempoolInner<Tx> {
     next_seq: u64,
+    generation: u64,
     current_bytes: u64,
     entries_by_id: BTreeMap<TransactionId, MempoolEntry<Tx>>,
     entries_by_seq: BTreeMap<MempoolSeqNo, TransactionId>,
+    observers: Vec<Weak<ObserverQueue>>,
 }
 
 impl<Tx> Default for MempoolInner<Tx> {
     fn default() -> Self {
         MempoolInner {
             next_seq: 1,
+            generation: 0,
             current_bytes: 0,
             entries_by_id: Default::default(),
             entries_by_seq: Default::default(),
+            observers: Vec::new(),
+        }
+    }
+}
+
+impl<Tx> MempoolInner<Tx> {
+    fn commit(&mut self, event: impl FnOnce(u64, &Self) -> PoolChange) {
+        self.generation += 1;
+        self.observers.retain(|observer| observer.strong_count() > 0);
+        if self.observers.is_empty() {
+            return;
+        }
+        let event = Arc::new(event(self.generation, self));
+        self.observers.retain(|observer| observer.upgrade().is_some_and(|queue| queue.push(event.clone())));
+    }
+}
+
+impl<Tx> Drop for MempoolInner<Tx> {
+    fn drop(&mut self) {
+        for queue in self.observers.iter().filter_map(Weak::upgrade) {
+            queue.close();
         }
     }
 }
@@ -92,6 +121,10 @@ impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
         self.entries_by_id.insert(tx_id, entry);
         self.entries_by_seq.insert(seq_no, tx_id);
         self.current_bytes = self.current_bytes.saturating_add(tx_size as u64);
+        self.commit(|generation, inner| PoolChange::Inserted {
+            generation,
+            entry: inner.entries_by_id[&tx_id].snapshot(),
+        });
         Ok((tx_id, seq_no))
     }
 
@@ -136,11 +169,16 @@ impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
     }
 
     fn remove_txs(&mut self, ids: &[TransactionId]) {
+        let mut removed = Vec::new();
         for tx_id in ids {
             if let Some(entry) = self.entries_by_id.remove(tx_id) {
                 self.entries_by_seq.remove(&entry.seq_no);
                 self.current_bytes = self.current_bytes.saturating_sub(entry.tx_size as u64);
+                removed.push(*tx_id);
             }
+        }
+        if !removed.is_empty() {
+            self.commit(|generation, _| PoolChange::Removed { generation, transaction_ids: removed });
         }
     }
 }
@@ -152,6 +190,48 @@ pub struct MempoolEntry<Tx> {
     tx: Tx,
     tx_size: u32,
     origin: TxOrigin,
+}
+
+impl<Tx: cbor::Encode<()>> MempoolEntry<Tx> {
+    fn snapshot(&self) -> MempoolSnapshotEntry {
+        MempoolSnapshotEntry {
+            transaction_id: self.tx_id,
+            sequence: self.seq_no,
+            origin: self.origin.clone(),
+            original_bytes: to_cbor(&self.tx),
+            size_bytes: self.tx_size as u64,
+        }
+    }
+}
+
+impl<Tx: cbor::Encode<()>> InMemoryMempool<Tx> {
+    fn snapshot_inner(&self, inner: &MempoolInner<Tx>) -> PoolSnapshot {
+        PoolSnapshot {
+            generation: inner.generation,
+            entries: inner.entries_by_seq.values().map(|id| inner.entries_by_id[id].snapshot()).collect(),
+            transaction_count: inner.entries_by_id.len() as u64,
+            total_size_bytes: inner.current_bytes,
+            capacity_bytes: self.config.max_bytes,
+        }
+    }
+
+    /// Capture membership, insertion order, and counters in one read.
+    pub fn snapshot(&self) -> PoolSnapshot {
+        self.snapshot_inner(&self.inner.read())
+    }
+
+    /// Atomically capture an initial snapshot and register for all later generations.
+    pub fn subscribe(&self) -> Result<(PoolSnapshot, PoolReceiver), PoolObserverError> {
+        let mut inner = self.inner.write();
+        inner.observers.retain(|observer| observer.strong_count() > 0);
+        if inner.observers.len() >= MAX_MEMPOOL_SUBSCRIBERS {
+            return Err(PoolObserverError::SubscriberLimit);
+        }
+        let receiver = PoolReceiver::new(inner.generation);
+        let snapshot = self.snapshot_inner(&inner);
+        inner.observers.push(Arc::downgrade(&receiver.queue));
+        Ok((snapshot, receiver))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -234,6 +314,10 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Me
         let entries = mem::take(&mut inner.entries_by_id);
         let _ = mem::take(&mut inner.entries_by_seq);
         inner.current_bytes = 0;
+        if !entries.is_empty() {
+            let ids = entries.keys().copied().collect();
+            inner.commit(|generation, _| PoolChange::Removed { generation, transaction_ids: ids });
+        }
         entries.into_values().map(|entry| entry.tx).collect()
     }
 
@@ -246,10 +330,12 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Me
         let mut inner = self.inner.write();
 
         let mut seq_nos_to_remove: Vec<MempoolSeqNo> = Vec::new();
+        let mut ids_to_remove = Vec::new();
         let mut bytes_to_subtract: u64 = 0;
         for entry in inner.entries_by_id.values() {
             if keys(&entry.tx).into_iter().any(|k| keys_to_remove.contains(&k)) {
                 seq_nos_to_remove.push(entry.seq_no);
+                ids_to_remove.push(entry.tx_id);
                 bytes_to_subtract = bytes_to_subtract.saturating_add(entry.tx_size as u64);
             }
         }
@@ -258,12 +344,15 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Me
             inner.entries_by_seq.remove(&seq_no);
         }
         inner.current_bytes = inner.current_bytes.saturating_sub(bytes_to_subtract);
+        if !ids_to_remove.is_empty() {
+            inner.commit(|generation, _| PoolChange::Removed { generation, transaction_ids: ids_to_remove });
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Deref, slice, str::FromStr};
+    use std::{ops::Deref, slice, str::FromStr, sync::Barrier};
 
     use amaru_kernel::{Hasher, Peer, cbor, cbor as minicbor, size::TRANSACTION_BODY};
     use amaru_ouroboros_traits::TxRejectReason;
@@ -331,6 +420,172 @@ mod tests {
 
         let second = Tx::from_str("b").unwrap();
         assert!(matches!(mempool.insert(second, TxOrigin::Local), TxInsertResult::Accepted { .. }));
+    }
+
+    #[tokio::test]
+    async fn snapshot_and_changes_preserve_atomic_batches_and_noop_generations() {
+        let mempool = InMemoryMempool::default();
+        let first = Tx::from_str("a").unwrap();
+        let second = Tx::from_str("b").unwrap();
+        let first_id = first.tx_id();
+        let second_id = second.tx_id();
+        let origin = TxOrigin::Remote(Peer::for_test(3005));
+        mempool.insert(first.clone(), origin.clone());
+        let (snapshot, mut receiver) = mempool.subscribe().unwrap();
+        assert_eq!(snapshot.generation, 1);
+        assert_eq!(snapshot.entries[0].origin, origin);
+        assert_eq!(snapshot.entries[0].original_bytes, to_cbor(&first));
+        assert_eq!(snapshot.total_size_bytes, to_cbor(&first).len() as u64);
+
+        assert!(matches!(
+            mempool.insert(first, TxOrigin::Local),
+            TxInsertResult::Rejected { reason: TxRejectReason::Duplicate, .. }
+        ));
+        assert_eq!(mempool.snapshot().generation, 1);
+        mempool.insert(second, TxOrigin::Local);
+        assert!(
+            matches!(receiver.recv().await.unwrap().as_ref(), PoolChange::Inserted { generation: 2, entry } if entry.transaction_id == second_id)
+        );
+
+        mempool.remove_txs(&[second_id, first_id, second_id]);
+        assert!(
+            matches!(receiver.recv().await.unwrap().as_ref(), PoolChange::Removed { generation: 3, transaction_ids } if transaction_ids == &[second_id, first_id])
+        );
+        mempool.remove_txs(&[first_id]);
+        let empty = mempool.snapshot();
+        assert_eq!(empty.generation, 3);
+        assert_eq!(empty.transaction_count, 0);
+        assert_eq!(empty.total_size_bytes, 0);
+        assert!(empty.entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subscription_handoff_covers_concurrent_insertion() {
+        for _ in 0..32 {
+            let mempool = InMemoryMempool::default();
+            let tx = Tx::from_str("racing").unwrap();
+            let writer = mempool.clone();
+            let barrier = Arc::new(Barrier::new(2));
+            let writer_barrier = barrier.clone();
+            let thread = std::thread::spawn(move || {
+                writer_barrier.wait();
+                writer.insert(tx, TxOrigin::Local);
+            });
+            barrier.wait();
+            let (snapshot, mut receiver) = mempool.subscribe().unwrap();
+            thread.join().unwrap();
+            if snapshot.generation == 0 {
+                let event =
+                    tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv()).await.unwrap().unwrap();
+                assert_eq!(event.generation(), 1);
+            } else {
+                assert_eq!(snapshot.generation, 1);
+                assert_eq!(snapshot.transaction_count, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn concurrent_snapshots_keep_entries_and_totals_coherent() {
+        let mempool = InMemoryMempool::default();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                for i in 0..1000 {
+                    let tx = Tx::from_str(&i.to_string()).unwrap();
+                    let id = tx.tx_id();
+                    mempool.insert(tx, TxOrigin::Local);
+                    if i % 2 == 0 {
+                        mempool.remove_txs(&[id]);
+                    }
+                }
+            });
+            for _ in 0..1000 {
+                let snapshot = mempool.snapshot();
+                assert_eq!(snapshot.transaction_count, snapshot.entries.len() as u64);
+                assert_eq!(
+                    snapshot.total_size_bytes,
+                    snapshot.entries.iter().map(|entry| entry.size_bytes).sum::<u64>()
+                );
+                assert!(snapshot.total_size_bytes <= snapshot.capacity_bytes);
+                assert!(snapshot.entries.windows(2).all(|entries| entries[0].sequence < entries[1].sequence));
+                for entry in &snapshot.entries {
+                    let tx = cbor::decode::<Tx>(&entry.original_bytes).unwrap();
+                    assert_eq!(entry.transaction_id, tx.tx_id());
+                    assert_eq!(entry.size_bytes as usize, entry.original_bytes.len());
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn queue_overflow_reports_gap_without_queue_capacity_and_can_resubscribe() {
+        let mempool = InMemoryMempool::default();
+        let (_, mut receiver) = mempool.subscribe().unwrap();
+        mempool.insert(Tx::from_str("consumed").unwrap(), TxOrigin::Local);
+        assert_eq!(receiver.recv().await.unwrap().generation(), 1);
+        for i in 0..=crate::inspection::MAX_MEMPOOL_QUEUED_EVENTS {
+            mempool.insert(Tx::from_str(&i.to_string()).unwrap(), TxOrigin::Local);
+        }
+        assert_eq!(
+            receiver.recv().await.unwrap_err(),
+            PoolObserverError::Gap {
+                expected_generation: 2,
+                current_generation: crate::inspection::MAX_MEMPOOL_QUEUED_EVENTS as u64 + 2,
+            }
+        );
+        let (snapshot, mut fresh) = mempool.subscribe().unwrap();
+        mempool.insert(Tx::from_str("fresh").unwrap(), TxOrigin::Local);
+        assert_eq!(fresh.recv().await.unwrap().generation(), snapshot.generation + 1);
+    }
+
+    #[tokio::test]
+    async fn payload_budget_also_invalidates_slow_receivers() {
+        let limit = crate::inspection::MAX_MEMPOOL_QUEUED_BYTES;
+        let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_bytes(limit * 2));
+        let (_, mut receiver) = mempool.subscribe().unwrap();
+        assert!(matches!(
+            mempool.insert(Tx("a".repeat(limit as usize)), TxOrigin::Local),
+            TxInsertResult::Accepted { .. }
+        ));
+        assert_eq!(
+            receiver.recv().await.unwrap_err(),
+            PoolObserverError::Gap { expected_generation: 1, current_generation: 1 }
+        );
+        assert_eq!(mempool.snapshot().transaction_count, 1);
+    }
+
+    #[tokio::test]
+    async fn subscriptions_are_bounded_reclaim_dropped_slots_and_do_not_retain_pool() {
+        let mempool = InMemoryMempool::<Tx>::default();
+        let mut receivers = Vec::new();
+        for _ in 0..MAX_MEMPOOL_SUBSCRIBERS {
+            receivers.push(mempool.subscribe().unwrap().1);
+        }
+        assert!(matches!(mempool.subscribe(), Err(PoolObserverError::SubscriberLimit)));
+        receivers.pop();
+        let (_, mut receiver) = mempool.subscribe().unwrap();
+        drop(mempool);
+        assert_eq!(receiver.recv().await.unwrap_err(), PoolObserverError::Stopped);
+    }
+
+    #[tokio::test]
+    async fn forging_removals_also_advance_generation() {
+        let mempool = InMemoryMempool::default();
+        let tx = Tx::from_str("forged").unwrap();
+        let (_, mut receiver) = mempool.subscribe().unwrap();
+        mempool.insert(tx.clone(), TxOrigin::Local);
+        receiver.recv().await.unwrap();
+        mempool.acknowledge(&tx, |tx| [tx.tx_id()]);
+        assert!(
+            matches!(receiver.recv().await.unwrap().as_ref(), PoolChange::Removed { generation: 2, transaction_ids } if transaction_ids == &[tx.tx_id()])
+        );
+        mempool.insert(tx.clone(), TxOrigin::Local);
+        receiver.recv().await.unwrap();
+        assert_eq!(mempool.take(), vec![tx]);
+        assert!(matches!(receiver.recv().await.unwrap().as_ref(), PoolChange::Removed { generation: 4, .. }));
+        assert_eq!(mempool.snapshot().total_size_bytes, 0);
+        assert!(mempool.take().is_empty());
+        assert_eq!(mempool.snapshot().generation, 4);
     }
 
     // HELPERS

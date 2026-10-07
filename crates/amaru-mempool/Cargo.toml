@@ -18,6 +18,7 @@ categories.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 parking_lot.workspace = true
+thiserror.workspace = true
 tokio = { "workspace" = true, features = ["time", "macros", "rt"] }
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
