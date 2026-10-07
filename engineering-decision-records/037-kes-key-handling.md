@@ -44,7 +44,7 @@ If the child exits, Amaru restarts it and checks the KES verification key again;
 
 ### Key rotation
 
-For initial support, the SPO generates a cardano-cli compatible KES key pair with `amaru keys kes create` or `cardano-cli node key-gen-KES`.
+For initial support, the SPO generates a cardano-cli compatible KES key pair with `cardano-cli node key-gen-KES`.
 The SPO issues an operational certificate with their existing offline workflow, deploys the files on the block producer, and restarts Amaru with their paths.
 
 Amaru checks the new certificate's sequence number against the adopted chain on startup.

@@ -16,7 +16,7 @@ use std::{array::TryFromSliceError, mem::ManuallyDrop, ops::Deref};
 
 use amaru_kernel::{
     KesEvolution,
-    cardano::text_envelope::{FromTextEnvelope, TextEnvelopeError, ToTextEnvelope},
+    cardano::text_envelope::{FromTextEnvelope, TextEnvelopeError},
     cbor,
 };
 use kes_summed_ed25519::{
@@ -39,19 +39,6 @@ pub struct SecretKey {
 impl SecretKey {
     /// Size of the raw key in bytes. Excludes the period.
     pub const SIZE: usize = Sum6Kes::SIZE;
-
-    /// Generate a period-zero Sum6 KES key pair from operating-system randomness.
-    pub fn generate() -> Result<(Self, PublicKey), getrandom::Error> {
-        let mut seed = Zeroizing::new([0u8; 32]);
-        getrandom::fill(&mut *seed)?;
-        let mut bytes = Zeroizing::new(vec![0u8; Self::SIZE + 4].into_boxed_slice());
-        let public = {
-            let (secret, public) = Sum6Kes::keygen(&mut bytes, &mut seed[..]);
-            let _secret = ManuallyDrop::new(secret);
-            public
-        };
-        Ok((Self { bytes }, PublicKey(public)))
-    }
 
     /// Take ownership of raw key bytes at period 0.
     pub fn from_bytes(sk_bytes: Vec<u8>) -> Result<Self, KesError> {
@@ -136,27 +123,6 @@ impl FromTextEnvelope for SecretKey {
     }
 }
 
-impl ToTextEnvelope for SecretKey {
-    type Buffer = Zeroizing<Vec<u8>>;
-
-    fn type_name(&self) -> &'static str {
-        "KesSigningKey_ed25519_kes_2^6"
-    }
-
-    fn description(&self) -> &'static str {
-        "KES Signing Key"
-    }
-
-    fn encode_cbor<W: cbor::encode::Write>(
-        &self,
-        encoder: &mut cbor::Encoder<W>,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        // SAFETY: the bytes go straight into the zeroizing envelope buffers.
-        encoder.bytes(&unsafe { self.leak_into_bytes() }[..Self::SIZE])?;
-        Ok(())
-    }
-}
-
 // ------------------------------------------------------------------- PublicKey
 
 /// KES public key
@@ -208,37 +174,6 @@ impl TryFrom<&[u8]> for PublicKey {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self::from(<&[u8; Self::SIZE]>::try_from(bytes)?))
-    }
-}
-
-impl<C> cbor::Encode<C> for PublicKey {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        _ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.bytes(self.as_ref())?;
-        Ok(())
-    }
-}
-
-impl ToTextEnvelope for PublicKey {
-    type Buffer = Vec<u8>;
-
-    fn type_name(&self) -> &'static str {
-        "KesVerificationKey_ed25519_kes_2^6"
-    }
-
-    fn description(&self) -> &'static str {
-        "KES Verification Key"
-    }
-
-    fn encode_cbor<W: cbor::encode::Write>(
-        &self,
-        encoder: &mut cbor::Encoder<W>,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        encoder.encode(self)?;
-        Ok(())
     }
 }
 
@@ -410,23 +345,6 @@ mod tests {
         std::fs::write(&path, envelope(KES_SK_TYPE, &format!("590260{KES_SK_HEX}"))).unwrap();
         let mut kes_sk: SecretKey = text_envelope::read(&path).unwrap();
         assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
-    }
-
-    #[test]
-    fn written_envelope_reads_back() {
-        let mut written = Vec::new();
-        text_envelope::write(&SecretKey::for_tests(), &mut written).unwrap();
-        let mut kes_sk: SecretKey = text_envelope::from_json(&written).unwrap();
-        assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
-    }
-
-    #[test]
-    fn verification_key_envelope_matches_cardano_cli() {
-        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/forging");
-        let mut kes_sk: SecretKey = text_envelope::read(fixtures.join("kes.skey")).unwrap();
-        let mut written = Vec::new();
-        text_envelope::write(&PublicKey::from(&mut kes_sk), &mut written).unwrap();
-        assert_eq!(written, std::fs::read(fixtures.join("kes.vkey")).unwrap());
     }
 
     #[test_case(&envelope("KesVerificationKey_ed25519_kes_2^6", &format!("590260{KES_SK_HEX}")), "unexpected text envelope type"; "wrong type")]

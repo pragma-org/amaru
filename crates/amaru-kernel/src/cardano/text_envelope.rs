@@ -25,9 +25,9 @@
 //! Every intermediate buffer holding the file, the hex, or the CBOR payload has the type's
 //! `Buffer` type, so secret keys can be wiped on drop while public values are not.
 
-use std::{borrow::Cow, convert::Infallible, fs, io, path::Path};
+use std::{borrow::Cow, fs, io, path::Path};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::cbor;
@@ -44,22 +44,6 @@ pub trait FromTextEnvelope: Sized {
 
     /// Decode the payload of an envelope whose `type` is `r#type`, one of [`Self::TYPES`].
     fn decode_cbor(r#type: &'static str, decoder: &mut cbor::Decoder<'_>) -> Result<Self, Self::Error>;
-}
-
-/// A value written as a text envelope.
-pub trait ToTextEnvelope {
-    /// Storage for the encoded payload and its hex: `Zeroizing<Vec<u8>>` for secrets, `Vec<u8>` otherwise.
-    type Buffer: From<Vec<u8>> + AsMut<Vec<u8>>;
-
-    fn type_name(&self) -> &'static str;
-
-    fn description(&self) -> &'static str {
-        ""
-    }
-    fn encode_cbor<W: cbor::encode::Write>(
-        &self,
-        encoder: &mut cbor::Encoder<W>,
-    ) -> Result<(), cbor::encode::Error<W::Error>>;
 }
 
 /// Read and decode a text envelope file.
@@ -85,53 +69,13 @@ pub fn from_json<T: FromTextEnvelope>(json: &[u8]) -> Result<T, T::Error> {
     Ok(value)
 }
 
-/// Write `value` as a text envelope, formatted as cardano-cli formats it.
-pub fn write<T: ToTextEnvelope>(value: &T, writer: impl io::Write) -> Result<(), TextEnvelopeError> {
-    let mut size = ByteCount(0);
-    value.encode_cbor(&mut cbor::Encoder::new(&mut size))?;
-    let mut payload = T::Buffer::from(Vec::with_capacity(size.0));
-    let payload = payload.as_mut();
-    value.encode_cbor(&mut cbor::Encoder::new(&mut *payload))?;
-
-    let mut cbor_hex = T::Buffer::from(vec![0u8; payload.len() * 2]);
-    let cbor_hex = cbor_hex.as_mut();
-    hex::encode_to_slice(&*payload, cbor_hex)
-        .unwrap_or_else(|e| unreachable!("Impossible! hex buffer is sized to twice the payload: {e}"));
-    let cbor_hex =
-        std::str::from_utf8(cbor_hex).unwrap_or_else(|e| unreachable!("Impossible! hex encoding is always ASCII: {e}"));
-
-    let envelope = Envelope {
-        r#type: Cow::Borrowed(value.type_name()),
-        description: Cow::Borrowed(value.description()),
-        cbor_hex: Cow::Borrowed(cbor_hex),
-    };
-    let mut serializer =
-        serde_json::Serializer::with_formatter(writer, serde_json::ser::PrettyFormatter::with_indent(b"    "));
-    envelope.serialize(&mut serializer)?;
-    io::Write::write_all(&mut serializer.into_inner(), b"\n")?;
-    Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Envelope<'a> {
     #[serde(borrow)]
     r#type: Cow<'a, str>,
-    #[serde(borrow, default)]
-    description: Cow<'a, str>,
     #[serde(borrow)]
     cbor_hex: Cow<'a, str>,
-}
-
-struct ByteCount(usize);
-
-impl cbor::encode::Write for ByteCount {
-    type Error = Infallible;
-
-    fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        self.0 += buf.len();
-        Ok(())
-    }
 }
 
 #[derive(Debug, Error)]
@@ -146,8 +90,6 @@ pub enum TextEnvelopeError {
     Hex(#[from] hex::FromHexError),
     #[error("malformed text envelope payload: {0}")]
     Decode(#[from] cbor::decode::Error),
-    #[error("failed to encode text envelope payload: {0}")]
-    Encode(#[from] cbor::encode::Error<Infallible>),
     #[error("text envelope payload has {0} trailing bytes")]
     TrailingBytes(usize),
 }
@@ -171,38 +113,8 @@ mod tests {
         }
     }
 
-    impl ToTextEnvelope for Bytes {
-        type Buffer = Vec<u8>;
-
-        fn type_name(&self) -> &'static str {
-            "Bytes"
-        }
-
-        fn description(&self) -> &'static str {
-            "Some bytes"
-        }
-
-        fn encode_cbor<W: cbor::encode::Write>(
-            &self,
-            encoder: &mut cbor::Encoder<W>,
-        ) -> Result<(), cbor::encode::Error<W::Error>> {
-            encoder.bytes(&self.0)?;
-            Ok(())
-        }
-    }
-
     fn envelope(r#type: &str, cbor_hex: &str) -> String {
         format!(r#"{{"type":"{type}","description":"","cborHex":"{cbor_hex}"}}"#)
-    }
-
-    #[test]
-    fn writes_the_cardano_cli_layout() {
-        let mut out = Vec::new();
-        write(&Bytes(vec![0xab, 0xcd]), &mut out).unwrap();
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "{\n    \"type\": \"Bytes\",\n    \"description\": \"Some bytes\",\n    \"cborHex\": \"42abcd\"\n}\n"
-        );
     }
 
     #[test_case(&envelope("Other", "40"), "expected Bytes or LegacyBytes, found Other"; "wrong type")]

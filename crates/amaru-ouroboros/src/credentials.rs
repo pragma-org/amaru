@@ -325,7 +325,7 @@ mod tests {
 
     fn issue(sequence: u64, start: KesPeriod) -> Issued {
         let cold = ed25519::SigningKey::from_bytes(&[9u8; 32]);
-        let mut kes = kes::SecretKey::for_tests();
+        let mut kes: kes::SecretKey = text_envelope::read(forging_fixture("kes.skey")).unwrap();
         let hot = VerificationKey::from(*kes::PublicKey::from(&mut kes));
         let mut message = Vec::with_capacity(48);
         message.extend_from_slice(&hot[..]);
@@ -361,7 +361,7 @@ mod tests {
         let kes_path = dir.join("kes.skey");
         let vrf_path = dir.join("vrf.skey");
         let cert_path = dir.join("node.cert");
-        text_envelope::write(&kes::SecretKey::for_tests(), fs::File::create(&kes_path).unwrap()).unwrap();
+        fs::copy(forging_fixture("kes.skey"), &kes_path).unwrap();
         fs::write(&vrf_path, vrf_signing_envelope(&[7u8; 32])).unwrap();
         fs::write(
             &cert_path,

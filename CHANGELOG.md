@@ -40,7 +40,6 @@ Other guiding principles:
 
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
 - **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--kes-signing-key-file`, `--vrf-signing-key-file`, and `--operational-certificate` (unencrypted cardano-cli files). Install `amaru-kes-signer` beside `amaru`; it loads the KES key and signs blocks in a separate process. Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the keys do not match the certificate, its cold signature does not verify, or its sequence number is not the chain's counter for that pool or exactly one ahead.
-- **amaru**: `amaru keys kes create --signing-key-file PATH --verification-key-file PATH` generates cardano-cli compatible KES key files without replacing existing files.
 
 ### Changed
 
