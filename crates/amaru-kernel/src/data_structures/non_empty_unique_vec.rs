@@ -14,36 +14,30 @@
 
 use std::{collections::BTreeSet, ops::Deref};
 
-use crate::cbor;
+use crate::{cbor, data_structures::non_empty_set::has_duplicate};
 
-/// A read-only non-empty set: unique values with at least one element.
+/// A read-only non-empty vector of unique values, kept in the order they arrived.
 ///
-/// NOTE: The encoder emits the elements in sorted to support the comparison in tests with
-/// the similar collection in the haskell node (`Data.Set`). See [`NonEmptyUniqueVec`] for a collection
-/// that preserves the order of the elements in the encoding.
+/// Its encoder emits the sequence in the order it was read. See [`NonEmptySet`] for a collection
+/// that sorts the elements in the encoding.
 ///
-/// This is the equivalent of an `OSet` in the Haskell node.
-///
-///  We use an underlying `Vec` to
-///   - keep the order of elements unchanged from original values;
-///   - lower requirements on `T`.
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, serde::Serialize, serde::Deserialize)]
-pub struct NonEmptySet<T: Eq>(Vec<T>);
+pub struct NonEmptyUniqueVec<T: Eq>(Vec<T>);
 
-impl<T: Eq> From<NonEmptySet<T>> for Vec<T> {
-    fn from(set: NonEmptySet<T>) -> Self {
+impl<T: Eq> From<NonEmptyUniqueVec<T>> for Vec<T> {
+    fn from(set: NonEmptyUniqueVec<T>) -> Self {
         set.0
     }
 }
 
-impl<T: Eq + Ord> From<NonEmptySet<T>> for BTreeSet<T> {
-    fn from(set: NonEmptySet<T>) -> Self {
+impl<T: Eq + Ord> From<NonEmptyUniqueVec<T>> for BTreeSet<T> {
+    fn from(set: NonEmptyUniqueVec<T>) -> Self {
         BTreeSet::from_iter(Vec::from(set))
     }
 }
 
-impl<T: Eq> TryFrom<Vec<T>> for NonEmptySet<T> {
-    type Error = IntoNonEmptySetError;
+impl<T: Eq> TryFrom<Vec<T>> for NonEmptyUniqueVec<T> {
+    type Error = IntoNonEmptyUniqueVecError;
 
     fn try_from(vec: Vec<T>) -> Result<Self, Self::Error> {
         if vec.is_empty() {
@@ -58,13 +52,13 @@ impl<T: Eq> TryFrom<Vec<T>> for NonEmptySet<T> {
     }
 }
 
-impl<T: Eq> AsRef<[T]> for NonEmptySet<T> {
+impl<T: Eq> AsRef<[T]> for NonEmptyUniqueVec<T> {
     fn as_ref(&self) -> &[T] {
         self.0.deref()
     }
 }
 
-impl<T: Eq> Deref for NonEmptySet<T> {
+impl<T: Eq> Deref for NonEmptyUniqueVec<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -72,9 +66,9 @@ impl<T: Eq> Deref for NonEmptySet<T> {
     }
 }
 
-impl<C, T> cbor::encode::Encode<C> for NonEmptySet<T>
+impl<C, T> cbor::encode::Encode<C> for NonEmptyUniqueVec<T>
 where
-    T: Ord + cbor::Encode<C>,
+    T: Eq + cbor::Encode<C>,
 {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -82,14 +76,12 @@ where
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.tag(cbor::TAG_SET_258)?;
-        let mut sorted = self.0.iter().collect::<Vec<_>>();
-        sorted.sort_unstable();
-        e.encode_with(sorted.as_slice(), ctx)?;
+        e.encode_with(self.deref(), ctx)?;
         Ok(())
     }
 }
 
-impl<'b, C, T> cbor::Decode<'b, C> for NonEmptySet<T>
+impl<'b, C, T> cbor::Decode<'b, C> for NonEmptyUniqueVec<T>
 where
     T: Eq + cbor::Decode<'b, C>,
 {
@@ -112,12 +104,12 @@ where
 }
 
 // ----------------------------------------------------------------------------
-// IntoNonEmptySetError
+// IntoNonEmptyUniqueVecError
 // ----------------------------------------------------------------------------
 
-/// Errors that may occur when constructing a NonEmptySet.
+/// Errors that may occur when constructing a NonEmptyUniqueVec.
 #[derive(Debug, thiserror::Error)]
-pub enum IntoNonEmptySetError {
+pub enum IntoNonEmptyUniqueVecError {
     #[error("empty set when expecting at least one element")]
     Empty,
     #[error("found duplicate elements when converting collection to a set")]
@@ -128,30 +120,6 @@ pub enum IntoNonEmptySetError {
 // Internals
 // ----------------------------------------------------------------------------
 
-/// Check whether a slice contains duplicate relying only on the `Eq` instance and minimizing
-/// allocation. The check is still in O(n*log(n)).
-///
-/// We do not use HashSet or BTreeSet for mainly two reasons:
-///
-/// 1. They introduce additional requirements on `T` (Hash in one case, and Ord on the other).
-/// 2. We want to preserve the underlying order when possible;
-///
-/// Pre-condition: the slice is NOT empty.
-pub(crate) fn has_duplicate<T: Eq>(xs: &[T]) -> bool {
-    let last = xs.len() - 1;
-
-    for i in 0..last {
-        let x1 = &xs[i];
-        for x2 in xs.iter().take(last + 1).skip(i + 1) {
-            if x1 == x2 {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use std::{collections::BTreeSet, ops::Deref};
@@ -159,37 +127,16 @@ mod tests {
     use proptest::{collection, prelude::*};
     use test_case::test_case;
 
-    use super::{NonEmptySet, has_duplicate};
+    use super::NonEmptyUniqueVec;
     use crate::{from_cbor_no_leftovers, to_cbor};
-
-    #[test]
-    fn has_duplicate_empty() {
-        assert!(matches!(
-            std::panic::catch_unwind(|| {
-                let slice: &[u8] = &[];
-                has_duplicate(slice)
-            }),
-            Err(..)
-        ))
-    }
-
-    #[test_case(&[1], false)]
-    #[test_case(&[1, 1], true)]
-    #[test_case(&[1, 2, 3, 4, 5], false)]
-    #[test_case(&[1, 2, 2, 4, 5], true)]
-    #[test_case(&[1, 2, 3, 4, 4], true)]
-    #[test_case(&[3, 1, 4, 2, 3], true)]
-    fn has_duplicate_non_empty(slice: &[u8], result: bool) {
-        assert!(has_duplicate(slice) == result, "{slice:?}");
-    }
 
     proptest! {
         #[test]
         fn roundtrip_encode_decode(elems in collection::vec(any::<u8>(), 1..100)) {
             let set: Vec<u8> = BTreeSet::from_iter(elems).into_iter().collect();
-            let non_empty_set: NonEmptySet<u8> = NonEmptySet::try_from(set).unwrap();
+            let non_empty_set: NonEmptyUniqueVec<u8> = NonEmptyUniqueVec::try_from(set).unwrap();
             assert_eq!(
-                from_cbor_no_leftovers::<NonEmptySet<u8>>(to_cbor(&non_empty_set).as_slice()).unwrap(),
+                from_cbor_no_leftovers::<NonEmptyUniqueVec<u8>>(to_cbor(&non_empty_set).as_slice()).unwrap(),
                 non_empty_set,
             )
         }
@@ -199,13 +146,11 @@ mod tests {
     #[test_case("8101", &[1], false; "singleton")]
     #[test_case("D901029F010203FF", &[1,2,3], false; "tagged indef array")]
     #[test_case("9F010203FF", &[1,2,3], false; "indef array")]
-    // The elements keep the order they were read in, but go back out sorted, so an input that was not
-    // already sorted does not reproduce its own bytes.
-    #[test_case("D9010283040102", &[4, 1, 2], false; "tagged def array, out of order")]
+    #[test_case("D9010283040102", &[4, 1, 2], true; "tagged def array")]
     #[test_case("83040102", &[4, 1, 2], false; "def array")]
     fn from_cbor_success(s: &str, expected: &[u8], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
-        match from_cbor_no_leftovers::<NonEmptySet<u8>>(original_bytes.as_slice()) {
+        match from_cbor_no_leftovers::<NonEmptyUniqueVec<u8>>(original_bytes.as_slice()) {
             Ok(set) => {
                 assert_eq!(set.deref(), expected);
                 let bytes = to_cbor(&set);
@@ -228,6 +173,8 @@ mod tests {
     #[test_case("D9010282010203"; "leftovers")]
     #[test_case("D81B8101"; "unknown tag")]
     fn from_cbor_failures(s: &str) {
-        assert!(matches!(from_cbor_no_leftovers::<NonEmptySet<u8>>(hex::decode(s).unwrap().as_slice()), Err(..),));
+        assert!(
+            matches!(from_cbor_no_leftovers::<NonEmptyUniqueVec<u8>>(hex::decode(s).unwrap().as_slice()), Err(..),)
+        );
     }
 }

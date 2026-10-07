@@ -16,7 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Certificate, CertificatePointer, Credential, DRep, DRepRegistration, Epoch, EraHistory, EraHistoryError, Lovelace,
-    MemoizedDatum, Network, NonEmptySet, PoolId, ProtocolParameters, RedeemerTag, RequiredScript, TransactionPointer,
+    MemoizedDatum, Network, NonEmptyUniqueVec, PoolId, ProtocolParameters, RedeemerTag, RequiredScript,
+    TransactionPointer,
 };
 use thiserror::Error;
 
@@ -86,7 +87,7 @@ pub(crate) fn execute<C>(
     era_history: &EraHistory,
     governance_activity: GovernanceActivity,
     transaction: TransactionPointer,
-    certificates: Option<NonEmptySet<Certificate>>,
+    certificates: Option<NonEmptyUniqueVec<Certificate>>,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
@@ -111,7 +112,7 @@ where
 pub(crate) fn count_lovelace<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
-    certificates: Option<NonEmptySet<Certificate>>,
+    certificates: Option<NonEmptyUniqueVec<Certificate>>,
 ) where
     C: PoolsSlice + AccountsSlice + DRepsSlice + BalanceSlice,
 {

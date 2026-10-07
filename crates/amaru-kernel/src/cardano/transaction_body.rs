@@ -20,8 +20,8 @@ use amaru_minicbor_extra::encode_optional;
 use crate::to_cbor;
 use crate::{
     AuxiliaryData, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Multiasset, NULL_HASH32,
-    Network, NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set,
-    Slot, TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY,
+    Network, NonEmptyKeyValuePairs, NonEmptySet, NonEmptyUniqueVec, NonZeroInt, PositiveCoin, Proposal, ProposalId,
+    RewardAccount, Set, Slot, TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY,
 };
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
@@ -47,7 +47,7 @@ pub struct TransactionBody {
 
     pub validity_interval_end: Option<Slot>,
 
-    pub certificates: Option<NonEmptySet<Certificate>>,
+    pub certificates: Option<NonEmptyUniqueVec<Certificate>>,
 
     pub withdrawals: Option<NonEmptyKeyValuePairs<RewardAccount, Lovelace>>,
 
@@ -73,7 +73,7 @@ pub struct TransactionBody {
 
     pub votes: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 
-    pub proposals: Option<NonEmptySet<Proposal>>,
+    pub proposals: Option<NonEmptyUniqueVec<Proposal>>,
 
     pub treasury_value: Option<Lovelace>,
 
