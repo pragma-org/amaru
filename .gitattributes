@@ -3,6 +3,7 @@
 **/*.json.xz binary linguist-generated=true linguist-vendored
 **/*.cbor linguist-generated=true linguist-vendored
 **/*.stderr eol=lf
+crates/amaru-ouroboros/tests/data/forging/kes.vkey text eol=lf
 data/**/*.json linguist-generated=true linguist-vendored
 crates/amaru-kernel/tests/data/cbor.decode/**/* linguist-generated=true linguist-vendored
 crates/amaru-ledger/tests/data/rules-conformance/**/* linguist-generated=true linguist-vendored
