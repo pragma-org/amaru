@@ -40,6 +40,7 @@ Other guiding principles:
 
 - **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
 
+- **amaru**: `amaru keys hot create --signing-key-file PATH --verification-key-file PATH` generates cardano-cli compatible KES key files without replacing existing files.
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
 
 ### Changed
