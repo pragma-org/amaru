@@ -164,7 +164,7 @@ pub use cardano::{
         PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
     },
     protocol_parameters_update::{self, ProtocolParamUpdate, display_protocol_parameters_update},
-    protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
+    protocol_version::{self, MajorProtocolVersion, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
     ratification_status::{self, RatificationStatus},
     rational_number::{self, RationalNumber, SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
     raw_block::{RawBlock, extract_block_header_cbor},

@@ -110,16 +110,56 @@ impl<C> cbor::Encode<C> for ProtocolVersion {
 }
 
 impl<'b, C> cbor::Decode<'b, C> for ProtocolVersion {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            let major = d.u64()?;
-            if major > Self::MAX_MAJOR {
-                return Err(cbor::decode::Error::message("invalid protocol version's major: too high"));
-            }
+            let MajorProtocolVersion(major) = d.decode_with(ctx)?;
             let minor = d.u32()?;
             Ok(Self::new(major, minor))
         })
+    }
+}
+
+/// The major half of a [`ProtocolVersion`]. It is its own type in order to
+/// check its value against the maximum major version when decoding from CBOR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(transparent)]
+pub struct MajorProtocolVersion(u64);
+
+impl MajorProtocolVersion {
+    pub const fn new(major: u64) -> Self {
+        Self(major)
+    }
+
+    pub const fn get(&self) -> u64 {
+        self.0
+    }
+}
+
+impl fmt::Display for MajorProtocolVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<C> cbor::Encode<C> for MajorProtocolVersion {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.u64(self.0)?;
+        Ok(())
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for MajorProtocolVersion {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let major = d.u64()?;
+        if major > ProtocolVersion::MAX_MAJOR {
+            return Err(cbor::decode::Error::message("invalid protocol version's major: too high"));
+        }
+        Ok(Self(major))
     }
 }
 
