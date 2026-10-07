@@ -29,6 +29,9 @@ use crate::{
     epoch_transition::GovernanceActivity,
 };
 
+/// Largest pool metadata hash a registration may carry, which is the size of a ledger hash.
+const MAX_POOL_METADATA_HASH_SIZE: usize = 32;
+
 #[derive(Debug, Error)]
 pub enum InvalidCertificates {
     #[error("stake credential already registered: {0}")]
@@ -54,6 +57,9 @@ pub enum InvalidCertificates {
 
     #[error("pool reward account has wrong network: expected {expected:?}, actual {actual:?}")]
     PoolWrongNetwork { expected: Network, actual: Network },
+
+    #[error("pool metadata hash too big: {got} bytes, maximum {max}")]
+    PoolMetadataHashTooBig { pool: PoolId, max: usize, got: usize },
 
     #[error("pool cost too low: provided {provided}, minimum {minimum}")]
     PoolCostTooLow { provided: Lovelace, minimum: Lovelace },
@@ -179,6 +185,20 @@ where
                 return Err(InvalidCertificates::PoolWrongNetwork {
                     expected: network,
                     actual: reward_account_network,
+                });
+            }
+
+            // The metadata hash points at off-chain data the ledger cannot fetch, so its only on-chain
+            // constraint is that it is no larger than a hash.
+            //
+            // See https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs#L245-L250
+            if let Some(metadata) = params.metadata.as_ref()
+                && metadata.content_hash.len() > MAX_POOL_METADATA_HASH_SIZE
+            {
+                return Err(InvalidCertificates::PoolMetadataHashTooBig {
+                    pool: params.id,
+                    max: MAX_POOL_METADATA_HASH_SIZE,
+                    got: metadata.content_hash.len(),
                 });
             }
 

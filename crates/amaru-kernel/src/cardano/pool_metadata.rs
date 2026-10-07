@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::{Hash, MaxString128, cbor};
+use crate::{Bytes, MaxString128, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 pub struct PoolMetadata {
@@ -22,7 +22,7 @@ pub struct PoolMetadata {
     //
     // The serde instance is used for canonical ledger state comparisons.
     #[n(1)]
-    pub content_hash: Hash<32>,
+    pub content_hash: Bytes,
     #[n(0)]
     pub url: MaxString128,
 }

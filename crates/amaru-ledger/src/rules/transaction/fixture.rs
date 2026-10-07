@@ -284,6 +284,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    PoolMetadataHashTooBig,
     ProposalCantFollow,
     ProposalProcedureNetworkIdMismatch,
     ScriptsNotPaidUTxO,
@@ -455,6 +456,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
                 Predicate::StakePoolCostTooLowPOOL
+            }
+            PhaseOneError::Certificates(InvalidCertificates::PoolMetadataHashTooBig { .. }) => {
+                Predicate::PoolMetadataHashTooBig
             }
             PhaseOneError::Certificates(InvalidCertificates::PoolWrongNetwork { .. }) => Predicate::WrongNetworkPOOL,
             PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
