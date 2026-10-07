@@ -25,6 +25,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::{
     ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader, PeerCandidate, Point, Transaction,
+    cbor::WithOriginalBytes,
 };
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
@@ -36,8 +37,7 @@ use amaru_metrics::Meter;
 use amaru_network::{connection::TokioConnections, resolve::init_resolver};
 use amaru_observability::warn;
 use amaru_ouroboros::{
-    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
-    StoreError as ChainStoreError,
+    BaseReadChainStore, ChainStore, ConnectionsResource, PoolSummaries, ResourceMempool, StoreError as ChainStoreError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
@@ -45,7 +45,7 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_pure_stage::{
-    BoxFuture, Name, Sender, StageGraph, StageGraphRunning,
+    BoxFuture, Name, StageGraph, StageGraphRunning,
     drop_guard::DropGuard,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
@@ -59,6 +59,7 @@ use tokio::runtime::Handle;
 use crate::{
     ClearValidity,
     chain_realign::ensure_store_consistency,
+    mempool::{MempoolRuntime, MempoolServices, NodeRunId},
     realign_chain_store_to,
     stages::{
         build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
@@ -211,6 +212,7 @@ pub async fn build_and_run_node(config: Config, runtime: &Handle) -> Result<Node
 }
 
 fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+    let run_id = NodeRunId::new()?;
     let listen_address = config
         .listen_address()
         .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
@@ -223,9 +225,11 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
 
     let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
-    let mempool_sender = stage_builder.input(node_stages.mempool_stage());
+    let sender = stage_builder.input(node_stages.mempool_stage());
+    let pool = stage_builder.resources().take::<Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>>()?;
     let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, listen_address })
+    let mempool_runtime = MempoolRuntime::new(run_id, pool, sender, tokio_running.termination());
+    Ok(NodeRunning { tokio_running, mempool_runtime, lifecycle, listen_address })
 }
 
 async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
@@ -280,7 +284,7 @@ async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeR
 #[must_use = "call shutdown().await to release all node resources deterministically"]
 pub struct NodeRunning {
     tokio_running: TokioRunning,
-    mempool_sender: Sender<MempoolMsg>,
+    mempool_runtime: Arc<MempoolRuntime>,
     lifecycle: NodeLifecycle,
     listen_address: SocketAddr,
 }
@@ -291,8 +295,9 @@ impl NodeRunning {
         self.listen_address
     }
 
-    pub fn mempool_sender(&self) -> Sender<MempoolMsg> {
-        self.mempool_sender.clone()
+    /// Access the node's read-only and submission mempool services.
+    pub fn mempool(&self) -> MempoolServices {
+        self.mempool_runtime.services()
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
@@ -307,12 +312,20 @@ impl NodeRunning {
     ///
     /// This does not wait for cleanup; call [`Self::shutdown`] to finalize the node.
     pub fn request_abort(&self) {
+        self.mempool_runtime.close();
         self.tokio_running.request_abort();
     }
 
     /// Return a non-blocking abort callback that does not own the node's shutdown result.
     pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
-        self.tokio_running.abort_callback()
+        let abort = self.tokio_running.abort_callback();
+        let mempool = Arc::downgrade(&self.mempool_runtime);
+        move || {
+            if let Some(mempool) = mempool.upgrade() {
+                mempool.close();
+            }
+            abort();
+        }
     }
 
     /// Stop and join every node-owned task, then close listeners and stores.
@@ -322,11 +335,11 @@ impl NodeRunning {
     /// Cancelling this future does not stop worker joins already running on the blocking pool
     /// and does not establish that cleanup completed.
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
-        let Self { tokio_running, mempool_sender, lifecycle, listen_address: _ } = self;
+        let Self { tokio_running, mempool_runtime, lifecycle, listen_address: _ } = self;
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
 
+        mempool_runtime.close();
         tokio_running.request_abort();
-        drop(mempool_sender);
         let mut unexpected_exits = match tokio_running.join().await {
             Ok(report) => {
                 report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
@@ -350,6 +363,7 @@ impl NodeRunning {
         };
 
         unexpected_exits.extend([ledger, performance].into_iter().flatten());
+        mempool_runtime.stop();
         Ok(ShutdownReport { unexpected_exits })
     }
 }
@@ -517,7 +531,9 @@ fn register_resources(
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
     let connections = Arc::new(TokioConnections::new(65535));
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
+    let mempool = Arc::new(InMemoryMempool::new(mempool_config));
+    stage_graph.resources().put(mempool.clone());
+    stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
     stage_graph.resources().put::<ResourceEraHistory>(era_history);
@@ -784,6 +800,7 @@ mod tests {
         }
 
         let mut retained = Vec::new();
+        let mut run_ids = BTreeSet::new();
         for index in [0, 1, 0] {
             let test_config = &configs[index];
             let network = test_config.network_name;
@@ -794,18 +811,34 @@ mod tests {
             let chain_config = RocksDbConfig::new(stores.path().join(network.to_string()));
 
             let running = build_and_run_node(config, &Handle::current()).await?;
-            retained.push((running.abort_callback(), running.mempool_sender()));
+            let mempool = running.mempool();
+            let reader = mempool.reader();
+            let (snapshot, receiver) = reader.subscribe()?;
+            assert!(run_ids.insert(snapshot.run_id));
+            let submitter = mempool.submitter();
+            let abort = running.abort_callback();
             assert_eq!(running.listen_address(), listen_address);
             drop(TcpStream::connect(listen_address).await?);
+            abort();
+            assert_eq!(mempool.reader().snapshot().unwrap_err(), crate::MempoolAccessError::Closing);
+            assert_eq!(reader.snapshot().unwrap_err(), crate::MempoolAccessError::Closing);
+            retained.push((abort, mempool, reader, submitter, receiver, snapshot));
             let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
             assert!(report.is_clean(), "{report:?}");
 
             drop(TcpListener::bind(listen_address)?);
             drop(RocksDB::new(&ledger_config)?);
             drop(RocksDBStore::open(&chain_config)?);
-            for (abort, sender) in &retained {
+            for (abort, mempool, reader, submitter, receiver, _) in &mut retained {
                 abort();
-                assert!(sender.send(MempoolMsg::NewTip(Point::Origin)).await.is_err());
+                assert_eq!(mempool.reader().snapshot().unwrap_err(), crate::MempoolAccessError::Stopped);
+                assert!(matches!(mempool.reader().subscribe(), Err(crate::MempoolAccessError::Stopped)));
+                assert_eq!(reader.snapshot().unwrap_err(), crate::MempoolAccessError::Stopped);
+                assert_eq!(receiver.recv().await.unwrap_err(), crate::MempoolAccessError::Stopped);
+                assert_eq!(
+                    submitter.submit(&[]).await.unwrap_err(),
+                    crate::MempoolSubmitError::Stopped { transaction_id: None }
+                );
             }
         }
 

@@ -39,6 +39,7 @@ const _: () = amaru_deps::AMARU_DEPS_USED;
 pub mod builder;
 pub mod chain_realign;
 pub mod ledger_reset;
+pub mod mempool;
 pub mod mithril;
 pub mod peer_snapshot;
 pub mod stages;
@@ -47,7 +48,8 @@ pub mod system_metrics;
 pub mod telemetry;
 
 pub use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, NetworkPoint, Point, Transaction, TransactionRef,
+    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, NetworkPoint, Peer, Point, Transaction,
+    TransactionId, TransactionRef,
 };
 pub use amaru_ledger::{
     AccountState, AdoptedBlock, DRepState, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, PoolState,
@@ -55,9 +57,14 @@ pub use amaru_ledger::{
 };
 pub use amaru_metrics::{METRICS_METER_NAME, Meter};
 pub use amaru_observability::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
+pub use amaru_ouroboros_traits::{MempoolSeqNo, TransactionValidationError, TxOrigin, TxRejectReason};
 pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
 pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
+pub use mempool::{
+    MempoolAccepted, MempoolAccessError, MempoolEvent, MempoolReader, MempoolReceiver, MempoolServices,
+    MempoolSnapshot, MempoolSnapshotEntry, MempoolSubmitError, MempoolSubmitter, MempoolUnavailableReason, NodeRunId,
+};
 pub use mithril::{
     DefaultMithrilObserver, MithrilCancellation, MithrilObserver, MithrilProgress, MithrilStage, MithrilSyncError,
     MithrilSyncReport, MithrilSynchronizer, RebootstrapRequired, StoreRecoveryOutcome, reconcile_mithril_stores,
