@@ -18,15 +18,20 @@
 //! unencrypted text envelopes cardano-cli already writes. The cold key stays in
 //! the certificate file; it is not loaded on its own.
 
-use std::{fmt, fs, path::Path, sync::Mutex};
+use std::{fmt, path::Path, sync::Mutex};
 
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
-    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert, cardano::fixed_bytes::FixedBytes, cbor, ed25519,
-    protocol_version::PROTOCOL_VERSION_12, size::BLOCK_BODY,
+    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert,
+    cardano::{
+        fixed_bytes::FixedBytes,
+        text_envelope::{self, FromTextEnvelope, TextEnvelopeError},
+    },
+    cbor, ed25519,
+    protocol_version::PROTOCOL_VERSION_12,
+    size::BLOCK_BODY,
 };
 use amaru_ouroboros_traits::{ChainStore, ForgingCredentials, ForgingCredentialsError, IssuerFields, StoreError};
-use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
@@ -34,8 +39,6 @@ use crate::{
     praos::header::AssertOperationalCertificateError,
     vrf::{self, SecretKeyError as VrfKeyError},
 };
-
-const OPERATIONAL_CERTIFICATE_ENVELOPE: &str = "NodeOperationalCertificate";
 
 /// Block-producer secrets loaded from cardano-cli files and held in this process.
 ///
@@ -79,9 +82,9 @@ impl InProcessCredentials {
         operational_certificate: impl AsRef<Path>,
         max_kes_evolutions: u64,
     ) -> Result<Self, CredentialsError> {
-        let mut kes = kes::SecretKey::from_file(kes_signing_key)?;
-        let vrf = vrf::SecretKey::from_file(vrf_signing_key)?;
-        let (certificate, cold) = load_operational_certificate(operational_certificate)?;
+        let mut kes: kes::SecretKey = text_envelope::read(kes_signing_key)?;
+        let vrf: vrf::SecretKey = text_envelope::read(vrf_signing_key)?;
+        let OperationalCertificateFile { certificate, cold } = text_envelope::read(operational_certificate)?;
         let hot = VerificationKey::from(*kes::PublicKey::from(&mut kes));
         if hot != certificate.operational_cert_hot_verification_key {
             return Err(CredentialsError::HotKeyMismatch);
@@ -189,7 +192,7 @@ pub fn ensure_operational_certificate_accepted(
         .map_err(|error| CertificateRejected::Rejected(Box::new(error)))
 }
 
-fn cold_verifying_key(cold: &VerificationKey) -> Option<ed25519::VerifyingKey> {
+pub(crate) fn cold_verifying_key(cold: &VerificationKey) -> Option<ed25519::VerifyingKey> {
     ed25519::VerifyingKey::try_from(cold.as_slice()).ok()
 }
 
@@ -217,44 +220,28 @@ fn header_parented_on(parent: HeaderHash) -> Header {
     )
 }
 
-fn load_operational_certificate(
-    path: impl AsRef<Path>,
-) -> Result<(OperationalCert, VerificationKey), OperationalCertificateError> {
-    let bytes = fs::read(path)?;
-    let envelope: OperationalCertificateEnvelope = serde_json::from_slice(&bytes)?;
-    if envelope.r#type != OPERATIONAL_CERTIFICATE_ENVELOPE {
-        return Err(OperationalCertificateError::UnexpectedEnvelopeType {
-            expected: OPERATIONAL_CERTIFICATE_ENVELOPE,
-            found: envelope.r#type,
-        });
-    }
-    let payload = hex::decode(envelope.cbor_hex)?;
-    decode_operational_certificate(&payload)
+/// The `NodeOperationalCertificate` text envelope: the certificate and the cold verification key that signed it.
+pub(crate) struct OperationalCertificateFile {
+    pub(crate) certificate: OperationalCert,
+    pub(crate) cold: VerificationKey,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OperationalCertificateEnvelope {
-    r#type: String,
-    cbor_hex: String,
-}
+impl FromTextEnvelope for OperationalCertificateFile {
+    const TYPES: &'static [&'static str] = &["NodeOperationalCertificate"];
+    type Buffer = Vec<u8>;
+    type Error = OperationalCertificateError;
 
-fn decode_operational_certificate(
-    payload: &[u8],
-) -> Result<(OperationalCert, VerificationKey), OperationalCertificateError> {
-    let mut decoder = cbor::Decoder::new(payload);
-    let mut ctx = PROTOCOL_VERSION_12;
-    match decoder.array().map_err(OperationalCertificateError::cbor)? {
-        Some(2) => {}
-        Some(len) => return Err(OperationalCertificateError::ArrayLength(len)),
-        None => return Err(OperationalCertificateError::IndefiniteArray),
+    fn decode_cbor(_type: &'static str, decoder: &mut cbor::Decoder<'_>) -> Result<Self, OperationalCertificateError> {
+        let mut ctx = PROTOCOL_VERSION_12;
+        match decoder.array().map_err(TextEnvelopeError::Decode)? {
+            Some(2) => {}
+            Some(len) => return Err(OperationalCertificateError::ArrayLength(len)),
+            None => return Err(OperationalCertificateError::IndefiniteArray),
+        }
+        let certificate = decoder.decode_with(&mut ctx).map_err(TextEnvelopeError::Decode)?;
+        let cold = decoder.decode_with(&mut ctx).map_err(TextEnvelopeError::Decode)?;
+        Ok(Self { certificate, cold })
     }
-    let certificate = decoder.decode_with(&mut ctx).map_err(OperationalCertificateError::cbor)?;
-    let cold = decoder.decode_with(&mut ctx).map_err(OperationalCertificateError::cbor)?;
-    if decoder.position() != payload.len() {
-        return Err(OperationalCertificateError::TrailingBytes(payload.len() - decoder.position()));
-    }
-    Ok((certificate, cold))
 }
 
 /// Why the forging files were refused before the node serves traffic.
@@ -296,33 +283,17 @@ pub enum CertificateRejected {
 /// The operational-certificate text envelope could not be read.
 #[derive(Debug, Error)]
 pub enum OperationalCertificateError {
-    #[error("unexpected operational certificate envelope type: expected {expected}, found {found}")]
-    UnexpectedEnvelopeType { expected: &'static str, found: String },
     #[error("operational certificate CBOR must be a definite two-element array")]
     IndefiniteArray,
     #[error("operational certificate CBOR must be a two-element array, found {0} elements")]
     ArrayLength(u64),
-    #[error("operational certificate CBOR has {0} trailing bytes")]
-    TrailingBytes(usize),
-    #[error("operational certificate CBOR is malformed: {0}")]
-    Cbor(String),
-    #[error("failed to read operational certificate file: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("malformed operational certificate envelope: {0}")]
-    Envelope(#[from] serde_json::Error),
-    #[error("operational certificate hex is malformed: {0}")]
-    Hex(#[from] hex::FromHexError),
-}
-
-impl OperationalCertificateError {
-    fn cbor(error: impl ToString) -> Self {
-        Self::Cbor(error.to_string())
-    }
+    #[error("operational certificate file: {0}")]
+    Envelope(#[from] TextEnvelopeError),
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     use amaru_kernel::{IsHeader, Slot, cbor, ed25519::Signer};
     use amaru_ouroboros_traits::{HeaderDraft, InMemoryChainStore, WriteChainStore, kes_message};
@@ -347,13 +318,6 @@ mod tests {
         envelope("VrfSigningKey_PraosVRF", &format!("5840{}", hex::encode(raw)))
     }
 
-    fn kes_envelope() -> String {
-        // The on-disk envelope is the 608-byte seed. The in-memory key appends the period.
-        let key = kes::SecretKey::for_tests();
-        let raw = unsafe { key.leak_into_bytes() };
-        envelope(kes::SecretKey::ENVELOPE_TYPE, &format!("590260{}", hex::encode(&raw[..kes::SecretKey::SIZE])))
-    }
-
     struct Issued {
         certificate: OperationalCert,
         cold_vk: VerificationKey,
@@ -361,7 +325,7 @@ mod tests {
 
     fn issue(sequence: u64, start: KesPeriod) -> Issued {
         let cold = ed25519::SigningKey::from_bytes(&[9u8; 32]);
-        let mut kes = kes::SecretKey::for_tests();
+        let mut kes: kes::SecretKey = text_envelope::read(forging_fixture("kes.skey")).unwrap();
         let hot = VerificationKey::from(*kes::PublicKey::from(&mut kes));
         let mut message = Vec::with_capacity(48);
         message.extend_from_slice(&hot[..]);
@@ -397,11 +361,11 @@ mod tests {
         let kes_path = dir.join("kes.skey");
         let vrf_path = dir.join("vrf.skey");
         let cert_path = dir.join("node.cert");
-        fs::write(&kes_path, kes_envelope()).unwrap();
+        fs::copy(forging_fixture("kes.skey"), &kes_path).unwrap();
         fs::write(&vrf_path, vrf_signing_envelope(&[7u8; 32])).unwrap();
         fs::write(
             &cert_path,
-            envelope(OPERATIONAL_CERTIFICATE_ENVELOPE, &certificate_cbor(&issued.certificate, &issued.cold_vk)),
+            envelope("NodeOperationalCertificate", &certificate_cbor(&issued.certificate, &issued.cold_vk)),
         )
         .unwrap();
         (kes_path, vrf_path, cert_path)
@@ -491,11 +455,11 @@ mod tests {
         let vrf_vk = cbor_byte_string(&forging_fixture("vrf.vkey"));
         let cold_vk = cbor_byte_string(&forging_fixture("cold.vkey"));
 
-        let mut kes = kes::SecretKey::from_file(&kes_path).unwrap();
+        let mut kes: kes::SecretKey = text_envelope::read(&kes_path).unwrap();
         assert_eq!(u32::from(kes.period()), 0, "a fresh cardano-cli KES file has no period");
         assert_eq!(kes::PublicKey::from(&mut kes).as_ref(), kes_vk.as_slice());
 
-        let vrf = vrf::SecretKey::from_file(&vrf_path).unwrap();
+        let vrf: vrf::SecretKey = text_envelope::read(&vrf_path).unwrap();
         assert_eq!(vrf::PublicKey::from(&vrf).as_ref(), vrf_vk.as_slice());
         let input = vrf::Input::from(&[11u8; vrf::Input::SIZE]);
         let proof = vrf.prove(&input);
@@ -571,13 +535,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("node.cert");
         fs::write(&path, wrong).unwrap();
-        let err = load_operational_certificate(&path).unwrap_err();
-        assert!(matches!(err, OperationalCertificateError::UnexpectedEnvelopeType { .. }), "{err}");
+        let err = text_envelope::read::<OperationalCertificateFile>(&path).map(|_| ()).unwrap_err();
+        assert!(
+            matches!(err, OperationalCertificateError::Envelope(TextEnvelopeError::UnexpectedType { .. })),
+            "{err}"
+        );
 
-        let truncated = envelope(OPERATIONAL_CERTIFICATE_ENVELOPE, "8200");
+        let truncated = envelope("NodeOperationalCertificate", "8200");
         fs::write(&path, truncated).unwrap();
-        let err = load_operational_certificate(&path).unwrap_err();
-        assert!(matches!(err, OperationalCertificateError::Cbor(_)), "{err}");
+        let err = text_envelope::read::<OperationalCertificateFile>(&path).map(|_| ()).unwrap_err();
+        assert!(matches!(err, OperationalCertificateError::Envelope(TextEnvelopeError::Decode(_))), "{err}");
     }
 
     #[test]
