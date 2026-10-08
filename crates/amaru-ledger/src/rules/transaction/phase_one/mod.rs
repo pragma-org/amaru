@@ -264,6 +264,10 @@ where
     )?;
     span.record(PHASE_ONE::FIELD_WITHDRAWALS_MICROS, elapsed_and_reset(&mut meter));
 
+    certificates::require_witnesses(context, transaction_body.certificates.as_deref().unwrap_or_default());
+    proposals::require_witnesses(context, transaction_body.proposals.as_deref().unwrap_or_default());
+    voting_procedures::require_witnesses(context, transaction_body.votes.as_deref().unwrap_or_default());
+
     // NOTE: Following validations (and state changes) are entirely skipped on invalid transactions
     //
     // For invalid transactions, we only count the deposits and refunds necessary for value

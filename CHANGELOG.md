@@ -62,6 +62,7 @@ Other guiding principles:
 - **amaru**: only a failed connect or a dial that never finishes holds off the next dial. Starting a dial, or a connection that closed, does not. A replacement dial after a close is not cancelled when that same close is seen again.
 - **amaru**: a notice that an old connection died is not counted as a failed dial when a later dial to that peer is already in progress.
 - **amaru**: block fetch reads which connections may initiate from the peer resource. A connection no longer sends that fact to the connection manager, so a full tip burst cannot deadlock the two.
+- **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -608,6 +609,7 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1004]: https://github.com/pragma-org/amaru/issues/1004
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
