@@ -73,6 +73,9 @@ async fn submit_tx(State(submitter): State<SubmitApiState>, headers: HeaderMap, 
 
     match submitter.submit(&body).await {
         Ok(accepted) => json_response(StatusCode::ACCEPTED, accepted.transaction_id.to_string()),
+        Err(error @ MempoolSubmitError::InputTooLarge { .. }) => {
+            text_response(StatusCode::PAYLOAD_TOO_LARGE, error.to_string())
+        }
         Err(MempoolSubmitError::InvalidCbor { reason }) => {
             text_response(StatusCode::BAD_REQUEST, format!("Invalid CBOR transaction: {reason}"))
         }

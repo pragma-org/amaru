@@ -14,7 +14,7 @@
 
 //! Atomic pool inspection and bounded delivery of committed membership changes.
 
-use std::{collections::VecDeque, mem::size_of, sync::Arc};
+use std::{collections::VecDeque, mem::size_of, sync::Arc, time::SystemTime};
 
 use amaru_kernel::TransactionId;
 use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin};
@@ -35,6 +35,10 @@ pub struct MempoolSnapshotEntry {
     pub sequence: MempoolSeqNo,
     /// The admitting origin. Duplicate offers do not update it.
     pub origin: TxOrigin,
+    /// Wall-clock time recorded once on successful insertion.
+    /// Duplicate offers and snapshots preserve it; reinsertion after removal records a new time.
+    /// Use the insertion sequence for ordering because wall-clock time can jump.
+    pub admitted_at: SystemTime,
     pub original_bytes: Vec<u8>,
     pub size_bytes: u64,
 }

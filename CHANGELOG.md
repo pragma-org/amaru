@@ -41,6 +41,7 @@ Other guiding principles:
 - **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
 
 - **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots, and receive membership updates with explicit loss detection.
+- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection. Duplicate offers preserve admission time; removal followed by reinsertion records a new time.
 
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
 
@@ -50,6 +51,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-node**: embedded and HTTP transaction submission reject CBOR inputs larger than 64 KiB before decoding. HTTP callers receive status 413; ledger transaction-size limits still apply to smaller inputs.
 - **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 - **amaru-kernel**: fixed the ordering of multi assets.
