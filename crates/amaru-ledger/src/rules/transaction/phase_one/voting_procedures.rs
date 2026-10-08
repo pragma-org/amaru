@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, HasOwnership, MemoizedDatum, ProposalId, ProposalSlim, ProtocolVersion, RedeemerTag,
-    RequiredScript, TransactionPointer, Voter, VotingProcedures, protocol_version::PROTOCOL_VERSION_11,
-    utils::string::display_map,
+    Credential, Epoch, EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim,
+    ProtocolVersion, RedeemerTag, RequiredScript, TransactionPointer, Voter, VotingProcedure, VotingProcedures,
+    protocol_version::PROTOCOL_VERSION_11, utils::string::display_map,
 };
 use itertools::Itertools;
 use thiserror::Error;
@@ -42,6 +42,8 @@ pub enum InvalidVotingProcedures {
     EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
+type VotesByProposal = NonEmptyKeyValuePairs<ProposalId, VotingProcedure>;
+
 pub(crate) fn execute<C>(
     context: &mut C,
     protocol_version: ProtocolVersion,
@@ -50,7 +52,7 @@ pub(crate) fn execute<C>(
     voting_procedures: Option<VotingProcedures>,
 ) -> Result<(), InvalidVotingProcedures>
 where
-    C: WitnessSlice + ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,
+    C: ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
         // NOTE: Some conformance tests fail this check because the Haskell imp tests run on a
@@ -64,7 +66,7 @@ where
         let mut expired_proposals = BTreeMap::new();
         let mut disallowed_voters = BTreeMap::new();
 
-        voting_procedures.into_iter().sorted_by_key(|(k, _)| *k).enumerate().for_each(|(index, (voter, votes))| {
+        voting_procedures.into_iter().sorted_by_key(|(k, _)| *k).for_each(|(voter, votes)| {
             if !is_known_voter(context, protocol_version, &voter) {
                 unknown_voters.insert(voter);
                 return;
@@ -97,18 +99,6 @@ where
                 return;
             }
 
-            match voter.owner() {
-                Credential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: index as u32,
-                        purpose: RedeemerTag::Vote,
-                        datum: MemoizedDatum::None,
-                    });
-                }
-                Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
-            }
-
             votes.into_iter().for_each(|(proposal_id, ballot)| {
                 context.vote(proposal_id, voter, ballot.vote, ballot.anchor);
             })
@@ -132,6 +122,24 @@ where
     }
 
     Ok(())
+}
+
+/// Register the witnesses the voters demand.
+pub(crate) fn require_witnesses<C>(context: &mut C, voting_procedures: &[(Voter, VotesByProposal)])
+where
+    C: WitnessSlice,
+{
+    for (index, voter) in voting_procedures.iter().map(|(voter, _)| voter).sorted().enumerate() {
+        match voter.owner() {
+            Credential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
+                hash,
+                index: index as u32,
+                purpose: RedeemerTag::Vote,
+                datum: MemoizedDatum::None,
+            }),
+            Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
+        }
+    }
 }
 
 /// Whether the proposal is past the last epoch in which a vote on it still counts.

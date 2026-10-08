@@ -81,7 +81,7 @@ pub(crate) fn execute<C>(
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
-    C: ProposalsSlice + AccountsSlice + WitnessSlice + BalanceSlice,
+    C: ProposalsSlice + AccountsSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
         validate_proposal(
@@ -94,15 +94,6 @@ where
             transaction.1,
         )?;
 
-        if let Some(script_hash) = get_proposal_script_hash(&proposal) {
-            context.require_script_witness(RequiredScript {
-                hash: script_hash,
-                index: proposal_index as u32,
-                purpose: RedeemerTag::Propose,
-                datum: MemoizedDatum::None,
-            });
-        }
-
         context.produce_lovelace(proposal.deposit);
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
@@ -114,6 +105,23 @@ where
     }
 
     Ok(())
+}
+
+/// Register the witnesses the proposals demand.
+pub(crate) fn require_witnesses<C>(context: &mut C, proposals: &[Proposal])
+where
+    C: WitnessSlice,
+{
+    for (proposal_index, proposal) in proposals.iter().enumerate() {
+        if let Some(script_hash) = get_proposal_script_hash(proposal) {
+            context.require_script_witness(RequiredScript {
+                hash: script_hash,
+                index: proposal_index as u32,
+                purpose: RedeemerTag::Propose,
+                datum: MemoizedDatum::None,
+            });
+        }
+    }
 }
 
 /// A simplified version of `execute` which only track the value produced by proposal deposits, in
