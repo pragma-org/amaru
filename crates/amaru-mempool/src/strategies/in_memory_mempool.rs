@@ -635,7 +635,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn payload_budget_also_invalidates_slow_receivers() {
+    async fn single_event_exceeding_byte_budget_invalidates_receiver() {
         let limit = crate::inspection::MAX_MEMPOOL_QUEUED_BYTES;
         let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_bytes(limit * 2));
         let (_, mut receiver) = mempool.subscribe().unwrap();

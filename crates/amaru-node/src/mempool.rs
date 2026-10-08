@@ -66,10 +66,16 @@ impl fmt::Display for NodeRunId {
     }
 }
 
-/// Complete stored membership at one instant; validity against a newer tip is not implied.
+/// Atomically captured stored pool membership and counters.
+///
+/// Ledger changes, including fork switches with rollback, trigger asynchronous revalidation.
+/// A snapshot may be taken while revalidation is pending or running and include transactions
+/// that will subsequently be removed. Membership establishes "in the local mempool";
+/// it does not promise validity against the latest ledger tip, future inclusion, or confirmation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MempoolSnapshot {
     pub run_id: NodeRunId,
+    /// Membership revision. Revalidation without insertions or removals does not advance it.
     pub generation: u64,
     pub entries: Vec<MempoolSnapshotEntry>,
     pub transaction_count: u64,
@@ -96,8 +102,18 @@ impl MempoolSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MempoolEvent {
-    Inserted { run_id: NodeRunId, generation: u64, entry: MempoolSnapshotEntry },
-    Removed { run_id: NodeRunId, generation: u64, transaction_ids: Vec<TransactionId> },
+    Inserted {
+        run_id: NodeRunId,
+        generation: u64,
+        entry: MempoolSnapshotEntry,
+    },
+    /// Committed removal, including transactions that failed automatic revalidation.
+    /// Removal alone does not establish chain inclusion or confirmation.
+    Removed {
+        run_id: NodeRunId,
+        generation: u64,
+        transaction_ids: Vec<TransactionId>,
+    },
 }
 
 /// Inspection, subscription admission, or delivery failure.
@@ -137,6 +153,10 @@ pub enum MempoolSubmitError {
     InvalidCbor { reason: String },
     #[error("{reason}")]
     Rejected { transaction_id: TransactionId, reason: TxRejectReason },
+    /// The deadline fired before queue admission. This attempt cannot insert the transaction later.
+    #[error("mempool deadline reached before queue admission; this attempt cannot insert the transaction")]
+    NotAdmitted { transaction_id: TransactionId },
+    /// The deadline fired after known or possible admission; insertion outcome is unknown.
     #[error("mempool timed out; insertion outcome is unknown")]
     Timeout { transaction_id: TransactionId },
     #[error("mempool unavailable: {reason}; insertion outcome may be unknown")]
@@ -147,7 +167,8 @@ pub enum MempoolSubmitError {
     Stopped { transaction_id: Option<TransactionId> },
 }
 
-/// Successful insertion, which does not promise continued membership.
+/// Successful insertion into the local pool. The transaction may subsequently be removed,
+/// including before the caller receives this reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MempoolAccepted {
     pub transaction_id: TransactionId,
@@ -278,6 +299,10 @@ pub struct MempoolReader {
 
 impl MempoolReader {
     /// Capture an owned, capacity-bounded snapshot of stored membership.
+    /// This does not wait for pending revalidation; see [`MempoolSnapshot`].
+    ///
+    /// Absence does not establish that a submission failed: it may still be processing,
+    /// or the transaction may have been accepted and subsequently removed.
     pub fn snapshot(&self) -> Result<MempoolSnapshot, MempoolAccessError> {
         self.status.check()?;
         let runtime = self.runtime.upgrade().ok_or(MempoolAccessError::Stopped)?;
@@ -289,6 +314,9 @@ impl MempoolReader {
 
     /// Atomically register and capture the initial snapshot. The receiver delivers
     /// every later generation or an explicit gap; recover by subscribing again.
+    /// Committed removals from automatic revalidation are included as [`MempoolEvent::Removed`].
+    /// Subscribe before submitting to observe committed insertions, including those
+    /// whose submission reply times out. Events identify transactions, not individual attempts.
     ///
     /// At most 64 subscribers are admitted. Each retains at most 64 changes and
     /// 1 MiB of original transaction bytes and change metadata.
@@ -364,12 +392,15 @@ impl MempoolSubmitter {
 
     /// Submit original CBOR using the same timeout as the HTTP submit API.
     /// Inputs larger than [`Self::MAX_INPUT_SIZE_BYTES`] are rejected before decoding.
+    /// Timing out or dropping this future does not necessarily cancel insertion.
     pub async fn submit(&self, bytes: &[u8]) -> Result<MempoolAccepted, MempoolSubmitError> {
         self.submit_with_timeout(bytes, DEFAULT_MEMPOOL_INSERT_TIMEOUT.as_duration()).await
     }
 
-    /// Submit with a deadline covering dispatch and response waiting. Timeout is
-    /// not cancellation and does not establish that insertion failed.
+    /// Submit with a deadline covering queue admission and response waiting.
+    /// [`MempoolSubmitError::NotAdmitted`] proves this attempt cannot insert later.
+    /// After admission, timing out or dropping the future does not cancel insertion,
+    /// and [`MempoolSubmitError::Timeout`] leaves the outcome unknown.
     /// Decoding precedes the deadline and is bounded by [`Self::MAX_INPUT_SIZE_BYTES`].
     pub async fn submit_with_timeout(
         &self,
@@ -402,7 +433,7 @@ impl MempoolSubmitter {
             () = self.status.wait_for_closing() => return Err(self.status.submission_error(Some(transaction_id))),
             result = sender.call(|caller| MempoolMsg::Insert { tx: Box::new(tx), origin: TxOrigin::Local, caller }, timeout) => result,
         };
-        if self.status.check().is_err() {
+        if self.status.check().is_err() && !matches!(&result, Err(CallError::NotAdmitted)) {
             return Err(self.status.submission_error(Some(transaction_id)));
         }
         let unavailable = |reason| MempoolSubmitError::Unavailable { transaction_id, reason };
@@ -413,6 +444,7 @@ impl MempoolSubmitter {
             Ok(TxInsertResult::Rejected { tx_id, reason }) => {
                 Err(MempoolSubmitError::Rejected { transaction_id: tx_id, reason })
             }
+            Err(CallError::NotAdmitted) => Err(MempoolSubmitError::NotAdmitted { transaction_id }),
             Err(CallError::TimedOut) => Err(MempoolSubmitError::Timeout { transaction_id }),
             Err(CallError::SendFailed) => Err(unavailable(MempoolUnavailableReason::SendFailed)),
             Err(CallError::ResponseDropped) => Err(unavailable(MempoolUnavailableReason::ResponseDropped)),
