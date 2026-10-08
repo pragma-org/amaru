@@ -103,7 +103,7 @@ async fn submit_tx(State(submitter): State<SubmitApiState>, headers: HeaderMap, 
             text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool returned an invalid response")
         }
         Err(MempoolSubmitError::Closing { .. } | MempoolSubmitError::Stopped { .. }) => {
-            text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
+            text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool unavailable")
         }
     }
 }
@@ -306,7 +306,7 @@ mod tests {
         headers.insert(CONTENT_TYPE, "application/cbor".parse()?);
         let submitter = runtime.submitter();
         let resp = super::submit_tx(State(submitter), headers, Bytes::from(amaru_kernel::to_cbor(&tx))).await;
-        assert_eq!(resp.status(), 500);
+        assert_eq!(resp.status(), 503);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
         assert_eq!(to_bytes(resp.into_body(), usize::MAX).await?, "mempool unavailable");
         assert!(running.join().await?.unexpected_exits.is_empty());
