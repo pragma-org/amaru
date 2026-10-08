@@ -18,7 +18,7 @@ use amaru_consensus::{
     effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation},
     stages::mempool::{MempoolStageState, stage},
 };
-use amaru_kernel::{Peer, Point, to_cbor};
+use amaru_kernel::{NonEmptyVec, Peer, PlutusScript, Point, WitnessSet, cbor::WithSize, to_cbor};
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::{ResourceMempool, in_memory_chain_store::InMemoryChainStore};
 use amaru_ouroboros_traits::{MockBlockValidator, MockCanValidateTxs, TransactionValidationError};
@@ -57,6 +57,84 @@ fn original_bytes(tx: &WithOriginalBytes<Transaction>) -> Vec<u8> {
     [&[0x98, 0x04][..], &canonical[1..]].concat()
 }
 
+fn transaction_bytes_of_size(id: u16, size: usize) -> Vec<u8> {
+    let tx = create_transaction(id);
+    let encode = |script_size| {
+        let witnesses = WitnessSet {
+            plutus_v1_script: Some(NonEmptyVec::singleton(PlutusScript(vec![0; script_size].into()))),
+            ..WitnessSet::default()
+        };
+        to_cbor(&Transaction {
+            body: tx.body.clone(),
+            witnesses: WithSize::new(witnesses, 0),
+            is_expected_valid: true,
+            auxiliary_data: None,
+        })
+    };
+    let initial_script_size = size / 2;
+    let overhead = encode(initial_script_size).len() - initial_script_size;
+    let bytes = encode(size - overhead);
+    assert_eq!(bytes.len(), size);
+    bytes
+}
+
+#[tokio::test]
+async fn oversized_input_is_rejected_before_cbor_decoding() {
+    let (runtime, running) = test_runtime(MempoolConfig::default(), Arc::new(MockCanValidateTxs));
+    let submitter = runtime.submitter();
+    let max_bytes = MempoolSubmitter::MAX_INPUT_SIZE_BYTES;
+    for size in [0, max_bytes - 1, max_bytes, max_bytes + 1] {
+        let bytes = vec![0xff; size];
+        for result in [submitter.submit(&bytes).await, submitter.submit_with_timeout(&bytes, Duration::ZERO).await] {
+            if size > max_bytes {
+                assert_eq!(result, Err(MempoolSubmitError::InputTooLarge { size_bytes: size, max_bytes }));
+            } else {
+                assert!(matches!(result, Err(MempoolSubmitError::InvalidCbor { .. })));
+            }
+        }
+    }
+    assert_eq!(runtime.reader().snapshot().unwrap().generation, 0);
+    runtime.close();
+    running.request_abort();
+    assert!(running.join().await.unwrap().unexpected_exits.is_empty());
+}
+
+#[tokio::test]
+async fn input_ceiling_allows_boundary_transactions_and_preserves_ledger_rejections() {
+    let (runtime, running) = test_runtime(MempoolConfig::default(), Arc::new(MockCanValidateTxs));
+    let submitter = runtime.submitter();
+    let max_bytes = MempoolSubmitter::MAX_INPUT_SIZE_BYTES;
+    for (id, size) in [(0, max_bytes - 1), (1, max_bytes)] {
+        let bytes = transaction_bytes_of_size(id, size);
+        submitter.submit(&bytes).await.unwrap();
+    }
+    let snapshot = runtime.reader().snapshot().unwrap();
+    assert_eq!(snapshot.transaction_count, 2);
+    let oversized = transaction_bytes_of_size(2, max_bytes + 1);
+    assert_eq!(
+        submitter.submit(&oversized).await,
+        Err(MempoolSubmitError::InputTooLarge { size_bytes: oversized.len(), max_bytes })
+    );
+    assert_eq!(runtime.reader().snapshot().unwrap(), snapshot);
+    runtime.close();
+    running.request_abort();
+    assert!(running.join().await.unwrap().unexpected_exits.is_empty());
+
+    let validator = Arc::new(|_tx: &Transaction| {
+        Err(TransactionValidationError::from(anyhow::anyhow!("transaction exceeds ledger size limit")))
+    });
+    let (runtime, running) = test_runtime(MempoolConfig::default(), validator);
+    let bytes = transaction_bytes_of_size(0, max_bytes);
+    assert!(matches!(
+        runtime.submitter().submit(&bytes).await,
+        Err(MempoolSubmitError::Rejected { reason: TxRejectReason::Invalid(_), .. })
+    ));
+    assert_eq!(runtime.reader().snapshot().unwrap().generation, 0);
+    runtime.close();
+    running.request_abort();
+    assert!(running.join().await.unwrap().unexpected_exits.is_empty());
+}
+
 #[tokio::test]
 async fn snapshots_and_subscriptions_include_local_and_remote_original_encodings() {
     let (runtime, running) = test_runtime(MempoolConfig::default(), Arc::new(MockCanValidateTxs));
@@ -89,6 +167,7 @@ async fn snapshots_and_subscriptions_include_local_and_remote_original_encodings
     assert!(matches!(&event, MempoolEvent::Inserted { run_id, generation: 2, entry }
         if *run_id == snapshot.run_id && entry.transaction_id == second.tx_id() && entry.origin == TxOrigin::Remote(peer) && entry.original_bytes == to_cbor(&second)));
     let current = mempool.reader().snapshot().unwrap();
+    assert!(matches!(&event, MempoolEvent::Inserted { entry, .. } if entry == &current.entries[1]));
     assert_eq!(current.transaction_count, 2);
     assert_eq!(
         current.entries.iter().map(|entry| entry.transaction_id).collect::<Vec<_>>(),
@@ -165,12 +244,18 @@ async fn embedded_and_http_share_outcomes_and_original_bytes() {
     assert!(matches!(receiver.recv().await.unwrap(), MempoolEvent::Inserted { generation: 1, .. }));
     assert_eq!(reader.snapshot().unwrap().entries[0].original_bytes, bytes);
 
-    for (body, status) in [(bytes, 409), (to_cbor(&create_transaction(1)), 503), (vec![0xde, 0xad], 400)] {
+    for (body, status) in [
+        (bytes, 409),
+        (to_cbor(&create_transaction(1)), 503),
+        (vec![0xde, 0xad], 400),
+        (vec![0xff; MempoolSubmitter::MAX_INPUT_SIZE_BYTES + 1], 413),
+    ] {
         let error = submitter.submit(&body).await.unwrap_err();
         match status {
             409 => assert!(matches!(error, MempoolSubmitError::Rejected { reason: TxRejectReason::Duplicate, .. })),
             503 => assert!(matches!(error, MempoolSubmitError::Rejected { reason: TxRejectReason::MempoolFull, .. })),
             400 => assert!(matches!(error, MempoolSubmitError::InvalidCbor { .. })),
+            413 => assert!(matches!(error, MempoolSubmitError::InputTooLarge { .. })),
             _ => unreachable!(),
         }
         assert_eq!(

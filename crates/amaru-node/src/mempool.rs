@@ -130,6 +130,9 @@ pub enum MempoolUnavailableReason {
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum MempoolSubmitError {
+    /// Rejected before CBOR decoding or dispatch; no transaction identity is available.
+    #[error("transaction input is too large: {size_bytes} bytes exceeds the {max_bytes}-byte limit")]
+    InputTooLarge { size_bytes: usize, max_bytes: usize },
     #[error("Invalid CBOR transaction: {reason}")]
     InvalidCbor { reason: String },
     #[error("{reason}")]
@@ -354,13 +357,20 @@ pub struct MempoolSubmitter {
 }
 
 impl MempoolSubmitter {
+    /// Maximum original CBOR input size (64 KiB), checked before decoding.
+    /// This defensive parsing ceiling is independent of the ledger's current
+    /// transaction-size limit, which validation still enforces.
+    pub const MAX_INPUT_SIZE_BYTES: usize = 64 * 1024;
+
     /// Submit original CBOR using the same timeout as the HTTP submit API.
+    /// Inputs larger than [`Self::MAX_INPUT_SIZE_BYTES`] are rejected before decoding.
     pub async fn submit(&self, bytes: &[u8]) -> Result<MempoolAccepted, MempoolSubmitError> {
         self.submit_with_timeout(bytes, DEFAULT_MEMPOOL_INSERT_TIMEOUT.as_duration()).await
     }
 
     /// Submit with a deadline covering dispatch and response waiting. Timeout is
     /// not cancellation and does not establish that insertion failed.
+    /// Decoding precedes the deadline and is bounded by [`Self::MAX_INPUT_SIZE_BYTES`].
     pub async fn submit_with_timeout(
         &self,
         bytes: &[u8],
@@ -368,6 +378,12 @@ impl MempoolSubmitter {
     ) -> Result<MempoolAccepted, MempoolSubmitError> {
         if self.status.check().is_err() {
             return Err(self.status.submission_error(None));
+        }
+        if bytes.len() > Self::MAX_INPUT_SIZE_BYTES {
+            return Err(MempoolSubmitError::InputTooLarge {
+                size_bytes: bytes.len(),
+                max_bytes: Self::MAX_INPUT_SIZE_BYTES,
+            });
         }
         let decoded = minicbor::decode::<WithOriginalBytes<Transaction>>(bytes);
         if self.status.check().is_err() {

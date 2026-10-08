@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     mem,
     sync::{Arc, Weak},
+    time::SystemTime,
 };
 
 use amaru_kernel::{HasTransactionId, TransactionId, cbor, to_cbor};
@@ -36,6 +37,7 @@ use crate::inspection::{
 pub struct InMemoryMempool<Tx> {
     config: MempoolConfig,
     inner: Arc<parking_lot::RwLock<MempoolInner<Tx>>>,
+    admission_clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
 }
 
 impl<Tx: 'static> Default for InMemoryMempool<Tx> {
@@ -45,8 +47,24 @@ impl<Tx: 'static> Default for InMemoryMempool<Tx> {
 }
 
 impl<Tx> InMemoryMempool<Tx> {
+    /// Create a pool that records admission times using the system wall clock.
     pub fn new(config: MempoolConfig) -> Self {
-        InMemoryMempool { config, inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())) }
+        Self::new_with_admission_clock(config, SystemTime::now)
+    }
+
+    /// Create a pool with an admission clock, allowing deterministic simulation.
+    ///
+    /// The clock runs under the pool's write lock, only for successful new insertions.
+    /// It must not block or reenter the pool.
+    pub fn new_with_admission_clock(
+        config: MempoolConfig,
+        admission_clock: impl Fn() -> SystemTime + Send + Sync + 'static,
+    ) -> Self {
+        InMemoryMempool {
+            config,
+            inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())),
+            admission_clock: Arc::new(admission_clock),
+        }
     }
 }
 
@@ -99,6 +117,7 @@ impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
     fn insert(
         &mut self,
         config: &MempoolConfig,
+        admission_clock: &dyn Fn() -> SystemTime,
         tx: Tx,
         tx_origin: TxOrigin,
     ) -> Result<(TransactionId, MempoolSeqNo), TxRejectReason> {
@@ -113,10 +132,11 @@ impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
             return Err(TxRejectReason::MempoolFull);
         }
 
+        let admitted_at = admission_clock();
         let seq_no = MempoolSeqNo(self.next_seq);
         self.next_seq += 1;
 
-        let entry = MempoolEntry { seq_no, tx_id, tx, tx_size, origin: tx_origin };
+        let entry = MempoolEntry { seq_no, tx_id, tx, tx_size, origin: tx_origin, admitted_at };
 
         self.entries_by_id.insert(tx_id, entry);
         self.entries_by_seq.insert(seq_no, tx_id);
@@ -190,6 +210,7 @@ pub struct MempoolEntry<Tx> {
     tx: Tx,
     tx_size: u32,
     origin: TxOrigin,
+    admitted_at: SystemTime,
 }
 
 impl<Tx: cbor::Encode<()>> MempoolEntry<Tx> {
@@ -198,6 +219,7 @@ impl<Tx: cbor::Encode<()>> MempoolEntry<Tx> {
             transaction_id: self.tx_id,
             sequence: self.seq_no,
             origin: self.origin.clone(),
+            admitted_at: self.admitted_at,
             original_bytes: to_cbor(&self.tx),
             size_bytes: self.tx_size as u64,
         }
@@ -263,7 +285,7 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Tx
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult {
         let tx_id = tx.tx_id();
         let mut inner = self.inner.write();
-        let res = inner.insert(&self.config, tx, tx_origin);
+        let res = inner.insert(&self.config, self.admission_clock.as_ref(), tx, tx_origin);
         match res {
             Ok((tx_id, seq_no)) => TxInsertResult::accepted(tx_id, seq_no),
             Err(reason) => TxInsertResult::rejected(tx_id, reason),
@@ -352,7 +374,16 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Me
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Deref, slice, str::FromStr, sync::Barrier};
+    use std::{
+        ops::Deref,
+        slice,
+        str::FromStr,
+        sync::{
+            Barrier,
+            atomic::{AtomicU64, Ordering},
+        },
+        time::Duration,
+    };
 
     use amaru_kernel::{Hasher, Peer, cbor, cbor as minicbor, size::TRANSACTION_BODY};
     use amaru_ouroboros_traits::TxRejectReason;
@@ -420,6 +451,56 @@ mod tests {
 
         let second = Tx::from_str("b").unwrap();
         assert!(matches!(mempool.insert(second, TxOrigin::Local), TxInsertResult::Accepted { .. }));
+    }
+
+    #[tokio::test]
+    async fn admission_times_survive_duplicates_and_snapshots_and_reset_on_reinsertion() {
+        let first = Tx::from_str("a").unwrap();
+        let clock_calls = Arc::new(AtomicU64::new(0));
+        let next_time = Arc::new(parking_lot::Mutex::new(SystemTime::UNIX_EPOCH));
+        let calls = clock_calls.clone();
+        let time = next_time.clone();
+        let config = MempoolConfig::default().with_max_bytes(to_cbor(&first).len() as u64);
+        let mempool = InMemoryMempool::new_with_admission_clock(config, move || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            *time.lock()
+        });
+        let (_, mut receiver) = mempool.subscribe().unwrap();
+        assert!(matches!(mempool.insert(first.clone(), TxOrigin::Local), TxInsertResult::Accepted { .. }));
+        let initial = mempool.snapshot().entries[0].clone();
+        assert_eq!(initial.admitted_at, SystemTime::UNIX_EPOCH);
+        assert!(
+            matches!(receiver.recv().await.unwrap().as_ref(), PoolChange::Inserted { entry, .. } if entry == &initial)
+        );
+
+        let later = SystemTime::UNIX_EPOCH + Duration::from_secs(60);
+        *next_time.lock() = later;
+        let remote = TxOrigin::Remote(Peer::for_test(3005));
+        assert!(matches!(
+            mempool.insert(first.clone(), remote.clone()),
+            TxInsertResult::Rejected { reason: TxRejectReason::Duplicate, .. }
+        ));
+        assert!(matches!(
+            mempool.insert(Tx::from_str("b").unwrap(), TxOrigin::Local),
+            TxInsertResult::Rejected { reason: TxRejectReason::MempoolFull, .. }
+        ));
+        assert_eq!(mempool.subscribe().unwrap().0.entries[0], initial);
+        assert_eq!(clock_calls.load(Ordering::Relaxed), 1);
+
+        mempool.remove_txs(&[initial.transaction_id]);
+        receiver.recv().await.unwrap();
+        assert!(matches!(mempool.insert(first, remote.clone()), TxInsertResult::Accepted { .. }));
+        let readmitted = mempool.snapshot().entries[0].clone();
+        assert_eq!(readmitted.admitted_at, later);
+        assert_eq!(readmitted.origin, remote);
+        assert!(readmitted.sequence > initial.sequence);
+        assert!(
+            matches!(receiver.recv().await.unwrap().as_ref(), PoolChange::Inserted { entry, .. } if entry == &readmitted)
+        );
+
+        *next_time.lock() = SystemTime::UNIX_EPOCH;
+        assert_eq!(mempool.snapshot().entries[0], readmitted);
+        assert_eq!(clock_calls.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]
@@ -519,10 +600,15 @@ mod tests {
 
     #[tokio::test]
     async fn queue_overflow_reports_gap_without_queue_capacity_and_can_resubscribe() {
-        let mempool = InMemoryMempool::default();
+        let seconds = Arc::new(AtomicU64::new(1));
+        let clock = seconds.clone();
+        let mempool = InMemoryMempool::new_with_admission_clock(MempoolConfig::default(), move || {
+            SystemTime::UNIX_EPOCH + Duration::from_secs(clock.load(Ordering::Relaxed))
+        });
         let (_, mut receiver) = mempool.subscribe().unwrap();
         mempool.insert(Tx::from_str("consumed").unwrap(), TxOrigin::Local);
         assert_eq!(receiver.recv().await.unwrap().generation(), 1);
+        seconds.store(2, Ordering::Relaxed);
         for i in 0..=crate::inspection::MAX_MEMPOOL_QUEUED_EVENTS {
             mempool.insert(Tx::from_str(&i.to_string()).unwrap(), TxOrigin::Local);
         }
@@ -533,9 +619,19 @@ mod tests {
                 current_generation: crate::inspection::MAX_MEMPOOL_QUEUED_EVENTS as u64 + 2,
             }
         );
+        seconds.store(3, Ordering::Relaxed);
         let (snapshot, mut fresh) = mempool.subscribe().unwrap();
+        assert_eq!(snapshot.entries[0].admitted_at, SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+        assert!(
+            snapshot.entries[1..]
+                .iter()
+                .all(|entry| { entry.admitted_at == SystemTime::UNIX_EPOCH + Duration::from_secs(2) })
+        );
         mempool.insert(Tx::from_str("fresh").unwrap(), TxOrigin::Local);
-        assert_eq!(fresh.recv().await.unwrap().generation(), snapshot.generation + 1);
+        let event = fresh.recv().await.unwrap();
+        assert_eq!(event.generation(), snapshot.generation + 1);
+        assert!(matches!(event.as_ref(), PoolChange::Inserted { entry, .. }
+            if entry.admitted_at == SystemTime::UNIX_EPOCH + Duration::from_secs(3)));
     }
 
     #[tokio::test]
