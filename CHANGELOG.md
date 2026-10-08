@@ -38,6 +38,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru-kernel**: embedding applications can inspect block headers and parent links from Byron through Conway.
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
 
 ### Changed
@@ -46,6 +47,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-kernel**: reject malformed CBOR break markers inside skipped block fields.
 - **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 - **amaru-kernel**: fixed the ordering of multi assets.
