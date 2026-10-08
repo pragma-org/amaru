@@ -84,7 +84,7 @@ impl<K: Eq, V> IntoIterator for NonEmptyKeyValuePairs<K, V> {
 
 impl<C, K, V> cbor::encode::Encode<C> for NonEmptyKeyValuePairs<K, V>
 where
-    K: cbor::Encode<C> + Eq,
+    K: cbor::Encode<C> + Ord,
     V: cbor::Encode<C>,
 {
     fn encode<W: cbor::encode::Write>(
@@ -92,7 +92,11 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        cbor::encode_variable_length_map(e, self.iter().map(|(k, v)| (k, v)), ctx)
+        // Sort the key-value pairs before encoding to support comparisons with the Haskell node
+        // in tests.
+        let mut sorted = self.iter().collect::<Vec<_>>();
+        sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+        cbor::encode_variable_length_map(e, sorted.into_iter().map(|(k, v)| (k, v)), ctx)
     }
 }
 
@@ -153,7 +157,7 @@ mod tests {
 
     #[test_case("A1016161", &[(1, "a")], true; "singleton")]
     #[test_case("BF016161026162036161FF", &[(1, "a"), (2, "b"), (3, "a")], false; "indef map")]
-    #[test_case("A3046162016163026161", &[(4, "b"), (1, "c"), (2, "a")], true; "def map")]
+    #[test_case("A3046162016163026161", &[(4, "b"), (1, "c"), (2, "a")], false; "def map, keys out of order")]
     fn from_cbor_success(s: &str, expected: &[(u8, &str)], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
         match from_cbor_no_leftovers::<NonEmptyKeyValuePairs<u8, String>>(original_bytes.as_slice()) {
