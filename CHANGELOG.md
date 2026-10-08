@@ -55,6 +55,9 @@ Other guiding principles:
 - **amaru-metrics**: the `amaru_consensus_*_duration_microseconds` histograms have buckets from 0.5 ms to 30 s. They used the OpenTelemetry default boundaries (0 to 10,000), meant for milliseconds, so nearly every header and block timing fell in the overflow bucket and percentiles could not be computed.
 - **amaru-ledger**: a transaction or block carrying a witness whose verification key is not a valid Ed25519 point no longer crashes the node.
 - **amaru-ouroboros**: align leader eligibility with the Cardano node at fixed-point rounding and threshold boundaries, for both block production and header validation. ([#1577](https://github.com/pragma-org/amaru/issues/1577))
+### Fixed
+
+- **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
@@ -665,6 +668,7 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1004]: https://github.com/pragma-org/amaru/issues/1004
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010

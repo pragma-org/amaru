@@ -1,0 +1,37 @@
+{
+  "title": "invalid transaction proposing a parameter change under a failing guardrails script",
+  "description": "An is_valid=false transaction with a ParameterChange proposal whose policy is the constitution's Plutus V3 guardrails script, which fails.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820bfad06d468f39357c879fbbfc921b1a8e399a4fb8da00c8cd201c52270a6b68700",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c33340"
+      },
+      {
+        "input": "825820cec1a8e9b0d481fc553c65bed2bdf696d2c08d96e391ff22f771acb4e8e5a7d300",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
+    "guardrail_script": "994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969"
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d9010281825820bfad06d468f39357c879fbbfc921b1a8e399a4fb8da00c8cd201c52270a6b687000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0048efe0021a00035b600b5820b6de09dc07a9c05f9344ffe4b27af2aed1ba220668d9e8f9d5761fbab415851a0dd9010281825820cec1a8e9b0d481fc553c65bed2bdf696d2c08d96e391ff22f771acb4e8e5a7d3000f0014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88400f6a1001864581c994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258403eadd5a20f347dc7941d2a43c34d1820115380423813e35307d113e8b322aff645098898940e5245441dc16f70ba458e7c941885afd6f32757e8daa462b9360a05a18205008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}
