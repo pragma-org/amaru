@@ -19,6 +19,9 @@ use crate::{
     cbor, cbor::WithSize, size::BLOCK_BODY, traits::is_header::IsHeader,
 };
 
+/// A block with decoded transactions for ledger processing.
+///
+/// Use [`crate::MultiEraBlock`] to inspect headers and parent links across historical eras.
 #[derive(Debug, Clone, PartialEq, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct Block {
@@ -166,21 +169,15 @@ impl Block {
             )));
         }
         decoder.skip()?;
-        let mut ranges = [(0usize, 0usize); 4];
-        for range in &mut ranges {
-            let start = decoder.position();
-            decoder.skip()?;
-            *range = (start, decoder.position());
+        let mut components = [&[][..]; 4];
+        for component in &mut components {
+            let (_, bytes) = cbor::tee(&mut decoder, |d| d.skip())?;
+            *component = bytes;
         }
         if decoder.position() != encoded_block.len() {
             return Err(cbor::decode::Error::message("trailing data after block body"));
         }
-        Ok(Self::hash_body_cbor([
-            &encoded_block[ranges[0].0..ranges[0].1],
-            &encoded_block[ranges[1].0..ranges[1].1],
-            &encoded_block[ranges[2].0..ranges[2].1],
-            &encoded_block[ranges[3].0..ranges[3].1],
-        ]))
+        Ok(Self::hash_body_cbor(components))
     }
 
     /// Get the size in bytes of the serialised block.
@@ -253,12 +250,6 @@ impl<'a> IntoIterator for &'a Block {
     }
 }
 
-// FIXME(cbor): Multi-era decoding
-//
-// We will likely require multi-era decoding too here. Even if we don't expect blocks from
-// previous eras in normal operation (albeit, to be confirmed...), we will require to re-validate
-// that a given chain is indeed at least well-formed, and that means drilling through headers to
-// ensure they form a chain. So at least *some level* of multi-era decoding is necessary.
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {

@@ -68,7 +68,21 @@ Other guiding principles:
 ### Added
 
 - **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
+- **amaru-kernel**: embedding applications can inspect block headers and parent links from Byron through Conway.
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
+
+### Changed
+
+- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
+
+### Fixed
+
+- **amaru-kernel**: reject malformed CBOR break markers inside skipped block fields.
+- **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
+- **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
+- **amaru-kernel**: fixed the ordering of multi assets.
+
+## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
 ### Changed
 

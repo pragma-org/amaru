@@ -122,18 +122,11 @@ impl minicbor::Encode<()> for NetworkBlock {
 
 impl<'b> minicbor::Decode<'b, ()> for NetworkBlock {
     fn decode(d: &mut minicbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, minicbor::decode::Error> {
-        let len = d.array()?;
-        if len != Some(2) {
-            return Err(minicbor::decode::Error::message(format!(
-                "invalid NetworkBlock array length. Expected 2, got {len:?}"
-            )));
-        }
-        let era_tag = d.decode()?;
-        let start = d.position();
-        d.skip()?; // skip exactly one CBOR item (the block term)
-        let end = d.position();
-        let bytes = &d.input()[start..end];
-        Ok(NetworkBlock { era_tag, encoded_block: bytes.to_vec() })
+        cbor::heterogeneous_array_definite(d, 2, |d| {
+            let era_tag = d.decode()?;
+            let (_, bytes) = cbor::tee(d, |d| d.skip())?;
+            Ok(NetworkBlock { era_tag, encoded_block: bytes.to_vec() })
+        })
     }
 }
 

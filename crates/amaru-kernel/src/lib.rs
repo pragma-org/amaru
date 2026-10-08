@@ -60,7 +60,7 @@ pub mod cbor {
         decode_bytes, decode_string, encode_bytestring, encode_variable_length_map, expect_tag, from_cbor,
         from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_array_definite,
         heterogeneous_map, heterogeneous_map_unique_keys, heterogeneous_map_with, heterogeneous_map_with_unique_keys,
-        lazy, missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
+        lazy, missing_field, skip_array, skip_map, skip_value, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -167,7 +167,7 @@ pub use cardano::{
     protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
     ratification_status::{self, RatificationStatus},
     rational_number::{self, RationalNumber, SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
-    raw_block::{RawBlock, extract_block_header_cbor},
+    raw_block::{MultiEraBlock, ParsedBlockHeader, RawBlock, extract_block_header_cbor, parse_block_header},
     redeemer::{self, Redeemer},
     redeemer_key::{self, RedeemerKey},
     redeemer_tag::{self, RedeemerTag},
