@@ -51,6 +51,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-node**: HTTP transaction submission returns status 503 when the node is closing or stopped, so clients can retry during restarts.
 - **amaru-node**: embedded and HTTP transaction submission reject CBOR inputs larger than 64 KiB before decoding. HTTP callers receive status 413; ledger transaction-size limits still apply to smaller inputs.
 - **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
