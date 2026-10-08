@@ -44,7 +44,7 @@ pub struct Block {
     pub auxiliary_data: BTreeMap<TransactionIndex, AuxiliaryData>,
 
     #[n(4)]
-    pub invalid_transactions: Option<BTreeSet<TransactionIndex>>,
+    pub invalid_transactions: BTreeSet<TransactionIndex>,
 }
 
 /// Position of a transaction within a block.
@@ -223,8 +223,7 @@ impl IntoIterator for Block {
             .zip(self.transaction_bodies)
             .zip(self.transaction_witnesses)
             .map(|((i, body), witnesses)| {
-                let is_expected_valid =
-                    !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
+                let is_expected_valid = !self.invalid_transactions.contains(&i);
 
                 let auxiliary_data = self.auxiliary_data.remove(&i);
 
@@ -242,8 +241,7 @@ impl<'a> IntoIterator for &'a Block {
     fn into_iter(self) -> Self::IntoIter {
         Box::new((0u16..).zip(self.transaction_bodies.iter()).zip(&self.transaction_witnesses).map(
             |((i, body), witnesses)| {
-                let is_expected_valid =
-                    !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
+                let is_expected_valid = !self.invalid_transactions.contains(&i);
 
                 let auxiliary_data = self.auxiliary_data.get(&i);
 
@@ -302,9 +300,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
             })?;
 
             let (invalid_transactions, invalid_transactions_bytes) =
-                cbor::tee(d, |d| d.decode_with::<_, Option<BTreeSet<TransactionIndex>>>(ctx))?;
+                cbor::tee(d, |d| d.decode_with::<_, BTreeSet<TransactionIndex>>(ctx))?;
 
-            for index in invalid_transactions.iter().flatten() {
+            for index in invalid_transactions.iter() {
                 if usize::from(*index) >= transaction_count {
                     return Err(cbor::decode::Error::message(format!(
                         "invalid transaction index {index} out of bounds for {transaction_count} transaction bodies"

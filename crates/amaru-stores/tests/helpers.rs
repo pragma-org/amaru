@@ -229,9 +229,7 @@ pub fn empty_block(header: Header) -> Block {
     block.transaction_witnesses.clear();
     block.auxiliary_data.clear();
 
-    // NOTE: `invalid_transactions` is deliberately left as the fixture has it, an empty set. The
-    // derived encoder sizes the block array from the highest field that is not `None`, so setting it
-    // to `None` emits four fields and `Block`'s decoder rejects the array.
+    block.invalid_transactions.clear();
 
     // The size and hash caches are `#[cbor(skip)]` and only populated on decode, so round-trip once
     // to recompute them over the stripped body, announce them in the header, then round-trip again

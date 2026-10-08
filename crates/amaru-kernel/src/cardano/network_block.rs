@@ -88,7 +88,7 @@ impl NetworkBlock {
     /// Decode only the header from the raw CBOR representation of the block.
     pub fn decode_header(&self) -> Result<Header, cbor::decode::Error> {
         let mut decoder = minicbor::Decoder::new(&self.encoded_block);
-        // format: [header, tx_bodies, witnesses, auxiliary_data?, invalid_transactions?]
+        // format: [header, tx_bodies, witnesses, auxiliary_data, invalid_transactions]
         decoder.array()?;
         decoder.decode()
     }
