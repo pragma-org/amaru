@@ -27,13 +27,11 @@ use crate::{
 /// That encoder already reproduces every choice the decoded value still holds, so what is left to forgive is
 /// the shape of the containers, which carries nothing: the comparison then asks whether decoding kept the
 /// information, which is what the round trip is for, rather than whether amaru can rebuild a hash preimage.
-// NOTE: `auxiliary_data` is deliberately absent. It re-encodes in the era form it was decoded
-// from, which is what the ledger's memoised bytes achieve, but it rebuilds that form from the
-// decoded contents rather than replaying the bytes. A sample written with an indefinite-length
-// container or a chunked string therefore comes back in its canonical spelling, which normalising
-// both sides forgives.
+///
+// NOTE: `header_body` has to by compared exactly because the KES signature is always checked against
+// a re-encoding of its values.
 const BYTE_EXACT: &[&str] =
-    &["header", "native_script", "plutus_data", "redeemers", "transaction_body", "transaction_witness_set"];
+    &["header_body", "native_script", "plutus_data", "redeemers", "transaction_body", "transaction_witness_set"];
 
 /// Whether a rule's re-encoding has to reproduce the reference bytes, rather than agree after normalisation.
 fn must_be_byte_exact(rule: &str) -> bool {
