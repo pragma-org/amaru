@@ -35,6 +35,16 @@ use crate::{
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(map)]
 pub struct WitnessSet {
+    /// Which fields carried the `#6.258` set tag in the bytes this witness set was decoded from, as a bit per
+    /// field key.
+    ///
+    /// The tag is optional on the wire below protocol version 12, and the ledger reproduces whichever form it
+    /// read because it holds a witness set in a `MemoBytes`. amaru rebuilds instead, so without this the choice
+    /// is lost and the bytes cannot be reproduced — which matters, since the block body hash covers them.
+    #[cbor(skip)]
+    #[serde(skip)]
+    pub set_tags: u8,
+
     #[n(0)]
     pub verification_key_witness: Option<NonEmptyVec<VerificationKeyWitness>>,
 
@@ -70,6 +80,10 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for WitnessSet {
             WitnessSet::default(),
             |d| d.u64(),
             |d, st, k| {
+                if k < 8 && d.datatype()? == cbor::Type::Tag {
+                    st.set_tags |= 1 << k;
+                }
+
                 match k {
                     0 => st.verification_key_witness = Some(d.decode_with(ctx)?),
                     1 => st.native_script = Some(d.decode_with(ctx)?),

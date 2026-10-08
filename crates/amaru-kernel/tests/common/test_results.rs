@@ -16,11 +16,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use minicbor::decode;
 
-use crate::{AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutcome, error_class, normalize_shape};
+use crate::{
+    AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutcome, error_class, exact_encoder, normalize_shape,
+};
 
-/// Rules for data types whose bytes are hashed. For those data types the,
-/// where the encoding is part of the format since a different encoding is a different hash.
-/// This means that the re-encoding of such a value must match the original bytes exactly.
+/// Rules for data types whose bytes are hashed, where the encoding is part of the format since a different
+/// encoding is a different hash. The re-encoding of such a value must match the reference bytes exactly.
+///
+/// A rule that supplies an exact encoder is compared after normalisation instead, however it is listed here.
+/// That encoder already reproduces every choice the decoded value still holds, so what is left to forgive is
+/// the shape of the containers, which carries nothing: the comparison then asks whether decoding kept the
+/// information, which is what the round trip is for, rather than whether amaru can rebuild a hash preimage.
 // NOTE: `auxiliary_data` is deliberately absent. It re-encodes in the era form it was decoded
 // from, which is what the ledger's memoised bytes achieve, but it rebuilds that form from the
 // decoded contents rather than replaying the bytes. A sample written with an indefinite-length
@@ -28,6 +34,11 @@ use crate::{AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutco
 // both sides forgives.
 const BYTE_EXACT: &[&str] =
     &["header", "native_script", "plutus_data", "redeemers", "transaction_body", "transaction_witness_set"];
+
+/// Whether a rule's re-encoding has to reproduce the reference bytes, rather than agree after normalisation.
+fn must_be_byte_exact(rule: &str) -> bool {
+    BYTE_EXACT.contains(&rule) && exact_encoder(rule).is_none()
+}
 
 /// Recorded when amaru decodes a sample that should be rejected.
 const DECODED_BUT_SHOULD_BE_REJECTED: &str = "decoded successfully, should be rejected";
@@ -114,7 +125,7 @@ impl TestResults {
                     Ok(re_encoded) => {
                         let exact = re_encoded == expected;
                         let agrees = exact
-                            || (!BYTE_EXACT.contains(&rule)
+                            || (!must_be_byte_exact(rule)
                                 && normalize_shape(&re_encoded)? == normalize_shape(&expected)?);
                         if agrees {
                             outcome.generated_decoded_reencoded_actual += 1;

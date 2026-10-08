@@ -156,6 +156,145 @@ pub const RULES: &[(&str, RoundTrip)] = &[
     ("withdrawals", round_trip::<NonEmptyKeyValuePairs<RewardAccount, Lovelace>>),
 ];
 
+/// Encoders that reproduce the reference bytes for rules whose ordinary encoder does not.
+///
+/// Where a type is written to the wire in a form the encoder is not free to choose — because its bytes are
+/// hashed — the suite asks for the exact bytes back. The ordinary encoder may legitimately differ, writing the
+/// form the CDDL prescribes rather than the one that arrived. Supplying an encoder here that reproduces the
+/// input is the proof that decoding kept everything the bytes carried: it can only be written if the decoded
+/// value still holds every choice the producer made.
+pub const EXACT_ENCODERS: &[(&str, RoundTrip)] = &[
+    ("transaction_witness_set", round_trip_exact_witness_set),
+    ("transaction", round_trip_exact_transaction),
+    ("block", round_trip_exact_block),
+];
+
+/// The encoder the suite compares against the reference for a rule, exact where one is supplied.
+pub fn exact_encoder(rule: &str) -> Option<RoundTrip> {
+    EXACT_ENCODERS.iter().find(|(name, _)| *name == rule).map(|(_, encode)| *encode)
+}
+
+/// Write a witness set as the bytes it was decoded from.
+///
+/// The set tag is optional on the wire below protocol version 12, and the ordinary encoder always writes it,
+/// as the Conway CDDL prescribes. The bytes are covered by the block body hash, so the producer's choice is part
+/// of the value; a witness set records which of its fields carried the tag, and that is the only thing it has to
+/// remember beyond its fields for this encoder to exist.
+fn encode_witness_set_exact<W: cbor::encode::Write>(
+    e: &mut cbor::Encoder<W>,
+    ctx: &mut ProtocolVersion,
+    witnesses: &WitnessSet,
+) -> Result<(), cbor::encode::Error<W::Error>> {
+    fn field<T: cbor::Encode<ProtocolVersion>, W: cbor::encode::Write>(
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut ProtocolVersion,
+        key: u8,
+        tagged: bool,
+        items: &[T],
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.u8(key)?;
+        if tagged {
+            e.tag(cbor::TAG_SET_258)?;
+        }
+        e.encode_with(items, ctx)?;
+        Ok(())
+    }
+
+    let tagged = |key: u8| witnesses.set_tags & (1 << key) != 0;
+    let present = [
+        witnesses.verification_key_witness.is_some(),
+        witnesses.native_script.is_some(),
+        witnesses.bootstrap_witness.is_some(),
+        witnesses.plutus_v1_script.is_some(),
+        witnesses.plutus_data.is_some(),
+        witnesses.redeemer.is_some(),
+        witnesses.plutus_v2_script.is_some(),
+        witnesses.plutus_v3_script.is_some(),
+    ];
+    e.map(present.iter().filter(|is_present| **is_present).count() as u64)?;
+
+    if let Some(f) = &witnesses.verification_key_witness {
+        field(e, ctx, 0, tagged(0), f)?;
+    }
+    if let Some(f) = &witnesses.native_script {
+        field(e, ctx, 1, tagged(1), f)?;
+    }
+    if let Some(f) = &witnesses.bootstrap_witness {
+        field(e, ctx, 2, tagged(2), f)?;
+    }
+    if let Some(f) = &witnesses.plutus_v1_script {
+        field(e, ctx, 3, tagged(3), f)?;
+    }
+    if let Some(f) = &witnesses.plutus_data {
+        field(e, ctx, 4, tagged(4), f)?;
+    }
+    if let Some(f) = &witnesses.redeemer {
+        e.u8(5)?.encode_with(f, ctx)?;
+    }
+    if let Some(f) = &witnesses.plutus_v2_script {
+        field(e, ctx, 6, tagged(6), f)?;
+    }
+    if let Some(f) = &witnesses.plutus_v3_script {
+        field(e, ctx, 7, tagged(7), f)?;
+    }
+
+    Ok(())
+}
+
+/// Run an exact encoder over a freshly decoded value, turning the write errors into decode ones.
+fn exact<T, F>(bytes: &[u8], version: ProtocolVersion, write: F) -> Result<Vec<u8>, cbor::decode::Error>
+where
+    T: for<'b> cbor::Decode<'b, ProtocolVersion>,
+    F: FnOnce(
+        &mut cbor::Encoder<&mut Vec<u8>>,
+        &mut ProtocolVersion,
+        &T,
+    ) -> Result<(), cbor::encode::Error<std::convert::Infallible>>,
+{
+    let mut version = version;
+    let value: T = from_cbor_no_leftovers_with(bytes, &mut version)?;
+    let mut out = Vec::new();
+    let mut encoder = cbor::Encoder::new(&mut out);
+    write(&mut encoder, &mut version, &value).map_err(|e| cbor::decode::Error::message(e.to_string()))?;
+    Ok(out)
+}
+
+fn round_trip_exact_witness_set(bytes: &[u8], version: ProtocolVersion) -> Result<Vec<u8>, cbor::decode::Error> {
+    // The closure is not redundant: `encode_witness_set_exact` is generic over the writer, and naming it here
+    // leaves that parameter unresolved.
+    #[expect(clippy::redundant_closure)]
+    exact::<WitnessSet, _>(bytes, version, |e, ctx, witnesses| encode_witness_set_exact(e, ctx, witnesses))
+}
+
+fn round_trip_exact_transaction(bytes: &[u8], version: ProtocolVersion) -> Result<Vec<u8>, cbor::decode::Error> {
+    exact::<Transaction, _>(bytes, version, |e, ctx, transaction| {
+        e.array(4)?;
+        e.encode_with(&transaction.body, ctx)?;
+        encode_witness_set_exact(e, ctx, &transaction.witnesses)?;
+        e.encode_with(transaction.is_expected_valid, ctx)?;
+        match &transaction.auxiliary_data {
+            Some(auxiliary_data) => e.encode_with(auxiliary_data, ctx)?,
+            None => e.null()?,
+        };
+        Ok(())
+    })
+}
+
+fn round_trip_exact_block(bytes: &[u8], version: ProtocolVersion) -> Result<Vec<u8>, cbor::decode::Error> {
+    exact::<Block, _>(bytes, version, |e, ctx, block| {
+        e.array(5)?;
+        e.encode_with(&block.header, ctx)?;
+        e.encode_with(&block.transaction_bodies, ctx)?;
+        e.array(block.transaction_witnesses.len() as u64)?;
+        for witnesses in &block.transaction_witnesses {
+            encode_witness_set_exact(e, ctx, witnesses)?;
+        }
+        e.encode_with(&block.auxiliary_data, ctx)?;
+        e.encode_with(&block.invalid_transactions, ctx)?;
+        Ok(())
+    })
+}
+
 /// Fail when the corpus carries a rule amaru does not yet check.
 pub fn check_no_unknown_rules(root: &Path) -> anyhow::Result<()> {
     let known: BTreeSet<&str> = RULES.iter().map(|(name, _)| *name).collect();
@@ -177,6 +316,7 @@ pub fn check_rule(
     rule: &str,
     round_trip: &RoundTrip,
 ) -> anyhow::Result<TestResults> {
+    let round_trip = &exact_encoder(rule).unwrap_or(*round_trip);
     let tests = test_configuration.read_tests_for(rule)?;
     let mut test_results = TestResults::new();
 
