@@ -87,6 +87,9 @@ async fn submit_tx(State(submitter): State<SubmitApiState>, headers: HeaderMap, 
             },
             reason.to_string(),
         ),
+        Err(MempoolSubmitError::NotAdmitted { .. }) => {
+            text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool deadline reached before queue admission")
+        }
         Err(MempoolSubmitError::Timeout { .. }) => text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool timed out"),
         Err(MempoolSubmitError::Unavailable { reason: MempoolUnavailableReason::SendFailed, .. }) => {
             warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "send_failed");

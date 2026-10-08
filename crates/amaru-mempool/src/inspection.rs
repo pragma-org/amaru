@@ -44,8 +44,12 @@ pub struct MempoolSnapshotEntry {
 }
 
 /// Owned membership, order, and counters captured under the pool's lock.
+///
+/// This capture does not wait for ledger revalidation or establish validity against
+/// a particular ledger point. Entries awaiting revalidation remain stored until removed.
 #[derive(Debug, Clone)]
 pub struct PoolSnapshot {
+    /// Membership revision; a revalidation pass without removals does not advance it.
     pub generation: u64,
     pub entries: Vec<MempoolSnapshotEntry>,
     pub transaction_count: u64,
