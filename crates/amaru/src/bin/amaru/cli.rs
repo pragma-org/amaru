@@ -139,6 +139,7 @@ impl Command {
         matches!(
             self,
             Command::Dev(cmd::dev::DevCommand::Env(_))
+                | Command::Snapshot(cmd::snapshot::SnapshotCommand::Epochs(_))
                 | Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Dump(_)))
                 | Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Schema(_)))
                 | Command::LegacyDumpTracesSchema(_)

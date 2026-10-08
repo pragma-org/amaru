@@ -16,11 +16,18 @@ use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod create;
+pub(crate) mod epochs;
 pub(crate) mod publish;
 pub(crate) mod reindex;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SnapshotCommand {
+    /// List available bootstrap starting epochs, one per line in ascending order.
+    ///
+    /// Snapshots exist for the three preceding epochs of each listed epoch.
+    /// Pass a listed epoch to node bootstrap --epoch.
+    Epochs(epochs::Args),
+
     /// Create the three consecutive epoch snapshots needed for bootstrap.
     Create(create::Args),
 
@@ -34,6 +41,7 @@ pub(crate) enum SnapshotCommand {
 impl SnapshotCommand {
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
+            Self::Epochs(args) => epochs::runnable(args),
             Self::Create(args) => create::runnable(args),
             Self::Publish(args) => publish::runnable(args),
             Self::Reindex(args) => reindex::runnable(args),
