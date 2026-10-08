@@ -78,7 +78,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Certificate {
                 e.encode_with(cost, ctx)?;
                 e.encode_with(margin, ctx)?;
                 e.encode_with(reward_account, ctx)?;
-                e.encode_with(SerialisedAsSet(owners), ctx)?;
+                e.encode_with(SerialisedAsSet(owners.as_slice()), ctx)?;
                 e.encode_with(relays, ctx)?;
                 e.encode_with(metadata, ctx)?;
             }

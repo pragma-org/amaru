@@ -138,7 +138,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GovernanceAction {
                 e.array(5)?;
                 e.u16(4)?;
                 e.encode_with(a, ctx)?;
-                e.encode_with(SerialisedAsSet(b), ctx)?;
+                e.encode_with(SerialisedAsSet(b.as_slice()), ctx)?;
                 e.encode_with(c, ctx)?;
                 e.encode_with(d, ctx)?;
             }

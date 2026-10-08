@@ -17,18 +17,23 @@ use crate::cbor;
 static TAG_SET: u64 = 258;
 
 /// Encode an array-like type as a tagged set.
+///
+/// We make sure that elements are ordered before encoding in order to facilitate comparisons
+/// with the Haskell node in tests.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct SerialisedAsSet<T>(pub T);
 
-impl<C, T: cbor::Encode<C>> cbor::Encode<C> for SerialisedAsSet<T> {
+impl<C, E: Ord + cbor::Encode<C>> cbor::Encode<C> for SerialisedAsSet<&[E]> {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.tag(cbor::Tag::new(TAG_SET))?;
-        e.encode_with(&self.0, ctx)?;
+        let mut sorted = self.0.iter().collect::<Vec<_>>();
+        sorted.sort_unstable();
+        e.encode_with(sorted.as_slice(), ctx)?;
         Ok(())
     }
 }

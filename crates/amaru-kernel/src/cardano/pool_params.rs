@@ -61,7 +61,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PoolParams {
         e.encode_with(self.cost, ctx)?;
         e.encode_with(self.margin, ctx)?;
         e.encode_with(self.reward_account, ctx)?;
-        e.encode_with(SerialisedAsSet(&self.owners), ctx)?;
+        e.encode_with(SerialisedAsSet(self.owners.as_slice()), ctx)?;
         e.encode_with(&self.relays, ctx)?;
         e.encode_with(&self.metadata, ctx)?;
         Ok(())
@@ -101,7 +101,8 @@ impl Arbitrary for PoolParams {
             any::<u64>(),
             0..100u64,
             any::<RewardAccount>(),
-            collection::vec(any::<Hash<KEY>>(), 1..3),
+            // owners is a set in the ledger, so it round-trips only when it is unique and sorted
+            collection::btree_set(any::<Hash<KEY>>(), 1..3),
             collection::vec(any::<Relay>(), 0..10),
         )
             .prop_map(|(id, vrf, pledge, cost, margin, reward_account, owners, relays)| PoolParams {
@@ -111,7 +112,7 @@ impl Arbitrary for PoolParams {
                 cost,
                 margin: UnitRationalNumber::new(margin, 100).expect("margin is always less than 100"),
                 reward_account,
-                owners,
+                owners: owners.into_iter().collect(),
                 relays,
                 metadata: None,
             })
