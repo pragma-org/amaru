@@ -1,0 +1,1 @@
+(program 1.0.0 [ (builtin lengthOfByteString) [ [ [ (builtin writeBits) [ [ (builtin appendByteString) [ [ (builtin replicateByte) (con integer 4000) ] (con integer 0) ] ] [ [ (builtin replicateByte) (con integer 97) ] (con integer 0) ] ] ] (con (list integer) [0]) ] (con bool True) ] ])

@@ -15,8 +15,8 @@
 use bumpalo::collections::Vec as BumpVec;
 
 use super::{
-    CostModel, ExBudget, MachineError, cost_model::StepKind, discharge, info::MachineInfo, runtime::Runtime,
-    value::Value,
+    CaseOnConstants, CostModel, ExBudget, MachineError, cost_model::StepKind, discharge, info::MachineInfo,
+    runtime::Runtime, value::Value,
 };
 use crate::{
     arena::Arena,
@@ -63,6 +63,10 @@ impl<'a> Machine<'a> {
     where
         V: Eval<'a>,
     {
+        if !self.costs.semantics.supports_program_version(self.machine_version) {
+            return Err(MachineError::UnavailableProgramVersion(self.machine_version));
+        }
+
         self.spend_budget(self.costs.machine_costs.startup)?;
 
         let initial_context = Context::no_frame(self.arena);
@@ -244,7 +248,7 @@ impl<'a> Machine<'a> {
                         Err(MachineError::MissingCaseBranch(branches, value))
                     }
                 }
-                Value::Con(constant) if self.machine_version.is_constr_case_available() => {
+                Value::Con(constant) if self.costs.case_on_constants == CaseOnConstants::NoData => {
                     let (tag, max_branches, fields) = self.constant_as_tag_fields(constant)?;
 
                     if branches.len() > max_branches {

@@ -167,6 +167,36 @@ regression_case!(
     "conformance_extra/textual/builtin/semantics/indexByteString/v3-index-2pow64-plus-one/v3-index-2pow64-plus-one.uplc"
 );
 regression_case!(
+    builtin_semantics_listtoarray_v3_data_elements_regression,
+    "conformance_extra/textual/builtin/semantics/listToArray/v3-data-elements/v3-data-elements.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_listtoarray_v3_string_elements_regression,
+    "conformance_extra/textual/builtin/semantics/listToArray/v3-string-elements/v3-string-elements.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_listtoarray_v3_large_bytestring_elements_regression,
+    "conformance_extra/textual/builtin/semantics/listToArray/v3-large-bytestring-elements/v3-large-bytestring-elements.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_listtoarray_v3_large_integer_elements_regression,
+    "conformance_extra/textual/builtin/semantics/listToArray/v3-large-integer-elements/v3-large-integer-elements.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_listtoarray_v3_nested_list_elements_regression,
+    "conformance_extra/textual/builtin/semantics/listToArray/v3-nested-list-elements/v3-nested-list-elements.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
     builtin_semantics_modinteger_v3_below_diagonal_constant_regression,
     "conformance_extra/textual/builtin/semantics/modInteger/v3-below-diagonal-constant/v3-below-diagonal-constant.uplc"
 );
@@ -191,6 +221,228 @@ regression_case!(
     "conformance_extra/textual/builtin/semantics/shiftByteString/v3-left-shift-whole-byte/v3-left-shift-whole-byte.uplc"
 );
 regression_case!(
+    builtin_semantics_shiftbytestring_v3_shift_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-shift-beyond-int64-pv10/v3-shift-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_shiftbytestring_v3_negative_shift_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-negative-shift-beyond-int64-pv10/v3-negative-shift-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_shiftbytestring_v3_shift_beyond_int64_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/shiftByteString/v3-shift-beyond-int64-pv11/v3-shift-beyond-int64-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_rotatebytestring_v3_rotate_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/rotateByteString/v3-rotate-beyond-int64-pv10/v3-rotate-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_rotatebytestring_v3_negative_rotate_beyond_int64_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/rotateByteString/v3-negative-rotate-beyond-int64-pv10/v3-negative-rotate-beyond-int64-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_rotatebytestring_v3_rotate_beyond_int64_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/rotateByteString/v3-rotate-beyond-int64-pv11/v3-rotate-beyond-int64-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_appendstring_v3_ascii_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/appendString/v3-ascii-pv10/v3-ascii-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_appendstring_v3_multibyte_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/appendString/v3-multibyte-pv10/v3-multibyte-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_encodeutf8_v3_ascii_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/encodeUtf8/v3-ascii-pv10/v3-ascii-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_encodeutf8_v3_multibyte_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/encodeUtf8/v3-multibyte-pv10/v3-multibyte-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_encodeutf8_v3_multibyte_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/encodeUtf8/v3-multibyte-pv11/v3-multibyte-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_equalsstring_v3_ascii_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/equalsString/v3-ascii-pv10/v3-ascii-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_equalsstring_v3_multibyte_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/equalsString/v3-multibyte-pv10/v3-multibyte-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    builtin_semantics_writebits_v3_multiple_indices_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-multiple-indices/v3-multiple-indices.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_index_2pow64_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-index-2pow64/v3-index-2pow64.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_input_4096_bytes_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4096-bytes-pv11/v3-input-4096-bytes-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_input_4097_bytes_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4097-bytes-pv11/v3-input-4097-bytes-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_input_4097_bytes_empty_indices_pv11_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4097-bytes-empty-indices-pv11/v3-input-4097-bytes-empty-indices-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    builtin_semantics_writebits_v3_input_4097_bytes_pv10_regression,
+    "conformance_extra/textual/builtin/semantics/writeBits/v3-input-4097-bytes-pv10/v3-input-4097-bytes-pv10.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
     builtin_semantics_verifysignature_legacy_alias_test_vector_25_regression,
     "conformance_extra/textual/builtin/semantics/verifySignature/legacy-alias-test-vector-25/legacy-alias-test-vector-25.uplc"
+);
+regression_case!(
+    program_version_v3_2_0_0_pv10_regression,
+    "conformance_extra/textual/program/version/v3-2-0-0/v3-2-0-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v3_2_0_0_pv11_regression,
+    "conformance_extra/textual/program/version/v3-2-0-0/v3-2-0-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v3_1_2_0_pv11_regression,
+    "conformance_extra/textual/program/version/v3-1-2-0/v3-1-2-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v3_1_0_1_pv11_regression,
+    "conformance_extra/textual/program/version/v3-1-0-1/v3-1-0-1.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v3_1_1_0_pv10_regression,
+    "conformance_extra/textual/program/version/v3-1-1-0/v3-1-1-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v3_1_1_0_pv11_regression,
+    "conformance_extra/textual/program/version/v3-1-1-0/v3-1-1-0.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v1_2_0_0_pv11_regression,
+    "conformance_extra/textual/program/version/v1-2-0-0/v1-2-0-0.uplc",
+    PlutusVersion::V1,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v1_1_1_0_before_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-before-pv11/v1-1-1-0-before-pv11.uplc",
+    PlutusVersion::V1,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v1_1_1_0_from_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-from-pv11/v1-1-1-0-from-pv11.uplc",
+    PlutusVersion::V1,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    program_version_v2_1_1_0_before_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-before-pv11/v1-1-1-0-before-pv11.uplc",
+    PlutusVersion::V2,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    program_version_v2_1_1_0_from_pv11_regression,
+    "conformance_extra/textual/program/version/v1-1-1-0-from-pv11/v1-1-1-0-from-pv11.uplc",
+    PlutusVersion::V2,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    term_case_bool_before_pv11_regression,
+    "conformance_extra/textual/term/case/bool-before-pv11/bool-before-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    term_case_bool_from_pv11_regression,
+    "conformance_extra/textual/term/case/bool-from-pv11/bool-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    term_case_integer_before_pv11_regression,
+    "conformance_extra/textual/term/case/integer-before-pv11/integer-before-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    term_case_integer_from_pv11_regression,
+    "conformance_extra/textual/term/case/integer-from-pv11/integer-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    term_case_list_before_pv11_regression,
+    "conformance_extra/textual/term/case/list-before-pv11/list-before-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_10
+);
+regression_case!(
+    term_case_list_from_pv11_regression,
+    "conformance_extra/textual/term/case/list-from-pv11/list-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
+);
+regression_case!(
+    term_case_data_from_pv11_regression,
+    "conformance_extra/textual/term/case/data-from-pv11/data-from-pv11.uplc",
+    PlutusVersion::V3,
+    PROTOCOL_VERSION_11
 );

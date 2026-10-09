@@ -14,7 +14,7 @@
 
 use std::array::TryFromSliceError;
 
-use super::{ExBudget, value::Value};
+use super::{ExBudget, MachineVersion, value::Value};
 use crate::{
     binder::Eval,
     bls::BlsError,
@@ -57,6 +57,8 @@ where
     MaxConstrTagExceeded(&'a Value<'a, V>),
     #[error("No cost found for builtin function: {0:?}")]
     NoCostForBuiltin(DefaultFunction),
+    #[error("Program version {}.{}.{} is not available", .0.major, .0.minor, .0.patch)]
+    UnavailableProgramVersion(MachineVersion),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -113,6 +115,8 @@ pub enum RuntimeError<'a> {
     ReadBitOutOfBounds(&'a Integer, usize),
     #[error("writeBits: an index is out of bounds\n        Index {0}\n         Size {1}")]
     WriteBitsOutOfBounds(&'a Integer, usize),
+    #[error("writeBits: input too long\n       Length {0}\n      Maximum {1}")]
+    WriteBitsInputTooLong(usize, usize),
     #[error("{0} is not within the bounds of a Byte")]
     OutsideByteBounds(&'a Integer),
     #[error("{0} is not within the bounds of usize")]
@@ -245,6 +249,10 @@ where
 
     pub fn write_bits_out_of_bounds(index: &'a Integer, size: usize) -> Self {
         MachineError::runtime(RuntimeError::WriteBitsOutOfBounds(index, size))
+    }
+
+    pub fn write_bits_input_too_long(length: usize, maximum: usize) -> Self {
+        MachineError::runtime(RuntimeError::WriteBitsInputTooLong(length, maximum))
     }
 
     pub fn outside_byte_bounds(integer: &'a Integer) -> Self {

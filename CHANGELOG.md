@@ -66,7 +66,14 @@ Other guiding principles:
 - **amaru-uplc**: reject out of range indexByteString and indexArray indices.
 - **amaru-uplc**: saturate dropList cost instead of panicking beyond a u64.
 - **amaru-uplc**: fix a panic when shiftByteString is called with a whole byte shift.
-- **amaru-kernel**: fixed some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).
+- **amaru-kernel**: fix some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).
+- **amaru-uplc**: fix a costing bug when working with some polymorphic types.
+- **amaru-uplc**: do not run scripts with disallowed plutus language versions.
+- **amaru-uplc**: reject flat encoded values with extraneous tags.
+- **amaru-uplc**: do not allow case on constants at v10.
+- **amaru-uplc**: evaluate `shiftByteString` and `rotateByteString` when arg is outside i64 bounds at pv10.
+- **amaru-uplc**: bound `writeBits` input at pv11.
+- **amaru-uplc**: correctly cost strings at pv10.
 
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 

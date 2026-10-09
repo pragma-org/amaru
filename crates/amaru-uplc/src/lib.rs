@@ -418,7 +418,7 @@ mod tests {
     #[test_case(DefaultFunction::RemainderInteger)]
     #[test_case(DefaultFunction::SubtractInteger)]
     fn arithmetic_rejects_out_of_range_integers_from_v11(builtin: DefaultFunction) {
-        let version = MachineVersion::V1_1_0;
+        let version = MachineVersion::V1_0_0;
         let arena = Arena::new();
 
         for term in out_of_range_integer_terms(&arena, builtin) {

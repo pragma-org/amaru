@@ -14,6 +14,8 @@
 
 use amaru_kernel::{PlutusVersion, ProtocolVersion, protocol_version::PROTOCOL_VERSION_11};
 
+use super::MachineVersion;
+
 /// Ledger builtin semantics variants. The semantic versioning is a little weird and are in-fact
 /// devided in two groups:
 ///
@@ -49,6 +51,14 @@ impl Semantics {
         }
     }
 
+    /// Whether a program declaring this UPLC language version may be evaluated.
+    pub fn supports_program_version(&self, version: MachineVersion) -> bool {
+        match self {
+            Self::A | Self::B => version == MachineVersion::V1_0_0,
+            Self::C | Self::D | Self::E => version == MachineVersion::V1_0_0 || version == MachineVersion::V1_1_0,
+        }
+    }
+
     pub fn costs_strings_by_utf8_bytes(&self) -> bool {
         matches!(self, Self::D | Self::E)
     }
@@ -59,6 +69,16 @@ impl Semantics {
 
     /// Whether arithmetic builtins reject integers outside Cardano's signed 262144-bit range.
     pub fn enforces_integer_bounds(&self) -> bool {
+        matches!(self, Self::D | Self::E)
+    }
+
+    /// Whether `shiftByteString` and `rotateByteString` reject shift amounts outside the signed 64-bit range.
+    pub fn bounds_shift_amount_to_int64(&self) -> bool {
+        matches!(self, Self::D | Self::E)
+    }
+
+    /// Whether `writeBits` rejects inputs longer than `WRITE_BITS_MAXIMUM_INPUT_LENGTH` bytes.
+    pub fn bounds_write_bits_input_length(&self) -> bool {
         matches!(self, Self::D | Self::E)
     }
 }
