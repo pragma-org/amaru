@@ -714,6 +714,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "anyhow",
+ "divan",
  "hex",
  "parking_lot 0.12.5 (git+https://github.com/Amanieu/parking_lot?rev=43d5007a252d)",
  "proptest",
