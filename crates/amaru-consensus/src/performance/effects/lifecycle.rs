@@ -19,12 +19,15 @@
 use std::time::Duration;
 
 use amaru_kernel::Peer;
-use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Instant, Resources, SendData};
 
 use super::{enqueue, require_perf};
-use crate::performance::{
-    Performance,
-    ops::{PeerOp, PerformanceOp},
+use crate::{
+    effect_timings,
+    performance::{
+        Performance,
+        ops::{PeerOp, PerformanceOp},
+    },
 };
 
 impl Performance {
@@ -82,6 +85,7 @@ pub struct RecordAdvertisabilityEffect {
 
 impl ExternalEffectAPI for RecordAdvertisabilityEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordAdvertisabilityEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -99,6 +103,7 @@ pub struct RecordConnectionFailureEffect {
 
 impl ExternalEffectAPI for RecordConnectionFailureEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordConnectionFailureEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -115,6 +120,7 @@ pub struct ClearPeerAvailabilityEffect {
 
 impl ExternalEffectAPI for ClearPeerAvailabilityEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__ClearPeerAvailabilityEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({

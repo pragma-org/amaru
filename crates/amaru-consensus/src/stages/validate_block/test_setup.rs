@@ -35,7 +35,7 @@ use amaru_pure_stage::{
 use tokio::runtime::Runtime;
 
 use super::*;
-pub use crate::stages::test_utils::assert_trace;
+pub use crate::stages::test_utils::assert_trace_no_clock;
 use crate::{
     effects::{
         RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, SwitchToForkEffect, TipEffect,

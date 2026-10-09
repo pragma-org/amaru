@@ -103,6 +103,7 @@ fn try_main() -> anyhow::Result<()> {
             local,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
+            &cli.log_output,
         )
         .context("failed to configure observability")?;
         // Record precise binary identity in operator logs as soon as tracing is live.

@@ -20,7 +20,11 @@ use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
     Nonces, SampleAncestorPointsResult, StoreError,
 };
-use amaru_pure_stage::{BoxFuture, DeserializerGuards, Effects, ExternalEffectAPI, Resources, SendData, Void};
+use amaru_pure_stage::{
+    BoxFuture, DeserializerGuards, DurationDist, Effects, ExternalEffectAPI, Resources, SendData, Void,
+};
+
+use crate::effect_timings;
 
 /// Factory for chain-store external effects.
 ///
@@ -366,6 +370,7 @@ impl StoreValidatedHeaderEffect {
 
 impl ExternalEffectAPI for StoreValidatedHeaderEffect {
     type Response = Result<(), StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__StoreValidatedHeaderEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -393,6 +398,7 @@ impl StoreBlockEffect {
 
 impl ExternalEffectAPI for StoreBlockEffect {
     type Response = Result<(), StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__StoreBlockEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -417,6 +423,7 @@ impl SetAnchorPointEffect {
 
 impl ExternalEffectAPI for SetAnchorPointEffect {
     type Response = Result<(), StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__SetAnchorPointEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -441,6 +448,7 @@ impl SetBestChainTipEffect {
 
 impl ExternalEffectAPI for SetBestChainTipEffect {
     type Response = Result<(), StoreError>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__SetBestChainTipEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -466,6 +474,7 @@ impl PutNoncesEffect {
 
 impl ExternalEffectAPI for PutNoncesEffect {
     type Response = Result<(), StoreError>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__PutNoncesEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -489,6 +498,7 @@ impl HasHeaderEffect {
 
 impl ExternalEffectAPI for HasHeaderEffect {
     type Response = bool;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__HasHeaderEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -512,6 +522,7 @@ impl IsOnBestChainEffect {
 
 impl ExternalEffectAPI for IsOnBestChainEffect {
     type Response = bool;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__IsOnBestChainEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -536,6 +547,7 @@ impl NextBestChainEffect {
 
 impl ExternalEffectAPI for NextBestChainEffect {
     type Response = Option<Point>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__NextBestChainEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -560,6 +572,7 @@ impl NextBestChainHeaderEffect {
 
 impl ExternalEffectAPI for NextBestChainHeaderEffect {
     type Response = Result<NextBestChainHeader, StoreError>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__NextBestChainHeaderEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -586,6 +599,7 @@ impl LoadHeaderEffect {
 
 impl ExternalEffectAPI for LoadHeaderEffect {
     type Response = Option<Header>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__LoadHeaderEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -616,6 +630,7 @@ impl LoadPointEffect {
 
 impl ExternalEffectAPI for LoadPointEffect {
     type Response = Option<Point>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__LoadPointEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -640,6 +655,7 @@ impl LoadHeaderWithValidityEffect {
 
 impl ExternalEffectAPI for LoadHeaderWithValidityEffect {
     type Response = Option<(Header, Option<bool>)>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__LoadHeaderWithValidityEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -667,6 +683,7 @@ impl SetBlockValidEffect {
 
 impl ExternalEffectAPI for SetBlockValidEffect {
     type Response = Result<(), StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__SetBlockValidEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -691,6 +708,7 @@ impl GetChildrenEffect {
 
 impl ExternalEffectAPI for GetChildrenEffect {
     type Response = Vec<HeaderHash>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__GetChildrenEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -714,6 +732,7 @@ impl GetAnchorHashEffect {
 
 impl ExternalEffectAPI for GetAnchorHashEffect {
     type Response = HeaderHash;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__GetAnchorHashEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -737,6 +756,7 @@ impl GetBestChainHashEffect {
 
 impl ExternalEffectAPI for GetBestChainHashEffect {
     type Response = HeaderHash;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__GetBestChainHashEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -760,6 +780,7 @@ impl GetBestChainTipEffect {
 
 impl ExternalEffectAPI for GetBestChainTipEffect {
     type Response = Point;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__GetBestChainTipEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -784,6 +805,7 @@ impl LoadBlockEffect {
 
 impl ExternalEffectAPI for LoadBlockEffect {
     type Response = Result<Option<RawBlock>, StoreError>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__LoadBlockEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -807,6 +829,7 @@ impl HasBlockEffect {
 
 impl ExternalEffectAPI for HasBlockEffect {
     type Response = Result<bool, StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__HasBlockEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -830,6 +853,7 @@ impl GetNoncesEffect {
 
 impl ExternalEffectAPI for GetNoncesEffect {
     type Response = Option<Nonces>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__GetNoncesEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -854,6 +878,7 @@ impl SwitchToForkEffect {
 
 impl ExternalEffectAPI for SwitchToForkEffect {
     type Response = Result<(), StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__SwitchToForkEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -878,6 +903,7 @@ impl RollForwardChainEffect {
 
 impl ExternalEffectAPI for RollForwardChainEffect {
     type Response = Result<(), StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__RollForwardChainEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -902,6 +928,7 @@ impl UnvalidatedAncestorHashesEffect {
 
 impl ExternalEffectAPI for UnvalidatedAncestorHashesEffect {
     type Response = (Vec<HeaderHash>, bool);
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__UnvalidatedAncestorHashesEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -935,6 +962,7 @@ impl AncestorsBetweenEffect {
 
 impl ExternalEffectAPI for AncestorsBetweenEffect {
     type Response = Option<Vec<Point>>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__AncestorsBetweenEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -960,6 +988,7 @@ impl FindAncestorOnBestChainEffect {
 
 impl ExternalEffectAPI for FindAncestorOnBestChainEffect {
     type Response = Result<FindAncestorOnBestChainResult, StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__FindAncestorOnBestChainEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -986,6 +1015,7 @@ impl FindAnchorAtHeightEffect {
 
 impl ExternalEffectAPI for FindAnchorAtHeightEffect {
     type Response = Option<Point>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__FindAnchorAtHeightEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -1013,6 +1043,7 @@ impl FindCommonAncestorEffect {
 
 impl ExternalEffectAPI for FindCommonAncestorEffect {
     type Response = Result<FindCommonAncestorResult, StoreError>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__FindCommonAncestorEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -1039,6 +1070,7 @@ impl FindIntersectPointEffect {
 
 impl ExternalEffectAPI for FindIntersectPointEffect {
     type Response = Option<Point>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__FindIntersectPointEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -1064,6 +1096,7 @@ impl SampleAncestorPointsEffect {
 
 impl ExternalEffectAPI for SampleAncestorPointsEffect {
     type Response = Result<SampleAncestorPointsResult, StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__SampleAncestorPointsEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -1091,6 +1124,7 @@ impl FindMissingBlocksEffect {
 
 impl ExternalEffectAPI for FindMissingBlocksEffect {
     type Response = Result<MissingBlocksResult, StoreError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::store_effects__FindMissingBlocksEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {

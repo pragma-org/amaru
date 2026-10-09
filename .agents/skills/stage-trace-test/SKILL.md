@@ -91,6 +91,7 @@ Or the relevant test file filter. Ensure `cargo clippy-amaru` is clean if you ad
 ## Common pitfalls
 
 - `Resume` entries are filtered out by `assert_trace_match`; do not include them in expected lists.
+- Sampled effect durations insert `TraceEntry::Clock` advances and shift `Instant`s inside later entries. Exact tests that do not assert time use `assert_trace_no_clock` (it drops clock entries and treats any two instants as equal). `assert_trace_contains` and `assert_trace_does_not_contain` already treat instants as equal, but a `TraceEntry::Clock` literal stays exact — drop that literal when the advance is only a sample artifact. Tests that check a specific instant stay on `assert_trace_match` / `assert_trace`.
 - Stage names in traces may include random suffixes (e.g. `tp-1/child-abc`). Use `contains` matchers (`tm_send`, `tm_wire_stage`) or property predicates rather than exact names when appropriate.
 - `register_guards()` return value must be held for the test lifetime (typically `_guards` or `guards` in `setup()`).
 - When migrating from `assert_trace` to `assert_trace_match`, replace `te_*` literals with `tm_*` equivalents only where exact matching is too brittle.

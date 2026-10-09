@@ -71,7 +71,36 @@ impl ScheduledRunnables {
 
     /// Return the next wakeup time of the scheduled runnables.
     pub fn next_wakeup_time(&self) -> Option<Instant> {
-        self.by_id.first_key_value().map(|(k, _)| k.time())
+        self.next_id().map(|id| id.time())
+    }
+
+    pub(crate) fn next_id(&self) -> Option<ScheduleId> {
+        self.by_id.first_key_value().map(|(id, _)| *id)
+    }
+
+    /// Earliest internal wakeup that is not later than the next stage timer.
+    ///
+    /// When no stage timer is armed, this is the earliest internal wakeup. A stage timer and an
+    /// effect wakeup can share an instant; the stage id sorts first, so [`Self::next_id`] alone
+    /// hides the effect.
+    pub(crate) fn next_internal_wakeup(&self) -> Option<Instant> {
+        let stage_limit = self.by_id.keys().find(|id| !id.is_internal()).map(|id| id.time());
+        self.by_id.keys().find_map(|id| {
+            if !id.is_internal() {
+                return None;
+            }
+            let time = id.time();
+            if stage_limit.is_some_and(|limit| time > limit) {
+                return None;
+            }
+            Some(time)
+        })
+    }
+
+    /// Remove the next internal runnable scheduled at exactly `at`.
+    pub(crate) fn take_internal_at(&mut self, at: Instant) -> Option<Runnable> {
+        let id = self.by_id.keys().find(|id| id.is_internal() && id.time().cmp(&at).is_eq()).copied()?;
+        self.by_id.remove(&id)
     }
 
     /// Remove a scheduled runnable by its ScheduleId.
@@ -224,6 +253,35 @@ mod tests {
         assert!(sr.remove(&id_a).is_none());
         assert!(sr.remove(&id_b).is_some());
         assert_eq!(sr.len(), 0);
+    }
+
+    #[test]
+    fn internal_wakeup_tied_with_a_stage_timer_is_still_next() {
+        let mut sr = ScheduledRunnables::new();
+        let stage_ids = ScheduleIds::default();
+        let effect_ids = ScheduleIds::internal();
+        let at = Instant::now() + Duration::from_secs(10);
+        let later = at + Duration::from_secs(5);
+
+        let stage_at = stage_ids.next_at(at);
+        let effect_at = effect_ids.next_at(at);
+        let effect_later = effect_ids.next_at(later);
+        schedule(&mut sr, stage_at);
+        schedule(&mut sr, effect_at);
+        schedule(&mut sr, effect_later);
+
+        assert!(stage_at < effect_at);
+        assert_eq!(sr.next_id(), Some(stage_at));
+        assert_eq!(sr.next_internal_wakeup(), Some(at));
+
+        assert!(sr.take_internal_at(at).is_some());
+        assert!(sr.contains(&stage_at));
+        assert!(!sr.contains(&effect_at));
+        // The remaining effect is later than the stage timer, so it stays pending.
+        assert_eq!(sr.next_internal_wakeup(), None);
+
+        assert!(sr.remove(&stage_at).is_some());
+        assert_eq!(sr.next_internal_wakeup(), Some(later));
     }
 
     // HELPERS

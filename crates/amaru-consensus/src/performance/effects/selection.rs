@@ -19,13 +19,16 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{Peer, PeerCandidate};
-use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Instant, Resources, SendData};
 
 use super::{enqueue, enqueue_query, require_perf};
-use crate::performance::{
-    PeerScores, PeerView, Performance, SelectOutboundParams, SelectUsing,
-    ops::{PeerOp, PerformanceOp},
-    peers::{rank_churn, select_outbound_from},
+use crate::{
+    effect_timings,
+    performance::{
+        PeerScores, PeerView, Performance, SelectOutboundParams, SelectUsing,
+        ops::{PeerOp, PerformanceOp},
+        peers::{rank_churn, select_outbound_from},
+    },
 };
 
 impl Performance {
@@ -123,6 +126,7 @@ pub struct SetLedgerCandidatesEffect {
 
 impl ExternalEffectAPI for SetLedgerCandidatesEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SetLedgerCandidatesEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -139,6 +143,7 @@ pub struct SelectOutboundEffect {
 
 impl ExternalEffectAPI for SelectOutboundEffect {
     type Response = SelectUsing;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SelectOutboundEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -196,6 +201,7 @@ pub struct NoteDialEffect {
 
 impl ExternalEffectAPI for NoteDialEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__NoteDialEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -244,6 +250,7 @@ impl ExternalEffectAPI for EvictRecordsEffect {
 
 impl ExternalEffectAPI for SourceCountsEffect {
     type Response = crate::performance::SourceCounts;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SourceCountsEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);

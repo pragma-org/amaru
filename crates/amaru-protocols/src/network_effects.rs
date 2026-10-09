@@ -25,6 +25,8 @@ use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionsResource};
 use amaru_pure_stage::{BoxFuture, DurationDist, Effects, ExternalEffectAPI, Resources, SendData};
 
+use crate::effect_timings;
+
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
     vec![
         amaru_pure_stage::register_data_deserializer::<ListenEffect>().boxed(),
@@ -111,6 +113,7 @@ pub struct ListenEffect {
 
 impl ExternalEffectAPI for ListenEffect {
     type Response = Result<SocketAddr, ListenError>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::network_effects__ListenEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap(|this| async move {
@@ -139,7 +142,8 @@ pub struct AcceptEffect {
 
 impl ExternalEffectAPI for AcceptEffect {
     type Response = Result<(Peer, ConnectionId), AcceptError>;
-    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+    const SIMULATED_DURATION: DurationDist =
+        DurationDist::UntilResolved.ignore(effect_timings::network_effects__AcceptEffect);
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap(|this| async move {
@@ -179,7 +183,8 @@ pub struct ConnectEffect {
 
 impl ExternalEffectAPI for ConnectEffect {
     type Response = Result<ConnectionId, ConnectError>;
-    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+    const SIMULATED_DURATION: DurationDist =
+        DurationDist::UntilResolved.ignore(effect_timings::network_effects__ConnectEffect);
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap(|this| async move {
@@ -222,7 +227,8 @@ pub struct SendEffect {
 
 impl ExternalEffectAPI for SendEffect {
     type Response = Result<(), SendError>;
-    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+    const SIMULATED_DURATION: DurationDist =
+        DurationDist::UntilResolved.ignore(effect_timings::network_effects__SendEffect);
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap(|this| async move {
@@ -283,7 +289,8 @@ impl RecvEffect {
 
 impl ExternalEffectAPI for RecvEffect {
     type Response = Result<NonEmptyBytes, ReceiveError>;
-    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+    const SIMULATED_DURATION: DurationDist =
+        DurationDist::UntilResolved.ignore(effect_timings::network_effects__RecvEffect);
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap(|this| async move {

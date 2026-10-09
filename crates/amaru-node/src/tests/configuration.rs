@@ -67,6 +67,7 @@ pub struct NodeTestConfig {
     pub mailbox_size: usize,
     pub trace_buffer: Arc<Mutex<TraceBuffer>>,
     pub seed: u64,
+    pub random_seed: Option<u64>,
     pub actions: Vec<Action>,
     pub node_type: NodeType,
     pub network_name: NetworkName,
@@ -113,6 +114,7 @@ impl Debug for NodeTestConfig {
             .field("listen_address", &self.listen_address)
             .field("mailbox_size", &self.mailbox_size)
             .field("seed", &self.seed)
+            .field("random_seed", &self.random_seed)
             .field("actions", &self.actions)
             .field("node_type", &self.node_type)
             .field("ledger_dir", &self.ledger_dir)
@@ -149,6 +151,7 @@ impl Default for NodeTestConfig {
             mailbox_size: DEFAULT_MAILBOX_SIZE,
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::default())),
             seed: 42,
+            random_seed: None,
             actions: Vec::new(),
             network_name: NetworkName::Preprod,
             node_type: NodeUnderTest,
@@ -272,6 +275,17 @@ impl NodeTestConfig {
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
+    }
+
+    /// `GenerateRandomSeed` draws its stream from `seed` instead of [`Self::seed`].
+    pub fn with_random_seed(mut self, seed: u64) -> Self {
+        self.random_seed = Some(seed);
+        self
+    }
+
+    /// Seed installed for `GenerateRandomSeed` in node simulations.
+    pub fn generate_random_seed(&self) -> u64 {
+        self.random_seed.unwrap_or(self.seed)
     }
 
     pub fn with_network_name(mut self, network_name: NetworkName) -> Self {

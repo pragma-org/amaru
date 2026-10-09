@@ -17,12 +17,15 @@
 #![expect(clippy::unit_arg)]
 
 use amaru_kernel::{HeaderHash, Peer};
-use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Instant, Resources, SendData};
 
 use super::{enqueue, enqueue_and_emit_telemetry, enqueue_query, require_perf};
-use crate::performance::{
-    ClaimKind, FetchPeerSet, Performance, SelectPeersParams,
-    ops::{HeaderOp, PeerOp, PerformanceOp},
+use crate::{
+    effect_timings,
+    performance::{
+        ClaimKind, FetchPeerSet, Performance, SelectPeersParams,
+        ops::{HeaderOp, PeerOp, PerformanceOp},
+    },
 };
 
 impl Performance {
@@ -68,6 +71,7 @@ pub struct RecordPeersAskedEffect {
 
 impl ExternalEffectAPI for RecordPeersAskedEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordPeersAskedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -89,6 +93,7 @@ pub struct RecordBlocksRequestedEffect {
 
 impl ExternalEffectAPI for RecordBlocksRequestedEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordBlocksRequestedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -122,6 +127,7 @@ pub struct SelectPeersForFetchEffect {
 
 impl ExternalEffectAPI for SelectPeersForFetchEffect {
     type Response = FetchPeerSet;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SelectPeersForFetchEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);

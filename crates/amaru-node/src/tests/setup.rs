@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use amaru_consensus::{
     effects::{
-        ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourcePoolSummaries, ResourceTxValidation, ValidateHeaderEffect,
+        ConsensusMode, GenerateRandomSeed, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory,
+        ResourceHasStakePools, ResourcePoolSummaries, ResourceTxValidation, ValidateHeaderEffect,
     },
     stages::test_utils::start_in_era,
 };
@@ -33,7 +33,7 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{
     Effects, OrTerminateWith, StageGraph, StageRef,
-    simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
+    simulation::{RandStdRng, SimulationBuilder, SimulationRunning, running::OverrideResult},
 };
 use anyhow::anyhow;
 use tracing_subscriber::EnvFilter;
@@ -69,6 +69,7 @@ pub fn create_nodes(
         let test_node_stages = create_node(&config, &mut stage_graph)?;
 
         let mut running = stage_graph.run(tokio_handle);
+        override_generate_random_seed(&mut running, config.generate_random_seed());
         // Don't validate the generated headers, we just want to check the mini-protocols communication.
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
             OverrideResult::handled(Ok(Nonces::for_tests()))
@@ -82,6 +83,30 @@ pub fn create_nodes(
     let mut nodes = Nodes::new(nodes);
     nodes.initialize(rng);
     Ok(nodes)
+}
+
+fn mix_seed(master: u64, tag: u64) -> u64 {
+    let mut z = master.wrapping_add(tag).wrapping_add(0x9E3779B97F4A7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+/// Replace [`GenerateRandomSeed`]'s OS draw with a deterministic stream seeded by `seed`.
+///
+/// Each call returns the next 32 bytes. A constant reply would make every churn interval
+/// and every outbound draw identical. Peer selection calls this effect once per churn arm
+/// and once per regulate.
+pub fn override_generate_random_seed(sim: &mut SimulationRunning, seed: u64) {
+    let mut state = seed;
+    sim.override_external_effect::<GenerateRandomSeed>(usize::MAX, move |_| {
+        let mut out = [0u8; 32];
+        for (i, chunk) in out.as_chunks_mut::<8>().0.iter_mut().enumerate() {
+            state = mix_seed(state, i as u64 + 1);
+            *chunk = state.to_le_bytes();
+        }
+        OverrideResult::handled(out)
+    });
 }
 
 /// Create a single node according to its configuration

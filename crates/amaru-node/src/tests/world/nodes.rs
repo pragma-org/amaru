@@ -23,7 +23,10 @@ use amaru_pure_stage::{
 };
 use tokio::runtime::Handle;
 
-use crate::{build_node, tests::configuration::NodeTestConfig};
+use crate::{
+    build_node,
+    tests::{configuration::NodeTestConfig, setup::override_generate_random_seed},
+};
 
 /// Build one production-shaped node graph for the world loop.
 ///
@@ -50,6 +53,7 @@ pub fn build_world_node(
         .with_trace_buffer(node_config.trace_buffer.clone())
         .with_global_epoch_offset(offset);
 
+    let random_seed = node_config.generate_random_seed();
     let node_config = node_config.clone().with_connections(connections);
     let config = node_config.make_node_configuration()?;
     let global_parameters = config.global_parameters().clone();
@@ -61,5 +65,9 @@ pub fn build_world_node(
         stage_graph.resources().put(crate::tests::configuration::DummyLedgerDir(tmp));
     }
 
-    Ok(stage_graph.run(tokio_handle))
+    let mut running = stage_graph.run(tokio_handle);
+    // Peer selection reads GenerateRandomSeed for churn and dials. The effect body uses
+    // rand::rng() unless a simulation overrides it.
+    override_generate_random_seed(&mut running, random_seed);
+    Ok(running)
 }

@@ -15,7 +15,9 @@
 use std::sync::Arc;
 
 use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
-use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, DurationDist, Effects, ExternalEffectAPI, Resources, SendData};
+
+use crate::effect_timings;
 
 /// Metrics operations available to a stage. This allows a stage to record a MetricsEvent that
 /// will be collected via OpenTelemetry.
@@ -62,6 +64,7 @@ pub type ResourceMeter = Arc<Meter>;
 
 impl ExternalEffectAPI for RecordMetricsEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::metrics_effects__RecordMetricsEffect;
 
     #[allow(clippy::unit_arg)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
