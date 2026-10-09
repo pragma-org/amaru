@@ -38,6 +38,8 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
+
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
 
 ### Changed

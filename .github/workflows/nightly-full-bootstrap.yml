@@ -88,7 +88,12 @@ jobs:
           }
 
           : > bootstrap.log
-          "$AMARU_BIN" node bootstrap > bootstrap.log 2>&1 &
+          bootstrap_epochs="$("$AMARU_BIN" snapshot epochs)"
+          bootstrap_epoch="${bootstrap_epochs%%$'\n'*}"
+          [[ "$bootstrap_epoch" =~ ^[0-9]+$ ]] || fail "No bootstrap epochs available for $AMARU_NETWORK"
+          echo "Earliest available bootstrap epoch: $bootstrap_epoch"
+
+          "$AMARU_BIN" node bootstrap --epoch "$bootstrap_epoch" > bootstrap.log 2>&1 &
           amaru_pid=$!
           while kill -0 "$amaru_pid" 2>/dev/null; do
             check_log_errors

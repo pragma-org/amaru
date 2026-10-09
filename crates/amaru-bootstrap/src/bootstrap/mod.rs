@@ -22,7 +22,9 @@ use std::{
 
 use amaru_kernel::{
     Credential, Epoch, GlobalParameters, Hash, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Nonce, Point,
-    RawBlock, Slot, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
+    RawBlock, Slot, extract_block_header_cbor, from_cbor,
+    num::{CheckedAdd, CheckedSub},
+    utils::string::display_collection,
 };
 use amaru_ledger::store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext};
 use amaru_observability::{error, info};
@@ -43,7 +45,7 @@ mod chain_sync_client;
 use chain_sync_client::{ChainSyncClient, from_pallas_point, from_pallas_tip};
 
 use crate::{
-    aws::{AnonymousS3Client, S3Config},
+    aws::{AnonymousS3Client, S3Config, S3Snapshot},
     cardano_node::tvar::{import_state_from_tvar, import_utxo_from_tvar},
     progress::{
         BootstrapObserver, BootstrapProgress, BootstrapProgressFactory, BootstrapStage, DefaultBootstrapObserver,
@@ -151,30 +153,13 @@ fn parse_snapshot_point(point: &str) -> Result<NetworkPoint, BootstrapError> {
         .map_err(|reason| BootstrapError::InvalidSnapshotPoint { point: point.to_string(), reason })
 }
 
-/// List S3 objects under `<network>/`, derive epoch from slot via era history, return `Vec<Snapshot>`.
+/// Discover published snapshots and cached archives, deriving epochs via era history.
 async fn bootstrap_snapshots(
     network: NetworkName,
     s3: &AnonymousS3Client,
     snapshots_dir: &Path,
 ) -> anyhow::Result<Vec<Snapshot>> {
-    let era_history = network
-        .as_era_history()
-        .ok_or_else(|| anyhow!("no era history available for network {network}; S3 bootstrap is only supported for mainnet, preprod, and preview"))?;
-
-    let s3_snapshots = s3.list_snapshots(network).await?;
-
-    let mut snapshots = Vec::with_capacity(s3_snapshots.len());
-
-    let try_push = |snapshots: &mut Vec<Snapshot>, point: String, key: String| -> anyhow::Result<()> {
-        let slot = parse_slot_from_point(&point)?;
-        let epoch = era_history.slot_to_epoch_unchecked_horizon(Slot::from(slot))?;
-        snapshots.push(Snapshot { epoch, point, key });
-        Ok(())
-    };
-
-    for s3_snap in s3_snapshots {
-        try_push(&mut snapshots, s3_snap.point.to_string(), s3_snap.key.to_string())?;
-    }
+    let mut snapshots = s3.list_snapshots(network).await?;
 
     match snapshots_dir.read_dir() {
         Ok(entries) => {
@@ -182,11 +167,10 @@ async fn bootstrap_snapshots(
                 let path = dir_entry?.path();
                 let filename = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
                 if let Some(prefix) = filename.strip_suffix(Snapshot::ARCHIVE_SUFFIX) {
-                    try_push(
-                        &mut snapshots,
-                        prefix.to_string(),
-                        format!("{network}/{prefix}{}", Snapshot::ARCHIVE_SUFFIX),
-                    )?;
+                    snapshots.push(S3Snapshot {
+                        point: prefix.to_string(),
+                        key: format!("{network}/{prefix}{}", Snapshot::ARCHIVE_SUFFIX),
+                    });
                 }
             }
         }
@@ -196,6 +180,20 @@ async fn bootstrap_snapshots(
         Err(err) => return Err(err.into()),
     }
 
+    snapshots_with_epochs(network, snapshots)
+}
+
+fn snapshots_with_epochs(network: NetworkName, s3_snapshots: Vec<S3Snapshot>) -> anyhow::Result<Vec<Snapshot>> {
+    let era_history = network
+        .as_era_history()
+        .ok_or_else(|| anyhow!("no era history available for network {network}; S3 bootstrap is only supported for mainnet, preprod, and preview"))?;
+
+    let mut snapshots = Vec::with_capacity(s3_snapshots.len());
+    for S3Snapshot { point, key } in s3_snapshots {
+        let slot = parse_slot_from_point(&point)?;
+        let epoch = era_history.slot_to_epoch_unchecked_horizon(Slot::from(slot))?;
+        snapshots.push(Snapshot { epoch, point, key });
+    }
     snapshots.sort_unstable_by_key(|snapshot| snapshot.epoch);
     snapshots.dedup_by_key(|snapshot| snapshot.epoch);
 
@@ -219,6 +217,28 @@ fn format_available_epochs(epochs: &[Epoch]) -> String {
     }
 }
 
+/// List starting epochs supported by three consecutive published snapshots, in ascending order.
+///
+/// Fetches only the network's public snapshot index, without downloading archives or
+/// inspecting local caches. Each returned epoch can be passed to `node bootstrap --epoch`.
+/// Returns an empty list when no complete snapshot windows are published.
+pub async fn bootstrap_epochs(network: NetworkName, s3_config: S3Config) -> Result<Vec<Epoch>, BootstrapError> {
+    let s3 = AnonymousS3Client::new(s3_config);
+    let snapshots = snapshots_with_epochs(network, s3.list_snapshots(network).await?)?;
+    Ok(available_bootstrap_epochs(snapshots.iter().map(|snapshot| snapshot.epoch)))
+}
+
+fn available_bootstrap_epochs(epochs: impl IntoIterator<Item = Epoch>) -> Vec<Epoch> {
+    let epochs: Vec<Epoch> = epochs.into_iter().collect::<BTreeSet<_>>().into_iter().collect();
+    epochs
+        .windows(3)
+        .filter(|window| {
+            window[0].checked_add(Epoch::ONE) == Some(window[1]) && window[1].checked_add(Epoch::ONE) == Some(window[2])
+        })
+        .filter_map(|window| window[2].checked_add(Epoch::ONE))
+        .collect()
+}
+
 fn select_bootstrap_snapshots(
     snapshots: &[Snapshot],
     target_epoch: Option<Epoch>,
@@ -238,24 +258,7 @@ fn select_bootstrap_snapshots(
             Ok([first_snapshot, second_snapshot, third_snapshot])
         }
         _ => {
-            let mut available_epochs = Vec::new();
-
-            let mut count = 0;
-            let mut prev_epoch = Epoch::from(u64::MAX - 1);
-            for epoch in snapshots_by_epoch.keys().copied() {
-                if epoch == prev_epoch + 1 {
-                    prev_epoch = epoch;
-                    count += 1;
-                } else {
-                    prev_epoch = epoch;
-                    count = 1;
-                    continue;
-                }
-
-                if count >= 3 {
-                    available_epochs.push(epoch + 1)
-                }
-            }
+            let available_epochs = available_bootstrap_epochs(snapshots_by_epoch.keys().copied());
 
             match target_epoch {
                 Some(target_epoch) => {
