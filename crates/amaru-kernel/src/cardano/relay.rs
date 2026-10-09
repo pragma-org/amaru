@@ -25,10 +25,13 @@ use crate::{MaxString128, cardano::fixed_bytes::FixedBytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Relay {
-    SingleHostAddr(Option<u32>, Option<IPv4>, Option<IPv6>),
-    SingleHostName(Option<u32>, MaxString128),
+    SingleHostAddr(Option<Port>, Option<IPv4>, Option<IPv6>),
+    SingleHostName(Option<Port>, MaxString128),
     MultiHostName(MaxString128),
 }
+
+/// A TCP port.
+pub type Port = u16;
 
 pub type IPv4 = FixedBytes<4>;
 pub type IPv6 = FixedBytes<16>;
@@ -200,7 +203,7 @@ impl Arbitrary for Relay {
 
     #[expect(clippy::unwrap_used)]
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        let any_port = || option::of(any::<u32>());
+        let any_port = || option::of(any::<Port>());
         let any_dns_name = || {
             any::<String>().prop_filter_map("DNS name must fit MaxString128", |name| MaxString128::try_from(name).ok())
         };
