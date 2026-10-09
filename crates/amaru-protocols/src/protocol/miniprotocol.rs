@@ -16,7 +16,7 @@ use std::future::Future;
 
 use amaru_kernel::{NonEmptyBytes, cbor};
 use amaru_pure_stage::{
-    BoxFuture, Effects, OrTerminateWith, SendData, StageRef, TryInStage, Void, err, typestate::FromMailbox,
+    BoxFuture, Effects, OrTerminateWith, SendData, StageRef, TryInStage, Void, typestate::FromMailbox, warn,
 };
 
 use crate::{
@@ -205,11 +205,14 @@ where
                 Inputs::Network(wire_msg) => {
                     let (outcome, s) = if let HandlerMessage::FromNetwork(wire_msg) = wire_msg {
                         let wire_msg: Proto::WireMsg = cbor::decode(&wire_msg)
-                            .or_terminate(&eff, err("failed to decode message from network"))
+                            .or_terminate(&eff, warn("failed to decode message from network"))
                             .await;
-                        proto.network(wire_msg).or_terminate(&eff, err("failed to step protocol state (network)")).await
+                        proto
+                            .network(wire_msg)
+                            .or_terminate(&eff, warn("failed to step protocol state (network)"))
+                            .await
                     } else {
-                        proto.init().or_terminate(&eff, err("failed to initialize protocol state")).await
+                        proto.init().or_terminate(&eff, warn("failed to initialize protocol state")).await
                     };
                     proto = s;
                     if outcome.want_next {
@@ -233,7 +236,7 @@ where
                 LocalOrNetwork::Local(local) => {
                     let (action, s) = stage
                         .local(&proto, local, &eff)
-                        .or_terminate_with(&eff, err("failed to step stage state (local)"))
+                        .or_terminate_with(&eff, warn("failed to step stage state (local)"))
                         .await;
                     stage = s;
                     action
@@ -241,7 +244,7 @@ where
                 LocalOrNetwork::Network(network) => {
                     let (action, s) = stage
                         .network(&proto, network, &eff)
-                        .or_terminate_with(&eff, err("failed to step stage state (network)"))
+                        .or_terminate_with(&eff, warn("failed to step stage state (network)"))
                         .await;
                     stage = s;
                     action
@@ -252,10 +255,10 @@ where
             // send network messages, if required
             if let Some(action) = action {
                 let (outcome, s) =
-                    proto.local(action).or_terminate(&eff, err("failed to step protocol state (local)")).await;
+                    proto.local(action).or_terminate(&eff, warn("failed to step protocol state (local)")).await;
                 proto = s;
                 if let Some(e) = outcome.terminate_with {
-                    err("protocol error")(e).await;
+                    warn("protocol error")(e).await;
                     return eff.terminate().await;
                 }
                 if outcome.want_next {
