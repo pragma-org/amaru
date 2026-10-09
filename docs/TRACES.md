@@ -2666,6 +2666,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `invalid_input` | `TRACE` | public | A protocol handler received invalid input | proto, peer, state, input |  |
+| `timeout` | `TRACE` | public | A protocol handler timed out waiting for the peer and is terminating | proto, peer, state |  |
 
 <details><summary>span: `invalid_input`</summary>
 
@@ -2675,6 +2676,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `peer` | `string` | ✓ |
 | `state` | `string` | ✓ |
 | `input` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `timeout`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `proto` | `string` | ✓ |
+| `peer` | `string` | ✓ |
+| `state` | `string` | ✓ |
 
 </details>
 

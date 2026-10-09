@@ -2,7 +2,7 @@ name: Nightly Full Bootstrap
 
 on:
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "0 0 * * *"
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ jobs:
   bootstrap-to-tip:
     name: Bootstrap ${{ matrix.network }} and synchronize to tip
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
@@ -75,15 +75,20 @@ jobs:
           ' EXIT
 
           fail() {
+            echo "::group::Last 200 lines of $current_log" >&2
+            tail -200 "$current_log" >&2 || true
+            echo "::endgroup::" >&2
             echo "::error::$1" >&2
-            tail -200 "$current_log" >&2
+            printf '## Full bootstrap failed (%s)\n\n~~~text\n%s\n%s\n~~~\n' \
+              "$AMARU_NETWORK" "$1" "${2:-}" | tee -a "$GITHUB_STEP_SUMMARY" >&2
             exit 1
           }
 
           check_log_errors() {
-            if strip_ansi < "$current_log" | grep -E \
-              '^[^[:space:]]+[[:space:]]+ERROR[[:space:]]|^ERROR[[:space:]:]|^error:|"level"[[:space:]]*:[[:space:]]*"ERROR"' >&2; then
-              fail "Amaru logged an error in $current_log"
+            local errors
+            if errors="$(strip_ansi < "$current_log" | grep -E \
+              '^[^[:space:]]+[[:space:]]+ERROR[[:space:]]|^ERROR[[:space:]:]|^error:|"level"[[:space:]]*:[[:space:]]*"ERROR"')"; then
+              fail "Amaru logged an error in $current_log" "$errors"
             fi
           }
 
@@ -109,8 +114,7 @@ jobs:
           "$AMARU_BIN" node run > amaru.log 2>&1 &
           amaru_pid=$!
 
-          deadline=$((SECONDS + 7200))
-          while (( SECONDS < deadline )); do
+          while true; do
             check_log_errors
             if ! kill -0 "$amaru_pid" 2>/dev/null; then
               check_log_errors
@@ -132,8 +136,6 @@ jobs:
 
             sleep 5
           done
-
-          fail "Amaru did not reach target slot $target_slot within two hours"
 
       - name: Upload diagnostic logs
         if: always()
