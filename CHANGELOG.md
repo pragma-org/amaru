@@ -34,12 +34,30 @@ Other guiding principles:
   - **amaru-ouroboros**: properly wipe KES key material in unused method `SecretKey::from_bytes` ([#881](https://github.com/pragma-org/amaru/issues/881))
   ```
 -->
+
+## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
+
+### Added
+
+- **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
+
+### Changed
+
+- **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
+- **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
+
+### Fixed
+
+- **amaru-node**: Mithril synchronization removes its cache and store lock files when synchronization finishes.
+- **amaru-node**: Mithril block replay advances the chain anchor as blocks become stable, preventing header validation from slowing down as replay progresses.
+- **amaru-mithril**: repeated sync verifies complete cached immutable files without downloading them again. If cached bytes fail verification, it fetches the affected snapshot range again.
+- **amaru**: console logs print above active bootstrap and Mithril progress bars without splitting or overwriting the bar.
+
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
 ### Added
 
 - **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
-
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
 
 ### Changed

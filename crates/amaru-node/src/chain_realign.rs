@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ORIGIN_HASH, Point};
+use amaru_kernel::{NetworkPoint, ORIGIN_HASH, Point};
 use amaru_observability::{debug, info, info_record};
 use amaru_ouroboros::ChainStore;
 
 use crate::NodeStartError;
+
+/// Resolve the chain-store point matching the durable ledger's slot and hash.
+pub(crate) fn resolve_stored_point(chain_store: &dyn ChainStore, stored: NetworkPoint) -> Option<Point> {
+    chain_store.load_point(&stored.hash()).filter(|point| NetworkPoint::from(*point) == stored)
+}
 
 /// Reject store combinations that normal startup cannot safely reconcile, before any mutation.
 pub(crate) fn ensure_store_consistency(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<(), NodeStartError> {
@@ -97,6 +102,21 @@ mod tests {
     use amaru_ouroboros::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 
     use super::*;
+
+    #[test]
+    fn realign_clears_validity_even_when_tips_already_match() {
+        let durable = make_header(1, 1, None);
+        let descendant = make_header(2, 2, Some(durable.hash()));
+        let chain_store = InMemoryChainStore::new();
+        chain_store.store_header(&durable).unwrap();
+        chain_store.store_header(&descendant).unwrap();
+        chain_store.roll_forward_chain(&durable.point()).unwrap();
+        chain_store.set_block_valid(&descendant.hash(), false).unwrap();
+
+        realign_chain_store_to(&chain_store, durable.point(), ClearValidity::All).unwrap();
+        assert_eq!(chain_store.get_anchor_point(), durable.point());
+        assert_eq!(chain_store.load_header_with_validity(&descendant.hash()).unwrap().1, None);
+    }
 
     #[test]
     fn realign_valid_only_keeps_invalid_flags() {

@@ -65,7 +65,7 @@ use crate::{
 pub struct ValidateBlock {
     adopt_chain: StageRef<AdoptChainMsg>,
     select_chain: StageRef<SelectChainMsg>,
-    block_source: StageRef<BlockSourceMsg>,
+    block_source: Option<StageRef<BlockSourceMsg>>,
     /// This is always at the tip of the ledger
     current: Point,
     max_block_height: BlockHeight,
@@ -81,14 +81,14 @@ impl ValidateBlock {
     pub fn new(
         manager: StageRef<AdoptChainMsg>,
         select_chain: StageRef<SelectChainMsg>,
-        block_source: StageRef<BlockSourceMsg>,
+        block_source: impl Into<Option<StageRef<BlockSourceMsg>>>,
         consensus_security_param: u64,
         current: Point,
     ) -> Self {
         Self {
             adopt_chain: manager,
             select_chain,
-            block_source,
+            block_source: block_source.into(),
             consensus_security_param,
             current,
             max_block_height: BlockHeight::from(0),
@@ -110,7 +110,9 @@ impl ValidateBlock {
             SelectChainMsg::block_validation_result(tip, true, self.max_block_height).with_trace_context(trace_context),
         )
         .await;
-        eff.send(&self.block_source, BlockSourceMsg::Validation { valid: true, point: tip }).await;
+        if let Some(block_source) = &self.block_source {
+            eff.send(block_source, BlockSourceMsg::Validation { valid: true, point: tip }).await;
+        }
         eff.send(&self.adopt_chain, AdoptChainMsg::new(tip, self.max_block_height).with_trace_context(trace_context))
             .await;
 
@@ -140,7 +142,9 @@ impl ValidateBlock {
                 .with_trace_context(trace_context),
         )
         .await;
-        eff.send(&self.block_source, BlockSourceMsg::Validation { valid: false, point: failed_tip }).await;
+        if let Some(block_source) = &self.block_source {
+            eff.send(block_source, BlockSourceMsg::Validation { valid: false, point: failed_tip }).await;
+        }
     }
 }
 

@@ -27,13 +27,7 @@ pub(crate) struct Args {
     ///
     /// Should be one of 'mainnet', 'preprod', 'preview' or `testnet:<magic>` where
     /// `magic` is a 32-bits unsigned value denoting a particular testnet.
-    #[arg(
-        long,
-        value_name = "NETWORK_NAME",
-        env = "AMARU_NETWORK",
-        default_value_t = NetworkName::Preprod,
-        verbatim_doc_comment
-    )]
+    #[arg(long, value_name = "NETWORK_NAME", env = "AMARU_NETWORK", verbatim_doc_comment)]
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.

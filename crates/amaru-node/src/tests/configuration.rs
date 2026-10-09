@@ -490,7 +490,7 @@ impl NodeTestConfig {
 
         config.chain_store = match &self.chain_dir {
             Some(chain_dir) => StoreType::RocksDb(RocksDbConfig::new(chain_dir.clone())),
-            None => StoreType::InMem(self.chain_store.clone()),
+            None => StoreType::Existing(self.chain_store.clone()),
         };
         Ok(config)
     }

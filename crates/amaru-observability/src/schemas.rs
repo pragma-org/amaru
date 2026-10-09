@@ -1698,6 +1698,17 @@ define_schemas! {
                     required from_chunk: u64
                     required through_chunk: u64
                 }
+                /// Reuse cached immutable files after verifying them against the selected snapshot
+                public REUSE_CACHE {
+                    required from_chunk: u64
+                    required through_chunk: u64
+                }
+                /// Cached immutable files did not verify, so fetch the selected range again
+                public REDOWNLOAD_CACHE {
+                    required from_chunk: u64
+                    required through_chunk: u64
+                    required reason: String
+                }
                 /// Download and verify the digests for a Mithril snapshot
                 public VERIFY_DIGESTS {
                     required target_dir: String
