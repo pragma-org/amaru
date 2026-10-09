@@ -837,26 +837,26 @@ pub struct Columns<U, P, A, D, C, PP, V> {
     pub votes: V,
 }
 
-impl<U, P, A, D, C, PP, V> Default
+impl<'u, 'p, 'a, 'd, 'c, 'pp, 'v, U: 'u, P: 'p, A: 'a, D: 'd, C: 'c, PP: 'pp, V: 'v> Default
     for Columns<
-        iter::Empty<U>,
-        iter::Empty<P>,
-        iter::Empty<A>,
-        iter::Empty<D>,
-        iter::Empty<C>,
-        iter::Empty<PP>,
-        iter::Empty<V>,
+        Box<dyn Iterator<Item = U> + 'u>,
+        Box<dyn Iterator<Item = P> + 'p>,
+        Box<dyn Iterator<Item = A> + 'a>,
+        Box<dyn Iterator<Item = D> + 'd>,
+        Box<dyn Iterator<Item = C> + 'c>,
+        Box<dyn Iterator<Item = PP> + 'pp>,
+        Box<dyn Iterator<Item = V> + 'v>,
     >
 {
     fn default() -> Self {
         Self {
-            utxo: iter::empty(),
-            pools: iter::empty(),
-            accounts: iter::empty(),
-            dreps: iter::empty(),
-            cc_members: iter::empty(),
-            proposals: iter::empty(),
-            votes: iter::empty(),
+            utxo: Box::new(iter::empty()),
+            pools: Box::new(iter::empty()),
+            accounts: Box::new(iter::empty()),
+            dreps: Box::new(iter::empty()),
+            cc_members: Box::new(iter::empty()),
+            proposals: Box::new(iter::empty()),
+            votes: Box::new(iter::empty()),
         }
     }
 }
