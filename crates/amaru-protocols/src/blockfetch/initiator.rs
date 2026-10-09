@@ -24,7 +24,7 @@ use std::{
 };
 
 use amaru_kernel::{NetworkPoint, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes};
-use amaru_observability::error;
+use amaru_observability::{error, warn};
 use amaru_pure_stage::{
     DeserializerGuards, Effects, StageRef, define_role, define_role_tag, make_states, on_receive, typestate::prelude::*,
 };
@@ -320,6 +320,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                 pending_close = true;
                 busy.into()
             }
+            Err(Inputs::Internal(Internal::Timeout)) => return timed_out(peer, busy.name(), eff).await,
             Err(mail) => match Fetch::from_mailbox(mail) {
                 Ok(fetch) => {
                     pending_fetch = Some(fetch);
@@ -371,6 +372,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                 pending_close = true;
                 streaming.into()
             }
+            Err(Inputs::Internal(Internal::Timeout)) => return timed_out(peer, streaming.name(), eff).await,
             Err(mail) => match Fetch::from_mailbox(mail) {
                 Ok(fetch) => {
                     pending_fetch = Some(fetch);
@@ -412,6 +414,11 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
         }
     };
     Instance { proto, mux, inflight, peer, pending_close, pending_fetch }
+}
+
+async fn timed_out(peer: Peer, state: &str, eff: Effects<Mail>) -> Instance {
+    warn!(protocols::TIMEOUT, proto = "block_fetch", peer, state);
+    eff.terminate().await
 }
 
 async fn invalid(peer: Peer, state: &str, input: impl std::fmt::Debug, eff: Effects<Mail>) -> Instance {

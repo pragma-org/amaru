@@ -2636,6 +2636,12 @@ define_schemas! {
                 required state: String
                 required input: String
             }
+            /// A protocol handler timed out waiting for the peer and is terminating
+            public TIMEOUT {
+                required proto: String
+                required peer: %amaru_kernel::Peer
+                required state: String
+            }
         }
         setup {
             lifecycle {

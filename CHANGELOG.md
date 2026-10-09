@@ -44,6 +44,8 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-protocols**: block-fetch peer timeouts are logged as warnings instead of errors.
+
 - **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 
 ### Fixed
