@@ -176,54 +176,82 @@ impl TracingSubscriber<Registry> {
         }
     }
 
-    pub fn init(self, color: bool) -> DelayedWarning {
+    pub fn init(self, color: bool, outputs: &[crate::trace_output::TraceOutputSpec]) -> anyhow::Result<DelayedWarning> {
+        // Skip the extra layer entirely when the operator asked for no files, so the
+        // subscriber stack on that path stays what it was.
+        macro_rules! with_outputs {
+            ($subscriber:expr, |$s:ident| $body:expr) => {{
+                if outputs.is_empty() {
+                    let $s = $subscriber;
+                    $body
+                } else {
+                    let $s = crate::trace_output::attach($subscriber, outputs)?;
+                    $body
+                }
+            }};
+        }
+
         match self {
             TracingSubscriber::Empty => unreachable!(),
             TracingSubscriber::Registry(registry) => {
                 let (default_filter, warning) = new_log_filter();
-                registry
-                    .with(
-                        tracing_subscriber::fmt::layer()
-                            .with_writer(io::stderr as fn() -> io::Stderr)
-                            .with_ansi(color)
-                            .fmt_fields(console_field_formatter())
-                            .with_span_events(FmtSpan::CLOSE)
-                            .event_format(CborConsoleEventFormat::new().with_ansi(color))
-                            .with_filter(default_filter),
-                    )
-                    .init();
-                return warning;
+                with_outputs!(registry, |subscriber| {
+                    subscriber
+                        .with(
+                            tracing_subscriber::fmt::layer()
+                                .with_writer(io::stderr as fn() -> io::Stderr)
+                                .with_ansi(color)
+                                .fmt_fields(console_field_formatter())
+                                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+                                .event_format(CborConsoleEventFormat::new().with_ansi(color))
+                                .with_filter(default_filter),
+                        )
+                        .init();
+                });
+                Ok(warning)
             }
             TracingSubscriber::WithOpenTelemetry(layered) => {
                 let (default_filter, warning) = new_log_filter();
-                layered
-                    .with(
-                        tracing_subscriber::fmt::layer()
-                            .with_writer(io::stderr as fn() -> io::Stderr)
-                            .with_ansi(color)
-                            .fmt_fields(console_field_formatter())
-                            .with_span_events(FmtSpan::CLOSE)
-                            .event_format(CborConsoleEventFormat::new().with_ansi(color))
-                            .with_filter(default_filter),
-                    )
-                    .init();
-                return warning;
+                with_outputs!(layered, |subscriber| {
+                    subscriber
+                        .with(
+                            tracing_subscriber::fmt::layer()
+                                .with_writer(io::stderr as fn() -> io::Stderr)
+                                .with_ansi(color)
+                                .fmt_fields(console_field_formatter())
+                                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+                                .event_format(CborConsoleEventFormat::new().with_ansi(color))
+                                .with_filter(default_filter),
+                        )
+                        .init();
+                });
+                Ok(warning)
             }
             TracingSubscriber::WithLocalTelemetry(layered) => {
-                layered.init();
+                with_outputs!(layered, |subscriber| {
+                    subscriber.init();
+                });
+                Ok(None)
             }
             TracingSubscriber::WithLocalTelemetryAndOpenTelemetry(layered) => {
-                layered.init();
+                with_outputs!(layered, |subscriber| {
+                    subscriber.init();
+                });
+                Ok(None)
             }
             TracingSubscriber::WithJson(layered) => {
-                layered.init();
+                with_outputs!(layered, |subscriber| {
+                    subscriber.init();
+                });
+                Ok(None)
             }
             TracingSubscriber::WithJsonAndOpenTelemetry(layered) => {
-                layered.init();
+                with_outputs!(layered, |subscriber| {
+                    subscriber.init();
+                });
+                Ok(None)
             }
         }
-
-        None
     }
 }
 
@@ -232,12 +260,11 @@ impl TracingSubscriber<Registry> {
 // ---------------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
-    let events = || FmtSpan::ENTER | FmtSpan::EXIT;
-    let filter = || new_trace_filter();
+    let events = || FmtSpan::ACTIVE | FmtSpan::CLOSE;
 
     subscriber.with_json(
         || {
-            let (default_filter, warning) = filter();
+            let (default_filter, warning) = new_trace_filter();
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
@@ -248,7 +275,7 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             )
         },
         || {
-            let (default_filter, warning) = filter();
+            let (default_filter, warning) = new_trace_filter();
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
@@ -629,9 +656,18 @@ pub fn setup_observability(
     local: Option<LocalTelemetry>,
     color: bool,
     hints: &impl ObservabilityHints,
+    trace_outputs: &[crate::trace_output::TraceOutputSpec],
 ) -> OpenTelemetryHandle {
-    try_setup_observability(with_open_telemetry, open_telemetry_signals, with_json_traces, local, color, hints)
-        .unwrap_or_else(|error| panic!("failed to configure observability: {error}"))
+    try_setup_observability(
+        with_open_telemetry,
+        open_telemetry_signals,
+        with_json_traces,
+        local,
+        color,
+        hints,
+        trace_outputs,
+    )
+    .unwrap_or_else(|error| panic!("failed to configure observability: {error}"))
 }
 
 pub fn try_setup_observability(
@@ -641,6 +677,7 @@ pub fn try_setup_observability(
     local: Option<LocalTelemetry>,
     color: bool,
     hints: &impl ObservabilityHints,
+    trace_outputs: &[crate::trace_output::TraceOutputSpec],
 ) -> anyhow::Result<OpenTelemetryHandle> {
     let mut subscriber = TracingSubscriber::new();
 
@@ -661,7 +698,7 @@ pub fn try_setup_observability(
 
     let warning_json = if with_json_traces { setup_json_traces(&mut subscriber) } else { None };
 
-    let warning_log = subscriber.init(color);
+    let warning_log = subscriber.init(color, trace_outputs)?;
 
     for notify in [warning_otlp, warning_local, warning_json, warning_log].into_iter().flatten() {
         notify();

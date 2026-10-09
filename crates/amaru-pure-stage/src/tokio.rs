@@ -789,9 +789,14 @@ async fn interpreter(
                     last_yield = now;
                     tokio::task::yield_now().await;
                 }
-                let response =
-                    poll_with_ingress(effect.run(inner.resources.clone()), timers, cancel_senders, timeouts, msgs)
-                        .await;
+                let response = poll_with_ingress(
+                    crate::effect::run_external_effect(effect, inner.resources.clone(), name),
+                    timers,
+                    cancel_senders,
+                    timeouts,
+                    msgs,
+                )
+                .await;
                 StageResponse::ExternalResponse(response)
             }
             StageEffect::Detach(effect, inject) => {
@@ -806,7 +811,7 @@ async fn interpreter(
                 let inject = inject.into_inner();
                 let inner2 = inner.clone();
                 let handle = tokio::spawn(async move {
-                    let result = effect.run(resources).await;
+                    let result = crate::effect::run_external_effect(effect, resources, &target).await;
                     let msg = inject(result);
                     let tx = inner2.senders.lock().get(&target).cloned();
                     if let Some(tx) = tx {

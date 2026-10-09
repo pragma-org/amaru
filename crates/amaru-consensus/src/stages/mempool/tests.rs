@@ -32,7 +32,7 @@ use crate::stages::{
             te_validate_tx,
         },
     },
-    test_utils::{assert_trace, te_input, te_state},
+    test_utils::{assert_trace_no_clock, te_input, te_state},
 };
 
 #[test]
@@ -45,7 +45,7 @@ fn insert_batch_returns_one_result_per_transaction() {
     // After tx[0] is accepted the mempool holds exactly one transaction; tx[1] is rejected by the
     // validator and tx[2] is a duplicate of tx[0], so neither changes the state.
     let state = MempoolState { size_bytes: to_cbor(&txs[0]).len() as u64, tx_count: 1 };
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("mempool-1", &MempoolStageState::default()),

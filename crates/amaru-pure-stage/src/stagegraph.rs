@@ -37,6 +37,10 @@ impl ScheduleId {
     pub fn time(&self) -> Instant {
         self.0
     }
+
+    pub(crate) fn is_internal(self) -> bool {
+        self.1 >= 1_u64 << 63
+    }
 }
 
 impl fmt::Display for ScheduleId {

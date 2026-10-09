@@ -649,18 +649,36 @@ impl WorldLoop {
 
     /// A serve-only injector stays parked on `accept` (immediate re-PullAccept).
     /// That is Busy, not Idle — the listen loop is the product.
+    ///
+    /// `ListenEffect` has a sampled duration, so a horizon-0 run is still Sleeping on that
+    /// bind. Follow this graph's own wakes until accept is posted.
     pub fn assert_serving_accept(&mut self, graph_idx: usize) {
-        match self.graphs[graph_idx].run(Run::default()) {
-            Blocked::Busy { stages, .. } if stages.iter().any(|name| format!("{name}").contains("accept")) => {}
-            other @ (Blocked::Idle
-            | Blocked::Sleeping { .. }
-            | Blocked::Deadlock(_)
-            | Blocked::Breakpoint(..)
-            | Blocked::Busy { .. }
-            | Blocked::Terminated(_)) => {
-                panic!("graph {graph_idx} expected parked accept, got {other:?}")
+        for _ in 0..8 {
+            match self.graphs[graph_idx].run(Run::default()) {
+                Blocked::Busy { stages, .. } if stages.iter().any(|name| format!("{name}").contains("accept")) => {
+                    return;
+                }
+                Blocked::Sleeping { next_wakeup } => {
+                    let due = instant_nanos(next_wakeup);
+                    let Some(next) = self.peek_next_event_time() else {
+                        panic!("graph {graph_idx} sleeping until {due}ns with an empty heap");
+                    };
+                    assert_eq!(
+                        next, due,
+                        "graph {graph_idx} sleeping until {due}ns but the next heap event is {next}ns"
+                    );
+                    self.run_until_horizon(due);
+                }
+                other @ (Blocked::Idle
+                | Blocked::Deadlock(_)
+                | Blocked::Breakpoint(..)
+                | Blocked::Busy { .. }
+                | Blocked::Terminated(_)) => {
+                    panic!("graph {graph_idx} expected parked accept, got {other:?}")
+                }
             }
         }
+        panic!("graph {graph_idx} did not park on accept");
     }
 
     fn assert_graphs_settled(&mut self) {

@@ -94,45 +94,72 @@ impl Node {
         });
     }
 
-    /// Run the node until it is blocked (waiting for external effects for example)
+    /// Run the node until it is blocked (waiting for external effects for example).
+    ///
     /// If it is blocked because we reached the initialization breakpoint we set the node as initialized.
+    ///
+    /// A stage waiting on accept is [`Blocked::Busy`] even while other stages have sampled effect
+    /// durations pending. Those durations still have to fire, or the peer never connects.
     #[expect(clippy::panic)]
     pub fn run_until_blocked(&mut self) {
         let _span = self.enter_span();
-        match self.running.run(Run::skip_wakeups()) {
-            Blocked::Breakpoint(name) => {
-                if name.as_str() == "chainsync_registered" {
-                    tracing::info!("Node {} chainsync registered", self.node_id());
-                    self.initialized = true
+        loop {
+            match self.running.run(Run::default()) {
+                Blocked::Breakpoint(name) => {
+                    if name.as_str() == "chainsync_registered" {
+                        tracing::info!("Node {} chainsync registered", self.node_id());
+                        self.initialized = true
+                    }
+                    self.running.clear_breakpoint("chainsync_registered");
                 }
-                self.running.clear_breakpoint("chainsync_registered");
-                self.running.run(Run::skip_wakeups());
+                Blocked::Sleeping { .. } => {
+                    if !self.running.elapse_effect_wakeups() && !self.running.skip_to_next_wakeup(None) {
+                        panic!("Node {} should not be sleeping", self.node_id());
+                    }
+                }
+                Blocked::Busy { .. } => {
+                    if !self.running.elapse_effect_wakeups() {
+                        return;
+                    }
+                }
+                Blocked::Idle | Blocked::Terminated(_) => return,
+                Blocked::Deadlock(_) => {
+                    panic!("Deadlock detected during initialization");
+                }
             }
-            Blocked::Sleeping { .. } => {
-                panic!("Node {} should not be sleeping", self.node_id());
-            }
-            Blocked::Deadlock(_) => {
-                panic!("Deadlock detected during initialization");
-            }
-            Blocked::Idle | Blocked::Busy { .. } => {}
-            Blocked::Terminated(_) => {}
         }
     }
 
-    /// Drive this node until it is blocked (Idle/Busy/Sleeping/Terminated).
+    /// Drive this node until the next stage timer.
+    ///
+    /// A sampled effect duration is its own wakeup. Stopping the outer step there turns one
+    /// protocol tick into one iteration per effect, so the keepalive cap in [`super::nodes::Nodes::run`]
+    /// spends the whole budget before the stage timer. Elapse those durations, including while another
+    /// stage is busy on accept, then fire at most one stage-timer instant.
     #[expect(clippy::panic)]
     pub fn run_effect(&mut self) {
         let _span = self.enter_span();
-        match self.running.run(Run::default()) {
-            Blocked::Sleeping { .. } => {
-                self.running.skip_to_next_wakeup(None);
-            }
-            Blocked::Idle | Blocked::Busy { .. } | Blocked::Terminated(_) => {}
-            Blocked::Deadlock(_) => {
-                panic!("Deadlock detected");
-            }
-            Blocked::Breakpoint(name) => {
-                tracing::warn!("The breakpoint {name} is not handled");
+        loop {
+            match self.running.run(Run::default()) {
+                Blocked::Sleeping { .. } => {
+                    if !self.running.elapse_effect_wakeups() {
+                        self.running.skip_to_next_wakeup(None);
+                        break;
+                    }
+                }
+                Blocked::Busy { .. } => {
+                    if !self.running.elapse_effect_wakeups() {
+                        break;
+                    }
+                }
+                Blocked::Idle | Blocked::Terminated(_) => break,
+                Blocked::Deadlock(_) => {
+                    panic!("Deadlock detected");
+                }
+                Blocked::Breakpoint(name) => {
+                    tracing::warn!("The breakpoint {name} is not handled");
+                    break;
+                }
             }
         }
     }

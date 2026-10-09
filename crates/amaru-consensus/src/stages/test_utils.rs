@@ -240,16 +240,41 @@ pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> Tr
     TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
 }
 
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
+fn collect_trace(running: &SimulationRunning, drop_clock: bool) -> Vec<TraceEntry> {
     let mut tb = running.trace_buffer().lock();
     let trace = tb
         .iter_entries()
         // .map(|(_, e)| e) // left here for ease of debugging: comment next line instead of this to see effect responses
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
+        .filter_map(|(_, entry)| {
+            let drop =
+                matches!(entry, TraceEntry::Resume { .. }) || (drop_clock && matches!(entry, TraceEntry::Clock(_)));
+            (!drop).then_some(entry)
+        })
         .collect::<Vec<_>>();
     tb.clear();
+    trace
+}
+
+#[track_caller]
+pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
+    let trace = collect_trace(running, false);
     pretty_assertions::assert_eq!(trace, expected);
+}
+
+/// Like [`assert_trace`], ignoring simulated time.
+///
+/// Drops `Resume` entries and [`TraceEntry::Clock`] advances (including clock
+/// literals left in `expected`). [`amaru_pure_stage::Instant`] values inside the
+/// remaining entries compare equal at any distance, so a sampled effect duration
+/// cannot fail a test that does not assert time. Tests that check a specific
+/// instant keep using [`assert_trace`].
+#[track_caller]
+pub fn assert_trace_no_clock(running: &SimulationRunning, expected: &[TraceEntry]) {
+    let _tolerance = amaru_pure_stage::Instant::with_tolerance_for_test(std::time::Duration::MAX);
+    let actual = collect_trace(running, true);
+    let actual = actual.iter().collect::<Vec<_>>();
+    let expected = expected.iter().filter(|entry| !matches!(entry, TraceEntry::Clock(_))).collect::<Vec<_>>();
+    pretty_assertions::assert_eq!(actual, expected);
 }
 
 /// How far the simulation is driven after overrides are installed.
@@ -262,6 +287,10 @@ pub enum SimulationRunMode {
     /// the clock. Use when a stage would otherwise re-arm a timer forever under a frozen
     /// external world (e.g. ledger height held constant).
     UntilSleeping,
+    /// Resolve external effects and elapse sampled effect durations, then stop at the first
+    /// stage timer without firing it. A sampled effect duration is not a stage sleep: the
+    /// handler still has to finish, and only the timer the stage armed is left pending.
+    UntilStageTimer,
 }
 
 /// Common simulation harness for stage unit tests.
@@ -344,6 +373,30 @@ where
         SimulationRunMode::UntilSleeping => {
             while let amaru_pure_stage::simulation::Blocked::Busy { .. } = running.run(Run::default()) {
                 rt.block_on(running.await_external_effect());
+            }
+        }
+        SimulationRunMode::UntilStageTimer => {
+            use amaru_pure_stage::simulation::Blocked;
+            loop {
+                match running.run(Run::default()) {
+                    Blocked::Busy { external_effects, .. } if external_effects > 0 => {
+                        // A not-yet-due effect is left unpolled, so this await returns None while
+                        // some other stage is busy. Elapse that effect unless a stage timer is sooner.
+                        if rt.block_on(running.await_external_effect()).is_none() && !running.elapse_effect_wakeups() {
+                            break;
+                        }
+                    }
+                    Blocked::Sleeping { .. } => {
+                        if !running.elapse_effect_wakeups() {
+                            break;
+                        }
+                    }
+                    Blocked::Idle
+                    | Blocked::Deadlock(_)
+                    | Blocked::Breakpoint(_)
+                    | Blocked::Busy { .. }
+                    | Blocked::Terminated(_) => break,
+                }
             }
         }
     }

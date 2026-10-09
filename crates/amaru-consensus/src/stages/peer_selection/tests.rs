@@ -32,7 +32,7 @@ use crate::{
             te_record_advertisability, te_record_connection_failure, te_schedule, te_send, test_prep,
             test_prep_with_snapshot, tm_add_stage_starts_with, with_single_cooldown,
         },
-        test_utils::{assert_trace, te_input, te_state, tm_state},
+        test_utils::{assert_trace_no_clock, te_input, te_state, tm_state},
     },
 };
 
@@ -216,7 +216,7 @@ fn test_initialize_resolve_failure_does_not_dial() {
     let mut prep = test_prep(&[]);
     prep.extra_static.insert(candidate.clone());
     let msg = PeerSelectionMsg::Initialize;
-    // UntilSleeping: a failed lookup arms a delayed Regulate; UntilBlocked would
+    // UntilStageTimer: a failed lookup arms a delayed Regulate; UntilBlocked would
     // keep advancing that retry timer forever under a frozen DNS override.
     let (running, _guards, mut logs) = setup_preload_until_sleeping(&prep, [msg.clone()]);
 
@@ -352,7 +352,7 @@ fn test_add_peer_not_in_cooldown() {
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ps-1", &state),
@@ -383,7 +383,7 @@ fn test_add_peer_during_cooldown_cancels_timer() {
     };
     let (running, _guards, mut logs) =
         setup_preload(&prep, [PeerSelectionMsg::adversarial(p), PeerSelectionMsg::AddPeer(p)]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ps-1", &state),
@@ -570,7 +570,7 @@ fn test_connected_inbound_too_many() {
     let msg = PeerSelectionMsg::Connected(p, conn(), ConnectionDirection::Inbound, false);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     // At capacity: still records advertisability, then disconnects without inserting.
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ps-1", &state),
@@ -602,7 +602,7 @@ fn test_connected_outbound() {
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ps-1", &state),
@@ -822,7 +822,7 @@ fn test_disconnected_inbound() {
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ps-1", &state),
@@ -846,7 +846,7 @@ fn test_disconnected_inbound_ignores_stale_conn_id() {
     let msg = PeerSelectionMsg::Disconnected(p, stale, ConnectionDirection::Inbound);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     // Live inbound remains, so availability claims must not be cleared.
-    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
+    assert_trace_no_clock(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
     assert_trace_does_not_contain(&running, &[te_clear_peer_availability("ps-1", p).into()]);
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -860,7 +860,7 @@ fn test_disconnected_outbound_connecting_is_noop() {
     let msg = PeerSelectionMsg::Disconnected(p, ConnectionId::initial(), ConnectionDirection::Outbound);
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     // Outbound disconnect only applies to a matching Connected session; Connecting is a no-op.
-    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
+    assert_trace_no_clock(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
     assert_trace_does_not_contain(
         &running,
         &[
@@ -1378,11 +1378,22 @@ fn test_earlier_cooldown_reschedules_timer() {
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid_other).into(),
             tm_state(
                 "ps-1",
-                |s: &PeerSelection| {
+                move |s: &PeerSelection| {
+                    // Effect samples shift the later `now`, so compare sim-elapsed durations.
+                    // The static ban is read first and stays at its nominal deadline.
+                    let Some(other_until) = s.cooldowns.cooldown_until.get(&other).copied() else {
+                        return false;
+                    };
+                    let Some(static_until) = s.cooldowns.cooldown_until.get(&static_peer).copied() else {
+                        return false;
+                    };
                     s.cooldowns.cooldown_until.len() == 2
-                        && s.cooldown_timer == Some(sid_other)
-                        && s.cooldowns.peek().map(|(t, _)| t) == Some(cooldown_instant())
-                        && s.cooldowns.cooldown_until.get(&static_peer).copied() == Some(static_cooldown_instant())
+                        && s.cooldown_timer.is_some_and(|id| id.time().sim_elapsed() == other_until.sim_elapsed())
+                        && s.cooldowns
+                            .peek()
+                            .is_some_and(|(t, peer)| peer == other && t.sim_elapsed() == other_until.sim_elapsed())
+                        && static_until.sim_elapsed() == static_cooldown_instant().sim_elapsed()
+                        && other_until.sim_elapsed() < static_until.sim_elapsed()
                 },
                 "timer re-armed to the earlier non-static cool-down",
             ),
@@ -1509,7 +1520,7 @@ fn test_share_request_excludes_requester_and_respects_amount() {
 
 #[test]
 fn test_churn_demotes_worst_non_static_without_malus() {
-    // UntilSleeping: Churn re-arms a ~3300s timer; UntilBlocked would follow it forever.
+    // UntilStageTimer: Churn re-arms a ~3300s timer; UntilBlocked would follow it forever.
     let mut prep = test_prep(&[]);
     let a = TestPrep::peer("1.1.1.1:1");
     let b = TestPrep::peer("2.2.2.2:2");
@@ -1596,7 +1607,7 @@ fn test_uninteresting_demotes_without_malus() {
 
 #[test]
 fn test_churn_skips_static_peers() {
-    // UntilSleeping: Churn re-arms a ~3300s timer; UntilBlocked would follow it forever.
+    // UntilStageTimer: Churn re-arms a ~3300s timer; UntilBlocked would follow it forever.
     let mut prep = test_prep(&["10.0.0.1:1"]);
     let static_p = TestPrep::peer("10.0.0.1:1");
     prep.state.outbound_peers.insert(static_p, PeerState::Connected(using_conn()));

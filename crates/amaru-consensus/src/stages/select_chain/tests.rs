@@ -29,7 +29,9 @@ use crate::stages::{
         te_record_block_pruned, te_record_block_valid, te_record_fork_started, te_record_header_abandoned,
         te_set_block_valid, te_unvalidated_ancestor_hashes, test_prep,
     },
-    test_utils::{assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated},
+    test_utils::{
+        assert_trace_no_clock, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated,
+    },
 };
 
 #[test]
@@ -44,7 +46,7 @@ fn test_tip_not_found() {
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &state),
@@ -70,7 +72,7 @@ fn test_tip_already_validated_is_ignored() {
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -96,7 +98,7 @@ fn test_tip_already_invalid_is_abandoned() {
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -129,7 +131,7 @@ fn test_tip_already_tracked_is_noop() {
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -162,7 +164,7 @@ fn test_tip_extends_from_origin() {
     };
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -198,7 +200,7 @@ fn test_tip_extends_from_h1() {
     };
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -232,7 +234,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
     };
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -281,7 +283,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
     };
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -326,7 +328,7 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
     };
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -364,7 +366,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
     };
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -403,7 +405,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
     let mut expected = SelectChain::new(prep.downstream.clone());
     expected.may_fetch_blocks = true;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -442,7 +444,7 @@ fn test_block_validation_result_valid() {
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -492,7 +494,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -556,7 +558,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -620,7 +622,7 @@ fn test_block_validation_result_invalid_removes_tips() {
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -659,7 +661,7 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
     let msg = SelectChainMsg::block_validation_result(tip, false, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -694,7 +696,7 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
     let msg = SelectChainMsg::block_validation_result(tip, true, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -721,7 +723,7 @@ fn test_startup_with_non_empty_store() {
     let msg = SelectChainMsg::fetch_next_from(Point::Origin);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -874,7 +876,7 @@ fn test_new_tip_after_pruning_restores_pending_block_validations() {
 
     let now = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     let (running, _guards, mut logs) = setup_many(&prep, vec![invalid.clone(), new_tip.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),
@@ -929,7 +931,7 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
 
     let now = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     let (running, _guards, mut logs) = setup_many(&prep, vec![msg1.clone(), msg2.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("sc-1", &prep.state),

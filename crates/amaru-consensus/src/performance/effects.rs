@@ -28,7 +28,7 @@ use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, PeerCandidate, Point};
 use amaru_protocols::metrics_effects::ResourceMeter;
-use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Instant, Resources, SendData};
 use tokio::sync::oneshot;
 
 use super::{
@@ -36,6 +36,7 @@ use super::{
     PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams, SelectPeersParams,
     SelectUsing, SharedIngestResult,
 };
+use crate::effect_timings;
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
     #[expect(clippy::expect_used)]
@@ -292,6 +293,7 @@ pub struct RecordIntersectionEffect {
 
 impl ExternalEffectAPI for RecordIntersectionEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordIntersectionEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -324,6 +326,7 @@ pub struct RecordPeersAskedEffect {
 
 impl ExternalEffectAPI for RecordPeersAskedEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordPeersAskedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -340,6 +343,7 @@ impl ExternalEffectAPI for RecordPeersAskedEffect {
 
 impl ExternalEffectAPI for RecordHeaderAnnouncementEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordHeaderAnnouncementEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -362,6 +366,7 @@ pub struct RecordBlocksRequestedEffect {
 
 impl ExternalEffectAPI for RecordBlocksRequestedEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordBlocksRequestedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -384,6 +389,7 @@ pub struct RecordBlockDeliveryEffect {
 
 impl ExternalEffectAPI for RecordBlockDeliveryEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordBlockDeliveryEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -406,6 +412,8 @@ pub struct RecordFetchFailureEffect {
 
 impl ExternalEffectAPI for RecordFetchFailureEffect {
     type Response = ();
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__RecordFetchFailureEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -424,6 +432,8 @@ pub struct RecordKeepaliveRttEffect {
 
 impl ExternalEffectAPI for RecordKeepaliveRttEffect {
     type Response = ();
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__RecordKeepaliveRttEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -442,6 +452,7 @@ pub struct RecordAdvertisabilityEffect {
 
 impl ExternalEffectAPI for RecordAdvertisabilityEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordAdvertisabilityEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -459,6 +470,7 @@ pub struct RecordConnectionFailureEffect {
 
 impl ExternalEffectAPI for RecordConnectionFailureEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordConnectionFailureEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -475,6 +487,7 @@ pub struct ClearPeerAvailabilityEffect {
 
 impl ExternalEffectAPI for ClearPeerAvailabilityEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__ClearPeerAvailabilityEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -492,6 +505,8 @@ pub struct PeerAdversarialEffect {
 
 impl ExternalEffectAPI for PeerAdversarialEffect {
     type Response = ();
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__PeerAdversarialEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -509,6 +524,7 @@ pub struct PruneBelowEffect {
 
 impl ExternalEffectAPI for PruneBelowEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__PruneBelowEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -527,6 +543,7 @@ pub struct SelectPeersForFetchEffect {
 
 impl ExternalEffectAPI for SelectPeersForFetchEffect {
     type Response = FetchPeerSet;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SelectPeersForFetchEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -544,6 +561,8 @@ pub struct PeerCoversFragmentEffect {
 
 impl ExternalEffectAPI for PeerCoversFragmentEffect {
     type Response = bool;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__PeerCoversFragmentEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -560,6 +579,8 @@ pub struct DirectClaimantsEffect {
 
 impl ExternalEffectAPI for DirectClaimantsEffect {
     type Response = Vec<(Peer, Instant, ClaimKind)>;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__DirectClaimantsEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -576,6 +597,8 @@ pub struct FirstAnnouncedAtEffect {
 
 impl ExternalEffectAPI for FirstAnnouncedAtEffect {
     type Response = Option<(Peer, Instant)>;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__FirstAnnouncedAtEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -593,6 +616,8 @@ pub struct RankPeersForChurnEffect {
 
 impl ExternalEffectAPI for RankPeersForChurnEffect {
     type Response = Vec<(Peer, PeerScores)>;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //        crate::effect_timings::performance__effects__RankPeersForChurnEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -609,6 +634,8 @@ pub struct ScoresEffect {
 
 impl ExternalEffectAPI for ScoresEffect {
     type Response = PeerScores;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //        crate::effect_timings::performance__effects__ScoresEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -625,6 +652,8 @@ pub struct ShareFlagsEffect {
 
 impl ExternalEffectAPI for ShareFlagsEffect {
     type Response = Option<PeerShareFlags>;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //        crate::effect_timings::performance__effects__ShareFlagsEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -641,6 +670,8 @@ pub struct SnapshotEffect {
 
 impl ExternalEffectAPI for SnapshotEffect {
     type Response = Option<PeerSnapshot>;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //        crate::effect_timings::performance__effects__SnapshotEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -658,6 +689,8 @@ pub struct OkForSharingEffect {
 
 impl ExternalEffectAPI for OkForSharingEffect {
     type Response = bool;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //        crate::effect_timings::performance__effects__OkForSharingEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -674,6 +707,7 @@ pub struct SetLedgerCandidatesEffect {
 
 impl ExternalEffectAPI for SetLedgerCandidatesEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SetLedgerCandidatesEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -691,6 +725,7 @@ pub struct IngestSharedPeersEffect {
 
 impl ExternalEffectAPI for IngestSharedPeersEffect {
     type Response = SharedIngestResult;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__IngestSharedPeersEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -707,6 +742,7 @@ pub struct SelectOutboundEffect {
 
 impl ExternalEffectAPI for SelectOutboundEffect {
     type Response = SelectUsing;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SelectOutboundEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -725,6 +761,8 @@ pub struct SelectSharePeersEffect {
 
 impl ExternalEffectAPI for SelectSharePeersEffect {
     type Response = Vec<std::net::SocketAddr>;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__SelectSharePeersEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -741,6 +779,8 @@ pub struct IsStaticPeerEffect {
 
 impl ExternalEffectAPI for IsStaticPeerEffect {
     type Response = bool;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__IsStaticPeerEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -759,6 +799,7 @@ pub struct NoteDialEffect {
 
 impl ExternalEffectAPI for NoteDialEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__NoteDialEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -775,6 +816,8 @@ pub struct SharedContainsEffect {
 
 impl ExternalEffectAPI for SharedContainsEffect {
     type Response = bool;
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__SharedContainsEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -789,6 +832,7 @@ pub struct SourceCountsEffect;
 
 impl ExternalEffectAPI for SourceCountsEffect {
     type Response = crate::performance::SourceCounts;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SourceCountsEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -808,6 +852,7 @@ pub struct RecordRollbackEffect {
 
 impl ExternalEffectAPI for RecordRollbackEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordRollbackEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -824,6 +869,8 @@ pub struct RecordHeaderRejectedEffect {
 
 impl ExternalEffectAPI for RecordHeaderRejectedEffect {
     type Response = ();
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__RecordHeaderRejectedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -842,6 +889,8 @@ pub struct RecordHeaderAbandonedEffect {
 
 impl ExternalEffectAPI for RecordHeaderAbandonedEffect {
     type Response = ();
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__RecordHeaderAbandonedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -864,6 +913,7 @@ pub struct RecordForkStartedEffect {
 
 impl ExternalEffectAPI for RecordForkStartedEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordForkStartedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -888,6 +938,7 @@ pub struct RecordBlockValidEffect {
 
 impl ExternalEffectAPI for RecordBlockValidEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordBlockValidEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -913,6 +964,8 @@ pub struct RecordBlockPrunedEffect {
 
 impl ExternalEffectAPI for RecordBlockPrunedEffect {
     type Response = ();
+    // const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+    //     crate::effect_timings::performance__effects__RecordBlockPrunedEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -935,6 +988,7 @@ pub struct RecordSyncAdoptionEffect {
 
 impl ExternalEffectAPI for RecordSyncAdoptionEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordSyncAdoptionEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -951,6 +1005,7 @@ pub struct SyncAdoptionPaceEffect {
 
 impl ExternalEffectAPI for SyncAdoptionPaceEffect {
     type Response = bool;
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__SyncAdoptionPaceEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);

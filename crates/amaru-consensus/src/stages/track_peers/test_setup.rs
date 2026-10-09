@@ -66,14 +66,6 @@ pub fn height_recheck_schedule_id() -> ScheduleId {
     ScheduleIds::default().next_at(when)
 }
 
-pub fn schedule_id_at(delay_from_sim_start: Duration) -> ScheduleId {
-    let when = Instant::at_offset(
-        Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + delay_from_sim_start,
-        start_in_era().relative_time,
-    );
-    ScheduleIds::default().next_at(when)
-}
-
 pub fn te_schedule(
     at_stage: impl AsRef<str>,
     msg: impl amaru_pure_stage::SendData,
@@ -84,10 +76,6 @@ pub fn te_schedule(
         msg: Box::new(msg),
         id: schedule_id,
     })
-}
-
-pub fn te_clock(instant: Instant) -> TraceEntry {
-    TraceEntry::Clock(instant)
 }
 
 pub fn build_store(headers: &[Header]) -> Arc<InMemoryChainStore> {
@@ -315,8 +303,8 @@ pub fn setup(
     })
 }
 
-/// Forces a specific ledger-applied tip and stops when the sim first sleeps on a scheduled
-/// wakeup (does not auto-advance time). Safe for frozen-height defer tests that arm a recheck
+/// Forces a specific ledger-applied tip, elapses sampled effect durations, and stops at the
+/// first stage timer without firing it. Safe for frozen-height defer tests that arm a recheck
 /// timer without running an infinite height-poll loop.
 pub fn setup_with_ledger_tip_until_sleeping(
     rt: &Handle,
@@ -366,7 +354,7 @@ fn setup_inner(
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     use amaru_pure_stage::StageGraph;
 
-    let mode = if advance_wakeups { SimulationRunMode::UntilBlocked } else { SimulationRunMode::UntilSleeping };
+    let mode = if advance_wakeups { SimulationRunMode::UntilBlocked } else { SimulationRunMode::UntilStageTimer };
     run_simulation_with(
         rt,
         register_guards(),
