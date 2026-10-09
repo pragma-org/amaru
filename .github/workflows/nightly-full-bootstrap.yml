@@ -75,15 +75,20 @@ jobs:
           ' EXIT
 
           fail() {
+            echo "::group::Last 200 lines of $current_log" >&2
+            tail -200 "$current_log" >&2 || true
+            echo "::endgroup::" >&2
             echo "::error::$1" >&2
-            tail -200 "$current_log" >&2
+            printf '## Full bootstrap failed (%s)\n\n~~~text\n%s\n%s\n~~~\n' \
+              "$AMARU_NETWORK" "$1" "${2:-}" | tee -a "$GITHUB_STEP_SUMMARY" >&2
             exit 1
           }
 
           check_log_errors() {
-            if strip_ansi < "$current_log" | grep -E \
-              '^[^[:space:]]+[[:space:]]+ERROR[[:space:]]|^ERROR[[:space:]:]|^error:|"level"[[:space:]]*:[[:space:]]*"ERROR"' >&2; then
-              fail "Amaru logged an error in $current_log"
+            local errors
+            if errors="$(strip_ansi < "$current_log" | grep -E \
+              '^[^[:space:]]+[[:space:]]+ERROR[[:space:]]|^ERROR[[:space:]:]|^error:|"level"[[:space:]]*:[[:space:]]*"ERROR"')"; then
+              fail "Amaru logged an error in $current_log" "$errors"
             fi
           }
 
