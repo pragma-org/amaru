@@ -46,6 +46,7 @@ Other guiding principles:
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
 - **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
+- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection. Duplicate offers preserve admission time; removal followed by reinsertion records a new time.
 
 ### Changed
 
@@ -82,34 +83,22 @@ Other guiding principles:
 - **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
 - **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
 
-## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
-
-### Added
-
-- **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
-
-- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots, and receive membership updates with explicit loss detection.
-- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection. Duplicate offers preserve admission time; removal followed by reinsertion records a new time.
-
-- **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
-
-### Changed
-
-- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
-
 ### Fixed
 
 - **amaru-node**: embedded submission distinguishes a deadline reached before queue admission from a timeout with an unknown insertion outcome. HTTP reports the admission failure with status 503 and a distinct message.
 - **amaru-node**: HTTP transaction submission returns status 503 when the node is closing or stopped, so clients can retry during restarts.
 - **amaru-node**: embedded and HTTP transaction submission reject CBOR inputs larger than 64 KiB before decoding. HTTP callers receive status 413; ledger transaction-size limits still apply to smaller inputs.
-- **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
-- **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
-- **amaru-kernel**: fixed the ordering of multi assets.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
+### Added
+
+- **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
+- **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
+
 ### Changed
 
+- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
 - **amaru-protocols**: block-fetch peer timeouts are logged as warnings instead of errors.
 
