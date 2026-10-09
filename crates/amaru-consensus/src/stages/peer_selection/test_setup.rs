@@ -234,13 +234,14 @@ pub fn setup_preload(
     setup_preload_with_mode(prep, messages, SimulationRunMode::UntilBlocked)
 }
 
-/// Like [`setup_preload`], but stops at the first scheduled wakeup without advancing time.
+/// Like [`setup_preload`], but elapses sampled effect durations and stops at the first
+/// stage timer without firing it.
 /// Used by tests that need to inject messages while a cool-down timer is still pending.
 pub fn setup_preload_until_sleeping(
     prep: &TestPrep,
     messages: impl IntoIterator<Item = PeerSelectionMsg>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_preload_with_mode(prep, messages, SimulationRunMode::UntilSleeping)
+    setup_preload_with_mode(prep, messages, SimulationRunMode::UntilStageTimer)
 }
 
 fn setup_preload_with_mode(

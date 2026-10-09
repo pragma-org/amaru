@@ -17,6 +17,7 @@ use std::str::FromStr;
 use amaru::{
     lifecycle::Runnable,
     observability::{Color, ObservabilityHints},
+    trace_output::TraceOutputSpec,
 };
 use amaru_kernel::GlobalParameters;
 use amaru_node::telemetry::{OtelSignal, OtelSignals};
@@ -215,6 +216,17 @@ pub(crate) struct Cli {
     /// Emit trace events as structured JSON instead of human-readable text.
     #[clap(long, global = true, action, env = "AMARU_WITH_JSON_TRACES")]
     pub(crate) with_json_traces: bool,
+
+    /// Also write traces to a file. Repeat for one file per occurrence.
+    ///
+    /// The value is `PATH:FILTER`, split at the first colon so a filter may contain `::`.
+    /// `FILTER` uses the same directives as `AMARU_LOG`. A path ending in `.ndjson` uses the
+    /// same JSON format as `--with-json-traces`, one object per line; any other path is text.
+    /// The file is created or truncated.
+    /// Span close lines include busy and idle time. This does not replace the terminal, the
+    /// TUI, or OpenTelemetry.
+    #[clap(long, global = true, env = "AMARU_LOG_OUTPUT", action = clap::ArgAction::Append, value_name = "PATH:FILTER")]
+    pub(crate) log_output: Vec<TraceOutputSpec>,
 
     /// Export OpenTelemetry signals via OTLP; without a value, export all signals.
     #[clap(

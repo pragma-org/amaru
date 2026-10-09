@@ -17,8 +17,10 @@ use std::fmt::Debug;
 use amaru_kernel::{Transaction, TransactionId, cbor::WithOriginalBytes};
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
-use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
+use amaru_pure_stage::{BoxFuture, DurationDist, Effects, ExternalEffectAPI, Resources, SendData, Void};
 use serde::{Deserialize, Serialize};
+
+use crate::effect_timings;
 
 /// Implementation of Mempool effects using amaru_pure_stage::Effects.
 ///
@@ -221,6 +223,7 @@ impl Insert {
 
 impl ExternalEffectAPI for Insert {
     type Response = TxInsertResult;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Insert;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -244,6 +247,7 @@ impl GetTx {
 
 impl ExternalEffectAPI for GetTx {
     type Response = Option<WithOriginalBytes<Transaction>>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__GetTx;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -267,6 +271,7 @@ impl ContainsTx {
 
 impl ExternalEffectAPI for ContainsTx {
     type Response = bool;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__ContainsTx;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -291,6 +296,7 @@ impl TxIdsSince {
 
 impl ExternalEffectAPI for TxIdsSince {
     type Response = Vec<(TransactionId, u32, MempoolSeqNo)>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__TxIdsSince;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -314,6 +320,7 @@ impl GetTxsForIds {
 
 impl ExternalEffectAPI for GetTxsForIds {
     type Response = Vec<WithOriginalBytes<Transaction>>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__GetTxsForIds;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -329,6 +336,7 @@ struct MempoolTxs;
 
 impl ExternalEffectAPI for MempoolTxs {
     type Response = Vec<WithOriginalBytes<Transaction>>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__MempoolTxs;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -352,6 +360,7 @@ impl RemoveTxs {
 
 impl ExternalEffectAPI for RemoveTxs {
     type Response = ();
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__RemoveTxs;
 
     #[expect(clippy::expect_used, clippy::unit_arg)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -367,6 +376,7 @@ struct LastSeqNo;
 
 impl ExternalEffectAPI for LastSeqNo {
     type Response = MempoolSeqNo;
+    const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__LastSeqNo;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -384,6 +394,7 @@ struct IsNearCapacity {
 
 impl ExternalEffectAPI for IsNearCapacity {
     type Response = bool;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__IsNearCapacity;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -399,6 +410,7 @@ struct State;
 
 impl ExternalEffectAPI for State {
     type Response = MempoolState;
+    const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__State;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {

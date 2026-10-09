@@ -83,6 +83,8 @@ pub struct SimulationRunning {
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
     schedule_ids: ScheduleIds,
+    /// Wakeups for sampled effect durations. Not the counter stages observe via `schedule_at`.
+    effect_schedule_ids: ScheduleIds,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     eval_strategy: Box<dyn EvalStrategy>,
     duration_rng: StdRng,
@@ -193,6 +195,7 @@ impl SimulationRunning {
             overrides: Vec::new(),
             breakpoints: Vec::new(),
             schedule_ids,
+            effect_schedule_ids: ScheduleIds::internal(),
             trace_buffer,
             eval_strategy,
             duration_rng,
@@ -359,6 +362,29 @@ impl SimulationRunning {
         self.scheduled.next_wakeup_time()
     }
 
+    /// Advance to the next sampled-effect wakeup and fire it, leaving stage timers pending.
+    ///
+    /// A stage timer at the same instant sorts before an effect wakeup: [`ScheduleId`] orders
+    /// by time, then by id, and effect ids sit in the high half. [`Self::skip_to_next_wakeup`]
+    /// would fire that timer too. This fires only the effect ids at the chosen instant.
+    ///
+    /// Returns `false` when the next wakeup is a stage timer, or when nothing is scheduled.
+    pub fn elapse_effect_wakeups(&mut self) -> bool {
+        let Some(at) = self.scheduled.next_internal_wakeup() else {
+            return false;
+        };
+        if self.clock.now(self.global_epoch_offset) < at {
+            self.clock.advance_to(at);
+            self.trace_buffer.lock().push_clock(at);
+        }
+        let mut fired = false;
+        while let Some(runnable) = self.scheduled.take_internal_at(at) {
+            runnable(self);
+            fired = true;
+        }
+        fired
+    }
+
     fn schedule_wakeup(&mut self, id: ScheduleId, wakeup: impl FnOnce(&mut SimulationRunning) + Send + 'static) {
         self.scheduled.schedule(id, Box::new(wakeup));
     }
@@ -391,7 +417,7 @@ impl SimulationRunning {
             Some(d) if d.is_zero() => true,
             Some(delta) => {
                 let now = self.clock.now(self.global_epoch_offset);
-                let id = self.schedule_ids.next_at(now + delta);
+                let id = self.effect_schedule_ids.next_at(now + delta);
                 let name = at_stage.clone();
                 self.schedule_wakeup(id, move |sim| {
                     if let Some(pending) = sim.external_inflight.get_mut(&name) {
@@ -416,7 +442,7 @@ impl SimulationRunning {
             Some(d) if d.is_zero() => true,
             Some(delta) => {
                 let now = self.clock.now(self.global_epoch_offset);
-                let schedule_id = self.schedule_ids.next_at(now + delta);
+                let schedule_id = self.effect_schedule_ids.next_at(now + delta);
                 self.schedule_wakeup(schedule_id, move |sim| {
                     if let Some(pending) = sim.detach_inflight.get_mut(&id) {
                         pending.time_ready = true;
@@ -461,9 +487,9 @@ impl SimulationRunning {
             .get(at_stage)
             .and_then(|pending| pending.dist.force_timeout())
             .expect("force only for sampled DurationDist");
-        // Poll first so already-ready `run()` (typical wrap_sync) never enters the runtime.
-        // `timeout` must be constructed inside `block_on`: current-thread test runtimes
-        // have no ambient reactor, and `tokio::time::timeout` requires one.
+        // The first poll runs `effect.run`. A `wrap_sync` body finishes in that poll and never
+        // enters the runtime. `timeout` must be constructed inside `block_on`: current-thread
+        // test runtimes have no ambient reactor, and `tokio::time::timeout` requires one.
         let result = match std::future::Future::poll(fut.as_mut(), &mut Context::from_waker(Waker::noop())) {
             Poll::Ready(result) => result,
             Poll::Pending => match self.tokio_handle.block_on(async { tokio::time::timeout(timeout, fut).await }) {
@@ -476,11 +502,16 @@ impl SimulationRunning {
         self.provide_external_result(at_stage.clone(), result);
     }
 
+    /// Poll pending effect futures that are already due.
+    ///
+    /// A sampled `δ` keeps `time_ready` false until its wakeup. Polling earlier would run a
+    /// `wrap_sync` body before that deadline. Missing inflight state counts as due.
     fn poll_ready_computations<K: Clone + Ord>(
         pending: &mut BTreeMap<K, BoxFuture<'static, Box<dyn SendData>>>,
         cx: &mut Context<'_>,
+        is_due: impl Fn(&K) -> bool,
     ) -> Option<(K, Box<dyn SendData>)> {
-        let keys: Vec<K> = pending.keys().cloned().collect();
+        let keys: Vec<K> = pending.keys().filter(|key| is_due(key)).cloned().collect();
         for key in keys {
             let Some(fut) = pending.get_mut(&key) else {
                 continue;
@@ -635,7 +666,8 @@ impl SimulationRunning {
         match self.apply_external_overrides(effect) {
             Err(msg) => self.provide_detach_result(id, msg),
             Ok(effect) => {
-                self.pending_detach_computations.insert(id, effect.run(self.resources.clone()));
+                self.pending_detach_computations
+                    .insert(id, crate::effect::run_external_effect(effect, self.resources.clone(), &at_stage));
                 self.try_deliver_detach(id);
             }
         }
@@ -796,6 +828,9 @@ impl SimulationRunning {
 
     /// When external effects are currently unresolved, await either the resolution of an effect
     /// or the arrival of a new external input message.
+    ///
+    /// Futures whose sampled deadline has not been reached are left unpolled. If every pending
+    /// future is in that state, this returns `None` instead of parking.
     pub async fn await_external_effect(&mut self) -> Option<Name> {
         if self.pending_computations.is_empty() && self.pending_detach_computations.is_empty() {
             return None;
@@ -804,6 +839,10 @@ impl SimulationRunning {
             return Some(name);
         }
         if self.pending_computations.is_empty() && self.pending_detach_computations.is_empty() {
+            return None;
+        }
+        let (due_blocking, due_detach) = self.due_computations();
+        if due_blocking.is_empty() && due_detach.is_empty() {
             return None;
         }
 
@@ -816,13 +855,15 @@ impl SimulationRunning {
                 None
             }
             ready = std::future::poll_fn(|cx| {
-                if let Some(ready) = Self::poll_ready_computations(pending, cx) {
+                if let Some(ready) = Self::poll_ready_computations(pending, cx, |key| due_blocking.contains(key)) {
                     return Poll::Ready(Some(ReadyComputation::Blocking(ready)));
                 }
-                if let Some(ready) = Self::poll_ready_computations(pending_detach, cx) {
+                if let Some(ready) = Self::poll_ready_computations(pending_detach, cx, |key| due_detach.contains(key)) {
                     return Poll::Ready(Some(ReadyComputation::Detach(ready)));
                 }
-                if pending.is_empty() && pending_detach.is_empty() {
+                let blocking_left = pending.keys().any(|key| due_blocking.contains(key));
+                let detach_left = pending_detach.keys().any(|key| due_detach.contains(key));
+                if !blocking_left && !detach_left {
                     Poll::Ready(None)
                 } else {
                     Poll::Pending
@@ -832,11 +873,36 @@ impl SimulationRunning {
         Some(self.finish_ready_computation(ready?))
     }
 
+    /// Pending computations whose sampled deadline has already been reached.
+    ///
+    /// Collected before the maps are borrowed for polling. The clock does not advance while
+    /// [`Self::await_external_effect`] polls, so the set stays valid for that wait.
+    fn due_computations(&self) -> (BTreeSet<Name>, BTreeSet<u64>) {
+        let blocking = self
+            .pending_computations
+            .keys()
+            .filter(|name| self.external_inflight.get(*name).is_none_or(|pending| pending.time_ready))
+            .cloned()
+            .collect();
+        let detach = self
+            .pending_detach_computations
+            .keys()
+            .filter(|id| self.detach_inflight.get(*id).is_none_or(|pending| pending.time_ready))
+            .copied()
+            .collect();
+        (blocking, detach)
+    }
+
     fn take_ready_computation(&mut self, cx: &mut Context<'_>) -> Option<Name> {
-        if let Some(ready) = Self::poll_ready_computations(&mut self.pending_computations, cx) {
+        let (due_blocking, due_detach) = self.due_computations();
+        if let Some(ready) =
+            Self::poll_ready_computations(&mut self.pending_computations, cx, |name| due_blocking.contains(name))
+        {
             return Some(self.finish_ready_computation(ReadyComputation::Blocking(ready)));
         }
-        if let Some(ready) = Self::poll_ready_computations(&mut self.pending_detach_computations, cx) {
+        if let Some(ready) =
+            Self::poll_ready_computations(&mut self.pending_detach_computations, cx, |id| due_detach.contains(id))
+        {
             return Some(self.finish_ready_computation(ReadyComputation::Detach(ready)));
         }
         None
@@ -1305,7 +1371,10 @@ impl SimulationRunning {
                 }
                 Ok(effect) => {
                     let name = at_stage.clone();
-                    self.pending_computations.insert(name.clone(), effect.run(self.resources.clone()));
+                    self.pending_computations.insert(
+                        name.clone(),
+                        crate::effect::run_external_effect(effect, self.resources.clone(), &name),
+                    );
                     self.try_deliver_external(&name);
                 }
             },

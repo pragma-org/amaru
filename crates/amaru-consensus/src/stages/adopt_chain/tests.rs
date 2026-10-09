@@ -20,7 +20,8 @@ use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::BaseReadChainStore;
 use amaru_pure_stage::{Instant, StageRef, trace_buffer::TerminationReason};
 use test_setup::{
-    assert_trace, setup, te_find_ancestor_on_best_chain, te_load_header, te_terminate, te_terminated, test_prep,
+    assert_trace_no_clock, setup, te_find_ancestor_on_best_chain, te_load_header, te_terminate, te_terminated,
+    test_prep,
 };
 
 use super::*;
@@ -47,7 +48,7 @@ fn test_incoming_tip_not_in_store() {
     let tip = prep.headers.h3.point(); // h3 not in store
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ac-1", &prep.state),
@@ -72,7 +73,7 @@ fn test_current_best_not_loadable() {
     let tip = prep.headers.h3.point();
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ac-1", &prep.state),
@@ -98,7 +99,7 @@ fn test_incoming_not_better_than_current_best() {
     let tip = prep.headers.h3a.point(); // h3a has same height as h3 but lower op_cert_seq
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ac-1", &prep.state),
@@ -127,7 +128,7 @@ fn test_extension_adopts_and_sends() {
 
     let mut expected = prep.state.clone();
     expected.current_best_tip = tip;
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ac-1", &prep.state),
@@ -182,7 +183,7 @@ fn test_fork_switch_adopts_and_sends() {
 
     let mut expected = prep.state.clone();
     expected.current_best_tip = tip;
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ac-1", &prep.state),
@@ -260,7 +261,7 @@ fn test_fork_switch_opcert_hacked() {
 
     let mut expected = prep.state.clone();
     expected.current_best_tip = tip;
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ac-1", &prep.state),
@@ -310,7 +311,7 @@ fn test_fork_not_better_no_switch() {
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("ac-1", &prep.state),

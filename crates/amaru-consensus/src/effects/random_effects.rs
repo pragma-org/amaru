@@ -26,6 +26,8 @@ pub struct GenerateRandomSeed;
 
 impl ExternalEffectAPI for GenerateRandomSeed {
     type Response = [u8; 32];
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::effects__random_effects__GenerateRandomSeed;
 
     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync(rand::rng().random::<[u8; 32]>())

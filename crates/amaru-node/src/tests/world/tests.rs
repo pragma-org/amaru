@@ -43,6 +43,12 @@ use super::{
 
 const SEED: u64 = 0xA11CE;
 
+/// First `ListenEffect` sample on a default-seeded graph.
+///
+/// The measured listen distribution is 171 µs or 247 µs. `StdRng` seed 0 draws 247 µs,
+/// and these graphs issue listen before any other sampled effect.
+const LISTEN_SAMPLE_NANOS: u64 = 247_000;
+
 type Observed<T> = Arc<Mutex<Option<T>>>;
 
 fn observed<T>() -> Observed<T> {
@@ -159,16 +165,17 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
     let mut expected_log = vec![
         graph_wake(0, 0, 0, GraphWakeReason::Runnable),
         graph_wake(1, 0, 1, GraphWakeReason::Runnable),
+        graph_wake(2, LISTEN_SAMPLE_NANOS, 0, GraphWakeReason::Sleeping),
         HeapLogEntry {
-            sequence: 2,
+            sequence: 3,
             time_nanos: t_connected,
             kind: HeapLogKind::ConnectAttempt { target: listener_addr },
         },
-        graph_wake(5, t_connected, 1, GraphWakeReason::Runnable),
-        HeapLogEntry { sequence: 6, time_nanos: t_connected, kind: HeapLogKind::SendAck { conn: initiator } },
-        graph_wake(8, t_connected, 1, GraphWakeReason::Runnable),
+        graph_wake(6, t_connected, 1, GraphWakeReason::Runnable),
+        HeapLogEntry { sequence: 7, time_nanos: t_connected, kind: HeapLogKind::SendAck { conn: initiator } },
+        graph_wake(9, t_connected, 1, GraphWakeReason::Runnable),
         HeapLogEntry {
-            sequence: 4,
+            sequence: 5,
             time_nanos: t_accepted,
             kind: HeapLogKind::Accepted {
                 listener: listener_addr,
@@ -176,15 +183,15 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
                 initiator_addr: initiator_sock,
             },
         },
-        graph_wake(9, t_accepted, 0, GraphWakeReason::Runnable),
+        graph_wake(10, t_accepted, 0, GraphWakeReason::Runnable),
         HeapLogEntry {
-            sequence: 7,
+            sequence: 8,
             time_nanos: t_deliver,
             kind: HeapLogKind::Deliver { conn: responder, data_len: 12 },
         },
     ];
     if t_deliver > t_accepted {
-        expected_log.push(graph_wake(10, t_deliver, 0, GraphWakeReason::Runnable));
+        expected_log.push(graph_wake(11, t_deliver, 0, GraphWakeReason::Runnable));
     }
     assert_heap_log(world.take_heap_log(), expected_log);
 
@@ -196,10 +203,11 @@ async fn test_one_deliver_roundtrip_with_world_loop() {
         tm_input("node_b-1", &()),
         tm_resume_unit("node_a-1"),
         tm_effect("node_a-1", ListenEffect { addr: listener_addr }),
-        tm_resume_external("node_a-1", Ok::<SocketAddr, ListenError>(listener_addr)),
-        tm_effect("node_a-1", AcceptEffect { listener_addr }),
         tm_resume_unit("node_b-1"),
         tm_effect("node_b-1", ConnectEffect { peer: peer_addr(listener_addr), timeout: Duration::from_secs(1) }),
+        tm_clock(Duration::from_nanos(LISTEN_SAMPLE_NANOS)),
+        tm_resume_external("node_a-1", Ok::<SocketAddr, ListenError>(listener_addr)),
+        tm_effect("node_a-1", AcceptEffect { listener_addr }),
         tm_clock(Duration::from_nanos(t_connected)),
         tm_resume_external("node_b-1", Ok::<ConnectionId, ConnectError>(initiator)),
         tm_effect("node_b-1", SendEffect { conn: initiator, data: msg.clone(), timeout: None }),
@@ -394,6 +402,7 @@ async fn test_listen_before_connect_attempt_arrives() {
         tm_effect("node_b-1", ConnectEffect { peer: peer_addr(listener_addr), timeout: Duration::from_secs(1) }),
         tm_resume_unit("node_a-1"),
         tm_effect("node_a-1", ListenEffect { addr: listener_addr }),
+        tm_clock(Duration::from_nanos(LISTEN_SAMPLE_NANOS)),
         tm_resume_external("node_a-1", Ok::<SocketAddr, ListenError>(listener_addr)),
         tm_effect("node_a-1", AcceptEffect { listener_addr }),
         tm_clock(Duration::from_nanos(t_attempt)),
@@ -479,31 +488,34 @@ async fn test_send_before_accept_delivers() {
     let d_connected = wire_delay_nanos(SEED, 0);
     let d_deliver = wire_delay_nanos(SEED, 1);
     let d_accepted = wire_delay_nanos(SEED, 2);
+    // The 10 ms pause is armed when listen completes, so it sits on top of the listen sample.
+    let wait_at = LISTEN_SAMPLE_NANOS + 10_000_000;
     assert_heap_log(
         world.take_heap_log(),
         vec![
             graph_wake(0, 0, 0, GraphWakeReason::Runnable),
             graph_wake(1, 0, 1, GraphWakeReason::Runnable),
-            graph_wake(2, 10_000_000, 0, GraphWakeReason::Sleeping),
+            graph_wake(2, LISTEN_SAMPLE_NANOS, 0, GraphWakeReason::Sleeping),
             HeapLogEntry {
                 sequence: 3,
                 time_nanos: d_connected,
                 kind: HeapLogKind::ConnectAttempt { target: listener_addr },
             },
-            graph_wake(5, d_connected, 1, GraphWakeReason::Runnable),
-            HeapLogEntry { sequence: 6, time_nanos: d_connected, kind: HeapLogKind::SendAck { conn: initiator } },
-            graph_wake(8, d_connected, 1, GraphWakeReason::Runnable),
+            graph_wake(6, d_connected, 1, GraphWakeReason::Runnable),
+            HeapLogEntry { sequence: 7, time_nanos: d_connected, kind: HeapLogKind::SendAck { conn: initiator } },
+            graph_wake(9, d_connected, 1, GraphWakeReason::Runnable),
             HeapLogEntry {
-                sequence: 7,
+                sequence: 8,
                 time_nanos: d_connected + d_deliver,
                 kind: HeapLogKind::Deliver { conn: responder, data_len: 4 },
             },
+            graph_wake(5, wait_at, 0, GraphWakeReason::Sleeping),
             HeapLogEntry {
-                sequence: 9,
-                time_nanos: 10_000_000 + d_accepted,
+                sequence: 10,
+                time_nanos: wait_at + d_accepted,
                 kind: HeapLogKind::Accepted { listener: listener_addr, responder_conn: responder, initiator_addr },
             },
-            graph_wake(10, 10_000_000 + d_accepted, 0, GraphWakeReason::Runnable),
+            graph_wake(11, wait_at + d_accepted, 0, GraphWakeReason::Runnable),
         ],
     );
 }

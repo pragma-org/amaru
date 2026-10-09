@@ -96,12 +96,13 @@ pub fn setup(
     setup_msgs(prep, [msg])
 }
 
-/// Drive `msg` until the stage next sleeps on a timer, without firing that timer.
+/// Drive `msg` through sampled effect durations until the stage sleeps on its own
+/// timer, without firing that timer.
 pub fn setup_until_sleeping(
     prep: &TestPrep,
     msg: ForgeBlockMsg,
 ) -> (SimulationRunning, DeserializerGuards, Logs, StageStateRef<ForgeBlockMsg, ForgeBlock>) {
-    setup_with(prep, [msg], SimulationRunMode::UntilSleeping)
+    setup_with(prep, [msg], SimulationRunMode::UntilStageTimer)
 }
 
 pub fn setup_msgs(

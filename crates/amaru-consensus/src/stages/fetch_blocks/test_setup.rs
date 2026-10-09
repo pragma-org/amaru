@@ -255,10 +255,6 @@ pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) ->
     TraceEntry::suspend(Effect::CancelSchedule { at_stage: Name::from(at_stage.as_ref()), id: schedule_id })
 }
 
-pub fn te_clock(instant: Instant) -> TraceEntry {
-    TraceEntry::Clock(instant)
-}
-
 pub fn te_record_blocks_requested(at_stage: &str, hashes: Vec<HeaderHash>, requested_at: Instant) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,

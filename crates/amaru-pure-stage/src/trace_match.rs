@@ -25,7 +25,7 @@
 use std::{fmt, time::Duration};
 
 use crate::{
-    EPOCH, Effect, ExternalEffect, Name, SendData, StageResponse, TrySend, serde::SendDataValue,
+    EPOCH, Effect, ExternalEffect, Instant, Name, SendData, StageResponse, TrySend, serde::SendDataValue,
     simulation::SimulationRunning, trace_buffer::TraceEntry,
 };
 
@@ -558,15 +558,43 @@ pub fn assert_trace_match(running: &SimulationRunning, expected: &[TraceMatch<'_
     assert_trace_match_filter(running, expected, &[tm_resume()]);
 }
 
+fn any_clock() -> TraceMatch<'static> {
+    TraceMatch::Property(Box::new(|src| matches!(src.entry(), Some(TraceEntry::Clock(_)))), "Clock(_)".to_string())
+}
+
+fn is_literal_clock(matcher: &TraceMatch<'_>) -> bool {
+    matches!(matcher, TraceMatch::Literal(TraceEntry::Clock(_)))
+}
+
+/// Like [`assert_trace_match`], ignoring simulated time.
+///
+/// Drops `Resume` entries and [`TraceEntry::Clock`] advances (including clock
+/// literals left in `expected`). [`Instant`] values inside the remaining entries
+/// compare equal at any distance, so a sampled effect duration cannot fail a
+/// test that does not assert time. Tests that check a specific instant keep
+/// using [`assert_trace_match`].
+#[track_caller]
+pub fn assert_trace_no_clock(running: &SimulationRunning, expected: &[TraceMatch<'_>]) {
+    let _tolerance = Instant::with_tolerance_for_test(Duration::MAX);
+    let actual = collect_trace_filter(running, &[tm_resume(), any_clock()]);
+    let actual = actual.iter().collect::<Vec<_>>();
+    let expected = expected.iter().filter(|matcher| !is_literal_clock(matcher)).collect::<Vec<_>>();
+    pretty_assertions::assert_eq!(actual, expected);
+}
+
 /// Asserts that the filtered trace contains the given sequence of
 /// [`TraceMatch`] values **in order**, but not necessarily consecutively
 /// (i.e. it is a subsequence match).
 ///
 /// Non-matching entries in the actual trace are skipped when looking for the
-/// next expected matcher.
+/// next expected matcher. [`Instant`] values inside the remaining entries
+/// compare equal at any distance, so a sampled effect duration cannot fail a
+/// subsequence whose subject is not a specific time. [`TraceEntry::Clock`]
+/// advances stay exact: a clock literal still requires that sim-elapsed time.
 #[track_caller]
 #[expect(clippy::panic)]
 pub fn assert_trace_contains(running: &SimulationRunning, expected: &[TraceMatch<'_>]) {
+    let _tolerance = Instant::with_tolerance_for_test(Duration::MAX);
     let trace = collect_trace_filter(running, &[tm_resume()]);
     let mut i = 0usize;
 
@@ -591,9 +619,13 @@ pub fn assert_trace_contains(running: &SimulationRunning, expected: &[TraceMatch
 
 /// Asserts that none of the provided [`TraceMatch`] values appear anywhere
 /// in the filtered trace.
+///
+/// [`Instant`] values compare equal at any distance, matching
+/// [`assert_trace_contains`]. [`TraceEntry::Clock`] advances stay exact.
 #[track_caller]
 #[expect(clippy::panic)]
 pub fn assert_trace_does_not_contain(running: &SimulationRunning, forbidden: &[TraceMatch<'_>]) {
+    let _tolerance = Instant::with_tolerance_for_test(Duration::MAX);
     let trace = collect_trace_filter(running, &[tm_resume()]);
 
     for entry in &trace {
@@ -634,5 +666,19 @@ mod tests {
         assert_ne!(tm_try_send_match("mgr", "conn-a", |_: &u8| true), full);
         assert_ne!(tm_resume_try_send("mgr", TrySend::Full), effect);
         assert_eq!(tm_resume_try_send("mgr", TrySend::Queued), queued);
+    }
+
+    #[test]
+    fn clock_entries_stay_exact_when_instants_are_tolerant() {
+        let _tolerance = Instant::with_tolerance_for_test(Duration::MAX);
+        let earlier = TraceEntry::clock(Instant::at_offset(Duration::from_secs(1), Duration::ZERO));
+        let later = TraceEntry::clock(Instant::at_offset(Duration::from_secs(2), Duration::ZERO));
+        assert_ne!(earlier, later);
+        assert_eq!(earlier, TraceEntry::clock(Instant::at_offset(Duration::from_secs(1), Duration::ZERO)));
+        // The same tolerance still equates instants carried inside other entries.
+        assert_eq!(
+            Instant::at_offset(Duration::from_secs(1), Duration::ZERO),
+            Instant::at_offset(Duration::from_secs(2), Duration::ZERO)
+        );
     }
 }

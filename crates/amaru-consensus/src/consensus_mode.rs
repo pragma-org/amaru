@@ -128,6 +128,8 @@ pub struct UpdateConsensusModeEffect {
 
 impl ExternalEffectAPI for UpdateConsensusModeEffect {
     type Response = ConsensusMode;
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::consensus_mode__UpdateConsensusModeEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let mode = {

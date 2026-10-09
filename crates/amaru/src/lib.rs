@@ -22,6 +22,7 @@ pub mod lifecycle;
 pub mod metrics;
 pub mod observability;
 pub mod panic;
+pub mod trace_output;
 pub mod version;
 
 // Re-export bootstrap for CLI and legacy callers; new code should depend on `amaru-bootstrap`.

@@ -171,6 +171,8 @@ impl ValidateBlockEffect {
 
 impl ExternalEffectAPI for ValidateBlockEffect {
     type Response = Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::effects__ledger_effects__ValidateBlockEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -221,6 +223,8 @@ impl ValidateHeaderEffect {
 
 impl ExternalEffectAPI for ValidateHeaderEffect {
     type Response = Result<Nonces, ValidateHeaderError>;
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::effects__ledger_effects__ValidateHeaderEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -274,6 +278,8 @@ impl SwitchToForkEffect {
 
 impl ExternalEffectAPI for SwitchToForkEffect {
     type Response = Result<ForkSwitchOutcome, BlockValidationError>;
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::effects__ledger_effects__SwitchToForkEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -338,6 +344,8 @@ pub struct VolatileTipEffect;
 
 impl ExternalEffectAPI for VolatileTipEffect {
     type Response = Point;
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::effects__ledger_effects__VolatileTipEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -359,6 +367,8 @@ pub struct RegisteredRelayCandidatesEffect;
 
 impl ExternalEffectAPI for RegisteredRelayCandidatesEffect {
     type Response = Result<BTreeSet<PeerCandidate>, BlockValidationError>;
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::effects__ledger_effects__RegisteredRelayCandidatesEffect;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {

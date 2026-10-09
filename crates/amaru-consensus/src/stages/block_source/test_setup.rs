@@ -21,6 +21,7 @@ use amaru_pure_stage::{
 use tokio::runtime::Runtime;
 
 use super::{BlockSource, BlockSourceMsg, stage};
+pub use crate::stages::test_utils::assert_trace_no_clock;
 use crate::stages::{
     peer_selection::PeerSelectionMsg,
     test_utils::{BufferWriter, Logs, install_test_log_capture, start_in_era},
@@ -69,15 +70,4 @@ pub fn setup(prep: &TestPrep, msgs: &[BlockSourceMsg]) -> (SimulationRunning, De
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {
     TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
-}
-
-#[track_caller]
-pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
-    let mut tb = running.trace_buffer().lock();
-    let trace = tb
-        .iter_entries()
-        .filter_map(|(_, e)| (!matches!(e, TraceEntry::Resume { .. })).then_some(e))
-        .collect::<Vec<_>>();
-    tb.clear();
-    pretty_assertions::assert_eq!(trace, expected);
 }
