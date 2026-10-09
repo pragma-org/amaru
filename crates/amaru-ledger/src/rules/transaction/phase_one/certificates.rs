@@ -89,7 +89,7 @@ pub(crate) fn execute<C>(
     certificates: Option<NonEmptySet<Certificate>>,
 ) -> Result<(), InvalidCertificates>
 where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
+    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + BalanceSlice,
 {
     certificates.map(Vec::from).unwrap_or_default().into_iter().enumerate().try_for_each(
         |(certificate_index, certificate)| {
@@ -131,6 +131,65 @@ pub(crate) fn count_lovelace<C>(
     }
 }
 
+/// Register the witnesses the certificates demand.
+pub(crate) fn require_witnesses<C>(context: &mut C, certificates: &[Certificate])
+where
+    C: WitnessSlice,
+{
+    for (certificate_index, certificate) in certificates.iter().enumerate() {
+        require_witnesses_one(context, certificate, certificate_index);
+    }
+}
+
+fn require_witnesses_one<C>(context: &mut C, certificate: &Certificate, certificate_index: usize)
+where
+    C: WitnessSlice,
+{
+    match certificate {
+        Certificate::PoolRegistration(params) => {
+            context.require_verification_key_witness(params.id);
+
+            // https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/UTxO.hs#L250-L256
+            // The Haskell node requires both the owners and the operators, which may be the same pkh.
+            // TODO: We need coverage for this branch, we have none in either conformance tests or unit tests.
+            for owner in params.owners.iter() {
+                context.require_verification_key_witness(*owner);
+            }
+        }
+
+        Certificate::PoolRetirement(id, _) => context.require_verification_key_witness(*id),
+
+        Certificate::StakeRegistration(_) => {}
+
+        // The "old behavior of not requiring a witness for staking credential registration" is mantained:
+        // - Only during the "transitional period of Conway"
+        // - Only for staking credential registration certificates without a deposit
+        //
+        // See https://github.com/IntersectMBO/cardano-ledger/blob/81637a1c2250225fef47399dd56f80d87384df32/eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs#L698
+        Certificate::Reg(credential, deposit) => {
+            if *deposit > 0 {
+                require_credential_witness(context, *credential, certificate_index);
+            }
+        }
+
+        Certificate::StakeDeregistration(credential)
+        | Certificate::UnReg(credential, _)
+        | Certificate::StakeDelegation(credential, _)
+        | Certificate::RegDRepCert(credential, ..)
+        | Certificate::UnRegDRepCert(credential, _)
+        | Certificate::UpdateDRepCert(credential, _)
+        | Certificate::VoteDeleg(credential, _)
+        | Certificate::AuthCommitteeHot(credential, _)
+        | Certificate::ResignCommitteeCold(credential, _)
+        | Certificate::StakeVoteDeleg(credential, ..)
+        | Certificate::StakeRegDeleg(credential, ..)
+        | Certificate::StakeVoteRegDeleg(credential, ..)
+        | Certificate::VoteRegDeleg(credential, ..) => {
+            require_credential_witness(context, *credential, certificate_index)
+        }
+    }
+}
+
 fn require_credential_witness<C>(context: &mut C, credential: Credential, certificate_index: usize)
 where
     C: WitnessSlice,
@@ -157,20 +216,11 @@ fn execute_one<C>(
     certificate: Certificate,
 ) -> Result<(), InvalidCertificates>
 where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice + BalanceSlice,
+    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + BalanceSlice,
 {
     match certificate {
         Certificate::PoolRegistration(params) => {
             let params = *params;
-
-            context.require_verification_key_witness(params.id);
-
-            // https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/UTxO.hs#L250-L256
-            // The Haskell node requires both the owners and the operators, which may be the same pkh.
-            // TODO: We need coverage for this branch, we have none in either conformance tests or unit tests.
-            for owner in params.owners.iter() {
-                context.require_verification_key_witness(*owner);
-            }
 
             let reward_account_network = params.reward_account.network();
 
@@ -201,8 +251,6 @@ where
         }
 
         Certificate::PoolRetirement(id, retirement_epoch) => {
-            context.require_verification_key_witness(id);
-
             // NOTE: Some conformance tests fail this check because the Haskell imp tests run on
             // a synthetic test chain whose epoch/slot mapping differs from our era_history. Our
             // slot_to_epoch computes a different current epoch, making the range check reject
@@ -240,15 +288,6 @@ where
         }
 
         Certificate::Reg(credential, deposit) => {
-            // The "old behavior of not requiring a witness for staking credential registration" is mantained:
-            // - Only during the "transitional period of Conway"
-            // - Only for staking credential registration certificates without a deposit
-            //
-            // See https://github.com/IntersectMBO/cardano-ledger/blob/81637a1c2250225fef47399dd56f80d87384df32/eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs#L698
-            if deposit > 0 {
-                require_credential_witness(context, credential, pointer.certificate_index);
-            }
-
             let expected = protocol_parameters.stake_credential_deposit;
             if deposit != expected {
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: deposit, expected });
@@ -261,8 +300,6 @@ where
         }
 
         Certificate::StakeDeregistration(credential) => {
-            require_credential_witness(context, credential, pointer.certificate_index);
-
             let account = AccountsSlice::lookup(context, &credential)
                 .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
@@ -277,8 +314,6 @@ where
         }
 
         Certificate::UnReg(credential, refund) => {
-            require_credential_witness(context, credential, pointer.certificate_index);
-
             let account = AccountsSlice::lookup(context, &credential)
                 .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
@@ -297,16 +332,12 @@ where
         }
 
         Certificate::StakeDelegation(credential, pool) => {
-            require_credential_witness(context, credential, pointer.certificate_index);
-
             context.delegate_pool(credential, pool, pointer)?;
 
             Ok(())
         }
 
         Certificate::RegDRepCert(drep, deposit, anchor) => {
-            require_credential_witness(context, drep, pointer.certificate_index);
-
             let expected = protocol_parameters.drep_deposit;
             if deposit != expected {
                 return Err(InvalidCertificates::IncorrectDRepDeposit { provided: deposit, expected });
@@ -329,8 +360,6 @@ where
         }
 
         Certificate::UnRegDRepCert(drep, refund) => {
-            require_credential_witness(context, drep, pointer.certificate_index);
-
             let deposit = match DRepsSlice::lookup(context, &drep) {
                 Some(registration) => registration.deposit,
                 None => return Err(InvalidCertificates::DRepNotRegistered(drep)),
@@ -347,29 +376,23 @@ where
         }
 
         Certificate::UpdateDRepCert(drep, anchor) => {
-            require_credential_witness(context, drep, pointer.certificate_index);
-
             DRepsSlice::update(context, drep, anchor)?;
 
             Ok(())
         }
 
         Certificate::VoteDeleg(credential, drep) => {
-            require_credential_witness(context, credential, pointer.certificate_index);
-
             AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
 
             Ok(())
         }
 
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
-            require_credential_witness(context, cold_credential, pointer.certificate_index);
             CommitteeSlice::delegate_cold_key(context, cold_credential, hot_credential)?;
             Ok(())
         }
 
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
-            require_credential_witness(context, cold_credential, pointer.certificate_index);
             CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())
         }
