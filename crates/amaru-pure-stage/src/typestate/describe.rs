@@ -39,6 +39,10 @@ pub const fn remainder_ctfe_panic<Rem: ConstDesc>() -> usize {
     panic!("{}", Rem::TEXT);
 }
 
+/// [`remainder_ctfe_panic`] as a const argument.
+#[doc(hidden)]
+pub(crate) const REVEAL<Rem: ConstDesc>: usize = remainder_ctfe_panic::<Rem>();
+
 /// ZST whose const parameter is the pretty remainder. Hover a binding of this
 /// type (or ascribe a guess) to read the session at that point.
 pub struct Remainder<const TEXT: &'static str>;
