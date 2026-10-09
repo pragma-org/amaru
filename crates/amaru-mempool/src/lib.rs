@@ -15,6 +15,7 @@
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
+pub mod inspection;
 pub mod strategies;
 
 pub use strategies::*;

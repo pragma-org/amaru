@@ -33,7 +33,7 @@ use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNA
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
 use amaru_node::{
-    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
+    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS, MempoolSubmitter,
     peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
     stages::{
         build_node::build_and_run_node,
@@ -41,9 +41,8 @@ use amaru_node::{
     },
 };
 use amaru_observability::{error, info, info_record, info_span, warn};
-use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
-use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
+use amaru_pure_stage::trace_buffer::TraceBuffer;
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_tui as tui;
 use anyhow::{Context, anyhow};
@@ -479,7 +478,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     }
 
     let exit = shutdown.token();
-    let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
+    let submit_api_handle = match start_submit_api(submit_api_address, running.mempool().submitter(), &exit).await {
         Ok(handle) => handle,
         Err(err) => {
             let trace_buffer = running.trace_buffer().clone();
@@ -546,14 +545,14 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
 /// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
 async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
-    mempool_sender: Sender<MempoolMsg>,
+    submitter: MempoolSubmitter,
     exit: &CancellationToken,
 ) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
     let Some(addr) = address else {
         return Ok(None);
     };
     let shutdown = exit.child_token();
-    let (handle, _) = amaru_node::submit_api::start(addr, mempool_sender, shutdown).await?;
+    let (handle, _) = amaru_node::submit_api::start(addr, submitter, shutdown).await?;
     Ok(Some(handle))
 }
 

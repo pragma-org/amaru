@@ -34,11 +34,25 @@ Other guiding principles:
   - **amaru-ouroboros**: properly wipe KES key material in unused method `SecretKey::from_bytes` ([#881](https://github.com/pragma-org/amaru/issues/881))
   ```
 -->
+## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
+
+### Added
+
+- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection. Duplicate offers preserve admission time; removal followed by reinsertion records a new time.
+
+### Fixed
+
+- **amaru-node**: embedded submission distinguishes a deadline reached before queue admission from a timeout with an unknown insertion outcome. HTTP reports the admission failure with status 503 and a distinct message.
+- **amaru-node**: HTTP transaction submission returns status 503 when the node is closing or stopped, so clients can retry during restarts.
+- **amaru-node**: embedded and HTTP transaction submission reject CBOR inputs larger than 64 KiB before decoding. HTTP callers receive status 413; ledger transaction-size limits still apply to smaller inputs.
+
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
 ### Added
 
 - **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
+
+- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots, and receive membership updates with explicit loss detection.
 
 - **amaru-pure-stage**: a stage can try to send without waiting (`Queued`, `Full`, or `Gone`), and each stage can set its own mailbox size. The default stays 10. A call reports `NotAdmitted` when the deadline fired before the request was queued, and `TimedOut` when the request was queued and no reply came before the deadline.
 

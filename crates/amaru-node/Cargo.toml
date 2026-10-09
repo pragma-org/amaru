@@ -31,6 +31,7 @@ ureq.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 futures-util.workspace = true
+getrandom.workspace = true
 hex.workspace = true
 minicbor.workspace = true
 num.workspace = true

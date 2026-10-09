@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -512,7 +512,7 @@ fn mk_sender<Msg: SendData>(stage: &StageRef<Msg>, inner: &TokioInner) -> Sender
     }
     let transform = peeled.transform;
     let target = peeled.name;
-    Sender::new(Arc::new(move |msg: Msg| {
+    Sender::new_cancel_safe(Arc::new(move |msg: Msg| {
         let tx = tx.clone();
         let transform = transform.clone();
         let target = target.clone();
