@@ -14,7 +14,7 @@
 
 use std::{array::TryFromSliceError, fs, mem::ManuallyDrop, ops::Deref, path::Path};
 
-use amaru_kernel::{KesEvolution, cbor};
+use amaru_kernel::{KesEvolution, cardano::text_envelope::ToTextEnvelope, cbor};
 use kes_summed_ed25519::{
     self as kes,
     kes::{Sum6Kes, Sum6KesSig},
@@ -39,6 +39,19 @@ impl SecretKey {
 
     /// `type` field of the cardano-cli envelope that wraps a KES signing key.
     pub(crate) const ENVELOPE_TYPE: &str = "KesSigningKey_ed25519_kes_2^6";
+
+    /// Generate a period-zero Sum6 KES key pair from operating-system randomness.
+    pub fn generate() -> Result<(Self, PublicKey), getrandom::Error> {
+        let mut seed = Zeroizing::new([0u8; 32]);
+        getrandom::fill(&mut *seed)?;
+        let mut bytes = Zeroizing::new(vec![0u8; Self::SIZE + 4].into_boxed_slice());
+        let public = {
+            let (secret, public) = Sum6Kes::keygen(&mut bytes, &mut seed[..]);
+            let _secret = ManuallyDrop::new(secret);
+            public
+        };
+        Ok((Self { bytes }, PublicKey(public)))
+    }
 
     /// Take ownership of raw key bytes at period 0.
     pub fn from_bytes(sk_bytes: Vec<u8>) -> Result<Self, KesError> {
@@ -139,6 +152,25 @@ impl<'de> Deserialize<'de> for SecretKey {
     }
 }
 
+/// Only period-zero keys can be written in cardano-cli's signing-key format.
+impl ToTextEnvelope for SecretKey {
+    type Buffer = Zeroizing<Vec<u8>>;
+
+    const TYPE: &'static str = Self::ENVELOPE_TYPE;
+    const DESCRIPTION: &'static str = "KES Signing Key";
+
+    fn encode_cbor<W: cbor::encode::Write>(
+        &self,
+        encoder: &mut cbor::Encoder<W>,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        if self.bytes[Self::SIZE..] != [0u8; 4] {
+            return Err(cbor::encode::Error::message("only period-zero KES keys can be exported"));
+        }
+        encoder.bytes(&self.bytes[..Self::SIZE])?;
+        Ok(())
+    }
+}
+
 // ------------------------------------------------------------------- PublicKey
 
 /// KES public key
@@ -190,6 +222,21 @@ impl TryFrom<&[u8]> for PublicKey {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self::from(<&[u8; Self::SIZE]>::try_from(bytes)?))
+    }
+}
+
+impl ToTextEnvelope for PublicKey {
+    type Buffer = Vec<u8>;
+
+    const TYPE: &'static str = "KesVerificationKey_ed25519_kes_2^6";
+    const DESCRIPTION: &'static str = "KES Verification Key";
+
+    fn encode_cbor<W: cbor::encode::Write>(
+        &self,
+        encoder: &mut cbor::Encoder<W>,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        encoder.bytes(self.as_ref())?;
+        Ok(())
     }
 }
 
@@ -283,6 +330,7 @@ pub enum KesError {
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::cardano::text_envelope;
     use test_case::test_case;
 
     use super::*;
@@ -371,6 +419,33 @@ mod tests {
     fn from_file_reports_missing_file() {
         let err = SecretKey::from_file("/nonexistent/kes.skey").map(|_| ()).unwrap_err();
         assert!(matches!(err, KesError::Io(_)), "{err}");
+    }
+
+    #[test]
+    fn written_envelope_reads_back() {
+        let mut written = Vec::new();
+        text_envelope::write(&SecretKey::for_tests(), &mut written).unwrap();
+        let mut kes_sk: SecretKey = serde_json::from_slice(&written).unwrap();
+        assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
+    }
+
+    #[test]
+    fn refuses_to_export_an_evolved_key() {
+        let mut key = SecretKey::for_tests();
+        key.update().unwrap();
+        let mut written = Vec::new();
+        let error = text_envelope::write(&key, &mut written).unwrap_err();
+        assert!(matches!(error, text_envelope::TextEnvelopeError::Encode(_)));
+        assert!(written.is_empty());
+    }
+
+    #[test]
+    fn verification_key_envelope_matches_cardano_cli() {
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/forging");
+        let mut kes_sk: SecretKey = SecretKey::from_file(fixtures.join("kes.skey")).unwrap();
+        let mut written = Vec::new();
+        text_envelope::write(&PublicKey::from(&mut kes_sk), &mut written).unwrap();
+        assert_eq!(written, std::fs::read(fixtures.join("kes.vkey")).unwrap());
     }
 
     #[test_case(&envelope("KesVerificationKey_ed25519_kes_2^6", &format!("590260{KES_SK_HEX}")), "unexpected KES key envelope type"; "wrong type")]
