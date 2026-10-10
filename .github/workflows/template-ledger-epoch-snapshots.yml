@@ -29,14 +29,14 @@ jobs:
         network: [preprod, preview]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network }}
+      AMARU_PEERS_MAX_UPSTREAM: 1
+      AMARU_WITH_OPEN_TELEMETRY: "true"
       START_EPOCH: ${{ matrix.network == 'preprod' && '270' || '1119' }}
       TARGET_EPOCH: ${{ matrix.network == 'preprod' && '275' || '1145' }}
-      AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       TRACE_CONTRACT: data/${{ matrix.network }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
-      AMARU_WITH_OPEN_TELEMETRY: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
       OTEL_METRIC_EXPORT_INTERVAL: 1000
       RUST_BACKTRACE: 1

@@ -7,14 +7,14 @@ services:
       cardano:
         condition: service_healthy
     environment:
+      - AMARU_DB_CHAIN
+      - AMARU_DB_LEDGER
       - AMARU_NETWORK
-      - AMARU_LEDGER_DIR
+      - AMARU_PEER=cardano:3001
       - CONFIG_FOLDER
-      - AMARU_CHAIN_DIR
-      - AMARU_PEER_ADDRESS=cardano:3001
     volumes:
       - amaru_data:/srv/amaru
-  
+
   amaru_2:
     build:
       context: ../..
@@ -25,11 +25,11 @@ services:
       amaru:
         condition: service_started
     environment:
+      - AMARU_DB_CHAIN
+      - AMARU_DB_LEDGER
       - AMARU_NETWORK
-      - AMARU_LEDGER_DIR
+      - AMARU_PEER=amaru:3000
       - CONFIG_FOLDER
-      - AMARU_CHAIN_DIR
-      - AMARU_PEER_ADDRESS=amaru:3000
     volumes:
       - amaru_2_data:/srv/amaru
 

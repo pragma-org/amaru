@@ -61,14 +61,14 @@ bootstrap_amaru_databases() {
   rm -f "$(bootstrap_marker_file)"
   # The snapshot download cache lands in snapshots/<network> relative to the working
   # directory, so run the bootstrap from inside $AMARU_BOOTSTRAP_DIR. The explicit
-  # --chain-dir/--ledger-dir arguments shield the bootstrap from any AMARU_CHAIN_DIR or
-  # AMARU_LEDGER_DIR exported in the caller's environment.
+  # --db-chain/--db-ledger arguments shield the bootstrap from any AMARU_DB_CHAIN or
+  # AMARU_DB_LEDGER exported in the caller's environment.
   (
     cd "$AMARU_BOOTSTRAP_DIR" &&
       "$(amaru_node_binary)" node bootstrap \
         --network "$NETWORK" \
-        --chain-dir "$AMARU_CHAIN_SOURCE_DIR" \
-        --ledger-dir "$AMARU_LEDGER_SOURCE_DIR" \
+        --db-chain "$AMARU_CHAIN_SOURCE_DIR" \
+        --db-ledger "$AMARU_LEDGER_SOURCE_DIR" \
         ${AMARU_BOOTSTRAP_EPOCH:+--epoch "$AMARU_BOOTSTRAP_EPOCH"}
   ) 2>&1 | tee "$AMARU_BOOTSTRAP_LOG_FILE"
   jq -n \

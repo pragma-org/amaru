@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 use amaru::{
-    aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config},
+    aws::{S3Client, S3Config},
     bootstrap::validate_publishable_snapshot_archive,
     lifecycle::{Runnable, RuntimeKind},
 };
@@ -32,13 +32,8 @@ const AWS_SECRET_ACCESS_KEY_ENV: &str = "AWS_SECRET_ACCESS_KEY";
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The target network.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 
     /// Directory containing the local snapshot archives to publish.
     ///
@@ -46,45 +41,13 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::SNAPSHOTS_DIR,
+        env = amaru::env_vars::SNAPSHOTS,
+        alias = "snapshot-dir"
     )]
-    snapshot_dir: Option<PathBuf>,
+    snapshots: Option<PathBuf>,
 
-    /// S3-compatible bucket name.
-    #[arg(
-        long,
-        value_name = amaru::value_names::BUCKET_NAME,
-        env = "AMARU_S3_BUCKET",
-        default_value = DEFAULT_BUCKET,
-    )]
-    s3_bucket: String,
-
-    /// S3-compatible endpoint URL.
-    #[arg(
-        long,
-        value_name = amaru::value_names::URL,
-        env = "AMARU_S3_ENDPOINT",
-        default_value = DEFAULT_ENDPOINT,
-    )]
-    s3_endpoint: String,
-
-    /// S3-compatible region.
-    #[arg(
-        long,
-        value_name = amaru::value_names::S3_REGION,
-        env = "AMARU_S3_REGION",
-        default_value = DEFAULT_REGION,
-    )]
-    s3_region: String,
-
-    /// Public base URL at which uploaded objects are reachable.
-    #[arg(
-        long,
-        value_name = amaru::value_names::URL,
-        env = "AMARU_S3_PUBLIC_URL",
-        default_value = DEFAULT_PUBLIC_URL,
-    )]
-    s3_public_url: String,
+    #[command(flatten)]
+    s3: amaru::args::S3,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -92,17 +55,18 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { network, snapshot_dir, s3_bucket, s3_endpoint, s3_region, s3_public_url } = args;
+    let Args { network, snapshots, s3 } = args;
+    let network = NetworkName::from(network);
 
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
     let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;
 
-    let snapshot_root = match snapshot_dir {
+    let snapshot_root = match snapshots {
         Some(path) => path,
         None => default_snapshot_output_dir(network)?,
     };
 
-    let s3_config = S3Config { bucket: s3_bucket, endpoint: s3_endpoint, region: s3_region, public_url: s3_public_url };
+    let s3_config = S3Config { bucket: s3.bucket, endpoint: s3.endpoint, region: s3.region, public_url: s3.public_url };
     let s3 = S3Client::new_with_credentials(s3_config, &aws_access_key_id, &aws_secret_access_key);
 
     // Collect all .tar.zst archives present locally (if the directory exists).

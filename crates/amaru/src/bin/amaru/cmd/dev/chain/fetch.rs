@@ -20,7 +20,7 @@ use std::{
 };
 
 use amaru::{
-    DEFAULT_PEER_ADDRESS,
+    DEFAULT_LOCAL_PEER_ADDRESS,
     bootstrap::{BOOTSTRAP_HEADERS_PER_POINT, fetch_headers_from_points},
     lifecycle::{Runnable, RuntimeKind},
 };
@@ -35,18 +35,14 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::HEADERS_DIR,
+        env = amaru::env_vars::HEADERS,
         default_value = ".",
+        alias = "headers-dir",
     )]
-    headers_dir: PathBuf,
+    headers: PathBuf,
 
-    /// Network to fetch chain headers from.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 
     /// Parent point of the header to fetch.
     ///
@@ -73,10 +69,11 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::ENDPOINT,
-        env = amaru::env_vars::PEER_ADDRESS,
-        default_value = DEFAULT_PEER_ADDRESS,
+        env = amaru::env_vars::PEER,
+        default_value = DEFAULT_LOCAL_PEER_ADDRESS,
+        alias = "peer-address",
     )]
-    peer_address: String,
+    peer: String,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -84,15 +81,14 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let network = args.network;
+    let network = NetworkName::from(args.network);
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain fetch",
-        network = args.network,
-        headers_dir = args.headers_dir.to_string_lossy(),
+        cli::dev::chain::FETCH,
+        headers = args.headers.to_string_lossy(),
+        network,
         parent = args.parent.join(", "),
-        peer_address = &args.peer_address
+        peer = &args.peer
     );
 
     let points = args
@@ -101,7 +97,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .map(|point| NetworkPoint::try_from(point.as_str()).map_err(anyhow::Error::msg))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    fetch_headers_for_network(network, &args.headers_dir, &args.peer_address, &points).await?;
+    fetch_headers_for_network(network, &args.headers, &args.peer, &points).await?;
 
     Ok(())
 }

@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
-use amaru::{
-    default_chain_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::NetworkName;
 use amaru_observability::info;
 use amaru_ouroboros::WriteChainStore;
@@ -33,21 +28,11 @@ pub struct Args {
     )]
     blocks: Vec<PointOrHash>,
 
-    /// The path to the chain store database to remove the validation status from
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_chain: amaru::args::DbChain,
 
-    /// Network of the underlying chain database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -55,16 +40,17 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
+    let network = NetworkName::from(args.network);
+    let db_chain = args.db_chain.into_path_buf(network);
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain clear-invalid",
-        network = args.network,
-        chain_dir = chain_dir.to_string_lossy()
+        cli::dev::chain::CLEAR_INVALID,
+        blocks = args.blocks.iter().map(|block| block.0.to_string()).collect::<Vec<_>>().join(", "),
+        db_chain = db_chain.to_string_lossy(),
+        network,
     );
 
-    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
+    let chain_store = RocksDBStore::open(&RocksDbConfig::new(db_chain))?;
 
     for PointOrHash(hash) in args.blocks {
         info!(cli::dev::chain::VALIDATION_CLEARED, header_hash = hash);

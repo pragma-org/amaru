@@ -27,7 +27,7 @@ use std::{collections::BTreeMap, fmt, str::FromStr, time::Duration};
 use thiserror::Error;
 
 /// Default formula shipped with the node (static floor, then inbound / shared / snapshot / ledger).
-pub const DEFAULT_PEER_MIX: &str = "static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h";
+pub const DEFAULT_PEERS_MIX: &str = "static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h";
 
 /// Initial running half-life before any naked `@…` token (and fallback when none is set).
 pub const DEFAULT_MALUS_HALF_LIFE: Duration = Duration::from_secs(6 * 60 * 60);
@@ -98,7 +98,7 @@ pub struct PeerMix {
 
 impl Default for PeerMix {
     fn default() -> Self {
-        // Keep in sync with [`DEFAULT_PEER_MIX`].
+        // Keep in sync with [`DEFAULT_PEERS_MIX`].
         Self {
             entries: vec![
                 MixEntry { source: PeerSource::Static, floor: 2, weight: 1, half_life: Duration::from_secs(15 * 60) },
@@ -442,7 +442,7 @@ mod tests {
         assert_eq!(m.entries()[1].weight, 6);
         assert_eq!(m.entries()[2].weight, 6);
 
-        let def = PeerMix::parse(DEFAULT_PEER_MIX).unwrap();
+        let def = PeerMix::parse(DEFAULT_PEERS_MIX).unwrap();
         assert_eq!(m, def);
     }
 

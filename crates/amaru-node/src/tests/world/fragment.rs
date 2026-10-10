@@ -270,7 +270,6 @@ async fn run_until_target_epoch(primed: &Path, meta: &FragmentMeta, meter: Arc<M
     let running = NodeBuilder::new(NetworkName::Preprod)?
         .ledger_dir(primed.join("ledger"))
         .chain_dir(primed.join("chain"))
-        .no_default_peer()
         .target_upstream_peers(RUN_UNTIL_UPSTREAM_PEERS)
         .listen_ephemeral_localhost()
         .migrate_chain_db(true)

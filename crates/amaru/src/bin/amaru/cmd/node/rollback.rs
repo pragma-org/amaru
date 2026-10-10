@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
-use amaru::{
-    default_chain_dir, default_ledger_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{Epoch, NetworkName};
 use amaru_ledger::store::ReadStore;
 use amaru_node::{ClearValidity, realign_chain_store_to, reset_ledger_to_epoch};
@@ -44,33 +39,14 @@ pub struct Args {
     #[arg(long, value_name = amaru::value_names::UINT, env = amaru::env_vars::EPOCH)]
     epoch: Option<Epoch>,
 
-    /// Path of the chain on-disk storage.
-    ///
-    /// Defaults to ./chain.<NETWORK>.db when unspecified.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten)]
+    network: amaru::args::Network,
 
-    /// Path of the ledger on-disk storage.
-    ///
-    /// Defaults to ./ledger.<NETWORK>.db when unspecified.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-    )]
-    ledger_dir: Option<PathBuf>,
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_chain: amaru::args::DbChain,
 
-    /// Network whose node databases should be rolled back.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten, next_help_heading = "Storage options")]
+    db_ledger: amaru::args::DbLedger,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -79,43 +55,33 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 /// Full recovery to the start of `epoch`: ledger snapshot reset + chain realign.
 ///
-/// Used by `amaru node rollback --epoch` and the legacy `reset-to-epoch` alias.
-pub(crate) fn runnable_epoch(
-    network: NetworkName,
-    epoch: Epoch,
-    ledger_dir: Option<PathBuf>,
-    chain_dir: Option<PathBuf>,
-) -> Runnable {
-    runnable(Args { immutable_tip: false, epoch: Some(epoch), chain_dir, ledger_dir, network })
-}
-
 async fn run(args: Args) -> anyhow::Result<()> {
-    let network = args.network;
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
+    let network = NetworkName::from(args.network);
+    let db_chain = args.db_chain.into_path_buf(network);
+    let db_ledger = args.db_ledger.into_path_buf(network);
 
     let mode = if args.immutable_tip { "immutable_tip" } else { "epoch" };
 
     if let Some(epoch) = args.epoch {
-        reset_ledger_to_epoch(&ledger_dir, epoch)?;
+        reset_ledger_to_epoch(&db_ledger, epoch)?;
     }
 
-    let ledger = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.clone()))?;
+    let ledger = ReadOnlyRocksDB::new(&RocksDbConfig::new(db_ledger.clone()))?;
     let tip = ledger.tip()?;
 
-    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir.clone()))?;
+    let chain_store = RocksDBStore::open(&RocksDbConfig::new(db_chain.clone()))?;
     realign_chain_store_to(&chain_store, tip, ClearValidity::All)?;
 
     info!(
         cli::node::ROLLBACK,
-        chain_dir = chain_dir.display().to_string(),
-        ledger_dir = ledger_dir.display().to_string(),
-        network,
+        db_chain = db_chain.display().to_string(),
+        db_ledger = db_ledger.display().to_string(),
         mode,
+        network,
+        anchor = @Some(chain_store.get_anchor_hash().to_string()),
+        best_chain = @Some(chain_store.get_best_chain_hash().to_string()),
         epoch = @args.epoch.map(|e| e.as_u64()),
         ledger_tip = @Some(tip.to_string()),
-        best_chain = @Some(chain_store.get_best_chain_hash().to_string()),
-        anchor = @Some(chain_store.get_anchor_hash().to_string()),
     );
 
     Ok(())

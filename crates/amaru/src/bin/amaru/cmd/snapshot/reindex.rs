@@ -15,7 +15,7 @@
 use std::env;
 
 use amaru::{
-    aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config},
+    aws::{S3Client, S3Config},
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
@@ -28,40 +28,11 @@ const AWS_SECRET_ACCESS_KEY_ENV: &str = "AWS_SECRET_ACCESS_KEY";
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The target network.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 
-    /// S3-compatible bucket name.
-    #[arg(
-        long,
-        value_name = amaru::value_names::BUCKET_NAME,
-        env = "AMARU_S3_BUCKET",
-        default_value = DEFAULT_BUCKET,
-    )]
-    s3_bucket: String,
-
-    /// S3-compatible endpoint URL.
-    #[arg(
-        long,
-        value_name = amaru::value_names::URL,
-        env = "AMARU_S3_ENDPOINT",
-        default_value = DEFAULT_ENDPOINT,
-    )]
-    s3_endpoint: String,
-
-    /// S3-compatible region.
-    #[arg(
-        long,
-        value_name = amaru::value_names::S3_REGION,
-        env = "AMARU_S3_REGION",
-        default_value = DEFAULT_REGION,
-    )]
-    s3_region: String,
+    #[command(flatten)]
+    s3: amaru::args::S3,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -69,15 +40,11 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let Args { network, s3_bucket, s3_endpoint, s3_region } = args;
+    let Args { network, s3 } = args;
+    let network = NetworkName::from(network);
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
     let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;
-    let s3_config = S3Config {
-        bucket: s3_bucket,
-        endpoint: s3_endpoint,
-        region: s3_region,
-        public_url: DEFAULT_PUBLIC_URL.to_owned(),
-    };
+    let s3_config = S3Config { bucket: s3.bucket, endpoint: s3.endpoint, region: s3.region, public_url: s3.public_url };
     let s3 = S3Client::new_with_credentials(s3_config, aws_access_key_id, aws_secret_access_key);
     let snapshots = s3.list_snapshot_objects(network).await?;
     let points: Vec<&str> = snapshots.iter().map(|snapshot| snapshot.point.as_str()).collect();

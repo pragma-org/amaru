@@ -135,7 +135,7 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
     let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| TestPrep::peer(n)).collect();
     let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| TestPrep::peer(n)).collect();
     let peer_mix = crate::performance::PeerMix::default();
-    let state = PeerSelection::new(manager, 3, 10, COOLDOWN_SECS);
+    let state = PeerSelection::new(manager, 3, 10, cooldown_duration());
     TestPrep {
         state,
         rt: crate::stages::test_utils::test_runtime(),

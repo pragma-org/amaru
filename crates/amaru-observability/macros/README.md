@@ -212,7 +212,7 @@ Private schemas are not included in the runtime schema dump. They are emitted on
 set to a truthy value.
 
 ```bash
-AMARU_TRACE_EMIT_PRIVATE=1 AMARU_TRACE=amaru=trace ./target/release/amaru run
+AMARU_TRACE_EMIT_PRIVATE=1 AMARU_TRACE=amaru=trace ./target/release/amaru node run
 ```
 
 Accepted truthy values are any non-empty values except `0` and `false`.

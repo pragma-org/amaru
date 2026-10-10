@@ -45,7 +45,7 @@ pub enum ClearValidity {
 /// Headers and blocks are retained. When a best chain already exists, `tip` must lie on it;
 /// otherwise the store is left untouched and an error is returned.
 pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: ClearValidity) -> anyhow::Result<()> {
-    info!(consensus::chain_db::INITIALIZE, ledger_tip = tip);
+    info!(consensus::db_chain::INITIALIZE, ledger_tip = tip);
 
     let best_chain_hash = chain_store.get_best_chain_hash();
     let has_best_chain = best_chain_hash != ORIGIN_HASH;
@@ -60,7 +60,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
         chain_store.roll_forward_chain(&tip)?;
     }
 
-    info_record!(consensus::chain_db::INITIALIZE, best_chain_hash);
+    info_record!(consensus::db_chain::INITIALIZE, best_chain_hash);
     clear_validation_after_tip(chain_store, tip, clear)?;
     Ok(())
 }
@@ -84,7 +84,7 @@ fn clear_validation_after_tip(chain_store: &dyn ChainStore, tip: Point, clear: C
 
         to_visit.extend(chain_store.get_children(&hash));
     }
-    debug!(consensus::chain_db::CLEAR_VALID_DESCENDANTS, count);
+    debug!(consensus::db_chain::CLEAR_VALID_DESCENDANTS, count);
     Ok(())
 }
 

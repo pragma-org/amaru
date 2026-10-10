@@ -38,11 +38,11 @@ e2e_success() { printf '%s[e2e] %s%s\n' "$E2E_COLOR_SUCCESS" "$*" "$E2E_COLOR_RE
 e2e_warning() { printf '%s[e2e] %s%s\n' "$E2E_COLOR_WARNING" "$*" "$E2E_COLOR_RESET"; }
 self_test_success() { printf '%s[self-test] %s%s\n' "$E2E_COLOR_SUCCESS" "$*" "$E2E_COLOR_RESET"; }
 
-AMARU_CHAIN_DIR="${AMARU_CHAIN_DIR:-$RUNDIR/amaru/chain.$NETWORK.db}"
-AMARU_LEDGER_DIR="${AMARU_LEDGER_DIR:-$RUNDIR/amaru/ledger.$NETWORK.db}"
-AMARU_LOG_FILE="${AMARU_LOG_FILE:-$LOGDIR/amaru.log}"
-AMARU_LISTEN_ADDRESS="${AMARU_LISTEN_ADDRESS:-127.0.0.1:4001}"
-AMARU_SUBMIT_API_ADDRESS="${AMARU_SUBMIT_API_ADDRESS:-127.0.0.1:8090}"
+AMARU_DB_CHAIN="${AMARU_DB_CHAIN:-$RUNDIR/amaru/chain.$NETWORK.db}"
+AMARU_DB_LEDGER="${AMARU_DB_LEDGER:-$RUNDIR/amaru/ledger.$NETWORK.db}"
+AMARU_LOG_EXPORT="${AMARU_LOG_EXPORT:-$LOGDIR/amaru.log}"
+AMARU_PEERS_LISTEN_ON="${AMARU_PEERS_LISTEN_ON:-127.0.0.1:4001}"
+AMARU_SUBMIT_API_LISTEN_ON="${AMARU_SUBMIT_API_LISTEN_ON:-127.0.0.1:8090}"
 AMARU_MANAGED="${E2E_TX_MANAGE_AMARU:-true}"
 
 CARDANO_CLI_RELEASE_VERSION="${CARDANO_CLI_RELEASE_VERSION:-11.0.0.0}"
@@ -58,7 +58,7 @@ TX_WALLET_SKEY="${TX_WALLET_SKEY:-$TX_WALLET_DIR/payment.skey}"
 TX_WALLET_VKEY="${TX_WALLET_VKEY:-$TX_WALLET_DIR/payment.vkey}"
 TX_WALLET_ADDRESS_FILE="${TX_WALLET_ADDRESS_FILE:-$TX_WALLET_DIR/payment.addr}"
 TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-$TX_WALLET_SKEY}"
-TX_SUBMIT_API_ADDRESS="$AMARU_SUBMIT_API_ADDRESS"
+TX_SUBMIT_API_ADDRESS="$AMARU_SUBMIT_API_LISTEN_ON"
 TX_QUERY_SOURCE=koios
 TX_METADATA_MESSAGE="${TX_METADATA_MESSAGE:-amaru e2e $RUN_ID}"
 TX_SYNC_TIMEOUT_SECONDS="${TX_SYNC_TIMEOUT_SECONDS:-3600}"
@@ -95,8 +95,8 @@ Usage: scripts/e2e/tx-submission.sh <wallet|setup|run|self-test>
   run        Start Amaru, submit one transaction, and verify confirmation through Koios.
   self-test  Test the strict response parsers without starting Amaru.
 
-Amaru uses its normal peer selection defaults. Set AMARU_PEER_ADDRESS and
-AMARU_UPSTREAM_PEERS to override them. Set E2E_TX_MANAGE_AMARU=false when
+Amaru uses its normal peer selection defaults. Set AMARU_PEER and
+AMARU_PEERS_MAX_UPSTREAM to override them. Set E2E_TX_MANAGE_AMARU=false when
 Amaru is already running with its Submit API enabled.
 EOF
 }
@@ -149,22 +149,22 @@ ensure_amaru_binary() {
 }
 
 amaru_databases_ready() {
-  [[ -d "$AMARU_CHAIN_DIR" && -d "$AMARU_LEDGER_DIR" ]]
+  [[ -d "$AMARU_DB_CHAIN" && -d "$AMARU_DB_LEDGER" ]]
 }
 
 ensure_amaru_databases() {
   if amaru_databases_ready; then
-    setup_log "using Amaru databases $AMARU_CHAIN_DIR and $AMARU_LEDGER_DIR"
+    setup_log "using Amaru databases $AMARU_DB_CHAIN and $AMARU_DB_LEDGER"
     return
   fi
-  if [[ -e "$AMARU_CHAIN_DIR" || -e "$AMARU_LEDGER_DIR" ]]; then
-    die "only one Amaru database exists; provide a matching AMARU_CHAIN_DIR and AMARU_LEDGER_DIR or remove the incomplete E2E database"
+  if [[ -e "$AMARU_DB_CHAIN" || -e "$AMARU_DB_LEDGER" ]]; then
+    die "only one Amaru database exists; provide a matching AMARU_DB_CHAIN and AMARU_DB_LEDGER or remove the incomplete E2E database"
   fi
   setup_log "bootstrapping Amaru databases for $NETWORK"
   "$(amaru_binary)" node bootstrap \
     --network "$NETWORK" \
-    --chain-dir "$AMARU_CHAIN_DIR" \
-    --ledger-dir "$AMARU_LEDGER_DIR"
+    --db-chain "$AMARU_DB_CHAIN" \
+    --db-ledger "$AMARU_DB_LEDGER"
 }
 
 ensure_payment_wallet() {
@@ -245,41 +245,41 @@ install_base64_payment_key() {
 
 start_amaru() {
   if ! truthy "$AMARU_MANAGED"; then
-    e2e_log "using externally managed Amaru Submit API at $AMARU_SUBMIT_API_ADDRESS"
+    e2e_log "using externally managed Amaru Submit API at $AMARU_SUBMIT_API_LISTEN_ON"
     return
   fi
   mkdir -p "$LOGDIR"
-  : >"$AMARU_LOG_FILE"
-  e2e_log "starting Amaru from current source; upstream=${AMARU_PEER_ADDRESS:-network defaults} submit_api=$AMARU_SUBMIT_API_ADDRESS"
+  : >"$AMARU_LOG_EXPORT"
+  e2e_log "starting Amaru from current source; upstream=${AMARU_PEER:-via peer sharing} submit_api=$AMARU_SUBMIT_API_LISTEN_ON"
   AMARU_WITH_OPEN_TELEMETRY=false \
     AMARU_COLOR=never \
     AMARU_LOG="${AMARU_LOG:-info}" \
     AMARU_TRACE="${AMARU_TRACE:-info}" \
     "$(amaru_binary)" node run \
-      --migrate-chain-db \
-      --no-tui \
+      --tui-off \
       --network "$NETWORK" \
-      --listen-address "$AMARU_LISTEN_ADDRESS" \
-      --submit-api-address "$AMARU_SUBMIT_API_ADDRESS" \
-      --chain-dir "$AMARU_CHAIN_DIR" \
-      --ledger-dir "$AMARU_LEDGER_DIR" \
-      >"$AMARU_LOG_FILE" 2>&1 &
+      --peers-listen-on "$AMARU_PEERS_LISTEN_ON" \
+      --submit-api-listen-on "$AMARU_SUBMIT_API_LISTEN_ON" \
+      --db-chain "$AMARU_DB_CHAIN" \
+      --db-chain-automatic-migration \
+      --db-ledger "$AMARU_DB_LEDGER" \
+      >"$AMARU_LOG_EXPORT" 2>&1 &
   AMARU_PID=$!
 }
 
 wait_for_amaru_submit_api() {
   local timeout="${AMARU_SUBMIT_API_TIMEOUT_SECONDS:-300}" elapsed
   for ((elapsed = 0; elapsed < timeout; elapsed++)); do
-    if curl --max-time 2 -s -o /dev/null "http://$AMARU_SUBMIT_API_ADDRESS/"; then
+    if curl --max-time 2 -s -o /dev/null "http://$AMARU_SUBMIT_API_LISTEN_ON/"; then
       e2e_log "Amaru Submit API is ready"
       return
     fi
     if [[ -n "$AMARU_PID" ]] && ! kill -0 "$AMARU_PID" 2>/dev/null; then
-      die "Amaru stopped before its Submit API became ready; see $AMARU_LOG_FILE"
+      die "Amaru stopped before its Submit API became ready; see $AMARU_LOG_EXPORT"
     fi
     sleep 1
   done
-  die "Amaru Submit API did not become ready within ${timeout}s; see $AMARU_LOG_FILE"
+  die "Amaru Submit API did not become ready within ${timeout}s; see $AMARU_LOG_EXPORT"
 }
 
 select_transaction_input() {
@@ -404,7 +404,7 @@ run_transaction_test() {
   done
   [[ "$prior_confirmations" == 0 ]] || die "tx_id=$tx_id was already confirmed or Koios could not check it"
   e2e_log "pre-submit chain check: tx_id=$tx_id is not confirmed"
-  wait_for_amaru_slot "$AMARU_LOG_FILE" "E2E" "$input_available_slot" "$TX_SYNC_TIMEOUT_SECONDS"
+  wait_for_amaru_slot "$AMARU_LOG_EXPORT" "E2E" "$input_available_slot" "$TX_SYNC_TIMEOUT_SECONDS"
   submit_tx_and_expect_id "$tx_cbor" "$tx_id" "$response_file"
   confirmations="$(wait_for_koios_confirmation "$tx_id" "$upstream_response_file")" ||
     die "tx_id=$tx_id was not confirmed on chain within ${TX_CONFIRM_TIMEOUT_SECONDS}s"

@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
-use amaru::{
-    default_chain_dir, default_ledger_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{IsHeader, NetworkName};
 use amaru_observability::info;
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore, WriteChainStore};
@@ -27,29 +22,14 @@ use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The path to the chain database to prune.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_chain: amaru::args::DbChain,
 
-    /// The path to the ledger database (used to determine safe pruning boundary).
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-    )]
-    ledger_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_ledger: amaru::args::DbLedger,
 
-    /// Network of the underlying databases.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -58,23 +38,21 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let network = NetworkName::from(args.network);
+    let db_chain = args.db_chain.into_path_buf(network);
+    let db_ledger = args.db_ledger.into_path_buf(network);
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain prune",
-        network = args.network,
-        chain_dir = chain_dir.to_string_lossy(),
-        ledger_dir = ledger_dir.to_string_lossy()
+        cli::dev::chain::PRUNE,
+        db_chain = db_chain.to_string_lossy(),
+        db_ledger = db_ledger.to_string_lossy(),
+        network,
     );
 
-    let era_history = args
-        .network
-        .as_era_history()
-        .ok_or_else(|| anyhow!("no era history available for network {}", args.network))?;
+    let era_history =
+        network.as_era_history().ok_or_else(|| anyhow!("no era history available for network {network}"))?;
 
-    let snapshots = RocksDB::snapshots(&ledger_dir)?;
+    let snapshots = RocksDB::snapshots(&db_ledger)?;
     if snapshots.is_empty() {
         anyhow::bail!("no ledger snapshots found; cannot determine safe pruning boundary");
     }
@@ -89,7 +67,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         boundary_slot = u64::from(boundary_slot)
     );
 
-    let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
+    let chain_store = RocksDBStore::open(&RocksDbConfig::new(db_chain))?;
     let anchor_hash = chain_store.get_anchor_hash();
 
     let tip_hash = chain_store.get_best_chain_hash();

@@ -112,7 +112,7 @@ The following variables configure this demo's topology and its two Amaru nodes:
 | `DOWNSTREAM_SUBMIT_API_ADDRESS`                      | 127.0.0.1:8091                                                                | HTTP submit API address for amaru-downstream            |
 | `MIDDLE_SUBMIT_API_ADDRESS`                          | 127.0.0.1:8090                                                                | HTTP submit API address for amaru-middle                |
 | `TX_SUBMIT_API_ADDRESS`                              | `$DOWNSTREAM_SUBMIT_API_ADDRESS`                                              | Where the submit-tx processes post transactions         |
-| `AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS`                   | `0`                                                                           | Extra historical ledger snapshots retained per node     |
+| `AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS`                   | `0`                                                                           | Extra historical ledger snapshots retained per node     |
 | `AMARU_DEMO_TRACE`                                   | `info,amaru=trace`                                                            | Shared default trace filter for both nodes              |
 | `AMARU_DEMO_WITH_OPEN_TELEMETRY`                     | `auto`                                                                        | `auto` exports only when the OTLP collector answers     |
 | `AMARU_{MIDDLE,DOWNSTREAM}_LOG`                      | `info`                                                                        | Console/log-file filter per node                        |
@@ -126,7 +126,7 @@ The following variables configure this demo's topology and its two Amaru nodes:
 
 The demo keeps no extra historical ledger snapshots, matching the node's own default, because each retained snapshot
 costs approximately 2 GB on mainnet and `initialize` gives both nodes their own copy of the databases. Set
-`AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS` to a number to keep that many, or to `all` to keep every one.
+`AMARU_LEDGER_MAX_EXTRA_SNAPSHOTS` to a number to keep that many, or to `all` to keep every one.
 
 ## Usage
 
@@ -190,7 +190,7 @@ to `AMARU_MIDDLE_LOG` and `AMARU_DOWNSTREAM_LOG` when you need this detail.
 
 ### Bootstrapping the Amaru databases
 
-The `1-bootstrap` process bootstraps the Amaru chain and ledger databases with `amaru bootstrap`, which downloads the
+The `1-bootstrap` process bootstraps the Amaru chain and ledger databases with `amaru node bootstrap`, which downloads the
 three most recent epoch snapshots from the public snapshot CDN and imports them into
 `scripts/demos/relay-1/run/bootstrap`. The demo uses those databases by default and copies them into isolated per-node
 run directories when starting.

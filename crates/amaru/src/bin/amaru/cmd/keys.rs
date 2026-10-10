@@ -28,12 +28,12 @@ use tempfile::NamedTempFile;
 pub(crate) enum KeysCommand {
     /// Manage hot KES signing keys.
     #[command(subcommand)]
-    Hot(HotCommand),
+    Kes(KesCommand),
 }
 
 #[derive(Debug, Subcommand)]
-pub(crate) enum HotCommand {
-    /// Generate a cardano-cli compatible KES key pair.
+pub(crate) enum KesCommand {
+    /// Generate a KES key pair.
     Create(CreateArgs),
 }
 
@@ -41,17 +41,17 @@ pub(crate) enum HotCommand {
 pub(crate) struct CreateArgs {
     /// Destination for the KES signing key.
     #[arg(long)]
-    signing_key_file: PathBuf,
+    signing_key: PathBuf,
 
-    /// Destination for the KES verification key.
+    /// Destination for the KES verification key. Not generated if unspecified.
     #[arg(long)]
-    verification_key_file: PathBuf,
+    verification_key: Option<PathBuf>,
 }
 
 impl KeysCommand {
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
-            Self::Hot(HotCommand::Create(args)) => {
+            Self::Kes(KesCommand::Create(args)) => {
                 Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { create(args) })
             }
         }
@@ -59,26 +59,35 @@ impl KeysCommand {
 }
 
 fn create(args: CreateArgs) -> anyhow::Result<()> {
-    let CreateArgs { signing_key_file, verification_key_file } = args;
-    ensure!(signing_key_file != verification_key_file, "KES key paths must differ");
-    for path in [&signing_key_file, &verification_key_file] {
+    let CreateArgs { signing_key, verification_key } = args;
+
+    if let Some(verification_key) = verification_key.as_ref() {
+        ensure!(&signing_key != verification_key, "KES key paths must differ");
+    }
+
+    for path in [Some(&signing_key), verification_key.as_ref()].iter().flatten() {
         let exists = path.try_exists().with_context(|| format!("could not check {}", path.display()))?;
         ensure!(!exists, "{} already exists", path.display());
     }
 
     let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
-    let signing = prepare_key(&secret, &signing_key_file)?;
-    let verification = prepare_key(&public, &verification_key_file)?;
+    let signing = prepare_key(&secret, &signing_key)?;
 
-    verification
-        .persist_noclobber(&verification_key_file)
-        .with_context(|| format!("could not save {}", verification_key_file.display()))?;
+    if let Some(verification_key) = verification_key.as_ref() {
+        let verification = prepare_key(&public, verification_key)?;
+        verification
+            .persist_noclobber(verification_key)
+            .with_context(|| format!("could not save {}", verification_key.display()))?;
+    };
+
     signing
-        .persist_noclobber(&signing_key_file)
+        .persist_noclobber(&signing_key)
         .inspect_err(|_| {
-            let _ = fs::remove_file(&verification_key_file);
+            if let Some(verification_key) = verification_key.as_ref() {
+                let _ = fs::remove_file(verification_key);
+            }
         })
-        .with_context(|| format!("could not save {}", signing_key_file.display()))?;
+        .with_context(|| format!("could not save {}", signing_key.display()))?;
     Ok(())
 }
 
@@ -103,7 +112,7 @@ mod tests {
     use super::*;
 
     fn args(directory: &Path) -> CreateArgs {
-        CreateArgs { signing_key_file: directory.join("kes.skey"), verification_key_file: directory.join("kes.vkey") }
+        CreateArgs { signing_key: directory.join("kes.skey"), verification_key: Some(directory.join("kes.vkey")) }
     }
 
     #[test]
@@ -158,17 +167,12 @@ mod tests {
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 
-    #[test_case("kes.skey"; "signing key")]
-    #[test_case("kes.vkey"; "verification key")]
-    fn reports_failed_paths_without_leaving_key_files(name: &str) {
+    #[test]
+    fn reports_failed_paths_without_leaving_key_files() {
         let directory = TempDir::new().unwrap();
         let mut args = args(directory.path());
-        let missing = directory.path().join("missing").join(name);
-        if name == "kes.skey" {
-            args.signing_key_file = missing.clone();
-        } else {
-            args.verification_key_file = missing.clone();
-        }
+        let missing = directory.path().join("missing").join("kes.skey");
+        args.signing_key = missing.clone();
         let error = create(args).unwrap_err();
         assert!(error.to_string().contains(&missing.display().to_string()));
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
@@ -178,7 +182,7 @@ mod tests {
     fn refuses_identical_paths() {
         let directory = TempDir::new().unwrap();
         let mut args = args(directory.path());
-        args.verification_key_file = args.signing_key_file.clone();
+        args.verification_key = Some(args.signing_key.clone());
         assert!(create(args).is_err());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
@@ -188,7 +192,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         fs::create_dir(directory.path().join("alias")).unwrap();
         let mut args = args(directory.path());
-        args.verification_key_file = directory.path().join("alias/../kes.skey");
+        args.verification_key = Some(directory.path().join("alias/../kes.skey"));
         assert!(create(args).is_err());
         assert!(!directory.path().join("kes.skey").exists());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);

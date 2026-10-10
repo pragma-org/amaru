@@ -16,7 +16,7 @@ use amaru_observability::amaru::{bootstrap, consensus, ledger, mempool, protocol
 
 use crate::events::TelemetryRecord;
 
-pub const CONSENSUS_TARGET: &str = consensus::chain_db::OPEN::TARGET;
+pub const CONSENSUS_TARGET: &str = consensus::db_chain::OPEN::TARGET;
 pub const LEDGER_TARGET: &str = ledger::tip::UPDATE::TARGET;
 pub const PROTOCOLS_TARGET: &str = protocols::peer_selection::peer::CONNECTED::TARGET;
 

@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
-use amaru::{
-    default_chain_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{IsHeader, NetworkName};
 use amaru_observability::info;
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore};
@@ -28,25 +23,15 @@ use crate::cmd::PointOrHash;
 
 #[derive(Debug, Parser)]
 pub struct Args {
+    #[command(flatten)]
+    db_chain: amaru::args::DbChain,
+
+    #[command(flatten)]
+    network: amaru::args::Network,
+
     /// The point or hash to walk back from.
     #[arg(value_name = amaru::value_names::POINT_OR_HASH)]
     start: PointOrHash,
-
-    /// The path to the chain database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::CHAIN_DIR,
-    )]
-    chain_dir: Option<PathBuf>,
-
-    /// Network of the underlying chain database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -55,17 +40,16 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
+    let db_chain = args.db_chain.into_path_buf(args.network);
 
     info!(
-        cli::dev::RUN,
-        command = "dev chain ancestors",
-        network = args.network,
-        chain_dir = chain_dir.to_string_lossy(),
+        cli::dev::chain::ANCESTORS,
+        db_chain = db_chain.to_string_lossy(),
+        network = NetworkName::from(args.network),
         start = args.start.to_string()
     );
 
-    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
+    let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(db_chain))?;
 
     let mut count = 0u64;
     for (header, valid) in db.ancestors_with_validity(*args.start) {

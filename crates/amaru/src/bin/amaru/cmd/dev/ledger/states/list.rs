@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{path::PathBuf, time::SystemTime};
+use std::time::SystemTime;
 
-use amaru::{
-    default_ledger_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{NetworkName, Point};
 use amaru_ledger::store::{HistoricalStores, ReadStore};
 use amaru_observability::info;
@@ -26,21 +23,11 @@ use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The path to the ledger database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::DIRECTORY,
-        env = amaru::env_vars::LEDGER_DIR,
-    )]
-    ledger_dir: Option<PathBuf>,
+    #[command(flatten)]
+    db_ledger: amaru::args::DbLedger,
 
-    /// Network of the underlying ledger database.
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-    )]
-    network: NetworkName,
+    #[command(flatten)]
+    network: amaru::args::Network,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -49,21 +36,17 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
-    let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let network = NetworkName::from(args.network);
+    let db_ledger = args.db_ledger.into_path_buf(network);
 
-    info!(
-        cli::dev::RUN,
-        command = "dev ledger states list",
-        network = args.network,
-        ledger_dir = ledger_dir.to_string_lossy()
-    );
+    info!(cli::dev::ledger::state::LIST, db_ledger = db_ledger.to_string_lossy(), network,);
 
-    let era_history = args.network.as_era_history();
-    let global_params = args.network.as_global_parameters();
+    let era_history = network.as_era_history();
+    let global_params = network.as_global_parameters();
     let system_start =
         global_params.map(|gp| SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(gp.system_start));
 
-    let config = RocksDbConfig::new(ledger_dir);
+    let config = RocksDbConfig::new(db_ledger);
     let historical = RocksDBHistoricalStores::new(&config, 0);
     let snapshots = historical.snapshots()?;
 

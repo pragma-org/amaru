@@ -110,7 +110,7 @@ In `public` mode (the default) no local cardano-node runs: the middle Amaru rela
 to a well-known public relay (`backbone.cardano.iog.io` on mainnet, the `play.dev.cardano.org` relays
 on preprod and preview), and the cardano-node release download is skipped entirely.
 `PUBLIC_UPSTREAM_PEER_ADDRESS` takes a whitespace-separated list, so the relay can be pointed at
-several upstreams at once, each becoming its own `--peer-address`:
+several upstreams at once, each becoming its own `--peer`:
 
 ```bash
 PUBLIC_UPSTREAM_PEER_ADDRESS="backbone.cardano.iog.io:3001 my-own-relay.example:3001"
@@ -122,7 +122,7 @@ already populated. Custom testnets have no public relay and no published snapsho
 
 ### Bootstrap and databases
 
-The demo databases are bootstrapped with `amaru bootstrap`, which downloads the three most recent
+The demo databases are bootstrapped with `amaru node bootstrap`, which downloads the three most recent
 epoch snapshots from the public snapshot CDN over HTTPS and imports them into fresh chain and ledger
 databases under `AMARU_BOOTSTRAP_DIR`, together with a marker file recording the completed bootstrap.
 Restarting a demo never re-bootstraps: the databases are reused as long as the marker is present, and
