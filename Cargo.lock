@@ -367,6 +367,7 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
+ "amaru-stores",
  "amaru-uplc",
  "anyhow",
  "divan",

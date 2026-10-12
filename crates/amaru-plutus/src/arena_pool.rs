@@ -38,6 +38,12 @@ struct Inner {
     condvar: Condvar,
 }
 
+impl Default for ArenaPool {
+    fn default() -> Self {
+        Self::new(1, 0)
+    }
+}
+
 impl ArenaPool {
     /// Create a new arena pool with a fixed number of pre-allocated arenas.
     ///

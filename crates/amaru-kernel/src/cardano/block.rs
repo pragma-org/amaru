@@ -109,7 +109,7 @@ impl BodyParts {
         out
     }
 
-    fn into_block(self, header: Header) -> Result<Block, cbor::decode::Error> {
+    pub fn into_block(self, header: Header) -> Result<Block, cbor::decode::Error> {
         cbor::decode(self.encode_block(&header).as_slice())
     }
 }
