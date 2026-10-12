@@ -45,6 +45,7 @@ Other guiding principles:
 - **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
+- **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
 
 ### Changed
 
@@ -78,6 +79,15 @@ Other guiding principles:
 - **amaru**: a notice that an old connection died is not counted as a failed dial when a later dial to that peer is already in progress.
 - **amaru**: block fetch reads which connections may initiate from the peer resource. A connection no longer sends that fact to the connection manager, so a full tip burst cannot deadlock the two.
 - **amaru-protocols**: fixed transition of the initiator from Diffusion to Maintenance so that churned connections are not forcibly closed.
+- **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
+- **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
+
+### Fixed
+
+- **amaru-node**: Mithril synchronization removes its cache and store lock files when synchronization finishes.
+- **amaru-node**: Mithril block replay advances the chain anchor as blocks become stable, preventing header validation from slowing down as replay progresses.
+- **amaru-mithril**: repeated sync verifies complete cached immutable files without downloading them again. If cached bytes fail verification, it fetches the affected snapshot range again.
+- **amaru**: console logs print above active bootstrap and Mithril progress bars without splitting or overwriting the bar.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -112,24 +122,6 @@ Other guiding principles:
 - **amaru-uplc**: reject out of range indexByteString and indexArray indices.
 - **amaru-uplc**: saturate dropList cost instead of panicking beyond a u64.
 
-## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
-
-### Added
-
-- **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
-
-### Changed
-
-- **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
-- **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
-
-### Fixed
-
-- **amaru-node**: Mithril synchronization removes its cache and store lock files when synchronization finishes.
-- **amaru-node**: Mithril block replay advances the chain anchor as blocks become stable, preventing header validation from slowing down as replay progresses.
-- **amaru-mithril**: repeated sync verifies complete cached immutable files without downloading them again. If cached bytes fail verification, it fetches the affected snapshot range again.
-- **amaru**: console logs print above active bootstrap and Mithril progress bars without splitting or overwriting the bar.
-
 ## v10.11.20261001 _[unreleased; planned for 2026-10-01]_
 
 ### Added
@@ -145,11 +137,9 @@ Other guiding principles:
 - **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
 - **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
 - **amaru-kernel**: use RustCrypto hash implementations for BLAKE2b, SHA-2, SHA-3, Keccak, and RIPEMD.
-- **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
 
 ### Fixed
 
-- **amaru-node**: Mithril sync reports an unsupported replay from origin as a validation error instead of a stage failure.
 - **amaru**: a VRF signing key from `cardano-cli conway node key-gen-VRF` loads. The file is the 32-byte seed followed by the verification key.
 - **amaru-protocols**: chainsync no longer closes the connection when a peer pipelines headers. The ingress buffer for that protocol was 5760 bytes (the handshake and peer-sharing limit) instead of 462000 bytes. Block-fetch, tx-submission, and keep-alive now use the same ingress limits as cardano-node.
 - **amaru-protocols**: a new connection no longer drops when the peer's first chainsync (and other mini-protocol) segments arrive in the same burst as the handshake accept. Those segments are held until the handlers are registered, instead of being rejected as an unknown protocol.
