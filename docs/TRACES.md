@@ -3376,9 +3376,10 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `add_skipped` | `event` | info | public | A peer was not added to the outbound set. Reason ∈ {already_added}. | peer, reason |  |
 | `added` | `event` | info | public | A peer was added to the outbound set | peer, was_banned |  |
 | `address_rejected` | `event` | warn | public | A candidate address was rejected and will not be used as a Peer. | address, reason |  |
-| `connected` | `span` |  | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
+| `connected` | `span` |  | public | A connection has been established and the handshake completed successfully. local_use ∈ {none, maintenance, diffusion}. | peer, conn_id, direction, full_duplex_capable, full_duplex, local_use |  |
 | `demoted` | `event` | info | public | Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}. | peer, conn_id, reason |  |
 | `disconnected` | `span` |  | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
+| `remote_use` | `event` | info | public | The derived remote temperature of a bearer changed. remote_use ∈ {none, maintenance, diffusion}. | peer, conn_id, remote_use |  |
 | `removed` | `event` | warn | public | A peer was removed after behaving adversarially | peer, direction, peer_state, is_static |  |
 | `resolve_failed` | `event` | warn | public | Name resolution for a bootstrap candidate failed (no viable address). | candidate, reason |  |
 | `resolved` | `event` | info | public | A selected bootstrap name resolved to a single peer, ready to dial. | candidate, origin, peer |  |
@@ -3419,6 +3420,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `direction` | `string` | ✓ |
 | `full_duplex_capable` | `boolean` | ✓ |
 | `full_duplex` | `boolean` | ✓ |
+| `local_use` | `string` | ✓ |
 
 </details>
 
@@ -3440,6 +3442,16 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `conn_id` | `integer` | ✓ |
 | `direction` | `string` | ✓ |
 | `reason` | `string` |  |
+
+</details>
+
+<details><summary>event: `remote_use`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `remote_use` | `string` | ✓ |
 
 </details>
 

@@ -65,6 +65,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             Arc::new(PREPROD_ERA_HISTORY.clone()),
             StageRef::blackhole(),
             StageRef::blackhole(), // dummy manager for test
+            None,
         ),
     );
     network.preload(&connection, [ConnectionMessage::Initialize]).unwrap();

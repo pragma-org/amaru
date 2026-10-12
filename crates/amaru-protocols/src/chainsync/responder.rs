@@ -14,7 +14,7 @@
 
 use amaru_kernel::{EraName, NetworkPoint, Peer, Point};
 use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug_span, info};
-use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros::{ConnectionId, RemoteProtocol};
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use anyhow::{Context, anyhow, ensure};
@@ -22,6 +22,7 @@ use anyhow::{Context, anyhow, ensure};
 use crate::{
     chainsync::messages::{HeaderContent, Message},
     mux::MuxMessage,
+    peer_tracking_effects::PeerTrack,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, Responder, StageState, miniprotocol,
         outcome,
@@ -104,6 +105,9 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         async move {
             match input {
                 ResponderResult::FindIntersect(points) => {
+                    PeerTrack::new(eff)
+                        .note_remote_protocol(self.peer, self.conn_id, RemoteProtocol::ChainSync, true)
+                        .await;
                     let action = intersect(points, &Store::new(eff.clone()), self.upstream)
                         .await
                         .context("failed to find intersection")?;
@@ -113,12 +117,18 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                     Ok((Some(action), self))
                 }
                 ResponderResult::RequestNext => {
+                    PeerTrack::new(eff)
+                        .note_remote_protocol(self.peer, self.conn_id, RemoteProtocol::ChainSync, true)
+                        .await;
                     let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
                         .await
                         .context("failed to get next header")?;
                     Ok((action, self))
                 }
                 ResponderResult::Done => {
+                    PeerTrack::new(eff)
+                        .note_remote_protocol(self.peer, self.conn_id, RemoteProtocol::ChainSync, false)
+                        .await;
                     info!(protocols::chainsync::responder::STOPPED);
                     Ok((None, self))
                 }
@@ -248,7 +258,9 @@ impl ProtocolState<Responder> for ResponderState {
             (Idle { send_rollback }, Message::RequestNext(1)) => {
                 (outcome().result(ResponderResult::RequestNext), CanAwait { send_rollback: *send_rollback })
             }
-            (Idle { .. }, Message::Done) => (outcome().want_next(), Idle { send_rollback: false }),
+            (Idle { .. }, Message::Done) => {
+                (outcome().result(ResponderResult::Done).want_next(), Idle { send_rollback: false })
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

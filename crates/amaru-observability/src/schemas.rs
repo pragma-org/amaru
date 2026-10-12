@@ -2568,12 +2568,22 @@ define_schemas! {
             peer_selection {
                 peer {
                     /// A connection has been established and the handshake completed successfully.
+                    /// local_use ∈ {none, maintenance, diffusion}.
                     public span CONNECTED {
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required direction: String
                         required full_duplex_capable: bool
                         required full_duplex: bool
+                        required local_use: String
+                    }
+                    /// The derived remote temperature of a bearer changed.
+                    /// remote_use ∈ {none, maintenance, diffusion}.
+                    public event REMOTE_USE {
+                        levels: info
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required remote_use: String
                     }
                     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
                     /// or network error).

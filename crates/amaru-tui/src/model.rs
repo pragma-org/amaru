@@ -76,7 +76,7 @@ pub use self::{
     log_buffer::{LogViewItem, RetentionTier},
     page::Page,
     pane_mode::PaneMode,
-    peer_state::PeerState,
+    peer_state::{PeerState, PeerUse},
     prompt::{PromptKind, PromptState},
     scroll_focus::ScrollFocus,
     target_filter::TargetFilter,
@@ -125,6 +125,8 @@ pub struct Model {
     pub epoch_overlay_exists: bool,
     pub rewards_ready: bool,
     pub peers: BTreeMap<String, PeerState>,
+    /// Latest remote temperature for a bearer `connected` has not adopted yet, keyed by peer address.
+    pending_remote_use: BTreeMap<String, (String, PeerUse)>,
     /// `peer.resolved` cache: dial address → bootstrap name (omitted when the candidate was already a Peer).
     resolved_candidates: BTreeMap<String, String>,
     pub logs: LogBuffer,
@@ -192,6 +194,7 @@ impl Model {
             epoch_overlay_exists: false,
             rewards_ready: false,
             peers: BTreeMap::default(),
+            pending_remote_use: BTreeMap::default(),
             resolved_candidates: BTreeMap::default(),
             logs: LogBuffer::new(config.log_retention_bytes),
             text_filter: None,
@@ -499,6 +502,104 @@ mod tests {
     }
 
     #[test]
+    fn peer_row_tracks_upstream_and_downstream_use() {
+        use crate::model::peer_state::PeerUse;
+
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::CONNECTED,
+            protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.1.1.1:3001",
+            protocols::peer_selection::peer::CONNECTED::FIELD_CONN_ID => 4u64,
+            protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Inbound",
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "none",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::manager::peer::LOCAL_USE_APPLIED,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_PEER => "10.1.1.1:3001",
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_CONN_ID => 4u64,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "maintenance",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::REMOTE_USE,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_PEER => "10.1.1.1:3001",
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_CONN_ID => 4u64,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_REMOTE_USE => "diffusion",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::manager::peer::LOCAL_USE_APPLIED,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_PEER => "10.1.1.1:3001",
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_CONN_ID => 9u64,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "diffusion",
+        )));
+
+        let peer = model.peers.get("10.1.1.1:3001").expect("peer must exist");
+        assert!(peer.inbound);
+        assert!(!peer.outbound);
+        assert_eq!(peer.local_use, PeerUse::Maintenance);
+        assert_eq!(peer.remote_use, PeerUse::Diffusion);
+    }
+
+    #[test]
+    fn remote_use_before_connected_is_applied_when_the_bearer_is_adopted() {
+        use crate::model::peer_state::PeerUse;
+
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::REMOTE_USE,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_PEER => "10.1.1.1:3001",
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_CONN_ID => 4u64,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_REMOTE_USE => "maintenance",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::REMOTE_USE,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_PEER => "10.1.1.1:3001",
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_CONN_ID => 4u64,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_REMOTE_USE => "diffusion",
+        )));
+        assert!(model.peers.get("10.1.1.1:3001").is_none());
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::CONNECTED,
+            protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.1.1.1:3001",
+            protocols::peer_selection::peer::CONNECTED::FIELD_CONN_ID => 4u64,
+            protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Inbound",
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "none",
+        )));
+
+        let peer = model.peers.get("10.1.1.1:3001").expect("peer must exist");
+        assert_eq!(peer.remote_use, PeerUse::Diffusion);
+    }
+
+    #[test]
+    fn remote_use_for_another_bearer_is_not_applied_on_adopt() {
+        use crate::model::peer_state::PeerUse;
+
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::REMOTE_USE,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_PEER => "10.1.1.1:3001",
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_CONN_ID => 4u64,
+            protocols::peer_selection::peer::REMOTE_USE::FIELD_REMOTE_USE => "diffusion",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::CONNECTED,
+            protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.1.1.1:3001",
+            protocols::peer_selection::peer::CONNECTED::FIELD_CONN_ID => 9u64,
+            protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Inbound",
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => true,
+            protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "none",
+        )));
+
+        let peer = model.peers.get("10.1.1.1:3001").expect("peer must exist");
+        assert_eq!(peer.remote_use, PeerUse::None);
+    }
+
+    #[test]
     fn caches_resolved_candidate_for_later_peer_row() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
 
@@ -515,6 +616,7 @@ mod tests {
             protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+            protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "diffusion",
         )));
 
         let peer = model.peers.get("10.9.9.9:3001").expect("peer must exist");
@@ -553,6 +655,7 @@ mod tests {
             protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+            protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "diffusion",
         )));
         model.handle_message(Message::Telemetry(telemetry!(
             protocols::peer_selection::peer::RESOLVED,
@@ -589,6 +692,7 @@ mod tests {
             protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+            protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "diffusion",
         )));
         model.handle_message(metric(
             later,
@@ -604,6 +708,7 @@ mod tests {
             protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION => "Outbound",
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX_CAPABLE => true,
             protocols::peer_selection::peer::CONNECTED::FIELD_FULL_DUPLEX => false,
+            protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "diffusion",
         )));
 
         let peer = model.peers.get("10.9.9.9:3001").expect("peer must exist");

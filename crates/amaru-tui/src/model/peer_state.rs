@@ -38,6 +38,25 @@ impl MeanMicros {
     }
 }
 
+/// Temperature of one direction on a bearer, as reported by the peer-selection spans.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PeerUse {
+    #[default]
+    None,
+    Maintenance,
+    Diffusion,
+}
+
+impl PeerUse {
+    pub fn from_label(label: &str) -> Self {
+        match label {
+            "maintenance" => Self::Maintenance,
+            "diffusion" => Self::Diffusion,
+            _ => Self::None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PeerState {
     pub address: String,
@@ -51,6 +70,10 @@ pub struct PeerState {
     pub last_reason: Option<String>,
     pub full_duplex: Option<bool>,
     pub full_duplex_capable: Option<bool>,
+    /// Our use of this peer: the peer is our upstream.
+    pub local_use: PeerUse,
+    /// The peer's use of us: we are its upstream.
+    pub remote_use: PeerUse,
     slot_start_to_header: MeanMicros,
     query_header: MeanMicros,
     get_block: MeanMicros,
@@ -79,6 +102,8 @@ impl PeerState {
             last_reason: None,
             full_duplex: None,
             full_duplex_capable: None,
+            local_use: PeerUse::None,
+            remote_use: PeerUse::None,
             slot_start_to_header: MeanMicros::default(),
             query_header: MeanMicros::default(),
             get_block: MeanMicros::default(),
@@ -93,21 +118,50 @@ impl PeerState {
 
     pub fn mark_connected(&mut self, record: &TelemetryRecord) {
         let direction = protocols::peer_selection::peer::CONNECTED::direction(record);
+        let next_conn = record.conn_id();
+        if self.last_conn_id != next_conn {
+            self.remote_use = PeerUse::None;
+        }
         self.connected = true;
         self.inbound |= direction == "Inbound";
         self.outbound |= direction == "Outbound";
-        self.last_conn_id = record.conn_id();
+        self.last_conn_id = next_conn;
         self.full_duplex = Some(protocols::peer_selection::peer::CONNECTED::full_duplex(record));
         self.full_duplex_capable = Some(protocols::peer_selection::peer::CONNECTED::full_duplex_capable(record));
+        self.local_use = PeerUse::from_label(protocols::peer_selection::peer::CONNECTED::local_use(record));
         self.last_reason = None;
         self.updated_at = record.at;
     }
 
     pub fn mark_disconnected(&mut self, record: &TelemetryRecord) {
         self.connected = false;
+        self.local_use = PeerUse::None;
+        self.remote_use = PeerUse::None;
         self.last_reason = protocols::peer_selection::peer::DISCONNECTED::reason(record).map(ToOwned::to_owned);
         self.last_conn_id = record.conn_id();
         self.updated_at = record.at;
+    }
+
+    /// A later use span belongs to the bearer this row last connected.
+    pub fn same_connection(&self, record: &TelemetryRecord) -> bool {
+        match (&self.last_conn_id, record.conn_id()) {
+            (Some(current), Some(next)) => current == &next,
+            _ => false,
+        }
+    }
+
+    pub fn set_local_use(&mut self, record: &TelemetryRecord, label: &str) {
+        if self.same_connection(record) {
+            self.local_use = PeerUse::from_label(label);
+            self.updated_at = record.at;
+        }
+    }
+
+    pub fn set_remote_use(&mut self, record: &TelemetryRecord, label: &str) {
+        if self.same_connection(record) {
+            self.remote_use = PeerUse::from_label(label);
+            self.updated_at = record.at;
+        }
     }
 
     pub fn update_rtt(&mut self, record: &TelemetryRecord, round_trip_micros: u64) {

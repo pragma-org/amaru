@@ -18,7 +18,8 @@ use std::sync::Arc;
 
 use amaru_kernel::{NetworkMagic, PREPROD_ERA_HISTORY, Peer};
 use amaru_ouroboros::{
-    CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, LocalUse, ObservedAt, PeerTrackingResource,
+    CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, MiniProtocolUse, ObservedAt,
+    PeerTrackingResource, RemoteInitiators,
 };
 use amaru_pure_stage::{
     StageGraph, StageRef,
@@ -94,6 +95,7 @@ fn handshake(
         full_duplex_capable: true,
         full_duplex: false,
         advertisable,
+        caller: StageRef::blackhole(),
     }
 }
 
@@ -102,7 +104,7 @@ fn record_for(
     conn_id: ConnectionId,
     direction: ConnectionDirection,
     advertisable: bool,
-    local_use: LocalUse,
+    local_use: MiniProtocolUse,
     at: ObservedAt,
 ) -> ConnectionRecord {
     ConnectionRecord {
@@ -113,6 +115,7 @@ fn record_for(
         full_duplex: false,
         advertisable,
         local_use,
+        remote_initiators: RemoteInitiators::default(),
         established_at: at,
     }
 }
@@ -159,7 +162,7 @@ fn outbound_handshake_is_recorded_and_still_notified() {
     let at = observed_at(sim.running.now());
     assert_eq!(
         sim.recorder.established(),
-        vec![(record_for(peer, conn_id, ConnectionDirection::Outbound, true, LocalUse::Diffusion, at), at)]
+        vec![(record_for(peer, conn_id, ConnectionDirection::Outbound, true, MiniProtocolUse::Diffusion, at), at)]
     );
     assert!(sim.recorder.closed().is_empty());
     assert!(sim.recorder.connect_failures().is_empty());
@@ -183,7 +186,7 @@ fn inbound_handshake_starts_at_no_local_use() {
     let at = observed_at(sim.running.now());
     assert_eq!(
         sim.recorder.established(),
-        vec![(record_for(peer, conn_id, ConnectionDirection::Inbound, false, LocalUse::None, at), at)]
+        vec![(record_for(peer, conn_id, ConnectionDirection::Inbound, false, MiniProtocolUse::None, at), at)]
     );
 }
 

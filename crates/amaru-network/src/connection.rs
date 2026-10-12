@@ -36,6 +36,9 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Connection {
     peer_addr: SocketAddr,
+    /// `getsockname` after the handshake. The IP is concrete. The port is the ephemeral
+    /// source port on an outbound bearer, not the port this node advertises.
+    local_addr: SocketAddr,
     reader: Arc<AsyncMutex<(OwnedReadHalf, BytesMut)>>,
     writer: Arc<AsyncMutex<OwnedWriteHalf>>,
 }
@@ -43,10 +46,12 @@ pub struct Connection {
 impl Connection {
     pub fn new(tcp_stream: TcpStream, read_buf_size: usize) -> std::io::Result<Self> {
         tcp_stream.set_nodelay(true)?;
+        let peer_addr = tcp_stream.peer_addr()?;
+        let local_addr = tcp_stream.local_addr()?;
         let (reader, writer) = tcp_stream.into_split();
-        let peer_addr = reader.peer_addr()?;
         Ok(Self {
             peer_addr,
+            local_addr,
             reader: Arc::new(AsyncMutex::new((reader, BytesMut::with_capacity(read_buf_size)))),
             writer: Arc::new(AsyncMutex::new(writer)),
         })
@@ -54,6 +59,10 @@ impl Connection {
 
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 }
 
@@ -333,6 +342,18 @@ impl ConnectionProvider for TokioConnections {
             }
             .instrument(debug_span!(network::connection::RECV,).into()),
         )
+    }
+
+    fn local_addr(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
+        let resource = self.inner.clone();
+        Box::pin(async move {
+            resource
+                .connections
+                .lock()
+                .get(&conn)
+                .map(|connection| connection.local_addr())
+                .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for local_addr")))
+        })
     }
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {

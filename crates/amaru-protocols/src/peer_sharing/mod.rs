@@ -18,9 +18,9 @@
 //! - client: `MsgShareRequest(amount)` → wait → `MsgSharePeers`
 //! - server: wait → `MsgShareRequest` → `MsgSharePeers`
 //!
-//! The initiator runs on an outbound connection's maintenance group when the remote side is
+//! The initiator runs on an established connection's maintenance group when the remote side is
 //! advertisable, and writes each reply to the peer-tracking resource. The responder reads its
-//! reply from that resource.
+//! reply from that resource and appends this node's own listen address when it has one.
 
 mod initiator;
 mod messages;
@@ -44,6 +44,8 @@ pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(900);
 pub const SHARE_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// How many peers to request per share call (network-spec amount is `Word8`).
 pub const SHARE_REQUEST_AMOUNT: u8 = 20;
+/// Upper bound on addresses in one share reply. The sampler and the responder both use it.
+pub const SHARE_POLICY_MAX: u8 = 10;
 pub use messages::{MAX_MESSAGE_BYTES, Message};
 pub use responder::{PeerSharingResponder, register_peer_sharing_responder, responder};
 

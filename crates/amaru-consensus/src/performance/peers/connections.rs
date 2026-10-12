@@ -21,7 +21,7 @@
 use std::{collections::BTreeSet, net::SocketAddr, time::Duration};
 
 use amaru_kernel::Peer;
-use amaru_ouroboros::{CloseReason, ConnectionId, ConnectionRecord, LocalUse, ObservedAt};
+use amaru_ouroboros::{CloseReason, ConnectionId, ConnectionRecord, MiniProtocolUse, ObservedAt, RemoteProtocol};
 use amaru_pure_stage::Instant;
 
 use super::{PEER_RECORD_CAP, PeerPerformance};
@@ -127,7 +127,13 @@ impl PeerPerformance {
         self.record_connection_failure(peer, instant_of(at));
     }
 
-    pub fn record_local_use_applied(&mut self, peer: Peer, conn_id: ConnectionId, local_use: LocalUse, at: ObservedAt) {
+    pub fn record_local_use_applied(
+        &mut self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        local_use: MiniProtocolUse,
+        at: ObservedAt,
+    ) {
         let Some(live) = self.connections.get_mut(&conn_id) else {
             return;
         };
@@ -144,9 +150,37 @@ impl PeerPerformance {
     pub fn may_initiate(&self) -> BTreeSet<ConnectionId> {
         self.connections
             .iter()
-            .filter(|(_, live)| live.record.local_use == LocalUse::Diffusion)
+            .filter(|(_, live)| live.record.local_use == MiniProtocolUse::Diffusion)
             .map(|(conn_id, _)| *conn_id)
             .collect()
+    }
+
+    /// Returns the new derived temperature when it changed.
+    ///
+    /// A bit flip that leaves the temperature in place refreshes activity and does not move
+    /// the generation.
+    pub fn record_remote_use(
+        &mut self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        protocol: RemoteProtocol,
+        active: bool,
+        at: ObservedAt,
+    ) -> Option<MiniProtocolUse> {
+        let live = self.connections.get_mut(&conn_id)?;
+        if live.record.peer != peer {
+            return None;
+        }
+        let prev = live.record.remote_initiators.derived();
+        if !live.record.remote_initiators.set(protocol, active) {
+            return None;
+        }
+        let next = live.record.remote_initiators.derived();
+        self.note_activity(peer, instant_of(at));
+        if prev != next {
+            self.bump_generation();
+        }
+        (prev != next).then_some(next)
     }
 
     pub fn record_keepalive_sample(&mut self, peer: Peer, rtt: Duration, at: ObservedAt) {

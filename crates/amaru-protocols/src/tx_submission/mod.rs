@@ -30,7 +30,7 @@ mod tests;
 use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, Peer};
-use amaru_ouroboros::{MempoolMsg, TxOrigin};
+use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{Effects, StageRef};
 pub use initiator::{InitiatorLocalIn, initiator};
 pub use responder::{ResponderLocalIn, ResponderResult, TxSubmissionMsg, responder};
@@ -79,6 +79,7 @@ where
 pub async fn register_tx_submission(
     role: Role,
     peer: Peer,
+    conn_id: ConnectionId,
     muxer: StageRef<mux::MuxMessage>,
     eff: &Effects<ConnectionMessage>,
     origin: TxOrigin,
@@ -98,8 +99,15 @@ pub async fn register_tx_submission(
             Some(tx_submission.contramap(Inputs::<initiator::InitiatorLocalIn>::Local)),
         )
     } else {
-        let (state, stage) =
-            responder::TxSubmissionResponder::new(peer, muxer.clone(), params, origin, mempool_stage, era_history);
+        let (state, stage) = responder::TxSubmissionResponder::new(
+            peer,
+            conn_id,
+            muxer.clone(),
+            params,
+            origin,
+            mempool_stage,
+            era_history,
+        );
         let tx_submission = eff.stage("tx_submission-responder", responder::responder()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;

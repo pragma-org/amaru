@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::Peer;
-use amaru_ouroboros::{CloseReason, ConnectionDirection, ConnectionId, LocalUse, ObservedAt};
+use amaru_ouroboros::{CloseReason, ConnectionDirection, ConnectionId, MiniProtocolUse, ObservedAt, RemoteInitiators};
 
 use super::PeerPerformance;
 
@@ -30,7 +30,9 @@ pub struct ViewConnection {
     pub full_duplex_capable: bool,
     pub full_duplex: bool,
     pub advertisable: bool,
-    pub local_use: LocalUse,
+    pub local_use: MiniProtocolUse,
+    pub remote_initiators: RemoteInitiators,
+    pub remote_use: MiniProtocolUse,
 }
 
 /// One intersection-not-found mark recorded after `since`.
@@ -80,6 +82,8 @@ impl PeerPerformance {
                 full_duplex: record.full_duplex,
                 advertisable: record.advertisable,
                 local_use: record.local_use,
+                remote_initiators: record.remote_initiators,
+                remote_use: record.remote_initiators.derived(),
             });
         }
         let closes = self

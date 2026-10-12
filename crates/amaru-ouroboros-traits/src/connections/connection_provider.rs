@@ -38,6 +38,12 @@ pub trait ConnectionProvider: Send + Sync + 'static {
     fn recv(&self, conn: ConnectionId, bytes: NonZeroUsize) -> BoxFuture<'static, std::io::Result<NonEmptyBytes>>;
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>>;
+
+    /// Local socket address of an open bearer.
+    ///
+    /// The IP is the one the kernel chose for this connection. The port is whatever the
+    /// socket is bound to, which on an outbound bearer is ephemeral.
+    fn local_addr(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 }
 
 /// This type alias makes the signatures above easier to write.

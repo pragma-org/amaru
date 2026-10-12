@@ -37,7 +37,15 @@ impl Model {
     }
 
     fn prune_stale_peers(&mut self, now: Instant) {
-        self.peers.retain(|_, peer| !peer.is_stale(now, self.config.peer_inactivity_timeout));
+        let timeout = self.config.peer_inactivity_timeout;
+        let pending = &mut self.pending_remote_use;
+        self.peers.retain(|address, peer| {
+            let keep = !peer.is_stale(now, timeout);
+            if !keep {
+                pending.remove(address);
+            }
+            keep
+        });
     }
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
@@ -81,6 +89,8 @@ impl Model {
             TelemetryEvent::HeaderLifecycle => self.update_peer_header_lifecycle(record),
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
+            TelemetryEvent::LocalUseApplied => self.update_local_use(record),
+            TelemetryEvent::RemoteUse => self.update_remote_use(record),
             TelemetryEvent::PeerDisconnected => self.update_peer_disconnected(record),
             TelemetryEvent::PeerResolved => self.update_peer_resolved(record),
             TelemetryEvent::GovernanceActivityUpdate => {
@@ -242,8 +252,16 @@ impl Model {
     }
 
     fn update_peer_connected(&mut self, record: &TelemetryRecord) {
-        let peer = self.peer_mut(protocols::peer_selection::peer::CONNECTED::peer(record), record.at);
-        peer.mark_connected(record);
+        let address = protocols::peer_selection::peer::CONNECTED::peer(record).to_string();
+        self.peer_mut(&address, record.at).mark_connected(record);
+        let Some((pending_conn, remote_use)) = self.pending_remote_use.remove(&address) else {
+            return;
+        };
+        if record.conn_id().is_some_and(|conn_id| conn_id == pending_conn)
+            && let Some(peer) = self.peers.get_mut(&address)
+        {
+            peer.remote_use = remote_use;
+        }
     }
 
     fn update_peer_resolved(&mut self, record: &TelemetryRecord) {
@@ -258,10 +276,42 @@ impl Model {
         }
     }
 
-    fn update_peer_disconnected(&mut self, record: &TelemetryRecord) {
-        let address = protocols::peer_selection::peer::DISCONNECTED::peer(record);
+    fn update_local_use(&mut self, record: &TelemetryRecord) {
+        let address = protocols::manager::peer::LOCAL_USE_APPLIED::peer(record);
+        let label = protocols::manager::peer::LOCAL_USE_APPLIED::local_use(record);
         if let Some(peer) = self.peers.get_mut(address) {
+            peer.set_local_use(record, label);
+        }
+    }
+
+    fn update_remote_use(&mut self, record: &TelemetryRecord) {
+        let address = protocols::peer_selection::peer::REMOTE_USE::peer(record).to_string();
+        let label = protocols::peer_selection::peer::REMOTE_USE::remote_use(record);
+        let applied = self.peers.get_mut(&address).is_some_and(|peer| {
+            if !peer.same_connection(record) {
+                return false;
+            }
+            peer.set_remote_use(record, label);
+            true
+        });
+        if applied {
+            self.pending_remote_use.remove(&address);
+            return;
+        }
+        if let Some(conn_id) = record.conn_id() {
+            self.pending_remote_use.insert(address, (conn_id, PeerUse::from_label(label)));
+        }
+    }
+
+    fn update_peer_disconnected(&mut self, record: &TelemetryRecord) {
+        let address = protocols::peer_selection::peer::DISCONNECTED::peer(record).to_string();
+        if let Some(peer) = self.peers.get_mut(&address) {
             peer.mark_disconnected(record);
+        }
+        if record.conn_id().is_some_and(|conn_id| {
+            self.pending_remote_use.get(&address).is_some_and(|(pending_conn, _)| pending_conn == &conn_id)
+        }) {
+            self.pending_remote_use.remove(&address);
         }
     }
 

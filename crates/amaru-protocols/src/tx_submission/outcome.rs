@@ -38,6 +38,9 @@ pub enum TerminationCause {
     /// The peer did not deliver `ReplyTxs` within the inflight timeout.
     /// This should be modelled at the protocol level.
     TxFetchTimeout,
+    /// The peer did not deliver `ReplyTxIds` within the inflight timeout after a non-blocking
+    /// `RequestTxIds`.
+    TxIdsTimeout,
     /// Local mempool stage did not respond in time.
     MempoolBatchInsertFailedTimedout,
 }
@@ -107,6 +110,7 @@ impl Display for TerminationCause {
         match self {
             TerminationCause::Protocol(err) => write!(f, "{err}"),
             TerminationCause::TxFetchTimeout => write!(f, "peer did not deliver ReplyTxs within timeout"),
+            TerminationCause::TxIdsTimeout => write!(f, "peer did not deliver ReplyTxIds within timeout"),
             TerminationCause::MempoolBatchInsertFailedTimedout => write!(f, "mempool stage unavailable"),
         }
     }
