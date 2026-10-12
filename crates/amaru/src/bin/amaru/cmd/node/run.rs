@@ -232,7 +232,7 @@ pub struct Args {
         long,
         value_name = amaru::value_names::PEERS_MIX,
         env = amaru::env_vars::PEERS_MIX,
-        default_value = amaru_consensus::stages::peer_selection::DEFAULT_PEERS_MIX,
+        default_value = amaru_consensus::performance::DEFAULT_PEERS_MIX,
         display_order = 0,
         help_heading = "Peers options",
         alias = "peer-mix"

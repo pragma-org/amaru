@@ -20,7 +20,7 @@
 //! half-life for **following** entries until another naked `@…` appears. Per-entry `@…`
 //! still overrides that default for that source only.
 //!
-//! See [EDR-031](../../../../../engineering-decision-records/031-peer-source-mix.md).
+//! See [EDR-031](../../../../../../engineering-decision-records/031-peer-source-mix.md).
 
 use std::{collections::BTreeMap, fmt, str::FromStr, time::Duration};
 

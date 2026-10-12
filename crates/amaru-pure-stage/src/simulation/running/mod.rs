@@ -17,6 +17,7 @@
 use std::{
     any::type_name,
     collections::{BTreeMap, BTreeSet, VecDeque},
+    fmt::Write as _,
     mem::replace,
     sync::Arc,
     task::{Context, Poll, Waker},
@@ -703,6 +704,60 @@ impl SimulationRunning {
     /// Default bulk mailbox capacity. A stage that set its own size does not use this.
     pub fn mailbox_size(&self) -> usize {
         self.mailbox_size
+    }
+
+    /// Describe a send deadlock.
+    ///
+    /// Each blocked send is shown with the message that was not admitted. Mailboxes (and a
+    /// non-empty priority queue) are shown for the stages that lie on a cycle in that graph.
+    /// When the blocked sends do not form a cycle, the mailboxes of the send targets are shown
+    /// instead.
+    pub fn format_deadlock(&self, blocks: &[SendBlock]) -> String {
+        let cycle = send_cycle(blocks);
+        let mut out = String::new();
+        let _ = writeln!(out, "blocked sends:");
+        for block in blocks {
+            let on_cycle = cycle.contains(&block.from) && cycle.contains(&block.to);
+            let mark = if on_cycle { " [cycle]" } else { "" };
+            match parked_send(&self.stages, &block.from, &block.to) {
+                Some(msg) => {
+                    let _ = writeln!(out, "  {} -> {}{mark}: {msg:?}", block.from, block.to);
+                }
+                None => {
+                    let _ = writeln!(out, "  {} -> {}{mark}: <message not parked>", block.from, block.to);
+                }
+            }
+        }
+        let shown: Vec<&Name> = if cycle.is_empty() {
+            let _ = writeln!(out, "no send cycle; mailboxes of the blocked targets:");
+            let mut targets: Vec<&Name> = blocks.iter().map(|block| &block.to).collect();
+            targets.sort();
+            targets.dedup();
+            targets
+        } else {
+            let _ = writeln!(out, "cycle mailboxes:");
+            cycle.iter().collect()
+        };
+        for name in shown {
+            let Some(stage) = self.stages.get(name) else {
+                let _ = writeln!(out, "  {name}: <stage gone>");
+                continue;
+            };
+            let _ = writeln!(out, "  {name} bulk ({}/{}):", stage.mailbox.len(), stage.mailbox_size);
+            if stage.mailbox.is_empty() {
+                let _ = writeln!(out, "    <empty>");
+            }
+            for (index, msg) in stage.mailbox.iter().enumerate() {
+                let _ = writeln!(out, "    [{index}] {msg:?}");
+            }
+            if !stage.priority.is_empty() {
+                let _ = writeln!(out, "  {name} priority ({}):", stage.priority.len());
+                for (index, msg) in stage.priority.iter().enumerate() {
+                    let _ = writeln!(out, "    [{index}] {msg:?}");
+                }
+            }
+        }
+        out
     }
 
     /// Obtain a reference to the current state of the given stage.
@@ -1715,6 +1770,52 @@ pub enum InputsResult {
     Blocked(Name),
 }
 
+fn parked_send<'a>(stages: &'a BTreeMap<Name, StageData>, from: &Name, to: &Name) -> Option<&'a dyn SendData> {
+    stages.get(to)?.senders.iter().find(|(name, _)| name == from).map(|(_, msg)| msg.as_ref())
+}
+
+/// Stages that lie on a cycle in the blocked-send graph.
+fn send_cycle(blocks: &[SendBlock]) -> BTreeSet<Name> {
+    let mut adj: BTreeMap<Name, Vec<Name>> = BTreeMap::new();
+    for block in blocks {
+        adj.entry(block.from.clone()).or_default().push(block.to.clone());
+        adj.entry(block.to.clone()).or_default();
+    }
+    let mut on_cycle = BTreeSet::new();
+    let mut color: BTreeMap<Name, u8> = BTreeMap::new();
+    let mut stack = Vec::new();
+    for start in adj.keys().cloned().collect::<Vec<_>>() {
+        if color.get(&start).copied().unwrap_or(0) == 0 {
+            visit_send(&adj, &mut color, &mut stack, &mut on_cycle, start);
+        }
+    }
+    on_cycle
+}
+
+fn visit_send(
+    adj: &BTreeMap<Name, Vec<Name>>,
+    color: &mut BTreeMap<Name, u8>,
+    stack: &mut Vec<Name>,
+    on_cycle: &mut BTreeSet<Name>,
+    name: Name,
+) {
+    color.insert(name.clone(), 1);
+    stack.push(name.clone());
+    for next in adj.get(&name).into_iter().flatten() {
+        match color.get(next).copied().unwrap_or(0) {
+            1 => {
+                if let Some(at) = stack.iter().position(|seen| seen == next) {
+                    on_cycle.extend(stack[at..].iter().cloned());
+                }
+            }
+            0 => visit_send(adj, color, stack, on_cycle, next.clone()),
+            _ => {}
+        }
+    }
+    stack.pop();
+    color.insert(name, 2);
+}
+
 fn block_reason(sim: &SimulationRunning) -> Blocked {
     debug_assert!(sim.runnable.is_empty(), "runnable must be empty");
     if sim.stages.values().filter_map(|d| d.waiting.as_ref()).all(|v| matches!(v, StageEffect::Receive)) {
@@ -1955,5 +2056,56 @@ mod admission_cleanup {
         let data = sim.stages.get(&callee).expect("callee");
         assert!(data.senders.is_empty(), "a gone sender is not put back on the queue");
         assert_eq!(data.mailbox.len(), mailbox, "a gone sender is not admitted");
+    }
+}
+
+#[cfg(test)]
+mod deadlock_report {
+    use crate::{
+        StageGraph,
+        simulation::{Blocked, Run, SimulationBuilder},
+    };
+
+    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Ends {
+        me: crate::StageRef<Note>,
+        peer: crate::StageRef<Note>,
+    }
+
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    enum Note {
+        Boot,
+        Extra,
+        Ping,
+    }
+
+    async fn bounce(st: Ends, msg: Note, eff: crate::Effects<Note>) -> Ends {
+        if matches!(msg, Note::Boot) {
+            eff.send(&st.me, Note::Extra).await;
+            eff.send(&st.peer, Note::Ping).await;
+        }
+        st
+    }
+
+    #[test]
+    fn format_deadlock_shows_the_blocked_send_and_the_cycle_mailbox() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+        let mut network = SimulationBuilder::default().with_mailbox_size(1);
+        let a = network.stage("a", bounce);
+        let b = network.stage("b", bounce);
+        let a_ref = a.sender();
+        let b_ref = b.sender();
+        let a = network.wire_up(a, Ends { me: a_ref.clone(), peer: b_ref.clone() });
+        let b = network.wire_up(b, Ends { me: b_ref, peer: a_ref });
+        network.preload(&a, [Note::Boot]).expect("preload a");
+        network.preload(&b, [Note::Boot]).expect("preload b");
+        let mut running = network.run(rt.handle());
+        let blocked = running.run(Run::default());
+        let Blocked::Deadlock(blocks) = &blocked else { panic!("expected a deadlock, got {blocked:?}") };
+        let report = running.format_deadlock(blocks);
+        assert!(report.contains("Ping"), "{report}");
+        assert!(report.contains("[cycle]"), "{report}");
+        assert!(report.contains("Extra"), "{report}");
+        assert!(report.contains("bulk (1/1)"), "{report}");
     }
 }

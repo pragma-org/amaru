@@ -8011,7 +8011,7 @@
       "name": "disconnect_ignored",
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
-      "description": "A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake}.",
+      "description": "A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake, rejected_duplicate}.",
       "public": true
     },
     "amaru::protocols::manager::peer::DUPLICATE_TERMINATED": {
@@ -8068,6 +8068,28 @@
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
       "description": "The handshake completed on a connection",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::INBOUND_REFUSED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "inbound_refused",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "An inbound handshake was refused because the inbound cap is full",
       "public": true
     },
     "amaru::protocols::manager::peer::LOCAL_USE_APPLIED": {
@@ -8258,6 +8280,24 @@
       "description": "Connect to the initial set of peers at startup",
       "public": true
     },
+    "amaru::protocols::peer_selection::TICK": {
+      "type": "object",
+      "properties": {
+        "full": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "full"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "tick",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection",
+      "description": "One wake of the selection timeout. `full` is true when this wake ran a round.",
+      "public": true
+    },
     "amaru::protocols::peer_selection::ledger::CANDIDATES_FAILED": {
       "type": "object",
       "properties": {
@@ -8339,7 +8379,7 @@
       "name": "add_skipped",
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::peer",
-      "description": "A peer was not added to the outbound set. Reason ∈ {already_added, too_many_inbound}.",
+      "description": "A peer was not added to the outbound set. Reason ∈ {already_added}.",
       "public": true
     },
     "amaru::protocols::peer_selection::peer::CONNECTED": {
@@ -8431,32 +8471,6 @@
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::peer",
       "description": "A connection has been terminated (graceful disconnect, error, handshake refusal, or network error).",
-      "public": true
-    },
-    "amaru::protocols::peer_selection::peer::RECONNECTED": {
-      "type": "object",
-      "properties": {
-        "peer": {
-          "type": "string"
-        },
-        "direction": {
-          "type": "string"
-        },
-        "conn_id": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "peer",
-        "direction",
-        "conn_id"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "reconnected",
-      "level": "TRACE",
-      "target": "amaru::protocols::peer_selection::peer",
-      "description": "A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}.",
       "public": true
     },
     "amaru::protocols::peer_selection::peer::REMOVED": {

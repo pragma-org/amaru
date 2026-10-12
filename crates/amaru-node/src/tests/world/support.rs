@@ -81,6 +81,9 @@ pub(super) fn fragment_trace_guards() -> amaru_pure_stage::DeserializerGuards {
     guards.push(register_data_deserializer::<amaru_consensus::stages::track_peers::TrackPeersMsg>().boxed());
     guards.push(register_data_deserializer::<amaru_protocols::chainsync::ChainSyncInitiatorMsg>().boxed());
     guards.push(register_effect_deserializer::<amaru_consensus::effects::ValidateHeaderEffect>().boxed());
+    guards.push(register_effect_deserializer::<amaru_consensus::performance::QueryPeerViewEffect>().boxed());
+    guards.push(register_data_deserializer::<amaru_consensus::performance::PeerView>().boxed());
+    guards.push(register_data_deserializer::<Option<amaru_consensus::performance::PeerView>>().boxed());
     guards
 }
 

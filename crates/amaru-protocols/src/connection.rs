@@ -28,7 +28,8 @@ use crate::{
     keepalive::{self, register_keepalive},
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, MuxMessage},
-    peer_sharing::{PeerSharingMessage, ShareResult, register_peer_sharing_initiator, register_peer_sharing_responder},
+    peer_sharing::{PeerSharingMessage, register_peer_sharing_initiator, register_peer_sharing_responder},
+    peer_tracking_effects::PeerTrack,
     protocol::{
         Erased, Inputs, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE,
         PROTO_N2N_PEER_SHARE, PROTO_N2N_TX_SUB, ProtocolId, Role, ingress_limit,
@@ -82,28 +83,12 @@ struct Params {
     manager: StageRef<ManagerMessage>,
 }
 
-/// Local use of a bearer: which initiator groups we intend to run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub enum LocalUse {
-    None,
-    Maintenance,
-    Diffusion,
-}
+pub use amaru_ouroboros::LocalUse;
 
-impl LocalUse {
-    fn default_for_role(role: Role) -> Self {
-        match role {
-            Role::Initiator => Self::Diffusion,
-            Role::Responder => Self::None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Maintenance => "maintenance",
-            Self::Diffusion => "diffusion",
-        }
+fn local_use_for_role(role: Role) -> LocalUse {
+    match role {
+        Role::Initiator => LocalUse::Diffusion,
+        Role::Responder => LocalUse::None,
     }
 }
 
@@ -130,7 +115,7 @@ struct Established {
     peer_sharing_initiator: Option<StageRef<PeerSharingMessage>>,
     chainsync_responder: Option<StageRef<chainsync::ResponderMessage>>,
     blockfetch_responder: Option<StageRef<Void>>,
-    peer_sharing_responder: Option<StageRef<crate::peer_sharing::ResponderMessage>>,
+    peer_sharing_responder: Option<StageRef<amaru_pure_stage::Void>>,
     stopping: BTreeSet<ChildId>,
 }
 
@@ -165,13 +150,6 @@ pub enum ConnectionMessage {
         id: u64,
         cr: StageRef<Blocks>,
     },
-    /// Start periodic peer-sharing requests on this connection's initiator.
-    RequestSharePeers {
-        amount: u8,
-        initial_delay: std::time::Duration,
-        interval: std::time::Duration,
-        reply_to: StageRef<ShareResult>,
-    },
     NewTip(Point, TraceContext),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
@@ -190,7 +168,6 @@ impl ConnectionMessage {
             ConnectionMessage::Disconnect => "Disconnect",
             ConnectionMessage::Handshake(_) => "Handshake",
             ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
-            ConnectionMessage::RequestSharePeers { .. } => "RequestSharePeers",
             ConnectionMessage::NewTip(_, _) => "NewTip",
             ConnectionMessage::ChildDied(_) => "ChildDied",
             ConnectionMessage::SetLocalUse(_) => "SetLocalUse",
@@ -258,17 +235,6 @@ pub async fn stage(
                 }
                 State::Established(s)
             }
-            (
-                State::Established(s),
-                ConnectionMessage::RequestSharePeers { amount, initial_delay, interval, reply_to },
-            ) => {
-                if !s.stopping.contains(&ChildId::PeerSharing)
-                    && let Some(ps) = &s.peer_sharing_initiator
-                {
-                    eff.send(ps, PeerSharingMessage::Start { amount, initial_delay, interval, reply_to }).await;
-                }
-                State::Established(s)
-            }
             (State::Established(s), ConnectionMessage::NewTip(tip, trace_context)) => {
                 if let Some(cs) = &s.chainsync_responder {
                     eff.send(cs, chainsync::ResponderMessage::NewTip(tip, trace_context)).await;
@@ -285,10 +251,6 @@ pub async fn stage(
                 // if it never does, the caller times out. The delay is the reconnect delay
                 // (2s by default), shorter than the 5s call timeout. The connect attempt
                 // itself fails after 2s.
-                eff.schedule_after(msg, params.config.reconnect_delay).await;
-                state
-            }
-            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::RequestSharePeers { .. }) => {
                 eff.schedule_after(msg, params.config.reconnect_delay).await;
                 state
             }
@@ -467,7 +429,7 @@ async fn do_handshake(
 
     eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
 
-    let local_use = LocalUse::default_for_role(*role);
+    let local_use = local_use_for_role(*role);
     let run_initiators = *role == Role::Initiator || full_duplex;
     let run_responders = *role == Role::Responder || full_duplex;
     let mut established = Established {
@@ -502,7 +464,7 @@ async fn do_handshake(
 }
 
 async fn register_responders(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
-    let Params { peer, conn_id, manager, era_history, mempool_stage, config, .. } = params;
+    let Params { peer, conn_id, era_history, mempool_stage, config, .. } = params;
     let died = ConnectionMessage::ChildDied(ChildId::Responder);
     let _ = register_keepalive(Role::Responder, *peer, *conn_id, s.muxer.clone(), eff, died).await;
     let _ = register_tx_submission(
@@ -535,14 +497,8 @@ async fn register_responders(mut s: Established, params: &Params, eff: &Effects<
     );
     if s.version_data.is_advertisable() {
         s.peer_sharing_responder = Some(
-            register_peer_sharing_responder(
-                &s.muxer,
-                *peer,
-                manager.clone(),
-                eff,
-                ConnectionMessage::ChildDied(ChildId::Responder),
-            )
-            .await,
+            register_peer_sharing_responder(&s.muxer, *peer, eff, ConnectionMessage::ChildDied(ChildId::Responder))
+                .await,
         );
     }
     s
@@ -684,7 +640,7 @@ async fn on_expected_stop(
 }
 
 async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
-    let Params { peer, conn_id, config, pipeline, mempool_stage, era_history, .. } = params;
+    let Params { peer, conn_id, role, config, pipeline, mempool_stage, era_history, .. } = params;
     if s.desired_use >= LocalUse::Maintenance {
         if s.keepalive_initiator.is_none() {
             s.keepalive_initiator = register_keepalive(
@@ -697,12 +653,15 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
             )
             .await;
         }
-        if s.peer_sharing_initiator.is_none() {
+        if s.peer_sharing_initiator.is_none() && *role == Role::Initiator && s.version_data.is_advertisable() {
             s.peer_sharing_initiator = Some(
                 register_peer_sharing_initiator(
                     &s.muxer,
                     *peer,
                     *conn_id,
+                    config.share_request_amount,
+                    config.share_request_initial_delay,
+                    config.share_request_interval,
                     eff,
                     ConnectionMessage::ChildDied(ChildId::PeerSharing),
                 )
@@ -757,11 +716,14 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
 }
 
 async fn notify_local_use(s: &Established, params: &Params, eff: &Effects<ConnectionMessage>) {
-    eff.send(
-        &params.manager,
-        ManagerMessage::LocalUseApplied { peer: params.peer, conn_id: params.conn_id, local_use: s.actual_use },
-    )
-    .await;
+    let at = eff.clock().await;
+    info!(
+        protocols::manager::peer::LOCAL_USE_APPLIED,
+        peer = params.peer,
+        conn_id = params.conn_id.as_u64(),
+        local_use = s.actual_use.as_str(),
+    );
+    PeerTrack::new(eff).record_local_use_applied(params.peer, params.conn_id, s.actual_use, at).await;
 }
 
 pub fn register_deserializers() -> DeserializerGuards {

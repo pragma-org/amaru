@@ -31,6 +31,8 @@ pub mod metrics_effects;
 pub mod mux;
 pub mod network_effects;
 pub mod peer_sharing;
+pub mod peer_tracking;
+pub mod peer_tracking_effects;
 pub mod protocol;
 pub mod protocol_messages;
 pub mod store_effects;

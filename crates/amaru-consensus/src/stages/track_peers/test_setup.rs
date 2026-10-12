@@ -279,6 +279,10 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordIntersectionEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordRollbackEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<
+            amaru_protocols::peer_tracking_effects::RecordUninterestingEffect,
+        >()
+        .boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::metrics_effects::RecordMetricsEffect>()
             .boxed(),
     ]
@@ -299,6 +303,24 @@ pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::clear_peer_availability(peer)),
+    ))
+}
+
+pub fn te_record_uninteresting(
+    at_stage: &str,
+    peer: Peer,
+    conn_id: ConnectionId,
+    after_rollback: bool,
+    at: Instant,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(amaru_protocols::peer_tracking_effects::RecordUninterestingEffect {
+            peer,
+            conn_id,
+            after_rollback,
+            at,
+        }),
     ))
 }
 
@@ -377,9 +399,10 @@ fn setup_inner(
             network
         },
         |resources| {
-            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
-                crate::performance::Performance::new(),
-            ));
+            let performance = std::sync::Arc::new(crate::performance::Performance::new());
+            resources.put::<crate::performance::ResourcePerformance>(performance.clone());
+            let tracking: amaru_ouroboros::PeerTrackingResource = performance;
+            resources.put::<amaru_ouroboros::PeerTrackingResource>(tracking);
             resources.put::<ResourceHeaderStore>(store.clone());
             let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());

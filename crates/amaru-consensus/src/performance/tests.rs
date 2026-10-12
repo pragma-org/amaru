@@ -16,19 +16,24 @@
 //! A small smoke test exercises the resource handle + external-effect path.
 
 use std::{
+    collections::BTreeSet,
     io::{self, Write},
+    net::SocketAddr,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot};
 use amaru_observability::{CborConsoleEventFormat, console_field_formatter, debug, info};
+use amaru_ouroboros::{
+    CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, LocalUse, ObservedAt, PeerTrackingResource,
+};
 use amaru_pure_stage::{ExternalEffect, Instant, Resources};
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 use super::{
     ClaimKind, HeaderLifecycleOutcome, HeaderPerformance, PeerPerformance, PeerShareFlags, Performance,
-    ResourcePerformance, SelectPeersParams,
+    ResourcePerformance, SHARE_REQUEST_WINDOW, SelectPeersParams, ShareRequestRecord,
 };
 
 fn t(secs: u64) -> Instant {
@@ -65,11 +70,11 @@ fn intersect_only_covers_need_ending_at_intersect_not_unknown_child() {
     let alice = peer("alice");
     let h1 = tip(1, 1);
 
-    peers.apply_intersection(alice, h1, None, t(1));
+    peers.record_intersection(alice, h1, None, t(1));
 
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(1), hash(2)]));
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(1), hash(2)]));
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(2)]));
 }
 
 #[test]
@@ -77,16 +82,16 @@ fn announce_chain_collapses_to_single_tip_and_covers_ancestors() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
 
-    let snap = peers.apply_snapshot(&alice).expect("alice present");
+    let snap = peers.snapshot(&alice).expect("alice present");
     assert_eq!(snap.tips.len(), 1);
     assert_eq!(snap.tips[0].hash, hash(2));
 
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1), hash(2)]));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1), hash(2)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(2)]));
 }
 
 #[test]
@@ -95,16 +100,16 @@ fn duplicate_announcers_both_selected() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(bob, tip(1, 1), None, t(2));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_header_announcement(bob, tip(1, 1), None, t(2));
 
-    let set = peers.apply_select_peers_for_fetch(select(vec![hash(1)], 2));
+    let set = peers.select_peers_for_fetch(select(vec![hash(1)], 2));
     assert!(!set.weak);
     assert_eq!(set.peers.len(), 2);
     assert!(set.peers.contains(&alice));
     assert!(set.peers.contains(&bob));
 
-    let first = peers.apply_first_announced_at(&hash(1)).expect("first announcer");
+    let first = peers.first_announced_at(&hash(1)).expect("first announcer");
     assert_eq!(first.0, alice);
     assert_eq!(first.1, t(1));
 }
@@ -114,13 +119,13 @@ fn descendant_claim_covers_ancestor_via_parent_walk() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
-    peers.apply_header_announcement(alice, tip(3, 3), Some(hash(2)), t(3));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
+    peers.record_header_announcement(alice, tip(3, 3), Some(hash(2)), t(3));
 
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1), hash(2), hash(3)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(2)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1), hash(2), hash(3)]));
 }
 
 #[test]
@@ -131,13 +136,13 @@ fn parent_walk_stops_at_target_height_on_wrong_branch() {
 
     for h in 1u8..=5 {
         let parent = (h > 1).then(|| hash(h - 1));
-        peers.apply_header_announcement(alice, tip(h, h as u64), parent, t(h as u64));
+        peers.record_header_announcement(alice, tip(h, h as u64), parent, t(h as u64));
     }
-    peers.apply_intersection(bob, tip(30, 3), Some(hash(2)), t(10));
+    peers.record_intersection(bob, tip(30, 3), Some(hash(2)), t(10));
 
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(30)]));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(5)]));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(30)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(5)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(2)]));
 }
 
 #[test]
@@ -145,11 +150,11 @@ fn ancestor_only_claim_does_not_cover_descendant() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_intersection(alice, tip(1, 1), None, t(1));
+    peers.record_intersection(alice, tip(1, 1), None, t(1));
 
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(1), hash(2)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(2)]));
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(1), hash(2)]));
 }
 
 #[test]
@@ -157,10 +162,10 @@ fn intersect_at_tip_of_need_covers_full_fragment_via_index() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_intersection(alice, tip(3, 3), Some(hash(2)), t(1));
+    peers.record_intersection(alice, tip(3, 3), Some(hash(2)), t(1));
 
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1), hash(2), hash(3)]));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(3)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1), hash(2), hash(3)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(3)]));
 }
 
 #[test]
@@ -168,21 +173,21 @@ fn rollback_drops_fork_tip_and_restores_point() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
-    peers.apply_header_announcement(alice, tip(10, 3), Some(hash(1)), t(3));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_header_announcement(alice, tip(2, 2), Some(hash(1)), t(2));
+    peers.record_header_announcement(alice, tip(10, 3), Some(hash(1)), t(3));
 
-    let before = peers.apply_snapshot(&alice).expect("alice");
+    let before = peers.snapshot(&alice).expect("alice");
     assert!(!before.tips.is_empty());
 
-    peers.apply_rollback(alice, tip(1, 1), None, t(4));
+    peers.record_rollback(alice, tip(1, 1), None, t(4));
 
-    let after = peers.apply_snapshot(&alice).expect("alice");
+    let after = peers.snapshot(&alice).expect("alice");
     assert!(after.tips.iter().any(|c| c.hash == hash(1)));
     assert!(!after.tips.iter().any(|c| c.hash == hash(2)));
     assert!(!after.tips.iter().any(|c| c.hash == hash(10)));
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(2)]));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(2)]));
 }
 
 #[test]
@@ -190,20 +195,20 @@ fn prune_removes_old_tips_but_retains_scores() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(50), 90_000);
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(50), 90_000);
 
-    let scores_before = peers.apply_scores(&alice);
+    let scores_before = peers.scores(&alice);
     assert!(scores_before.block_response_ewma.is_some());
     assert_eq!(scores_before.fetch_successes, 1);
 
-    peers.apply_prune_below(BlockHeight::from(5));
+    peers.prune_below(BlockHeight::from(5));
 
-    let snap = peers.apply_snapshot(&alice).expect("alice kept for scores");
+    let snap = peers.snapshot(&alice).expect("alice kept for scores");
     assert!(snap.tips.is_empty());
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert_eq!(peers.apply_scores(&alice).fetch_successes, 1);
-    assert!(peers.apply_scores(&alice).block_response_ewma.is_some());
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert_eq!(peers.scores(&alice).fetch_successes, 1);
+    assert!(peers.scores(&alice).block_response_ewma.is_some());
 }
 
 #[test]
@@ -211,19 +216,19 @@ fn clear_availability_keeps_scores_and_share_flags() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_advertisability(alice, true, t(0));
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(20), 1000);
+    peers.record_advertisability(alice, true, t(0));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(20), 1000);
 
-    peers.apply_clear_peer_availability(&alice);
-    assert!(!peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert_eq!(peers.apply_scores(&alice).fetch_successes, 1);
-    assert!(peers.apply_direct_claimants(&hash(1)).is_empty());
+    peers.clear_availability(&alice);
+    assert!(!peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert_eq!(peers.scores(&alice).fetch_successes, 1);
+    assert!(peers.direct_claimants(&hash(1)).is_empty());
     assert_eq!(
-        peers.apply_share_flags(&alice),
+        peers.share_flags(&alice),
         Some(PeerShareFlags { ever_connected: true, advertisable: true, failure_count: 0, adversarial: false })
     );
-    assert!(peers.apply_ok_for_sharing(&alice, t(10)));
+    assert!(peers.ok_for_sharing(&alice, t(10)));
 }
 
 #[test]
@@ -231,14 +236,14 @@ fn peer_adversarial_keeps_reputation_stub_clears_claims_and_scores() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_advertisability(alice, true, t(0));
-    peers.apply_connection_failure(alice, t(1));
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(2));
-    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(3), Duration::from_millis(20), 1000);
+    peers.record_advertisability(alice, true, t(0));
+    peers.record_connection_failure(alice, t(1));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(2));
+    peers.record_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(3), Duration::from_millis(20), 1000);
 
-    peers.apply_peer_adversarial(&alice, t(4));
+    peers.mark_adversarial(&alice, t(4));
 
-    let snap = peers.apply_snapshot(&alice).expect("stub retained after adversarial mark");
+    let snap = peers.snapshot(&alice).expect("stub retained after adversarial mark");
     assert!(snap.tips.is_empty());
     assert_eq!(snap.scores.fetch_successes, 0);
     assert!(snap.scores.block_response_ewma.is_none());
@@ -246,8 +251,8 @@ fn peer_adversarial_keeps_reputation_stub_clears_claims_and_scores() {
         snap.share,
         PeerShareFlags { ever_connected: true, advertisable: true, failure_count: 1, adversarial: true }
     );
-    assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
-    assert!(peers.apply_direct_claimants(&hash(1)).is_empty());
+    assert!(!peers.ok_for_sharing(&alice, t(10)));
+    assert!(peers.direct_claimants(&hash(1)).is_empty());
 }
 
 #[test]
@@ -255,18 +260,18 @@ fn advertisability_latest_handshake_wins() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_advertisability(alice, true, t(1));
-    assert!(peers.apply_ok_for_sharing(&alice, t(10)));
+    peers.record_advertisability(alice, true, t(1));
+    assert!(peers.ok_for_sharing(&alice, t(10)));
 
-    peers.apply_advertisability(alice, false, t(2));
+    peers.record_advertisability(alice, false, t(2));
     assert_eq!(
-        peers.apply_share_flags(&alice),
+        peers.share_flags(&alice),
         Some(PeerShareFlags { ever_connected: true, advertisable: false, failure_count: 0, adversarial: false })
     );
-    assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
+    assert!(!peers.ok_for_sharing(&alice, t(10)));
 
-    peers.apply_advertisability(alice, true, t(3));
-    assert!(peers.apply_ok_for_sharing(&alice, t(10)));
+    peers.record_advertisability(alice, true, t(3));
+    assert!(peers.ok_for_sharing(&alice, t(10)));
 }
 
 #[test]
@@ -274,19 +279,19 @@ fn connection_failure_blocks_sharing_until_malus_decays() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
+    assert!(!peers.ok_for_sharing(&alice, t(10)));
 
-    peers.apply_advertisability(alice, true, t(1));
-    assert!(peers.apply_ok_for_sharing(&alice, t(10)));
+    peers.record_advertisability(alice, true, t(1));
+    assert!(peers.ok_for_sharing(&alice, t(10)));
 
-    peers.apply_connection_failure(alice, t(2));
-    assert_eq!(peers.apply_share_flags(&alice).map(|f| f.failure_count), Some(1));
-    assert!(!peers.apply_ok_for_sharing(&alice, t(2)));
+    peers.record_connection_failure(alice, t(2));
+    assert_eq!(peers.share_flags(&alice).map(|f| f.failure_count), Some(1));
+    assert!(!peers.ok_for_sharing(&alice, t(2)));
 
-    peers.apply_connection_failure(alice, t(3));
-    assert_eq!(peers.apply_share_flags(&alice).map(|f| f.failure_count), Some(2));
+    peers.record_connection_failure(alice, t(3));
+    assert_eq!(peers.share_flags(&alice).map(|f| f.failure_count), Some(2));
     // Still high shortly after failures.
-    assert!(!peers.apply_ok_for_sharing(&alice, t(3)));
+    assert!(!peers.ok_for_sharing(&alice, t(3)));
 }
 
 #[test]
@@ -294,13 +299,13 @@ fn connection_failure_only_does_not_mark_ever_connected() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_connection_failure(alice, t(1));
+    peers.record_connection_failure(alice, t(1));
 
     assert_eq!(
-        peers.apply_share_flags(&alice),
+        peers.share_flags(&alice),
         Some(PeerShareFlags { ever_connected: false, advertisable: false, failure_count: 1, adversarial: false })
     );
-    assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
+    assert!(!peers.ok_for_sharing(&alice, t(10)));
 }
 
 #[test]
@@ -309,7 +314,7 @@ fn connection_malus_decays_with_half_life_without_new_samples() {
 
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
-    peers.apply_connection_failure(alice, t(0));
+    peers.record_connection_failure(alice, t(0));
 
     let hl = peers.half_life_for(&alice);
     assert_eq!(hl, DEFAULT_PEER_MALUS_HALF_LIFE);
@@ -336,12 +341,12 @@ fn outbound_selection_prefers_never_connected_over_fresh_failure() {
         BTreeSet::new(),
         PeerMix::parse("static~1").unwrap(),
     );
-    peers.apply_connection_failure(bad, t(1));
+    peers.record_connection_failure(bad, t(1));
 
     // A fresh failure ranks behind a never-connected peer, so the one open slot stays with the healthy peer.
     for i in 0..20u8 {
         let seed = [i; 32];
-        let picked = peers.apply_select_outbound(SelectOutboundParams {
+        let picked = peers.select_outbound(SelectOutboundParams {
             open: 1,
             excluded: BTreeSet::new(),
             eligible_inbound: 0,
@@ -372,10 +377,10 @@ fn failed_hostname_is_offered_when_nothing_better_remains() {
         BTreeSet::new(),
         PeerMix::parse("snapshot~1@10s").unwrap(),
     );
-    peers.apply_note_dial(PeerSource::Snapshot, &host, resolved);
-    peers.apply_connection_failure(resolved, t(0));
+    peers.note_dial(PeerSource::Snapshot, &host, resolved, t(0));
+    peers.record_connection_failure(resolved, t(0));
 
-    let picked = peers.apply_select_outbound(SelectOutboundParams {
+    let picked = peers.select_outbound(SelectOutboundParams {
         open: 1,
         excluded: BTreeSet::new(),
         eligible_inbound: 0,
@@ -403,10 +408,10 @@ fn open_slots_fill_worse_scores_after_better_ones() {
         BTreeSet::new(),
         PeerMix::parse("snapshot~1@10s").unwrap(),
     );
-    peers.apply_note_dial(PeerSource::Snapshot, &failed, resolved);
-    peers.apply_connection_failure(resolved, t(0));
+    peers.note_dial(PeerSource::Snapshot, &failed, resolved, t(0));
+    peers.record_connection_failure(resolved, t(0));
 
-    let picked = peers.apply_select_outbound(SelectOutboundParams {
+    let picked = peers.select_outbound(SelectOutboundParams {
         open: 2,
         excluded: BTreeSet::new(),
         eligible_inbound: 0,
@@ -433,7 +438,7 @@ fn outbound_selection_picks_unresolved_host() {
         BTreeSet::new(),
         PeerMix::parse("static~1").unwrap(),
     );
-    let picked = peers.apply_select_outbound(SelectOutboundParams {
+    let picked = peers.select_outbound(SelectOutboundParams {
         open: 1,
         excluded: BTreeSet::new(),
         eligible_inbound: 0,
@@ -459,7 +464,7 @@ fn outbound_selection_skips_excluded_unresolved_host() {
         BTreeSet::new(),
         PeerMix::parse("static~1").unwrap(),
     );
-    let picked = peers.apply_select_outbound(SelectOutboundParams {
+    let picked = peers.select_outbound(SelectOutboundParams {
         open: 1,
         excluded: BTreeSet::from([host]),
         eligible_inbound: 0,
@@ -486,9 +491,9 @@ fn note_dial_keeps_hostname_in_pool_and_marks_origin() {
         BTreeSet::new(),
         PeerMix::parse("static~1").unwrap(),
     );
-    peers.apply_note_dial(PeerSource::Static, &host, resolved);
-    assert!(peers.apply_is_static_peer(&resolved));
-    let picked = peers.apply_select_outbound(SelectOutboundParams {
+    peers.note_dial(PeerSource::Static, &host, resolved, t(1));
+    assert!(peers.is_static_peer(&resolved));
+    let picked = peers.select_outbound(SelectOutboundParams {
         open: 1,
         excluded: BTreeSet::new(),
         eligible_inbound: 0,
@@ -511,7 +516,7 @@ fn inbound_mix_slots_are_allotted_not_dialed() {
         BTreeSet::new(),
         PeerMix::parse("inbound~1, static~1").unwrap(),
     );
-    let picked = peers.apply_select_outbound(SelectOutboundParams {
+    let picked = peers.select_outbound(SelectOutboundParams {
         open: 2,
         excluded: BTreeSet::new(),
         eligible_inbound: 5,
@@ -530,9 +535,9 @@ fn ranking_prefers_faster_delivery() {
     let slow = peer("slow");
     let partial = peer("partial");
 
-    peers.apply_header_announcement(fast, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(fast, tip(2, 2), Some(hash(1)), t(2));
-    peers.apply_block_delivery(
+    peers.record_header_announcement(fast, tip(1, 1), None, t(1));
+    peers.record_header_announcement(fast, tip(2, 2), Some(hash(1)), t(2));
+    peers.record_block_delivery(
         fast,
         hash(2),
         BlockHeight::from(2),
@@ -542,9 +547,9 @@ fn ranking_prefers_faster_delivery() {
         90_000,
     );
 
-    peers.apply_header_announcement(slow, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(slow, tip(2, 2), Some(hash(1)), t(2));
-    peers.apply_block_delivery(
+    peers.record_header_announcement(slow, tip(1, 1), None, t(1));
+    peers.record_header_announcement(slow, tip(2, 2), Some(hash(1)), t(2));
+    peers.record_block_delivery(
         slow,
         hash(2),
         BlockHeight::from(2),
@@ -554,9 +559,9 @@ fn ranking_prefers_faster_delivery() {
         90_000,
     );
 
-    peers.apply_header_announcement(partial, tip(1, 1), None, t(1));
+    peers.record_header_announcement(partial, tip(1, 1), None, t(1));
 
-    let set = peers.apply_select_peers_for_fetch(select(vec![hash(1), hash(2)], 3));
+    let set = peers.select_peers_for_fetch(select(vec![hash(1), hash(2)], 3));
     assert!(!set.weak);
     assert_eq!(set.peers, vec![fast, slow]);
     assert!(!set.peers.contains(&partial));
@@ -568,11 +573,11 @@ fn prefix_only_peer_not_selected_for_range() {
     let prefix = peer("prefix");
     let full = peer("full");
 
-    peers.apply_header_announcement(prefix, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(full, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(full, tip(2, 2), Some(hash(1)), t(2));
+    peers.record_header_announcement(prefix, tip(1, 1), None, t(1));
+    peers.record_header_announcement(full, tip(1, 1), None, t(1));
+    peers.record_header_announcement(full, tip(2, 2), Some(hash(1)), t(2));
 
-    let set = peers.apply_select_peers_for_fetch(select(vec![hash(1), hash(2)], 5));
+    let set = peers.select_peers_for_fetch(select(vec![hash(1), hash(2)], 5));
     assert_eq!(set.peers, vec![full]);
     assert!(!set.peers.contains(&prefix));
 }
@@ -580,7 +585,7 @@ fn prefix_only_peer_not_selected_for_range() {
 #[test]
 fn cold_start_empty_map_returns_weak_empty_selection() {
     let peers = PeerPerformance::new();
-    let set = peers.apply_select_peers_for_fetch(select(vec![hash(1)], 5));
+    let set = peers.select_peers_for_fetch(select(vec![hash(1)], 5));
     assert!(set.weak);
     assert!(set.peers.is_empty());
 }
@@ -590,12 +595,12 @@ fn after_intersect_selection_becomes_non_empty() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    let empty = peers.apply_select_peers_for_fetch(select(vec![hash(5)], 5));
+    let empty = peers.select_peers_for_fetch(select(vec![hash(5)], 5));
     assert!(empty.weak);
 
-    peers.apply_intersection(alice, tip(5, 5), Some(hash(4)), t(1));
+    peers.record_intersection(alice, tip(5, 5), Some(hash(4)), t(1));
 
-    let set = peers.apply_select_peers_for_fetch(select(vec![hash(5)], 5));
+    let set = peers.select_peers_for_fetch(select(vec![hash(5)], 5));
     assert!(!set.weak);
     assert_eq!(set.peers, vec![alice]);
 }
@@ -606,21 +611,21 @@ fn later_announcer_is_selected_when_the_first_is_excluded() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    let first = peers.apply_select_peers_for_fetch(select(vec![hash(1)], 3));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    let first = peers.select_peers_for_fetch(select(vec![hash(1)], 3));
     assert!(!first.weak);
     assert_eq!(first.peers, vec![alice]);
 
-    peers.apply_header_announcement(bob, tip(1, 1), None, t(2));
+    peers.record_header_announcement(bob, tip(1, 1), None, t(2));
     let mut again = select(vec![hash(1)], 3);
     again.exclude = vec![alice];
-    let second = peers.apply_select_peers_for_fetch(again);
+    let second = peers.select_peers_for_fetch(again);
     assert!(!second.weak);
     assert_eq!(second.peers, vec![bob]);
 
     let mut nobody = select(vec![hash(1)], 3);
     nobody.exclude = vec![alice, bob];
-    let third = peers.apply_select_peers_for_fetch(nobody);
+    let third = peers.select_peers_for_fetch(nobody);
     assert!(third.weak);
     assert!(third.peers.is_empty());
 }
@@ -630,9 +635,9 @@ fn max_peers_bounds_selection() {
     let mut peers = PeerPerformance::new();
     for i in 0..10u8 {
         let p = peer(&format!("p{i}"));
-        peers.apply_header_announcement(p, tip(1, 1), None, t(1));
+        peers.record_header_announcement(p, tip(1, 1), None, t(1));
     }
-    let set = peers.apply_select_peers_for_fetch(select(vec![hash(1)], 3));
+    let set = peers.select_peers_for_fetch(select(vec![hash(1)], 3));
     assert_eq!(set.peers.len(), 3);
     assert!(!set.weak);
 }
@@ -643,16 +648,16 @@ fn churn_ranks_unreliable_peers_first() {
     let good = peer("good");
     let bad = peer("bad");
 
-    peers.apply_header_announcement(good, tip(1, 1), None, t(1));
-    peers.apply_block_delivery(good, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(10), 1000);
+    peers.record_header_announcement(good, tip(1, 1), None, t(1));
+    peers.record_block_delivery(good, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(10), 1000);
 
-    peers.apply_header_announcement(bad, tip(1, 1), None, t(1));
-    peers.apply_fetch_failure(std::slice::from_ref(&bad), t(3));
-    peers.apply_fetch_failure(std::slice::from_ref(&bad), t(4));
+    peers.record_header_announcement(bad, tip(1, 1), None, t(1));
+    peers.record_fetch_failure(std::slice::from_ref(&bad), t(3));
+    peers.record_fetch_failure(std::slice::from_ref(&bad), t(4));
 
-    let ranked = peers.apply_rank_peers_for_churn(&[good, bad], t(5));
-    assert_eq!(ranked[0].0, bad);
-    assert_eq!(ranked[1].0, good);
+    let ranked = peers.rank_peers_for_churn(&[good, bad], t(5));
+    assert_eq!(ranked[0].peer, bad);
+    assert_eq!(ranked[1].peer, good);
 }
 
 #[test]
@@ -660,10 +665,10 @@ fn claim_kind_strength_prefers_delivery_over_intersection() {
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_intersection(alice, tip(1, 1), None, t(1));
-    peers.apply_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(5), 100);
+    peers.record_intersection(alice, tip(1, 1), None, t(1));
+    peers.record_block_delivery(alice, hash(1), BlockHeight::from(1), None, t(2), Duration::from_millis(5), 100);
 
-    let claimants = peers.apply_direct_claimants(&hash(1));
+    let claimants = peers.direct_claimants(&hash(1));
     assert_eq!(claimants.len(), 1);
     assert_eq!(claimants[0].2, ClaimKind::BlockDelivery);
 }
@@ -674,11 +679,11 @@ fn header_lag_records_zero_for_first_announcer_and_delay_for_late() {
     let alice = peer("alice");
     let bob = peer("bob");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
-    peers.apply_header_announcement(bob, tip(1, 1), None, t(3));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_header_announcement(bob, tip(1, 1), None, t(3));
 
-    assert_eq!(peers.apply_scores(&alice).header_lag_ewma, Some(Duration::ZERO));
-    assert_eq!(peers.apply_scores(&bob).header_lag_ewma, Some(Duration::from_secs(2)));
+    assert_eq!(peers.scores(&alice).header_lag_ewma, Some(Duration::ZERO));
+    assert_eq!(peers.scores(&bob).header_lag_ewma, Some(Duration::from_secs(2)));
 }
 
 // ---------------------------------------------------------------------------
@@ -691,12 +696,12 @@ fn header_received_and_peer_claim_are_independent_maps() {
     let mut headers = HeaderPerformance::new();
     let alice = peer("alice");
 
-    peers.apply_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
     headers.apply_header_received(alice, tip(1, 1), t(1), 1_000, Duration::ZERO, false);
 
     assert_eq!(headers.lifecycle_count(), 1);
-    assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
-    assert_eq!(peers.apply_first_announced_at(&hash(1)).map(|(p, _)| p), Some(alice));
+    assert!(peers.peer_covers_fragment(&alice, &[hash(1)]));
+    assert_eq!(peers.first_announced_at(&hash(1)).map(|(p, _)| p), Some(alice));
 }
 
 #[test]
@@ -1054,4 +1059,587 @@ fn env_filter_selects_exactly_the_four_blockperf_events() {
     assert!(with_info.contains("blocks.paused"), "{with_info}");
     assert!(!with_info.contains("blocks.timeout"), "{with_info}");
     assert!(with_info.contains("header.announced") && with_info.contains("block.adopted"), "{with_info}");
+}
+
+fn observed(elapsed_secs: u64, offset_secs: u64) -> ObservedAt {
+    ObservedAt::new(Duration::from_secs(elapsed_secs), Duration::from_secs(offset_secs))
+}
+
+fn connection_record(peer: Peer, conn_id: ConnectionId, at: ObservedAt, advertisable: bool) -> ConnectionRecord {
+    ConnectionRecord {
+        peer,
+        conn_id,
+        direction: ConnectionDirection::Outbound,
+        full_duplex_capable: true,
+        full_duplex: false,
+        advertisable,
+        local_use: LocalUse::None,
+        established_at: at,
+    }
+}
+
+fn conn_ids() -> (ConnectionId, ConnectionId) {
+    let mut ids = ConnectionId::initial();
+    let first = ids.get_and_increment();
+    let second = ids.get_and_increment();
+    (first, second)
+}
+
+#[test]
+fn established_connection_is_stored_and_marks_ever_connected() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let (id, _) = conn_ids();
+    let established_at = observed(1, 0);
+    let at = observed(2, 5);
+    let mut record = connection_record(alice, id, established_at, false);
+    record.full_duplex = true;
+    record.direction = ConnectionDirection::Inbound;
+    peers.record_connection_established(record.clone(), at);
+
+    assert_eq!(peers.connection(id).cloned(), Some(record));
+    assert_eq!(
+        peers.share_flags(&alice),
+        Some(PeerShareFlags { ever_connected: true, advertisable: false, failure_count: 0, adversarial: false })
+    );
+    let last = peers.scores(&alice).last_change.expect("observation time");
+    assert_eq!(last.sim_elapsed(), Duration::from_secs(2));
+    assert_eq!(last.duration_since_global_epoch(), Duration::from_secs(7));
+}
+
+#[test]
+fn last_close_clears_claims_and_keeps_reputation() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    peers.record_intersection(alice, tip(1, 1), None, t(1));
+    let at = observed(4, 9);
+    let (id_a, id_b) = conn_ids();
+    peers.record_connection_established(connection_record(alice, id_a, at, true), at);
+    peers.record_connection_established(connection_record(alice, id_b, at, true), at);
+
+    peers.record_connection_closed(alice, id_a, CloseReason::BearerEnded, at);
+    let mid = peers.snapshot(&alice).expect("peer row");
+    assert!(!mid.tips.is_empty(), "claims stay while another bearer is live");
+    assert!(peers.connection(id_b).is_some());
+    assert_eq!(peers.last_close(&alice), Some((id_a, CloseReason::BearerEnded, at)));
+
+    let later = observed(5, 9);
+    peers.record_connection_closed(alice, id_b, CloseReason::LocalDisconnect, later);
+    let end = peers.snapshot(&alice).expect("reputation stub");
+    assert!(end.tips.is_empty());
+    assert!(end.share.ever_connected);
+    assert!(end.share.advertisable);
+    assert!(peers.connection(id_a).is_none());
+    assert!(peers.connection(id_b).is_none());
+    assert_eq!(peers.last_close(&alice), Some((id_b, CloseReason::LocalDisconnect, later)));
+}
+
+#[test]
+fn close_for_unknown_connection_or_other_peer_changes_nothing() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+    peers.record_intersection(alice, tip(1, 1), None, t(1));
+    let at = observed(1, 0);
+    let (id_a, id_b) = conn_ids();
+    peers.record_connection_established(connection_record(alice, id_a, at, true), at);
+
+    peers.record_connection_closed(alice, id_b, CloseReason::BearerEnded, at);
+    peers.record_connection_closed(bob, id_a, CloseReason::LocalDisconnect, observed(3, 0));
+
+    assert_eq!(peers.connection(id_a).map(|conn| conn.peer), Some(alice));
+    assert!(!peers.snapshot(&alice).expect("row").tips.is_empty());
+    assert!(peers.last_close(&alice).is_none());
+    assert!(peers.last_close(&bob).is_none());
+}
+
+#[test]
+fn local_use_applies_only_to_the_named_bearer() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+    let at = observed(1, 2);
+    let (id, missing) = conn_ids();
+    peers.record_connection_established(connection_record(alice, id, at, true), at);
+
+    let applied = observed(8, 2);
+    assert!(peers.may_initiate().is_empty());
+    peers.record_local_use_applied(alice, id, LocalUse::Diffusion, applied);
+    assert_eq!(peers.connection(id).map(|conn| conn.local_use), Some(LocalUse::Diffusion));
+    assert_eq!(peers.use_applied_at(id), Some(applied));
+    assert_eq!(peers.may_initiate(), BTreeSet::from([id]));
+
+    peers.record_local_use_applied(bob, id, LocalUse::Maintenance, observed(9, 2));
+    assert_eq!(peers.connection(id).map(|conn| conn.local_use), Some(LocalUse::Diffusion));
+    assert_eq!(peers.use_applied_at(id), Some(applied));
+
+    peers.record_local_use_applied(alice, missing, LocalUse::None, observed(10, 2));
+    assert!(peers.use_applied_at(missing).is_none());
+}
+
+#[test]
+fn connect_failure_raises_malus_without_ever_connected() {
+    let mut peers = PeerPerformance::new();
+    let bob = peer("bob");
+    let at = observed(3, 4);
+    peers.record_connect_failed(bob, at);
+    assert_eq!(
+        peers.share_flags(&bob),
+        Some(PeerShareFlags { ever_connected: false, advertisable: false, failure_count: 1, adversarial: false })
+    );
+    assert_eq!(peers.last_connect_failure(&bob), Some(at));
+    let last = peers.scores(&bob).last_change.expect("failure time");
+    assert_eq!(last.sim_elapsed(), Duration::from_secs(3));
+    assert_eq!(last.duration_since_global_epoch(), Duration::from_secs(7));
+    assert_eq!(peers.generation(), 1);
+    assert!(peers.query_peer_view(0).is_some());
+    assert!(peers.query_peer_view(1).is_none());
+
+    peers.record_connection_failure(peer("carol"), t(4));
+    assert_eq!(peers.generation(), 2);
+    assert!(peers.query_peer_view(1).is_some(), "a failure write moves the view generation");
+}
+
+#[test]
+fn keepalive_sample_keeps_both_clock_fields() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let at = observed(11, 70);
+    let generation = peers.generation();
+    peers.record_keepalive_sample(alice, Duration::from_millis(12), at);
+    assert_eq!(peers.scores(&alice).keepalive_rtt_latest, Some(Duration::from_millis(12)));
+    assert_eq!(peers.scores(&alice).keepalive_rtt_ewma, Some(Duration::from_millis(12)));
+    let last = peers.scores(&alice).last_change.expect("sample time");
+    assert_eq!(last.sim_elapsed(), Duration::from_secs(11));
+    assert_eq!(last.duration_since_global_epoch(), Duration::from_secs(81));
+    assert_eq!(peers.generation(), generation);
+}
+
+#[test]
+fn keepalive_rtt_summary_keeps_latest_and_smoothed() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let first = Duration::from_millis(12);
+    let second = Duration::from_millis(32);
+    peers.record_keepalive_rtt(alice, first, t(1));
+    peers.record_keepalive_rtt(alice, second, t(2));
+
+    let expected = Duration::from_secs_f64((1.0 - 0.2) * first.as_secs_f64() + 0.2 * second.as_secs_f64());
+    let scores = peers.scores(&alice);
+    assert_eq!(scores.keepalive_rtt_latest, Some(second));
+    assert_eq!(scores.keepalive_rtt_ewma, Some(expected));
+    assert_eq!(peers.snapshot(&alice).expect("row").scores, scores);
+    assert_eq!(peers.churn_inputs(&[alice])[0].scores, scores);
+}
+
+#[test]
+fn shared_peers_and_share_requests_are_recorded() {
+    let mut peers = PeerPerformance::new();
+    let donor = Peer::for_test(4001);
+    let other = Peer::for_test(4002);
+    let asker = Peer::for_test(4003);
+    let addr = SocketAddr::from(other);
+    let at = observed(2, 0);
+    peers.record_shared_peers(&donor, &[addr], at);
+    assert!(peers.shared_contains(&other));
+    assert_eq!(peers.last_shared_at(&donor), Some(at));
+    assert_eq!(peers.query_share_peers(&asker, 1, at), vec![addr]);
+    assert!(peers.query_share_peers(&asker, 0, at).is_empty());
+
+    peers.record_share_request_served(asker, 3, observed(1, 2));
+    peers.record_share_request_served(asker, 5, observed(6, 2));
+    assert_eq!(
+        peers.share_requests(&asker),
+        Some(ShareRequestRecord {
+            count: 2,
+            last_amount: 5,
+            last_at: observed(6, 2),
+            window_start: observed(1, 2),
+            current_window: 2,
+            previous_window: 0,
+        })
+    );
+}
+
+#[test]
+fn share_request_window_rolls_current_into_previous() {
+    let mut peers = PeerPerformance::new();
+    let asker = Peer::for_test(4003);
+    let start = observed(100, 2);
+    let at = |extra: Duration| ObservedAt::new(start.elapsed + extra, start.global_epoch_offset);
+
+    peers.record_share_request_served(asker, 3, start);
+    peers.record_share_request_served(asker, 4, at(SHARE_REQUEST_WINDOW - Duration::from_secs(1)));
+    let inside = peers.share_requests(&asker).expect("row");
+    assert_eq!(inside.count, 2);
+    assert_eq!(inside.last_amount, 4);
+    assert_eq!(inside.current_window, 2);
+    assert_eq!(inside.previous_window, 0);
+    assert_eq!(inside.window_start, start);
+
+    peers.record_share_request_served(asker, 5, at(SHARE_REQUEST_WINDOW));
+    let rolled = peers.share_requests(&asker).expect("row");
+    assert_eq!(rolled.count, 3);
+    assert_eq!(rolled.last_amount, 5);
+    assert_eq!(rolled.last_at, at(SHARE_REQUEST_WINDOW));
+    assert_eq!(rolled.current_window, 1);
+    assert_eq!(rolled.previous_window, 2);
+    assert_eq!(rolled.window_start, at(SHARE_REQUEST_WINDOW));
+
+    peers.record_share_request_served(asker, 1, at(SHARE_REQUEST_WINDOW + Duration::from_secs(10)));
+    peers.record_share_request_served(asker, 7, at(SHARE_REQUEST_WINDOW.saturating_mul(3)));
+    let skipped = peers.share_requests(&asker).expect("row");
+    assert_eq!(skipped.count, 5);
+    assert_eq!(skipped.last_amount, 7);
+    assert_eq!(skipped.current_window, 1);
+    assert_eq!(skipped.previous_window, 0);
+    assert_eq!(skipped.window_start, at(SHARE_REQUEST_WINDOW.saturating_mul(3)));
+    assert_eq!(peers.generation(), 0);
+}
+
+#[test]
+fn share_request_window_stays_on_the_boundary_when_the_sample_is_off_grid() {
+    let mut peers = PeerPerformance::new();
+    let asker = Peer::for_test(4004);
+    let start = observed(100, 2);
+    let at = |extra: Duration| ObservedAt::new(start.elapsed + extra, start.global_epoch_offset);
+
+    peers.record_share_request_served(asker, 3, start);
+    peers.record_share_request_served(asker, 4, at(Duration::from_secs(90)));
+    let rolled = peers.share_requests(&asker).expect("row");
+    assert_eq!(rolled.count, 2);
+    assert_eq!(rolled.current_window, 1);
+    assert_eq!(rolled.previous_window, 1, "one whole window rolls the current count forward");
+    assert_eq!(rolled.window_start, at(SHARE_REQUEST_WINDOW), "the window stays on the 60s boundary");
+    assert_eq!(peers.generation(), 0);
+}
+
+#[test]
+fn observations_do_not_change_fetch_or_share_replies() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+    peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    peers.record_header_announcement(bob, tip(1, 1), None, t(1));
+    let fetch_before = peers.select_peers_for_fetch(select(vec![hash(1)], 2));
+    assert_eq!(fetch_before.peers.len(), 2);
+    // The peer fetch currently prefers gets the slow sample. Reading RTT would reorder.
+    peers.record_keepalive_rtt(fetch_before.peers[0], Duration::from_secs(3600), t(3));
+    peers.record_keepalive_rtt(fetch_before.peers[1], Duration::from_millis(1), t(3));
+    assert_eq!(peers.select_peers_for_fetch(select(vec![hash(1)], 2)), fetch_before);
+
+    let mut churn_peers = PeerPerformance::new();
+    churn_peers.record_header_announcement(alice, tip(1, 1), None, t(1));
+    churn_peers.record_header_announcement(bob, tip(1, 1), None, t(1));
+    let churn_before: Vec<_> =
+        churn_peers.rank_peers_for_churn(&[alice, bob], t(2)).into_iter().map(|row| row.peer).collect();
+    assert_eq!(churn_before.len(), 2);
+    // Worst-first: the last peer is the one churn prefers. A slow sample there would move it first.
+    churn_peers.record_keepalive_rtt(churn_before[1], Duration::from_secs(3600), t(3));
+    churn_peers.record_keepalive_rtt(churn_before[0], Duration::from_millis(1), t(3));
+    let churn_after: Vec<_> =
+        churn_peers.rank_peers_for_churn(&[alice, bob], t(4)).into_iter().map(|row| row.peer).collect();
+    assert_eq!(churn_after, churn_before);
+
+    let donor = Peer::for_test(4001);
+    let other = Peer::for_test(4002);
+    let asker = Peer::for_test(4003);
+    let at = observed(2, 0);
+    peers.record_shared_peers(&donor, &[SocketAddr::from(other), SocketAddr::from(donor)], at);
+    let now = t(2);
+    let reply_before = peers.select_share_peers(&asker, 10, now);
+    assert!(!reply_before.is_empty());
+    for step in 0..5 {
+        let when =
+            ObservedAt::new(at.elapsed + SHARE_REQUEST_WINDOW.saturating_mul(step as u32), at.global_epoch_offset);
+        peers.record_share_request_served(asker, 10, when);
+        peers.record_share_request_served(other, 10, when);
+    }
+    assert_eq!(peers.select_share_peers(&asker, 10, now), reply_before);
+}
+
+#[test]
+fn adversarial_mark_clears_rtt_and_share_rate_and_close_keeps_them() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let (id, _) = conn_ids();
+    let at = observed(1, 2);
+    peers.record_connection_established(connection_record(alice, id, at, true), at);
+    peers.record_keepalive_sample(alice, Duration::from_millis(12), at);
+    peers.record_share_request_served(alice, 3, at);
+
+    peers.record_connection_closed(alice, id, CloseReason::BearerEnded, observed(2, 2));
+    assert_eq!(peers.scores(&alice).keepalive_rtt_latest, Some(Duration::from_millis(12)));
+    assert!(peers.share_requests(&alice).is_some());
+
+    peers.mark_adversarial(&alice, t(4));
+    assert!(peers.scores(&alice).keepalive_rtt_latest.is_none());
+    assert!(peers.scores(&alice).keepalive_rtt_ewma.is_none());
+    assert!(peers.share_requests(&alice).is_none());
+}
+
+#[test]
+fn install_shares_one_worker_and_a_later_query_sees_the_write() {
+    let resources = Resources::default();
+    let _join = Performance::new().install(&resources);
+    let performance = resources.get::<ResourcePerformance>().expect("performance").clone();
+    let tracking = resources.get::<PeerTrackingResource>().expect("peer tracking").clone();
+    assert_eq!(Arc::as_ptr(&performance) as *const (), Arc::as_ptr(&tracking) as *const ());
+
+    let alice = peer("alice");
+    let at = observed(4, 1);
+    let (id, _) = conn_ids();
+    tracking.record_connection_established(connection_record(alice, id, at, true), at);
+
+    let donor = Peer::for_test(4101);
+    let other = Peer::for_test(4102);
+    let asker = Peer::for_test(4103);
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+    rt.block_on(tracking.record_shared_peers(donor, vec![SocketAddr::from(other)], at));
+    let flags_response = rt.block_on(Box::new(Performance::share_flags(alice)).run(resources));
+    let flags = *flags_response.cast::<Option<PeerShareFlags>>().expect("share flags");
+    assert_eq!(
+        flags,
+        Some(PeerShareFlags { ever_connected: true, advertisable: true, failure_count: 0, adversarial: false })
+    );
+    let shared = rt.block_on(tracking.query_share_peers(asker, 1, at));
+    assert_eq!(shared, vec![SocketAddr::from(other)]);
+}
+
+#[test]
+fn lifecycle_writes_bump_generation() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let at = observed(1, 0);
+    let (id, _) = conn_ids();
+    assert_eq!(peers.generation(), 0);
+    assert!(peers.query_peer_view(0).is_none());
+
+    peers.record_connection_established(connection_record(alice, id, at, true), at);
+    assert_eq!(peers.generation(), 1);
+    assert!(peers.query_peer_view(0).is_some());
+    assert!(peers.query_peer_view(1).is_none());
+
+    peers.record_local_use_applied(alice, id, LocalUse::Diffusion, observed(2, 0));
+    assert_eq!(peers.generation(), 2);
+    peers.record_connect_failed(peer("bob"), observed(3, 0));
+    assert_eq!(peers.generation(), 3);
+    peers.record_connection_closed(alice, id, CloseReason::BearerEnded, observed(4, 0));
+    assert_eq!(peers.generation(), 4);
+
+    peers.record_connection_closed(alice, id, CloseReason::BearerEnded, observed(5, 0));
+    assert_eq!(peers.generation(), 4, "a close for an unknown bearer is not a write");
+}
+
+#[test]
+fn uninteresting_marks_are_the_latest_per_peer_and_only_those_since_the_query() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+    let (alice_id, bob_id) = conn_ids();
+    let at = observed(1, 0);
+    peers.record_connection_established(connection_record(alice, alice_id, at, false), at);
+    peers.record_connection_established(connection_record(bob, bob_id, at, false), at);
+
+    peers.record_uninteresting(alice, alice_id, false, at);
+    let first = peers.generation();
+    let view = peers.query_peer_view(0).expect("generation moved");
+    assert_eq!(view.uninteresting.len(), 1);
+    assert_eq!(view.uninteresting[0].peer, alice);
+    assert!(!view.uninteresting[0].after_rollback);
+
+    peers.record_uninteresting(alice, alice_id, true, observed(2, 0));
+    let view = peers.query_peer_view(first).expect("repeated mark moves the generation");
+    assert_eq!(view.uninteresting.len(), 1);
+    assert!(view.uninteresting[0].after_rollback, "the latest mark replaces the earlier one");
+
+    let seen = peers.generation();
+    peers.set_ledger_candidates(Default::default());
+    let view = peers.query_peer_view(seen).expect("ledger replacement moves the generation");
+    assert!(view.uninteresting.is_empty(), "an older mark is not delivered again");
+
+    peers.record_uninteresting(bob, bob_id, false, observed(3, 0));
+    peers.record_connection_closed(bob, bob_id, CloseReason::BearerEnded, observed(4, 0));
+    let view = peers.query_peer_view(seen).expect("close moves the generation");
+    assert!(view.uninteresting.iter().all(|mark| mark.peer != bob), "a closed bearer drops its mark");
+    assert!(view.uninteresting.iter().all(|mark| mark.peer != alice));
+}
+
+#[test]
+fn a_mark_without_a_live_bearer_is_not_stored() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("alice");
+    let (alice_id, other_id) = conn_ids();
+    let at = observed(1, 0);
+
+    peers.record_uninteresting(alice, alice_id, false, at);
+    assert_eq!(peers.generation(), 0);
+    assert!(peers.query_peer_view(0).is_none(), "nothing was stored");
+
+    peers.record_connection_established(connection_record(alice, alice_id, at, false), at);
+    let generation = peers.generation();
+    peers.record_uninteresting(alice, other_id, true, observed(2, 0));
+    assert_eq!(peers.generation(), generation, "a different connection is not this bearer");
+    let view = peers.query_peer_view(0).expect("the establish moved the generation");
+    assert!(view.uninteresting.is_empty());
+}
+
+#[test]
+fn select_outbound_is_stable_for_a_fixed_seed() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use super::{PeerMix, SelectOutboundParams};
+
+    let left: Peer = "10.0.0.1:4001".parse().expect("peer");
+    let right: Peer = "10.0.0.2:4002".parse().expect("peer");
+    let peers = PeerPerformance::with_sources(
+        BTreeSet::from([PeerCandidate::from(left), PeerCandidate::from(right)]),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        PeerMix::default(),
+    );
+    let params =
+        SelectOutboundParams { open: 1, excluded: BTreeSet::new(), eligible_inbound: 0, seed: [0x42; 32], now: t(1) };
+    let first = peers.select_outbound(params.clone());
+    let second = peers.select_outbound(params);
+    assert_eq!(first, second);
+    assert_eq!(first.outbound.len(), 1, "{first:?}");
+    assert_eq!(first.outbound[0].candidate, PeerCandidate::from(right), "{first:?}");
+}
+
+/// The simulation clock does not advance while the performance worker runs, so a world
+/// test cannot see how long `record_header_announcement` and `select_peers_for_fetch`
+/// waited behind a burst of connection closes. This test pauses the worker, queues one
+/// eviction batch against a cap-sized map, then 32 establish/close pairs, then those two
+/// ops, and checks that the urgent ops waited to be dequeued.
+#[test]
+fn instrumented_worker_queue_wait() {
+    use std::collections::BTreeSet;
+
+    use tokio::sync::oneshot;
+
+    use super::ops::{PeerOp, PerformanceOp};
+    use crate::performance::{
+        EVICTION_BATCH, EvictRecordsEffect, RecordHeaderAnnouncementEffect, SelectPeersForFetchEffect,
+    };
+
+    let now = t(200_000);
+    let stale = now - Duration::from_secs(48 * 60 * 60);
+    let mut seeded = PeerPerformance::new();
+    seeded.testing_seed_eviction_cap(stale, now);
+    let direct = {
+        let (protected_peers, protected_candidates) = (BTreeSet::new(), BTreeSet::new());
+        seeded.evict_batch(now, &protected_peers, &protected_candidates)
+    };
+    assert_eq!(direct.examined, EVICTION_BATCH);
+    assert!(direct.removed_records > 0 && direct.removed_shared > 0, "{direct:?}");
+
+    let mut queued = PeerPerformance::new();
+    queued.testing_seed_eviction_cap(stale, now);
+    let (perf, release, probe) = Performance::paused_with(queued);
+    perf.submit(PerformanceOp::Peer(PeerOp::EvictRecords {
+        effect: EvictRecordsEffect { now, protected_peers: BTreeSet::new(), protected_candidates: BTreeSet::new() },
+    }));
+    let at = observed(1, 0);
+    let mut ids = ConnectionId::initial();
+    for n in 0..32u16 {
+        let id = ids.get_and_increment();
+        let who = Peer::for_test(5_000 + n);
+        perf.submit(PerformanceOp::Peer(PeerOp::RecordConnectionEstablished {
+            conn: connection_record(who, id, at, false),
+            at,
+        }));
+        perf.submit(PerformanceOp::Peer(PeerOp::RecordConnectionClosed {
+            peer: who,
+            conn_id: id,
+            reason: CloseReason::BearerEnded,
+            at,
+        }));
+    }
+    let announcer = peer("announcer");
+    let (header_tx, header_rx) = oneshot::channel();
+    perf.submit(PerformanceOp::Peer(PeerOp::RecordHeaderAnnouncement {
+        effect: RecordHeaderAnnouncementEffect {
+            peer: announcer,
+            header: tip(1, 1),
+            parent: None,
+            at: t(2),
+            slot_start_to_header_micros: 0,
+            slot_onset: Duration::ZERO,
+            already_stored: false,
+        },
+        reply: header_tx,
+    }));
+    let (fetch_tx, fetch_rx) = oneshot::channel();
+    perf.submit(PerformanceOp::Peer(PeerOp::SelectPeersForFetch {
+        effect: SelectPeersForFetchEffect { params: select(vec![hash(1)], 1) },
+        reply: fetch_tx,
+    }));
+    release.send(()).expect("worker is waiting");
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+    rt.block_on(async {
+        header_rx.await.expect("header announcement");
+        fetch_rx.await.expect("fetch selection");
+    });
+    let waited = probe.max_urgent_wait();
+    assert!(!waited.is_zero(), "urgent ops were not timed");
+}
+
+#[test]
+fn a_remote_share_request_keeps_the_same_addresses() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use crate::performance::PeerMix;
+
+    let requester = Peer::for_test(5000);
+    let failed = Peer::for_test(5012);
+    let ledger = Peer::for_test(5013);
+    let mut static_peers = BTreeSet::from([PeerCandidate::from(requester), PeerCandidate::from(failed)]);
+    for port in 5001..=5011 {
+        static_peers.insert(PeerCandidate::from(Peer::for_test(port)));
+    }
+    let ledger_candidates = BTreeSet::from([PeerCandidate::from(ledger)]);
+    let mix = PeerMix::default();
+    let at = observed(2, 0);
+    let now = t(2);
+
+    let mut direct =
+        PeerPerformance::with_sources(static_peers.clone(), BTreeSet::new(), ledger_candidates.clone(), mix.clone());
+    direct.record_connect_failed(failed, at);
+    let before = direct.select_share_peers(&requester, 20, now);
+
+    let resources = Resources::default();
+    let _join =
+        Performance::with_peer_sources(static_peers, BTreeSet::new(), ledger_candidates, mix).install(&resources);
+    let tracking = resources.get::<PeerTrackingResource>().expect("peer tracking").clone();
+    tracking.record_connect_failed(failed, at);
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+    let after = rt.block_on(tracking.query_share_peers(requester, 20, at));
+    let again = rt.block_on(tracking.query_share_peers(requester, 20, at));
+
+    assert_eq!(after, before, "the resource reply diverged from the previous share sample");
+    assert_eq!(again, after);
+    assert_eq!(after.len(), 10);
+    assert!(!after.iter().any(|addr| {
+        *addr == SocketAddr::from(requester) || *addr == SocketAddr::from(failed) || *addr == SocketAddr::from(ledger)
+    }));
+    assert_eq!(
+        after,
+        vec![
+            SocketAddr::from(Peer::for_test(5003)),
+            SocketAddr::from(Peer::for_test(5001)),
+            SocketAddr::from(Peer::for_test(5006)),
+            SocketAddr::from(Peer::for_test(5005)),
+            SocketAddr::from(Peer::for_test(5002)),
+            SocketAddr::from(Peer::for_test(5010)),
+            SocketAddr::from(Peer::for_test(5009)),
+            SocketAddr::from(Peer::for_test(5011)),
+            SocketAddr::from(Peer::for_test(5004)),
+            SocketAddr::from(Peer::for_test(5007)),
+        ],
+    );
 }

@@ -35,7 +35,7 @@ use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::{
     BaseReadChainStore, ConnectionsResource, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
-use amaru_pure_stage::trace_buffer::TraceBuffer;
+use amaru_pure_stage::{DEFAULT_MAILBOX_SIZE, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use parking_lot::Mutex;
 
@@ -146,7 +146,7 @@ impl Default for NodeTestConfig {
             chain_length: 10,
             upstream_peers: vec![Peer::for_test(3001)],
             listen_address: "127.0.0.1:3000".to_string(),
-            mailbox_size: 10000,
+            mailbox_size: DEFAULT_MAILBOX_SIZE,
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::default())),
             seed: 42,
             actions: Vec::new(),

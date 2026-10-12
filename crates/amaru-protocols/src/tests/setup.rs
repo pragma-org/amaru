@@ -27,14 +27,14 @@ use amaru_network::connection::TokioConnections;
 use amaru_observability::tracing;
 use amaru_ouroboros_traits::{
     BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource,
-    DiagnosticChainStore, HasStakePools, Mempool, MockBlockValidator, MockCanValidateTxs, ResourceMempool,
-    has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
+    DiagnosticChainStore, HasStakePools, Mempool, MockBlockValidator, MockCanValidateTxs, PeerTrackingResource,
+    ResourceMempool, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
 use tracing_subscriber::EnvFilter;
 
-use crate::store_effects::ResourceHeaderStore;
+use crate::{peer_tracking::InMemoryPeerTracking, store_effects::ResourceHeaderStore};
 
 /// Log to the console (enable logs with the RUST_LOG env var, for example RUST_LOG=info)
 pub(super) fn setup_logging() {
@@ -82,6 +82,7 @@ pub(super) fn set_resources_with_connections(
     network.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     network.resources().put::<ConnectionsResource>(connections);
     network.resources().put::<ResourceMempool<Transaction>>(mempool);
+    network.resources().put::<PeerTrackingResource>(Arc::new(InMemoryPeerTracking::new()));
     Ok(())
 }
 

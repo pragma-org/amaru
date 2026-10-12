@@ -35,9 +35,19 @@ pub const DEFAULT_PARALLEL_CONNECTION: usize = 10;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConnectorMsg {
     /// Request a connection attempt.
-    Connect { peer: Peer },
+    ///
+    /// `attempt` is the manager's id for this dial. The connect error has no [`ConnectionId`],
+    /// and two attempts to the same peer can finish out of order.
+    Connect { peer: Peer, attempt: u64 },
     /// A worker finished a connection attempt and is idle again.
-    WorkerDone { peer: Peer, result: Result<ConnectionId, ConnectError>, worker: StageRef<Peer> },
+    WorkerDone { peer: Peer, attempt: u64, result: Result<ConnectionId, ConnectError>, worker: StageRef<ConnectJob> },
+}
+
+/// Peer and attempt number for one outbound connect.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConnectJob {
+    peer: Peer,
+    attempt: u64,
 }
 
 /// State of the connector stage: a worker pool and a queue of deferred connects.
@@ -45,8 +55,8 @@ pub enum ConnectorMsg {
 pub struct Connector {
     manager: StageRef<ManagerMessage>,
     connection_timeout: Duration,
-    idle: Vec<StageRef<Peer>>,
-    deferred: VecDeque<Peer>,
+    idle: Vec<StageRef<ConnectJob>>,
+    deferred: VecDeque<ConnectJob>,
     workers_created: usize,
 }
 
@@ -59,24 +69,24 @@ impl Connector {
         self.workers_created - self.idle.len()
     }
 
-    async fn start(&mut self, peer: Peer, eff: &Effects<ConnectorMsg>) {
+    async fn start(&mut self, job: ConnectJob, eff: &Effects<ConnectorMsg>) {
         if let Some(worker) = self.idle.pop() {
-            eff.send(&worker, peer).await;
+            eff.send(&worker, job).await;
             return;
         }
         let name = format!("connect-worker-{}", self.workers_created);
         let build = eff.stage(name, worker_stage).await;
         let worker = eff.wire_up(build, Worker::new(eff.me(), self.connection_timeout)).await;
         self.workers_created += 1;
-        eff.send(&worker, peer).await;
+        eff.send(&worker, job).await;
     }
 
     /// Start queued peers while a connection slot is free.
     async fn pump(&mut self, eff: &Effects<ConnectorMsg>) {
         while self.in_flight() < DEFAULT_PARALLEL_CONNECTION
-            && let Some(peer) = self.deferred.pop_front()
+            && let Some(job) = self.deferred.pop_front()
         {
-            self.start(peer, eff).await;
+            self.start(job, eff).await;
         }
     }
 }
@@ -84,11 +94,11 @@ impl Connector {
 /// Connector stage: queues deferred connects, limits in-flight attempts, and forwards results.
 pub async fn stage(mut state: Connector, msg: ConnectorMsg, eff: Effects<ConnectorMsg>) -> Connector {
     match msg {
-        ConnectorMsg::Connect { peer } => {
-            state.deferred.push_back(peer);
+        ConnectorMsg::Connect { peer, attempt } => {
+            state.deferred.push_back(ConnectJob { peer, attempt });
         }
-        ConnectorMsg::WorkerDone { peer, result, worker } => {
-            eff.send(&state.manager, ManagerMessage::ConnectionResult(peer, result)).await;
+        ConnectorMsg::WorkerDone { peer, attempt, result, worker } => {
+            eff.send(&state.manager, ManagerMessage::ConnectionResult { peer, attempt, result }).await;
             state.idle.push(worker);
         }
     }
@@ -108,9 +118,10 @@ impl Worker {
     }
 }
 
-async fn worker_stage(state: Worker, peer: Peer, eff: Effects<Peer>) -> Worker {
+async fn worker_stage(state: Worker, job: ConnectJob, eff: Effects<ConnectJob>) -> Worker {
+    let ConnectJob { peer, attempt } = job;
     let result = Network::new(&eff).connect(peer, state.connection_timeout).await;
-    eff.send(&state.connector, ConnectorMsg::WorkerDone { peer, result, worker: eff.me() }).await;
+    eff.send(&state.connector, ConnectorMsg::WorkerDone { peer, attempt, result, worker: eff.me() }).await;
     state
 }
 
@@ -119,6 +130,7 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
     vec![
         register_data_deserializer::<Connector>().boxed(),
         register_data_deserializer::<ConnectorMsg>().boxed(),
+        register_data_deserializer::<ConnectJob>().boxed(),
         register_data_deserializer::<Worker>().boxed(),
     ]
 }
@@ -158,8 +170,8 @@ mod tests {
 
         let peers: Vec<_> = (0..DEFAULT_PARALLEL_CONNECTION + 1).map(|i| Peer::for_test(3000 + i as u16)).collect();
 
-        for &peer in &peers {
-            running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer }]);
+        for (i, &peer) in peers.iter().enumerate() {
+            running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, attempt: i as u64 }]);
         }
 
         let mut workers = Vec::new();
@@ -182,7 +194,7 @@ mod tests {
 
         let state = running.get_state(&connector).expect("connector idle after dispatching");
         assert_eq!(state.deferred.len(), 1);
-        assert_eq!(state.deferred.front(), Some(&peers[DEFAULT_PARALLEL_CONNECTION]));
+        assert_eq!(state.deferred.front().map(|job| job.peer), Some(peers[DEFAULT_PARALLEL_CONNECTION]));
         assert_eq!(state.workers_created, DEFAULT_PARALLEL_CONNECTION);
         assert!(state.idle.is_empty());
         assert_eq!(workers.len(), DEFAULT_PARALLEL_CONNECTION);
@@ -214,11 +226,11 @@ mod tests {
         running.override_external_effect::<ConnectEffect>(usize::MAX, move |_| OverrideResult::handled(Ok(conn_id)));
 
         let peer = Peer::for_test(4000);
-        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer }]);
+        running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer, attempt: 4 }]);
         running.run(Run::skip_and_resolve()).assert_idle();
 
         let msgs: Vec<_> = rx.drain().collect();
-        assert_eq!(msgs, vec![ManagerMessage::ConnectionResult(peer, Ok(conn_id))]);
+        assert_eq!(msgs, vec![ManagerMessage::ConnectionResult { peer, attempt: 4, result: Ok(conn_id) }]);
 
         let state = running.get_state(&connector).unwrap();
         assert_eq!(state.idle.len(), 1);
