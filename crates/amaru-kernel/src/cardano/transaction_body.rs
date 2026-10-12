@@ -19,9 +19,9 @@ use amaru_minicbor_extra::encode_optional;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::to_cbor;
 use crate::{
-    AuxiliaryData, Bytes, Certificates, Collateral, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Multiasset,
-    NULL_HASH32, Network, NonZeroInt, PositiveCoin, Proposals, ReferenceInputs, RequiredSigners, Set, Slot,
-    TransactionInput, ValidityInterval, VotingProcedures, Withdrawals, cbor,
+    AuxiliaryData, Bytes, Certificates, Collateral, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Mint,
+    NULL_HASH32, Network, PositiveCoin, Proposals, ReferenceInputs, RequiredSigners, Set, Slot, TransactionInput,
+    ValidityInterval, VotingProcedures, Withdrawals, cbor,
 };
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
@@ -55,7 +55,7 @@ pub struct TransactionBody {
 
     pub validity_interval_start: Option<Slot>,
 
-    pub mint: Option<Multiasset<NonZeroInt>>,
+    pub mint: Option<Mint>,
 
     pub script_data_hash: Option<Hash<32>>,
 
@@ -239,22 +239,8 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for TransactionBody {
                     // 6: governance updates, obsolete in Conway
                     7 => blanket(&mut st.optional.auxiliary_data_hash, k, d, ctx)?,
                     8 => blanket(&mut st.optional.validity_interval_start, k, d, ctx)?,
-                    9 => {
-                        blanket(&mut st.optional.mint, k, d, ctx)?;
-                        // NOTE: Non-empty multiasset mint
-                        //
-                        // This is a weird quirk but the type is technically a Multiasset which does
-                        // allow the outer map to be empty in Conway (it doesn't in Dijsktra). Yet,
-                        // for the mint field in particular, an additional check enforces it is not
-                        // empty.
-                        if let Some(mint) = st.optional.mint.as_ref()
-                            && mint.is_empty()
-                        {
-                            let position = d.position();
-                            Err(cbor::decode::Error::message("empty map when expecting at least one key/value pair")
-                                .at(position))?;
-                        }
-                    }
+                    // The emptiness a mint may not have is checked by `Mint` itself.
+                    9 => blanket(&mut st.optional.mint, k, d, ctx)?,
                     // 10: there's no 10, has never been used.
                     11 => blanket(&mut st.optional.script_data_hash, k, d, ctx)?,
                     // 12: there's no 12, has never been used.
@@ -425,7 +411,7 @@ mod tests {
     )]
     #[test_case(
         fixture!("conway", "402a8a9024d4160928e574c73aa66c66d92f9856c3fa2392242f7a92b8e9c347"),
-        "decode error at position 82: empty map when expecting at least one key/value pair";
+        "decode error at position 81: a mint must carry at least one policy";
         "empty mint"
     )]
     #[test_case(
