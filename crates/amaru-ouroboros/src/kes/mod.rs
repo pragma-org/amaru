@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{array::TryFromSliceError, fs, mem::ManuallyDrop, ops::Deref, path::Path};
+use std::{array::TryFromSliceError, fs, io, mem::ManuallyDrop, ops::Deref, path::Path};
 
 use amaru_kernel::{KesEvolution, cardano::text_envelope::ToTextEnvelope, cbor};
 use kes_summed_ed25519::{
@@ -67,10 +67,26 @@ impl SecretKey {
         Ok(sk)
     }
 
-    /// Load a key from an envelope file written by cardano-cli
+    /// Load a period-zero key from raw bytes or a cardano-cli JSON text envelope.
+    ///
+    /// Raw files contain exactly [`Self::SIZE`] bytes, without a period suffix.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, KesError> {
-        let envelope = Zeroizing::new(fs::read(path)?);
+        let bytes = fs::read(path)?;
+        if bytes.len() == Self::SIZE {
+            return Self::from_bytes(bytes);
+        }
+        let envelope = Zeroizing::new(bytes);
         Ok(serde_json::from_slice(&envelope)?)
+    }
+
+    /// Write the raw period-zero signing key, without a period suffix.
+    ///
+    /// Fails before writing any bytes if the key has evolved, since raw key files do not store the period.
+    pub fn write_raw(&self, mut writer: impl io::Write) -> io::Result<()> {
+        if self.bytes[Self::SIZE..] != [0u8; 4] {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "only period-zero KES keys can be exported"));
+        }
+        writer.write_all(&self.bytes[..Self::SIZE])
     }
 
     /// Borrow the key as the `Sum6Kes` type.

@@ -14,6 +14,7 @@
 
 use std::{
     fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -21,7 +22,7 @@ use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::cardano::text_envelope::{self, ToTextEnvelope};
 use amaru_ouroboros::kes::SecretKey;
 use anyhow::{Context, ensure};
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use tempfile::NamedTempFile;
 
 #[derive(Debug, Subcommand)]
@@ -46,6 +47,16 @@ pub(crate) struct CreateArgs {
     /// Destination for the KES verification key. Not generated if unspecified.
     #[arg(long)]
     verification_key: Option<PathBuf>,
+
+    /// Output format for both keys: raw bytes or cardano-cli compatible JSON text envelopes.
+    #[arg(long, value_enum, default_value = "raw")]
+    key_format: KeyFormat,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum KeyFormat {
+    Raw,
+    Compatible,
 }
 
 impl KeysCommand {
@@ -59,7 +70,7 @@ impl KeysCommand {
 }
 
 fn create(args: CreateArgs) -> anyhow::Result<()> {
-    let CreateArgs { signing_key, verification_key } = args;
+    let CreateArgs { signing_key, verification_key, key_format } = args;
 
     if let Some(verification_key) = verification_key.as_ref() {
         ensure!(&signing_key != verification_key, "KES key paths must differ");
@@ -71,10 +82,10 @@ fn create(args: CreateArgs) -> anyhow::Result<()> {
     }
 
     let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
-    let signing = prepare_key(&secret, &signing_key)?;
+    let signing = prepare_key(&secret, |file| secret.write_raw(file), key_format, &signing_key)?;
 
     if let Some(verification_key) = verification_key.as_ref() {
-        let verification = prepare_key(&public, verification_key)?;
+        let verification = prepare_key(&public, |file| file.write_all(public.as_ref()), key_format, verification_key)?;
         verification
             .persist_noclobber(verification_key)
             .with_context(|| format!("could not save {}", verification_key.display()))?;
@@ -91,10 +102,19 @@ fn create(args: CreateArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn prepare_key(key: &impl ToTextEnvelope, path: &Path) -> anyhow::Result<NamedTempFile> {
+fn prepare_key(
+    key: &impl ToTextEnvelope,
+    write_raw: impl FnOnce(&mut NamedTempFile) -> io::Result<()>,
+    format: KeyFormat,
+    path: &Path,
+) -> anyhow::Result<NamedTempFile> {
     let mut file = NamedTempFile::new_in(parent(path))
         .with_context(|| format!("could not create temporary key file for {}", path.display()))?;
-    text_envelope::write(key, &mut file).with_context(|| format!("could not write key file for {}", path.display()))?;
+    match format {
+        KeyFormat::Raw => write_raw(&mut file).map_err(anyhow::Error::from),
+        KeyFormat::Compatible => text_envelope::write(key, &mut file).map_err(anyhow::Error::from),
+    }
+    .with_context(|| format!("could not write key file for {}", path.display()))?;
     Ok(file)
 }
 
@@ -104,7 +124,7 @@ fn parent(path: &Path) -> &Path {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{KesEvolution, cbor};
+    use amaru_kernel::KesEvolution;
     use amaru_ouroboros::kes::PublicKey;
     use tempfile::TempDir;
     use test_case::test_case;
@@ -112,7 +132,11 @@ mod tests {
     use super::*;
 
     fn args(directory: &Path) -> CreateArgs {
-        CreateArgs { signing_key: directory.join("kes.skey"), verification_key: Some(directory.join("kes.vkey")) }
+        CreateArgs {
+            signing_key: directory.join("kes.skey"),
+            verification_key: Some(directory.join("kes.vkey")),
+            key_format: KeyFormat::Raw,
+        }
     }
 
     #[test]
@@ -121,14 +145,8 @@ mod tests {
         create(args(directory.path())).unwrap();
         let mut secret = SecretKey::from_file(directory.path().join("kes.skey")).unwrap();
         assert_eq!(secret.period(), KesEvolution::from(0));
-        let envelope: serde_json::Value =
-            serde_json::from_slice(&fs::read(directory.path().join("kes.vkey")).unwrap()).unwrap();
-        assert_eq!(envelope["type"], "KesVerificationKey_ed25519_kes_2^6");
-        let payload = hex::decode(envelope["cborHex"].as_str().unwrap()).unwrap();
-        let mut decoder = cbor::Decoder::new(&payload);
-        let key_bytes = cbor::decode_bytes(&mut decoder).unwrap();
-        let public = PublicKey::try_from(key_bytes.as_ref()).unwrap();
-        assert_eq!(decoder.position(), payload.len());
+        let verification = fs::read(directory.path().join("kes.vkey")).unwrap();
+        let public = PublicKey::try_from(verification.as_slice()).unwrap();
         let message = b"header body";
         for period in [0, 63] {
             let period = KesEvolution::from(period);

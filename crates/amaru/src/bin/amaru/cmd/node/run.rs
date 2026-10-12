@@ -96,7 +96,7 @@ pub struct Args {
     )]
     db_ledger_max_extra_snapshots: MaxExtraLedgerSnapshots,
 
-    /// KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
+    /// KES signing key, as raw bytes or an unencrypted cardano-cli `kes.skey` text envelope.
     ///
     /// Together with `--operator-vrf` and `--operator-operational-certificate`, the node forges
     /// blocks. Preprod, preview, and other testnets only. Mainnet refuses these flags.

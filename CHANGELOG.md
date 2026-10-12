@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Added
 
-- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
+- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
 
 ### Changed
 
