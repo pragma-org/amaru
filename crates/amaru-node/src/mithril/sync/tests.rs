@@ -233,8 +233,8 @@ async fn worker_shutdown_failure_takes_precedence_over_ingestion_errors() {
         test_config.chain_store.set_anchor_point(&header.point()).unwrap();
         let config = test_config.make_node_configuration().unwrap();
         let idle_references = Arc::strong_count(&test_config.chain_store);
-        let (validator, running) = launch_stages(&config, &tokio::runtime::Handle::current(), |builder| {
-            Ok(prepare_node(&config, builder, None, |_, _| Ok(()))?.0.block_validator)
+        let (validator, running) = launch_replay(&config, &tokio::runtime::Handle::current(), |builder| {
+            Ok(prepare_replay(&config, builder, |_, _| Ok(()))?.block_validator)
         })
         .unwrap();
         let retained = validator.clone();

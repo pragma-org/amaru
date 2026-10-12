@@ -37,20 +37,22 @@ use tokio_util::sync::CancellationToken;
 use super::{MithrilBlockEvent, MithrilInput};
 use crate::{
     NodeStartError,
+    stage_runtime::on_stake_dist_updated,
     stages::{
-        build_node::{launch_stages, on_stake_dist_updated, open_chain_store, prepare_node},
-        build_stage_graph::wire_mithril_stages,
+        build_node::open_chain_store,
         config::{Config, LedgerConfig, StoreType},
     },
 };
 
 mod progress;
 mod recovery;
+mod runtime;
 pub use progress::{DefaultMithrilObserver, MithrilObserver, MithrilProgress, MithrilStage, MithrilSyncReport};
 pub use recovery::{RebootstrapRequired, StoreRecoveryOutcome, reconcile_mithril_stores, recover_store_pair};
 use recovery::{
     acquire_sync_locks, advance_replay_anchor, recover_stores, resolve_ledger_tip, validate_store_directories,
 };
+use runtime::{launch_replay, prepare_replay, wire_mithril_stages};
 
 /// Cooperative cancellation for [`MithrilSynchronizer::synchronize`].
 ///
@@ -292,8 +294,8 @@ impl MithrilSynchronizer {
         let config =
             Config { ledger_config, chain_store: StoreType::Existing(chain_store.clone()), ..Config::default() };
         let ((source, mut events), running) =
-            launch_stages(&config, &tokio::runtime::Handle::current(), |stage_builder| {
-                let (node, ()) = prepare_node(&config, stage_builder, None, |chain_store, stable_tip| {
+            launch_replay(&config, &tokio::runtime::Handle::current(), |stage_builder| {
+                let node = prepare_replay(&config, stage_builder, |chain_store, stable_tip| {
                     if NetworkPoint::from(stable_tip) != NetworkPoint::from(resume_point) {
                         return Err(MithrilSyncError::ResumePointMismatch {
                             requested: resume_point.into(),
