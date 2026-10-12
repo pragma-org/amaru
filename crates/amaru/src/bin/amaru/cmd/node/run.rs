@@ -164,6 +164,19 @@ pub struct Args {
     )]
     peers_listen_on: String,
 
+    /// Bind outbound connections to an ephemeral local port instead of the listen port.
+    ///
+    /// By default an outbound socket binds to the listen port, as the Haskell node does.
+    #[arg(
+        long,
+        env = amaru::env_vars::PEERS_EPHEMERAL_OUTBOUND_PORT,
+        action = ArgAction::SetTrue,
+        default_value_t = false,
+        display_order = 0,
+        help_heading = "Peers options",
+    )]
+    peers_ephemeral_outbound_port: bool,
+
     /// The maximum number of downstream peers allowed to connect.
     #[arg(
         long,
@@ -733,6 +746,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         target_downstream_peers: args.peers_max_downstream,
         network_magic: network.to_network_magic(),
         listen_address: args.peers_listen_on,
+        bind_outbound_to_listen_port: !args.peers_ephemeral_outbound_port,
         migrate_chain_db: args.db_chain_automatic_migration,
         submit_api_address: args.submit_api_listen_on,
         trace_buffer_min_entries,

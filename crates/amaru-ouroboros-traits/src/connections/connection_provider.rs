@@ -41,8 +41,8 @@ pub trait ConnectionProvider: Send + Sync + 'static {
 
     /// Local socket address of an open bearer.
     ///
-    /// The IP is the one the kernel chose for this connection. The port is whatever the
-    /// socket is bound to, which on an outbound bearer is ephemeral.
+    /// The IP is the one the kernel chose for this connection. The port is the listen port
+    /// when outbound sockets bind to it, and an ephemeral source port otherwise.
     fn local_addr(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<SocketAddr>>;
 }
 

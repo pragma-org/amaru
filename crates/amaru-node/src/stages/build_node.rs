@@ -515,7 +515,8 @@ fn register_resources(
     // NOTE: used in WorldLoop::stop() and impl Drop for World
     stage_graph.resources().put(ledger_thread.clone());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
-    let connections = Arc::new(TokioConnections::new(65535));
+    let connections =
+        Arc::new(TokioConnections::with_bind_outbound_to_listen_port(65535, config.bind_outbound_to_listen_port));
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
 

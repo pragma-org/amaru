@@ -951,6 +951,9 @@ mod tests {
 
     fn promote(role: Role, advertisable: bool, desired: MiniProtocolUse) -> Established {
         let mut network = SimulationBuilder::default();
+        network.resources().put::<amaru_ouroboros::PeerTrackingResource>(std::sync::Arc::new(
+            crate::peer_tracking::InMemoryPeerTracking::new(),
+        ));
         let connection = network.stage("connection", stage);
         let connection = network.wire_up(connection, established_connection(role, advertisable));
         network.preload(&connection, [ConnectionMessage::SetLocalUse(desired)]).unwrap();

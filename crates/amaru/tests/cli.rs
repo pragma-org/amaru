@@ -209,6 +209,10 @@ fn node_run_help_uses_canonical_option_names() -> anyhow::Result<()> {
     let node_run_help = amaru_help(&["node", "run"])?;
     assert!(node_run_help.contains("--network"), "node run should accept --network");
     assert!(node_run_help.contains("--peers-listen-on"), "node run should accept --peers-listen-on");
+    assert!(
+        node_run_help.contains("--peers-ephemeral-outbound-port"),
+        "node run should accept --peers-ephemeral-outbound-port"
+    );
     assert!(node_run_help.contains("--peer"), "node run should accept --peer");
     assert!(node_run_help.contains("--peers-snapshot"), "node run should accept --peers-snapshot");
     assert!(node_run_help.contains("AMARU_PEERS_SNAPSHOT"), "node run should show AMARU_PEERS_SNAPSHOT");
