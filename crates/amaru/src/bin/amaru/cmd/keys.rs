@@ -14,13 +14,12 @@
 
 use std::{
     fs,
-    io::{self, Write},
     path::{Path, PathBuf},
 };
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::cardano::text_envelope::{self, ToTextEnvelope};
-use amaru_ouroboros::kes::SecretKey;
+use amaru_ouroboros::kes::{SecretKey, WriteRaw};
 use anyhow::{Context, ensure};
 use clap::{Args, Subcommand, ValueEnum};
 use tempfile::NamedTempFile;
@@ -82,40 +81,31 @@ fn create(args: CreateArgs) -> anyhow::Result<()> {
     }
 
     let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
-    let signing = prepare_key(&secret, |file| secret.write_raw(file), key_format, &signing_key)?;
-
     if let Some(verification_key) = verification_key.as_ref() {
-        let verification = prepare_key(&public, |file| file.write_all(public.as_ref()), key_format, verification_key)?;
-        verification
-            .persist_noclobber(verification_key)
-            .with_context(|| format!("could not save {}", verification_key.display()))?;
+        write_key(&public, key_format, verification_key)?;
     };
 
-    signing
-        .persist_noclobber(&signing_key)
-        .inspect_err(|_| {
-            if let Some(verification_key) = verification_key.as_ref() {
-                let _ = fs::remove_file(verification_key);
-            }
-        })
-        .with_context(|| format!("could not save {}", signing_key.display()))?;
-    Ok(())
+    write_key(&secret, key_format, &signing_key).inspect_err(|_| {
+        if let Some(verification_key) = verification_key.as_ref() {
+            let _ = fs::remove_file(verification_key);
+        }
+    })
 }
 
-fn prepare_key(
-    key: &impl ToTextEnvelope,
-    write_raw: impl FnOnce(&mut NamedTempFile) -> io::Result<()>,
-    format: KeyFormat,
-    path: &Path,
-) -> anyhow::Result<NamedTempFile> {
-    let mut file = NamedTempFile::new_in(parent(path))
-        .with_context(|| format!("could not create temporary key file for {}", path.display()))?;
+fn write_key(key: &(impl ToTextEnvelope + WriteRaw), format: KeyFormat, path: &Path) -> anyhow::Result<()> {
+    let mut file = new_temp_file(path)?;
     match format {
-        KeyFormat::Raw => write_raw(&mut file).map_err(anyhow::Error::from),
+        KeyFormat::Raw => key.write_raw(&mut file).map_err(anyhow::Error::from),
         KeyFormat::Compatible => text_envelope::write(key, &mut file).map_err(anyhow::Error::from),
     }
     .with_context(|| format!("could not write key file for {}", path.display()))?;
-    Ok(file)
+    file.persist_noclobber(path).with_context(|| format!("could not save {}", path.display()))?;
+    Ok(())
+}
+
+fn new_temp_file(path: &Path) -> anyhow::Result<NamedTempFile> {
+    NamedTempFile::new_in(parent(path))
+        .with_context(|| format!("could not create temporary key file for {}", path.display()))
 }
 
 fn parent(path: &Path) -> &Path {

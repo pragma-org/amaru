@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{array::TryFromSliceError, fs, io, mem::ManuallyDrop, ops::Deref, path::Path};
+use std::{array::TryFromSliceError, fs, io, io::Write, mem::ManuallyDrop, ops::Deref, path::Path};
 
 use amaru_kernel::{KesEvolution, cardano::text_envelope::ToTextEnvelope, cbor};
 use kes_summed_ed25519::{
@@ -77,16 +77,6 @@ impl SecretKey {
         }
         let envelope = Zeroizing::new(bytes);
         Ok(serde_json::from_slice(&envelope)?)
-    }
-
-    /// Write the raw period-zero signing key, without a period suffix.
-    ///
-    /// Fails before writing any bytes if the key has evolved, since raw key files do not store the period.
-    pub fn write_raw(&self, mut writer: impl io::Write) -> io::Result<()> {
-        if self.bytes[Self::SIZE..] != [0u8; 4] {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "only period-zero KES keys can be exported"));
-        }
-        writer.write_all(&self.bytes[..Self::SIZE])
     }
 
     /// Borrow the key as the `Sum6Kes` type.
@@ -187,6 +177,18 @@ impl ToTextEnvelope for SecretKey {
     }
 }
 
+impl WriteRaw for SecretKey {
+    /// Writes the raw period-zero signing key, without a period suffix.
+    ///
+    /// Fails before writing any bytes if the key has evolved, since raw key files do not store the period.
+    fn write_raw(&self, writer: &mut impl Write) -> io::Result<()> {
+        if self.bytes[Self::SIZE..] != [0u8; 4] {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "only period-zero KES keys can be exported"));
+        }
+        writer.write_all(&self.bytes[..Self::SIZE])
+    }
+}
+
 // ------------------------------------------------------------------- PublicKey
 
 /// KES public key
@@ -254,6 +256,17 @@ impl ToTextEnvelope for PublicKey {
         encoder.bytes(self.as_ref())?;
         Ok(())
     }
+}
+
+impl WriteRaw for PublicKey {
+    fn write_raw(&self, writer: &mut impl Write) -> io::Result<()> {
+        writer.write_all(self.as_ref())
+    }
+}
+
+/// Writes the key's raw bytes, as `cardano-cli` reads them in raw mode.
+pub trait WriteRaw {
+    fn write_raw(&self, writer: &mut impl io::Write) -> io::Result<()>;
 }
 
 // ------------------------------------------------------------------- Signature
