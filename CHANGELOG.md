@@ -47,6 +47,7 @@ Other guiding principles:
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
 - **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
 - **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection. Duplicate offers preserve admission time; removal followed by reinsertion records a new time.
+- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection.
 
 ### Changed
 
