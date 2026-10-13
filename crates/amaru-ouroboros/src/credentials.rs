@@ -217,7 +217,7 @@ fn header_parented_on(parent: HeaderHash) -> Header {
     )
 }
 
-fn load_operational_certificate(
+pub fn load_operational_certificate(
     path: impl AsRef<Path>,
 ) -> Result<(OperationalCert, VerificationKey), OperationalCertificateError> {
     let bytes = fs::read(path)?;
@@ -313,6 +313,54 @@ pub enum OperationalCertificateError {
 }
 
 impl OperationalCertificateError {
+    fn cbor(error: impl ToString) -> Self {
+        Self::Cbor(error.to_string())
+    }
+}
+
+const COLD_VERIFICATION_KEY_ENVELOPE: &str = "StakePoolVerificationKey_ed25519";
+
+/// Load a stake pool cold verification key from a cardano-cli text envelope file.
+///
+/// The file must have type `StakePoolVerificationKey_ed25519`. The key bytes are returned as a
+/// [`VerificationKey`] suitable for pool ID derivation.
+pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<VerificationKey, ColdVerificationKeyError> {
+    let bytes = fs::read(path)?;
+    let envelope: OperationalCertificateEnvelope = serde_json::from_slice(&bytes)?;
+    if envelope.r#type != COLD_VERIFICATION_KEY_ENVELOPE {
+        return Err(ColdVerificationKeyError::UnexpectedEnvelopeType {
+            expected: COLD_VERIFICATION_KEY_ENVELOPE,
+            found: envelope.r#type,
+        });
+    }
+    let payload = hex::decode(envelope.cbor_hex)?;
+    let mut decoder = cbor::Decoder::new(&payload);
+    let mut ctx = PROTOCOL_VERSION_12;
+    let cold: VerificationKey = decoder.decode_with(&mut ctx).map_err(ColdVerificationKeyError::cbor)?;
+    if decoder.position() != payload.len() {
+        return Err(ColdVerificationKeyError::TrailingBytes(payload.len() - decoder.position()));
+    }
+    Ok(cold)
+}
+
+/// The cold verification key file could not be read or decoded.
+#[derive(Debug, Error)]
+pub enum ColdVerificationKeyError {
+    #[error("unexpected cold verification key envelope type: expected {expected}, found {found}")]
+    UnexpectedEnvelopeType { expected: &'static str, found: String },
+    #[error("cold verification key CBOR has {0} trailing bytes")]
+    TrailingBytes(usize),
+    #[error("cold verification key CBOR is malformed: {0}")]
+    Cbor(String),
+    #[error("failed to read cold verification key file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("malformed cold verification key envelope: {0}")]
+    Envelope(#[from] serde_json::Error),
+    #[error("cold verification key hex is malformed: {0}")]
+    Hex(#[from] hex::FromHexError),
+}
+
+impl ColdVerificationKeyError {
     fn cbor(error: impl ToString) -> Self {
         Self::Cbor(error.to_string())
     }
@@ -702,5 +750,44 @@ mod tests {
         fn sign(&self, _period: KesPeriod, _message: &[u8]) -> Result<KesSignature, ForgingCredentialsError> {
             Ok(KesSignature::zeroes())
         }
+    }
+
+    #[test]
+    fn load_cold_verification_key_from_fixture() {
+        let cold_vkey_path = forging_fixture("cold.vkey");
+        let cold = load_cold_verification_key(&cold_vkey_path).expect("cold.vkey fixture should load");
+        let credentials = InProcessCredentials::from_files(
+            forging_fixture("kes.skey"),
+            forging_fixture("vrf.skey"),
+            forging_fixture("node.cert"),
+            MAX_EVOLUTIONS,
+        )
+        .unwrap();
+        assert_eq!(cold, credentials.issuer_verification_key(), "cold.vkey must match the key embedded in node.cert");
+    }
+
+    #[test]
+    fn load_cold_verification_key_rejects_wrong_envelope_type() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.vkey");
+        fs::write(&path, envelope("SomeOtherType", "5820aabbcc")).unwrap();
+        let err = load_cold_verification_key(&path).unwrap_err();
+        assert!(matches!(err, ColdVerificationKeyError::UnexpectedEnvelopeType { .. }), "{err}");
+    }
+
+    #[test]
+    fn load_operational_certificate_is_public_and_matches_fixture() {
+        let cert_path = forging_fixture("node.cert");
+        let (cert, cold) = load_operational_certificate(&cert_path).expect("node.cert fixture should load");
+        assert_eq!(cert.operational_cert_sequence_number, 0);
+        assert_eq!(u64::from(cert.operational_cert_kes_period), 7);
+        let credentials = InProcessCredentials::from_files(
+            forging_fixture("kes.skey"),
+            forging_fixture("vrf.skey"),
+            &cert_path,
+            MAX_EVOLUTIONS,
+        )
+        .unwrap();
+        assert_eq!(cold, credentials.issuer_verification_key());
     }
 }
