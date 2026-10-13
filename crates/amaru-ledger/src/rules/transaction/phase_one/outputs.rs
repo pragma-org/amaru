@@ -20,7 +20,7 @@ use amaru_uplc::{arena::Arena, arena_pool::ArenaPool, flat::decode_plutus_script
 use thiserror::Error;
 
 use crate::{
-    context::{BalanceSlice, UtxoSlice, WitnessSlice},
+    context::{BalanceSlice, UtxoSliceMut, WitnessSlice},
     rules::WithPosition,
 };
 
@@ -69,7 +69,7 @@ pub fn execute<C>(
     construct_utxo: impl Fn(&mut C, u16, &Value) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
-    C: WitnessSlice + UtxoSlice + BalanceSlice,
+    C: WitnessSlice + UtxoSliceMut + BalanceSlice,
 {
     let mut invalid_outputs = Vec::new();
     let arena = arena_pool.acquire();

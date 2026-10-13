@@ -36,14 +36,14 @@ pub use default::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
-    PotsSlice
-    + UtxoSlice
-    + PoolsSlice
-    + AccountsSlice
-    + DRepsSlice
-    + CommitteeSlice
+    PotsSliceMut
+    + UtxoSliceMut
+    + PoolsSliceMut
+    + AccountsSliceMut
+    + DRepsSliceMut
+    + CommitteeSliceMut
     + WitnessSlice
-    + ProposalsSlice
+    + ProposalsSliceMut
     + BalanceSlice
 {
     type FinalState;
@@ -161,10 +161,14 @@ impl<S: fmt::Debug> From<volatile::BindError<S>> for UpdateError<S> {
 // Pots
 // -------------------------------------------------------------------------------------------------
 
-/// An interface for interacting with the protocol pots.
+/// An interface for reading the protocol pots.
 pub trait PotsSlice {
     /// The treasury value as of the start of the current epoch; constant within an epoch.
     fn treasury(&self) -> Lovelace;
+}
+
+/// An interface for modifying the protocol pots.
+pub trait PotsSliceMut: PotsSlice {
     fn add_fees(&mut self, fees: Lovelace);
     fn add_donation(&mut self, donation: Lovelace);
 }
@@ -172,9 +176,13 @@ pub trait PotsSlice {
 // UTxO
 // -------------------------------------------------------------------------------------------------
 
-/// An interface for interacting with a subset of the UTxO state.
+/// An interface for reading a subset of the UTxO state.
 pub trait UtxoSlice {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput>;
+}
+
+/// An interface for modifying a subset of the UTxO state.
+pub trait UtxoSliceMut: UtxoSlice {
     fn consume(&mut self, input: TransactionInput);
     fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput);
 }
@@ -187,10 +195,13 @@ pub trait PrepareUtxoSlice<'a> {
 // Pools
 // ------------------------------------------------------------------------------------------------
 
-/// An interface for interacting with a subset of the Pools state.
+/// An interface for reading a subset of the Pools state.
 pub trait PoolsSlice {
     fn exists(&self, pool: PoolId) -> bool;
+}
 
+/// An interface for modifying a subset of the Pools state.
+pub trait PoolsSliceMut: PoolsSlice {
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
@@ -214,12 +225,15 @@ pub struct AccountState {
     pub rewards: Lovelace,
 }
 
-/// An interface for interacting with a subset of the Accounts state.
+/// An interface for reading a subset of the Accounts state.
 pub trait AccountsSlice {
     /// The account state at this point in the block; the resolved block-start state with the
     /// in-block changes folded in.
     fn lookup(&self, credential: &Credential) -> Option<AccountState>;
+}
 
+/// An interface for modifying a subset of the Accounts state.
+pub trait AccountsSliceMut: AccountsSlice {
     fn register(
         &mut self,
         credential: Credential,
@@ -255,12 +269,15 @@ pub trait PrepareAccountsSlice<'a> {
 // DRep
 // -------------------------------------------------------------------------------------------------
 
-/// An interface for interacting with a subset of the DReps state.
+/// An interface for reading a subset of the DReps state.
 pub trait DRepsSlice {
     /// The DRep registration at this point in the block: the block-start record, or a fresh in-block
     /// registration that supersedes it. Unlike accounts this never merges, so it returns a reference.
     fn lookup(&self, credential: &Credential) -> Option<&DRepRegistration>;
+}
 
+/// An interface for modifying a subset of the DReps state.
+pub trait DRepsSliceMut: DRepsSlice {
     fn register(
         &mut self,
         drep: Credential,
@@ -292,7 +309,7 @@ pub trait PrepareDRepsSlice<'a> {
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-/// An interface for interacting with a subset of the Constitutional Committee members state.
+/// An interface for reading a subset of the Constitutional Committee members state.
 pub trait CommitteeSlice {
     /// The committee member at this point in the block: the block-start record with the in-block
     /// hot-key change folded in, or `None` once it has resigned.
@@ -307,7 +324,10 @@ pub trait CommitteeSlice {
         &'iter self,
         hot_credential: &'iter Credential,
     ) -> impl Iterator<Item = CCMember> + 'iter;
+}
 
+/// An interface for modifying a subset of the Constitutional Committee members state.
+pub trait CommitteeSliceMut: CommitteeSlice {
     fn delegate_cold_key(
         &mut self,
         cc_member: Credential,
@@ -357,6 +377,7 @@ impl From<&ProposalState> for ProposalStateSlim {
     }
 }
 
+/// An interface for reading a subset of the governance proposals state.
 pub trait ProposalsSlice {
     /// A slim view of a known proposal, whether it comes from the ledger state or was acknowledged
     /// earlier in the block.
@@ -364,7 +385,10 @@ pub trait ProposalsSlice {
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;
+}
 
+/// An interface for modifying a subset of the governance proposals state.
+pub trait ProposalsSliceMut: ProposalsSlice {
     fn acknowledge(&mut self, id: ProposalId, state: ProposalState);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);

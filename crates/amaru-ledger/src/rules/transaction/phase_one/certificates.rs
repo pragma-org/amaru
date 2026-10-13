@@ -23,8 +23,8 @@ use thiserror::Error;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, BalanceSlice, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        RegisterError, UnregisterError, UpdateError, WitnessSlice,
+        AccountState, AccountsSlice, AccountsSliceMut, BalanceSlice, CommitteeSliceMut, DRepsSlice, DRepsSliceMut,
+        DelegateError, PoolsSlice, PoolsSliceMut, RegisterError, UnregisterError, UpdateError, WitnessSlice,
     },
     epoch_transition::GovernanceActivity,
 };
@@ -96,7 +96,7 @@ pub(crate) fn execute<C>(
     certificates: Option<Certificates>,
 ) -> Result<(), InvalidCertificates>
 where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + BalanceSlice,
+    C: PoolsSliceMut + AccountsSliceMut + DRepsSliceMut + CommitteeSliceMut + BalanceSlice,
 {
     if let Some(certificates) = certificates {
         certificates.into_iter().enumerate().try_for_each(|(certificate_index, certificate)| {
@@ -228,7 +228,7 @@ fn execute_one<C>(
     certificate: Certificate,
 ) -> Result<(), InvalidCertificates>
 where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + BalanceSlice,
+    C: PoolsSliceMut + AccountsSliceMut + DRepsSliceMut + CommitteeSliceMut + BalanceSlice,
 {
     match certificate {
         Certificate::PoolRegistration(params) => {
@@ -267,7 +267,7 @@ where
             // TODO: Have `register` return this information
             let is_new_pool = !context.exists(params.id);
 
-            PoolsSlice::register(context, params, pointer, protocol_parameters.stake_pool_deposit);
+            PoolsSliceMut::register(context, params, pointer, protocol_parameters.stake_pool_deposit);
 
             if is_new_pool {
                 context.produce_lovelace(protocol_parameters.stake_pool_deposit);
@@ -291,13 +291,13 @@ where
                 });
             }
 
-            PoolsSlice::retire(context, id, retirement_epoch)?;
+            PoolsSliceMut::retire(context, id, retirement_epoch)?;
 
             Ok(())
         }
 
         Certificate::StakeRegistration(credential) => {
-            AccountsSlice::register(
+            AccountsSliceMut::register(
                 context,
                 credential,
                 AccountState {
@@ -319,14 +319,18 @@ where
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: deposit, expected });
             }
 
-            AccountsSlice::register(context, credential, AccountState { deposit, pool: None, drep: None, rewards: 0 })?;
+            AccountsSliceMut::register(
+                context,
+                credential,
+                AccountState { deposit, pool: None, drep: None, rewards: 0 },
+            )?;
             context.produce_lovelace(deposit);
 
             Ok(())
         }
 
         Certificate::StakeDeregistration(credential) => {
-            let account = AccountsSlice::unregister(context, credential)?;
+            let account = AccountsSliceMut::unregister(context, credential)?;
 
             if account.rewards != 0 {
                 return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
@@ -338,7 +342,7 @@ where
         }
 
         Certificate::UnReg(credential, refund) => {
-            let account = AccountsSlice::unregister(context, credential)?;
+            let account = AccountsSliceMut::unregister(context, credential)?;
 
             if refund != account.deposit {
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: account.deposit });
@@ -369,7 +373,7 @@ where
                 + u64::from(protocol_parameters.drep_expiry)
                 - governance_activity.consecutive_dormant_epochs as u64;
 
-            DRepsSlice::register(
+            DRepsSliceMut::register(
                 context,
                 drep,
                 DRepRegistration { deposit, registered_at: pointer, valid_until },
@@ -382,7 +386,7 @@ where
         }
 
         Certificate::UnRegDRepCert(drep, refund) => {
-            let registration = DRepsSlice::unregister(context, drep, pointer)?;
+            let registration = DRepsSliceMut::unregister(context, drep, pointer)?;
 
             if refund != registration.deposit {
                 return Err(InvalidCertificates::IncorrectDRepDeposit {
@@ -397,24 +401,24 @@ where
         }
 
         Certificate::UpdateDRepCert(drep, anchor) => {
-            DRepsSlice::update(context, drep, anchor)?;
+            DRepsSliceMut::update(context, drep, anchor)?;
 
             Ok(())
         }
 
         Certificate::VoteDeleg(credential, drep) => {
-            AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
+            AccountsSliceMut::delegate_vote(context, credential, drep, pointer)?;
 
             Ok(())
         }
 
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
-            CommitteeSlice::delegate_cold_key(context, cold_credential, hot_credential)?;
+            CommitteeSliceMut::delegate_cold_key(context, cold_credential, hot_credential)?;
             Ok(())
         }
 
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
-            CommitteeSlice::resign(context, cold_credential, anchor)?;
+            CommitteeSliceMut::resign(context, cold_credential, anchor)?;
             Ok(())
         }
 

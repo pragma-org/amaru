@@ -21,7 +21,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{AccountsSlice, BalanceSlice, ProposalState, ProposalsSlice, WitnessSlice};
+use crate::context::{AccountsSlice, BalanceSlice, ProposalState, ProposalsSlice, ProposalsSliceMut, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -81,7 +81,7 @@ pub(crate) fn execute<C>(
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
-    C: ProposalsSlice + AccountsSlice + BalanceSlice,
+    C: ProposalsSliceMut + AccountsSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
         validate_proposal(
