@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{array::TryFromSliceError, fs, mem::ManuallyDrop, ops::Deref, path::Path};
+use std::{array::TryFromSliceError, fs, io, mem::ManuallyDrop, ops::Deref, path::Path};
 
-use amaru_kernel::{KesEvolution, cardano::text_envelope::ToTextEnvelope, cbor};
+use amaru_kernel::{KesEvolution, cbor};
+use amaru_observability::trace;
 use kes_summed_ed25519::{
     self as kes,
     kes::{Sum6Kes, Sum6KesSig},
     traits::{KesSig, KesSk},
 };
-use serde::{Deserialize, Deserializer, de};
+use serde_json::Value;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
@@ -36,9 +37,6 @@ pub struct SecretKey {
 impl SecretKey {
     /// Size of the raw key in bytes. Excludes the period.
     pub const SIZE: usize = Sum6Kes::SIZE;
-
-    /// `type` field of the cardano-cli envelope that wraps a KES signing key.
-    pub(crate) const ENVELOPE_TYPE: &str = "KesSigningKey_ed25519_kes_2^6";
 
     /// Generate a period-zero Sum6 KES key pair from operating-system randomness.
     pub fn generate() -> Result<(Self, PublicKey), getrandom::Error> {
@@ -67,10 +65,44 @@ impl SecretKey {
         Ok(sk)
     }
 
-    /// Load a key from an envelope file written by cardano-cli
+    /// Load a period-zero key from raw bytes, falling back to a legacy cardano-cli JSON text envelope.
+    ///
+    /// Raw files contain exactly [`Self::SIZE`] bytes, without a period suffix.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, KesError> {
-        let envelope = Zeroizing::new(fs::read(path)?);
-        Ok(serde_json::from_slice(&envelope)?)
+        let path = path.as_ref();
+        let bytes = fs::read(path)?;
+        if bytes.len() == Self::SIZE {
+            return Self::from_bytes(bytes);
+        }
+        let envelope = Zeroizing::new(bytes);
+        let cbor_hex: Zeroizing<String> = serde_json::from_value(
+            serde_json::from_slice::<Value>(&envelope)?.get_mut("cborHex").map(Value::take).unwrap_or_default(),
+        )?;
+        if !cbor_hex.len().is_multiple_of(2) {
+            return Err(hex::FromHexError::OddLength.into());
+        }
+        if cbor_hex.is_empty() {
+            return Err(KesError::EmptyEnvelopePayload);
+        }
+        let mut payload = Zeroizing::new(vec![0u8; cbor_hex.len() / 2]);
+        hex::decode_to_slice(cbor_hex.as_bytes(), &mut payload)?;
+        let mut decoder = cbor::Decoder::new(&payload);
+        let key = Self::from_bytes(cbor::decode_bytes(&mut decoder)?.into_owned())?;
+        if decoder.position() != payload.len() {
+            return Err(KesError::TrailingEnvelopeBytes(payload.len() - decoder.position()));
+        }
+        trace!(consensus::kes::LEGACY_KEY_ENVELOPE, path = path.to_string_lossy());
+        Ok(key)
+    }
+
+    /// Write the raw period-zero signing key, without a period suffix.
+    ///
+    /// Fails before writing any bytes if the key has evolved, since raw key files do not store the period.
+    pub fn write_raw(&self, mut writer: impl io::Write) -> io::Result<()> {
+        if self.bytes[Self::SIZE..] != [0u8; 4] {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "only period-zero KES keys can be exported"));
+        }
+        writer.write_all(&self.bytes[..Self::SIZE])
     }
 
     /// Borrow the key as the `Sum6Kes` type.
@@ -125,52 +157,6 @@ impl SecretKey {
     }
 }
 
-impl<'de> Deserialize<'de> for SecretKey {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Envelope {
-            r#type: String,
-            cbor_hex: Zeroizing<String>,
-        }
-
-        let Envelope { r#type, cbor_hex } = Envelope::deserialize(deserializer)?;
-        if r#type != SecretKey::ENVELOPE_TYPE {
-            return Err(de::Error::custom(KesError::UnexpectedEnvelopeType {
-                expected: SecretKey::ENVELOPE_TYPE,
-                found: r#type,
-            }));
-        }
-        let mut payload = Zeroizing::new(vec![0u8; cbor_hex.len() / 2]);
-        hex::decode_to_slice(cbor_hex.as_bytes(), &mut payload).map_err(de::Error::custom)?;
-        let mut decoder = cbor::Decoder::new(&payload);
-        let sk_bytes = cbor::decode_bytes(&mut decoder).map_err(de::Error::custom)?.into_owned();
-        if decoder.position() != payload.len() {
-            return Err(de::Error::custom(KesError::TrailingEnvelopeBytes(payload.len() - decoder.position())));
-        }
-        SecretKey::from_bytes(sk_bytes).map_err(de::Error::custom)
-    }
-}
-
-/// Only period-zero keys can be written in cardano-cli's signing-key format.
-impl ToTextEnvelope for SecretKey {
-    type Buffer = Zeroizing<Vec<u8>>;
-
-    const TYPE: &'static str = Self::ENVELOPE_TYPE;
-    const DESCRIPTION: &'static str = "KES Signing Key";
-
-    fn encode_cbor<W: cbor::encode::Write>(
-        &self,
-        encoder: &mut cbor::Encoder<W>,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        if self.bytes[Self::SIZE..] != [0u8; 4] {
-            return Err(cbor::encode::Error::message("only period-zero KES keys can be exported"));
-        }
-        encoder.bytes(&self.bytes[..Self::SIZE])?;
-        Ok(())
-    }
-}
-
 // ------------------------------------------------------------------- PublicKey
 
 /// KES public key
@@ -222,21 +208,6 @@ impl TryFrom<&[u8]> for PublicKey {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self::from(<&[u8; Self::SIZE]>::try_from(bytes)?))
-    }
-}
-
-impl ToTextEnvelope for PublicKey {
-    type Buffer = Vec<u8>;
-
-    const TYPE: &'static str = "KesVerificationKey_ed25519_kes_2^6";
-    const DESCRIPTION: &'static str = "KES Verification Key";
-
-    fn encode_cbor<W: cbor::encode::Write>(
-        &self,
-        encoder: &mut cbor::Encoder<W>,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        encoder.bytes(self.as_ref())?;
-        Ok(())
     }
 }
 
@@ -318,10 +289,14 @@ pub enum KesError {
     Kes(#[from] kes_summed_ed25519::errors::Error),
     #[error("KES key is at period {current} and cannot be evolved back to period {target}")]
     CannotEvolveBackwards { current: KesEvolution, target: KesEvolution },
-    #[error("unexpected KES key envelope type: expected {expected}, found {found}")]
-    UnexpectedEnvelopeType { expected: &'static str, found: String },
     #[error("KES key envelope payload has {0} trailing bytes")]
     TrailingEnvelopeBytes(usize),
+    #[error("KES key envelope cborHex is empty")]
+    EmptyEnvelopePayload,
+    #[error("invalid KES key envelope hex: {0}")]
+    Hex(#[from] hex::FromHexError),
+    #[error("invalid KES key envelope CBOR: {0}")]
+    Cbor(#[from] cbor::decode::Error),
     #[error("failed to read KES key file: {0}")]
     Io(#[from] std::io::Error),
     #[error("malformed KES key envelope: {0}")]
@@ -330,15 +305,14 @@ pub enum KesError {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::cardano::text_envelope;
     use test_case::test_case;
 
     use super::*;
 
     const KES_PK_HEX: &str = "2e5823037de29647e495b97d9dd7bf739f7ebc11d3701c8d0720f55618e1b292";
 
-    fn envelope(r#type: &str, cbor_hex: &str) -> String {
-        format!(r#"{{"type":"{type}","description":"KES Signing Key","cborHex":"{cbor_hex}"}}"#)
+    fn envelope(cbor_hex: &str) -> String {
+        format!(r#"{{"cborHex":"{cbor_hex}"}}"#)
     }
 
     #[test]
@@ -398,20 +372,15 @@ mod tests {
         assert!(SecretKey::from_bytes(vec![0u8; SecretKey::SIZE - 1]).is_err());
     }
 
-    #[test]
-    fn deserializes_from_cardano_cli_kes_skey() {
-        let json = envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}"));
-        let mut kes_sk: SecretKey = serde_json::from_str(&json).unwrap();
-        assert_eq!(kes_sk.period(), KesEvolution::from(0));
-        assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
-    }
-
-    #[test]
-    fn loads_from_kes_skey_file() {
+    #[test_case(&hex::decode(KES_SK_HEX).unwrap(); "raw")]
+    #[test_case(envelope(&format!("590260{KES_SK_HEX}")).as_bytes(); "legacy payload")]
+    #[test_case(format!(r#"{{"type":"ignored","description":"ignored","cborHex":"590260{KES_SK_HEX}"}}"#).as_bytes(); "legacy metadata")]
+    fn loads_from_kes_skey_file(bytes: &[u8]) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("kes.skey");
-        std::fs::write(&path, envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}"))).unwrap();
+        std::fs::write(&path, bytes).unwrap();
         let mut kes_sk = SecretKey::from_file(&path).unwrap();
+        assert_eq!(kes_sk.period(), KesEvolution::from(0));
         assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
     }
 
@@ -422,41 +391,26 @@ mod tests {
     }
 
     #[test]
-    fn written_envelope_reads_back() {
-        let mut written = Vec::new();
-        text_envelope::write(&SecretKey::for_tests(), &mut written).unwrap();
-        let mut kes_sk: SecretKey = serde_json::from_slice(&written).unwrap();
-        assert_eq!(hex::encode(PublicKey::from(&mut kes_sk)), KES_PK_HEX);
-    }
-
-    #[test]
     fn refuses_to_export_an_evolved_key() {
         let mut key = SecretKey::for_tests();
         key.update().unwrap();
         let mut written = Vec::new();
-        let error = text_envelope::write(&key, &mut written).unwrap_err();
-        assert!(matches!(error, text_envelope::TextEnvelopeError::Encode(_)));
+        let error = key.write_raw(&mut written).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(written.is_empty());
     }
 
-    #[test]
-    fn verification_key_envelope_matches_cardano_cli() {
-        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/forging");
-        let mut kes_sk: SecretKey = SecretKey::from_file(fixtures.join("kes.skey")).unwrap();
-        let mut written = Vec::new();
-        text_envelope::write(&PublicKey::from(&mut kes_sk), &mut written).unwrap();
-        assert_eq!(written, std::fs::read(fixtures.join("kes.vkey")).unwrap());
-    }
-
-    #[test_case(&envelope("KesVerificationKey_ed25519_kes_2^6", &format!("590260{KES_SK_HEX}")), "unexpected KES key envelope type"; "wrong type")]
-    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}a")), "Odd number of digits"; "odd hex length")]
-    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, &format!("590260{KES_SK_HEX}00")), "1 trailing bytes"; "trailing bytes")]
-    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, "820102"), "unexpected type"; "payload is not a byte string")]
-    #[test_case(&envelope(SecretKey::ENVELOPE_TYPE, &format!("5820{}", "00".repeat(32))), "secret key size"; "payload has the wrong key size")]
-    #[test_case(r#"{"cborHex":"00"}"#, "missing field `type`"; "missing type")]
-    #[test_case(r#"{"type":"KesSigningKey_ed25519_kes_2^6"}"#, "missing field `cborHex`"; "missing cborHex")]
-    fn deserialize_rejects(json: &str, expected_error: &str) {
-        let err = serde_json::from_str::<SecretKey>(json).map(|_| ()).unwrap_err().to_string();
+    #[test_case("invalid", "expected value"; "neither raw nor envelope")]
+    #[test_case("[]", "expected a string"; "missing payload")]
+    #[test_case(&envelope("0"), "Odd number of digits"; "odd hex length")]
+    #[test_case(&envelope(""), "cborHex is empty"; "empty payload")]
+    #[test_case(&envelope(&format!("590260{KES_SK_HEX}00")), "1 trailing bytes"; "trailing bytes")]
+    #[test_case(&envelope(&format!("5820{}", "00".repeat(32))), "secret key size"; "wrong key size")]
+    fn from_file_rejects_invalid_data(data: &str, expected_error: &str) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kes.skey");
+        std::fs::write(&path, data).unwrap();
+        let err = SecretKey::from_file(&path).map(|_| ()).unwrap_err().to_string();
         assert!(err.contains(expected_error), "{err}");
     }
 
