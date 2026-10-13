@@ -46,7 +46,25 @@ pub enum InvalidVotingProcedures {
 
 type VotesByProposal = NonEmptyKeyValuePairs<ProposalId, VotingProcedure>;
 
+/// Requires the witnesses the voters demand. When the transaction is valid, the votes are then validated and recorded.
+/// When it is invalid, nothing else happens.
 pub(crate) fn execute<C>(
+    context: &mut C,
+    protocol_version: ProtocolVersion,
+    era_history: &EraHistory,
+    pointer: TransactionPointer,
+    is_valid: bool,
+    voting_procedures: Option<VotingProcedures>,
+) -> Result<(), InvalidVotingProcedures>
+where
+    C: ProposalsSliceMut + CommitteeSlice + DRepsSlice + PoolsSlice + WitnessSlice,
+{
+    require_witnesses(context, voting_procedures.as_ref().map(|xs| xs.iter().as_slice()).unwrap_or_default());
+
+    if is_valid { when_valid(context, protocol_version, era_history, pointer, voting_procedures) } else { Ok(()) }
+}
+
+fn when_valid<C>(
     context: &mut C,
     protocol_version: ProtocolVersion,
     era_history: &EraHistory,
@@ -126,8 +144,7 @@ where
     Ok(())
 }
 
-/// Register the witnesses the voters demand.
-pub(crate) fn require_witnesses<C>(context: &mut C, voting_procedures: &[(Voter, VotesByProposal)])
+fn require_witnesses<C>(context: &mut C, voting_procedures: &[(Voter, VotesByProposal)])
 where
     C: WitnessSlice,
 {
