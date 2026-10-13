@@ -109,7 +109,7 @@ impl<T> PeerTrack<'_, T> {
         self.0.external(RecordRemoteUseEffect { peer, conn_id, protocol, active, at })
     }
 
-    /// Record one remote-initiator bit and emit [`protocols::peer_selection::peer::REMOTE_USE`]
+    /// Record one remote-initiator bit and emit `protocols::peer_selection::peer::REMOTE_USE`
     /// when the derived temperature changes.
     pub async fn note_remote_protocol(
         &self,

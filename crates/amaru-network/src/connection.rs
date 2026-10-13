@@ -393,12 +393,10 @@ struct PendingAccept {
     peer_addr: SocketAddr,
 }
 
-/// Dial `addr`, binding to the listen port when that is enabled and the platform can share it.
+/// Dial `addr`, binding to the listen port when that is enabled.
 ///
-/// Windows has no `SO_REUSEPORT`, so the local port stays ephemeral. A Unix bind that the
-/// listen socket will not share falls back to an ephemeral port as well.
+/// A bind the listen socket will not share falls back to an ephemeral port.
 async fn connect_stream(resource: &Inner, addr: SocketAddr) -> std::io::Result<TcpStream> {
-    #[cfg(unix)]
     if let Some(local) = resource.bind_outbound_to_listen_port.then(|| *resource.outbound_bind.lock()).flatten() {
         match connect_bound(local, addr).await {
             Ok(stream) => return Ok(stream),
@@ -409,7 +407,6 @@ async fn connect_stream(resource: &Inner, addr: SocketAddr) -> std::io::Result<T
     TcpStream::connect(addr).await
 }
 
-#[cfg(unix)]
 fn local_bind_rejected(err: &std::io::Error) -> bool {
     matches!(
         err.kind(),
@@ -419,14 +416,15 @@ fn local_bind_rejected(err: &std::io::Error) -> bool {
 
 /// Connect `remote` from a socket bound to `local`.
 ///
-/// `SO_REUSEADDR` and `SO_REUSEPORT` let this socket share the listen port with the listener.
-#[cfg(unix)]
+/// Both this socket and the listener set `SO_REUSEADDR` before bind, which is what lets
+/// Windows share the listen port. Unix also sets `SO_REUSEPORT`; Windows has no such option.
 async fn connect_bound(local: SocketAddr, remote: SocketAddr) -> std::io::Result<TcpStream> {
     let socket = match local {
         SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
         SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
     };
     socket.set_reuseaddr(true)?;
+    #[cfg(unix)]
     socket.set_reuseport(true)?;
     socket.bind(local)?;
     socket.connect(remote).await
@@ -442,9 +440,9 @@ fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
 
     let socket = Socket::new(domain, Type::STREAM, None)?;
 
-    // Allow rebinding to a port that was recently used (e.g., still in TIME_WAIT),
+    // Allow rebinding to a port that was recently used (e.g., still in TIME_WAIT).
+    // On Windows this is also what lets an outbound socket bind to the same port.
     socket.set_reuse_address(true)?;
-    // and, where the platform supports it, let an outbound socket bind to this same port.
     #[cfg(unix)]
     socket.set_reuse_port(true)?;
 

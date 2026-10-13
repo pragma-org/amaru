@@ -57,7 +57,7 @@ Other guiding principles:
 - **amaru-tui**: each chainsync peer row shows the signed gap from that peer's latest roll-forward (`ChainSync`) and advertised tip (`Adopted`) to this node's adopted height. Positive means the peer is ahead.
 - **amaru**: chainsync roll-forward completion is included in debug traces, with the header height and the peer's tip height.
 - **amaru**: a connection reports the remote peer's temperature (`none`, `maintenance`, or `diffusion`) when it changes, and the `connected` trace includes the local temperature. A share reply includes this node's listen address. A duplex inbound connection at maintenance runs peer-sharing. A peer that stays silent after a non-blocking transaction-id request is disconnected.
-- **amaru**: outbound connections bind to the listen port. `--peers-ephemeral-outbound-port` leaves the local port to the kernel. Windows keeps an ephemeral local port. If the listen port cannot be reused, the connect falls back to an ephemeral port.
+- **amaru**: outbound connections bind to the listen port. `--peers-ephemeral-outbound-port` leaves the local port to the kernel. If the listen port cannot be reused, the connect falls back to an ephemeral port.
 - **amaru**: a connection with nothing running locally and no remote initiator protocols is closed. A one-way connection that has already shown a remote initiator closes on the next cold round. Until that first initiator, and for a duplex connection, both sides stay up for 30 seconds after they go cold. Chain-sync `RequestNext` counts as the remote peer running chain-sync, the same as finding an intersection.
 
 ### Fixed
