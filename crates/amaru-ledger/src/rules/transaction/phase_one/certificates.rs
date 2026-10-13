@@ -86,7 +86,33 @@ pub enum InvalidCertificates {
     DRepNotRegistered(#[from] UnregisterError<DRepRegistration, Credential>),
 }
 
+/// Requires the witnesses the certificates demand. When the transaction is valid, each certificate is then validated
+/// and applied in order. When it is invalid, the certificates only count their deposits and refunds.
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
+    context: &mut C,
+    network: Network,
+    protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
+    governance_activity: GovernanceActivity,
+    transaction: TransactionPointer,
+    is_valid: bool,
+    certificates: Option<Certificates>,
+) -> Result<(), InvalidCertificates>
+where
+    C: PoolsSliceMut + AccountsSliceMut + DRepsSliceMut + CommitteeSliceMut + BalanceSlice + WitnessSlice,
+{
+    require_witnesses(context, certificates.as_ref().map(|xs| xs.iter().as_slice()).unwrap_or_default());
+
+    if is_valid {
+        when_valid(context, network, protocol_parameters, era_history, governance_activity, transaction, certificates)
+    } else {
+        when_invalid(context, protocol_parameters, certificates);
+        Ok(())
+    }
+}
+
+fn when_valid<C>(
     context: &mut C,
     network: Network,
     protocol_parameters: &ProtocolParameters,
@@ -115,13 +141,9 @@ where
     }
 }
 
-/// A simplified version of `execute` which does not validate anything, but count deposits and
-/// refunds.
-pub(crate) fn count_lovelace<C>(
-    context: &mut C,
-    protocol_parameters: &ProtocolParameters,
-    certificates: Option<Certificates>,
-) where
+/// Counts the deposits and refunds of the certificates, without validating or applying them.
+fn when_invalid<C>(context: &mut C, protocol_parameters: &ProtocolParameters, certificates: Option<Certificates>)
+where
     C: PoolsSlice + AccountsSlice + DRepsSlice + BalanceSlice,
 {
     if let Some(certificates) = certificates {
@@ -143,8 +165,7 @@ pub(crate) fn count_lovelace<C>(
     }
 }
 
-/// Register the witnesses the certificates demand.
-pub(crate) fn require_witnesses<C>(context: &mut C, certificates: &[Certificate])
+fn require_witnesses<C>(context: &mut C, certificates: &[Certificate])
 where
     C: WitnessSlice,
 {

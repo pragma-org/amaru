@@ -71,7 +71,33 @@ pub enum InvalidProposals {
     EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
+/// Requires the witnesses the proposals demand. When the transaction is valid, each proposal is then validated and
+/// acknowledged. When it is invalid, the proposals only count their deposits.
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
+    context: &mut C,
+    network: Network,
+    protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
+    guardrail_script: Option<Hash<SCRIPT>>,
+    transaction: (TransactionId, TransactionPointer),
+    is_valid: bool,
+    proposals: Option<Vec<Proposal>>,
+) -> Result<(), InvalidProposals>
+where
+    C: ProposalsSliceMut + AccountsSlice + BalanceSlice + WitnessSlice,
+{
+    require_witnesses(context, proposals.as_deref().unwrap_or_default());
+
+    if is_valid {
+        when_valid(context, network, protocol_parameters, era_history, guardrail_script, transaction, proposals)
+    } else {
+        when_invalid(context, protocol_parameters, proposals);
+        Ok(())
+    }
+}
+
+fn when_valid<C>(
     context: &mut C,
     network: Network,
     protocol_parameters: &ProtocolParameters,
@@ -107,8 +133,7 @@ where
     Ok(())
 }
 
-/// Register the witnesses the proposals demand.
-pub(crate) fn require_witnesses<C>(context: &mut C, proposals: &[Proposal])
+fn require_witnesses<C>(context: &mut C, proposals: &[Proposal])
 where
     C: WitnessSlice,
 {
@@ -124,16 +149,12 @@ where
     }
 }
 
-/// A simplified version of `execute` which only track the value produced by proposal deposits, in
-/// order to verify transaction value preservation in the context of invalid transactions.
+/// Counts the value produced by proposal deposits, without validating or acknowledging the proposals.
 ///
 /// Note that we use the deposit value from the protocol parameters in that context, not the one in
 /// the proposal since it isn't validated.
-pub(crate) fn count_lovelace<C>(
-    context: &mut C,
-    protocol_parameters: &ProtocolParameters,
-    proposals: Option<Vec<Proposal>>,
-) where
+fn when_invalid<C>(context: &mut C, protocol_parameters: &ProtocolParameters, proposals: Option<Vec<Proposal>>)
+where
     C: BalanceSlice,
 {
     context.produce_lovelace(protocol_parameters.gov_action_deposit * proposals.unwrap_or_default().len() as u64);
