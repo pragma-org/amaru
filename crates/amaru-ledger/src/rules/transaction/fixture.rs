@@ -32,7 +32,7 @@ use crate::{
         transaction::{
             phase_one::{
                 InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidScripts,
-                InvalidTransactionMetadata, InvalidValidityInterval, InvalidVerificationKeyWitness,
+                InvalidTransactionMetadata, InvalidTreasury, InvalidValidityInterval, InvalidVerificationKeyWitness,
                 InvalidVotingProcedures, InvalidWithdrawals, PhaseOneError,
                 outputs::{InvalidOutput, InvalidOutputs},
                 proposals::InvalidProposals,
@@ -363,7 +363,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
             PhaseOneError::InvalidNetwork { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
-            PhaseOneError::TreasuryValueMismatch { .. } => Predicate::ConwayTreasuryValueMismatch,
+            PhaseOneError::Treasury(InvalidTreasury::ValueMismatch { .. }) => Predicate::ConwayTreasuryValueMismatch,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
                 Predicate::OutsideValidityIntervalUTxO
             }

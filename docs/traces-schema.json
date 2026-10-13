@@ -6697,9 +6697,6 @@
         "certificates_micros": {
           "type": "integer"
         },
-        "donation_micros": {
-          "type": "integer"
-        },
         "fees_micros": {
           "type": "integer"
         },
@@ -6724,6 +6721,9 @@
         "signatures_micros": {
           "type": "integer"
         },
+        "treasury_micros": {
+          "type": "integer"
+        },
         "validity_interval_micros": {
           "type": "integer"
         },
@@ -6738,7 +6738,6 @@
       "optional": [
         "preflight_micros",
         "certificates_micros",
-        "donation_micros",
         "fees_micros",
         "inputs_micros",
         "metadata_micros",
@@ -6747,6 +6746,7 @@
         "proposals_micros",
         "scripts_micros",
         "signatures_micros",
+        "treasury_micros",
         "validity_interval_micros",
         "votes_micros",
         "withdrawals_micros"
