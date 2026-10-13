@@ -1,0 +1,15 @@
+error: schema test::sub::SCHEMA may only be emitted at debug, not info
+  --> tests/ui/compile_fail/event_level_not_allowed.rs:19:1
+   |
+19 | / define_local_schemas! {
+20 | |     test {
+21 | |         sub {
+22 | |             /// Debug-only event
+...  |
+29 | | }
+   | |_^
+...
+32 |       trace_event!(INFO, crate::test::sub::SCHEMA, value = 1_u64);
+   |       ----------------------------------------------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `__TEST__SUB__SCHEMA_KIND` which comes from the expansion of the macro `trace_event` (in Nightly builds, run with -Z macro-backtrace for more info)

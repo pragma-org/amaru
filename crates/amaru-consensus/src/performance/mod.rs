@@ -91,6 +91,7 @@ mod header;
 mod ops;
 mod peer_tracking;
 mod peers;
+mod spans;
 
 use std::{
     fmt,
@@ -118,6 +119,9 @@ pub use peers::{
     SelectOutboundParams, SelectPeersParams, SelectUsing, ShareRequestRecord, SharedIngestResult, SourceCounts,
     UninterestingMark, ViewConnection, malus_at,
 };
+use spans::HeaderSpanBook;
+#[doc(hidden)]
+pub use spans::close_root_forward_after_exit;
 use tokio::{
     sync::mpsc::{UnboundedSender, unbounded_channel},
     time::Instant as TokioInstant,
@@ -279,6 +283,8 @@ pub struct Performance {
     /// Tokio's Instant is safe to read outside a runtime (see unit test) and saturates.
     last_queue_warn: Arc<Mutex<Option<TokioInstant>>>,
     worker: Arc<WorkerGuard>,
+    /// Open header spans. The worker never touches this map.
+    pub(crate) spans: Arc<Mutex<HeaderSpanBook>>,
 }
 
 impl Clone for Performance {
@@ -288,6 +294,7 @@ impl Clone for Performance {
             pending: Arc::clone(&self.pending),
             last_queue_warn: Arc::clone(&self.last_queue_warn),
             worker: Arc::clone(&self.worker),
+            spans: Arc::clone(&self.spans),
         }
     }
 }
@@ -332,6 +339,7 @@ impl Performance {
             pending,
             last_queue_warn: Arc::new(Mutex::new(None)),
             worker: Arc::new(WorkerGuard { join: Mutex::new(Some(join)) }),
+            spans: Arc::new(Mutex::new(HeaderSpanBook::default())),
         }
     }
 
@@ -361,6 +369,7 @@ impl Performance {
                 pending,
                 last_queue_warn: Arc::new(Mutex::new(None)),
                 worker: Arc::new(WorkerGuard { join: Mutex::new(Some(join)) }),
+                spans: Arc::new(Mutex::new(HeaderSpanBook::default())),
             },
             release_tx,
             probe,

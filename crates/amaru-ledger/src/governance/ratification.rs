@@ -224,6 +224,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn new_enact_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(ledger::governance::ENACTING, proposal_id = id.to_string(), proposal_kind = proposal.display_kind())
+            .into()
     }
 
     fn new_ratify_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
@@ -232,6 +233,7 @@ impl<'distr> RatificationContext<'distr> {
             proposal_id = id.to_string(),
             proposal_kind = proposal.display_kind()
         )
+        .into()
     }
 
     fn is_accepted_by_everyone(

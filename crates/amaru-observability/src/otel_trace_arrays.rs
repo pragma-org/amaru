@@ -22,8 +22,9 @@
 //!   string so operators see readable structure instead of hex.
 //!
 //! Place this layer **after** `tracing_opentelemetry::OpenTelemetryLayer` so the OTEL span
-//! exists when attributes are applied. Duplicate keys may appear (hex string + upgrade);
-//! most exporters keep the last value or accept both — the upgrade is the intended form.
+//! exists when attributes are applied. The stock layer has no `record_bytes` visitor, so it
+//! also stores a debug dump of the CBOR bytes under the same key. [`prepare_exported_attributes`]
+//! replaces that dump with the upgraded value and keeps one attribute per key.
 //!
 //! ## Lifecycle / never-entered spans
 //!
@@ -37,7 +38,8 @@
 //! handles used solely as `parent: &span`) therefore keep the stock hex form for those
 //! fields. Prefer entering/`in_scope`/`#[instrument]` when structured OTEL attributes matter.
 
-use opentelemetry::{Key, Value as TraceValue};
+use cbor_data::Cbor;
+use opentelemetry::{Key, KeyValue, Value as TraceValue};
 use tracing::field::{Field, Visit};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{Layer, registry::LookupSpan};
@@ -80,6 +82,53 @@ impl Visit for CollectTraceValues {
 fn apply_pending(span: &tracing::Span, pending: PendingTraceAttributes) {
     for (key, value) in pending.attrs {
         span.set_attribute(key, value);
+    }
+}
+
+/// Keep the last value for each attribute key.
+///
+/// A CBOR field is visited twice: the stock layer records a debug dump of the bytes, then
+/// [`CborTraceArrayLayer`] records the decoded value. Export must show the decoded value once.
+fn retain_last_attribute(attributes: &mut Vec<KeyValue>) {
+    let mut index = 0;
+    while index < attributes.len() {
+        if let Some(upgraded) = upgrade_debug_cbor(&attributes[index].value) {
+            attributes[index].value = upgraded;
+        }
+        if attributes[index + 1..].iter().any(|later| later.key == attributes[index].key) {
+            attributes.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+}
+
+/// Replace a stock `record_bytes` debug dump (`[58 20 ab …]`) with the decoded CBOR value.
+fn upgrade_debug_cbor(value: &TraceValue) -> Option<TraceValue> {
+    let TraceValue::String(text) = value else {
+        return None;
+    };
+    let text = text.as_str();
+    let inner = text.strip_prefix('[')?.strip_suffix(']')?;
+    if inner.is_empty() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    for part in inner.split(' ') {
+        if part.len() != 2 {
+            return None;
+        }
+        bytes.push(u8::from_str_radix(part, 16).ok()?);
+    }
+    Cbor::checked(&bytes).ok()?;
+    Some(cbor_to_trace_value(&bytes))
+}
+
+/// Replace CBOR debug dumps on a finished span, including attributes copied onto span events.
+pub fn prepare_exported_attributes(attributes: &mut Vec<KeyValue>, events: &mut [opentelemetry::trace::Event]) {
+    retain_last_attribute(attributes);
+    for event in events {
+        retain_last_attribute(&mut event.attributes);
     }
 }
 

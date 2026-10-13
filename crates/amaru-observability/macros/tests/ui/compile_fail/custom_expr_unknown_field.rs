@@ -24,7 +24,7 @@ define_local_schemas! {
     test {
         example {
             /// Test schema for custom expression validation
-            STRICT_TEST {
+            span STRICT_TEST {
                 required actual_field: String
                 optional optional_field: u64
             }

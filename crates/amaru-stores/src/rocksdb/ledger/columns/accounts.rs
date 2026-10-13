@@ -71,22 +71,20 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 
 /// Reset rewards counter of many accounts.
 pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::accounts::RESET_MANY).in_scope(|| {
-        for credential in rows {
-            let key = as_key(&PREFIX, credential);
+    for credential in rows {
+        let key = as_key(&PREFIX, credential);
 
-            if let Some(mut row) =
-                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-            {
-                row.rewards = 0;
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else {
-                error!(stores::ledger::accounts::RESET_MANY, credential, reason = "no account for given credential");
-            }
+        if let Some(mut row) =
+            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+        {
+            row.rewards = 0;
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            error!(stores::ledger::accounts::RESET_MANY, credential, reason = "no account for given credential");
         }
+    }
 
-        Ok(())
-    })
+    Ok(())
 }
 
 /// Obtain a account from the store
@@ -108,27 +106,25 @@ pub fn set_rewards<DB>(
     credential: &Key,
     with_rewards: impl FnOnce(Lovelace) -> Lovelace,
 ) -> Result<Lovelace, StoreError> {
-    trace_span!(stores::ledger::accounts::SET).in_scope(|| {
-        let key = as_key(&PREFIX, credential);
+    let key = as_key(&PREFIX, credential);
 
-        if let Some(mut row) =
-            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-        {
-            row.rewards = with_rewards(row.rewards);
-            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            return Ok(0);
-        }
+    if let Some(mut row) =
+        db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+    {
+        row.rewards = with_rewards(row.rewards);
+        db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+        return Ok(0);
+    }
 
-        // TODO: Should probably be an error now that we have the overlay...
-        debug!(
-            stores::ledger::accounts::SET,
-            credential_type = CredentialKind::from(credential),
-            account = credential.as_hash(),
-            reason = "cannot set stake, account is gone"
-        );
+    // TODO: Should probably be an error now that we have the overlay...
+    debug!(
+        stores::ledger::accounts::SET,
+        credential_type = CredentialKind::from(credential),
+        account = credential.as_hash(),
+        reason = "cannot set stake, account is gone"
+    );
 
-        Ok(with_rewards(0))
-    })
+    Ok(with_rewards(0))
 }
 
 /// Clear a stake credential registration.

@@ -38,6 +38,7 @@ use super::{
 };
 use crate::{
     effects::{ConsensusMode, QueryConsensusModeEffect, ValidateHeaderEffect},
+    performance::{OpenHeaderForwardEffect, Performance},
     stages::select_chain::SelectChainMsg,
 };
 
@@ -72,11 +73,17 @@ define_messages! {
 pub struct ForgeTip {
     tip: Point,
     parent: Point,
+    forward_context: amaru_observability::TraceContext<amaru_observability::amaru::network::perf::header::FORWARD>,
 }
 
 impl From<ForgeTip> for SelectChainMsg {
     fn from(tip: ForgeTip) -> Self {
-        SelectChainMsg::tip_from_upstream(tip.tip, tip.parent)
+        SelectChainMsg::TipFromUpstream {
+            tip: tip.tip,
+            parent: tip.parent,
+            trace_context: amaru_observability::TraceContext::detached(),
+            forward_context: tip.forward_context,
+        }
     }
 }
 
@@ -114,6 +121,7 @@ on_receive!(Signing, Publish =>
     External<StoreBlockEffect>,
     Clock,
     Repeat<Wait>,
+    External<OpenHeaderForwardEffect>,
     Send<ToSelectChain, ForgeTip>,
     Repeat<CancelSchedule>,
     Repeat<Schedule<DueLead>>
@@ -324,6 +332,14 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         return finish_with_next_lead!(session, state, now, mode);
     };
 
+    // A replacement schedule can arm a slot this stage already published. The parent
+    // is unchanged, so the header would be identical.
+    if state.published.is_some_and(|(forged_slot, parent)| forged_slot == slot && parent == parent_point.hash()) {
+        let session = session.finish().receive(&Proceed, eff.clone());
+        let mode = eff.external(QueryConsensusModeEffect).await;
+        return finish_with_next_lead!(session, state, now, mode);
+    }
+
     let session = session.finish().receive(&Proceed, eff.clone());
 
     let parent_hash: HeaderHash = parent_point.hash();
@@ -396,7 +412,9 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         let (_at, next) = session.wait(delay).await;
         session = next;
     }
-    let forged = ForgeTip { tip: header_point, parent: parent_point };
+    let (forward_context, session) = session.external(Performance::open_header_forward(header_hash, None)).await;
+    let forged = ForgeTip { tip: header_point, parent: parent_point, forward_context };
+    state.published = Some((slot, parent_hash));
     info!(consensus::forge::FORGED, slot, header_hash, parent = parent_hash);
     let session = session.send(&state.select_chain, forged).await;
     let mode = eff.external(QueryConsensusModeEffect).await;

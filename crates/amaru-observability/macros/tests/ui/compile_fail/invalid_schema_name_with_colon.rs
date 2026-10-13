@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Test: Invalid schema names with special characters should fail
-//! Expected error: Invalid schema name - contains hyphen
+//! Test: A schema name must be a single identifier introduced by span or event.
+//! `VALIDATE-HEADER` is not one identifier, so it is rejected before the hyphen.
 
 use amaru_observability_macros::define_local_schemas;
 

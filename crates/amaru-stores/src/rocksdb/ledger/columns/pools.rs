@@ -74,21 +74,19 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
 }
 
 pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Epoch)>) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::pools::REMOVE).in_scope(|| {
-        for (pool, epoch) in rows {
-            // We do not delete pool immediately but rather schedule the
-            // removal as an empty parameter update. The 'pool reaping' happens on
-            // every epoch boundary.
-            match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
-                None => {
-                    error!(stores::ledger::pools::REMOVE, pool, reason = "unknown pool");
-                }
-                Some(existing_params) => db
-                    .put(as_key(&PREFIX, pool), Row::extend(existing_params, PoolCertificate::Retirement(epoch)))
-                    .map_err(|err| StoreError::Internal(err.into()))?,
-            };
-        }
+    for (pool, epoch) in rows {
+        // We do not delete pool immediately but rather schedule the
+        // removal as an empty parameter update. The 'pool reaping' happens on
+        // every epoch boundary.
+        match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
+            None => {
+                error!(stores::ledger::pools::REMOVE, pool, reason = "unknown pool");
+            }
+            Some(existing_params) => db
+                .put(as_key(&PREFIX, pool), Row::extend(existing_params, PoolCertificate::Retirement(epoch)))
+                .map_err(|err| StoreError::Internal(err.into()))?,
+        };
+    }
 
-        Ok(())
-    })
+    Ok(())
 }

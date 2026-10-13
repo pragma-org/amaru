@@ -30,7 +30,7 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeight, Peer, PeerCandidate};
-use amaru_observability::{Instrument, TraceContext, debug, debug_span, info, trace, warn};
+use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug, debug_span, info, trace, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, ObservedAt};
 use amaru_protocols::{connection::LocalUse, manager::ManagerMessage};
 use amaru_pure_stage::{Effects, Instant, StageRef};
@@ -234,7 +234,7 @@ pub enum PeerSelectionMsg {
     ///
     /// The first report while no ban is active removes and bans the peer. A repeat report during
     /// that ban is logged and ignored. Refill waits for the next tick.
-    Adversarial(Peer, TraceContext),
+    Adversarial(Peer, TraceContext<CarriedHeader>),
     /// Manually add a peer, mostly for testing.
     AddPeer(Peer),
     /// DNS result for a selected bootstrap [`amaru_kernel::PeerCandidate`] (at most one [`Peer`]).
@@ -246,7 +246,7 @@ pub enum PeerSelectionMsg {
 impl PeerSelectionMsg {
     /// Shortcut for creating an adversarial message when no trace context is available.
     pub fn adversarial(peer: Peer) -> PeerSelectionMsg {
-        PeerSelectionMsg::Adversarial(peer, Default::default())
+        PeerSelectionMsg::Adversarial(peer, TraceContext::detached())
     }
 }
 
@@ -1115,8 +1115,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 debug!(protocols::peer_selection::peer::ADVERSARIAL_DUPLICATE, peer);
             } else {
                 debug!(protocols::peer_selection::peer::ADVERSARIAL, peer);
-                let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer);
-                state.ban_peer(peer, &eff).instrument(span).await;
+                let span = debug_span!(parent_context: &trace_context, consensus::peer::BAN, peer);
+                state.ban_peer(peer, &eff).instrument(span.into()).await;
             }
         }
         PeerSelectionMsg::AddPeer(peer) => {
@@ -1185,7 +1185,7 @@ impl LedgerCheck {
 async fn get_ledger_candidates(state: LedgerCheck, msg: (), eff: Effects<()>) -> LedgerCheck {
     let span =
         debug_span!(protocols::peer_selection::ledger::CHECK_CANDIDATES, last_height = state.last_height.as_u64());
-    get_ledger_candidates_inner(state, msg, eff).instrument(span).await
+    get_ledger_candidates_inner(state, msg, eff).instrument(span.into()).await
 }
 
 async fn get_ledger_candidates_inner(mut state: LedgerCheck, _msg: (), eff: Effects<()>) -> LedgerCheck {

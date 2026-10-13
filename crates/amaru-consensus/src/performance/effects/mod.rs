@@ -76,7 +76,5 @@ async fn enqueue_and_emit_telemetry(
     make: impl FnOnce(oneshot::Sender<Vec<HeaderTelemetry>>) -> PerformanceOp,
 ) {
     let events = enqueue_query(perf, make).await;
-    let meter = optional_meter(&resources);
-    let live = crate::consensus_mode::is_live(&resources);
-    HeaderTelemetry::emit_all(&events, meter.as_deref(), live);
+    perf.emit_telemetry(&events, &resources);
 }

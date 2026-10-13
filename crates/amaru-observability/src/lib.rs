@@ -14,6 +14,14 @@
 
 extern crate self as amaru_observability;
 
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+
 pub mod field;
 pub mod json_format;
 pub mod layers;
@@ -24,6 +32,7 @@ pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
 // the amaru module with all schema constants and validation macros
 mod schemas;
+mod span_duration;
 pub mod span_encode;
 pub mod telemetry_capture;
 mod trace_context;
@@ -41,19 +50,54 @@ pub use layers::{
 };
 pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;
-pub use otel_trace_arrays::CborTraceArrayLayer;
+pub use otel_trace_arrays::{CborTraceArrayLayer, prepare_exported_attributes};
 pub use record_fields::RecordFields;
 /// Re-export for schema macros that require `Serialize` / `JsonSchema` on complex field types.
 pub use schemars;
 pub use schemas::*;
 pub use serde;
+pub use span_duration::{SpanDurationLayer, offer_span_elapsed};
 pub use span_encode::{
     abbreviate_span_name, ancestor_span_names, format_abbreviated_span_path, write_abbreviated_span_name,
     write_abbreviated_span_path,
 };
 pub use telemetry_capture::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
-pub use trace_context::TraceContext;
+pub use trace_context::{
+    AcceptsParent, AttachedSpan, CarriedHeader, ChainChoice, ChainSyncProcess, FetchResume, NoParent, ParentContext,
+    SchemaSpan, TraceContext,
+};
 pub use tracing::{self, Instrument, Level};
+
+static EMIT_PRIVATE_TRACES: AtomicBool = AtomicBool::new(false);
+
+/// Emit private schemas even when this crate was not built for tests.
+///
+/// Stage call sites live in crates that are dependencies of a node test, so `cfg!(test)` there
+/// is false. A node test that must see those spans calls this before the node runs.
+pub fn enable_private_traces() {
+    EMIT_PRIVATE_TRACES.store(true, Ordering::Relaxed);
+}
+
+/// Whether [`enable_private_traces`] is set for this process.
+pub fn private_traces_enabled() -> bool {
+    EMIT_PRIVATE_TRACES.load(Ordering::Relaxed)
+}
+
+static SPAN_DURATIONS: Mutex<BTreeMap<(String, String), u64>> = Mutex::new(BTreeMap::new());
+
+/// Remember a span's elapsed microseconds, keyed by span name and header hash.
+///
+/// [`SpanDurationLayer`] records this from `on_close`, before a batch exporter runs.
+pub fn note_span_duration(name: &str, header_hash: &str, micros: u64) {
+    if let Ok(mut durations) = SPAN_DURATIONS.lock() {
+        durations.insert((name.to_string(), header_hash.to_string()), micros);
+    }
+}
+
+/// Take the elapsed time recorded by [`note_span_duration`].
+pub fn take_span_duration(name: &str, header_hash: &str) -> Option<u64> {
+    SPAN_DURATIONS.lock().ok().and_then(|mut durations| durations.remove(&(name.to_string(), header_hash.to_string())))
+}
 pub use tracing_opentelemetry;
 pub use tracing_subscriber;
 

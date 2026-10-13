@@ -217,7 +217,7 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                 }
             }
         }
-        .instrument(span)
+        .instrument(span.into())
         .await
     }
 

@@ -15,7 +15,7 @@
 use std::io;
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_observability::registry::SchemaEntry;
+use amaru_observability::registry::{SchemaEntry, SchemaKind};
 use clap::Parser;
 use serde_json::{Value, json};
 
@@ -65,21 +65,27 @@ fn generate_traces_json_schema(entries: &[SchemaEntry]) -> Value {
             let optional: Vec<_> =
                 entry.optional_fields.iter().map(|field| Value::String(field.name.to_string())).collect();
 
-            (
-                entry.path.to_string(),
-                json!({
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                    "optional": optional,
-                    "additionalProperties": false,
-                    "name": entry.name.to_lowercase(),
-                    "level": entry.level,
-                    "target": entry.target,
-                    "description": entry.description,
-                    "public": entry.public,
-                }),
-            )
+            let kind = match entry.kind {
+                SchemaKind::Span => "span",
+                SchemaKind::Event => "event",
+            };
+            let mut schema = json!({
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "optional": optional,
+                "additionalProperties": false,
+                "name": entry.name.to_lowercase(),
+                "kind": kind,
+                "target": entry.target,
+                "description": entry.description,
+                "public": entry.public,
+            });
+            if let SchemaKind::Event = entry.kind {
+                schema["levels"] = json!(entry.levels);
+            }
+
+            (entry.path.to_string(), schema)
         })
         .collect::<serde_json::Map<_, _>>();
 
@@ -111,5 +117,12 @@ mod tests {
         let tip = &dump["definitions"]["amaru::ledger::tip::UPDATE"]["properties"];
         assert_eq!(tip["header_hash"]["type"], "string");
         assert_eq!(tip["slot"]["type"], "integer");
+
+        let definitions = &dump["definitions"];
+        assert_eq!(definitions["amaru::ledger::state::SWITCH_TO_FORK"]["kind"], "span");
+        assert!(definitions["amaru::ledger::state::SWITCH_TO_FORK"].get("levels").is_none());
+        assert_eq!(definitions["amaru::consensus::perf::header::LIFECYCLE"]["kind"], "event");
+        assert_eq!(definitions["amaru::consensus::perf::header::LIFECYCLE"]["levels"], json!(["debug", "error"]));
+        assert_eq!(definitions["amaru::blockperf::header::ANNOUNCED"]["levels"], json!(["debug", "info"]));
     }
 }

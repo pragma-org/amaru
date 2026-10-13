@@ -22,7 +22,7 @@ define_local_schemas! {
     test {
         sub {
             /// Test schema for wrong field type test
-            SCHEMA {
+            span SCHEMA {
                 required first: String
                 required second: u64
                 required third: u64

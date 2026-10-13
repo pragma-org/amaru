@@ -158,6 +158,14 @@ impl WorldLoop {
         self.subscribers[index] = Some(dispatch);
     }
 
+    /// Trace only `graph_index` with `dispatch`. The injector and other nodes stay on the ambient subscriber.
+    pub fn with_graph_tracing(mut self, graph_index: usize, dispatch: tracing::Dispatch) -> Self {
+        if let Some(slot) = self.subscribers.get_mut(graph_index) {
+            *slot = Some(dispatch);
+        }
+        self
+    }
+
     /// Attach the serve-only injector handle this loop owns, at `graph_index` in `graphs`.
     pub fn with_injector(mut self, graph_index: usize, injector: Arc<InjectorShared>) -> Self {
         self.injector = Some((graph_index, injector));
@@ -606,7 +614,17 @@ impl WorldLoop {
         let _ = self.provider.close_endpoint(conn);
     }
 
-    fn resume(&mut self, (graph_idx, stage_name, result): Completion) {
+    fn resume(&mut self, completion: Completion) {
+        let graph_idx = completion.0;
+        let dispatch = self.subscribers.get(graph_idx).and_then(Clone::clone);
+        if let Some(dispatch) = dispatch {
+            tracing::dispatcher::with_default(&dispatch, || self.resume_inner(completion));
+        } else {
+            self.resume_inner(completion);
+        }
+    }
+
+    fn resume_inner(&mut self, (graph_idx, stage_name, result): Completion) {
         if self.terminated_stages.contains(&(graph_idx, stage_name.clone())) {
             return;
         }

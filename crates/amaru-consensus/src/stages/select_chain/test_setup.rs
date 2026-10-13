@@ -140,6 +140,9 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockValidEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockPrunedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordForkStartedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::OpenBlockFetchWaitEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::CloseBlockFetchWaitEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::CloseHeaderForwardEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
     ]
 }
@@ -245,6 +248,30 @@ pub fn te_record_block_pruned(
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::record_block_pruned(hash, invalid, now, syncing)),
+    ))
+}
+
+pub fn te_open_block_fetch_wait(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::open_block_fetch_wait(
+            hash,
+            amaru_observability::TraceContext::detached(),
+        )),
+    ))
+}
+
+pub fn te_close_block_fetch_wait(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::close_block_fetch_wait(hash)),
+    ))
+}
+
+pub fn te_close_header_forward(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::close_header_forward(hash)),
     ))
 }
 

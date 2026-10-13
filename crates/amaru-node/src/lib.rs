@@ -105,9 +105,9 @@ pub const DEFAULT_PEERS_MAX_DOWNSTREAM: usize = 10;
 pub mod observability {
     pub use amaru_observability::{
         CborAwareMakeVisitor, CborConsoleEventFormat, CborDiagVisitor, CborJsonEventFormat, CborJsonFields,
-        CborJsonSpanLayer, CborOtelLogBridge, CborToStringVisit, CborTraceArrayLayer, HideTagFields, SpanJsonFields,
-        abbreviate_span_name, ancestor_span_names, as_str_value, cbor_to_any_value, cbor_to_trace_value,
-        console_field_formatter, encode_cbor, format_abbreviated_span_path,
+        CborJsonSpanLayer, CborOtelLogBridge, CborToStringVisit, CborTraceArrayLayer, HideTagFields, SpanDurationLayer,
+        SpanJsonFields, abbreviate_span_name, ancestor_span_names, as_str_value, cbor_to_any_value,
+        cbor_to_trace_value, console_field_formatter, encode_cbor, format_abbreviated_span_path,
     };
 }
 

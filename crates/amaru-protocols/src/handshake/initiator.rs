@@ -109,7 +109,7 @@ impl StageState<State, Initiator> for HandshakeInitiator {
                 }
             })
         }
-        .instrument(debug_span!(protocols::handshake::initiator::HANDSHAKE_INITIATOR_STAGE, message_type))
+        .instrument(debug_span!(protocols::handshake::initiator::HANDSHAKE_INITIATOR_STAGE, message_type).into())
         .await
     }
 

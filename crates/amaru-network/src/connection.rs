@@ -234,7 +234,7 @@ impl ConnectionProvider for TokioConnections {
                         info!(network::connection::ACCEPT_LOOP_STOPPED, local = local.to_string());
                         result
                     }
-                    .instrument(debug_span!(network::connection::ACCEPT_LOOP,)),
+                    .instrument(debug_span!(network::connection::ACCEPT_LOOP,).into()),
                 );
 
                 tasks.insert(local, task);
@@ -252,7 +252,7 @@ impl ConnectionProvider for TokioConnections {
                 });
                 result.map_err(|error| std::io::Error::new(error.kind(), error))
             })
-            .instrument(debug_span!(network::connection::LISTEN,)),
+            .instrument(debug_span!(network::connection::LISTEN,).into()),
         )
     }
 
@@ -281,12 +281,14 @@ impl ConnectionProvider for TokioConnections {
                 let id = inner.connections.lock().add_connection(Connection::new(stream, inner.read_buf_size)?);
                 Ok((peer, id))
             }
-            .instrument(debug_span!(network::connection::ACCEPT,)),
+            .instrument(debug_span!(network::connection::ACCEPT,).into()),
         )
     }
 
     fn connect(&self, peer: Peer, timeout: Duration) -> BoxFuture<'static, std::io::Result<ConnectionId>> {
-        Box::pin(connect(peer, self.inner.clone(), timeout).instrument(debug_span!(network::connection::CONNECT,)))
+        Box::pin(
+            connect(peer, self.inner.clone(), timeout).instrument(debug_span!(network::connection::CONNECT,).into()),
+        )
     }
 
     fn send(&self, conn: ConnectionId, data: NonEmptyBytes) -> BoxFuture<'static, std::io::Result<()>> {
@@ -303,7 +305,7 @@ impl ConnectionProvider for TokioConnections {
                 tokio::time::timeout(Duration::from_secs(100), connection.lock().await.write_all(&data)).await??;
                 Ok(())
             }
-            .instrument(debug_span!(network::connection::SEND,)),
+            .instrument(debug_span!(network::connection::SEND,).into()),
         )
     }
 
@@ -329,7 +331,7 @@ impl ConnectionProvider for TokioConnections {
                 #[expect(clippy::expect_used)]
                 Ok(buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize"))
             }
-            .instrument(debug_span!(network::connection::RECV,)),
+            .instrument(debug_span!(network::connection::RECV,).into()),
         )
     }
 
@@ -344,7 +346,7 @@ impl ConnectionProvider for TokioConnections {
                 connection.writer.lock().await.shutdown().await?;
                 Ok(())
             }
-            .instrument(debug_span!(network::connection::CLOSE,)),
+            .instrument(debug_span!(network::connection::CLOSE,).into()),
         )
     }
 }

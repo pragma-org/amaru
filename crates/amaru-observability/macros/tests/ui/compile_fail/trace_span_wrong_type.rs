@@ -18,7 +18,7 @@ define_local_schemas! {
     test {
         sub {
             /// Test schema for wrong trace_span field type
-            SCHEMA {
+            span SCHEMA {
                 required first: u64
             }
         }
