@@ -52,6 +52,7 @@ Other guiding principles:
 - **amaru**: remove legacy commands that were deprecated and hidden away months ago.
 - **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
+- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check. `votes_micros` is now also recorded for transactions marked as failing phase-two validation.
 
 ### Fixed
 
@@ -62,6 +63,10 @@ Other guiding principles:
 - **amaru**: only a failed connect or a dial that never finishes holds off the next dial. Starting a dial, or a connection that closed, does not. A replacement dial after a close is not cancelled when that same close is seen again.
 - **amaru**: a notice that an old connection died is not counted as a failed dial when a later dial to that peer is already in progress.
 - **amaru**: block fetch reads which connections may initiate from the peer resource. A connection no longer sends that fact to the connection manager, so a full tip burst cannot deadlock the two.
+- **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
+- **amaru-ledger**: treasury donations in transactions marked as failing phase-two validation no longer reach the treasury.
+- **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
+- **amaru-ledger**: transactions missing a signature for collateral that don't include a redeemer.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -608,6 +613,7 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1004]: https://github.com/pragma-org/amaru/issues/1004
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010

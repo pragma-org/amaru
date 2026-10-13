@@ -18,7 +18,7 @@ use amaru_kernel::{Credential, Lovelace, MemoizedDatum, Network, RedeemerTag, Re
 use thiserror::Error;
 
 use crate::{
-    context::{AccountsSlice, BalanceSlice, WitnessSlice},
+    context::{AccountsSliceMut, BalanceSlice, WitnessSlice},
     rules::TransactionField,
 };
 
@@ -38,84 +38,136 @@ pub enum InvalidWithdrawals {
     NetworkMismatch { expected: Network, received: Network, context: TransactionField, position: usize },
 }
 
+/// Validates every withdrawal and requires its witness. When the transaction is valid, each withdrawal must
+/// drain a registered account in full, and that account is emptied. When it is invalid, account state is neither
+/// checked nor modified.
 pub(crate) fn execute<C>(
     context: &mut C,
+    is_valid: bool,
     withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
     network: Network,
-    is_valid: bool,
 ) -> Result<(), InvalidWithdrawals>
 where
-    C: WitnessSlice + AccountsSlice + BalanceSlice,
+    C: WitnessSlice + AccountsSliceMut + BalanceSlice,
 {
-    if let Some(withdrawals) = withdrawals {
-        withdrawals
-            .into_iter()
-            .enumerate()
-            .map(|(position, (account, amount))| {
-                let (credential, account_network) = (account.credential(), account.network());
+    let Some(withdrawals) = withdrawals else {
+        return Ok(());
+    };
 
-                if network != account_network {
-                    return Err(InvalidWithdrawals::NetworkMismatch {
-                        expected: network,
-                        received: account_network,
-                        context: TransactionField::Withdrawals,
-                        position,
-                    });
-                };
+    if is_valid { when_valid(context, withdrawals, network) } else { when_invalid(context, withdrawals, network) }
+}
 
-                let account =
-                    context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential))?;
+fn when_valid<C>(
+    context: &mut C,
+    withdrawals: Vec<(RewardAccount, Lovelace)>,
+    network: Network,
+) -> Result<(), InvalidWithdrawals>
+where
+    C: WitnessSlice + AccountsSliceMut + BalanceSlice,
+{
+    let withdrawals = sorted_by_credential(withdrawals, network, |credential, amount| {
+        let account = context.lookup(credential).ok_or(InvalidWithdrawals::AccountNotRegistered(*credential))?;
 
-                if matches!(credential, Credential::KeyHash(_)) && account.drep.is_none() {
-                    return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential));
-                }
+        if matches!(credential, Credential::KeyHash(_)) && account.drep.is_none() {
+            return Err(InvalidWithdrawals::MissingAccountDRepDelegation(*credential));
+        }
 
-                if amount != account.rewards {
-                    return Err(InvalidWithdrawals::IncompleteWithdrawal {
-                        balance: account.rewards,
-                        withdrawal: amount,
-                    });
-                }
+        if amount != account.rewards {
+            return Err(InvalidWithdrawals::IncompleteWithdrawal { balance: account.rewards, withdrawal: amount });
+        }
 
-                Ok((credential, amount))
-            })
-            // NOTE: Force withdrawals to be sorted by stake credentials
-            .collect::<Result<BTreeMap<_, _>, _>>()?
-            .into_iter()
-            .enumerate()
-            .for_each(|(position, (credential, amount))| {
-                match credential {
-                    amaru_kernel::Credential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
-                        hash,
-                        index: position as u32,
-                        purpose: RedeemerTag::Reward,
-                        datum: MemoizedDatum::None,
-                    }),
-                    amaru_kernel::Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
-                };
+        Ok(())
+    })?;
 
-                context.consume_lovelace(amount);
+    for (position, (credential, amount)) in withdrawals.into_iter().enumerate() {
+        require_witness_and_consume(context, position, credential, amount);
 
-                // TODO: Move state management to context
-                //
-                // Zero-value withdrawals are effectively no-ops. So, to save space and prevent potentially problematic state,
-                // we simply don't add it to the context. This logic can, and probably should, be done *in* the context, but
-                // that changes the signature of `withdraw_from`.
-                if is_valid && amount > 0 {
-                    context.withdraw_from(credential);
-                }
-            });
+        // TODO: Move state management to context
+        //
+        // Zero-value withdrawals are effectively no-ops. So, to save space and prevent potentially problematic state,
+        // we simply don't add it to the context. This logic can, and probably should, be done *in* the context, but
+        // that changes the signature of `withdraw_from`.
+        if amount > 0 {
+            context.withdraw_from(credential);
+        }
     }
 
     Ok(())
 }
 
+fn when_invalid<C>(
+    context: &mut C,
+    withdrawals: Vec<(RewardAccount, Lovelace)>,
+    network: Network,
+) -> Result<(), InvalidWithdrawals>
+where
+    C: WitnessSlice + BalanceSlice,
+{
+    let withdrawals = sorted_by_credential(withdrawals, network, |_, _| Ok(()))?;
+
+    for (position, (credential, amount)) in withdrawals.into_iter().enumerate() {
+        require_witness_and_consume(context, position, credential, amount);
+    }
+
+    Ok(())
+}
+
+/// Checks the network of every reward account, then runs `check` on each withdrawal, in transaction order. Returns
+/// the withdrawals sorted by stake credential, the order that reward redeemer indexes refer to.
+fn sorted_by_credential(
+    withdrawals: Vec<(RewardAccount, Lovelace)>,
+    network: Network,
+    mut check: impl FnMut(&Credential, Lovelace) -> Result<(), InvalidWithdrawals>,
+) -> Result<BTreeMap<Credential, Lovelace>, InvalidWithdrawals> {
+    withdrawals
+        .into_iter()
+        .enumerate()
+        .map(|(position, (account, amount))| {
+            let (credential, account_network) = (account.credential(), account.network());
+
+            if network != account_network {
+                return Err(InvalidWithdrawals::NetworkMismatch {
+                    expected: network,
+                    received: account_network,
+                    context: TransactionField::Withdrawals,
+                    position,
+                });
+            };
+
+            check(&credential, amount)?;
+
+            Ok((credential, amount))
+        })
+        .collect()
+}
+
+fn require_witness_and_consume<C>(context: &mut C, position: usize, credential: Credential, amount: Lovelace)
+where
+    C: WitnessSlice + BalanceSlice,
+{
+    match credential {
+        Credential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
+            hash,
+            index: position as u32,
+            purpose: RedeemerTag::Reward,
+            datum: MemoizedDatum::None,
+        }),
+        Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
+    };
+
+    context.consume_lovelace(amount);
+}
+
 #[cfg(test)]
 mod test {
     use amaru_kernel::{Credential, Hash, Network, RewardAccount};
+    use test_case::test_case;
 
     use super::InvalidWithdrawals;
-    use crate::{context::DefaultValidationContext, rules::TransactionField};
+    use crate::{
+        context::{BalanceSlice, DefaultValidationContext},
+        rules::TransactionField,
+    };
 
     #[test]
     fn rejects_a_reward_account_on_the_wrong_network() {
@@ -124,7 +176,7 @@ mod test {
         let account = RewardAccount::new(Network::Mainnet, Credential::KeyHash(Hash::new([0; 28])));
 
         assert!(matches!(
-            super::execute(&mut context, Some(vec![(account, 1_000_000)]), Network::Testnet, true),
+            super::execute(&mut context, true, Some(vec![(account, 1_000_000)]), Network::Testnet),
             Err(InvalidWithdrawals::NetworkMismatch {
                 expected: Network::Testnet,
                 received: Network::Mainnet,
@@ -132,5 +184,17 @@ mod test {
                 context: TransactionField::Withdrawals,
             })
         ));
+    }
+
+    #[test_case(true => matches Err(InvalidWithdrawals::AccountNotRegistered(_)); "valid transaction rejects it")]
+    #[test_case(false => matches Ok(1_000_000); "invalid transaction consumes it")]
+    fn withdrawal_from_an_unregistered_account(is_valid: bool) -> Result<i64, InvalidWithdrawals> {
+        let mut context = DefaultValidationContext::default();
+
+        let account = RewardAccount::new(Network::Testnet, Credential::KeyHash(Hash::new([0; 28])));
+
+        super::execute(&mut context, is_valid, Some(vec![(account, 1_000_000)]), Network::Testnet)?;
+
+        Ok(context.balance().coin())
     }
 }

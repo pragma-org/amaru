@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     Address, AsHash, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, Set,
-    TransactionInput, address::byron::AddressType, protocol_version::PROTOCOL_VERSION_11,
+    TransactionInput, address::byron::AddressType, cardano::value::Balance, protocol_version::PROTOCOL_VERSION_11,
     utils::string::display_collection,
 };
 use thiserror::Error;
@@ -37,14 +37,33 @@ pub enum InvalidInputs {
 
     #[error("reference scripts total bytes exceeds per-tx limit: (provided {provided}, allowed {allowed})")]
     RefScriptSizeTooBig { provided: u64, allowed: u64 },
+
+    #[error("too many collateral inputs: provided: {provided} allowed: {allowed}")]
+    TooManyCollateralInputs { provided: usize, allowed: usize },
 }
 
-pub fn execute<C>(
+pub(crate) struct ResolvedInputs {
+    pub ref_scripts_size: u64,
+    pub collateral: ResolvedCollateral,
+    /// The inputs the transaction spends: its regular inputs when valid, its collateral inputs otherwise.
+    pub consumed: Vec<TransactionInput>,
+}
+
+pub(crate) struct ResolvedCollateral {
+    pub provided: usize,
+    pub value: Balance,
+    /// The first collateral input locked by a script, if any.
+    pub locked_at_script: Option<TransactionInput>,
+}
+
+pub(crate) fn execute<C>(
     context: &mut C,
-    inputs: &Set<TransactionInput>,
+    is_valid: bool,
+    inputs: Set<TransactionInput>,
     reference_inputs: Option<&[TransactionInput]>,
+    collateral: Vec<TransactionInput>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<u64, InvalidInputs>
+) -> Result<ResolvedInputs, InvalidInputs>
 where
     C: UtxoSlice + WitnessSlice + BalanceSlice,
 {
@@ -139,5 +158,53 @@ where
         return Err(InvalidInputs::RefScriptSizeTooBig { provided: ref_scripts_size, allowed });
     }
 
-    Ok(ref_scripts_size)
+    let collateral_resolved = resolve_collateral(context, &collateral, protocol_parameters)?;
+
+    Ok(ResolvedInputs {
+        ref_scripts_size,
+        collateral: collateral_resolved,
+        consumed: if is_valid { inputs.into_iter().collect() } else { collateral },
+    })
+}
+
+fn resolve_collateral<C>(
+    context: &mut C,
+    collateral: &[TransactionInput],
+    protocol_parameters: &ProtocolParameters,
+) -> Result<ResolvedCollateral, InvalidInputs>
+where
+    C: UtxoSlice + WitnessSlice,
+{
+    let allowed = protocol_parameters.max_collateral_inputs as usize;
+    let provided = collateral.len();
+    if provided > allowed {
+        return Err(InvalidInputs::TooManyCollateralInputs { provided, allowed });
+    }
+
+    let mut value = Balance::empty();
+    let mut locked_at_script = None;
+
+    for input in collateral {
+        let output = context.lookup(input).ok_or(InvalidInputs::UnknownInput(*input))?;
+
+        value += &output.value;
+
+        match &output.address {
+            Address::Byron(byron_address) => {
+                if let AddressType::VerificationKey = byron_address.address_type {
+                    context.require_bootstrap_witness(byron_address.root);
+                };
+            }
+            Address::Shelley(shelley_address) => {
+                if shelley_address.payment().is_script() {
+                    locked_at_script.get_or_insert(*input);
+                } else {
+                    context.require_verification_key_witness(shelley_address.payment().as_hash());
+                }
+            }
+            Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
+        }
+    }
+
+    Ok(ResolvedCollateral { provided, value, locked_at_script })
 }

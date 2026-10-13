@@ -16,11 +16,11 @@
 # This transaction is marked invalid, so proposal validation is skipped entirely along with the
 # script witness it would have required, and the policy carried by the witness set reads as
 # extraneous before the guardrails check is ever reached.
-"conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected success, got failure: invalid transaction scripts: extraneous script witnesses: extra [e4ed1d2a73cfad8751a777ff93ad6763603d633c47f2a0480acc6db9]"
+"conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected success, got failure: value not preserved: balance = (123, [])"
 # This one no longer even reaches its own defect: the transaction it expects to fail now fails at
 # the guardrails check, leaving less of the shared context mutated than the value preservation of a
 # later transaction was recorded against.
-"conway/fail-utxos-failing-native-script-govpolicy/0" = "Expected success, got failure: value not preserved: balance = (123, [])"
+"conway/fail-utxos-failing-native-script-govpolicy/0" = "Expected success, got failure: invalid transaction scripts: missing required scripts: missing [a9640757d14b3a27786d9a90e30b3a001151cb98ab01c02d1f35a000]"
 "conway/fail-utxos-fails-when-using-inline-datums-for-plutusv1/0" = "Expected failure, got success"
 "conway/fail-utxos-proposalprocedures-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-proposalprocedures-v2/0" = "Expected failure, got success"

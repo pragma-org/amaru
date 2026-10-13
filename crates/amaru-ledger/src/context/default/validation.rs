@@ -30,9 +30,10 @@ use amaru_kernel::{
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, ProposalState, ProposalStateSlim, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        AccountState, AccountsSlice, AccountsSliceMut, BalanceSlice, CCMember, CommitteeSlice, CommitteeSliceMut,
+        DRepsSlice, DRepsSliceMut, DelegateError, PoolsSlice, PoolsSliceMut, PotsSlice, PotsSliceMut, ProposalState,
+        ProposalStateSlim, ProposalsSlice, ProposalsSliceMut, RegisterError, UnregisterError, UpdateError, UtxoSlice,
+        UtxoSliceMut, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     state::volatile::{BindError, Existence, VolatileFragment},
 };
@@ -91,7 +92,9 @@ impl PotsSlice for DefaultValidationContext {
     fn treasury(&self) -> Lovelace {
         self.treasury
     }
+}
 
+impl PotsSliceMut for DefaultValidationContext {
     fn add_fees(&mut self, fees: Lovelace) {
         self.state.fees += fees;
     }
@@ -105,7 +108,9 @@ impl UtxoSlice for DefaultValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.utxo.get(input).or_else(|| self.state.utxo.produced.get(input).map(|output| output.as_ref()))
     }
+}
 
+impl UtxoSliceMut for DefaultValidationContext {
     fn consume(&mut self, input: TransactionInput) {
         self.utxo.remove(&input);
         self.state.utxo.consume(input)
@@ -122,7 +127,9 @@ impl PoolsSlice for DefaultValidationContext {
     fn exists(&self, pool: PoolId) -> bool {
         self.pools.contains(&pool) || self.state.pools.registered.contains_key(&pool)
     }
+}
 
+impl PoolsSliceMut for DefaultValidationContext {
     /// FIXME: In ProtocolVersion 11, we must also check for uniqueness of the VRF key when registering pools
     ///
     /// A `PoolId` isn't going to be sufficient context; we'll also need a way to resolve and
@@ -179,7 +186,9 @@ impl AccountsSlice for DefaultValidationContext {
 
         Some(account)
     }
+}
 
+impl AccountsSliceMut for DefaultValidationContext {
     fn register(
         &mut self,
         credential: Credential,
@@ -246,7 +255,9 @@ impl DRepsSlice for DefaultValidationContext {
             None => self.dreps.get(credential),
         }
     }
+}
 
+impl DRepsSliceMut for DefaultValidationContext {
     fn register(
         &mut self,
         drep: Credential,
@@ -325,7 +336,9 @@ impl CommitteeSlice for DefaultValidationContext {
                 }
             })
     }
+}
 
+impl CommitteeSliceMut for DefaultValidationContext {
     fn delegate_cold_key(
         &mut self,
         cold_credential: Credential,
@@ -379,7 +392,9 @@ impl ProposalsSlice for DefaultValidationContext {
     fn roots(&self) -> &ProposalsRoots {
         &self.proposals_roots
     }
+}
 
+impl ProposalsSliceMut for DefaultValidationContext {
     fn acknowledge(&mut self, id: ProposalId, state: ProposalState) {
         // NOTE: Candidate CC Members
         //
@@ -519,14 +534,14 @@ mod tests {
     #[test]
     fn lookup_reflects_an_in_block_registration() {
         let mut ctx = ctx_with(BTreeMap::new());
-        AccountsSlice::register(&mut ctx, cred(1), account(0)).unwrap();
+        AccountsSliceMut::register(&mut ctx, cred(1), account(0)).unwrap();
         assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.deposit), Some(2_000_000));
     }
 
     #[test]
     fn lookup_is_none_after_an_in_block_deregistration() {
         let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
-        AccountsSlice::unregister(&mut ctx, cred(1));
+        AccountsSliceMut::unregister(&mut ctx, cred(1));
         assert!(AccountsSlice::lookup(&ctx, &cred(1)).is_none());
     }
 

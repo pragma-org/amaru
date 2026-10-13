@@ -1,0 +1,31 @@
+{
+  "title": "unsigned collateral input without redeemers",
+  "description": "A transaction without redeemers whose collateral input is locked by a key that does not sign it.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820a6e0b573d235f93a73204b68138f6cb03ddeccf12ed16e3d27f090289b25682000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      },
+      {
+        "input": "825820ad66f7d3a88c61de485fa819bf0a3feed7781512a564c7562bdd7c2e3a3b604a00",
+        "output": "a200581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d9010281825820a6e0b573d235f93a73204b68138f6cb03ddeccf12ed16e3d27f090289b256820000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400f000dd9010281825820ad66f7d3a88c61de485fa819bf0a3feed7781512a564c7562bdd7c2e3a3b604a00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258407255c63378bae7d1518a5ca6968e0def8b0499f79bbde8f051e864a34103c84a9fd35364f9d7451dab26619a5b8fae233d858bb0b4060654cc8bd29125b3a901f5f6",
+  "expected": {
+    "predicate": "MissingVerificationKeyWitnessesUTXOW"
+  }
+}

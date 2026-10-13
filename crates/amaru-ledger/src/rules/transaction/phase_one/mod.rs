@@ -15,8 +15,8 @@
 use std::{fmt, mem, time::Instant};
 
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, HasTransactionId, Hash, Lovelace, Network, NetworkName, ProtocolParameters,
-    TransactionBody, TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance, size::SCRIPT,
+    AuxiliaryData, EraHistory, HasTransactionId, Hash, Network, NetworkName, ProtocolParameters, TransactionBody,
+    TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance, size::SCRIPT,
     utils::duration::elapsed_and_reset,
 };
 use amaru_observability::debug_span;
@@ -24,22 +24,17 @@ use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
 use crate::{
-    context::ValidationContext,
-    epoch_transition::GovernanceActivity,
-    rules::transaction::{phase_one::outputs::SupplementalDatumPolicy, phase_two::PreparationError},
+    context::ValidationContext, epoch_transition::GovernanceActivity, rules::transaction::phase_two::PreparationError,
 };
 
 pub mod certificates;
 pub use certificates::InvalidCertificates;
 
 pub mod fees;
-pub use fees::InvalidFees;
+pub use fees::{InvalidCollateral, InvalidFees};
 
 pub mod inputs;
 pub use inputs::InvalidInputs;
-
-pub mod collateral;
-pub use collateral::InvalidCollateral;
 
 pub mod metadata;
 pub use metadata::InvalidTransactionMetadata;
@@ -54,6 +49,9 @@ pub use verification_key_witness::InvalidVerificationKeyWitness;
 
 pub mod voting_procedures;
 pub use voting_procedures::InvalidVotingProcedures;
+
+pub mod treasury;
+pub use treasury::InvalidTreasury;
 
 pub mod withdrawals;
 pub use withdrawals::InvalidWithdrawals;
@@ -94,9 +92,6 @@ pub enum PhaseOneError {
     #[error("script preparation failed: {0}")]
     ScriptPreparation(PreparationError),
 
-    #[error("invalid collateral: {0}")]
-    Collateral(#[from] InvalidCollateral),
-
     #[error("invalid proposals: {0}")]
     Proposals(#[from] proposals::InvalidProposals),
 
@@ -112,8 +107,8 @@ pub enum PhaseOneError {
     #[error("transaction too large: provided {provided} bytes, maximum {maximum} bytes")]
     TooLarge { provided: u64, maximum: u64 },
 
-    #[error("current treasury value mismatch: provided {provided}, expected {expected}")]
-    TreasuryValueMismatch { provided: Lovelace, expected: Lovelace },
+    #[error("invalid treasury: {0}")]
+    Treasury(#[from] InvalidTreasury),
 
     #[error("invalid transaction validity interval: {0}")]
     ValidityInterval(#[from] InvalidValidityInterval),
@@ -167,155 +162,89 @@ where
     metadata::execute(arena_pool, &transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
     span.record(PHASE_ONE::FIELD_METADATA_MICROS, elapsed_and_reset(&mut meter));
 
-    let ref_scripts_size = inputs::execute(
+    let inputs = inputs::execute(
         context,
-        &transaction_body.inputs,
+        is_valid,
+        mem::take(&mut transaction_body.inputs),
         transaction_body.reference_inputs.as_deref(),
+        mem::take(&mut transaction_body.collateral).map(Vec::from).unwrap_or_default(),
         protocol_parameters,
     )?;
     span.record(PHASE_ONE::FIELD_INPUTS_MICROS, elapsed_and_reset(&mut meter));
 
-    let fees = fees::execute(
+    fees::execute(
         context,
+        is_valid,
         transaction_body.fee,
+        inputs.collateral,
+        transaction_body.collateral_return.as_deref(),
+        transaction_body.total_collateral,
         tx_size,
         transaction_witness_set,
-        ref_scripts_size,
+        inputs.ref_scripts_size,
         protocol_parameters,
     )?;
     span.record(PHASE_ONE::FIELD_FEES_MICROS, elapsed_and_reset(&mut meter));
 
-    if is_valid && let Some(provided) = transaction_body.treasury_value {
-        let expected = context.treasury();
-        if provided != expected {
-            return Err(PhaseOneError::TreasuryValueMismatch { provided, expected });
-        }
-    }
-
-    // TODO: The 'collateral' rule group shouldn't exist
-    //
-    // This is a mix of witness and fees; and instead of duplicating the collateral traversing
-    // logic in both, we should augment fees and witness handling to also account for
-    // collaterals.
-    let collateral = collateral::execute(
-        context,
-        transaction_body.collateral.as_deref(),
-        transaction_body.collateral_return.as_deref(),
-        transaction_body.total_collateral,
-        transaction_body.fee,
-        protocol_parameters,
-        transaction_witness_set.redeemer.is_some(),
-    )?;
-
-    context.add_fees(if is_valid { fees } else { collateral });
-    span.record(PHASE_ONE::FIELD_COLLATERAL_MICROS, elapsed_and_reset(&mut meter));
+    treasury::execute(context, is_valid, transaction_body.treasury_value, transaction_body.donation.map(u64::from))?;
+    span.record(PHASE_ONE::FIELD_TREASURY_MICROS, elapsed_and_reset(&mut meter));
 
     mint::execute(context, transaction_body.mint.as_ref());
     span.record(PHASE_ONE::FIELD_MINT_MICROS, elapsed_and_reset(&mut meter));
 
     outputs::execute(
         context,
+        is_valid,
         arena_pool,
         protocol_parameters,
         network,
-        mem::take(&mut transaction_body.collateral_return).map(|x| vec![*x]).unwrap_or_default(),
-        SupplementalDatumPolicy::Disallow,
-        // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
-        //
-        // NOTE(2): We must process collateral before processing normal outputs, or, store
-        // the output length elsewhere since after having consumed the outputs, the .len()
-        // will always return zero.
-        transaction_body.outputs.len() as u16,
-        |_context, index, _value| {
-            if is_valid {
-                return None;
-            }
-
-            Some(TransactionInput { transaction_id: *transaction_id, index })
-        },
-    )?;
-    span.record(PHASE_ONE::FIELD_COLLATERAL_RETURN_MICROS, elapsed_and_reset(&mut meter));
-
-    outputs::execute(
-        context,
-        arena_pool,
-        protocol_parameters,
-        network,
+        transaction_id,
         mem::take(&mut transaction_body.outputs),
-        SupplementalDatumPolicy::Allow,
-        0,
-        |context, index, value| {
-            context.produce_value(value);
-
-            if !is_valid {
-                return None;
-            }
-
-            Some(TransactionInput { transaction_id: *transaction_id, index })
-        },
+        mem::take(&mut transaction_body.collateral_return).map(|output| *output),
     )?;
     span.record(PHASE_ONE::FIELD_OUTPUTS_MICROS, elapsed_and_reset(&mut meter));
 
     withdrawals::execute(
         context,
+        is_valid,
         mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
         network,
-        is_valid,
     )?;
     span.record(PHASE_ONE::FIELD_WITHDRAWALS_MICROS, elapsed_and_reset(&mut meter));
 
-    // NOTE: Following validations (and state changes) are entirely skipped on invalid transactions
-    //
-    // For invalid transactions, we only count the deposits and refunds necessary for value
-    // preservation which happens also in the case of invalid transactions.
-    if is_valid {
-        certificates::execute(
-            context,
-            network,
-            protocol_parameters,
-            era_history,
-            governance_activity,
-            pointer,
-            mem::take(&mut transaction_body.certificates),
-        )?;
-        span.record(PHASE_ONE::FIELD_CERTIFICATES_MICROS, elapsed_and_reset(&mut meter));
+    certificates::execute(
+        context,
+        is_valid,
+        network,
+        protocol_parameters,
+        era_history,
+        governance_activity,
+        pointer,
+        mem::take(&mut transaction_body.certificates),
+    )?;
+    span.record(PHASE_ONE::FIELD_CERTIFICATES_MICROS, elapsed_and_reset(&mut meter));
 
-        proposals::execute(
-            context,
-            network,
-            protocol_parameters,
-            era_history,
-            guardrail_script,
-            (transaction_id, pointer),
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-        )?;
-        span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
+    proposals::execute(
+        context,
+        is_valid,
+        network,
+        protocol_parameters,
+        era_history,
+        guardrail_script,
+        (transaction_id, pointer),
+        mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+    )?;
+    span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
 
-        voting_procedures::execute(
-            context,
-            protocol_parameters.protocol_version,
-            era_history,
-            pointer,
-            mem::take(&mut transaction_body.votes),
-        )?;
-        span.record(PHASE_ONE::FIELD_VOTES_MICROS, elapsed_and_reset(&mut meter));
-    } else {
-        certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates));
-        span.record(PHASE_ONE::FIELD_CERTIFICATES_MICROS, elapsed_and_reset(&mut meter));
-
-        proposals::count_lovelace(
-            context,
-            protocol_parameters,
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-        );
-        span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
-    }
-
-    if let Some(donation) = transaction_body.donation.map(u64::from) {
-        context.produce_lovelace(donation);
-        context.add_donation(donation);
-        span.record(PHASE_ONE::FIELD_DONATION_MICROS, elapsed_and_reset(&mut meter));
-    }
+    voting_procedures::execute(
+        context,
+        is_valid,
+        protocol_parameters.protocol_version,
+        era_history,
+        pointer,
+        mem::take(&mut transaction_body.votes),
+    )?;
+    span.record(PHASE_ONE::FIELD_VOTES_MICROS, elapsed_and_reset(&mut meter));
 
     for vk_hash in transaction_body.required_signers.as_deref().unwrap_or(&[]) {
         context.require_verification_key_witness(*vk_hash);
@@ -343,12 +272,7 @@ where
         return Err(PhaseOneError::ValueNotPreserved(transaction_balance));
     }
 
-    // At last, consume inputs
-    Ok(if is_valid {
-        transaction_body.inputs.into_iter().collect()
-    } else {
-        transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
-    })
+    Ok(inputs.consumed)
 }
 
 fn fail_on_tx_size_too_large(provided: u64, protocol_parameters: &ProtocolParameters) -> Result<(), PhaseOneError> {
