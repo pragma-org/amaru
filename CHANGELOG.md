@@ -52,7 +52,7 @@ Other guiding principles:
 - **amaru**: remove legacy commands that were deprecated and hidden away months ago.
 - **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
-- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros` and `collateral_return_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, and the collateral return under `outputs_micros`.
+- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check.
 
 ### Fixed
 
@@ -66,7 +66,7 @@ Other guiding principles:
 - **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
 - **amaru-ledger**: treasury donations in transactions marked as failing phase-two validation no longer reach the treasury.
 - **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
-- **amaru-ledger**: transactions missing a signature for collateral that don't include a redeeemer.
+- **amaru-ledger**: transactions missing a signature for collateral that don't include a redeemer.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 

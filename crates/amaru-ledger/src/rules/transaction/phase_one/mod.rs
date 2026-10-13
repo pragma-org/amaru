@@ -15,8 +15,8 @@
 use std::{fmt, mem, time::Instant};
 
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, HasTransactionId, Hash, Lovelace, Network, NetworkName, ProtocolParameters,
-    TransactionBody, TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance, size::SCRIPT,
+    AuxiliaryData, EraHistory, HasTransactionId, Hash, Network, NetworkName, ProtocolParameters, TransactionBody,
+    TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance, size::SCRIPT,
     utils::duration::elapsed_and_reset,
 };
 use amaru_observability::debug_span;
@@ -49,6 +49,9 @@ pub use verification_key_witness::InvalidVerificationKeyWitness;
 
 pub mod voting_procedures;
 pub use voting_procedures::InvalidVotingProcedures;
+
+pub mod treasury;
+pub use treasury::InvalidTreasury;
 
 pub mod withdrawals;
 pub use withdrawals::InvalidWithdrawals;
@@ -104,8 +107,8 @@ pub enum PhaseOneError {
     #[error("transaction too large: provided {provided} bytes, maximum {maximum} bytes")]
     TooLarge { provided: u64, maximum: u64 },
 
-    #[error("current treasury value mismatch: provided {provided}, expected {expected}")]
-    TreasuryValueMismatch { provided: Lovelace, expected: Lovelace },
+    #[error("invalid treasury: {0}")]
+    Treasury(#[from] InvalidTreasury),
 
     #[error("invalid transaction validity interval: {0}")]
     ValidityInterval(#[from] InvalidValidityInterval),
@@ -183,12 +186,8 @@ where
     )?;
     span.record(PHASE_ONE::FIELD_FEES_MICROS, elapsed_and_reset(&mut meter));
 
-    if is_valid && let Some(provided) = transaction_body.treasury_value {
-        let expected = context.treasury();
-        if provided != expected {
-            return Err(PhaseOneError::TreasuryValueMismatch { provided, expected });
-        }
-    }
+    treasury::execute(context, is_valid, transaction_body.treasury_value, transaction_body.donation.map(u64::from))?;
+    span.record(PHASE_ONE::FIELD_TREASURY_MICROS, elapsed_and_reset(&mut meter));
 
     mint::execute(context, transaction_body.mint.as_ref());
     span.record(PHASE_ONE::FIELD_MINT_MICROS, elapsed_and_reset(&mut meter));
@@ -262,14 +261,6 @@ where
             mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
         );
         span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
-    }
-
-    if let Some(donation) = transaction_body.donation.map(u64::from) {
-        context.produce_lovelace(donation);
-        if is_valid {
-            context.add_donation(donation);
-        }
-        span.record(PHASE_ONE::FIELD_DONATION_MICROS, elapsed_and_reset(&mut meter));
     }
 
     for vk_hash in transaction_body.required_signers.as_deref().unwrap_or(&[]) {

@@ -971,8 +971,6 @@ define_schemas! {
                     optional preflight_micros: u64
                     /// Ledger rules and state-transitions for certificates
                     optional certificates_micros: u64
-                    /// Ledger rules and state-transitions for treasury donation
-                    optional donation_micros: u64
                     /// Ledger rules and state-transitions for fees
                     optional fees_micros: u64
                     /// Ledger rules and state-transitions for inputs
@@ -989,6 +987,8 @@ define_schemas! {
                     optional scripts_micros: u64
                     /// Ledger rules and state-transitions for key signatures
                     optional signatures_micros: u64
+                    /// Ledger rules and state-transitions for the declared treasury value and treasury donation
+                    optional treasury_micros: u64
                     /// Ledger rules and state-transitions for validity interval
                     optional validity_interval_micros: u64
                     /// Ledger rules and state-transitions for governance votes
