@@ -81,7 +81,6 @@ pub enum ManagerMessage {
         stage: StageRef<ConnectionMessage>,
         conn_id: ConnectionId,
         role: Role,
-        full_duplex_capable: bool,
         full_duplex: bool,
         advertisable: bool,
         /// Completed after the establish write is applied. `true` when this bearer was kept.
@@ -214,7 +213,7 @@ struct Connection {
     peer: Peer,
     stage: StageRef<ConnectionMessage>,
     direction: ConnectionDirection,
-    full_duplex_capable: bool,
+    full_duplex: bool,
 }
 
 impl Manager {
@@ -508,7 +507,6 @@ impl Manager {
         stage: StageRef<ConnectionMessage>,
         conn_id: ConnectionId,
         role: Role,
-        full_duplex_capable: bool,
         full_duplex: bool,
         advertisable: bool,
         caller: StageRef<bool>,
@@ -530,7 +528,6 @@ impl Manager {
             protocols::manager::peer::HANDSHAKE_COMPLETED,
             peer,
             conn_id = conn_id.as_u64(),
-            full_duplex_capable,
             full_duplex,
             advertisable
         );
@@ -554,8 +551,8 @@ impl Manager {
         let accept_this = self.take_direction_slot(peer, conn_id, direction);
         if accept_this {
             // Outbound handshake records Diffusion on the bearer, so a later fetch sees it.
-            self.connections.insert(conn_id, Connection { stage, direction, full_duplex_capable, peer });
-            record_established(eff, peer, conn_id, direction, full_duplex_capable, full_duplex, advertisable).await;
+            self.connections.insert(conn_id, Connection { stage, direction, full_duplex, peer });
+            record_established(eff, peer, conn_id, direction, full_duplex, advertisable).await;
             eff.send(&caller, true).await;
         } else {
             info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer, conn_id = conn_id.as_u64());
@@ -834,29 +831,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 );
                 manager.connection_died(peer, conn_id, role, &eff).instrument(span.into()).await;
             }
-            ManagerMessage::HandshakeComplete {
-                peer,
-                stage,
-                conn_id,
-                role,
-                full_duplex_capable,
-                full_duplex,
-                advertisable,
-                caller,
-            } => {
-                manager
-                    .handshake_complete(
-                        peer,
-                        stage,
-                        conn_id,
-                        role,
-                        full_duplex_capable,
-                        full_duplex,
-                        advertisable,
-                        caller,
-                        &eff,
-                    )
-                    .await;
+            ManagerMessage::HandshakeComplete { peer, stage, conn_id, role, full_duplex, advertisable, caller } => {
+                manager.handshake_complete(peer, stage, conn_id, role, full_duplex, advertisable, caller, &eff).await;
             }
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;
@@ -915,7 +891,6 @@ async fn record_established(
     peer: Peer,
     conn_id: ConnectionId,
     direction: ConnectionDirection,
-    full_duplex_capable: bool,
     full_duplex: bool,
     advertisable: bool,
 ) {
@@ -924,7 +899,6 @@ async fn record_established(
         peer,
         conn_id,
         direction,
-        full_duplex_capable,
         full_duplex,
         advertisable,
         local_use: handshake_local_use(direction),

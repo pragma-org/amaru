@@ -194,7 +194,6 @@ fn setup_preload_with_mode(
                         peer,
                         conn_id,
                         direction: ConnectionDirection::Outbound,
-                        full_duplex_capable: true,
                         full_duplex: false,
                         advertisable: false,
                         local_use: MiniProtocolUse::Diffusion,

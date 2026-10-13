@@ -19,7 +19,6 @@ struct StubRecord;
 impl RecordFields for StubRecord {
     fn bool(&self, name: &str) -> Option<bool> {
         match name {
-            "full_duplex_capable" => Some(true),
             "full_duplex" => Some(false),
             _ => None,
         }
@@ -66,7 +65,6 @@ fn generated_schema_identity_and_accessors_are_typed() {
     assert_eq!(amaru::protocols::peer_selection::peer::CONNECTED::peer(&record), "1.2.3.4:3001");
     assert_eq!(amaru::protocols::peer_selection::peer::CONNECTED::direction(&record), "Outbound");
     assert_eq!(amaru::protocols::peer_selection::peer::CONNECTED::conn_id(&record), 7);
-    assert!(amaru::protocols::peer_selection::peer::CONNECTED::full_duplex_capable(&record));
     assert!(!amaru::protocols::peer_selection::peer::CONNECTED::full_duplex(&record));
     assert_eq!(amaru::ledger::governance_activity::UPDATE::consecutive_dormant_epochs(&record), 3);
 }

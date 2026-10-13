@@ -92,7 +92,7 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru-tui**: the peers view keeps a remote temperature that was reported before that connection was adopted.
+- **amaru-tui**: the peers view keeps one row per live connection, including use reported before that connection is adopted. A closed connection is removed.
 - **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 - **amaru-kernel**: fix some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).

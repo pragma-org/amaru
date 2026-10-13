@@ -148,7 +148,6 @@ pub struct ConnectionRecord {
     pub peer: Peer,
     pub conn_id: ConnectionId,
     pub direction: ConnectionDirection,
-    pub full_duplex_capable: bool,
     pub full_duplex: bool,
     pub advertisable: bool,
     pub local_use: MiniProtocolUse,

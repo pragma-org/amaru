@@ -63,14 +63,14 @@ pub struct PeerState {
     /// Bootstrap name this address was resolved from, if that name was not already a socket address.
     pub candidate: Option<String>,
     pub inbound: bool,
-    pub outbound: bool,
     pub connected: bool,
     pub last_conn_id: Option<String>,
     pub last_rtt_micros: Option<u64>,
     pub last_reason: Option<String>,
     pub full_duplex: Option<bool>,
-    pub full_duplex_capable: Option<bool>,
-    /// Our use of this peer: the peer is our upstream.
+    /// Set once `local_use_applied` has been seen for this connection.
+    local_use_seen: bool,
+    /// Our use of this connection.
     pub local_use: PeerUse,
     /// The peer's use of us: we are its upstream.
     pub remote_use: PeerUse,
@@ -95,13 +95,12 @@ impl PeerState {
             address,
             candidate: None,
             inbound: false,
-            outbound: false,
             connected: false,
             last_conn_id: None,
             last_rtt_micros: None,
             last_reason: None,
             full_duplex: None,
-            full_duplex_capable: None,
+            local_use_seen: false,
             local_use: PeerUse::None,
             remote_use: PeerUse::None,
             slot_start_to_header: MeanMicros::default(),
@@ -118,56 +117,33 @@ impl PeerState {
 
     pub fn mark_connected(&mut self, record: &TelemetryRecord) {
         let direction = protocols::peer_selection::peer::CONNECTED::direction(record);
-        let next_conn = record.conn_id();
-        if self.last_conn_id != next_conn {
-            self.remote_use = PeerUse::None;
-        }
         self.connected = true;
-        self.inbound |= direction == "Inbound";
-        self.outbound |= direction == "Outbound";
-        self.last_conn_id = next_conn;
+        self.inbound = direction == "Inbound";
+        self.last_conn_id = record.conn_id();
         self.full_duplex = Some(protocols::peer_selection::peer::CONNECTED::full_duplex(record));
-        self.full_duplex_capable = Some(protocols::peer_selection::peer::CONNECTED::full_duplex_capable(record));
-        self.local_use = PeerUse::from_label(protocols::peer_selection::peer::CONNECTED::local_use(record));
+        // The span repeats the use already stored on the bearer. A `local_use_applied` seen
+        // before adoption is the measurement and must not be replaced by this snapshot.
+        if !self.local_use_seen {
+            self.local_use = PeerUse::from_label(protocols::peer_selection::peer::CONNECTED::local_use(record));
+        }
         self.last_reason = None;
         self.updated_at = record.at;
     }
 
-    pub fn mark_disconnected(&mut self, record: &TelemetryRecord) {
-        self.connected = false;
-        self.local_use = PeerUse::None;
-        self.remote_use = PeerUse::None;
-        self.last_reason = protocols::peer_selection::peer::DISCONNECTED::reason(record).map(ToOwned::to_owned);
-        self.last_conn_id = record.conn_id();
-        self.updated_at = record.at;
+    pub fn set_local_use(&mut self, label: &str, at: Instant) {
+        self.local_use_seen = true;
+        self.local_use = PeerUse::from_label(label);
+        self.updated_at = at;
     }
 
-    /// A later use span belongs to the bearer this row last connected.
-    pub fn same_connection(&self, record: &TelemetryRecord) -> bool {
-        match (&self.last_conn_id, record.conn_id()) {
-            (Some(current), Some(next)) => current == &next,
-            _ => false,
-        }
+    pub fn set_remote_use(&mut self, label: &str, at: Instant) {
+        self.remote_use = PeerUse::from_label(label);
+        self.updated_at = at;
     }
 
-    pub fn set_local_use(&mut self, record: &TelemetryRecord, label: &str) {
-        if self.same_connection(record) {
-            self.local_use = PeerUse::from_label(label);
-            self.updated_at = record.at;
-        }
-    }
-
-    pub fn set_remote_use(&mut self, record: &TelemetryRecord, label: &str) {
-        if self.same_connection(record) {
-            self.remote_use = PeerUse::from_label(label);
-            self.updated_at = record.at;
-        }
-    }
-
-    pub fn update_rtt(&mut self, record: &TelemetryRecord, round_trip_micros: u64) {
+    pub fn update_rtt(&mut self, round_trip_micros: u64, at: Instant) {
         self.last_rtt_micros = Some(round_trip_micros);
-        self.last_conn_id = record.conn_id();
-        self.updated_at = record.at;
+        self.updated_at = at;
     }
 
     pub fn clear_slot_start_to_header(&mut self) {

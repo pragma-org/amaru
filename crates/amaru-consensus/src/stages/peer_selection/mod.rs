@@ -119,7 +119,6 @@ impl SendBudget {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct DesiredBearer {
     id: ConnectionId,
-    full_duplex_capable: bool,
     full_duplex: bool,
     wanted: MiniProtocolUse,
     applied: MiniProtocolUse,
@@ -133,7 +132,6 @@ impl DesiredBearer {
     fn adopt(conn: &ViewConnection, wanted: MiniProtocolUse) -> Self {
         Self {
             id: conn.conn_id,
-            full_duplex_capable: conn.full_duplex_capable,
             full_duplex: conn.full_duplex,
             wanted,
             applied: conn.local_use,
@@ -144,7 +142,6 @@ impl DesiredBearer {
     }
 
     fn observe(&mut self, conn: &ViewConnection) {
-        self.full_duplex_capable = conn.full_duplex_capable;
         self.full_duplex = conn.full_duplex;
         self.applied = conn.local_use;
         self.remote_use = conn.remote_use;
@@ -160,14 +157,7 @@ impl DesiredBearer {
 
 impl Display for DesiredBearer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Connection(id={}, duplex={}/{}, use={})",
-            self.id.as_u64(),
-            self.full_duplex_capable,
-            self.full_duplex,
-            self.wanted.as_str()
-        )
+        write!(f, "Connection(id={}, duplex={}, use={})", self.id.as_u64(), self.full_duplex, self.wanted.as_str())
     }
 }
 
@@ -850,7 +840,6 @@ impl PeerSelection {
                     peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Inbound,
-                    full_duplex_capable = conn.full_duplex_capable,
                     full_duplex = conn.full_duplex,
                     local_use = conn.local_use.as_str(),
                 )
@@ -875,7 +864,6 @@ impl PeerSelection {
             peer,
             conn_id = conn_id.as_u64(),
             direction = ConnectionDirection::Outbound,
-            full_duplex_capable = conn.full_duplex_capable,
             full_duplex = conn.full_duplex,
             local_use = conn.local_use.as_str(),
         )

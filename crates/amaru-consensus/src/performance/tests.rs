@@ -1071,7 +1071,6 @@ fn connection_record(peer: Peer, conn_id: ConnectionId, at: ObservedAt, advertis
         peer,
         conn_id,
         direction: ConnectionDirection::Outbound,
-        full_duplex_capable: true,
         full_duplex: false,
         advertisable,
         local_use: MiniProtocolUse::None,

@@ -403,7 +403,6 @@ mod tests {
             peer: alice,
             conn_id: ConnectionId::initial(),
             direction: ConnectionDirection::Inbound,
-            full_duplex_capable: false,
             full_duplex: true,
             advertisable: true,
             local_use: MiniProtocolUse::Maintenance,

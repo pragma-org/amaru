@@ -430,8 +430,7 @@ async fn do_handshake(
         }
     };
 
-    let full_duplex_capable = version_data.is_full_duplex_capable();
-    let full_duplex = full_duplex_capable;
+    let full_duplex = version_data.is_full_duplex_capable();
     let advertisable = version_data.is_advertisable();
     let stage = eff.me();
     let conn_id = *conn_id;
@@ -445,7 +444,6 @@ async fn do_handshake(
             stage,
             conn_id,
             role,
-            full_duplex_capable,
             full_duplex,
             advertisable,
             caller,

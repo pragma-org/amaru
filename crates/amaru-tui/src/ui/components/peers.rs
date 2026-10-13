@@ -151,7 +151,7 @@ fn peer_row(index: usize, peer: &PeerState, adopted_block_height: Option<u64>) -
     let within_1s = format_share(peer.live_arrival_share_percent(1_000_000));
     let within_3s = format_share(peer.live_arrival_share_percent(3_000_000));
     let within_5s = format_share(peer.live_arrival_share_percent(5_000_000));
-    let can_duplex = match peer.full_duplex_capable {
+    let can_duplex = match peer.full_duplex {
         Some(true) => "yes",
         Some(false) => "no",
         None => "—",
@@ -195,11 +195,11 @@ fn format_share(percent: Option<u64>) -> String {
 }
 
 fn dial_label(peer: &PeerState) -> &'static str {
-    match (peer.inbound, peer.outbound) {
-        (true, true) => "in out",
-        (true, false) => "in",
-        (false, true) => "out",
-        (false, false) => "-",
+    match (peer.inbound, peer.full_duplex) {
+        (true, Some(true)) => "in+",
+        (true, _) => "in",
+        (false, Some(true)) => "out+",
+        (false, _) => "out",
     }
 }
 
@@ -291,7 +291,8 @@ mod tests {
         let lines = buffer_lines(terminal.backend().buffer());
 
         let header = lines.iter().find(|line| line.contains("Observe")).expect("header row");
-        for label in ["up", "dn", "in/out", "ChainSync", "Adopted", "Score", "Select", "Fetch", "≤1s", "≤3s", "≤5s"] {
+        for label in ["up", "dn", "in/out", "ChainSync", "Adopted", "Score", "Select", "Fetch", "≤1s", "≤3s", "≤5s"]
+        {
             assert!(header.contains(label), "header missing {label}: {header}");
         }
 
@@ -329,7 +330,6 @@ mod tests {
         let mut peer = PeerState::new(address.to_string(), Instant::now());
         peer.connected = true;
         peer.inbound = inbound;
-        peer.outbound = !inbound;
         peer.local_use = local_use;
         peer.remote_use = remote_use;
         peer.last_rtt_micros = Some(12_300);
@@ -339,11 +339,8 @@ mod tests {
     #[test]
     fn peers_table_shows_up_dn_and_who_dialed() {
         let mut model = Model::new(Config::default(), startup());
-        model.peers.insert(
-            "10.1.1.1:3001".into(),
-            sample_peer("10.1.1.1:3001", PeerUse::Maintenance, PeerUse::Diffusion, true),
-        );
-        model.peers.insert("10.2.2.2:3001".into(), sample_peer("10.2.2.2:3001", PeerUse::None, PeerUse::None, false));
+        model.peers.insert("1".into(), sample_peer("10.1.1.1:3001", PeerUse::Maintenance, PeerUse::Diffusion, true));
+        model.peers.insert("2".into(), sample_peer("10.2.2.2:3001", PeerUse::None, PeerUse::None, false));
 
         let area = Rect::new(0, 0, 220, 8);
         let backend = TestBackend::new(area.width, area.height);

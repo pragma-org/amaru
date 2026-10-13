@@ -2468,7 +2468,6 @@ define_schemas! {
                         levels: info
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
-                        required full_duplex_capable: bool
                         required full_duplex: bool
                         required advertisable: bool
                     }
@@ -2573,7 +2572,6 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required direction: String
-                        required full_duplex_capable: bool
                         required full_duplex: bool
                         required local_use: String
                     }
