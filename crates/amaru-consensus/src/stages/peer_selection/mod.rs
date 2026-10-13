@@ -684,9 +684,10 @@ impl PeerSelection {
                     .iter()
                     .find(|conn| conn.peer == peer && conn.direction == ConnectionDirection::Outbound)
             });
-            if let Some(conn) = established {
-                self.outbound_peers
-                    .insert(peer, OutboundIntent::Connected(DesiredBearer::adopt(conn, MiniProtocolUse::Diffusion)));
+            // The handshake is in the view. Leave the dial in place so this round's adopt
+            // records it and emits `connected`. Installing the bearer here skipped that span,
+            // and the peers view never learned the negotiated duplex flag.
+            if established.is_some() {
                 continue;
             }
             // An inbound bearer for this peer means the dial is no longer needed. A failure
