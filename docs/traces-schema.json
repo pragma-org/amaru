@@ -6603,9 +6603,6 @@
         "certificates_micros": {
           "type": "integer"
         },
-        "collateral_micros": {
-          "type": "integer"
-        },
         "collateral_return_micros": {
           "type": "integer"
         },
@@ -6650,7 +6647,6 @@
       "optional": [
         "preflight_micros",
         "certificates_micros",
-        "collateral_micros",
         "collateral_return_micros",
         "donation_micros",
         "fees_micros",

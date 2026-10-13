@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## Unreleased
 
+### Changed
+
+- **amaru-ledger**: the `phase_one` trace no longer has a `collateral_micros` field. Collateral checks are now timed under `inputs_micros` and `fees_micros`.
+
 ### Fixed
 
 - **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])

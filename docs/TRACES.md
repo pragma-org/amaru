@@ -2181,7 +2181,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
 | `block` | `span` |  | public | Block-related rules and other preflight checks |  |  |
-| `phase_one` | `span` |  | public | All phase one validations |  | preflight_micros, certificates_micros, collateral_micros, collateral_return_micros, donation_micros, fees_micros, inputs_micros, metadata_micros, mint_micros, outputs_micros, proposals_micros, scripts_micros, signatures_micros, validity_interval_micros, votes_micros, withdrawals_micros |
+| `phase_one` | `span` |  | public | All phase one validations |  | preflight_micros, certificates_micros, collateral_return_micros, donation_micros, fees_micros, inputs_micros, metadata_micros, mint_micros, outputs_micros, proposals_micros, scripts_micros, signatures_micros, validity_interval_micros, votes_micros, withdrawals_micros |
 | `phase_two` | `span` |  | public | Initialize script context and cost models for phase-2 validations, common to all scripts |  | script_context_micros |
 
 <details><summary>span: `phase_one`</summary>
@@ -2190,7 +2190,6 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- |
 | `preflight_micros` | `integer` |  |
 | `certificates_micros` | `integer` |  |
-| `collateral_micros` | `integer` |  |
 | `collateral_return_micros` | `integer` |  |
 | `donation_micros` | `integer` |  |
 | `fees_micros` | `integer` |  |

@@ -978,8 +978,6 @@ define_schemas! {
                     optional preflight_micros: u64
                     /// Ledger rules and state-transitions for certificates
                     optional certificates_micros: u64
-                    /// Ledger rules and state-transitions for collateral
-                    optional collateral_micros: u64
                     /// Ledger rules and state-transitions for collateral return
                     optional collateral_return_micros: u64
                     /// Ledger rules and state-transitions for treasury donation
