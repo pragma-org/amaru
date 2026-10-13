@@ -18,7 +18,7 @@ use amaru_kernel::{Credential, Lovelace, MemoizedDatum, Network, RedeemerTag, Re
 use thiserror::Error;
 
 use crate::{
-    context::{AccountsSlice, BalanceSlice, WitnessSlice},
+    context::{AccountsSliceMut, BalanceSlice, WitnessSlice},
     rules::TransactionField,
 };
 
@@ -45,7 +45,7 @@ pub(crate) fn execute<C>(
     is_valid: bool,
 ) -> Result<(), InvalidWithdrawals>
 where
-    C: WitnessSlice + AccountsSlice + BalanceSlice,
+    C: WitnessSlice + AccountsSliceMut + BalanceSlice,
 {
     if let Some(withdrawals) = withdrawals {
         withdrawals
