@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -261,4 +261,33 @@ pub fn setup_logging(enable: bool) {
         return;
     };
     let _ = tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).with_test_writer().try_init();
+}
+
+#[cfg(test)]
+pub(crate) fn make_mempool_runtime(
+    pool: Arc<amaru_mempool::InMemoryMempool<amaru_kernel::cbor::WithOriginalBytes<Transaction>>>,
+    validator: ResourceTxValidation,
+) -> (Arc<crate::mempool::MempoolRuntime>, amaru_pure_stage::tokio::TokioRunning) {
+    use amaru_consensus::stages::mempool::{MempoolStageState, stage};
+    use amaru_ouroboros::in_memory_chain_store::InMemoryChainStore;
+    use amaru_protocols::store_effects::ResourceParameters;
+    use amaru_pure_stage::{StageGraphRunning, tokio::TokioBuilder};
+    use tokio::runtime::Handle;
+
+    use crate::{Config, mempool::MempoolRuntime};
+
+    let node_config = Config::default();
+    let mut builder = TokioBuilder::default().with_global_epoch_offset(node_config.compute_global_clock_offset());
+    let mempool_stage = builder.stage("mempool", stage);
+    let mempool_stage = builder.wire_up(mempool_stage, MempoolStageState::default());
+    builder.resources().put::<ResourceParameters>(node_config.global_parameters().clone());
+    builder.resources().put::<ResourceEraHistory>(node_config.era_history().clone());
+    builder.resources().put::<ResourceBlockValidation>(Arc::new(MockBlockValidator::default()));
+    builder.resources().put::<ResourceHeaderStore>(Arc::new(InMemoryChainStore::default()));
+    builder.resources().put::<ResourceMempool<Transaction>>(pool.clone());
+    builder.resources().put::<ResourceTxValidation>(validator);
+    let sender = builder.input(mempool_stage.without_state());
+    let running = builder.run(Handle::current());
+    let runtime = MempoolRuntime::new(pool, sender, running.termination()).unwrap();
+    (runtime, running)
 }

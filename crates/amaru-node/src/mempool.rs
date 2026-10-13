@@ -12,85 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Typed services for the node's existing transaction pool.
-//!
-//! ```no_run
-//! # async fn example(running: amaru_node::NodeRunning, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-//! let mempool = running.mempool();
-//! let (snapshot, mut changes) = mempool.reader().subscribe()?;
-//! let accepted = mempool.submitter().submit(bytes).await?;
-//! let next_change = changes.recv().await?;
-//! running.shutdown().await?;
-//! # Ok(())
-//! # }
-//! ```
+//! Access to the node's existing transaction pool.
 
 use std::{
     fmt,
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+    future::Future,
+    sync::{Arc, Weak},
     time::Duration,
 };
 
-use amaru_kernel::{Transaction, TransactionId, cbor::WithOriginalBytes};
+use amaru_kernel::{Transaction, cbor::WithOriginalBytes};
 use amaru_mempool::{
     InMemoryMempool,
-    inspection::{Generation, PoolChange, PoolObserverError, PoolReceiver, PoolSnapshot},
+    inspection::{Generation, PoolChange, PoolReceiver, PoolSnapshot},
 };
-use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros::{MempoolMsg, TxInsertResult, TxOrigin};
 use amaru_protocols::tx_submission::DEFAULT_MEMPOOL_INSERT_TIMEOUT;
 use amaru_pure_stage::{BoxFuture, CallError, Sender};
 use futures_util::{FutureExt, future::Shared};
+use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
 type Pool = InMemoryMempool<WithOriginalBytes<Transaction>>;
-
-struct MempoolStatus {
-    closing: CancellationToken,
-    stopped: AtomicBool,
-    termination: Shared<BoxFuture<'static, ()>>,
-}
-
-impl MempoolStatus {
-    fn closing_error(&self) -> MempoolAccessError {
-        if self.stopped.load(Ordering::Acquire) { MempoolAccessError::Stopped } else { MempoolAccessError::Closing }
-    }
-
-    fn check(&self) -> Result<(), MempoolAccessError> {
-        if self.stopped.load(Ordering::Acquire) {
-            return Err(MempoolAccessError::Stopped);
-        }
-        if self.closing.is_cancelled() || self.termination.clone().now_or_never().is_some() {
-            self.closing.cancel();
-            return Err(MempoolAccessError::Closing);
-        }
-        Ok(())
-    }
-
-    async fn wait_for_closing(&self) {
-        tokio::select! {
-            biased;
-            () = self.closing.cancelled() => {},
-            () = self.termination.clone() => self.closing.cancel(),
-        }
-    }
-
-    fn submission_error(&self, transaction_id: Option<TransactionId>) -> MempoolSubmitError {
-        if self.stopped.load(Ordering::Acquire) {
-            MempoolSubmitError::Stopped { transaction_id }
-        } else {
-            MempoolSubmitError::Closing { transaction_id }
-        }
-    }
-}
+type Closed = Shared<BoxFuture<'static, ()>>;
 
 pub(crate) struct MempoolRuntime {
     run_id: NodeRunId,
     pool: Arc<Pool>,
     sender: Sender<MempoolMsg>,
-    status: Arc<MempoolStatus>,
+    closing: CancellationToken,
+    closed: Closed,
 }
 
 impl MempoolRuntime {
@@ -99,28 +50,21 @@ impl MempoolRuntime {
         sender: Sender<MempoolMsg>,
         termination: BoxFuture<'static, ()>,
     ) -> anyhow::Result<Arc<Self>> {
-        Ok(Arc::new(Self {
-            run_id: NodeRunId::new()?,
-            pool,
-            sender,
-            status: Arc::new(MempoolStatus {
-                closing: CancellationToken::new(),
-                stopped: AtomicBool::new(false),
-                termination: termination.shared(),
-            }),
-        }))
+        let closing = CancellationToken::new();
+        let cancelled = closing.clone().cancelled_owned();
+        let closed = async move {
+            tokio::select! {
+                () = cancelled => {},
+                () = termination => {},
+            }
+        }
+        .boxed()
+        .shared();
+        Ok(Arc::new(Self { run_id: NodeRunId::new()?, pool, sender, closing, closed }))
     }
 
     pub(crate) fn services(self: &Arc<Self>) -> MempoolServices {
-        MempoolServices { reader: self.reader(), submitter: self.submitter() }
-    }
-
-    pub(crate) fn reader(self: &Arc<Self>) -> MempoolReader {
-        MempoolReader { runtime: Arc::downgrade(self), status: self.status.clone() }
-    }
-
-    pub(crate) fn submitter(self: &Arc<Self>) -> MempoolSubmitter {
-        MempoolSubmitter { runtime: Arc::downgrade(self), status: self.status.clone() }
+        MempoolServices { runtime: Arc::downgrade(self), closed: self.closed.clone() }
     }
 
     fn snapshot(&self) -> MempoolSnapshot {
@@ -128,18 +72,13 @@ impl MempoolRuntime {
     }
 
     pub(crate) fn close(&self) {
-        self.status.closing.cancel();
-    }
-
-    pub(crate) fn stop(&self) {
-        self.status.stopped.store(true, Ordering::Release);
-        self.close();
+        self.closing.cancel();
     }
 }
 
 impl Drop for MempoolRuntime {
     fn drop(&mut self) {
-        self.stop();
+        self.close();
     }
 }
 
@@ -189,241 +128,119 @@ pub type MempoolSnapshot = PoolSnapshot<NodeGeneration>;
 /// One complete membership generation within a node run.
 pub type MempoolEvent = PoolChange<NodeGeneration>;
 
-/// Inspection, subscription admission, or delivery failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum MempoolAccessError {
-    #[error("node is closing")]
-    Closing,
-    #[error("node stopped")]
-    Stopped,
-    #[error("mempool subscriber limit reached")]
-    SubscriberLimit,
-    #[error("mempool changes were lost in run {run_id}: expected {expected_generation}, reached {current_generation}")]
-    Gap { run_id: NodeRunId, expected_generation: u64, current_generation: u64 },
-}
-
-/// Existing stage-call failure, independent of ledger validation rejection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum MempoolUnavailableReason {
-    #[error("send failed")]
-    SendFailed,
-    #[error("response dropped")]
-    ResponseDropped,
-    #[error("response deserialization failed")]
-    ResponseDeserializeFailed,
-}
-
-/// Submission failure. After dispatch, timeout, unavailability, and shutdown do not
-/// establish whether insertion happened. There is no retained attempt history.
+/// API failure. A timeout or shutdown after dispatch does not establish whether insertion happened.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
-pub enum MempoolSubmitError {
-    /// Rejected before CBOR decoding or dispatch; no transaction identity is available.
+pub enum MempoolError {
+    #[error("node is closing or stopped")]
+    Closed,
+    #[error("missed {0} mempool changes; subscribe again for a fresh snapshot")]
+    Lagged(u64),
     #[error("transaction input is too large: {size_bytes} bytes exceeds the {max_bytes}-byte limit")]
     InputTooLarge { size_bytes: usize, max_bytes: usize },
-    #[error("Invalid CBOR transaction: {reason}")]
-    InvalidCbor { reason: String },
-    #[error("{reason}")]
-    Rejected { transaction_id: TransactionId, reason: TxRejectReason },
-    /// The deadline fired before queue admission. This attempt cannot insert the transaction later.
-    #[error("mempool deadline reached before queue admission; this attempt cannot insert the transaction")]
-    NotAdmitted { transaction_id: TransactionId },
-    /// The deadline fired after known or possible admission; insertion outcome is unknown.
-    #[error("mempool timed out; insertion outcome is unknown")]
-    Timeout { transaction_id: TransactionId },
-    #[error("mempool unavailable: {reason}; insertion outcome may be unknown")]
-    Unavailable { transaction_id: TransactionId, reason: MempoolUnavailableReason },
-    #[error("node is closing; dispatched insertion outcome may be unknown")]
-    Closing { transaction_id: Option<TransactionId> },
-    #[error("node stopped; dispatched insertion outcome may be unknown")]
-    Stopped { transaction_id: Option<TransactionId> },
+    #[error("Invalid CBOR transaction: {0}")]
+    InvalidCbor(String),
+    #[error(transparent)]
+    Call(#[from] CallError),
 }
 
-/// Successful insertion into the local pool. The transaction may subsequently be removed,
-/// including before the caller receives this reply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MempoolAccepted {
-    pub transaction_id: TransactionId,
-    pub sequence: MempoolSeqNo,
-}
-
-/// Access to the read-only and submission services for one node's mempool.
-///
-/// Retaining these services does not retain the runtime or stores. Inspection and
-/// updates are available through [`Self::reader`]; submission through [`Self::submitter`].
+/// Inspection, subscription, and submission for one node run.
+/// Retaining this handle does not retain the runtime or stores.
 #[derive(Clone)]
 pub struct MempoolServices {
-    reader: MempoolReader,
-    submitter: MempoolSubmitter,
+    runtime: Weak<MempoolRuntime>,
+    closed: Closed,
 }
 
 impl MempoolServices {
-    /// Obtain read-only inspection and subscription access.
-    pub fn reader(&self) -> MempoolReader {
-        self.reader.clone()
+    /// Defensive CBOR parsing ceiling, independent of the ledger transaction-size limit.
+    pub const MAX_INPUT_SIZE_BYTES: usize = 64 * 1024;
+
+    fn runtime(&self) -> Result<Arc<MempoolRuntime>, MempoolError> {
+        if self.closed.clone().now_or_never().is_some() {
+            return Err(MempoolError::Closed);
+        }
+        self.runtime.upgrade().ok_or(MempoolError::Closed)
     }
 
-    /// Obtain submission access without inspection.
-    pub fn submitter(&self) -> MempoolSubmitter {
-        self.submitter.clone()
+    async fn while_running<T>(&self, future: impl Future<Output = Result<T, MempoolError>>) -> Result<T, MempoolError> {
+        self.runtime()?;
+        let result = tokio::select! {
+            biased;
+            () = self.closed.clone() => return Err(MempoolError::Closed),
+            result = future => result,
+        };
+        self.runtime()?;
+        result
     }
-}
 
-/// Read-only service. Retaining it does not retain the runtime or stores.
-#[derive(Clone)]
-pub struct MempoolReader {
-    runtime: Weak<MempoolRuntime>,
-    status: Arc<MempoolStatus>,
-}
-
-impl MempoolReader {
-    /// Capture an owned, capacity-bounded snapshot of stored membership.
-    /// This does not wait for pending revalidation; see [`MempoolSnapshot`].
-    ///
-    /// Absence does not establish that a submission failed: it may still be processing,
-    /// or the transaction may have been accepted and subsequently removed.
-    pub fn snapshot(&self) -> Result<MempoolSnapshot, MempoolAccessError> {
-        self.status.check()?;
-        let runtime = self.runtime.upgrade().ok_or(MempoolAccessError::Stopped)?;
-        let snapshot = runtime.snapshot();
-        drop(runtime);
-        self.status.check()?;
+    /// Capture stored membership without waiting for revalidation; see [`MempoolSnapshot`].
+    /// Absence does not establish that a submission failed or was never accepted.
+    pub fn snapshot(&self) -> Result<MempoolSnapshot, MempoolError> {
+        let snapshot = self.runtime()?.snapshot();
+        self.runtime()?;
         Ok(snapshot)
     }
 
-    /// Atomically register and capture the initial snapshot. The receiver delivers
-    /// every later generation or an explicit gap; recover by subscribing again.
-    /// Committed removals from automatic revalidation are included as [`MempoolEvent::Removed`].
-    /// Subscribe before submitting to observe committed insertions, including those
-    /// whose submission reply times out. Events identify transactions, not individual attempts.
-    ///
-    /// At most 64 subscribers are admitted. Each retains at most 64 changes and
-    /// 1 MiB of original transaction bytes and change metadata.
-    pub fn subscribe(&self) -> Result<(MempoolSnapshot, MempoolReceiver), MempoolAccessError> {
-        self.status.check()?;
-        let runtime = self.runtime.upgrade().ok_or(MempoolAccessError::Stopped)?;
+    /// Atomically capture membership and subscribe to subsequent changes.
+    /// Subscribers share a 64-event buffer. On [`MempoolError::Lagged`], subscribe again.
+    /// Events identify transactions, not individual submission attempts.
+    pub fn subscribe(&self) -> Result<(MempoolSnapshot, MempoolReceiver), MempoolError> {
+        let runtime = self.runtime()?;
         let run_id = runtime.run_id;
-        let subscription = runtime.pool.subscribe();
-        self.status.check()?;
-        let (snapshot, receiver) = subscription.map_err(|error| observer_error(run_id, error))?;
-        let snapshot = snapshot.map_generation(|revision| NodeGeneration { run_id, revision });
-        drop(runtime);
-        self.status.check()?;
-        Ok((snapshot, MempoolReceiver { run_id, receiver, status: self.status.clone() }))
+        let (snapshot, receiver) = runtime.pool.subscribe();
+        self.runtime()?;
+        Ok((
+            snapshot.map_generation(|revision| NodeGeneration { run_id, revision }),
+            MempoolReceiver { run_id, receiver, services: self.clone() },
+        ))
     }
-}
 
-fn observer_error(run_id: NodeRunId, error: PoolObserverError) -> MempoolAccessError {
-    match error {
-        PoolObserverError::SubscriberLimit => MempoolAccessError::SubscriberLimit,
-        PoolObserverError::Stopped => MempoolAccessError::Stopped,
-        PoolObserverError::Gap { expected_generation, current_generation } => {
-            MempoolAccessError::Gap { run_id, expected_generation, current_generation }
-        }
-    }
-}
-
-/// Bounded membership receiver owning only queued data and lifecycle notification.
-pub struct MempoolReceiver {
-    run_id: NodeRunId,
-    receiver: PoolReceiver,
-    status: Arc<MempoolStatus>,
-}
-
-impl MempoolReceiver {
-    /// Receive a complete committed generation. Shutdown takes precedence over queued changes.
-    pub async fn recv(&mut self) -> Result<MempoolEvent, MempoolAccessError> {
-        self.status.check()?;
-        let change = tokio::select! {
-            biased;
-            () = self.status.wait_for_closing() => return Err(self.status.closing_error()),
-            change = self.receiver.recv() => change,
-        };
-        self.status.check()?;
-        let change = change.map_err(|error| observer_error(self.run_id, error))?;
-        let event =
-            Arc::unwrap_or_clone(change).map_generation(|revision| NodeGeneration { run_id: self.run_id, revision });
-        self.status.check()?;
-        Ok(event)
-    }
-}
-
-/// Typed submission service with weak runtime ownership.
-#[derive(Clone)]
-pub struct MempoolSubmitter {
-    runtime: Weak<MempoolRuntime>,
-    status: Arc<MempoolStatus>,
-}
-
-impl MempoolSubmitter {
-    /// Maximum original CBOR input size (64 KiB), checked before decoding.
-    /// This defensive parsing ceiling is independent of the ledger's current
-    /// transaction-size limit, which validation still enforces.
-    pub const MAX_INPUT_SIZE_BYTES: usize = 64 * 1024;
-
-    /// Submit original CBOR using the same timeout as the HTTP submit API.
-    /// Inputs larger than [`Self::MAX_INPUT_SIZE_BYTES`] are rejected before decoding.
+    /// Submit original CBOR through the node's existing validation pipeline.
     /// Timing out or dropping this future does not necessarily cancel insertion.
-    pub async fn submit(&self, bytes: &[u8]) -> Result<MempoolAccepted, MempoolSubmitError> {
+    pub async fn submit(&self, bytes: &[u8]) -> Result<TxInsertResult, MempoolError> {
         self.submit_with_timeout(bytes, DEFAULT_MEMPOOL_INSERT_TIMEOUT.as_duration()).await
     }
 
     /// Submit with a deadline covering queue admission and response waiting.
-    /// [`MempoolSubmitError::NotAdmitted`] proves this attempt cannot insert later.
-    /// After admission, timing out or dropping the future does not cancel insertion,
-    /// and [`MempoolSubmitError::Timeout`] leaves the outcome unknown.
     /// Decoding precedes the deadline and is bounded by [`Self::MAX_INPUT_SIZE_BYTES`].
-    pub async fn submit_with_timeout(
-        &self,
-        bytes: &[u8],
-        timeout: Duration,
-    ) -> Result<MempoolAccepted, MempoolSubmitError> {
-        if self.status.check().is_err() {
-            return Err(self.status.submission_error(None));
-        }
+    pub async fn submit_with_timeout(&self, bytes: &[u8], timeout: Duration) -> Result<TxInsertResult, MempoolError> {
+        let sender = self.runtime()?.sender.clone();
         if bytes.len() > Self::MAX_INPUT_SIZE_BYTES {
-            return Err(MempoolSubmitError::InputTooLarge {
-                size_bytes: bytes.len(),
-                max_bytes: Self::MAX_INPUT_SIZE_BYTES,
-            });
+            return Err(MempoolError::InputTooLarge { size_bytes: bytes.len(), max_bytes: Self::MAX_INPUT_SIZE_BYTES });
         }
-        let decoded = minicbor::decode::<WithOriginalBytes<Transaction>>(bytes);
-        if self.status.check().is_err() {
-            return Err(self.status.submission_error(decoded.as_ref().ok().map(|tx| tx.tx_id())));
-        }
-        let tx = decoded.map_err(|error| MempoolSubmitError::InvalidCbor { reason: error.to_string() })?;
-        let transaction_id = tx.tx_id();
-        let sender = self
-            .runtime
-            .upgrade()
-            .ok_or(MempoolSubmitError::Stopped { transaction_id: Some(transaction_id) })?
-            .sender
-            .clone();
-        let result = tokio::select! {
-            biased;
-            () = self.status.wait_for_closing() => return Err(self.status.submission_error(Some(transaction_id))),
-            result = sender.call(|caller| MempoolMsg::Insert { tx: Box::new(tx), origin: TxOrigin::Local, caller }, timeout) => result,
-        };
-        if self.status.check().is_err() && !matches!(&result, Err(CallError::NotAdmitted)) {
-            return Err(self.status.submission_error(Some(transaction_id)));
-        }
-        let unavailable = |reason| MempoolSubmitError::Unavailable { transaction_id, reason };
-        match result {
-            Ok(TxInsertResult::Accepted { tx_id, seq_no }) => {
-                Ok(MempoolAccepted { transaction_id: tx_id, sequence: seq_no })
-            }
-            Ok(TxInsertResult::Rejected { tx_id, reason }) => {
-                Err(MempoolSubmitError::Rejected { transaction_id: tx_id, reason })
-            }
-            Err(CallError::NotAdmitted) => Err(MempoolSubmitError::NotAdmitted { transaction_id }),
-            Err(CallError::TimedOut) => Err(MempoolSubmitError::Timeout { transaction_id }),
-            Err(CallError::SendFailed) => Err(unavailable(MempoolUnavailableReason::SendFailed)),
-            Err(CallError::ResponseDropped) => Err(unavailable(MempoolUnavailableReason::ResponseDropped)),
-            Err(CallError::ResponseDeserializeFailed) => {
-                Err(unavailable(MempoolUnavailableReason::ResponseDeserializeFailed))
-            }
-        }
+        let tx = minicbor::decode::<WithOriginalBytes<Transaction>>(bytes)
+            .map_err(|error| MempoolError::InvalidCbor(error.to_string()))?;
+        self.while_running(async {
+            sender
+                .call(|caller| MempoolMsg::Insert { tx: Box::new(tx), origin: TxOrigin::Local, caller }, timeout)
+                .await
+                .map_err(MempoolError::from)
+        })
+        .await
+    }
+}
+
+/// Membership receiver owning queued data and lifecycle notification, without retaining stores.
+pub struct MempoolReceiver {
+    run_id: NodeRunId,
+    receiver: PoolReceiver,
+    services: MempoolServices,
+}
+
+impl MempoolReceiver {
+    /// Receive a complete committed generation. Shutdown takes precedence over queued changes.
+    pub async fn recv(&mut self) -> Result<MempoolEvent, MempoolError> {
+        let change = self
+            .services
+            .while_running(async {
+                self.receiver.recv().await.map_err(|error| match error {
+                    RecvError::Closed => MempoolError::Closed,
+                    RecvError::Lagged(count) => MempoolError::Lagged(count),
+                })
+            })
+            .await?;
+        Ok(Arc::unwrap_or_clone(change).map_generation(|revision| NodeGeneration { run_id: self.run_id, revision }))
     }
 }
 

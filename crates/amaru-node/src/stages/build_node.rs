@@ -381,9 +381,7 @@ impl NodeRunning {
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
         let Self { tokio_running, mempool_runtime, lifecycle, listen_address: _ } = self;
         mempool_runtime.close();
-        let report = lifecycle.shutdown(tokio_running).await?;
-        mempool_runtime.stop();
-        Ok(report)
+        lifecycle.shutdown(tokio_running).await
     }
 }
 
@@ -831,33 +829,26 @@ mod tests {
 
             let running = build_and_run_node(config, &Handle::current()).await?;
             let mempool = running.mempool();
-            let reader = mempool.reader();
-            let (snapshot, receiver) = reader.subscribe()?;
+            let (snapshot, receiver) = mempool.subscribe()?;
             assert!(run_ids.insert(snapshot.generation.run_id));
-            let submitter = mempool.submitter();
             let abort = running.abort_callback();
             assert_eq!(running.listen_address(), listen_address);
             drop(TcpStream::connect(listen_address).await?);
             abort();
-            assert_eq!(mempool.reader().snapshot().unwrap_err(), crate::MempoolAccessError::Closing);
-            assert_eq!(reader.snapshot().unwrap_err(), crate::MempoolAccessError::Closing);
-            retained.push((abort, mempool, reader, submitter, receiver, snapshot));
+            assert_eq!(mempool.snapshot().unwrap_err(), crate::MempoolError::Closed);
+            retained.push((abort, mempool, receiver));
             let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
             assert!(report.is_clean(), "{report:?}");
 
             drop(TcpListener::bind(listen_address)?);
             drop(RocksDB::new(&ledger_config)?);
             drop(RocksDBStore::open(&chain_config)?);
-            for (abort, mempool, reader, submitter, receiver, _) in &mut retained {
+            for (abort, mempool, receiver) in &mut retained {
                 abort();
-                assert_eq!(mempool.reader().snapshot().unwrap_err(), crate::MempoolAccessError::Stopped);
-                assert!(matches!(mempool.reader().subscribe(), Err(crate::MempoolAccessError::Stopped)));
-                assert_eq!(reader.snapshot().unwrap_err(), crate::MempoolAccessError::Stopped);
-                assert_eq!(receiver.recv().await.unwrap_err(), crate::MempoolAccessError::Stopped);
-                assert_eq!(
-                    submitter.submit(&[]).await.unwrap_err(),
-                    crate::MempoolSubmitError::Stopped { transaction_id: None }
-                );
+                assert_eq!(mempool.snapshot().unwrap_err(), crate::MempoolError::Closed);
+                assert!(matches!(mempool.subscribe(), Err(crate::MempoolError::Closed)));
+                assert_eq!(receiver.recv().await.unwrap_err(), crate::MempoolError::Closed);
+                assert_eq!(mempool.submit(&[]).await.unwrap_err(), crate::MempoolError::Closed);
             }
         }
 

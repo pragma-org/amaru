@@ -33,7 +33,7 @@ use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNA
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
 use amaru_node::{
-    DEFAULT_PEERS_MAX_DOWNSTREAM, DEFAULT_PEERS_MAX_UPSTREAM, MempoolSubmitter,
+    DEFAULT_PEERS_MAX_DOWNSTREAM, DEFAULT_PEERS_MAX_UPSTREAM, MempoolServices,
     peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
     stages::{
         build_node::build_and_run_node,
@@ -494,7 +494,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     }
 
     let exit = shutdown.token();
-    let submit_api_handle = match start_submit_api(submit_api_address, running.mempool().submitter(), &exit).await {
+    let submit_api_handle = match start_submit_api(submit_api_address, running.mempool(), &exit).await {
         Ok(handle) => handle,
         Err(err) => {
             let trace_buffer = running.trace_buffer().clone();
@@ -561,7 +561,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
 /// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
 async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
-    submitter: MempoolSubmitter,
+    submitter: MempoolServices,
     exit: &CancellationToken,
 ) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
     let Some(addr) = address else {

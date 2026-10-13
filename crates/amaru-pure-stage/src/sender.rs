@@ -1,4 +1,4 @@
-// Copyright 2026 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,18 +25,11 @@ use crate::{BoxFuture, Name, SendData, stage_ref::StageRef};
 /// Such a handle is obtained using [`StageGraph::input`](crate::StageGraph::input).
 pub struct Sender<Msg> {
     tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), SendError>> + Send + Sync>,
-    cancellation: SendCancellation,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SendCancellation {
-    PreventsDelivery,
-    MayDeliver,
 }
 
 impl<Msg> Clone for Sender<Msg> {
     fn clone(&self) -> Self {
-        Self { tx: self.tx.clone(), cancellation: self.cancellation }
+        Self { tx: self.tx.clone() }
     }
 }
 
@@ -48,14 +41,7 @@ impl<Msg> fmt::Debug for Sender<Msg> {
 
 impl<Msg> Sender<Msg> {
     pub(crate) fn new(tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), SendError>> + Send + Sync>) -> Self {
-        Self { tx, cancellation: SendCancellation::MayDeliver }
-    }
-
-    /// Construct a sender whose incomplete send can be dropped without later delivery.
-    pub(crate) fn new_cancel_safe(
-        tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), SendError>> + Send + Sync>,
-    ) -> Self {
-        Self { tx, cancellation: SendCancellation::PreventsDelivery }
+        Self { tx }
     }
 
     /// Deliver `msg` to the stage.
@@ -73,11 +59,6 @@ impl<Msg: SendData> Sender<Msg> {
     /// Send a message to the stage and wait for a response.
     ///
     /// The `message` function receives `StageRef<Resp>` that the target stage must use to send its reply.
-    /// One deadline covers delivery and response waiting. Tokio senders report
-    /// [`CallError::NotAdmitted`] if the deadline fires before mailbox admission.
-    /// Simulation inputs may already be retained by the external input bridge,
-    /// so a timeout before delivery is conservatively reported as [`CallError::TimedOut`].
-    /// Timing out or dropping the future does not retract an admitted request.
     pub fn call<Resp: SendData + DeserializeOwned>(
         &self,
         message: impl FnOnce(StageRef<Resp>) -> Msg + Send + 'static,
@@ -89,22 +70,13 @@ impl<Msg: SendData> Sender<Msg> {
             StageRef::<Resp>::new(Name::from("sender-call")).with_extra(extra as Arc<dyn Any + Send + Sync>);
         let msg = message(reply_ref);
         let send_fut = self.send(msg);
-        let cancellation = self.cancellation;
         Box::pin(async move {
-            let mut delivered = false;
-            let result = tokio::time::timeout(timeout, async {
+            let resp = tokio::time::timeout(timeout, async {
                 send_fut.await.map_err(|_err| CallError::SendFailed)?;
-                delivered = true;
                 rx.await.map_err(|_| CallError::ResponseDropped)
             })
-            .await;
-            let resp = result.map_err(|_| {
-                if !delivered && cancellation == SendCancellation::PreventsDelivery {
-                    CallError::NotAdmitted
-                } else {
-                    CallError::TimedOut
-                }
-            })??;
+            .await
+            .map_err(|_| CallError::TimedOut)??;
 
             resp.cast_deserialize::<Resp>().map_err(|e| {
                 tracing::warn!(error = ?e, "Failed to deserialize response");
@@ -138,10 +110,6 @@ impl SendError {
 pub enum CallError {
     #[error("message send failed")]
     SendFailed,
-    /// The deadline fired before admission and the cancelled send cannot deliver later.
-    #[error("deadline reached before queue admission")]
-    NotAdmitted,
-    /// The deadline fired after known or possible admission. Processing may continue.
     #[error("timed out waiting for response")]
     TimedOut,
     #[error("response channel closed")]

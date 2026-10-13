@@ -59,13 +59,13 @@ pub use amaru_ledger::{
 };
 pub use amaru_metrics::{METRICS_METER_NAME, Meter};
 pub use amaru_observability::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
-pub use amaru_ouroboros_traits::{MempoolSeqNo, TransactionValidationError, TxOrigin, TxRejectReason};
+pub use amaru_ouroboros_traits::{MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason};
+pub use amaru_pure_stage::CallError;
 pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
 pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
 pub use mempool::{
-    MempoolAccepted, MempoolAccessError, MempoolEvent, MempoolReader, MempoolReceiver, MempoolServices,
-    MempoolSnapshot, MempoolSnapshotEntry, MempoolSubmitError, MempoolSubmitter, MempoolUnavailableReason,
+    MempoolError, MempoolEvent, MempoolReceiver, MempoolServices, MempoolSnapshot, MempoolSnapshotEntry,
     NodeGeneration, NodeRunId,
 };
 pub use mithril::{

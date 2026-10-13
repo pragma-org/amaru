@@ -12,21 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Atomic pool inspection and bounded delivery of committed membership changes.
+//! Atomic pool snapshots and committed membership changes.
 
-use std::{collections::VecDeque, mem::size_of, sync::Arc, time::SystemTime};
+use std::{sync::Arc, time::SystemTime};
 
 use amaru_kernel::TransactionId;
 use amaru_ouroboros_traits::{MempoolSeqNo, TxOrigin};
-use parking_lot::Mutex;
-use tokio::sync::Notify;
+use tokio::sync::broadcast;
 
-/// Maximum number of live subscriptions to one pool.
-pub const MAX_MEMPOOL_SUBSCRIBERS: usize = 64;
-/// Maximum number of changes retained by one subscription.
+/// Shared event history. Slow subscribers receive an explicit lag error.
 pub const MAX_MEMPOOL_QUEUED_EVENTS: usize = 64;
-/// Maximum encoded payload and change metadata retained by one subscription.
-pub const MAX_MEMPOOL_QUEUED_BYTES: u64 = 1_048_576;
+pub type PoolReceiver = broadcast::Receiver<Arc<PoolChange>>;
 
 /// Identity of a membership revision and how to advance it after a committed change.
 pub trait Generation: Clone {
@@ -46,9 +42,7 @@ pub struct MempoolSnapshotEntry {
     pub sequence: MempoolSeqNo,
     /// The admitting origin. Duplicate offers do not update it.
     pub origin: TxOrigin,
-    /// Wall-clock time recorded once on successful insertion.
-    /// Duplicate offers and snapshots preserve it; reinsertion after removal records a new time.
-    /// Use the insertion sequence for ordering because wall-clock time can jump.
+    /// Wall-clock insertion time; use the sequence for ordering because wall-clock time can jump.
     pub admitted_at: SystemTime,
     pub original_bytes: Vec<u8>,
     pub size_bytes: u64,
@@ -111,119 +105,6 @@ impl<G: Generation> PoolChange<G> {
             Self::Removed { generation, transaction_ids } => {
                 PoolChange::Removed { generation: map(generation), transaction_ids }
             }
-        }
-    }
-
-    fn size_bytes(&self) -> u64 {
-        size_of::<Self>() as u64
-            + match self {
-                Self::Inserted { entry, .. } => entry.original_bytes.len() as u64,
-                Self::Removed { transaction_ids, .. } => (transaction_ids.len() * size_of::<TransactionId>()) as u64,
-            }
-    }
-}
-
-/// Subscription admission or delivery failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum PoolObserverError {
-    #[error("mempool subscriber limit reached")]
-    SubscriberLimit,
-    #[error("mempool changes were lost: expected generation {expected_generation}, reached {current_generation}")]
-    Gap { expected_generation: u64, current_generation: u64 },
-    #[error("mempool stopped")]
-    Stopped,
-}
-
-#[derive(Debug)]
-struct QueueState {
-    events: VecDeque<Arc<PoolChange>>,
-    bytes: u64,
-    next_generation: u64,
-    error: Option<PoolObserverError>,
-}
-
-#[derive(Debug)]
-pub(crate) struct ObserverQueue {
-    state: Mutex<QueueState>,
-    changed: Notify,
-}
-
-impl ObserverQueue {
-    fn new(generation: u64) -> Self {
-        Self {
-            state: Mutex::new(QueueState {
-                events: VecDeque::new(),
-                bytes: 0,
-                next_generation: generation.next(),
-                error: None,
-            }),
-            changed: Notify::new(),
-        }
-    }
-
-    pub(crate) fn push(&self, event: Arc<PoolChange>) -> bool {
-        let mut state = self.state.lock();
-        if state.error.is_some() {
-            return false;
-        }
-        let bytes = event.size_bytes();
-        if state.events.len() >= MAX_MEMPOOL_QUEUED_EVENTS
-            || state.bytes.saturating_add(bytes) > MAX_MEMPOOL_QUEUED_BYTES
-        {
-            state.error = Some(PoolObserverError::Gap {
-                expected_generation: state.next_generation,
-                current_generation: event.generation(),
-            });
-            state.events.clear();
-            state.bytes = 0;
-            self.changed.notify_one();
-            return false;
-        }
-        state.bytes += bytes;
-        state.events.push_back(event);
-        self.changed.notify_one();
-        true
-    }
-
-    pub(crate) fn close(&self) {
-        let mut state = self.state.lock();
-        state.events.clear();
-        state.bytes = 0;
-        state.error = Some(PoolObserverError::Stopped);
-        self.changed.notify_one();
-    }
-}
-
-/// A bounded receiver. A gap permanently invalidates it; subscribe again to recover.
-///
-/// This owns only queued changes, not the pool. Each queue holds at most
-/// [`MAX_MEMPOOL_QUEUED_EVENTS`] changes and [`MAX_MEMPOOL_QUEUED_BYTES`] encoded
-/// payload and metadata bytes. Queues retain no parsed transactions.
-pub struct PoolReceiver {
-    pub(crate) queue: Arc<ObserverQueue>,
-}
-
-impl PoolReceiver {
-    pub(crate) fn new(generation: u64) -> Self {
-        Self { queue: Arc::new(ObserverQueue::new(generation)) }
-    }
-
-    /// Receive the next complete generation, or an explicit terminal failure.
-    pub async fn recv(&mut self) -> Result<Arc<PoolChange>, PoolObserverError> {
-        loop {
-            let changed = self.queue.changed.notified();
-            {
-                let mut state = self.queue.state.lock();
-                if let Some(error) = state.error {
-                    return Err(error);
-                }
-                if let Some(event) = state.events.pop_front() {
-                    state.bytes -= event.size_bytes();
-                    state.next_generation = event.generation().next();
-                    return Ok(event);
-                }
-            }
-            changed.await;
         }
     }
 }
