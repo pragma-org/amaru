@@ -155,16 +155,27 @@ impl HeaderSpanBook {
     }
 
     pub(crate) fn open_fork(&mut self, hash: &HeaderHash) {
+        if self.fork.as_ref().is_some_and(|fork| &fork.hash == hash) {
+            return;
+        }
         let Some(parent) = self.headers.get(hash).map(|header| header.context.clone()) else {
             return;
         };
+        // A replaced fork must be closed, or its duration stays in the process-wide map.
+        if let Some(previous) = self.fork.take() {
+            let _ = close_span(previous.span, SWITCH::NAME, &previous.hash);
+        }
         self.fork = Some(OpenFork {
             hash: *hash,
             span: debug_span!(parent_context: &parent, network::perf::fork::SWITCH, header_hash = hash),
         });
     }
 
-    pub(crate) fn take_fork_micros(&mut self) -> Option<u64> {
+    /// Duration of the open fork span when it is `hash`. A different open fork is left in place.
+    pub(crate) fn take_fork_micros(&mut self, hash: &HeaderHash) -> Option<u64> {
+        if self.fork.as_ref().is_some_and(|fork| &fork.hash != hash) {
+            return None;
+        }
         let fork = self.fork.take()?;
         close_span(fork.span, SWITCH::NAME, &fork.hash)
     }

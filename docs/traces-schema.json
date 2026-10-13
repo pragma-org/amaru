@@ -10430,7 +10430,7 @@
       "name": "reset_many",
       "kind": "event",
       "target": "amaru::stores::ledger::accounts",
-      "description": "Reset rewards counters for many accounts",
+      "description": "Skipped resetting rewards because the account is not in the store",
       "public": true,
       "levels": [
         "error"
@@ -10511,7 +10511,7 @@
       "name": "add",
       "kind": "event",
       "target": "amaru::stores::ledger::dreps",
-      "description": "Batch-upsert DRep registrations",
+      "description": "Skipped a DRep registration that carried no deposit",
       "public": true,
       "levels": [
         "error"
@@ -10548,7 +10548,7 @@
       "name": "remove",
       "kind": "event",
       "target": "amaru::stores::ledger::dreps",
-      "description": "Record DRep de-registration",
+      "description": "Skipped de-registration because the DRep is not in the store",
       "public": true,
       "levels": [
         "error"
@@ -10573,7 +10573,7 @@
       "name": "set_valid_until",
       "kind": "event",
       "target": "amaru::stores::ledger::dreps",
-      "description": "Refresh DRep expiry after a vote",
+      "description": "Skipped refreshing expiry because the DRep is not in the store",
       "public": true,
       "levels": [
         "warn"
@@ -10848,7 +10848,7 @@
       "name": "remove",
       "kind": "event",
       "target": "amaru::stores::ledger::pools",
-      "description": "Schedule pool retirement",
+      "description": "Skipped scheduling retirement because the pool is not in the store",
       "public": true,
       "levels": [
         "error"

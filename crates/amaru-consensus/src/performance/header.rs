@@ -274,7 +274,7 @@ impl HeaderTelemetry {
                 );
             }
             Self::ForkSwitch { hash, outcome, duration_micros } => {
-                let duration_micros = spans.take_fork_micros().unwrap_or(*duration_micros);
+                let duration_micros = spans.take_fork_micros(hash).unwrap_or(*duration_micros);
                 debug!(
                     consensus::perf::fork::SWITCH,
                     header_hash = hash,

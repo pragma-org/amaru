@@ -1025,6 +1025,33 @@ mod tests {
         assert_eq!(peer.peer_tip_height(), Some(101));
     }
 
+    #[test]
+    fn a_later_roll_forward_replaces_a_higher_advertised_tip() {
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        let now = model.created_at;
+
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            now,
+            consensus::chainsync::ROLL_FORWARD_DONE,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_PEER => "1.2.3.4:3001",
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_CURRENT_HEIGHT => 90u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_TIP_HEIGHT => 110u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_OUTCOME => "stored",
+        )));
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            now + Duration::from_secs(1),
+            consensus::chainsync::ROLL_FORWARD_DONE,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_PEER => "1.2.3.4:3001",
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_CURRENT_HEIGHT => 95u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_TIP_HEIGHT => 100u64,
+            consensus::chainsync::ROLL_FORWARD_DONE::FIELD_OUTCOME => "stored",
+        )));
+
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer");
+        assert_eq!(peer.roll_forward_height(), Some(95));
+        assert_eq!(peer.peer_tip_height(), Some(100));
+    }
+
     fn adopt_height(model: &mut Model, at: Instant, height: u64) {
         model.handle_message(Message::Telemetry(telemetry_at!(
             at,

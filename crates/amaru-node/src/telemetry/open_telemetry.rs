@@ -83,6 +83,8 @@ where
     }
 
     fn on_end(&self, span: SpanData) {
+        // Header lifecycle durations are these exported times. Each name is stored on its own
+        // so a fetch span closing on this thread does not replace the forward span's offer.
         if span.name.starts_with("perf.") {
             let micros = span.end_time.duration_since(span.start_time).unwrap_or_default().as_micros() as u64;
             offer_span_elapsed(&span.name, micros);

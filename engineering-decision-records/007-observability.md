@@ -55,17 +55,17 @@ define_schemas! {
     amaru {
         consensus {
             header {
-                EVOLVE_NONCE {
+                span EVOLVE_NONCE {
                     required hash: String
                 }
-                VALIDATE {
+                span VALIDATE {
                     required issuer_key: String
                 }
             }
         }
         ledger {
             block {
-                APPLY {
+                span APPLY {
                     required point_slot: u64
                     optional error: String
                 }

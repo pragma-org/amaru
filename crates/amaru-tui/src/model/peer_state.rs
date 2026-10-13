@@ -162,10 +162,11 @@ impl PeerState {
     ///
     /// The advertised tip can be one block behind that header: chainsync may send the next
     /// header before the peer counts it as its adopted tip. The header is still their chain.
+    /// A later roll-forward replaces this tip, including when the advertisement is lower.
+    /// A rollback or a new intersection is recorded separately and can also move it down.
     pub(crate) fn note_roll_forward(&mut self, height: u64, tip_height: u64, at: Instant) {
         self.roll_forward_height = Some(height);
-        let tip = tip_height.max(height);
-        self.peer_tip_height = Some(self.peer_tip_height.map(|known| known.max(tip)).unwrap_or(tip));
+        self.peer_tip_height = Some(tip_height.max(height));
         self.updated_at = at;
     }
 

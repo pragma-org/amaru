@@ -2163,7 +2163,7 @@ define_schemas! {
                     public span GET {}
                     /// Batch-upsert pool entries
                     public span ADD {}
-                    /// Schedule pool retirement
+                    /// Skipped scheduling retirement because the pool is not in the store
                     public event REMOVE {
                         levels: error
                         optional pool: amaru_kernel::PoolId
@@ -2184,7 +2184,7 @@ define_schemas! {
                         optional account: amaru_kernel::Hash<28>
                         optional reason: String
                     }
-                    /// Reset rewards counters for many accounts
+                    /// Skipped resetting rewards because the account is not in the store
                     public event RESET_MANY {
                         levels: error
                         optional credential: %amaru_kernel::Credential
@@ -2204,19 +2204,19 @@ define_schemas! {
                 dreps {
                     /// Point-read a DRep entry
                     public span GET {}
-                    /// Batch-upsert DRep registrations
+                    /// Skipped a DRep registration that carried no deposit
                     public event ADD {
                         levels: error
                         optional credential: %amaru_kernel::Credential
                         optional reason: String
                     }
-                    /// Record DRep de-registration
+                    /// Skipped de-registration because the DRep is not in the store
                     public event REMOVE {
                         levels: error
                         optional drep: %amaru_kernel::Credential
                         optional reason: String
                     }
-                    /// Refresh DRep expiry after a vote
+                    /// Skipped refreshing expiry because the DRep is not in the store
                     public event SET_VALID_UNTIL {
                         levels: warn
                         optional credential: %amaru_kernel::Credential

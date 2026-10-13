@@ -3852,7 +3852,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `add` | `span` |  | public | Batch-upsert account entries |  |  |
 | `get` | `span` |  | public | Point-read an account entry |  |  |
 | `remove` | `span` |  | public | Batch-delete account entries |  |  |
-| `reset_many` | `event` | error | public | Reset rewards counters for many accounts |  | credential, reason |
+| `reset_many` | `event` | error | public | Skipped resetting rewards because the account is not in the store |  | credential, reason |
 | `set` | `event` | debug | public | Update rewards balance for a single account |  | credential_type, account, reason |
 
 <details><summary>event: `reset_many`</summary>
@@ -3885,10 +3885,10 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `add` | `event` | error | public | Batch-upsert DRep registrations |  | credential, reason |
+| `add` | `event` | error | public | Skipped a DRep registration that carried no deposit |  | credential, reason |
 | `get` | `span` |  | public | Point-read a DRep entry |  |  |
-| `remove` | `event` | error | public | Record DRep de-registration |  | drep, reason |
-| `set_valid_until` | `event` | warn | public | Refresh DRep expiry after a vote |  | credential, reason |
+| `remove` | `event` | error | public | Skipped de-registration because the DRep is not in the store |  | drep, reason |
+| `set_valid_until` | `event` | warn | public | Skipped refreshing expiry because the DRep is not in the store |  | credential, reason |
 
 <details><summary>event: `add`</summary>
 
@@ -4007,7 +4007,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- | --- | --- | --- | --- |
 | `add` | `span` |  | public | Batch-upsert pool entries |  |  |
 | `get` | `span` |  | public | Point-read a pool entry |  |  |
-| `remove` | `event` | error | public | Schedule pool retirement |  | pool, reason |
+| `remove` | `event` | error | public | Skipped scheduling retirement because the pool is not in the store |  | pool, reason |
 
 <details><summary>event: `remove`</summary>
 

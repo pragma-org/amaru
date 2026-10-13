@@ -58,6 +58,10 @@ Other guiding principles:
 ### Fixed
 
 - **amaru**: a fork switch logs each block it adopts. Those blocks, other than the new tip, are recorded as validated headers, so a later chain prune does not report them as pruned.
+- **amaru**: startup no longer logs `db_chain.initialize` when the chain store does not contain the ledger tip. The process still exits with the mismatch error.
+- **amaru**: the trace catalog describes an unknown pool retirement, an unknown reward reset, a DRep registration without a deposit, an unknown DRep removal, and an unknown DRep expiry refresh as those skips.
+- **amaru**: a fork switch that is replaced reports its own duration. A different fork's span is no longer reused.
+- **amaru-tui**: a chainsync roll-forward replaces that peer's advertised tip, including when the new tip is lower. A tip one block behind the header it just sent still shows the header height.
 - **amaru**: the death of an outbound bearer rejected as a duplicate no longer counts as a failed dial, and does not add connection malus, while that peer still has a live connection.
 - **amaru**: a peer that does not answer a share request within 60 seconds drops that connection. The node does not ask again on it.
 - **amaru**: chainsync stops when a peer has no intersection, and when a peer rolls back to a point this node does not have. The rollback waits 180 seconds before that peer is used upstream again. Neither case bans the peer.
