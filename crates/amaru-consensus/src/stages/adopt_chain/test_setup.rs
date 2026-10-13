@@ -143,6 +143,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PruneBelowEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockValidEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::UpdateConsensusModeEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordSyncAdoptionEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::effects::ConsensusMode>().boxed(),
@@ -159,6 +160,18 @@ pub fn te_record_sync_adoption(at_stage: &str, at: amaru_pure_stage::Instant, li
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::record_sync_adoption(at, live)),
+    ))
+}
+
+pub fn te_record_block_valid(
+    at_stage: &str,
+    hash: HeaderHash,
+    now: amaru_pure_stage::Instant,
+    syncing: bool,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_block_valid(hash, now, syncing)),
     ))
 }
 

@@ -27,8 +27,8 @@ use test_setup::{
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_find_anchor_at_height, te_prune_below, te_record_sync_adoption, te_roll_forward_chain, te_send,
-        te_set_anchor_point, te_switch_to_fork, te_update_consensus_mode,
+        te_clock, te_find_anchor_at_height, te_prune_below, te_record_block_valid, te_record_sync_adoption,
+        te_roll_forward_chain, te_send, te_set_anchor_point, te_switch_to_fork, te_update_consensus_mode,
     },
     forge_block::{AdoptedTip, ForgeBlockMsg},
     test_utils::{te_input, te_state},
@@ -199,6 +199,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_point("ac-1", prep.headers.h1.point()),
             te_clock("ac-1"),
+            te_record_block_valid("ac-1", prep.headers.h2a.hash(), sim_clock(), false),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_update_consensus_mode("ac-1", tip.slot(), sim_clock()),
             te_record_sync_adoption("ac-1", sim_clock(), true),
@@ -213,18 +214,29 @@ fn test_fork_switch_adopts_and_sends() {
     assert_eq!(prep.store.get_best_chain_hash(), tip.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h1.hash());
 
-    logs.assert_and_remove(
-        Level::INFO,
-        &[
-            "tip.adopt",
-            &format!(r#"header_hash="{}""#, prep.headers.h3a.hash()),
-            "block_height=4",
-            "max_block_height=0",
-            "suppressed=0",
-        ],
-    )
-    .assert_and_remove(Level::INFO, &["tip.mode", r#"mode="live""#, r#"previous="sync""#])
-    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block.adopted", &format!(r#"header_hash="{}""#, prep.headers.h2a.hash())])
+        .assert_and_remove(
+            Level::INFO,
+            &[
+                "tip.adopt",
+                &format!(r#"header_hash="{}""#, prep.headers.h2a.hash()),
+                &format!("block_height={}", prep.headers.h2a.block_height().as_u64()),
+                "max_block_height=0",
+                "suppressed=0",
+            ],
+        )
+        .assert_and_remove(
+            Level::INFO,
+            &[
+                "tip.adopt",
+                &format!(r#"header_hash="{}""#, prep.headers.h3a.hash()),
+                "block_height=4",
+                "max_block_height=0",
+                "suppressed=0",
+            ],
+        )
+        .assert_and_remove(Level::INFO, &["tip.mode", r#"mode="live""#, r#"previous="sync""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// A fork switch must tell forge the adopted header's parent, not the displaced best tip.

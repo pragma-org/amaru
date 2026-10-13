@@ -57,6 +57,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru**: a fork switch logs each block it adopts. Those blocks, other than the new tip, are recorded as validated headers, so a later chain prune does not report them as pruned.
 - **amaru**: the death of an outbound bearer rejected as a duplicate no longer counts as a failed dial, and does not add connection malus, while that peer still has a live connection.
 - **amaru**: a peer that does not answer a share request within 60 seconds drops that connection. The node does not ask again on it.
 - **amaru**: chainsync stops when a peer has no intersection, and when a peer rolls back to a point this node does not have. The rollback waits 180 seconds before that peer is used upstream again. Neither case bans the peer.
