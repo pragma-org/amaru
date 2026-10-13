@@ -57,7 +57,7 @@ Other guiding principles:
 - **amaru-ouroboros**: align leader eligibility with the Cardano node at fixed-point rounding and threshold boundaries, for both block production and header validation. ([#1577](https://github.com/pragma-org/amaru/issues/1577))
 ### Changed
 
-- **amaru-ledger**: the `phase_one` trace no longer has a `collateral_micros` field. Collateral checks are now timed under `inputs_micros` and `fees_micros`.
+- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros` and `collateral_return_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, and the collateral return under `outputs_micros`.
 
 ### Fixed
 
