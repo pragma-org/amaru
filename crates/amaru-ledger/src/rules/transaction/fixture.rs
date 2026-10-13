@@ -471,17 +471,22 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::PoolMetadataHashTooBig
             }
             PhaseOneError::Certificates(InvalidCertificates::PoolWrongNetwork { .. }) => Predicate::WrongNetworkPOOL,
-            PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
-            PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {
+            PhaseOneError::Fees(InvalidFees::Collateral(InvalidCollateral::InsufficientBalance { .. })) => {
                 Predicate::InsufficientCollateral
             }
-            PhaseOneError::Collateral(InvalidCollateral::ValueNotConserved(..)) => Predicate::ValueNotConservedUTxO,
-            PhaseOneError::Collateral(InvalidCollateral::TooManyInputs { .. }) => Predicate::TooManyCollateralInputs,
-            PhaseOneError::Collateral(InvalidCollateral::LockedAtScriptAddress(..)) => Predicate::ScriptsNotPaidUTxO,
-            PhaseOneError::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. }) => {
+            PhaseOneError::Fees(InvalidFees::Collateral(InvalidCollateral::ValueNotConserved(..))) => {
+                Predicate::ValueNotConservedUTxO
+            }
+            PhaseOneError::Inputs(InvalidInputs::TooManyCollateralInputs { .. }) => Predicate::TooManyCollateralInputs,
+            PhaseOneError::Fees(InvalidFees::Collateral(InvalidCollateral::LockedAtScriptAddress(..))) => {
+                Predicate::ScriptsNotPaidUTxO
+            }
+            PhaseOneError::Fees(InvalidFees::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. })) => {
                 Predicate::IncorrectTotalCollateralField
             }
-            PhaseOneError::Collateral(InvalidCollateral::NoCollateral) => Predicate::NoCollateralInputs,
+            PhaseOneError::Fees(InvalidFees::Collateral(InvalidCollateral::NoCollateral)) => {
+                Predicate::NoCollateralInputs
+            }
             PhaseOneError::Metadata(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Scripts(_)
