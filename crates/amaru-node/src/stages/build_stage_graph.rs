@@ -30,7 +30,7 @@ use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
-    manager::{Manager, ManagerConfig, ManagerMessage, PeerSelectionNotify},
+    manager::{Manager, ManagerConfig, ManagerMessage},
 };
 use amaru_pure_stage::{DEFAULT_MAILBOX_SIZE, Sender, StageGraph, StageRef};
 
@@ -56,13 +56,20 @@ pub struct OpenedLedger {
 /// Bulk mailbox for the connection manager and peer selection.
 ///
 /// [`DEFAULT_MAILBOX_SIZE`] plus one slot for each allowed upstream and downstream peer.
-/// Either stage can be inside a send to the other, and that extra room keeps the send from
-/// waiting on a full mailbox.
+/// At the production targets (3 upstream, 10 downstream) that is 23.
 ///
-/// Due to congestion that is not yet well-understood, we multiply the total by 20 to avoid
-/// deadlocks due to full mailboxes.
+/// Peer selection's bulk inbound is one `Adversarial` per offending peer (from
+/// track-peers, fetch-blocks, and block-source), one `Resolved` per in-flight upstream
+/// dial, and a single `Initialize` or `AddPeer`. `Tick` uses the priority mailbox.
+/// That burst is on the order of the allowed population, which the per-peer slots cover.
+///
+/// One selection round sends at most `upstream + downstream` manager commands. Those
+/// slots hold that round. The [`DEFAULT_MAILBOX_SIZE`] headroom holds lifecycle from
+/// live connections (`HandshakeComplete`, `Accepted`, `ConnectionResult`,
+/// `ConnectionDied`) and `FetchBlocks`, `NewTip`, and `Listen`
+/// arriving in the same burst.
 fn peer_mailbox_size(upstream: usize, downstream: usize) -> usize {
-    DEFAULT_MAILBOX_SIZE.saturating_add(upstream).saturating_add(downstream).saturating_mul(20)
+    DEFAULT_MAILBOX_SIZE.saturating_add(upstream).saturating_add(downstream)
 }
 
 pub fn build_stage_graph(
@@ -86,6 +93,11 @@ pub fn build_stage_graph(
 
     // Candidate sources + peer-mix are installed only on Performance construction
     // (`register_resources` → `with_peer_sources`).
+    let manager_config = ManagerConfig::default()
+        .with_tx_submission_params(config.tx_submission_responder_params)
+        .with_blockfetch_pipeline_n(config.blockfetch_pipeline_n)
+        .with_max_inbound(config.target_downstream_peers)
+        .with_share_request_delays(config.share_request_initial_delay, config.share_request_interval);
     let peer_selection = stage_graph.wire_up(
         peer_selection,
         PeerSelection::new(
@@ -94,26 +106,8 @@ pub fn build_stage_graph(
             config.target_downstream_peers,
             config.peer_removal_cooldown,
         )
-        .with_share_request_delays(config.share_request_initial_delay, config.share_request_interval),
+        .with_connection_timeout(manager_config.connection_timeout),
     );
-
-    let peer_selection_notify = peer_selection_ref.contramap(|n: PeerSelectionNotify| match n {
-        PeerSelectionNotify::Connected { peer, conn_id, direction, full_duplex_capable, full_duplex, advertisable } => {
-            PeerSelectionMsg::Connected(
-                peer,
-                peer_selection::Connection::new(conn_id, full_duplex_capable, full_duplex),
-                direction,
-                advertisable,
-            )
-        }
-        PeerSelectionNotify::Disconnected { peer, conn_id, direction } => {
-            PeerSelectionMsg::Disconnected(peer, conn_id, direction)
-        }
-        PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
-        PeerSelectionNotify::ShareRequest { peer, amount, reply_to } => {
-            PeerSelectionMsg::ShareRequest { peer, amount, reply_to }
-        }
-    });
 
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);
     let select_chain = stage_graph.stage("select_chain", select_chain::stage);
@@ -242,13 +236,10 @@ pub fn build_stage_graph(
             manager,
             Manager::new(
                 config.network_magic,
-                ManagerConfig::default()
-                    .with_tx_submission_params(config.tx_submission_responder_params)
-                    .with_blockfetch_pipeline_n(config.blockfetch_pipeline_n),
+                manager_config,
                 Arc::new(era_history.clone()),
                 track_peers_input,
                 mempool_stage.clone(),
-                peer_selection_notify,
             ),
         )
         .without_state();
@@ -288,7 +279,7 @@ mod tests {
 
     #[test]
     fn peer_mailbox_holds_one_message_per_allowed_peer() {
-        assert_eq!(peer_mailbox_size(40, 10), (DEFAULT_MAILBOX_SIZE + 50) * 20);
-        assert_eq!(peer_mailbox_size(0, 0), DEFAULT_MAILBOX_SIZE * 20);
+        assert_eq!(peer_mailbox_size(40, 10), DEFAULT_MAILBOX_SIZE + 50);
+        assert_eq!(peer_mailbox_size(0, 0), DEFAULT_MAILBOX_SIZE);
     }
 }

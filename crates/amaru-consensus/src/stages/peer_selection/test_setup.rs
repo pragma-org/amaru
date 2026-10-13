@@ -18,88 +18,29 @@ use std::{
 };
 
 use amaru_kernel::{Peer, PeerCandidate, Point};
-use amaru_protocols::manager::ManagerMessage;
+use amaru_ouroboros::{ConnectionDirection, ConnectionId, ConnectionRecord, ObservedAt, PeerTracking};
+use amaru_protocols::{connection::LocalUse, manager::ManagerMessage};
 use amaru_pure_stage::{
-    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
+    DeserializerGuards, Instant, ScheduleId, StageGraph, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
-    trace_buffer::TraceEntry,
 };
 use tokio::runtime::Runtime;
 
 use super::*;
-pub use crate::stages::test_utils::TraceMatch;
 use crate::{
     effects::{GenerateRandomSeed, RegisteredRelayCandidatesEffect, TipEffect, VolatileTipEffect},
     stages::test_utils::{Logs, SimulationRunMode, run_simulation_with, start_in_era},
 };
 
-/// Matches an `AddStage` effect whose generated name starts with the given prefix.
-/// Useful for testing first-message child wiring when the simulation appends a suffix
-/// (e.g. "peer-selection/ledger-check-2").
-pub fn tm_add_stage_starts_with(prefix: &str) -> TraceMatch<'static> {
-    let prefix = prefix.to_string();
-    let description = format!("AddStage name starts with {}", prefix);
-    TraceMatch::Property(
-        Box::new(move |src| {
-            let Some(Effect::AddStage { name, .. }) = src.suspend() else {
-                return false;
-            };
-            name.as_str().starts_with(&prefix)
-        }),
-        description,
-    )
-}
-
 pub const COOLDOWN_SECS: u64 = 1;
 
-/// Matches `run_simulation`'s `with_initial_clock(Instant::at_offset(10s))`.
-pub const SIM_INITIAL_CLOCK_SECS: u64 = 10;
-
+/// Ban duration passed to [`PeerSelection::new`] in these tests.
 pub fn cooldown_duration() -> Duration {
     Duration::from_secs(COOLDOWN_SECS)
 }
 
-/// Absolute schedule time when a cooldown started at simulation t0 ends.
-///
-/// Matches `run_simulation`: initial clock at +10s and `global_epoch_offset` from `start_in_era()`.
-pub fn cooldown_instant() -> Instant {
-    Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + cooldown_duration(), start_in_era().relative_time)
-}
-
-/// Absolute time `delay` after simulation t0.
-pub fn sim_at(delay: Duration) -> Instant {
-    Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + delay, start_in_era().relative_time)
-}
-
-pub fn first_schedule_id() -> ScheduleId {
-    ScheduleIds::default().next_at(cooldown_instant())
-}
-
-/// End time for a static-peer ban started at simulation t0 (`STATIC_PEER_BAN_PERIOD` = 10s).
-pub fn static_cooldown_instant() -> Instant {
-    Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS + 10), start_in_era().relative_time)
-}
-
-pub fn first_static_schedule_id() -> ScheduleId {
-    ScheduleIds::default().next_at(static_cooldown_instant())
-}
-
-/// Second schedule id after a prior schedule at `prior_when` (counter advances once).
-pub fn second_schedule_id_at(when: Instant) -> ScheduleId {
-    let ids = ScheduleIds::default();
-    let _ = ids.next_at(when);
-    ids.next_at(when)
-}
-
-/// Build the cool-down fields after a single non-static ban armed at `cooldown_instant()`.
-pub fn with_single_cooldown(state: &mut PeerSelection, peer: Peer, schedule_id: ScheduleId) {
-    state.cooldowns.add_and_is_first(peer, cooldown_instant());
-    state.cooldown_timer = Some(schedule_id);
-}
-
-pub fn te_clock_suspend(at_stage: impl AsRef<str>) -> TraceEntry {
-    TraceEntry::suspend(Effect::Clock { at_stage: Name::from(at_stage.as_ref()) })
-}
+/// Matches `run_simulation`'s `with_initial_clock(Instant::at_offset(10s))`.
+pub const SIM_INITIAL_CLOCK_SECS: u64 = 10;
 
 pub struct TestPrep {
     pub state: PeerSelection,
@@ -112,17 +53,21 @@ pub struct TestPrep {
     pub peer_mix: crate::performance::PeerMix,
     /// Mock DNS: `ResolvePeerCandidate` returns the first peer in the set (or `None` if absent/empty).
     pub resolve: BTreeMap<PeerCandidate, BTreeSet<Peer>>,
+    /// When set, `QueryPeerView` returns this view instead of reading the resource.
+    pub scripted_view: Option<crate::performance::PeerView>,
+    /// Recorded on the resource before the stage runs. A new candidate bumps the generation.
+    pub learned_share: Option<(Peer, std::net::SocketAddr)>,
+    /// Established outbound bearer recorded before the stage runs.
+    pub established: Option<(Peer, ConnectionId)>,
+    /// Intersection-not-found mark recorded before the stage runs.
+    pub uninteresting: Option<(Peer, ConnectionId, bool)>,
+    /// Replaces ledger candidates before the stage runs, bumping the generation.
+    pub ledger_write: Option<BTreeSet<PeerCandidate>>,
 }
 
 impl TestPrep {
     pub fn peer(name: &str) -> Peer {
         name.parse().unwrap_or_else(|e| panic!("test peer {name:?} must be a literal IP:port: {e}"))
-    }
-
-    /// Seed ledger candidates for the Performance resource installed in [`setup_preload`].
-    pub fn with_ledger(mut self, names: &[&str]) -> Self {
-        self.ledger_candidates = names.iter().map(|n| PeerCandidate::from(Self::peer(n))).collect();
-        self
     }
 }
 
@@ -145,6 +90,11 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
         ledger_candidates: BTreeSet::new(),
         peer_mix,
         resolve: BTreeMap::new(),
+        scripted_view: None,
+        learned_share: None,
+        established: None,
+        uninteresting: None,
+        ledger_write: None,
     }
 }
 
@@ -154,8 +104,6 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ScheduleId>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<amaru_protocols::peer_sharing::ShareResult>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<amaru_protocols::peer_sharing::SharePeersReply>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GenerateRandomSeed>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PeerAdversarialEffect>().boxed(),
@@ -164,16 +112,19 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RankPeersForChurnEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::OkForSharingEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectOutboundEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::QueryPeerViewEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::performance::PeerView>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<crate::performance::PeerView>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::performance::SelectUsing>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::performance::OutboundPick>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Vec<std::net::SocketAddr>>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::IsStaticPeerEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::NoteDialEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::ResolvePeerCandidate>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::effects::ResolvePeerCandidateResult>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerCandidate>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SourceCountsEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::IngestSharedPeersEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::EvictRecordsEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SetLedgerCandidatesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SharedContainsEffect>().boxed(),
     ]
@@ -184,59 +135,11 @@ pub fn sim_t0() -> Instant {
     Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time)
 }
 
-pub fn te_peer_adversarial(at_stage: &str, peer: Peer) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(crate::performance::Performance::peer_adversarial(peer, sim_t0())),
-    ))
-}
-
-pub fn te_is_static_peer(at_stage: &str, peer: Peer) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::performance::Performance::is_static_peer(peer))))
-}
-
-pub fn te_rank_peers_for_churn(at_stage: &str, candidates: Vec<Peer>, at: Instant) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(crate::performance::Performance::rank_peers_for_churn(candidates, at)),
-    ))
-}
-
-pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(crate::performance::Performance::clear_peer_availability(peer)),
-    ))
-}
-
-pub fn te_record_advertisability(at_stage: &str, peer: Peer, advertisable: bool, at: Instant) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(crate::performance::Performance::record_advertisability(peer, advertisable, at)),
-    ))
-}
-
-pub fn te_record_connection_failure(at_stage: &str, peer: Peer, at: Instant) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(crate::performance::Performance::record_connection_failure(peer, at)),
-    ))
-}
-
 pub fn setup(prep: &TestPrep, msg: PeerSelectionMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_preload(prep, [msg])
 }
 
 pub fn setup_preload(
-    prep: &TestPrep,
-    messages: impl IntoIterator<Item = PeerSelectionMsg>,
-) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_preload_with_mode(prep, messages, SimulationRunMode::UntilBlocked)
-}
-
-/// Like [`setup_preload`], but stops at the first scheduled wakeup without advancing time.
-/// Used by tests that need to inject messages while a cool-down timer is still pending.
-pub fn setup_preload_until_sleeping(
     prep: &TestPrep,
     messages: impl IntoIterator<Item = PeerSelectionMsg>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
@@ -253,30 +156,54 @@ fn setup_preload_with_mode(
     run_simulation_with(
         prep.rt.handle(),
         guards,
-        |network| {
-            // Larger bulk mailbox so tests can preload many adversarial messages without
-            // hitting the default size of 10 (the cool-down fix is about the *priority*
-            // mailbox, not bulk preload).
-            let mut network = network.with_mailbox_size(64);
+        |mut network| {
             let ps = network.stage("ps", stage);
             let ps = network.wire_up(ps, prep.state.clone());
             network.preload(&ps, messages).unwrap();
             network
         },
         |resources| {
-            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
-                crate::performance::Performance::with_peer_sources(
-                    prep.static_peers
-                        .iter()
-                        .copied()
-                        .map(PeerCandidate::from)
-                        .chain(prep.extra_static.iter().cloned())
-                        .collect(),
-                    prep.snapshot_candidates.iter().copied().map(PeerCandidate::from).collect(),
-                    prep.ledger_candidates.clone(),
-                    prep.peer_mix.clone(),
-                ),
-            ));
+            let performance = crate::performance::Performance::with_peer_sources(
+                prep.static_peers
+                    .iter()
+                    .copied()
+                    .map(PeerCandidate::from)
+                    .chain(prep.extra_static.iter().cloned())
+                    .collect(),
+                prep.snapshot_candidates.iter().copied().map(PeerCandidate::from).collect(),
+                prep.ledger_candidates.clone(),
+                prep.peer_mix.clone(),
+            );
+            if let Some((donor, addr)) = prep.learned_share {
+                prep.rt.block_on(performance.record_shared_peers(
+                    donor,
+                    vec![addr],
+                    ObservedAt::new(Duration::ZERO, Duration::ZERO),
+                ));
+            }
+            let observed = ObservedAt::new(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
+            if let Some((peer, conn_id)) = prep.established {
+                performance.record_connection_established(
+                    ConnectionRecord {
+                        peer,
+                        conn_id,
+                        direction: ConnectionDirection::Outbound,
+                        full_duplex_capable: true,
+                        full_duplex: false,
+                        advertisable: false,
+                        local_use: LocalUse::Diffusion,
+                        established_at: observed,
+                    },
+                    observed,
+                );
+            }
+            if let Some((peer, conn_id, after_rollback)) = prep.uninteresting {
+                performance.record_uninteresting(peer, conn_id, after_rollback, observed);
+            }
+            if let Some(candidates) = prep.ledger_write.clone() {
+                performance.testing_replace_ledger_candidates(candidates);
+            }
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(performance));
         },
         |running| {
             running.use_virtual_child_stages(true);
@@ -291,6 +218,11 @@ fn setup_preload_with_mode(
             // NOTE: This makes peer selection's random choices fully deterministic in tests.
             running
                 .override_external_effect::<GenerateRandomSeed>(usize::MAX, |_| OverrideResult::handled([0x42u8; 32]));
+            if let Some(view) = prep.scripted_view.clone() {
+                running.override_external_effect::<crate::performance::QueryPeerViewEffect>(usize::MAX, move |_| {
+                    OverrideResult::handled(Some(view.clone()))
+                });
+            }
             let resolve = prep.resolve.clone();
             running.override_external_effect::<crate::effects::ResolvePeerCandidate>(usize::MAX, move |eff| {
                 let peer = resolve.get(&eff.candidate).and_then(|peers| peers.iter().next().copied());
@@ -307,40 +239,4 @@ fn setup_preload_with_mode(
         },
         mode,
     )
-}
-
-/// Stage ref matching the wired `ps` stage in [`setup_preload`].
-pub fn peer_selection_stage() -> StageRef<PeerSelectionMsg> {
-    StageRef::named_for_tests("ps-1")
-}
-
-pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {
-    TraceEntry::suspend(Effect::send(from, to, Box::new(msg)))
-}
-
-pub fn te_schedule(
-    at_stage: impl AsRef<str>,
-    msg: impl amaru_pure_stage::SendData,
-    schedule_id: ScheduleId,
-) -> TraceEntry {
-    TraceEntry::suspend(Effect::Schedule {
-        at_stage: Name::from(at_stage.as_ref()),
-        msg: Box::new(msg),
-        id: schedule_id,
-    })
-}
-
-pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) -> TraceEntry {
-    TraceEntry::suspend(Effect::CancelSchedule { at_stage: Name::from(at_stage.as_ref()), id: schedule_id })
-}
-
-pub fn te_clock(instant: Instant) -> TraceEntry {
-    TraceEntry::Clock(instant)
-}
-
-pub fn te_random_seed(at_stage: impl AsRef<str>) -> TraceEntry {
-    TraceEntry::Suspend(Effect::External {
-        at_stage: Name::from(at_stage.as_ref()),
-        effect: Box::new(GenerateRandomSeed),
-    })
 }

@@ -362,7 +362,7 @@ impl WorldLoop {
                     self.on_external(index);
                 }
                 Blocked::Deadlock(deadlock) => {
-                    panic!("graph {index} deadlock: {deadlock:?}");
+                    panic!("graph {index} deadlock:\n{}", self.graphs[index].format_deadlock(&deadlock));
                 }
                 Blocked::Terminated(name) => {
                     self.drop_pending_for_terminated(index, &name);

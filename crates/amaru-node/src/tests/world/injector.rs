@@ -29,13 +29,14 @@ use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkMagic, PREPROD_ERA_HISTO
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::Meter;
 use amaru_ouroboros::{
-    BaseReadChainStore, ConnectionsResource, ResourceMempool, WriteChainStore,
+    BaseReadChainStore, ConnectionsResource, PeerTrackingResource, ResourceMempool, WriteChainStore,
     in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{ChainSyncInitiatorMsg, InitiatorMessage, InitiatorResult},
     manager::{Manager, ManagerConfig, ManagerMessage},
     metrics_effects::ResourceMeter,
+    peer_tracking::InMemoryPeerTracking,
     store_effects::ResourceHeaderStore,
 };
 use amaru_pure_stage::{
@@ -208,7 +209,6 @@ pub fn build_injector(
             Arc::new(PREPROD_ERA_HISTORY.clone()),
             StageRef::blackhole(),
             StageRef::blackhole(),
-            StageRef::blackhole(),
         ),
     );
     let manager_ref = manager.without_state();
@@ -230,6 +230,7 @@ fn put_serve_resources(
     stage_graph.resources().put::<ResourceHeaderStore>(store);
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
     stage_graph.resources().put::<ResourceMeter>(Arc::new(Meter::default()));
+    stage_graph.resources().put::<PeerTrackingResource>(Arc::new(InMemoryPeerTracking::new()));
 }
 
 /// Thin ChainSync client used to observe injector reveals. Not [`super::build_world_node`].
@@ -256,7 +257,6 @@ pub fn build_injector_peer(
             ManagerConfig::default().with_accept_interval(Duration::ZERO).with_reconnect_delay(Duration::ZERO),
             Arc::new(PREPROD_ERA_HISTORY.clone()),
             pipeline.without_state(),
-            StageRef::blackhole(),
             StageRef::blackhole(),
         ),
     );

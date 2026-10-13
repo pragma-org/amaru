@@ -27,6 +27,7 @@ use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
+    peer_tracking_effects::PeerTrack,
     store_effects::{GetBestChainTipEffect, Store},
 };
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
@@ -58,6 +59,9 @@ pub const MAX_HEADER_CLOCK_SKEW: Duration = Duration::from_secs(2);
 /// For each established session it keeps the current and highest advertised tip, validates
 /// incoming headers for protocol conformance and Praos rules, stores new headers, and notifies
 /// `downstream` of new tips. Misbehaving peers are reported to `peer_selection` as adversarial.
+/// An intersection miss, and a rollback to a point that is not in the store, stop that chainsync
+/// session instead. The rollback is not a usable intersection, so the peer is uninteresting for
+/// the longer interval. Neither path bans the peer or sends a new tip or a fetch.
 ///
 /// # Construction
 ///
@@ -883,13 +887,10 @@ impl TrackPeers {
             }
             IntersectNotFound(tip) => {
                 info!(consensus::chainsync::INTERSECT_NOT_FOUND, peer, highest = tip);
-                let _ = handler;
-                // Not hostility: stop diffusion via peer selection, keep the bearer.
-                eff.send(
-                    &self.peer_selection,
-                    PeerSelectionMsg::Uninteresting { peer, conn_id, after_rollback: false },
-                )
-                .await;
+                // Not hostility: keep the bearer. Selection demotes it on the next tick.
+                let now = eff.clock().await;
+                PeerTrack::new(&eff).record_uninteresting(peer, conn_id, false, now).await;
+                eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                 self.purge_connection(conn_id);
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
@@ -994,11 +995,10 @@ impl TrackPeers {
                 let span = debug_span!(root, consensus::roll_backward::PROCESS, current, tip, peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
-                    eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
-
                     let store = Store::new(eff.clone()).with_trace_context(&trace_context);
                     match self.roll_backward(&peer, conn_id, current, tip, &store).await {
                         Ok(current_tip) => {
+                            eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
                             let parent = store
                                 .load_header(&current_tip.hash())
                                 .await
@@ -1007,8 +1007,18 @@ impl TrackPeers {
                             let now = eff.clock().await;
                             eff.external(Performance::record_rollback(peer, current_tip, parent, now)).await;
                         }
+                        Err(ConsensusError::UnknownPoint(_)) => {
+                            // Not in the store: this session no longer has a usable intersection.
+                            // That is a rollback past the intersection, not an invalid header.
+                            let now = eff.clock().await;
+                            PeerTrack::new(&eff).record_uninteresting(peer, conn_id, true, now).await;
+                            eff.send(&handler, chainsync::InitiatorMessage::Done).await;
+                            self.purge_connection(conn_id);
+                            self.clear_availability_if_gone(&peer, &eff).await;
+                        }
                         Err(error) => {
                             error!(consensus::chainsync::ROLL_BACKWARD_FAILED, peer, error = error.to_string());
+                            eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
                             self.purge_connection(conn_id);
                             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
                         }

@@ -40,7 +40,7 @@ use crate::{
                 height_recheck_schedule_id, make_block_header, new_tip, schedule_id_at, setup, setup_base,
                 setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clear_peer_availability,
                 te_clock, te_clock_suspend, te_get_best_chain_tip, te_get_nonces, te_header_rejected, te_load_header,
-                te_load_point, te_record_header_announcement, te_record_rollback, te_schedule,
+                te_load_point, te_record_header_announcement, te_record_rollback, te_record_uninteresting, te_schedule,
                 te_store_validated_header, te_sync_adoption_is_fast, te_validate_header, test_prep,
                 test_prep_with_max_peer_lead, tm_volatile_tip,
             },
@@ -339,14 +339,17 @@ fn test_intersect_not_found_untracked_notifies_uninteresting() {
         msg: chainsync::InitiatorResult::IntersectNotFound(Point::Origin),
     });
 
+    let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Uninteresting { peer, conn_id, after_rollback: false })
-                .into(),
+            te_clock_suspend("tp-1").into(),
+            te_record_uninteresting("tp-1", peer, conn_id, false, now).into(),
+            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done).into(),
+            te_clear_peer_availability("tp-1", peer).into(),
             te_state("tp-1", &state).into(),
         ],
     );
@@ -372,18 +375,17 @@ fn test_intersect_not_found_removes_peer() {
         msg: chainsync::InitiatorResult::IntersectNotFound(Point::Origin),
     });
 
+    let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send(
-                "tp-1",
-                "peer_selection",
-                PeerSelectionMsg::Uninteresting { peer, conn_id: prep.conn_id, after_rollback: false },
-            )
-            .into(),
+            te_clock_suspend("tp-1").into(),
+            te_record_uninteresting("tp-1", peer, prep.conn_id, false, now).into(),
+            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done).into(),
+            te_clear_peer_availability("tp-1", peer).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -1128,8 +1130,8 @@ fn test_roll_backward_updates_peer() {
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_load_point("tp-1", current.hash()).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_load_header("tp-1", current.hash()).into(),
             te_clock_read("tp-1").into(),
             te_record_rollback("tp-1", peer, header.point(), header.parent_hash(), now).into(),
@@ -1166,8 +1168,8 @@ fn test_roll_backward_unknown_peer_removes_peer() {
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_load_point("tp-1", current.hash()).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &state).into(),
         ],
@@ -1178,7 +1180,7 @@ fn test_roll_backward_unknown_peer_removes_peer() {
 }
 
 #[test]
-fn test_roll_backward_unknown_point_removes_peer() {
+fn test_roll_backward_unknown_point_is_uninteresting() {
     let prep = test_prep();
     let peer = Peer::for_test(3001);
     let current = Point::Specific(1u64.into(), HeaderHash::from([1u8; 32]), BlockHeight::from(1));
@@ -1193,21 +1195,31 @@ fn test_roll_backward_unknown_point_removes_peer() {
     let mut state = prep.state.clone();
     state.insert_peer(peer, prep.conn_id, Point::Origin, Point::Origin);
 
+    let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_load_point("tp-1", current.hash()).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
+            te_clock_suspend("tp-1").into(),
+            te_record_uninteresting("tp-1", peer, prep.conn_id, true, now).into(),
+            te_send("tp-1", &prep.handler, chainsync::InitiatorMessage::Done).into(),
+            te_clear_peer_availability("tp-1", peer).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chainsync.roll_backward_failed", "Unknown point"])
-        .assert_and_remove(Level::INFO, &["chainsync.roll_backward"])
-        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+    assert_trace_does_not_contain(
+        &running,
+        &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)), tm_send("tp-1", "", RequestNext)],
+    );
+    logs.assert_and_remove(Level::INFO, &["chainsync.roll_backward"]).assert_no_remaining_at([
+        Level::DEBUG,
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 /// Tests that a RollForward whose header height requires a ledger height beyond what is currently

@@ -45,6 +45,18 @@ Other guiding principles:
 
 - **amaru**: align command-line with the guidelines from EDR-0019; as a consequence, many options (and their corresponding environment variables) have been renamed. However, aliases are in place so that existing scripts or usage of Amaru should keep working. Yet, old options and variables are now deprecated and will be remove in the future.
 - **amaru**: remove legacy commands that were deprecated and hidden away months ago.
+- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
+- **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
+
+### Fixed
+
+- **amaru**: the death of an outbound bearer rejected as a duplicate no longer counts as a failed dial, and does not add connection malus, while that peer still has a live connection.
+- **amaru**: a peer that does not answer a share request within 60 seconds drops that connection. The node does not ask again on it.
+- **amaru**: chainsync stops when a peer has no intersection, and when a peer rolls back to a point this node does not have. The rollback waits 180 seconds before that peer is used upstream again. Neither case bans the peer.
+- **amaru**: once a demotion period has elapsed, peer selection clears it even when the upstream slots are full, and does not keep running a full selection round every second.
+- **amaru**: only a failed connect or a dial that never finishes holds off the next dial. Starting a dial, or a connection that closed, does not. A replacement dial after a close is not cancelled when that same close is seen again.
+- **amaru**: a notice that an old connection died is not counted as a failed dial when a later dial to that peer is already in progress.
+- **amaru**: block fetch reads which connections may initiate from the peer resource. A connection no longer sends that fact to the connection manager, so a full tip burst cannot deadlock the two.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -55,7 +67,6 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
 - **amaru-protocols**: block-fetch peer timeouts are logged as warnings instead of errors.
 

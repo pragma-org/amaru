@@ -22,13 +22,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use amaru_consensus::{
-    performance::PeerMix,
-    stages::{
-        forge_block::ForgingCredentials,
-        peer_selection::{SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
-    },
-};
+use amaru_consensus::{performance::PeerMix, stages::forge_block::ForgingCredentials};
 use amaru_kernel::{
     ConsensusParameters, EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY,
     PREPROD_GLOBAL_PARAMETERS, Peer, PeerCandidate,
@@ -36,7 +30,10 @@ use amaru_kernel::{
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
 use amaru_ouroboros::ChainStore;
-use amaru_protocols::tx_submission::ResponderParams;
+use amaru_protocols::{
+    peer_sharing::{SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
+    tx_submission::ResponderParams,
+};
 use amaru_pure_stage::Instant;
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::Context;

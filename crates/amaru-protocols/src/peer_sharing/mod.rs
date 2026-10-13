@@ -18,32 +18,39 @@
 //! - client: `MsgShareRequest(amount)` → wait → `MsgSharePeers`
 //! - server: wait → `MsgShareRequest` → `MsgSharePeers`
 //!
-//! The initiator is registered on outbound connections; the responder on inbound ones.
-//! Server-side candidate selection is performed by peer selection (via the manager).
+//! The initiator runs on an outbound connection's maintenance group when the remote side is
+//! advertisable, and writes each reply to the peer-tracking resource. The responder reads its
+//! reply from that resource.
 
 mod initiator;
 mod messages;
 mod responder;
 
-use std::net::SocketAddr;
+use std::time::Duration;
 
 use amaru_kernel::Peer;
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
-pub use initiator::{PeerSharingInitiator, PeerSharingMessage, ShareResult, initiator};
+pub use initiator::{PeerSharingInitiator, PeerSharingMessage, initiator};
+
+/// Delay after the maintenance group starts before the first share request.
+pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_secs(300);
+/// Interval between a share reply and the next request.
+pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(900);
+/// How long the client may stay busy waiting for `MsgSharePeers`.
+///
+/// This is the `StBusy` limit. Exceeding it ends the mini-protocol and therefore the bearer.
+/// The client does not return to idle and does not send another `MsgShareRequest`.
+pub const SHARE_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// How many peers to request per share call (network-spec amount is `Word8`).
+pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 pub use messages::{MAX_MESSAGE_BYTES, Message};
-pub use responder::{PeerSharingResponder, ResponderMessage, register_peer_sharing_responder, responder};
+pub use responder::{PeerSharingResponder, register_peer_sharing_responder, responder};
 
 use crate::{
     mux::{Frame, MuxMessage},
     protocol::{PROTO_N2N_PEER_SHARE, ProtoSpec, ProtocolState, RoleT, ingress_limit},
 };
-
-/// Reply from peer selection with addresses to advertise in `MsgSharePeers`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct SharePeersReply {
-    pub peers: Vec<SocketAddr>,
-}
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
@@ -80,16 +87,20 @@ where
 }
 
 /// Register the peer-sharing **initiator** (client) on the mux.
+#[expect(clippy::too_many_arguments)]
 pub async fn register_peer_sharing_initiator<M: amaru_pure_stage::SendData>(
     muxer: &StageRef<MuxMessage>,
     peer: Peer,
     conn_id: ConnectionId,
+    amount: u8,
+    initial_delay: Duration,
+    interval: Duration,
     eff: &Effects<M>,
     tombstone: M,
 ) -> StageRef<PeerSharingMessage> {
     use crate::protocol::Inputs;
 
-    let (state, stage) = PeerSharingInitiator::new(muxer.clone(), peer, conn_id);
+    let (state, stage) = PeerSharingInitiator::new(muxer.clone(), peer, conn_id, amount, initial_delay, interval);
     let ps = eff.stage("peer_sharing", initiator()).await;
     let ps = eff.supervise(ps, tombstone);
     let ps = eff.wire_up(ps, (state, stage)).await;

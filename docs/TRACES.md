@@ -3004,10 +3004,11 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `connected` | `TRACE` | public | An outbound connection to a peer was established | peer, conn_id |  |
 | `connection_died` | `TRACE` | public | A peer connection has died | peer, conn_id, role |  |
 | `connection_died_handled` | `TRACE` | public | A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}. | peer, outcome |  |
-| `disconnect_ignored` | `TRACE` | public | A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake}. | peer, reason | conn_id |
+| `disconnect_ignored` | `TRACE` | public | A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake, rejected_duplicate}. | peer, reason | conn_id |
 | `disconnecting` | `TRACE` | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
 | `duplicate_terminated` | `TRACE` | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
 | `handshake_completed` | `TRACE` | public | The handshake completed on a connection | peer, conn_id, full_duplex_capable, full_duplex, advertisable |  |
+| `inbound_refused` | `TRACE` | public | An inbound handshake was refused because the inbound cap is full | peer, conn_id |  |
 | `local_use_applied` | `TRACE` | public | The connection finished converging to this local use | peer, conn_id, local_use |  |
 | `remove` | `TRACE` | public | A peer was removed from the manager | peer |  |
 | `set_local_use` | `TRACE` | public | A change of local use was requested on a connection | peer, conn_id, local_use |  |
@@ -3133,6 +3134,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `inbound_refused`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
 <details><summary>span: `local_use_applied`</summary>
 
 | field | type | required |
@@ -3218,6 +3228,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `connect_initial` | `TRACE` | public | Connect to the initial set of peers at startup | static_peers, snapshot_peers |  |
+| `tick` | `TRACE` | public | One wake of the selection timeout. \`full\` is true when this wake ran a round. | full |  |
 
 <details><summary>span: `connect_initial`</summary>
 
@@ -3225,6 +3236,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `static_peers` | `integer` | ✓ |
 | `snapshot_peers` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `tick`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `full` | `boolean` | ✓ |
 
 </details>
 
@@ -3246,13 +3265,12 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `add_skipped` | `TRACE` | public | A peer was not added to the outbound set. Reason ∈ {already_added, too_many_inbound}. | peer, reason |  |
+| `add_skipped` | `TRACE` | public | A peer was not added to the outbound set. Reason ∈ {already_added}. | peer, reason |  |
 | `added` | `TRACE` | public | A peer was added to the outbound set | peer, was_banned |  |
 | `address_rejected` | `TRACE` | public | A candidate address was rejected and will not be used as a Peer. | address, reason |  |
 | `connected` | `TRACE` | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
 | `demoted` | `TRACE` | public | Local use dropped to Maintenance. Reason ∈ {churn, uninteresting}. | peer, conn_id, reason |  |
 | `disconnected` | `TRACE` | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
-| `reconnected` | `TRACE` | public | A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}. | peer, direction, conn_id |  |
 | `removed` | `TRACE` | public | A peer was removed after behaving adversarially | peer, direction, peer_state, is_static |  |
 | `resolve_failed` | `TRACE` | public | Name resolution for a bootstrap candidate failed (no viable address). | candidate, reason |  |
 | `resolved` | `TRACE` | public | A selected bootstrap name resolved to a single peer, ready to dial. | candidate, origin, peer |  |
@@ -3314,16 +3332,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `conn_id` | `integer` | ✓ |
 | `direction` | `string` | ✓ |
 | `reason` | `string` |  |
-
-</details>
-
-<details><summary>span: `reconnected`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `peer` | `string` | ✓ |
-| `direction` | `string` | ✓ |
-| `conn_id` | `integer` | ✓ |
 
 </details>
 

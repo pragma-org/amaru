@@ -27,6 +27,9 @@ pub use validators::*;
 pub mod connections;
 pub use connections::*;
 
+pub mod peers;
+pub use peers::*;
+
 pub mod mempool;
 pub use mempool::*;
 
