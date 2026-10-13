@@ -212,56 +212,39 @@ where
     )?;
     span.record(PHASE_ONE::FIELD_WITHDRAWALS_MICROS, elapsed_and_reset(&mut meter));
 
-    certificates::require_witnesses(context, transaction_body.certificates.as_deref().unwrap_or_default());
-    proposals::require_witnesses(context, transaction_body.proposals.as_deref().unwrap_or_default());
-    voting_procedures::require_witnesses(context, transaction_body.votes.as_deref().unwrap_or_default());
+    certificates::execute(
+        context,
+        network,
+        protocol_parameters,
+        era_history,
+        governance_activity,
+        pointer,
+        is_valid,
+        mem::take(&mut transaction_body.certificates),
+    )?;
+    span.record(PHASE_ONE::FIELD_CERTIFICATES_MICROS, elapsed_and_reset(&mut meter));
 
-    // NOTE: Following validations (and state changes) are entirely skipped on invalid transactions
-    //
-    // For invalid transactions, we only count the deposits and refunds necessary for value
-    // preservation which happens also in the case of invalid transactions.
-    if is_valid {
-        certificates::execute(
-            context,
-            network,
-            protocol_parameters,
-            era_history,
-            governance_activity,
-            pointer,
-            mem::take(&mut transaction_body.certificates),
-        )?;
-        span.record(PHASE_ONE::FIELD_CERTIFICATES_MICROS, elapsed_and_reset(&mut meter));
+    proposals::execute(
+        context,
+        network,
+        protocol_parameters,
+        era_history,
+        guardrail_script,
+        (transaction_id, pointer),
+        is_valid,
+        mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+    )?;
+    span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
 
-        proposals::execute(
-            context,
-            network,
-            protocol_parameters,
-            era_history,
-            guardrail_script,
-            (transaction_id, pointer),
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-        )?;
-        span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
-
-        voting_procedures::execute(
-            context,
-            protocol_parameters.protocol_version,
-            era_history,
-            pointer,
-            mem::take(&mut transaction_body.votes),
-        )?;
-        span.record(PHASE_ONE::FIELD_VOTES_MICROS, elapsed_and_reset(&mut meter));
-    } else {
-        certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates));
-        span.record(PHASE_ONE::FIELD_CERTIFICATES_MICROS, elapsed_and_reset(&mut meter));
-
-        proposals::count_lovelace(
-            context,
-            protocol_parameters,
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-        );
-        span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
-    }
+    voting_procedures::execute(
+        context,
+        protocol_parameters.protocol_version,
+        era_history,
+        pointer,
+        is_valid,
+        mem::take(&mut transaction_body.votes),
+    )?;
+    span.record(PHASE_ONE::FIELD_VOTES_MICROS, elapsed_and_reset(&mut meter));
 
     for vk_hash in transaction_body.required_signers.as_deref().unwrap_or(&[]) {
         context.require_verification_key_witness(*vk_hash);
