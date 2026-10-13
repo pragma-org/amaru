@@ -64,6 +64,7 @@ Other guiding principles:
 - **amaru**: block fetch reads which connections may initiate from the peer resource. A connection no longer sends that fact to the connection manager, so a full tip burst cannot deadlock the two.
 - **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
 - **amaru-ledger**: treasury donations in transactions marked as failing phase-two validation no longer reach the treasury.
+- **amaru-ledger**: transactions missing a signature for collateral that don't include a redeeemer.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 

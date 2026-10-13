@@ -72,14 +72,6 @@ where
     for collateral in collaterals.iter() {
         let collateral_input = context.lookup(collateral).ok_or(InvalidCollateral::UnknownInput(*collateral))?;
 
-        if !has_redeemers {
-            continue;
-        }
-
-        if collateral_input.address.is_locked_by_script() {
-            return Err(InvalidCollateral::LockedAtScriptAddress(*collateral));
-        }
-
         let witness = match &collateral_input.address {
             Address::Shelley(addr) => match addr.owner() {
                 Credential::KeyHash(hash) => Some(CollateralWitness::VerificationKey(hash)),
@@ -98,7 +90,13 @@ where
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         };
 
-        effective_collateral += &collateral_input.value;
+        if has_redeemers {
+            if collateral_input.address.is_locked_by_script() {
+                return Err(InvalidCollateral::LockedAtScriptAddress(*collateral));
+            }
+
+            effective_collateral += &collateral_input.value;
+        }
 
         match witness {
             Some(CollateralWitness::VerificationKey(hash)) => context.require_verification_key_witness(hash),
