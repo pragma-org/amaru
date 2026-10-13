@@ -24,8 +24,8 @@ use std::{
 
 use amaru_pure_stage::{
     DeserializerGuards, DurationDist, ExternalEffect, ExternalEffectAPI, Resources, StageGraph, assert_trace_contains,
-    assert_trace_does_not_contain, assert_trace_match, assert_trace_match_filter, register_data_deserializer,
-    register_effect_deserializer,
+    assert_trace_does_not_contain, assert_trace_match, assert_trace_match_filter, assert_trace_no_clock,
+    register_data_deserializer, register_effect_deserializer,
     simulation::{Run, SimulationBuilder},
     tm_clock, tm_clock_between, tm_effect, tm_external_effect, tm_external_effect_any, tm_input, tm_resume,
     tm_resume_external, tm_resume_unit, tm_state,
@@ -189,6 +189,20 @@ fn assert_trace_match_filter_drops_matched_actuals() {
             tm_state("work-1", &()),
             tm_input("work-1", &1u32),
             tm_external_effect::<ZeroWork>("work-1"),
+            tm_state("work-1", &()),
+        ],
+    );
+}
+
+#[test]
+fn assert_trace_no_clock_ignores_the_sampled_advance() {
+    let (running, _guards) = run_once::<ConstWork>(1);
+    assert_trace_no_clock(
+        &running,
+        &[
+            tm_state("work-1", &()),
+            tm_input("work-1", &1u32),
+            tm_external_effect::<ConstWork>("work-1"),
             tm_state("work-1", &()),
         ],
     );
@@ -366,6 +380,88 @@ fn sampled_deadline_forces_run_before_other_sim_steps() {
     running.run(Run::skip_wakeups()).assert_idle();
     assert!(COMPUTED_AT_DEADLINE.load(Ordering::SeqCst), "run() must be forced when the deadline fires");
     assert_eq!(running.now().sim_elapsed(), Duration::from_secs(10));
+}
+
+static WRAP_SYNC_RAN: AtomicBool = AtomicBool::new(false);
+static TIED_TIMER_RAN: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct WrapSyncWork {
+    flag_is_tied_timer: bool,
+}
+
+impl ExternalEffectAPI for WrapSyncWork {
+    type Response = ();
+    const SIMULATED_DURATION: DurationDist = DurationDist::Constant(Duration::from_secs(10));
+
+    fn run(
+        self: Box<Self>,
+        _resources: Resources,
+    ) -> amaru_pure_stage::BoxFuture<'static, Box<dyn amaru_pure_stage::SendData>> {
+        let flag_is_tied_timer = self.flag_is_tied_timer;
+        // `wrap_sync_f` calls the closure before returning its future, so the store happens
+        // when `run` is called. That call is the first poll.
+        self.wrap_sync_f(move || {
+            let flag = if flag_is_tied_timer { &TIED_TIMER_RAN } else { &WRAP_SYNC_RAN };
+            flag.store(true, Ordering::SeqCst);
+        })
+    }
+}
+
+#[test]
+fn wrap_sync_body_waits_for_the_sampled_deadline() {
+    WRAP_SYNC_RAN.store(false, Ordering::SeqCst);
+    let _guards: DeserializerGuards = vec![
+        register_data_deserializer::<()>().boxed(),
+        register_data_deserializer::<u32>().boxed(),
+        register_effect_deserializer::<WrapSyncWork>().boxed(),
+    ];
+    let mut network = SimulationBuilder::default().with_seed(1);
+    let stage = network.stage("work", async |(), _msg: u32, eff| {
+        eff.external(WrapSyncWork::default()).await;
+    });
+    let stage = network.wire_up(stage, ());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut running = network.run(rt.handle());
+
+    running.enqueue_msg(&stage, [1]);
+    running.run(Run::default()).assert_sleeping();
+
+    assert!(!WRAP_SYNC_RAN.load(Ordering::SeqCst), "wrap_sync body ran before the sampled deadline");
+    assert!(running.elapse_effect_wakeups());
+    assert!(WRAP_SYNC_RAN.load(Ordering::SeqCst), "wrap_sync body must run when the deadline fires");
+    assert_eq!(running.now().sim_elapsed(), Duration::from_secs(10));
+}
+
+#[test]
+fn effect_deadline_tied_with_a_stage_timer_still_runs() {
+    TIED_TIMER_RAN.store(false, Ordering::SeqCst);
+    let _guards: DeserializerGuards = vec![
+        register_data_deserializer::<()>().boxed(),
+        register_data_deserializer::<u32>().boxed(),
+        register_effect_deserializer::<WrapSyncWork>().boxed(),
+    ];
+    let mut network = SimulationBuilder::default().with_seed(1);
+    let stage = network.stage("work", async |(), _msg: u32, eff| {
+        // Same instant as the effect's constant δ. The stage id sorts first.
+        eff.schedule_after(1u32, Duration::from_secs(10)).await;
+        eff.external(WrapSyncWork { flag_is_tied_timer: true }).await;
+    });
+    let stage = network.wire_up(stage, ());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut running = network.run(rt.handle());
+
+    running.enqueue_msg(&stage, [1]);
+    running.run(Run::default()).assert_sleeping();
+    assert!(!TIED_TIMER_RAN.load(Ordering::SeqCst));
+
+    assert!(running.elapse_effect_wakeups(), "the effect wakeup shares its instant with the stage timer");
+    assert!(TIED_TIMER_RAN.load(Ordering::SeqCst));
+    assert_eq!(running.now().sim_elapsed(), Duration::from_secs(10));
+    // The stage timer is still the next wakeup, and a second elapse must not fire it.
+    assert_eq!(running.next_wakeup().map(|instant| instant.sim_elapsed()), Some(Duration::from_secs(10)));
+    assert!(!running.elapse_effect_wakeups());
+    assert_eq!(running.next_wakeup().map(|instant| instant.sim_elapsed()), Some(Duration::from_secs(10)));
 }
 
 #[test]

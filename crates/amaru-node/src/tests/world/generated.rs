@@ -24,7 +24,7 @@
 use std::{cmp::Ordering, env::var, net::SocketAddr, num::NonZeroU8, sync::Arc, time::Duration};
 
 use amaru_consensus::{
-    effects::{GenerateRandomSeed, ValidateBlockEffect, ValidateHeaderEffect},
+    effects::{ValidateBlockEffect, ValidateHeaderEffect},
     stages::select_chain::cmp_tip,
 };
 use amaru_kernel::{
@@ -47,7 +47,7 @@ use super::{
     HONEST_PAYLOAD_DELAY_MAX_NANOS, HeapLogEntry, HeapLogKind, InjectorShared, WIRE_DELAY_MAX_NANOS,
     WorldConnectionProvider, WorldLoop, build_injector, build_injector_peer, build_world_node,
     support::{
-        derive_seed, draw_test_seed, fragment_trace_guards, peer_saw_roll_forward, peer_trace, seed_bytes, test_seeds,
+        derive_seed, draw_test_seed, fragment_trace_guards, peer_saw_roll_forward, peer_trace, test_seeds,
         tm_chainsync_roll_forward, tm_chainsync_roll_forward_of, tm_validate_header,
     },
 };
@@ -100,11 +100,6 @@ fn injector_linear_store(n: usize, seed: u64) -> (Arc<InMemoryChainStore>, Vec<H
     (store, headers)
 }
 
-fn stub_peer_selection_seed(sim: &mut SimulationRunning, seed: u64) {
-    let bytes = seed_bytes(seed);
-    sim.override_external_effect::<GenerateRandomSeed>(usize::MAX, move |_| OverrideResult::handled(bytes));
-}
-
 fn stub_generated_validation(sim: &mut SimulationRunning) {
     sim.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
         OverrideResult::handled(Ok(Nonces::for_tests()))
@@ -118,6 +113,7 @@ fn generated_node(seed: u64, index: usize, listen: SocketAddr) -> NodeTestConfig
     NodeTestConfig::default()
         .with_listen_address(&listen.to_string())
         .with_seed(derive_seed(seed, TAG_NODE + index as u64))
+        .with_random_seed(derive_seed(seed, TAG_PEER_SEL + index as u64))
         .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000))
 }
 
@@ -129,15 +125,12 @@ fn spawn_node(
     config: NodeTestConfig,
     connections: ConnectionsResource,
     handle: &Handle,
-    seed: u64,
-    index: usize,
     stub_validation: bool,
 ) -> SimulationRunning {
     let mut sim = build_world_node(&config, connections, handle).expect("production node");
     if stub_validation {
         stub_generated_validation(&mut sim);
     }
-    stub_peer_selection_seed(&mut sim, derive_seed(seed, TAG_PEER_SEL + index as u64));
     sim
 }
 
@@ -203,12 +196,12 @@ impl SyncRun {
         self.provider.clone()
     }
 
-    fn spawn_catch_up(&self, index: usize, config: NodeTestConfig) -> SimulationRunning {
-        spawn_node(config, self.connections(), &self.handle, self.seed, index, true)
+    fn spawn_catch_up(&self, _index: usize, config: NodeTestConfig) -> SimulationRunning {
+        spawn_node(config, self.connections(), &self.handle, true)
     }
 
-    fn spawn_live(&self, index: usize, config: NodeTestConfig) -> SimulationRunning {
-        spawn_node(config, self.connections(), &self.handle, self.seed, index, false)
+    fn spawn_live(&self, _index: usize, config: NodeTestConfig) -> SimulationRunning {
+        spawn_node(config, self.connections(), &self.handle, false)
     }
 
     fn spawn_injector(
@@ -586,7 +579,7 @@ fn run_p_join_quiescent_chain(
                     .with_trace_buffer(TraceBuffer::new_shared(20_000, 16_000_000)),
                 &headers[0],
             );
-            spawn_node(node, connections.clone(), handle, seed, i, true)
+            spawn_node(node, connections.clone(), handle, true)
         })
         .collect();
 

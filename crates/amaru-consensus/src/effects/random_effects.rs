@@ -18,14 +18,16 @@ use rand::Rng;
 /// External effect that produces a fresh 256-bit random seed.
 ///
 /// In production this uses the thread-local CSPRNG (`rand::rng()`).
-/// In deterministic simulations the test harness overrides it to return
-/// a recorded, fixed value so that all subsequent `StdRng` usage becomes
-/// fully reproducible.
+/// Node simulations override it with a deterministic stream seeded by the node seed
+/// (`override_generate_random_seed`): each call returns the next 32 bytes. Peer-selection
+/// stage tests override it with a fixed `[0x42; 32]`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GenerateRandomSeed;
 
 impl ExternalEffectAPI for GenerateRandomSeed {
     type Response = [u8; 32];
+    const SIMULATED_DURATION: amaru_pure_stage::DurationDist =
+        crate::effect_timings::effects__random_effects__GenerateRandomSeed;
 
     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync(rand::rng().random::<[u8; 32]>())

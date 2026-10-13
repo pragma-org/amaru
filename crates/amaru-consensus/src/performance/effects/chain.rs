@@ -19,12 +19,15 @@
 use std::time::Duration;
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
-use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Instant, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Instant, Resources, SendData};
 
 use super::{enqueue, enqueue_and_emit_telemetry, require_perf};
-use crate::performance::{
-    Performance,
-    ops::{PeerOp, PerformanceOp},
+use crate::{
+    effect_timings,
+    performance::{
+        Performance,
+        ops::{PeerOp, PerformanceOp},
+    },
 };
 
 impl Performance {
@@ -91,6 +94,7 @@ pub struct RecordIntersectionEffect {
 
 impl ExternalEffectAPI for RecordIntersectionEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordIntersectionEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
@@ -116,6 +120,7 @@ pub struct RecordHeaderAnnouncementEffect {
 
 impl ExternalEffectAPI for RecordHeaderAnnouncementEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordHeaderAnnouncementEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -142,6 +147,7 @@ pub struct RecordBlockDeliveryEffect {
 
 impl ExternalEffectAPI for RecordBlockDeliveryEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordBlockDeliveryEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
@@ -165,6 +171,7 @@ pub struct RecordRollbackEffect {
 
 impl ExternalEffectAPI for RecordRollbackEffect {
     type Response = ();
+    const SIMULATED_DURATION: DurationDist = effect_timings::performance__effects__RecordRollbackEffect;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({

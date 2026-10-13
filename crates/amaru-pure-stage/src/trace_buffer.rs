@@ -55,7 +55,7 @@ pub struct TraceBuffer {
 /// However, we need the entries in the continuation of the running program and we cannot clone,
 /// so there is a variant of this enum with the very same structure the captures only references
 /// to work around this problem: `TraceEntryRef`.
-#[derive(PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum TraceEntry {
     Suspend(Effect),
     Resume {
@@ -85,6 +85,40 @@ pub enum TerminationReason {
     Voluntary,
     Supervision(Name),
     Aborted,
+}
+
+impl PartialEq for TraceEntry {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // Clock advances name a sim-elapsed instant. Compare that exactly so a test
+            // tolerance on Instant cannot make an early effect-duration wake match a
+            // later timer the test asked for.
+            (TraceEntry::Clock(left), TraceEntry::Clock(right)) => {
+                left.duration_since_global_epoch() == right.duration_since_global_epoch()
+            }
+            (TraceEntry::Suspend(left), TraceEntry::Suspend(right)) => left == right,
+            (
+                TraceEntry::Resume { stage: left_stage, response: left_response },
+                TraceEntry::Resume { stage: right_stage, response: right_response },
+            ) => left_stage == right_stage && left_response == right_response,
+            (
+                TraceEntry::Input { stage: left_stage, input: left_input },
+                TraceEntry::Input { stage: right_stage, input: right_input },
+            ) => left_stage == right_stage && left_input == right_input,
+            (
+                TraceEntry::State { stage: left_stage, state: left_state },
+                TraceEntry::State { stage: right_stage, state: right_state },
+            ) => left_stage == right_stage && left_state == right_state,
+            (
+                TraceEntry::Terminated { stage: left_stage, reason: left_reason },
+                TraceEntry::Terminated { stage: right_stage, reason: right_reason },
+            ) => left_stage == right_stage && left_reason == right_reason,
+            (TraceEntry::InvalidBytes(left_bytes, left_value), TraceEntry::InvalidBytes(right_bytes, right_value)) => {
+                left_bytes == right_bytes && left_value == right_value
+            }
+            _ => false,
+        }
+    }
 }
 
 impl TraceEntry {

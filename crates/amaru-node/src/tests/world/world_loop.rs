@@ -247,6 +247,26 @@ impl WorldLoop {
         });
     }
 
+    /// Run until horizon, invoking `on_event` after every heap event.
+    pub fn run_until_horizon_observing(&mut self, horizon_nanos: u64, mut on_event: impl FnMut(&mut Self)) {
+        self.drive_until_horizon(horizon_nanos, |this| on_event(this));
+    }
+
+    /// Whether the event just processed posted a best-chain write. Clears the flag.
+    pub fn take_best_chain_tip_updated(&mut self) -> bool {
+        std::mem::take(&mut self.best_chain_tip_updated)
+    }
+
+    /// Schedule each graph at `time_nanos` unless it already has an earlier wake.
+    ///
+    /// A later wake is replaced. Used to stop a run at a settle deadline instead of
+    /// jumping to the next slot timer.
+    pub fn schedule_graphs_at(&mut self, time_nanos: u64) {
+        for index in 0..self.graphs.len() {
+            self.schedule_graph(index, time_nanos, GraphWakeReason::Sleeping);
+        }
+    }
+
     /// Leave the current `run_until_horizon*` loop after the event in progress.
     pub fn halt(&self) {
         self.halt.store(true, Ordering::Relaxed);
@@ -649,18 +669,36 @@ impl WorldLoop {
 
     /// A serve-only injector stays parked on `accept` (immediate re-PullAccept).
     /// That is Busy, not Idle — the listen loop is the product.
+    ///
+    /// `ListenEffect` has a sampled duration, so a horizon-0 run is still Sleeping on that
+    /// bind. Follow this graph's own wakes until accept is posted.
     pub fn assert_serving_accept(&mut self, graph_idx: usize) {
-        match self.graphs[graph_idx].run(Run::default()) {
-            Blocked::Busy { stages, .. } if stages.iter().any(|name| format!("{name}").contains("accept")) => {}
-            other @ (Blocked::Idle
-            | Blocked::Sleeping { .. }
-            | Blocked::Deadlock(_)
-            | Blocked::Breakpoint(..)
-            | Blocked::Busy { .. }
-            | Blocked::Terminated(_)) => {
-                panic!("graph {graph_idx} expected parked accept, got {other:?}")
+        for _ in 0..8 {
+            match self.graphs[graph_idx].run(Run::default()) {
+                Blocked::Busy { stages, .. } if stages.iter().any(|name| format!("{name}").contains("accept")) => {
+                    return;
+                }
+                Blocked::Sleeping { next_wakeup } => {
+                    let due = instant_nanos(next_wakeup);
+                    let Some(next) = self.peek_next_event_time() else {
+                        panic!("graph {graph_idx} sleeping until {due}ns with an empty heap");
+                    };
+                    assert_eq!(
+                        next, due,
+                        "graph {graph_idx} sleeping until {due}ns but the next heap event is {next}ns"
+                    );
+                    self.run_until_horizon(due);
+                }
+                other @ (Blocked::Idle
+                | Blocked::Deadlock(_)
+                | Blocked::Breakpoint(..)
+                | Blocked::Busy { .. }
+                | Blocked::Terminated(_)) => {
+                    panic!("graph {graph_idx} expected parked accept, got {other:?}")
+                }
             }
         }
+        panic!("graph {graph_idx} did not park on accept");
     }
 
     fn assert_graphs_settled(&mut self) {

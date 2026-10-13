@@ -30,6 +30,7 @@ use parking_lot::Mutex;
 #[cfg(target_arch = "riscv32")]
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
+use tracing::Instrument;
 
 use crate::{
     BLACKHOLE_NAME, BoxFuture, DurationDist, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
@@ -146,11 +147,23 @@ impl Default for ScheduleIds {
 
 impl ScheduleIds {
     pub fn new() -> Self {
+        Self::starting_at(0)
+    }
+
+    /// Ids for simulator bookkeeping that stages never observe.
+    ///
+    /// The counter starts in the high half of `u64` so these ids cannot collide
+    /// with ids handed out by [`Self::new`].
+    pub(crate) fn internal() -> Self {
+        Self::starting_at(1_u64 << 63)
+    }
+
+    fn starting_at(start: u64) -> Self {
         Self {
             #[cfg(not(target_arch = "riscv32"))]
-            counter: Arc::new(AtomicU64::new(0)),
+            counter: Arc::new(AtomicU64::new(start)),
             #[cfg(target_arch = "riscv32")]
-            counter: Arc::new(parking_lot::Mutex::new(0)),
+            counter: Arc::new(parking_lot::Mutex::new(start)),
         }
     }
 
@@ -736,7 +749,8 @@ pub trait ExternalEffectAPI: SendData {
     ///
     /// A blanket [`ExternalEffect`] impl reports this as
     /// [`ExternalEffect::simulated_duration_dist`]. Use [`DurationDist::UntilResolved`] when
-    /// the simulation (not a sampled `δ`) decides when the effect Future completes.
+    /// the simulation (not a sampled `δ`) decides when the effect Future completes. Assign a
+    /// [`DurationDist::cdf`] constant for measured local work.
     const SIMULATED_DURATION: DurationDist = DurationDist::ZERO;
 
     /// Instance view of [`Self::SIMULATED_DURATION`]. Override only if the distribution
@@ -793,6 +807,31 @@ impl<T: ExternalEffectAPI> ExternalEffect for T {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         ExternalEffectAPI::run(self, resources)
     }
+}
+
+/// Tracing target for the span around [`ExternalEffect::run`].
+///
+/// `amaru_pure_stage::effect=debug` selects these spans and does not enable the rest of
+/// `amaru_pure_stage`.
+pub const EFFECT_SPAN_TARGET: &str = module_path!();
+
+/// Run `effect` on its first poll, entering a debug span when that span is enabled.
+///
+/// `effect.run` waits until that poll, so a `wrap_sync` body runs inside the span and not
+/// before the simulator's sampled deadline. Tokio polls on the next task turn, so a live node
+/// still runs the body immediately. The span records wall time only; it does not write the
+/// simulation trace or advance simulated time.
+pub(crate) fn run_external_effect(
+    effect: Box<dyn ExternalEffect>,
+    resources: Resources,
+    stage: &Name,
+) -> BoxFuture<'static, Box<dyn SendData>> {
+    if !tracing::span_enabled!(target: EFFECT_SPAN_TARGET, tracing::Level::DEBUG) {
+        return Box::pin(async move { effect.run(resources).await });
+    }
+    let type_name = effect.typetag_name();
+    let span = tracing::debug_span!(target: EFFECT_SPAN_TARGET, "effect", type_name, stage = %stage);
+    Box::pin(async move { effect.run(resources).await }.instrument(span))
 }
 
 fn assert_simulated_duration<E: ExternalEffectAPI>(effect: &E) {

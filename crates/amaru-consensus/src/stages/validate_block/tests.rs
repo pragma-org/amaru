@@ -16,7 +16,7 @@ use amaru_kernel::{IsHeader, Point};
 use amaru_observability::tracing::Level;
 use amaru_pure_stage::{
     TerminationReason,
-    trace_match::{assert_trace_contains, assert_trace_match},
+    trace_match::{assert_trace_contains, assert_trace_no_clock as assert_trace_match_no_clock},
 };
 
 use super::*;
@@ -25,8 +25,8 @@ use crate::stages::{
     select_chain::SelectChainMsg,
     test_utils::{te_input, te_state},
     validate_block::test_setup::{
-        assert_trace, setup, setup_many, te_load_header, te_send, te_switch_to_fork, te_terminate, te_terminated,
-        te_validate_block, test_prep, tm_record_metrics,
+        assert_trace_no_clock, setup, setup_many, te_load_header, te_send, te_switch_to_fork, te_terminate,
+        te_terminated, te_validate_block, test_prep, tm_record_metrics,
     },
 };
 
@@ -41,7 +41,7 @@ fn test_block_with_origin_parent_terminates() {
     let msg = ValidateBlockMsg::new(tip, Point::Origin, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state),
@@ -113,7 +113,7 @@ fn test_invalid_block_condemns_in_flight_descendants() {
     };
 
     let (running, _guards, mut logs) = setup_many(&prep, vec![msg1.clone(), msg2.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state),
@@ -186,7 +186,7 @@ fn test_ledger_failure_during_validation_terminates() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state),
@@ -220,7 +220,7 @@ fn test_completed_fork_switch_adopts_the_new_tip() {
 
     let expected = ValidateBlock { current: tip, ..prep.state.clone() };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace_match(
+    assert_trace_match_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state).into(),
@@ -260,7 +260,7 @@ fn test_equal_height_fork_winning_the_tiebreak_is_switched_to() {
 
     let expected = ValidateBlock { current: tip, ..prep.state.clone() };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace_match(
+    assert_trace_match_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state).into(),
@@ -355,7 +355,7 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
         ..prep.state.clone()
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state),
@@ -398,7 +398,7 @@ fn test_switch_to_a_fork_only_for_a_better_candidate() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state),
@@ -430,7 +430,7 @@ fn test_ledger_failure_during_fork_switch_terminates() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("vb-1", &prep.state),

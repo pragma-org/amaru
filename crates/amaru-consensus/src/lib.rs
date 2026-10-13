@@ -20,6 +20,7 @@ const _: () = amaru_deps::AMARU_DEPS_USED;
 
 pub mod block_validator;
 pub mod consensus_mode;
+pub mod effect_timings;
 pub mod effects;
 pub mod errors;
 pub mod events;

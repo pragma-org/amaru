@@ -143,7 +143,8 @@ pub fn setup_preload(
     prep: &TestPrep,
     messages: impl IntoIterator<Item = PeerSelectionMsg>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_preload_with_mode(prep, messages, SimulationRunMode::UntilSleeping)
+    // Elapse sampled effect durations, then stop at the first stage timer (churn) without firing it.
+    setup_preload_with_mode(prep, messages, SimulationRunMode::UntilStageTimer)
 }
 
 fn setup_preload_with_mode(

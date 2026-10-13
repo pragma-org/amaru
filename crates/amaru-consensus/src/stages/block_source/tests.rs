@@ -19,7 +19,7 @@ use amaru_observability::tracing::Level;
 
 use super::{
     BlockSourceMsg, BlockValidity,
-    test_setup::{assert_trace, setup, te_send, test_prep},
+    test_setup::{assert_trace_no_clock, setup, te_send, test_prep},
 };
 use crate::stages::{
     peer_selection::PeerSelectionMsg,
@@ -44,7 +44,7 @@ fn test_block_received_inserts_pending() {
     let mut expected = prep.state.clone();
     expected.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002)])));
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
-    assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &expected)]);
+    assert_trace_no_clock(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &expected)]);
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
         .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -62,7 +62,7 @@ fn test_block_received_merges_second_peer() {
         BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::for_test(3002), Peer::for_test(3003)])),
     );
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state(BS, &prep.state),
@@ -93,7 +93,7 @@ fn test_validation_valid_marks_known_point() {
     let mut expected = prep.state.clone();
     expected.by_point.insert(p, BlockValidity::Valid(BlockHeight::from(50)));
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state(BS, &prep.state),
@@ -121,7 +121,7 @@ fn test_validation_valid_unknown_point_is_noop() {
     let p = point_n(99);
     let m = BlockSourceMsg::Validation { valid: true, point: p };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
-    assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
+    assert_trace_no_clock(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=0"])
         .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=true"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -146,7 +146,7 @@ fn test_validation_invalid_faults_each_peer() {
     let mut final_state = prep.state.clone();
     final_state.by_point.insert(p, BlockValidity::Invalid(BlockHeight::from(50)));
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone(), m3.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state(BS, &prep.state),
@@ -175,7 +175,7 @@ fn test_validation_invalid_without_provenance_sends_nothing() {
     let p = point_n(77);
     let m = BlockSourceMsg::Validation { valid: false, point: p };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
-    assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
+    assert_trace_no_clock(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=0"])
         .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -197,7 +197,7 @@ fn test_block_received_after_invalid_new_peer_faults() {
     let mut after_carol = prep.state.clone();
     after_carol.by_point.insert(p, BlockValidity::Invalid(BlockHeight::from(50)));
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone(), m3.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state(BS, &prep.state),
@@ -235,7 +235,7 @@ fn test_block_received_after_invalid_same_peer_no_second_fault() {
     let mut after_invalid = prep.state.clone();
     after_invalid.by_point.insert(p, BlockValidity::Invalid(BlockHeight::from(50)));
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone(), m3.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state(BS, &prep.state),
@@ -265,7 +265,7 @@ fn test_block_received_pruned_when_below_adopted_window() {
     let p = point_n(50);
     let m = BlockSourceMsg::BlockReceived { peer: Peer::for_test(3002), tip: p };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
-    assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
+    assert_trace_no_clock(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=1", "retained=0"])
         .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="127.0.0.1:3002""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
@@ -285,7 +285,7 @@ fn test_adopted_tip_prunes_entries_far_below() {
     after_adopt.adopted_tip = tip_adopted(200);
     after_adopt.max_tip_distance = 100;
     let (running, _g, mut logs) = setup(&prep, &[m1.clone(), m2.clone()]);
-    assert_trace(
+    assert_trace_no_clock(
         &running,
         &[
             te_state(BS, &prep.state),
@@ -308,7 +308,7 @@ fn test_adopted_tip_updates_only() {
     let mut expected = prep.state.clone();
     expected.adopted_tip = tip_adopted(150);
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
-    assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &expected)]);
+    assert_trace_no_clock(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &expected)]);
     logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=0"]).assert_no_remaining_at([
         Level::DEBUG,
         Level::INFO,

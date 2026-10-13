@@ -65,16 +65,6 @@ pub(super) fn derive_seed(master: u64, tag: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-pub(super) fn seed_bytes(seed: u64) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let mut x = seed;
-    for (i, chunk) in out.as_chunks_mut::<8>().0.iter_mut().enumerate() {
-        x = derive_seed(x, i as u64 + 1);
-        *chunk = x.to_le_bytes();
-    }
-    out
-}
-
 /// Hydrate production-graph traces as typed chainsync / header-validation values.
 pub(super) fn fragment_trace_guards() -> amaru_pure_stage::DeserializerGuards {
     let mut guards = amaru_protocols::deserializers::register_deserializers();

@@ -22,7 +22,7 @@ use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
 };
 use amaru_pure_stage::{
-    Instant, assert_trace_contains, assert_trace_does_not_contain, assert_trace_match,
+    Instant, assert_trace_contains, assert_trace_does_not_contain, assert_trace_no_clock,
     simulation::running::OverrideResult, tm_send,
 };
 
@@ -36,13 +36,12 @@ use crate::{
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
-                HEIGHT_RECHECK_INTERVAL, SIM_INITIAL_CLOCK_SECS, build_store, build_store_with_nonces,
-                height_recheck_schedule_id, make_block_header, new_tip, schedule_id_at, setup, setup_base,
-                setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clear_peer_availability,
-                te_clock, te_clock_suspend, te_get_best_chain_tip, te_get_nonces, te_header_rejected, te_load_header,
-                te_load_point, te_record_header_announcement, te_record_rollback, te_record_uninteresting, te_schedule,
-                te_store_validated_header, te_sync_adoption_is_fast, te_validate_header, test_prep,
-                test_prep_with_max_peer_lead, tm_volatile_tip,
+                SIM_INITIAL_CLOCK_SECS, build_store, build_store_with_nonces, height_recheck_schedule_id,
+                make_block_header, new_tip, setup, setup_base, setup_with_ledger_tip_until_sleeping,
+                slot_start_to_header_micros, te_clear_peer_availability, te_clock_suspend, te_get_best_chain_tip,
+                te_get_nonces, te_header_rejected, te_load_header, te_load_point, te_record_header_announcement,
+                te_record_rollback, te_record_uninteresting, te_schedule, te_store_validated_header,
+                te_sync_adoption_is_fast, te_validate_header, test_prep, test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
     },
@@ -412,7 +411,7 @@ fn test_roll_forward_unknown_peer_removes_peer() {
     });
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -452,7 +451,7 @@ fn test_roll_forward_known_peer_header_already_stored() {
     let received_at = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store_with_nonces(slice::from_ref(header)));
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -776,7 +775,7 @@ fn test_roll_forward_invalid_parent_removes_peer() {
     state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -812,7 +811,7 @@ fn test_roll_forward_invalid_height_removes_peer() {
     state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -848,7 +847,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
     state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -897,7 +896,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -947,7 +946,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "ahead of local time"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -983,7 +982,7 @@ fn test_roll_forward_slot_past_time_horizon_is_adversarial() {
     state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -1086,7 +1085,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
         .assert_and_remove(Level::DEBUG, &["perf.header.lifecycle", r#"outcome="invalid_header""#])
         .assert_and_remove(Level::ERROR, &["perf.header.lifecycle"])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -1256,7 +1255,7 @@ fn test_roll_forward_defers_request_next() {
     .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -1318,7 +1317,7 @@ fn test_pipelined_headers_after_height_defer() {
         .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),
@@ -1359,7 +1358,6 @@ fn test_height_defer_recheck_when_ledger_advances() {
     });
 
     let sid = height_recheck_schedule_id();
-    let recheck_at = schedule_id_at(HEIGHT_RECHECK_INTERVAL).time();
     let advanced_tip = header.point();
 
     let (running, _guards, mut logs) =
@@ -1394,7 +1392,6 @@ fn test_height_defer_recheck_when_ledger_advances() {
             te_clock_suspend("tp-1").into(),
             te_schedule("tp-1", TrackPeersMsg::RecheckLedgerHeight, sid).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "height deferred"),
-            te_clock(recheck_at).into(),
             te_input("tp-1", &TrackPeersMsg::RecheckLedgerHeight).into(),
             tm_volatile_tip("tp-1"),
             te_clock_suspend("tp-1").into(),
@@ -1598,7 +1595,7 @@ fn test_recheck_deferred_survives_purge_shrinking_the_list() {
     let msg = TrackPeersMsg::RecheckLedgerHeight;
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_match(
+    assert_trace_no_clock(
         &running,
         &[
             te_state("tp-1", &state).into(),

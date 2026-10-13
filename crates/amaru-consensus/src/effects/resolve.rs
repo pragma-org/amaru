@@ -48,7 +48,8 @@ impl ResolvePeerCandidate {
 
 impl ExternalEffectAPI for ResolvePeerCandidate {
     type Response = ResolvePeerCandidateResult;
-    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+    const SIMULATED_DURATION: DurationDist =
+        DurationDist::UntilResolved.ignore(crate::effect_timings::effects__resolve__ResolvePeerCandidate);
 
     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap(|this| async move {

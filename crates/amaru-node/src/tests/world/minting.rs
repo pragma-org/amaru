@@ -547,7 +547,22 @@ fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: M
         Until::Blocks(blocks) => slots_for(blocks, nodes),
         Until::Slot(slot) => slot - chain_start + slots_for(1, nodes),
     } * 1_000_000_000;
-    loop_.run_until_horizon_on_best_chain_tip(horizon, |world| {
+    // In-flight performance effects (record_block_valid tails near 5ms) must run after the
+    // stop condition, or the adopted block has no `outcome=valid` lifecycle. A block already
+    // in the pipeline can be adopted during this window.
+    const SETTLE_AFTER_STOP_NANOS: u64 = 20_000_000;
+    let mut settle_at = None;
+    loop_.run_until_horizon_observing(horizon, |world| {
+        if let Some(until) = settle_at {
+            world.schedule_graphs_at(until);
+            if world.now_nanos() >= until {
+                world.halt();
+            }
+            return;
+        }
+        if !world.take_best_chain_tip_updated() {
+            return;
+        }
         let tips: Vec<_> = (0..nodes).map(|index| best_tip(world, index)).collect();
         let agreed = tips.windows(2).all(|pair| pair[0] == pair[1]);
         let reached = match until {
@@ -555,7 +570,9 @@ fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: M
             Until::Slot(slot) => tips.iter().all(|tip| u64::from(tip.slot_or_default()) >= slot),
         };
         if agreed && reached {
-            world.halt();
+            let until = world.now_nanos().saturating_add(SETTLE_AFTER_STOP_NANOS);
+            world.schedule_graphs_at(until);
+            settle_at = Some(until);
         }
     });
     let records = logs.into_iter().map(|(_, records)| records).collect();
@@ -671,10 +688,19 @@ fn test_world_five_nodes_mint_short_epochs() {
     let geometry = MintGeometry::short_epochs();
     let target = geometry.chain_start_slot() + SHORT_EPOCHS * geometry.epoch_length();
     let run = run_mint("five_node_short_epochs", POOLS, 15_050, Until::Slot(target), geometry);
-    let tip = best_tip(&run.world, 0);
-    let added = tip.block_height().as_u64() - run.fixture.anchor.block_height().as_u64();
-    assert!(u64::from(tip.slot_or_default()) >= target, "tip={tip} seed={:#x}", run.seed);
+    let tips: Vec<_> = (0..POOLS).map(|index| best_tip(&run.world, index)).collect();
+    assert!(
+        tips.iter().all(|tip| u64::from(tip.slot_or_default()) >= target),
+        "tip behind {target} seed={:#x} tips={tips:?}",
+        run.seed
+    );
+    let added = tips
+        .iter()
+        .map(|tip| tip.block_height().as_u64() - run.fixture.anchor.block_height().as_u64())
+        .min()
+        .expect("node");
     assert_minted_chain(&run, added);
+    let tip = tips.iter().min_by_key(|tip| tip.block_height()).expect("node");
 
     let logs = snapshot(&run.logs);
     assert!(
@@ -704,40 +730,51 @@ fn test_world_five_nodes_mint_short_epochs() {
     );
 }
 
-fn assert_minted_chain(run: &MintRun, blocks: u64) {
+/// Every node has the anchor plus at least `at_least` blocks, and those blocks are one chain.
+///
+/// A block still in flight when the stop condition fired may have been adopted by only some
+/// nodes. The shared prefix is the shortest tip. Density, battles, and forwarding cover that
+/// prefix, which is the chain every node has.
+fn assert_minted_chain(run: &MintRun, at_least: u64) {
     let seed = run.seed;
     let anchor = &run.fixture.anchor;
     let anchor_height = anchor.block_height().as_u64();
     let anchor_slot = u64::from(anchor.slot());
     let logs = snapshot(&run.logs);
     let tips: Vec<_> = (0..logs.len()).map(|index| best_tip(&run.world, index)).collect();
-    assert!(
-        tips.windows(2).all(|pair| pair[0] == pair[1]),
-        "tips disagree seed={seed:#x} tips={tips:?} {} {}",
-        connection_summary(&run.world),
-        rejection_dump(&logs)
-    );
-    let tip = tips[0];
-    assert_eq!(
-        tip.block_height().as_u64(),
-        anchor_height + blocks,
-        "height seed={seed:#x} tip={tip} {}",
-        dump_names(&logs)
-    );
-    let span = u64::from(tip.slot_or_default()) - anchor_slot;
-    assert!(span > 0, "span seed={seed:#x} tip={tip}");
+    for tip in &tips {
+        let adopted = tip.block_height().as_u64() - anchor_height;
+        assert!(
+            adopted >= at_least,
+            "adopted {adopted} blocks, want at least {at_least} seed={seed:#x} tip={tip} {}",
+            dump_names(&logs)
+        );
+    }
+    let shared = tips.iter().min_by_key(|tip| tip.block_height()).expect("node");
+    let span = u64::from(shared.slot_or_default()) - anchor_slot;
+    assert!(span > 0, "span seed={seed:#x} tip={shared}");
 
     let stores: Vec<_> = (0..logs.len()).map(|index| chain_store(&run.world, index)).collect();
-    let walked: Vec<_> =
-        stores.iter().map(|store| ancestor_hashes(store.as_ref(), tip.hash(), run.security_param as usize)).collect();
+    let shared_chain = adopted_chain(stores[0].as_ref(), shared.hash(), anchor.hash());
+    let shared_len = shared_chain.len();
+    assert!(shared_len as u64 >= at_least, "shared headers {shared_len}, want at least {at_least} seed={seed:#x}");
+    for (store, tip) in stores.iter().zip(&tips) {
+        let chain = adopted_chain(store.as_ref(), tip.hash(), anchor.hash());
+        assert!(
+            chain.len() >= shared_len && chain[..shared_len] == shared_chain,
+            "fork before the shared tip seed={seed:#x} tip={tip} shared={shared}"
+        );
+    }
+    let walked: Vec<_> = stores
+        .iter()
+        .map(|store| ancestor_hashes(store.as_ref(), shared.hash(), run.security_param as usize))
+        .collect();
     assert!(walked.windows(2).all(|pair| pair[0] == pair[1]), "k headers disagree seed={seed:#x}");
 
     assert_no_forge_failures(seed, &logs);
-    assert_density(seed, blocks, span, anchor_height, run.security_param, &logs);
-    let chain = adopted_chain(stores[0].as_ref(), tip.hash(), anchor.hash());
-    assert_eq!(chain.len(), blocks as usize, "adopted headers seed={seed:#x}");
-    assert_battles(seed, span, &logs, &chain, anchor);
-    assert_forwarding(seed, &run.fixture, &logs, &chain, anchor);
+    assert_density(seed, shared_len as u64, span, anchor_height, run.security_param, &logs);
+    assert_battles(seed, span, &logs, &shared_chain, anchor);
+    assert_forwarding(seed, &run.fixture, &logs, &shared_chain, anchor);
     assert_schedules(seed, &logs);
 }
 
@@ -926,53 +963,6 @@ fn forged_by_slot(logs: &[Vec<LogRecord>]) -> BTreeMap<u64, Vec<(usize, String, 
         }
     }
     by_slot
-}
-
-fn rejection_dump(logs: &[Vec<LogRecord>]) -> String {
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    let mut examples: BTreeMap<String, String> = BTreeMap::new();
-    for records in logs {
-        for record in records {
-            let message = record.fields.get("message").map(String::as_str).unwrap_or("");
-            let interesting = record.name.contains("invalid")
-                || record.name.contains("fail")
-                || record.name.contains("ban")
-                || record.name.contains("adversar")
-                || record.name.contains("disconnect")
-                || record.name.contains("refused")
-                || record.name.contains("child")
-                || record.name.contains("chainsync")
-                || record.name == "event"
-                || message.contains("fail");
-            if !interesting {
-                continue;
-            }
-            let key = if record.name == "event" { message.to_string() } else { record.name.clone() };
-            *counts.entry(key.clone()).or_default() += 1;
-            examples.entry(key).or_insert_with(|| {
-                let operation = record.fields.get("operation").map(String::as_str).unwrap_or("");
-                let error =
-                    record.fields.get("error").or_else(|| record.fields.get("err")).map(String::as_str).unwrap_or("");
-                let child = record.fields.get("child").map(String::as_str).unwrap_or("");
-                format!("op={operation} err={error} child={child} target={}", record.target)
-            });
-        }
-    }
-    format!("counts={counts:?} examples={examples:?}")
-}
-
-fn connection_summary(world: &WorldLoop) -> String {
-    use super::HeapLogKind;
-    let log = world.heap_log();
-    let count = |pred: fn(&HeapLogKind) -> bool| log.iter().filter(|entry| pred(&entry.kind)).count();
-    format!(
-        "connects={} accepts={} timeouts={} delivers={} closes={}",
-        count(|kind| matches!(kind, HeapLogKind::ConnectAttempt { .. })),
-        count(|kind| matches!(kind, HeapLogKind::Accepted { .. })),
-        count(|kind| matches!(kind, HeapLogKind::ConnectTimeout { .. })),
-        count(|kind| matches!(kind, HeapLogKind::Deliver { .. })),
-        count(|kind| matches!(kind, HeapLogKind::Close { .. })),
-    )
 }
 
 fn best_tip(world: &WorldLoop, index: usize) -> Point {

@@ -276,7 +276,11 @@ fn a_round_sends_at_most_upstream_plus_downstream_commands() {
         assert!(state.inbound_peers.contains_key(peer), "{peer} is still tracked");
     }
 
-    drive_until(&mut running, sim_t0() + Duration::from_secs(1));
+    // The next tick is armed from the clock after this round's effect durations, and the
+    // round itself suspends on later sampled effects. One millisecond covers those tails
+    // without reaching the tick after that.
+    let next = running.now() + super::TICK_INTERVAL + Duration::from_millis(1);
+    drive_until(&mut running, next);
     assert_eq!(disconnects(&running), 4);
     let state = ps_state(&running);
     assert_eq!(state.seen_generation, 0);
@@ -284,7 +288,8 @@ fn a_round_sends_at_most_upstream_plus_downstream_commands() {
     assert!(!state.inbound_peers.contains_key(&peers[2]));
     assert!(!state.inbound_peers.contains_key(&peers[3]));
 
-    drive_until(&mut running, sim_t0() + Duration::from_secs(2));
+    let next = running.now() + super::TICK_INTERVAL + Duration::from_millis(1);
+    drive_until(&mut running, next);
     assert_eq!(disconnects(&running), 5);
     let state = ps_state(&running);
     assert!(state.inbound_peers.is_empty());
