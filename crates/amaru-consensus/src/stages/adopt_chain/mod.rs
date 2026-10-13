@@ -62,10 +62,10 @@ use crate::{
 ///   2. `ManagerMessage::NewTip(tip)` — to the downstream manager/peer layer.
 ///   3. `BlockSourceMsg::AdoptedTip(tip)` — to block_source (so it can adjust
 ///      its tip distance / fetch window for the newly adopted chain).
-/// - During `drag_anchor_forward`: blocks the ledger switch applied before the new tip are
-///   `record_block_valid`, then `Performance::prune_below(tip.height - k, now)` drops peer
-///   availability claims and any still-open header lifecycles below the immutable horizon
-///   (`HeaderLifecycleOutcome::Pruned`). The new tip itself is recorded by `select_chain`.
+/// - During `drag_anchor_forward`: every adopted block is `record_block_valid` (chain
+///   selection reports the new tip as well; the second report emits nothing), then
+///   `Performance::prune_below(tip.height - k, now)` drops peer availability claims and any
+///   still-open header lifecycles below the immutable horizon (`HeaderLifecycleOutcome::Pruned`).
 /// - Finally, `current_best_tip` is updated in the returned state.
 ///
 /// Early exits (no adoption, no sends, no anchor drag, no logging of "adopted"):
@@ -240,15 +240,14 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                 .await;
         }
 
-        // `select_chain` records the new tip when its body validation result arrives. The
-        // points before it were applied inside the ledger switch and have no such result.
-        let switched_prefixes = adopted_points.split_last().map(|(_, rest)| rest).unwrap_or(&[]);
+        // The ledger has already applied every one of these blocks. Chain selection also
+        // reports the new tip; a second report does not emit again.
         let now = drag_anchor_forward(
             &store,
             &msg,
             state.consensus_security_param,
             state.max_block_height,
-            switched_prefixes,
+            &adopted_points,
             &eff,
         )
         .or_terminate_with(&eff, async |error| {
@@ -311,16 +310,16 @@ enum AdoptTipResult {
 /// store effect against a consistent snapshot; only the resulting anchor write
 /// is a separate effect. Only moves the anchor forward, never backward.
 ///
-/// After the anchor update (if any), records the fork-switch blocks that precede the new tip
-/// as valid, then prunes performance maps at the immutable horizon (`tip.height - k`):
-/// peer claims below that height, and any header lifecycle still open as `Pruned`.
+/// After the anchor update (if any), records every adopted block as valid, then prunes
+/// performance maps at the immutable horizon (`tip.height - k`): peer claims below that
+/// height, and any header lifecycle still open as `Pruned`.
 /// Returns the clock reading used for that prune (also suitable for adoption logging).
 async fn drag_anchor_forward<S>(
     store: &Store<S>,
     tip: &Point,
     consensus_security_param: u64,
     max_block_height: BlockHeight,
-    switched_prefixes: &[Point],
+    adopted_points: &[Point],
     eff: &Effects<AdoptChainMsg>,
 ) -> Result<Instant, StoreError> {
     let target_height = tip.block_height() - consensus_security_param;
@@ -328,12 +327,13 @@ async fn drag_anchor_forward<S>(
         store.set_anchor_point(&new_anchor).await?;
     }
     let now = eff.clock().await;
-    // These bodies were applied by the ledger switch. Closing them before the prune keeps a
-    // later tip, more than `k` above, from reporting a canonical block as `pruned`.
+    // Close these lifecycles before the prune. A later tip, more than `k` above, would
+    // otherwise report a canonical block as `pruned`, and halting can leave the tip's
+    // chain-selection notice still queued.
     // While catching up, slot-start-to-header is not a meaningful network-health signal.
     let syncing = max_block_height > tip.block_height();
-    for point in switched_prefixes {
-        eff.external(Performance::record_block_valid(point.hash(), now, syncing)).await;
+    for point in adopted_points {
+        eff.external(Performance::record_block_valid(point.hash(), point.block_height(), now, syncing)).await;
     }
     eff.external(Performance::prune_below(target_height, now)).await;
     Ok(now)

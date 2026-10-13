@@ -730,7 +730,7 @@ fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
         [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == alice
     ));
     assert_eq!(headers.lifecycle_count(), 1);
-    let telemetry = headers.apply_block_valid(&hash(1), t(4), false);
+    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(4), false);
     assert_eq!(headers.lifecycle_count(), 0);
     assert_eq!(telemetry.len(), 2);
     assert!(matches!(
@@ -759,7 +759,7 @@ fn fork_started_and_closed_on_valid_block() {
     headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0, Duration::ZERO, false);
     assert!(headers.apply_fork_started(tip(1, 1), t(1)).is_empty());
     assert!(headers.has_fork_switch(&hash(1)));
-    let telemetry = headers.apply_block_valid(&hash(1), t(2), false);
+    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(2), false);
     assert!(!headers.has_fork_switch(&hash(1)));
     assert_eq!(telemetry.len(), 3); // lifecycle + adopted + fork switch
 }
@@ -768,7 +768,7 @@ fn fork_started_and_closed_on_valid_block() {
 fn slot_start_metric_omitted_while_syncing() {
     let mut headers = HeaderPerformance::new();
     headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000, Duration::ZERO, false);
-    let telemetry = headers.apply_block_valid(&hash(1), t(2), true);
+    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(2), true);
     assert_eq!(headers.lifecycle_count(), 0);
     assert!(matches!(
         &telemetry[0],
@@ -799,7 +799,7 @@ fn announcement_logs_three_peers_and_deliveries_keep_arrival_order() {
     assert!(matches!(&first[..], [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == peers[2]));
     assert!(matches!(&second[..], [super::HeaderTelemetry::Received { rank: 2, peer, .. }] if *peer == peers[0]));
 
-    let adopted = headers.apply_block_valid(&hash(1), t(6), false);
+    let adopted = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(6), false);
     assert!(
         matches!(adopted.last(), Some(super::HeaderTelemetry::Adopted { peer: Some(peer), .. }) if *peer == peers[2])
     );
@@ -820,7 +820,7 @@ fn already_stored_header_does_not_open_a_rank_one_announcement() {
     assert_eq!(headers.first_announcer(&hash(1)), Some(alice));
     assert_eq!(headers.slot_start_to_header_micros(&hash(1)), Some(1_000));
 
-    headers.apply_block_valid(&hash(1), t(3), false);
+    headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(3), false);
     assert!(
         headers.apply_header_received(peer("carol"), tip(1, 1), t(4), 1, Duration::ZERO, true).is_empty(),
         "an adopted header is not announced again"
@@ -860,7 +860,7 @@ fn blockperf_latencies_follow_slot_onset_and_the_peer_who_was_asked() {
     let from_bob = headers.apply_block_downloaded(bob, &hash(1), BlockHeight::from(1), t(5));
     assert!(matches!(&from_bob[..], [super::HeaderTelemetry::Received { fetch_latency_ms: Some(1_000), rank: 2, .. }]));
 
-    let adopted = headers.apply_block_valid(&hash(1), t(6), false);
+    let adopted = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(6), false);
     assert!(matches!(adopted.last(), Some(super::HeaderTelemetry::Adopted { slot_latency_ms: Some(5_500), .. })));
 }
 
@@ -994,7 +994,7 @@ fn capture_blockperf(filter: &str, live: bool) -> String {
             );
             rt.block_on(Box::new(effect).run(resources.clone()));
         }
-        let effect = Performance::record_block_valid(body, t(3), false);
+        let effect = Performance::record_block_valid(body, point.block_height(), t(3), false);
         rt.block_on(Box::new(effect).run(resources.clone()));
         info!(consensus::blocks::PAUSED, req_id = 1u64);
         debug!(consensus::blocks::TIMEOUT, req_id = 1u64);

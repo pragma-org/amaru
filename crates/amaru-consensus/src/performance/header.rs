@@ -64,6 +64,9 @@ pub struct HeaderPerformance {
     audience: BTreeMap<HeaderHash, HeaderAudience>,
     /// An in-progress fork switch, if any.
     fork_switch: Option<ForkSwitch>,
+    /// Headers already reported valid, kept until they fall behind the immutable horizon.
+    /// The height comes from the caller's `Point`.
+    reported_valid: BTreeMap<HeaderHash, BlockHeight>,
 }
 
 /// Peers that have announced or delivered one header, in arrival order.
@@ -508,6 +511,7 @@ impl HeaderPerformance {
             out.extend(self.close_fork(&hash, ForkSwitchOutcome::AbandonedBlock, now));
         }
         self.audience.retain(|_, audience| audience.height >= min_height);
+        self.reported_valid.retain(|_, height| *height >= min_height);
         out
     }
 
@@ -583,9 +587,22 @@ impl HeaderPerformance {
 
     /// The block for a header has been validated and adopted.
     ///
+    /// A second report for the same hash emits nothing. Adoption and chain selection both
+    /// report the new tip, and only the first of those has a lifecycle left to close.
+    ///
     /// When `syncing` is true, `slot_start_to_header_micros` is omitted (not meaningful while
     /// catching up far behind the network tip).
-    pub fn apply_block_valid(&mut self, hash: &HeaderHash, now: Instant, syncing: bool) -> Vec<HeaderTelemetry> {
+    pub fn apply_block_valid(
+        &mut self,
+        hash: &HeaderHash,
+        height: BlockHeight,
+        now: Instant,
+        syncing: bool,
+    ) -> Vec<HeaderTelemetry> {
+        if self.reported_valid.contains_key(hash) {
+            return Vec::new();
+        }
+        self.reported_valid.insert(*hash, height);
         let (delivered_by, slot_latency_ms) = match self.audience.get_mut(hash) {
             Some(audience) => {
                 audience.adopted = true;
