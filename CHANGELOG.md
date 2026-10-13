@@ -56,6 +56,9 @@ Other guiding principles:
 - **amaru-tui**: each peer row shows a header announcement score. The first peer to announce a header scores 6, the second scores 3, and the third scores 1.
 - **amaru-tui**: each chainsync peer row shows the signed gap from that peer's latest roll-forward (`ChainSync`) and advertised tip (`Adopted`) to this node's adopted height. Positive means the peer is ahead.
 - **amaru**: chainsync roll-forward completion is included in debug traces, with the header height and the peer's tip height.
+- **amaru**: a connection reports the remote peer's temperature (`none`, `maintenance`, or `diffusion`) when it changes, and the `connected` trace includes the local temperature. A share reply includes this node's listen address. A duplex inbound connection at maintenance runs peer-sharing. A peer that stays silent after a non-blocking transaction-id request is disconnected.
+- **amaru**: outbound connections bind to the listen port. `--peers-ephemeral-outbound-port` leaves the local port to the kernel. Windows keeps an ephemeral local port. If the listen port cannot be reused, the connect falls back to an ephemeral port.
+- **amaru**: a connection with nothing running locally and no remote initiator protocols is closed. A one-way connection that has already shown a remote initiator closes on the next cold round. Until that first initiator, and for a duplex connection, both sides stay up for 30 seconds after they go cold. Chain-sync `RequestNext` counts as the remote peer running chain-sync, the same as finding an intersection.
 
 ### Fixed
 
@@ -65,6 +68,7 @@ Other guiding principles:
 - **amaru**: a fork switch that is replaced reports its own duration. A different fork's span is no longer reused.
 - **amaru-tui**: a chainsync roll-forward replaces that peer's advertised tip, including when the new tip is lower. A tip one block behind the header it just sent still shows the header height.
 - **amaru**: adopting a block records its header lifecycle as valid. A chain-selection notice that is still queued when the node stops no longer leaves that block without one.
+- **amaru-tui**: the peers view keeps one row per live connection, including use reported before that connection is adopted. A closed connection is removed.
 - **amaru**: the death of an outbound bearer rejected as a duplicate no longer counts as a failed dial, and does not add connection malus, while that peer still has a live connection.
 - **amaru**: a peer that does not answer a share request within 60 seconds drops that connection. The node does not ask again on it.
 - **amaru**: chainsync stops when a peer has no intersection, and when a peer rolls back to a point this node does not have. The rollback waits 180 seconds before that peer is used upstream again. Neither case bans the peer.
@@ -84,16 +88,9 @@ Other guiding principles:
 
 - **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
 - **amaru-protocols**: block-fetch peer timeouts are logged as warnings instead of errors.
-- **amaru**: a connection reports the remote peer's temperature (`none`, `maintenance`, or `diffusion`) when it changes, and the `connected` trace includes the local temperature. A share reply includes this node's listen address. A duplex inbound connection at maintenance runs peer-sharing. A peer that stays silent after a non-blocking transaction-id request is disconnected.
-- **amaru**: outbound connections bind to the listen port. `--peers-ephemeral-outbound-port` leaves the local port to the kernel.
-- **amaru**: a connection with nothing running locally and no remote initiator protocols is closed. A one-way connection closes on the next selection round. A duplex connection stays up for 30 seconds after both sides go cold, then closes. Chain-sync `RequestNext` counts as the remote peer running chain-sync, the same as finding an intersection.
-- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
-- **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
 
 ### Fixed
 
-- **amaru-tui**: the peers view keeps one row per live connection, including use reported before that connection is adopted. A closed connection is removed.
-- **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru**: a block fetch that cannot hand its request to a peer now hits that request's timeout and continues, instead of waiting forever and leaving the node stuck. ([#1453][])
 - **amaru-kernel**: fix some decoding gaps and made all the decoders conformant w.r.t the [`cbor-dataset` repository](https://github.com/r2rationality/cardano-cbor-dataset/pull/1).
 - **amaru-kernel**: fixed the ordering of multi assets.

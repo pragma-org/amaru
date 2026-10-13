@@ -201,11 +201,7 @@ impl TokioConnections {
 
 async fn connect(peer: Peer, resource: Arc<Inner>, timeout: Duration) -> std::io::Result<ConnectionId> {
     let addr = SocketAddr::from(peer);
-    let local = resource.bind_outbound_to_listen_port.then(|| *resource.outbound_bind.lock()).flatten();
-    let stream = match local {
-        Some(local) => tokio::time::timeout(timeout, connect_bound(local, addr)).await??,
-        None => tokio::time::timeout(timeout, TcpStream::connect(addr)).await??,
-    };
+    let stream = tokio::time::timeout(timeout, connect_stream(&resource, addr)).await??;
     debug!(network::connection::CONNECTED, peer);
     let mut connections = resource.connections.lock();
     let id = connections.add_connection(Connection::new(stream, resource.read_buf_size)?);
@@ -397,17 +393,40 @@ struct PendingAccept {
     peer_addr: SocketAddr,
 }
 
+/// Dial `addr`, binding to the listen port when that is enabled and the platform can share it.
+///
+/// Windows has no `SO_REUSEPORT`, so the local port stays ephemeral. A Unix bind that the
+/// listen socket will not share falls back to an ephemeral port as well.
+async fn connect_stream(resource: &Inner, addr: SocketAddr) -> std::io::Result<TcpStream> {
+    #[cfg(unix)]
+    if let Some(local) = resource.bind_outbound_to_listen_port.then(|| *resource.outbound_bind.lock()).flatten() {
+        match connect_bound(local, addr).await {
+            Ok(stream) => return Ok(stream),
+            Err(err) if local_bind_rejected(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
+    TcpStream::connect(addr).await
+}
+
+#[cfg(unix)]
+fn local_bind_rejected(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::AddrInUse | std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::PermissionDenied
+    )
+}
+
 /// Connect `remote` from a socket bound to `local`.
 ///
-/// `SO_REUSEADDR`, and `SO_REUSEPORT` on platforms that have it, let this socket share the
-/// listen port with the listener.
+/// `SO_REUSEADDR` and `SO_REUSEPORT` let this socket share the listen port with the listener.
+#[cfg(unix)]
 async fn connect_bound(local: SocketAddr, remote: SocketAddr) -> std::io::Result<TcpStream> {
     let socket = match local {
         SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
         SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
     };
     socket.set_reuseaddr(true)?;
-    #[cfg(unix)]
     socket.set_reuseport(true)?;
     socket.bind(local)?;
     socket.connect(remote).await

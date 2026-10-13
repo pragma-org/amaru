@@ -771,11 +771,40 @@ fn cold_inbound(peer: Peer, conn_id: ConnectionId, full_duplex: bool) -> Connect
 }
 
 #[test]
-fn a_non_duplex_cold_bearer_is_disconnected_on_that_round() {
+fn a_new_non_duplex_cold_bearer_waits_out_the_startup_dwell() {
     let peer = TestPrep::peer("5.5.5.6:6");
     let conn_id = ConnectionId::initial();
     let mut prep = test_prep(&[]);
+    prep.state.target_upstream_peers = 0;
     far_deadlines(&mut prep.state);
+    prep.established_connections.push(cold_inbound(peer, conn_id, false));
+
+    let (mut running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    let deadline = sim_t0() + REMOTE_COLD_DWELL;
+    let state = ps_state(&running);
+    let bearer = state.inbound_peers.get(&peer).expect("bearer kept");
+    assert!(!bearer.remote_was_hot);
+    assert_eq!(bearer.remote_cold_until, Some(deadline));
+    assert!(disconnects(&running).is_empty());
+
+    drive_until(&mut running, deadline);
+    assert_eq!(disconnects(&running), vec![(peer, conn_id)]);
+    assert!(!ps_state(&running).inbound_peers.contains_key(&peer));
+}
+
+#[test]
+fn a_non_duplex_bearer_that_has_been_hot_closes_when_it_goes_cold() {
+    let peer = TestPrep::peer("5.5.5.6:16");
+    let conn_id = ConnectionId::initial();
+    let mut prep = test_prep(&[]);
+    prep.state.target_upstream_peers = 0;
+    far_deadlines(&mut prep.state);
+    let mut bearer = DesiredBearer::adopt(
+        &ViewConn::new(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::None).full_duplex(false).build(),
+        MiniProtocolUse::None,
+    );
+    bearer.remote_was_hot = true;
+    prep.state.inbound_peers.insert(peer, bearer);
     prep.scripted_view = Some(peer_view(
         1,
         vec![
@@ -787,7 +816,7 @@ fn a_non_duplex_cold_bearer_is_disconnected_on_that_round() {
     ));
 
     let (running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
-    assert_eq!(manager_sends(&running), vec![ManagerMessage::Disconnect(peer, conn_id)]);
+    assert_eq!(disconnects(&running), vec![(peer, conn_id)]);
     assert!(!ps_state(&running).inbound_peers.contains_key(&peer));
 }
 

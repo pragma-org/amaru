@@ -126,6 +126,9 @@ struct DesiredBearer {
     local_use_sent_at: Option<Instant>,
     /// When a bearer that is cold on both sides may be closed.
     remote_cold_until: Option<Instant>,
+    /// The remote side has run an initiator protocol on this bearer at least once.
+    #[serde(default)]
+    remote_was_hot: bool,
 }
 
 impl DesiredBearer {
@@ -138,6 +141,7 @@ impl DesiredBearer {
             remote_use: conn.remote_use,
             local_use_sent_at: None,
             remote_cold_until: None,
+            remote_was_hot: false,
         }
     }
 
@@ -897,8 +901,9 @@ impl PeerSelection {
 
     /// Close a bearer whose local intent and remote temperature are both [`MiniProtocolUse::None`].
     ///
-    /// A non-duplex bearer closes on this round. A duplex bearer waits [`REMOTE_COLD_DWELL`] from
-    /// the first round that sees both cold, and that deadline is not moved while both stay cold.
+    /// A bearer that has not yet shown a remote initiator, and every duplex bearer, waits
+    /// [`REMOTE_COLD_DWELL`] from the first round that sees both cold. That deadline is not moved
+    /// while both stay cold. A one-way bearer that has already been hot closes on this round.
     /// A spent send budget leaves the deadline due so the next round retries with one close.
     async fn consider_remote_cold(
         &mut self,
@@ -912,11 +917,16 @@ impl PeerSelection {
             let Some(bearer) = self.bearer_mut(peer, conn_id) else {
                 return;
             };
+            if bearer.remote_use != MiniProtocolUse::None {
+                bearer.remote_was_hot = true;
+            }
             if bearer.wanted != MiniProtocolUse::None || bearer.remote_use != MiniProtocolUse::None {
                 bearer.remote_cold_until = None;
                 return;
             }
-            if bearer.full_duplex {
+            // A brand-new one-way inbound has no remote initiator yet. Closing it on the first
+            // round drops the bearer before that initiator can open.
+            if bearer.full_duplex || !bearer.remote_was_hot {
                 let until = *bearer.remote_cold_until.get_or_insert(now + REMOTE_COLD_DWELL);
                 until <= now
             } else {

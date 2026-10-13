@@ -46,7 +46,7 @@ pub(in crate::ui) fn render_peers_table(
     let focused = model.scroll_focus == ScrollFocus::Peers;
     let toggle_label = button_label(peer_toggle_label(model));
     let block = Block::default()
-        .title(panel_title(model.interaction_mode, focused, &format!("Peers ({})", format_count(model.peers.len()))))
+        .title(panel_title(model.interaction_mode, focused, &peers_title(model)))
         .title_top(
             border_title_line(
                 vec![ratatui::text::Span::styled(toggle_label.clone(), emphasis_primary(model.interaction_mode))],
@@ -138,6 +138,12 @@ fn peer_toggle_label(model: &Model) -> &'static str {
     if model.peer_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
+fn peers_title(model: &Model) -> String {
+    let up = model.peers.values().filter(|peer| peer.local_use == PeerUse::Diffusion).count();
+    let dn = model.peers.values().filter(|peer| peer.remote_use == PeerUse::Diffusion).count();
+    format!("Peers ({} up / {} dn)", format_count(up), format_count(dn))
+}
+
 fn peer_row(index: usize, peer: &PeerState, adopted_block_height: Option<u64>) -> Row<'static> {
     let rtt =
         peer.last_rtt_micros.map(|value| format!("{:.1} ms", value as f64 / 1_000.0)).unwrap_or_else(|| "—".into());
@@ -206,7 +212,7 @@ fn dial_label(peer: &PeerState) -> &'static str {
 fn use_cell(use_of: PeerUse) -> Cell<'static> {
     let (symbol, color) = match use_of {
         PeerUse::None => ("-", muted_color()),
-        PeerUse::Maintenance => ("●", Color::Yellow),
+        PeerUse::Maintenance => ("○", Color::Yellow),
         PeerUse::Diffusion => ("●", Color::Rgb(110, 228, 150)),
     };
     Cell::from(symbol).style(Style::default().fg(color))
@@ -352,19 +358,24 @@ mod tests {
         assert!(header.contains("up"));
         assert!(header.contains("dn"));
         assert!(header.contains("ChainSync"));
+        assert!(lines.iter().any(|line| line.contains("0 up / 1 dn")), "{lines:?}");
         let inbound = lines.iter().find(|line| line.contains("10.1.1.1:3001")).expect("inbound row");
         let outbound = lines.iter().find(|line| line.contains("10.2.2.2:3001")).expect("outbound row");
         assert!(inbound.contains("in"), "{inbound}");
         assert!(outbound.contains("out"), "{outbound}");
 
-        let dots: Vec<_> = terminal
+        let marks: Vec<_> = terminal
             .backend()
             .buffer()
             .content()
             .iter()
-            .filter(|cell| cell.symbol() == "●")
-            .map(|cell| cell.fg)
+            .filter(|cell| cell.symbol() == "○" || cell.symbol() == "●")
+            .map(|cell| (cell.symbol().to_string(), cell.fg))
             .collect();
-        assert_eq!(dots, vec![Color::Yellow, Color::Rgb(110, 228, 150)], "{lines:?}");
+        assert_eq!(
+            marks,
+            vec![("○".to_string(), Color::Yellow), ("●".to_string(), Color::Rgb(110, 228, 150))],
+            "{lines:?}"
+        );
     }
 }

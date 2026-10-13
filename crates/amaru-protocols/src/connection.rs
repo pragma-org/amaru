@@ -449,11 +449,11 @@ async fn do_handshake(
             caller,
         })
         .await;
+    // `None` is the call timing out. `Some(false)` is the manager refusing the bearer
+    // (unknown id, mismatch, inbound cap, or a duplicate). Either way this stage will not
+    // get another handshake result, so the socket must close.
     if recorded != Some(true) {
-        if recorded.is_none() {
-            return eff.terminate().await;
-        }
-        return State::Handshake { muxer, handshake };
+        return eff.terminate().await;
     }
 
     eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
