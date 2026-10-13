@@ -43,9 +43,9 @@ pub enum InvalidWithdrawals {
 /// checked nor modified.
 pub(crate) fn execute<C>(
     context: &mut C,
+    is_valid: bool,
     withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
     network: Network,
-    is_valid: bool,
 ) -> Result<(), InvalidWithdrawals>
 where
     C: WitnessSlice + AccountsSliceMut + BalanceSlice,
@@ -176,7 +176,7 @@ mod test {
         let account = RewardAccount::new(Network::Mainnet, Credential::KeyHash(Hash::new([0; 28])));
 
         assert!(matches!(
-            super::execute(&mut context, Some(vec![(account, 1_000_000)]), Network::Testnet, true),
+            super::execute(&mut context, true, Some(vec![(account, 1_000_000)]), Network::Testnet),
             Err(InvalidWithdrawals::NetworkMismatch {
                 expected: Network::Testnet,
                 received: Network::Mainnet,
@@ -193,7 +193,7 @@ mod test {
 
         let account = RewardAccount::new(Network::Testnet, Credential::KeyHash(Hash::new([0; 28])));
 
-        super::execute(&mut context, Some(vec![(account, 1_000_000)]), Network::Testnet, is_valid)?;
+        super::execute(&mut context, is_valid, Some(vec![(account, 1_000_000)]), Network::Testnet)?;
 
         Ok(context.balance().coin())
     }

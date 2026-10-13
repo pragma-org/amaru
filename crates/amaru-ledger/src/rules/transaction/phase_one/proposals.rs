@@ -76,12 +76,12 @@ pub enum InvalidProposals {
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
     context: &mut C,
+    is_valid: bool,
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     guardrail_script: Option<Hash<SCRIPT>>,
     transaction: (TransactionId, TransactionPointer),
-    is_valid: bool,
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
