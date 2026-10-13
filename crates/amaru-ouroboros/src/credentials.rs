@@ -349,7 +349,7 @@ mod tests {
         // The on-disk envelope is the 608-byte seed. The in-memory key appends the period.
         let key = kes::SecretKey::for_tests();
         let raw = unsafe { key.leak_into_bytes() };
-        envelope(kes::SecretKey::ENVELOPE_TYPE, &format!("590260{}", hex::encode(&raw[..kes::SecretKey::SIZE])))
+        envelope("KesSigningKey_ed25519_kes_2^6", &format!("590260{}", hex::encode(&raw[..kes::SecretKey::SIZE])))
     }
 
     struct Issued {

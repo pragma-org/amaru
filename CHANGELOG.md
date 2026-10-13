@@ -44,6 +44,7 @@ Other guiding principles:
   `try_setup_observability` and `setup_observability` take those file specs as an extra argument.
 - **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
+- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
 
 ### Changed
 

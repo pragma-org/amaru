@@ -14,14 +14,14 @@
 
 use std::{
     fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::cardano::text_envelope::{self, ToTextEnvelope};
-use amaru_ouroboros::kes::{SecretKey, WriteRaw};
+use amaru_ouroboros::kes::SecretKey;
 use anyhow::{Context, ensure};
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
 use tempfile::NamedTempFile;
 
 #[derive(Debug, Subcommand)]
@@ -39,23 +39,13 @@ pub(crate) enum KesCommand {
 
 #[derive(Debug, Args)]
 pub(crate) struct CreateArgs {
-    /// Destination for the KES signing key.
+    /// Destination for the raw binary KES signing key.
     #[arg(long)]
     signing_key: PathBuf,
 
-    /// Destination for the KES verification key. Not generated if unspecified.
+    /// Destination for the raw binary KES verification key. Not generated if unspecified.
     #[arg(long)]
     verification_key: Option<PathBuf>,
-
-    /// Output format for both keys: raw bytes or cardano-cli compatible JSON text envelopes.
-    #[arg(long, value_enum, default_value = "raw")]
-    key_format: KeyFormat,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum KeyFormat {
-    Raw,
-    Compatible,
 }
 
 impl KeysCommand {
@@ -69,7 +59,7 @@ impl KeysCommand {
 }
 
 fn create(args: CreateArgs) -> anyhow::Result<()> {
-    let CreateArgs { signing_key, verification_key, key_format } = args;
+    let CreateArgs { signing_key, verification_key } = args;
 
     if let Some(verification_key) = verification_key.as_ref() {
         ensure!(&signing_key != verification_key, "KES key paths must differ");
@@ -81,31 +71,34 @@ fn create(args: CreateArgs) -> anyhow::Result<()> {
     }
 
     let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
+    let signing = prepare_key(|file| secret.write_raw(file), &signing_key)?;
+
     if let Some(verification_key) = verification_key.as_ref() {
-        write_key(&public, key_format, verification_key)?;
+        let verification = prepare_key(|file| file.write_all(public.as_ref()), verification_key)?;
+        verification
+            .persist_noclobber(verification_key)
+            .with_context(|| format!("could not save {}", verification_key.display()))?;
     };
 
-    write_key(&secret, key_format, &signing_key).inspect_err(|_| {
-        if let Some(verification_key) = verification_key.as_ref() {
-            let _ = fs::remove_file(verification_key);
-        }
-    })
-}
-
-fn write_key(key: &(impl ToTextEnvelope + WriteRaw), format: KeyFormat, path: &Path) -> anyhow::Result<()> {
-    let mut file = new_temp_file(path)?;
-    match format {
-        KeyFormat::Raw => key.write_raw(&mut file).map_err(anyhow::Error::from),
-        KeyFormat::Compatible => text_envelope::write(key, &mut file).map_err(anyhow::Error::from),
-    }
-    .with_context(|| format!("could not write key file for {}", path.display()))?;
-    file.persist_noclobber(path).with_context(|| format!("could not save {}", path.display()))?;
+    signing
+        .persist_noclobber(&signing_key)
+        .inspect_err(|_| {
+            if let Some(verification_key) = verification_key.as_ref() {
+                let _ = fs::remove_file(verification_key);
+            }
+        })
+        .with_context(|| format!("could not save {}", signing_key.display()))?;
     Ok(())
 }
 
-fn new_temp_file(path: &Path) -> anyhow::Result<NamedTempFile> {
-    NamedTempFile::new_in(parent(path))
-        .with_context(|| format!("could not create temporary key file for {}", path.display()))
+fn prepare_key(
+    write_raw: impl FnOnce(&mut NamedTempFile) -> io::Result<()>,
+    path: &Path,
+) -> anyhow::Result<NamedTempFile> {
+    let mut file = NamedTempFile::new_in(parent(path))
+        .with_context(|| format!("could not create temporary key file for {}", path.display()))?;
+    write_raw(&mut file).with_context(|| format!("could not write key file for {}", path.display()))?;
+    Ok(file)
 }
 
 fn parent(path: &Path) -> &Path {
@@ -122,11 +115,7 @@ mod tests {
     use super::*;
 
     fn args(directory: &Path) -> CreateArgs {
-        CreateArgs {
-            signing_key: directory.join("kes.skey"),
-            verification_key: Some(directory.join("kes.vkey")),
-            key_format: KeyFormat::Raw,
-        }
+        CreateArgs { signing_key: directory.join("kes.skey"), verification_key: Some(directory.join("kes.vkey")) }
     }
 
     #[test]

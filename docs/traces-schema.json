@@ -5184,6 +5184,27 @@
         "info"
       ]
     },
+    "amaru::consensus::kes::LEGACY_KEY_ENVELOPE": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "legacy_key_envelope",
+      "kind": "event",
+      "target": "amaru::consensus::kes",
+      "description": "Loaded a legacy KES signing-key text envelope; new keys should use raw binary files",
+      "public": true,
+      "levels": [
+        "trace"
+      ]
+    },
     "amaru::consensus::perf::fork::SWITCH": {
       "type": "object",
       "properties": {
