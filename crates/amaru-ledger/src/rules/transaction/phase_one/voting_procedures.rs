@@ -22,7 +22,9 @@ use amaru_kernel::{
 use itertools::Itertools;
 use thiserror::Error;
 
-use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalStateSlim, ProposalsSlice, WitnessSlice};
+use crate::context::{
+    CommitteeSlice, DRepsSlice, PoolsSlice, ProposalStateSlim, ProposalsSlice, ProposalsSliceMut, WitnessSlice,
+};
 
 #[derive(Debug, Error)]
 pub enum InvalidVotingProcedures {
@@ -52,7 +54,7 @@ pub(crate) fn execute<C>(
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, VotesByProposal>>,
 ) -> Result<(), InvalidVotingProcedures>
 where
-    C: ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,
+    C: ProposalsSliceMut + CommitteeSlice + DRepsSlice + PoolsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
         // NOTE: Some conformance tests fail this check because the Haskell imp tests run on a
