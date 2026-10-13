@@ -33,13 +33,10 @@ pub mod certificates;
 pub use certificates::InvalidCertificates;
 
 pub mod fees;
-pub use fees::InvalidFees;
+pub use fees::{InvalidCollateral, InvalidFees};
 
 pub mod inputs;
 pub use inputs::InvalidInputs;
-
-pub mod collateral;
-pub use collateral::InvalidCollateral;
 
 pub mod metadata;
 pub use metadata::InvalidTransactionMetadata;
@@ -93,9 +90,6 @@ pub enum PhaseOneError {
 
     #[error("script preparation failed: {0}")]
     ScriptPreparation(PreparationError),
-
-    #[error("invalid collateral: {0}")]
-    Collateral(#[from] InvalidCollateral),
 
     #[error("invalid proposals: {0}")]
     Proposals(#[from] proposals::InvalidProposals),
@@ -167,20 +161,26 @@ where
     metadata::execute(arena_pool, &transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
     span.record(PHASE_ONE::FIELD_METADATA_MICROS, elapsed_and_reset(&mut meter));
 
-    let ref_scripts_size = inputs::execute(
+    let inputs = inputs::execute(
         context,
-        &transaction_body.inputs,
+        is_valid,
+        mem::take(&mut transaction_body.inputs),
         transaction_body.reference_inputs.as_deref(),
+        mem::take(&mut transaction_body.collateral).map(Vec::from).unwrap_or_default(),
         protocol_parameters,
     )?;
     span.record(PHASE_ONE::FIELD_INPUTS_MICROS, elapsed_and_reset(&mut meter));
 
-    let fees = fees::execute(
+    fees::execute(
         context,
+        is_valid,
         transaction_body.fee,
+        inputs.collateral,
+        transaction_body.collateral_return.as_deref(),
+        transaction_body.total_collateral,
         tx_size,
         transaction_witness_set,
-        ref_scripts_size,
+        inputs.ref_scripts_size,
         protocol_parameters,
     )?;
     span.record(PHASE_ONE::FIELD_FEES_MICROS, elapsed_and_reset(&mut meter));
@@ -191,24 +191,6 @@ where
             return Err(PhaseOneError::TreasuryValueMismatch { provided, expected });
         }
     }
-
-    // TODO: The 'collateral' rule group shouldn't exist
-    //
-    // This is a mix of witness and fees; and instead of duplicating the collateral traversing
-    // logic in both, we should augment fees and witness handling to also account for
-    // collaterals.
-    let collateral = collateral::execute(
-        context,
-        transaction_body.collateral.as_deref(),
-        transaction_body.collateral_return.as_deref(),
-        transaction_body.total_collateral,
-        transaction_body.fee,
-        protocol_parameters,
-        transaction_witness_set.redeemer.is_some(),
-    )?;
-
-    context.add_fees(if is_valid { fees } else { collateral });
-    span.record(PHASE_ONE::FIELD_COLLATERAL_MICROS, elapsed_and_reset(&mut meter));
 
     mint::execute(context, transaction_body.mint.as_ref());
     span.record(PHASE_ONE::FIELD_MINT_MICROS, elapsed_and_reset(&mut meter));
@@ -349,12 +331,7 @@ where
         return Err(PhaseOneError::ValueNotPreserved(transaction_balance));
     }
 
-    // At last, consume inputs
-    Ok(if is_valid {
-        transaction_body.inputs.into_iter().collect()
-    } else {
-        transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
-    })
+    Ok(inputs.consumed)
 }
 
 fn fail_on_tx_size_too_large(provided: u64, protocol_parameters: &ProtocolParameters) -> Result<(), PhaseOneError> {
