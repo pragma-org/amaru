@@ -58,10 +58,10 @@ pub enum InvalidOutput {
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
     context: &mut C,
+    is_valid: bool,
     arena_pool: &ArenaPool,
     protocol_parameters: &ProtocolParameters,
     network: Network,
-    is_valid: bool,
     transaction_id: TransactionId,
     outputs: Vec<MemoizedTransactionOutput>,
     collateral_return: Option<MemoizedTransactionOutput>,
@@ -173,10 +173,10 @@ mod tests {
 
         execute(
             &mut context,
+            is_valid,
             &ArenaPool::new(1, 1_024_000),
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
             Network::Testnet,
-            is_valid,
             transaction_id,
             vec![output()],
             Some(output()),

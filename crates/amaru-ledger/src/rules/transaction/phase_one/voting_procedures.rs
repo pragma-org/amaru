@@ -50,10 +50,10 @@ type VotesByProposal = NonEmptyKeyValuePairs<ProposalId, VotingProcedure>;
 /// When it is invalid, nothing else happens.
 pub(crate) fn execute<C>(
     context: &mut C,
+    is_valid: bool,
     protocol_version: ProtocolVersion,
     era_history: &EraHistory,
     pointer: TransactionPointer,
-    is_valid: bool,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, VotesByProposal>>,
 ) -> Result<(), InvalidVotingProcedures>
 where

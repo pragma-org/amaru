@@ -84,12 +84,12 @@ pub enum InvalidCertificates {
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn execute<C>(
     context: &mut C,
+    is_valid: bool,
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: GovernanceActivity,
     transaction: TransactionPointer,
-    is_valid: bool,
     certificates: Option<NonEmptySet<Certificate>>,
 ) -> Result<(), InvalidCertificates>
 where

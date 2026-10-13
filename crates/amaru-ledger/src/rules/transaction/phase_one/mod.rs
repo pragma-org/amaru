@@ -194,10 +194,10 @@ where
 
     outputs::execute(
         context,
+        is_valid,
         arena_pool,
         protocol_parameters,
         network,
-        is_valid,
         transaction_id,
         mem::take(&mut transaction_body.outputs),
         mem::take(&mut transaction_body.collateral_return).map(|output| *output),
@@ -206,42 +206,42 @@ where
 
     withdrawals::execute(
         context,
+        is_valid,
         mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
         network,
-        is_valid,
     )?;
     span.record(PHASE_ONE::FIELD_WITHDRAWALS_MICROS, elapsed_and_reset(&mut meter));
 
     certificates::execute(
         context,
+        is_valid,
         network,
         protocol_parameters,
         era_history,
         governance_activity,
         pointer,
-        is_valid,
         mem::take(&mut transaction_body.certificates),
     )?;
     span.record(PHASE_ONE::FIELD_CERTIFICATES_MICROS, elapsed_and_reset(&mut meter));
 
     proposals::execute(
         context,
+        is_valid,
         network,
         protocol_parameters,
         era_history,
         guardrail_script,
         (transaction_id, pointer),
-        is_valid,
         mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
     )?;
     span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
 
     voting_procedures::execute(
         context,
+        is_valid,
         protocol_parameters.protocol_version,
         era_history,
         pointer,
-        is_valid,
         mem::take(&mut transaction_body.votes),
     )?;
     span.record(PHASE_ONE::FIELD_VOTES_MICROS, elapsed_and_reset(&mut meter));
