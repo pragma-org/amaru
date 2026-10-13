@@ -317,7 +317,9 @@ where
 
     if let Some(donation) = transaction_body.donation.map(u64::from) {
         context.produce_lovelace(donation);
-        context.add_donation(donation);
+        if is_valid {
+            context.add_donation(donation);
+        }
         span.record(PHASE_ONE::FIELD_DONATION_MICROS, elapsed_and_reset(&mut meter));
     }
 
