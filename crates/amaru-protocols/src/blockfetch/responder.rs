@@ -222,7 +222,6 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
         Proto::Idle(idle) => match idle.convert_input(mail) {
             Ok(ServerIdleIn::Pull(pull)) => idle.receive(&pull, eff).send(&mux, WantNext).await.finish().into(),
             Ok(ServerIdleIn::RequestRange(range)) => {
-                PeerTrack::new(&eff).note_remote_protocol(peer, conn_id, RemoteProtocol::BlockFetch, true).await;
                 let store = Store::new(eff.clone());
                 match PointsRange::request_range(&store, range.from, range.through).await {
                     Ok(Some(mut points)) => {
@@ -243,10 +242,17 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                             }
                         }
                         let (_, session) = session.discard_repeat().call(&mux, BatchDone).await;
+                        PeerTrack::new(&metrics_eff)
+                            .note_remote_protocol(peer, conn_id, RemoteProtocol::BlockFetch, true)
+                            .await;
                         session.send(&mux, WantNext).await.finish().into()
                     }
                     Ok(None) => {
+                        let note = eff.clone();
                         let (_, session) = idle.receive(&range, eff).call(&mux, NoBlocks).await;
+                        PeerTrack::new(&note)
+                            .note_remote_protocol(peer, conn_id, RemoteProtocol::BlockFetch, true)
+                            .await;
                         session.send(&mux, WantNext).await.finish().into()
                     }
                     Err(err) => return invalid(peer, idle.name(), err, eff).await,

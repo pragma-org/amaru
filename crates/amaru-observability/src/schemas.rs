@@ -2468,6 +2468,7 @@ define_schemas! {
                         levels: info
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
+                        required role: String
                         required full_duplex: bool
                         required advertisable: bool
                     }

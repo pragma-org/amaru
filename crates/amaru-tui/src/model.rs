@@ -646,7 +646,7 @@ mod tests {
             protocols::peer_selection::peer::DISCONNECTED::FIELD_CONN_ID => 4u64,
             protocols::peer_selection::peer::DISCONNECTED::FIELD_DIRECTION => "Outbound",
         )));
-        assert!(model.peers.get("4").is_none());
+        assert!(!model.peers.contains_key("4"));
 
         model.handle_message(Message::Telemetry(telemetry!(
             protocols::manager::peer::LOCAL_USE_APPLIED,
@@ -654,7 +654,7 @@ mod tests {
             protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_CONN_ID => 4u64,
             protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "diffusion",
         )));
-        assert!(model.peers.get("4").is_none());
+        assert!(!model.peers.contains_key("4"));
 
         model.handle_message(Message::Telemetry(telemetry!(
             protocols::manager::peer::LOCAL_USE_APPLIED,

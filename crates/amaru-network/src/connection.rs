@@ -399,13 +399,15 @@ struct PendingAccept {
 
 /// Connect `remote` from a socket bound to `local`.
 ///
-/// `SO_REUSEADDR` and `SO_REUSEPORT` let this socket share the listen port with the listener.
+/// `SO_REUSEADDR`, and `SO_REUSEPORT` on platforms that have it, let this socket share the
+/// listen port with the listener.
 async fn connect_bound(local: SocketAddr, remote: SocketAddr) -> std::io::Result<TcpStream> {
     let socket = match local {
         SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
         SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
     };
     socket.set_reuseaddr(true)?;
+    #[cfg(unix)]
     socket.set_reuseport(true)?;
     socket.bind(local)?;
     socket.connect(remote).await
@@ -423,7 +425,8 @@ fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
 
     // Allow rebinding to a port that was recently used (e.g., still in TIME_WAIT),
     socket.set_reuse_address(true)?;
-    // and let an outbound socket bind to this same port.
+    // and, where the platform supports it, let an outbound socket bind to this same port.
+    #[cfg(unix)]
     socket.set_reuse_port(true)?;
 
     socket.bind(&addr.into())?;

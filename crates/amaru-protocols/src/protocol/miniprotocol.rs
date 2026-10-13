@@ -170,6 +170,15 @@ pub trait StageState<Proto: ProtocolState<R>, R: RoleT>: Sized + SendData {
     ) -> impl Future<Output = anyhow::Result<(Option<Proto::Action>, Self)>> + Send;
 
     fn muxer(&self) -> &StageRef<MuxMessage>;
+
+    /// Runs after this transition's network reply has been given to the mux.
+    ///
+    /// The default does nothing. Chain-sync records remote temperature here. Recording earlier
+    /// suspends the stage before the reply is queued and changes the receiver's simulated
+    /// durations, so a leader can forge the next slot on the previous tip.
+    fn after_send(self, _eff: &Effects<Inputs<Self::LocalIn>>) -> impl Future<Output = Self> + Send {
+        async move { self }
+    }
 }
 
 pub type Miniprotocol<A, B, R>
@@ -276,6 +285,7 @@ where
                 }
             }
 
+            let stage = stage.after_send(&eff).await;
             (proto, stage)
         })
     }

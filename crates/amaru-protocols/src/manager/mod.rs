@@ -528,6 +528,7 @@ impl Manager {
             protocols::manager::peer::HANDSHAKE_COMPLETED,
             peer,
             conn_id = conn_id.as_u64(),
+            role = role.to_string(),
             full_duplex,
             advertisable
         );

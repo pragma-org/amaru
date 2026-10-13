@@ -9009,8 +9009,8 @@
         "conn_id": {
           "type": "integer"
         },
-        "full_duplex_capable": {
-          "type": "boolean"
+        "role": {
+          "type": "string"
         },
         "full_duplex": {
           "type": "boolean"
@@ -9022,7 +9022,7 @@
       "required": [
         "peer",
         "conn_id",
-        "full_duplex_capable",
+        "role",
         "full_duplex",
         "advertisable"
       ],
@@ -9401,9 +9401,6 @@
         "direction": {
           "type": "string"
         },
-        "full_duplex_capable": {
-          "type": "boolean"
-        },
         "full_duplex": {
           "type": "boolean"
         },
@@ -9415,7 +9412,6 @@
         "peer",
         "conn_id",
         "direction",
-        "full_duplex_capable",
         "full_duplex",
         "local_use"
       ],
