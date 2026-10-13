@@ -169,15 +169,21 @@ impl Block {
             )));
         }
         decoder.skip()?;
-        let mut components = [&[][..]; 4];
-        for component in &mut components {
-            let (_, bytes) = cbor::tee(&mut decoder, |d| d.skip())?;
-            *component = bytes;
+        let mut ranges = [(0usize, 0usize); 4];
+        for range in &mut ranges {
+            let start = decoder.position();
+            decoder.skip()?;
+            *range = (start, decoder.position());
         }
         if decoder.position() != encoded_block.len() {
             return Err(cbor::decode::Error::message("trailing data after block body"));
         }
-        Ok(Self::hash_body_cbor(components))
+        Ok(Self::hash_body_cbor([
+            &encoded_block[ranges[0].0..ranges[0].1],
+            &encoded_block[ranges[1].0..ranges[1].1],
+            &encoded_block[ranges[2].0..ranges[2].1],
+            &encoded_block[ranges[3].0..ranges[3].1],
+        ]))
     }
 
     /// Get the size in bytes of the serialised block.

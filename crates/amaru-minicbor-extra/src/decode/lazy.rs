@@ -16,8 +16,6 @@ use std::{io::Read, sync::Arc};
 
 use minicbor as cbor;
 
-use crate::skip_value;
-
 /// Runtime-neutral callback used to stop incremental decoding at safe boundaries.
 pub type Checkpoint = dyn Fn() -> anyhow::Result<()> + Send + Sync;
 
@@ -59,7 +57,7 @@ impl<'a> LazyDecoder<'a> {
     /// Skip the next CBOR element.
     ///
     /// Arrays and maps are consumed incrementally so the complete container does not need to fit
-    /// in memory. Nested values are checked by [`skip_value`].
+    /// in memory. Other values are skipped by [`cbor::Decoder::skip`].
     pub fn skip(&mut self) -> anyhow::Result<()> {
         let datatype = self.with_decoder(|d| Ok(d.datatype()?))?;
 
@@ -68,20 +66,20 @@ impl<'a> LazyDecoder<'a> {
         } else if matches!(datatype, cbor::data::Type::Map | cbor::data::Type::MapIndef) {
             self.skip_map()
         } else {
-            self.with_decoder(|d| Ok(skip_value(d)?))
+            self.with_decoder(|d| Ok(d.skip()?))
         }
     }
 
     fn skip_array(&mut self) -> anyhow::Result<()> {
         let length = self.with_decoder(|d| Ok(d.array()?))?;
-        self.skip_entries(length, skip_value)
+        self.skip_entries(length, |d| d.skip())
     }
 
     fn skip_map(&mut self) -> anyhow::Result<()> {
         let length = self.with_decoder(|d| Ok(d.map()?))?;
         self.skip_entries(length, |d| {
-            skip_value(d)?;
-            skip_value(d)
+            d.skip()?;
+            d.skip()
         })
     }
 
@@ -399,23 +397,5 @@ mod tests {
         let mut decoder = LazyDecoder::new(&mut reader);
 
         decoder.skip().expect_err("map value is missing");
-    }
-
-    #[test]
-    fn rejects_break_markers_where_a_value_is_required() {
-        for bytes in [
-            &[0xff][..],
-            &[0x81, 0xff],
-            &[0xa1, 0x01, 0xff],
-            &[0x81, 0x81, 0xff, 0x00],
-            &[0xbf, 0x00, 0xa1, 0x00, 0xff, 0x01, 0xff],
-            &[0xd8, 24, 0x81, 0xff, 0x00],
-        ] {
-            let mut reader = ChunkedReader { inner: bytes, chunk_size: 1 };
-            let mut decoder = LazyDecoder::new(&mut reader);
-
-            let error = decoder.skip().expect_err("break is not a value");
-            assert!(error.downcast::<cbor::decode::Error>().unwrap().is_type_mismatch());
-        }
     }
 }

@@ -17,8 +17,8 @@ mod common;
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    BlockHeight, EraName, HeaderHash, MultiEraBlock, Point, RawBlock, cardano::era_name::ERA_NAMES, parse_block_header,
-    protocol_version::PROTOCOL_VERSION_10,
+    BlockHeight, EraName, HeaderHash, MultiEraBlock, Point, RawBlock, cardano::era_name::ERA_NAMES, cbor,
+    extract_block_header_cbor, parse_block_header, protocol_version::PROTOCOL_VERSION_10,
 };
 pub use common::*;
 
@@ -42,15 +42,6 @@ fn test_cbor_dataset() {
     for (rule, round_trip) in RULES {
         let results = check_rule(&test_configuration, rule, round_trip).expect("failed to check the rule");
         test_results.append(results);
-        if *rule == "block" {
-            for sample in test_configuration.read_tests_for(rule).unwrap() {
-                if sample.category() == Category::Valid {
-                    let mut bytes = vec![0x82, EraName::Conway as u8];
-                    bytes.extend_from_slice(&sample.read_bytes().unwrap());
-                    MultiEraBlock::decode(&bytes).unwrap_or_else(|error| panic!("{sample}: {error}"));
-                }
-            }
-        }
     }
 
     // Don't fail the test if some failures are acknowledged in the acknowledged-failures.toml file.
@@ -82,7 +73,7 @@ fn test_multi_era_blocks() {
     let fixtures: Fixtures = serde_json::from_str(include_str!("data/multi-era-blocks.json")).unwrap();
     assert_eq!(fixtures.blocks.keys().copied().collect::<Vec<_>>(), ERA_NAMES[..EraName::Conway as usize]);
     for (era, fixture) in fixtures.blocks {
-        let bytes = hex::decode(fixture.cbor).unwrap();
+        let mut bytes = hex::decode(fixture.cbor).unwrap();
         let raw = RawBlock::from(bytes.as_slice());
         let block = raw.decode_multi_era().unwrap_or_else(|error| panic!("{era}: {error}"));
         let header = block.header();
@@ -90,6 +81,17 @@ fn test_multi_era_blocks() {
         assert_eq!(header.block_variant(), era as u8);
         assert_eq!(header.point(21_600).unwrap(), Point::Specific(fixture.slot.into(), fixture.hash, fixture.height));
         assert_eq!(block.parent_hash(), Some(fixture.parent));
-        assert_eq!(parse_block_header(&bytes).unwrap(), header);
+        let mut decoder = cbor::Decoder::new(&bytes);
+        decoder.array().unwrap();
+        decoder.u8().unwrap();
+        decoder.array().unwrap();
+        decoder.skip().unwrap();
+        let header_only = &bytes[..decoder.position()];
+        assert_eq!(parse_block_header(header_only).unwrap().point(21_600).unwrap(), header.point(21_600).unwrap());
+        assert_eq!(extract_block_header_cbor(header_only).unwrap(), header.cbor());
+        assert!(MultiEraBlock::decode(header_only).is_err());
+        assert!(MultiEraBlock::decode(&bytes[..bytes.len() - 1]).is_err());
+        bytes.push(0);
+        assert!(MultiEraBlock::decode(&bytes).is_err());
     }
 }

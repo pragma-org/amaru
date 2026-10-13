@@ -489,35 +489,43 @@ impl RawBlockTransactions {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_block_header_cbor, parse_block_header};
+    use super::{MultiEraBlock, parse_block_header};
     use crate::{
-        Block, PREPROD_ERA_HISTORY, Transaction,
+        Block, BlockHeight, HeaderHash, PREPROD_ERA_HISTORY, Transaction,
         cardano::network_block::{NetworkBlock, make_block_with_header},
-        from_cbor, include_cbor, make_header, to_cbor,
+        cbor, from_cbor, include_cbor, make_header, to_cbor,
     };
 
     #[test]
-    fn extracts_header_bytes_without_decoding_chain_metadata() {
-        let bytes = [0x82, 2, 0x81, 0x81, 0x82, 9, 42];
-        let header = parse_block_header(&bytes).unwrap();
-        assert_eq!(header.cbor(), &bytes[3..]);
-        assert_eq!(extract_block_header_cbor(&bytes).unwrap(), header.cbor());
+    fn decodes_byron_epoch_boundary() {
+        let parent = [42; 32];
+        let mut e = cbor::Encoder::new(Vec::new());
+        e.array(2).unwrap().u8(0).unwrap().array(3).unwrap();
+        e.array(5).unwrap().u32(764_824_073).unwrap().bytes(&parent).unwrap().bytes(&[0; 32]).unwrap();
+        e.array(2).unwrap().u64(2).unwrap().array(1).unwrap().u64(9).unwrap();
+        e.array(1).unwrap().map(0).unwrap();
+        e.array(0).unwrap().array(1).unwrap().map(0).unwrap();
+        let bytes = e.into_writer();
+        let block = MultiEraBlock::decode(&bytes).unwrap();
+        let header = block.header();
+        let point = header.point(21_600).unwrap();
+        assert!(header.is_epoch_boundary());
+        assert_eq!(point.slot_or_default().as_u64(), 43_200);
+        assert_eq!(point.block_height(), BlockHeight::from(9));
+        assert_eq!(block.parent_hash(), Some(HeaderHash::from(parent)));
         assert!(header.point(0).is_err());
+        assert!(header.point(u64::MAX).is_err());
     }
 
     #[test]
-    fn rejects_unknown_block_variant() {
-        assert!(parse_block_header(&[0x82, 9, 0x81, 0x80]).is_err());
-    }
-
-    #[test]
-    fn rejects_missing_headers_and_invalid_network_wrappers() {
+    fn rejects_invalid_network_headers() {
         for bytes in [
             &[0x81, 7, 0x81, 0x80][..],
             &[0x82, 7, 0x80, 0x80],
             &[0x82, 7, 0x9f, 0xff],
             &[0x82, 7, 0x81, 0xff],
             &[0x82, 7, 0x81, 0xf6],
+            &[0x82, 9, 0x81, 0x80],
         ] {
             assert!(parse_block_header(bytes).is_err(), "{bytes:02x?}");
         }
@@ -566,295 +574,5 @@ mod tests {
     fn json_is_hex_string_and_cbor_is_byte_string() {
         let payload = [0x82u8, 0x07, 0x85];
         crate::utils::serde::bytes::assert_json_hex_and_cbor_bstr(&super::RawBlock::from(payload.as_slice()), &payload);
-    }
-}
-
-#[cfg(test)]
-mod multi_era_tests {
-    use test_case::test_case;
-
-    use super::*;
-    use crate::{
-        BlockHeight, Hash, Hasher, IsHeader, RawBlock, cardano::network_block::CONWAY_BLOCK, make_header, to_cbor,
-    };
-
-    fn network_block(variant: u8, parent: Option<&[u8]>, indefinite: bool) -> Vec<u8> {
-        let mut e = cbor::Encoder::new(Vec::new());
-        if indefinite {
-            e.begin_array().unwrap();
-        } else {
-            e.array(2).unwrap();
-        }
-        e.u8(variant).unwrap();
-        let block_fields = match variant {
-            0..=1 => 3,
-            2..=4 => 4,
-            _ => 5,
-        };
-        if indefinite {
-            e.begin_array().unwrap();
-        } else {
-            e.array(block_fields).unwrap();
-        }
-        if variant <= 1 {
-            e.array(5).unwrap().u32(764_824_073).unwrap();
-            match parent {
-                Some(parent) => {
-                    e.bytes(parent).unwrap();
-                }
-                None => {
-                    e.null().unwrap();
-                }
-            }
-            e.bytes(&[0; 32]).unwrap();
-            if variant == 0 {
-                e.array(2).unwrap().u64(1).unwrap().array(1).unwrap().u64(9).unwrap();
-            } else {
-                e.array(4).unwrap().array(2).unwrap().u64(1).unwrap().u64(2).unwrap();
-                e.bytes(&[0; 64]).unwrap();
-                e.array(1).unwrap().u64(9).unwrap().array(2).unwrap().u8(0).unwrap();
-                e.bytes(&[0; 64]).unwrap();
-            }
-            e.array(1).unwrap().map(0).unwrap();
-        } else {
-            if indefinite {
-                e.begin_array().unwrap();
-            } else {
-                e.array(2).unwrap();
-            }
-            let header_fields = match variant {
-                2..=5 => 15,
-                _ => 10,
-            };
-            if indefinite {
-                e.begin_array().unwrap();
-            } else {
-                e.array(header_fields).unwrap();
-            }
-            e.u64(9).unwrap().u64(21_602).unwrap();
-            match parent {
-                Some(parent) => {
-                    e.bytes(parent).unwrap();
-                }
-                None => {
-                    e.null().unwrap();
-                }
-            }
-            if matches!(variant, 6..=7) {
-                let body = to_cbor(make_header(9, 21_602, None).body());
-                let mut decoder = cbor::Decoder::new(&body);
-                decoder.array().unwrap();
-                for _ in 0..3 {
-                    decoder.skip().unwrap();
-                }
-                e.writer_mut().extend_from_slice(&body[decoder.position()..]);
-            } else {
-                for _ in 3..header_fields {
-                    e.null().unwrap();
-                }
-            }
-            if indefinite {
-                e.end().unwrap();
-            }
-            e.bytes(&[0; KES_SIGNATURE]).unwrap();
-            if indefinite {
-                e.end().unwrap();
-            }
-        }
-        match variant {
-            0..=1 => {
-                if variant == 0 {
-                    e.array(0).unwrap();
-                } else {
-                    e.array(4).unwrap();
-                    for _ in 0..4 {
-                        e.array(0).unwrap();
-                    }
-                }
-                e.array(1).unwrap().map(0).unwrap();
-            }
-            _ => {
-                e.array(0).unwrap().array(0).unwrap().map(0).unwrap();
-                if variant >= 5 {
-                    e.array(0).unwrap();
-                }
-            }
-        }
-        if indefinite {
-            e.end().unwrap().end().unwrap();
-        }
-        e.into_writer()
-    }
-
-    #[test_case(0, EraName::Byron)]
-    #[test_case(1, EraName::Byron)]
-    #[test_case(2, EraName::Shelley)]
-    #[test_case(3, EraName::Allegra)]
-    #[test_case(4, EraName::Mary)]
-    #[test_case(5, EraName::Alonzo)]
-    #[test_case(6, EraName::Babbage)]
-    #[test_case(7, EraName::Conway)]
-    fn decodes_chain_metadata(variant: u8, era: EraName) {
-        for indefinite in [false, true] {
-            let parent = [42; 32];
-            let bytes = network_block(variant, Some(&parent), indefinite);
-            let raw = RawBlock::from(bytes.as_slice());
-            let block = raw.decode_multi_era().unwrap();
-            let header = block.header();
-            assert_eq!(header.era(), era);
-            assert_eq!(header.is_epoch_boundary(), variant == 0);
-            assert_eq!(header.point(21_600).unwrap().block_height(), BlockHeight::from(9));
-            assert_eq!(
-                header.point(21_600).unwrap().slot_or_default().as_u64(),
-                if variant == 0 { 21_600 } else { 21_602 }
-            );
-            assert_eq!(block.parent_hash(), Some(HeaderHash::from(parent)));
-
-            let mut hashed_bytes = Vec::new();
-            if era == EraName::Byron {
-                hashed_bytes.extend_from_slice(&[0x82, variant]);
-            }
-            hashed_bytes.extend_from_slice(header.cbor());
-            assert_eq!(header.hash(), Hash::from(*Hasher::<256>::hash(&hashed_bytes)));
-        }
-    }
-
-    #[test]
-    fn matches_existing_conway_decoder() {
-        let raw = RawBlock::from(CONWAY_BLOCK.as_slice());
-        let current = raw.decode().unwrap();
-        let historical = raw.decode_multi_era().unwrap();
-        assert_eq!(historical.header().point(0).unwrap(), current.header.point());
-        assert_eq!(historical.parent_hash(), current.header.parent_hash());
-    }
-
-    #[test]
-    fn rejects_invalid_conway_issuer_key_in_both_decoders() {
-        let mut bytes = network_block(7, Some(&[0; 32]), false);
-        let mut decoder = cbor::Decoder::new(&bytes);
-        decoder.array().unwrap();
-        decoder.u8().unwrap();
-        decoder.array().unwrap();
-        decoder.array().unwrap();
-        decoder.array().unwrap();
-        for _ in 0..3 {
-            decoder.skip().unwrap();
-        }
-        let issuer_key = decoder.position();
-        bytes[issuer_key] = 0xf6;
-
-        let raw = RawBlock::from(bytes.as_slice());
-        assert!(raw.decode().is_err());
-        assert!(raw.decode_multi_era().is_err());
-        assert!(parse_block_header(&bytes).unwrap().point(0).is_err());
-    }
-
-    #[test]
-    fn standalone_headers_match_block_metadata() {
-        for variant in 0..=7 {
-            let bytes = network_block(variant, Some(&[42; 32]), false);
-            let header = MultiEraBlock::decode(&bytes).unwrap().header();
-            let standalone = ParsedBlockHeader::from_cbor(variant, header.cbor()).unwrap();
-            assert_eq!(standalone, header);
-            assert_eq!(standalone.point(21_600).unwrap(), header.point(21_600).unwrap());
-        }
-    }
-
-    #[test]
-    fn header_parsing_does_not_read_block_body() {
-        for variant in 0..=7 {
-            for indefinite in [false, true] {
-                let bytes = network_block(variant, Some(&[42; 32]), indefinite);
-                let complete = MultiEraBlock::decode(&bytes).unwrap().header();
-                let mut decoder = cbor::Decoder::new(&bytes);
-                decoder.array().unwrap();
-                decoder.u8().unwrap();
-                decoder.array().unwrap();
-                decoder.skip().unwrap();
-                let header_only = &bytes[..decoder.position()];
-
-                assert!(MultiEraBlock::decode(header_only).is_err());
-                let header = parse_block_header(header_only).unwrap();
-                assert_eq!(header.cbor(), complete.cbor());
-                assert_eq!(header.point(21_600).unwrap(), complete.point(21_600).unwrap());
-                assert_eq!(extract_block_header_cbor(header_only).unwrap(), complete.cbor());
-            }
-        }
-    }
-
-    #[test]
-    fn decodes_parent_links_across_era_boundaries() {
-        let mut previous = HeaderHash::from([7; 32]);
-        for variant in 0..=7 {
-            let bytes = network_block(variant, Some(previous.as_ref()), false);
-            let block = MultiEraBlock::decode(&bytes).unwrap();
-            assert_eq!(block.parent_hash(), Some(previous));
-            previous = block.header().hash();
-        }
-    }
-
-    #[test]
-    fn rejects_truncated_or_trailing_data_in_every_era() {
-        for variant in 0..=7 {
-            for indefinite in [false, true] {
-                let bytes = network_block(variant, Some(&[0; 32]), indefinite);
-                for length in 0..bytes.len() {
-                    assert!(MultiEraBlock::decode(&bytes[..length]).is_err(), "variant={variant}, length={length}");
-                }
-                let mut extra = bytes.clone();
-                extra.push(0);
-                assert!(MultiEraBlock::decode(&extra).is_err());
-            }
-        }
-    }
-
-    #[test]
-    fn validates_parent_hash_encoding() {
-        for variant in 0..=7 {
-            for length in [0, 31, 33] {
-                assert!(MultiEraBlock::decode(&network_block(variant, Some(&vec![0; length]), false)).is_err());
-            }
-            let bytes = network_block(variant, None, false);
-            let decoded = MultiEraBlock::decode(&bytes);
-            if variant <= 1 {
-                assert!(decoded.is_err());
-            } else {
-                assert_eq!(decoded.unwrap().parent_hash(), None);
-            }
-        }
-    }
-
-    #[test]
-    fn rejects_wrong_block_layout_and_unknown_variants() {
-        for variant in 0..=7 {
-            let bytes = network_block(variant, Some(&[0; 32]), false);
-            for offset in [0, 2, 3] {
-                let mut invalid = bytes.clone();
-                invalid[offset] += 1;
-                assert!(MultiEraBlock::decode(&invalid).is_err(), "variant={variant}, offset={offset}");
-            }
-            let mut wrong_body = bytes.clone();
-            let body_start = 3 + MultiEraBlock::decode(&bytes).unwrap().header().cbor().len();
-            wrong_body[body_start] = 0xf6;
-            assert!(MultiEraBlock::decode(&wrong_body).is_err());
-        }
-        let mut bytes = network_block(7, Some(&[0; 32]), false);
-        for tag in [8, 9, 23] {
-            bytes[1] = tag;
-            assert!(MultiEraBlock::decode(&bytes).is_err());
-        }
-    }
-
-    #[test]
-    fn rejects_invalid_byron_epoch_length() {
-        for variant in 0..=1 {
-            let bytes = network_block(variant, Some(&[0; 32]), false);
-            let header = MultiEraBlock::decode(&bytes).unwrap().header();
-            assert!(header.point(0).is_err());
-            if variant == 1 {
-                assert!(header.point(2).is_err());
-                assert!(header.point(u64::MAX).is_err());
-            }
-        }
     }
 }

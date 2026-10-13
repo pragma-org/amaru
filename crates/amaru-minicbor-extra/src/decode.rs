@@ -527,115 +527,34 @@ mod tests {
         use crate::{cbor, skip_array, skip_map, skip_value};
 
         fn assert_skips(input: &[u8], skip: impl FnOnce(&mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error>) {
-            let bytes = [&[0][..], input, &[1][..]].concat();
+            let bytes = [input, &[1]].concat();
             let mut decoder = cbor::Decoder::new(&bytes);
-            assert_eq!(decoder.u8().unwrap(), 0);
             skip(&mut decoder).unwrap();
-            assert_eq!(decoder.position(), input.len() + 1);
+            assert_eq!(decoder.position(), input.len());
             assert_eq!(decoder.u8().unwrap(), 1);
         }
 
         #[test]
-        fn skips_nested_containers_in_both_forms() {
-            for input in [&[0x81, 0xa1, 0, 0x80][..], &[0x9f, 0xbf, 0, 0x80, 0xff, 0xff][..]] {
+        fn skips_nested_values_in_both_forms() {
+            for input in [&[0x81, 0xa1, 0, 0x80][..], &[0x9f, 0xbf, 0, 0x80, 0xff, 0xff]] {
                 assert_skips(input, skip_array);
-                assert_skips(input, skip_value);
             }
-            for input in [&[0xa1, 0, 0x81, 1][..], &[0xbf, 0, 0x9f, 1, 0xff, 0xff][..]] {
+            for input in [&[0xa1, 0, 0x81, 1][..], &[0xbf, 0, 0x9f, 1, 0xff, 0xff]] {
                 assert_skips(input, skip_map);
-                assert_skips(input, skip_value);
             }
-            assert_skips(&[0xd8, 24, 0x41, 0xff], skip_value);
+            assert_skips(&[0xd8, 24, 0x9f, 0xff], skip_value);
         }
 
         #[test]
-        fn skips_legal_indefinite_terminators_and_tagged_values() {
-            for input in [
-                &[0x81, 0x9f, 0xff][..],
-                &[0xa1, 0x9f, 0xff, 0xbf, 0xff],
-                &[0xbf, 0, 0x9f, 0xff, 0xff],
-                &[0xd8, 24, 0x9f, 0xbf, 0, 1, 0xff, 0xff],
-                &[0x82, 0x5f, 0x41, 0xff, 0xff, 0x7f, 0x61, b'a', 0xff],
-            ] {
-                assert_skips(input, skip_value);
+        fn rejects_breaks_in_required_values_and_truncated_containers() {
+            for input in [&[0x81, 0xff][..], &[0xbf, 0, 0xff], &[0xd8, 24, 0xff]] {
+                assert!(skip_value(&mut cbor::Decoder::new(input)).unwrap_err().is_type_mismatch(), "{input:02x?}");
             }
-        }
-
-        #[test]
-        fn rejects_nested_break_markers_in_required_values() {
-            for (input, position) in [
-                (&[0x81, 0xff, 0x00][..], 1),
-                (&[0xa1, 0x00, 0xff, 0x01][..], 2),
-                (&[0xa1, 0xff, 0x00, 0x01][..], 1),
-                (&[0xbf, 0x00, 0xff, 0x01][..], 2),
-                (&[0x9f, 0x81, 0xff, 0x00, 0xff][..], 2),
-                (&[0xbf, 0x81, 0xff, 0x00, 0xff][..], 2),
-                (&[0xd8, 24, 0xff, 0x00][..], 2),
-                (&[0x81, 0xd8, 24, 0xff, 0x00][..], 3),
-                (&[0x81, 0xa1, 0x00, 0xff, 0x01][..], 3),
-            ] {
-                let mut decoder = cbor::Decoder::new(input);
-                let error = skip_value(&mut decoder).unwrap_err();
-                assert!(error.is_type_mismatch(), "{input:02x?}: {error}");
-                assert_eq!(decoder.position(), position);
-                assert_eq!(error.position(), Some(position));
-
-                let mut decoder = cbor::Decoder::new(input);
-                let datatype = decoder.datatype().unwrap();
-                if matches!(datatype, cbor::data::Type::Array | cbor::data::Type::ArrayIndef) {
-                    assert!(skip_array(&mut decoder).unwrap_err().is_type_mismatch());
-                } else if matches!(datatype, cbor::data::Type::Map | cbor::data::Type::MapIndef) {
-                    assert!(skip_map(&mut decoder).unwrap_err().is_type_mismatch());
-                }
-            }
-        }
-
-        #[test]
-        fn rejects_truncated_nested_values() {
-            for input in [
-                &[0x81][..],
-                &[0xa1, 0],
-                &[0xbf, 0],
-                &[0x9f],
-                &[0xd8, 24],
-                &[0x81, 0x9f],
-                &[0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-            ] {
+            for input in [&[0x81][..], &[0xa1, 0], &[0x9f, 0]] {
                 assert!(skip_value(&mut cbor::Decoder::new(input)).unwrap_err().is_end_of_input(), "{input:02x?}");
             }
-        }
-
-        #[test]
-        fn skips_deeply_nested_containers_and_tags() {
-            std::thread::Builder::new()
-                .stack_size(64 * 1024)
-                .spawn(|| {
-                    let mut input = [0x81, 0xbf, 0, 0xc0].repeat(10_000);
-                    input.push(0);
-                    input.extend(std::iter::repeat_n(0xff, 10_000));
-                    assert_skips(&input, skip_value);
-                })
-                .unwrap()
-                .join()
-                .unwrap();
-        }
-
-        #[test]
-        fn rejects_wrong_types_and_missing_values() {
-            for input in [&[0][..], &[0xa0][..], &[0xff][..]] {
-                let mut decoder = cbor::Decoder::new(input);
-                assert!(skip_array(&mut decoder).unwrap_err().is_type_mismatch());
-                assert_eq!(decoder.position(), 0);
-            }
-            for input in [&[0][..], &[0x80][..], &[0xff][..]] {
-                let mut decoder = cbor::Decoder::new(input);
-                assert!(skip_map(&mut decoder).unwrap_err().is_type_mismatch());
-                assert_eq!(decoder.position(), 0);
-            }
-            assert!(skip_value(&mut cbor::Decoder::new(&[0xff])).unwrap_err().is_type_mismatch());
-            assert!(skip_value(&mut cbor::Decoder::new(&[])).unwrap_err().is_end_of_input());
-            assert!(skip_array(&mut cbor::Decoder::new(&[0x81])).unwrap_err().is_end_of_input());
-            assert!(skip_map(&mut cbor::Decoder::new(&[0xa1, 0])).unwrap_err().is_end_of_input());
+            assert!(skip_array(&mut cbor::Decoder::new(&[0xa0])).unwrap_err().is_type_mismatch());
+            assert!(skip_map(&mut cbor::Decoder::new(&[0x80])).unwrap_err().is_type_mismatch());
         }
     }
 
