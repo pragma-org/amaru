@@ -37,7 +37,7 @@ use std::{
 use amaru_kernel::{Transaction, TransactionId, cbor::WithOriginalBytes};
 use amaru_mempool::{
     InMemoryMempool,
-    inspection::{PoolChange, PoolObserverError, PoolReceiver, PoolSnapshot},
+    inspection::{Generation, PoolChange, PoolObserverError, PoolReceiver, PoolSnapshot},
 };
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::tx_submission::DEFAULT_MEMPOOL_INSERT_TIMEOUT;
@@ -47,13 +47,109 @@ use tokio_util::sync::CancellationToken;
 
 type Pool = InMemoryMempool<WithOriginalBytes<Transaction>>;
 
+struct MempoolStatus {
+    closing: CancellationToken,
+    stopped: AtomicBool,
+    termination: Shared<BoxFuture<'static, ()>>,
+}
+
+impl MempoolStatus {
+    fn closing_error(&self) -> MempoolAccessError {
+        if self.stopped.load(Ordering::Acquire) { MempoolAccessError::Stopped } else { MempoolAccessError::Closing }
+    }
+
+    fn check(&self) -> Result<(), MempoolAccessError> {
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(MempoolAccessError::Stopped);
+        }
+        if self.closing.is_cancelled() || self.termination.clone().now_or_never().is_some() {
+            self.closing.cancel();
+            return Err(MempoolAccessError::Closing);
+        }
+        Ok(())
+    }
+
+    async fn wait_for_closing(&self) {
+        tokio::select! {
+            biased;
+            () = self.closing.cancelled() => {},
+            () = self.termination.clone() => self.closing.cancel(),
+        }
+    }
+
+    fn submission_error(&self, transaction_id: Option<TransactionId>) -> MempoolSubmitError {
+        if self.stopped.load(Ordering::Acquire) {
+            MempoolSubmitError::Stopped { transaction_id }
+        } else {
+            MempoolSubmitError::Closing { transaction_id }
+        }
+    }
+}
+
+pub(crate) struct MempoolRuntime {
+    run_id: NodeRunId,
+    pool: Arc<Pool>,
+    sender: Sender<MempoolMsg>,
+    status: Arc<MempoolStatus>,
+}
+
+impl MempoolRuntime {
+    pub(crate) fn new(
+        pool: Arc<Pool>,
+        sender: Sender<MempoolMsg>,
+        termination: BoxFuture<'static, ()>,
+    ) -> anyhow::Result<Arc<Self>> {
+        Ok(Arc::new(Self {
+            run_id: NodeRunId::new()?,
+            pool,
+            sender,
+            status: Arc::new(MempoolStatus {
+                closing: CancellationToken::new(),
+                stopped: AtomicBool::new(false),
+                termination: termination.shared(),
+            }),
+        }))
+    }
+
+    pub(crate) fn services(self: &Arc<Self>) -> MempoolServices {
+        MempoolServices { reader: self.reader(), submitter: self.submitter() }
+    }
+
+    pub(crate) fn reader(self: &Arc<Self>) -> MempoolReader {
+        MempoolReader { runtime: Arc::downgrade(self), status: self.status.clone() }
+    }
+
+    pub(crate) fn submitter(self: &Arc<Self>) -> MempoolSubmitter {
+        MempoolSubmitter { runtime: Arc::downgrade(self), status: self.status.clone() }
+    }
+
+    fn snapshot(&self) -> MempoolSnapshot {
+        self.pool.snapshot().map_generation(|revision| NodeGeneration { run_id: self.run_id, revision })
+    }
+
+    pub(crate) fn close(&self) {
+        self.status.closing.cancel();
+    }
+
+    pub(crate) fn stop(&self) {
+        self.status.stopped.store(true, Ordering::Release);
+        self.close();
+    }
+}
+
+impl Drop for MempoolRuntime {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// Identity of one node run, independent of store paths and membership generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[repr(transparent)]
 pub struct NodeRunId([u8; 16]);
 
 impl NodeRunId {
-    pub(crate) fn new() -> anyhow::Result<Self> {
+    fn new() -> anyhow::Result<Self> {
         let mut bytes = [0; 16];
         getrandom::fill(&mut bytes).map_err(|error| anyhow::anyhow!("creating node run identity: {error}"))?;
         Ok(Self(bytes))
@@ -66,55 +162,32 @@ impl fmt::Display for NodeRunId {
     }
 }
 
+/// Membership revision scoped to one node run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct NodeGeneration {
+    pub run_id: NodeRunId,
+    /// Revalidation without insertions or removals does not advance the revision.
+    pub revision: u64,
+}
+
+impl Generation for NodeGeneration {
+    fn next(&self) -> Self {
+        Self { run_id: self.run_id, revision: self.revision.next() }
+    }
+}
+
+pub use amaru_mempool::inspection::MempoolSnapshotEntry;
+
 /// Atomically captured stored pool membership and counters.
 ///
 /// Ledger changes, including fork switches with rollback, trigger asynchronous revalidation.
 /// A snapshot may be taken while revalidation is pending or running and include transactions
 /// that will subsequently be removed. Membership establishes "in the local mempool";
 /// it does not promise validity against the latest ledger tip, future inclusion, or confirmation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MempoolSnapshot {
-    pub run_id: NodeRunId,
-    /// Membership revision. Revalidation without insertions or removals does not advance it.
-    pub generation: u64,
-    pub entries: Vec<MempoolSnapshotEntry>,
-    pub transaction_count: u64,
-    pub total_size_bytes: u64,
-    pub capacity_bytes: u64,
-}
-
-pub use amaru_mempool::inspection::MempoolSnapshotEntry;
-
-impl MempoolSnapshot {
-    fn from_pool(run_id: NodeRunId, snapshot: PoolSnapshot) -> Self {
-        Self {
-            run_id,
-            generation: snapshot.generation,
-            entries: snapshot.entries,
-            transaction_count: snapshot.transaction_count,
-            total_size_bytes: snapshot.total_size_bytes,
-            capacity_bytes: snapshot.capacity_bytes,
-        }
-    }
-}
+pub type MempoolSnapshot = PoolSnapshot<NodeGeneration>;
 
 /// One complete membership generation within a node run.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum MempoolEvent {
-    Inserted {
-        run_id: NodeRunId,
-        generation: u64,
-        entry: MempoolSnapshotEntry,
-    },
-    /// Committed removal, including transactions that failed automatic revalidation.
-    /// Removal alone does not establish chain inclusion or confirmation.
-    Removed {
-        run_id: NodeRunId,
-        generation: u64,
-        transaction_ids: Vec<TransactionId>,
-    },
-}
+pub type MempoolEvent = PoolChange<NodeGeneration>;
 
 /// Inspection, subscription admission, or delivery failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -175,99 +248,6 @@ pub struct MempoolAccepted {
     pub sequence: MempoolSeqNo,
 }
 
-struct MempoolStatus {
-    closing: CancellationToken,
-    stopped: AtomicBool,
-    termination: Shared<BoxFuture<'static, ()>>,
-}
-
-impl MempoolStatus {
-    fn closing_error(&self) -> MempoolAccessError {
-        if self.stopped.load(Ordering::Acquire) { MempoolAccessError::Stopped } else { MempoolAccessError::Closing }
-    }
-
-    fn check(&self) -> Result<(), MempoolAccessError> {
-        if self.stopped.load(Ordering::Acquire) {
-            return Err(MempoolAccessError::Stopped);
-        }
-        if self.closing.is_cancelled() || self.termination.clone().now_or_never().is_some() {
-            self.closing.cancel();
-            return Err(MempoolAccessError::Closing);
-        }
-        Ok(())
-    }
-
-    async fn wait_for_closing(&self) {
-        tokio::select! {
-            biased;
-            () = self.closing.cancelled() => {},
-            () = self.termination.clone() => self.closing.cancel(),
-        }
-    }
-
-    fn submission_error(&self, transaction_id: Option<TransactionId>) -> MempoolSubmitError {
-        if self.stopped.load(Ordering::Acquire) {
-            MempoolSubmitError::Stopped { transaction_id }
-        } else {
-            MempoolSubmitError::Closing { transaction_id }
-        }
-    }
-}
-
-pub(crate) struct MempoolRuntime {
-    run_id: NodeRunId,
-    pool: Arc<Pool>,
-    sender: Sender<MempoolMsg>,
-    status: Arc<MempoolStatus>,
-}
-
-impl MempoolRuntime {
-    pub(crate) fn new(
-        run_id: NodeRunId,
-        pool: Arc<Pool>,
-        sender: Sender<MempoolMsg>,
-        termination: BoxFuture<'static, ()>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
-            run_id,
-            pool,
-            sender,
-            status: Arc::new(MempoolStatus {
-                closing: CancellationToken::new(),
-                stopped: AtomicBool::new(false),
-                termination: termination.shared(),
-            }),
-        })
-    }
-
-    pub(crate) fn services(self: &Arc<Self>) -> MempoolServices {
-        MempoolServices { reader: self.reader(), submitter: self.submitter() }
-    }
-
-    pub(crate) fn reader(self: &Arc<Self>) -> MempoolReader {
-        MempoolReader { runtime: Arc::downgrade(self), status: self.status.clone() }
-    }
-
-    pub(crate) fn submitter(self: &Arc<Self>) -> MempoolSubmitter {
-        MempoolSubmitter { runtime: Arc::downgrade(self), status: self.status.clone() }
-    }
-
-    pub(crate) fn close(&self) {
-        self.status.closing.cancel();
-    }
-
-    pub(crate) fn stop(&self) {
-        self.status.stopped.store(true, Ordering::Release);
-        self.close();
-    }
-}
-
-impl Drop for MempoolRuntime {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
 /// Access to the read-only and submission services for one node's mempool.
 ///
 /// Retaining these services does not retain the runtime or stores. Inspection and
@@ -306,7 +286,7 @@ impl MempoolReader {
     pub fn snapshot(&self) -> Result<MempoolSnapshot, MempoolAccessError> {
         self.status.check()?;
         let runtime = self.runtime.upgrade().ok_or(MempoolAccessError::Stopped)?;
-        let snapshot = MempoolSnapshot::from_pool(runtime.run_id, runtime.pool.snapshot());
+        let snapshot = runtime.snapshot();
         drop(runtime);
         self.status.check()?;
         Ok(snapshot)
@@ -327,7 +307,7 @@ impl MempoolReader {
         let subscription = runtime.pool.subscribe();
         self.status.check()?;
         let (snapshot, receiver) = subscription.map_err(|error| observer_error(run_id, error))?;
-        let snapshot = MempoolSnapshot::from_pool(run_id, snapshot);
+        let snapshot = snapshot.map_generation(|revision| NodeGeneration { run_id, revision });
         drop(runtime);
         self.status.check()?;
         Ok((snapshot, MempoolReceiver { run_id, receiver, status: self.status.clone() }))
@@ -362,16 +342,8 @@ impl MempoolReceiver {
         };
         self.status.check()?;
         let change = change.map_err(|error| observer_error(self.run_id, error))?;
-        let event = match change.as_ref() {
-            PoolChange::Inserted { generation, entry } => {
-                MempoolEvent::Inserted { run_id: self.run_id, generation: *generation, entry: entry.clone() }
-            }
-            PoolChange::Removed { generation, transaction_ids } => MempoolEvent::Removed {
-                run_id: self.run_id,
-                generation: *generation,
-                transaction_ids: transaction_ids.clone(),
-            },
-        };
+        let event =
+            Arc::unwrap_or_clone(change).map_generation(|revision| NodeGeneration { run_id: self.run_id, revision });
         self.status.check()?;
         Ok(event)
     }

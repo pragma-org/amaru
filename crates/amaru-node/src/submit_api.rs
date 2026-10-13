@@ -148,11 +148,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::start;
-    use crate::{
-        mempool::{MempoolRuntime, NodeRunId},
-        stages::config::Config,
-        tests::test_data::create_transaction,
-    };
+    use crate::{mempool::MempoolRuntime, stages::config::Config, tests::test_data::create_transaction};
 
     type TestMempool = Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>;
 
@@ -401,7 +397,7 @@ mod tests {
         let sender = stage_graph.input(mempool_stage.without_state());
         let running = stage_graph.run(Handle::current());
 
-        let runtime = MempoolRuntime::new(NodeRunId::new().unwrap(), mempool, sender, running.termination());
+        let runtime = MempoolRuntime::new(mempool, sender, running.termination()).unwrap();
         (runtime, running)
     }
 

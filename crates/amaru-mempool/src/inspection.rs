@@ -28,6 +28,17 @@ pub const MAX_MEMPOOL_QUEUED_EVENTS: usize = 64;
 /// Maximum encoded payload and change metadata retained by one subscription.
 pub const MAX_MEMPOOL_QUEUED_BYTES: u64 = 1_048_576;
 
+/// Identity of a membership revision and how to advance it after a committed change.
+pub trait Generation: Clone {
+    fn next(&self) -> Self;
+}
+
+impl Generation for u64 {
+    fn next(&self) -> Self {
+        self + 1
+    }
+}
+
 /// Accepted encoding and attribution, ordered by immutable insertion sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MempoolSnapshotEntry {
@@ -47,27 +58,59 @@ pub struct MempoolSnapshotEntry {
 ///
 /// This capture does not wait for ledger revalidation or establish validity against
 /// a particular ledger point. Entries awaiting revalidation remain stored until removed.
-#[derive(Debug, Clone)]
-pub struct PoolSnapshot {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PoolSnapshot<G: Generation = u64> {
     /// Membership revision; a revalidation pass without removals does not advance it.
-    pub generation: u64,
+    pub generation: G,
     pub entries: Vec<MempoolSnapshotEntry>,
     pub transaction_count: u64,
     pub total_size_bytes: u64,
     pub capacity_bytes: u64,
 }
 
-/// One complete committed membership change. Removals are atomic batches.
-#[derive(Debug)]
-pub enum PoolChange {
-    Inserted { generation: u64, entry: MempoolSnapshotEntry },
-    Removed { generation: u64, transaction_ids: Vec<TransactionId> },
+impl<G: Generation> PoolSnapshot<G> {
+    /// Transform the generation while preserving captured membership and counters.
+    pub fn map_generation<T: Generation>(self, map: impl FnOnce(G) -> T) -> PoolSnapshot<T> {
+        PoolSnapshot {
+            generation: map(self.generation),
+            entries: self.entries,
+            transaction_count: self.transaction_count,
+            total_size_bytes: self.total_size_bytes,
+            capacity_bytes: self.capacity_bytes,
+        }
+    }
 }
 
-impl PoolChange {
-    pub fn generation(&self) -> u64 {
+/// One complete committed membership change. Removals are atomic batches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PoolChange<G: Generation = u64> {
+    Inserted {
+        generation: G,
+        entry: MempoolSnapshotEntry,
+    },
+    /// Committed removal, including transactions that failed automatic revalidation.
+    /// Removal alone does not establish chain inclusion or confirmation.
+    Removed {
+        generation: G,
+        transaction_ids: Vec<TransactionId>,
+    },
+}
+
+impl<G: Generation> PoolChange<G> {
+    pub fn generation(&self) -> G {
         match self {
-            Self::Inserted { generation, .. } | Self::Removed { generation, .. } => *generation,
+            Self::Inserted { generation, .. } | Self::Removed { generation, .. } => generation.clone(),
+        }
+    }
+
+    /// Transform the generation while preserving the complete committed change.
+    pub fn map_generation<T: Generation>(self, map: impl FnOnce(G) -> T) -> PoolChange<T> {
+        match self {
+            Self::Inserted { generation, entry } => PoolChange::Inserted { generation: map(generation), entry },
+            Self::Removed { generation, transaction_ids } => {
+                PoolChange::Removed { generation: map(generation), transaction_ids }
+            }
         }
     }
 
@@ -111,7 +154,7 @@ impl ObserverQueue {
             state: Mutex::new(QueueState {
                 events: VecDeque::new(),
                 bytes: 0,
-                next_generation: generation + 1,
+                next_generation: generation.next(),
                 error: None,
             }),
             changed: Notify::new(),
@@ -176,7 +219,7 @@ impl PoolReceiver {
                 }
                 if let Some(event) = state.events.pop_front() {
                     state.bytes -= event.size_bytes();
-                    state.next_generation = event.generation() + 1;
+                    state.next_generation = event.generation().next();
                     return Ok(event);
                 }
             }

@@ -47,7 +47,7 @@ fn test_runtime(config: MempoolConfig, validator: ResourceTxValidation) -> (Arc<
     builder.resources().put::<ResourceTxValidation>(validator);
     let sender = builder.input(mempool_stage.without_state());
     let running = builder.run(Handle::current());
-    let runtime = MempoolRuntime::new(NodeRunId::new().unwrap(), pool, sender, running.termination());
+    let runtime = MempoolRuntime::new(pool, sender, running.termination()).unwrap();
     (runtime, running)
 }
 
@@ -93,7 +93,7 @@ async fn oversized_input_is_rejected_before_cbor_decoding() {
             }
         }
     }
-    assert_eq!(runtime.reader().snapshot().unwrap().generation, 0);
+    assert_eq!(runtime.reader().snapshot().unwrap().generation.revision, 0);
     runtime.close();
     running.request_abort();
     assert!(running.join().await.unwrap().unexpected_exits.is_empty());
@@ -129,7 +129,7 @@ async fn input_ceiling_allows_boundary_transactions_and_preserves_ledger_rejecti
         runtime.submitter().submit(&bytes).await,
         Err(MempoolSubmitError::Rejected { reason: TxRejectReason::Invalid(_), .. })
     ));
-    assert_eq!(runtime.reader().snapshot().unwrap().generation, 0);
+    assert_eq!(runtime.reader().snapshot().unwrap().generation.revision, 0);
     runtime.close();
     running.request_abort();
     assert!(running.join().await.unwrap().unexpected_exits.is_empty());
@@ -146,7 +146,7 @@ async fn snapshots_and_subscriptions_include_local_and_remote_original_encodings
     let accepted = submitter.submit(&bytes).await.unwrap();
     assert_eq!(accepted.transaction_id, first.tx_id());
     let (snapshot, mut receiver) = reader.subscribe().unwrap();
-    assert_eq!(snapshot.generation, 1);
+    assert_eq!(snapshot.generation.revision, 1);
     assert_eq!(snapshot.entries[0].original_bytes, bytes);
     assert_eq!(snapshot.entries[0].origin, TxOrigin::Local);
     assert_eq!(snapshot.entries[0].sequence, accepted.sequence);
@@ -164,8 +164,8 @@ async fn snapshots_and_subscriptions_include_local_and_remote_original_encodings
         .unwrap();
     assert!(matches!(remote[0], TxInsertResult::Accepted { .. }));
     let event = receiver.recv().await.unwrap();
-    assert!(matches!(&event, MempoolEvent::Inserted { run_id, generation: 2, entry }
-        if *run_id == snapshot.run_id && entry.transaction_id == second.tx_id() && entry.origin == TxOrigin::Remote(peer) && entry.original_bytes == to_cbor(&second)));
+    assert!(matches!(&event, MempoolEvent::Inserted { generation, entry }
+        if *generation == snapshot.generation.next() && entry.transaction_id == second.tx_id() && entry.origin == TxOrigin::Remote(peer) && entry.original_bytes == to_cbor(&second)));
     let current = mempool.reader().snapshot().unwrap();
     assert!(matches!(&event, MempoolEvent::Inserted { entry, .. } if entry == &current.entries[1]));
     assert_eq!(current.transaction_count, 2);
@@ -207,17 +207,17 @@ async fn revalidation_emits_one_complete_removal_generation() {
     runtime.sender.send(MempoolMsg::NewTip(Point::Origin)).await.unwrap();
     let event = timeout(Duration::from_secs(2), receiver.recv()).await.unwrap().unwrap();
     assert!(
-        matches!(event, MempoolEvent::Removed { generation: 3, transaction_ids, .. } if transaction_ids == [first.tx_id(), second.tx_id()])
+        matches!(event, MempoolEvent::Removed { generation, transaction_ids } if generation == snapshot.generation.next() && transaction_ids == [first.tx_id(), second.tx_id()])
     );
     let empty = reader.snapshot().unwrap();
-    assert_eq!(empty.generation, snapshot.generation + 1);
+    assert_eq!(empty.generation, snapshot.generation.next());
     assert_eq!(empty.transaction_count, 0);
     assert_eq!(empty.total_size_bytes, 0);
     assert!(matches!(
         submitter.submit(&to_cbor(&first)).await,
         Err(MempoolSubmitError::Rejected { reason: TxRejectReason::Invalid(_), .. })
     ));
-    assert_eq!(reader.snapshot().unwrap().generation, 3);
+    assert_eq!(reader.snapshot().unwrap().generation, empty.generation);
     runtime.close();
     running.request_abort();
     assert!(running.join().await.unwrap().unexpected_exits.is_empty());
@@ -241,7 +241,10 @@ async fn embedded_and_http_share_outcomes_and_original_bytes() {
         client.post(&url).header("Content-Type", "application/cbor").body(bytes.clone()).send().await.unwrap();
     assert_eq!(response.status(), 202);
     assert_eq!(response.text().await.unwrap(), format!("\"{}\"", first.tx_id()));
-    assert!(matches!(receiver.recv().await.unwrap(), MempoolEvent::Inserted { generation: 1, .. }));
+    assert!(matches!(
+        receiver.recv().await.unwrap(),
+        MempoolEvent::Inserted { generation: NodeGeneration { revision: 1, .. }, .. }
+    ));
     assert_eq!(reader.snapshot().unwrap().entries[0].original_bytes, bytes);
 
     for (body, status) in [
@@ -263,7 +266,7 @@ async fn embedded_and_http_share_outcomes_and_original_bytes() {
             status
         );
     }
-    assert_eq!(reader.snapshot().unwrap().generation, 1);
+    assert_eq!(reader.snapshot().unwrap().generation.revision, 1);
     shutdown.cancel();
     server.await.unwrap();
     runtime.close();
@@ -366,7 +369,7 @@ async fn shutdown_precedes_queued_events_and_retained_handles_do_not_retain_pool
     assert_eq!(submitter.submit(&[]).await.unwrap_err(), MempoolSubmitError::Stopped { transaction_id: None });
 
     let (next, running) = test_runtime(MempoolConfig::default(), Arc::new(MockCanValidateTxs));
-    assert_ne!(snapshot.run_id, next.reader().snapshot().unwrap().run_id);
+    assert_ne!(snapshot.generation.run_id, next.reader().snapshot().unwrap().generation.run_id);
     assert_eq!(reader.snapshot().unwrap_err(), MempoolAccessError::Stopped);
     next.close();
     running.request_abort();
@@ -398,14 +401,14 @@ async fn subscriber_gaps_identify_run_and_recovery_has_a_fresh_atomic_handoff() 
     assert!(results.iter().all(|result| matches!(result, TxInsertResult::Accepted { .. })));
     assert_eq!(
         receiver.recv().await.unwrap_err(),
-        MempoolAccessError::Gap { run_id: initial.run_id, expected_generation: 1, current_generation: 65 }
+        MempoolAccessError::Gap { run_id: initial.generation.run_id, expected_generation: 1, current_generation: 65 }
     );
     let (snapshot, mut fresh) = reader.subscribe().unwrap();
-    assert_eq!(snapshot.generation, 65);
+    assert_eq!(snapshot.generation, NodeGeneration { run_id: initial.generation.run_id, revision: 65 });
     assert_eq!(snapshot.transaction_count, 65);
     runtime.submitter().submit(&to_cbor(&create_transaction(65))).await.unwrap();
     assert!(
-        matches!(fresh.recv().await.unwrap(), MempoolEvent::Inserted { run_id, generation: 66, .. } if run_id == initial.run_id)
+        matches!(fresh.recv().await.unwrap(), MempoolEvent::Inserted { generation, .. } if generation == snapshot.generation.next())
     );
     runtime.close();
     running.request_abort();

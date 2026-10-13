@@ -25,8 +25,8 @@ use amaru_ouroboros_traits::{
 };
 
 use crate::inspection::{
-    MAX_MEMPOOL_SUBSCRIBERS, MempoolSnapshotEntry, ObserverQueue, PoolChange, PoolObserverError, PoolReceiver,
-    PoolSnapshot,
+    Generation, MAX_MEMPOOL_SUBSCRIBERS, MempoolSnapshotEntry, ObserverQueue, PoolChange, PoolObserverError,
+    PoolReceiver, PoolSnapshot,
 };
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
@@ -93,7 +93,7 @@ impl<Tx> Default for MempoolInner<Tx> {
 
 impl<Tx> MempoolInner<Tx> {
     fn commit(&mut self, event: impl FnOnce(u64, &Self) -> PoolChange) {
-        self.generation += 1;
+        self.generation = self.generation.next();
         self.observers.retain(|observer| observer.strong_count() > 0);
         if self.observers.is_empty() {
             return;
