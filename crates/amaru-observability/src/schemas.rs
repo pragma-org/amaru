@@ -971,8 +971,6 @@ define_schemas! {
                     optional preflight_micros: u64
                     /// Ledger rules and state-transitions for certificates
                     optional certificates_micros: u64
-                    /// Ledger rules and state-transitions for collateral return
-                    optional collateral_return_micros: u64
                     /// Ledger rules and state-transitions for treasury donation
                     optional donation_micros: u64
                     /// Ledger rules and state-transitions for fees
@@ -983,7 +981,7 @@ define_schemas! {
                     optional metadata_micros: u64
                     /// Ledger rules and state-transitions for minted/burned assets
                     optional mint_micros: u64
-                    /// Ledger rules and state-transitions for outputs
+                    /// Ledger rules and state-transitions for outputs and collateral return
                     optional outputs_micros: u64
                     /// Ledger rules and state-transitions for governance proposals
                     optional proposals_micros: u64
