@@ -121,7 +121,7 @@ where
 {
     if matches!(mail, Inputs::Internal(Internal::Pull)) {
         err("pipeline")("Pull is injected by the pipeline driver, not received from the mailbox").await;
-        return eff.terminate().await;
+        eff.terminate().await;
     }
     let before = inst.occupancy();
     let inst = step(inst, mail, eff.clone()).await;
@@ -167,13 +167,13 @@ where
         }
         Inputs::Internal(Internal::Pull) => {
             err("pipeline")("Pull is injected by the pipeline driver, not received from the mailbox").await;
-            return eff.terminate().await;
+            eff.terminate().await;
         }
         Inputs::Local(_) => {
             let i = p.send;
             if !p.machine(i).in_switch() {
                 err("pipeline")("pipeline full: local request while send cursor is not in switch state").await;
-                return eff.terminate().await;
+                eff.terminate().await;
             }
             let before = p.machine(i).occupancy();
             let inst = step(p.take(i), mail, eff.clone()).await;

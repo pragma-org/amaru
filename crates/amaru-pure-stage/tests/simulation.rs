@@ -899,9 +899,8 @@ fn complete_external_does_not_reorder() {
 fn terminated_names_one_stage() {
     let mut network = SimulationBuilder::default();
     let keeper = network.stage("keeper", async |state: u32, msg: u32, _eff| state + msg);
-    let stopper = network.stage("stopper", async |state: (), _msg: u32, eff| {
-        eff.terminate::<()>().await;
-        state
+    let stopper = network.stage("stopper", async |_state: (), _msg: u32, eff| {
+        eff.terminate().await;
     });
     let keeper = network.wire_up(keeper, 0u32);
     let stopper = network.wire_up(stopper, ());
@@ -917,7 +916,7 @@ fn supervised_helper_does_not_kill_parent() {
     let mut network = SimulationBuilder::default();
     let parent = network.stage("parent", async |mut child: Option<StageRef<u32>>, msg: u32, eff| {
         if child.is_none() {
-            let helper = eff.stage("helper", async |(): (), _msg: u32, eff| eff.terminate::<()>().await).await;
+            let helper = eff.stage("helper", async |(): (), _msg: u32, eff| eff.terminate().await).await;
             let helper = eff.supervise(helper, 99u32);
             let helper = eff.wire_up(helper, ()).await;
             child = Some(helper);
@@ -944,7 +943,7 @@ fn complete_external_on_gone_stage_panics() {
     let mut network = SimulationBuilder::default();
     let parent = network.stage("parent", async |mut child: Option<StageRef<u32>>, msg: u32, eff| {
         if child.is_none() {
-            let helper = eff.stage("helper", async |(): (), _msg: u32, eff| eff.terminate::<()>().await).await;
+            let helper = eff.stage("helper", async |(): (), _msg: u32, eff| eff.terminate().await).await;
             let helper = eff.supervise(helper, 99u32);
             let helper = eff.wire_up(helper, ()).await;
             child = Some(helper);

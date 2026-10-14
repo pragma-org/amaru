@@ -63,7 +63,7 @@ pub(super) fn set_resources(
     mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
     network: &mut TokioBuilder,
     connections: TokioConnections,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Arc<InMemoryPeerTracking>> {
     set_resources_with_connections(chain_store, mempool, network, Arc::new(connections))
 }
 
@@ -73,8 +73,9 @@ pub(super) fn set_resources_with_connections(
     mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
     network: &mut TokioBuilder,
     connections: ConnectionsResource,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Arc<InMemoryPeerTracking>> {
     let block_validation = Arc::new(MockBlockValidator::new(chain_store.get_best_chain_tip()));
+    let tracking = Arc::new(InMemoryPeerTracking::new());
     network.resources().put::<Arc<dyn DiagnosticChainStore>>(chain_store.clone());
     network.resources().put::<ResourceHeaderStore>(chain_store);
     network.resources().put::<ResourceBlockValidation>(block_validation.clone());
@@ -82,8 +83,8 @@ pub(super) fn set_resources_with_connections(
     network.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
     network.resources().put::<ConnectionsResource>(connections);
     network.resources().put::<ResourceMempool<Transaction>>(mempool);
-    network.resources().put::<PeerTrackingResource>(Arc::new(InMemoryPeerTracking::new()));
-    Ok(())
+    network.resources().put::<PeerTrackingResource>(tracking.clone());
+    Ok(tracking)
 }
 
 /// A connection provider wrapper that fails `accept()` a configured number of times after some successful calls.

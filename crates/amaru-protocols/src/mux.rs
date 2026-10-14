@@ -24,7 +24,7 @@ use std::{
 use amaru_kernel::{NonEmptyBytes, Peer, cbor};
 use amaru_observability::{Instrument, debug, debug_span, error, info, trace, warn};
 use amaru_ouroboros::ConnectionId;
-use amaru_pure_stage::{Effects, Instant, OrTerminateWith, SendData, StageRef, TryInStage, Void};
+use amaru_pure_stage::{Effects, Instant, OrTerminateWith, SendData, StageRef, TryInStage};
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 
@@ -257,7 +257,7 @@ async fn done_trap(peer: Peer, msg: HandlerMessage, eff: Effects<HandlerMessage>
                 operation = "after_done",
                 error = "frame after MsgDone"
             );
-            return eff.terminate().await;
+            eff.terminate().await;
         }
     }
 }
@@ -477,8 +477,7 @@ async fn handle_msg(
         }
         MuxMessage::Terminate => {
             debug!(protocols::mux::TERMINATING, role = muxer.role().to_string().to_string().to_string().to_string());
-            eff.terminate::<Void>().await;
-            Ok(())
+            eff.terminate().await;
         }
         MuxMessage::SetSduTimeout(timeout) => {
             muxer.sdu_timeout = timeout;
@@ -551,7 +550,7 @@ async fn read_segment(
                 operation = "recv_data",
                 error = "sdu timeout (no time left for payload)"
             );
-            return eff.terminate().await;
+            eff.terminate().await;
         }
 
         let data = Network::new(&eff)

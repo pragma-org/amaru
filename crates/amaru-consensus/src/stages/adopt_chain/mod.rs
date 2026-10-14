@@ -219,11 +219,11 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                 AdoptTipResult::BestChainSwitched { forward_points } => adopted_points = Vec::from(forward_points),
                 AdoptTipResult::HeaderNotFound => {
                     error!(consensus::block::INVARIANT_VIOLATED, tip = msg, invariant = "header_missing");
-                    return eff.terminate().await;
+                    eff.terminate().await;
                 }
                 AdoptTipResult::AncestorOnBestChainNotFound => {
                     error!(consensus::block::INVARIANT_VIOLATED, tip = msg, invariant = "no_common_ancestor");
-                    return eff.terminate().await;
+                    eff.terminate().await;
                 }
             }
         } else {

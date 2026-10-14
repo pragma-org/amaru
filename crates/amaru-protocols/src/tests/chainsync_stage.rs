@@ -21,8 +21,8 @@ use amaru_pure_stage::{Effects, StageRef};
 use tokio::sync::Notify;
 
 use crate::{
-    blockfetch::Blocks, chainsync, chainsync::ChainSyncInitiatorMsg, manager::ManagerMessage, store_effects::Store,
-    tests::configuration::RESPONDER_BLOCKS_NB,
+    blockfetch::Blocks, chainsync, chainsync::ChainSyncInitiatorMsg, manager::ManagerMessage,
+    peer_tracking_effects::PeerTrack, store_effects::Store, tests::configuration::RESPONDER_BLOCKS_NB,
 };
 
 /// State for the ChainSync stage
@@ -204,7 +204,9 @@ pub(super) async fn test_chainsync_stage(
         }
         IntersectNotFound(tip) => {
             tracing::info!(peer = %msg.peer, %tip, "intersect not found");
-            eff.send(&msg.handler, chainsync::InitiatorMessage::Done).await;
+            // The bearer stays up. Peer selection demotes it from this mark.
+            let now = eff.clock().await;
+            PeerTrack::new(&eff).record_uninteresting(msg.peer, msg.conn_id, false, now).await;
         }
         RollForward(header_content, tip) => {
             let block_header: Header = cbor::from_cbor(header_content.cbor.as_slice()).unwrap();

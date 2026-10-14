@@ -76,7 +76,7 @@ define_role!(CollectorOut, ToCollector, Blocks);
 
 on_receive!(Idle as PipelineIdleIn {
     Fetch => { Call<ToResponder, RequestRange> => Busy }
-    Close => { Call<ToResponder, ClientDone> | Repeat<SendAny<ToCollector>> => Done }
+    Close => { Call<ToResponder, ClientDone> | Repeat<SendAny<ToCollector>> | Terminate => Done }
 });
 on_receive!(Busy as ClientBusyIn {
     Pull => { Send<ToMux, WantNext>, SetTimeout => Busy }
@@ -277,10 +277,8 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
                 s.finish().into()
             }
             Ok(PipelineIdleIn::Close(close)) => {
-                inflight = None;
-                pending_close = false;
                 let (_, s) = idle.receive(&close, eff).call(&mux, ClientDone).await;
-                s.finish().into()
+                s.terminate().await;
             }
             // TODO: handle timeouts generically to make mistakes impossible
             Err(Inputs::Internal(Internal::Timeout)) => idle.into(),
@@ -390,10 +388,8 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
     };
     let proto = match (pending_close, pending_fetch.take(), proto) {
         (true, _, Proto::Idle(idle)) => {
-            pending_close = false;
-            inflight = None;
             let (_, s) = idle.receive(&Close, follow_eff).call(&mux, ClientDone).await;
-            s.finish().into()
+            s.terminate().await;
         }
         (false, Some(fetch), Proto::Idle(idle)) => {
             let range = RequestRange { from: fetch.from, through: fetch.through };
@@ -690,7 +686,7 @@ mod tests {
             )
             .unwrap();
         let mut running = network.run(test_runtime());
-        running.run(Run::skip_wakeups()).assert_idle();
+        running.run(Run::skip_wakeups()).assert_terminated("bf");
         let log = running.get_state(&mux).cloned().unwrap();
         assert_eq!(log.sends, vec!["ClientDone"]);
         assert_eq!(log.wants, 0);

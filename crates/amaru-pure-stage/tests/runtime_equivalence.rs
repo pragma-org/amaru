@@ -772,7 +772,7 @@ fn install_supervised_terminating_call(graph: &mut impl StageGraph) -> Supervise
                         Mail::Occupy => {
                             eff.send(&out, Out::Holding).await;
                             eff.wait(SLOT_WAIT).await;
-                            return eff.terminate().await;
+                            eff.terminate().await;
                         }
                         Mail::Filler(n) => eff.send(&out, Out::Saw(n)).await,
                         Mail::Ping(reply) => {
@@ -1926,7 +1926,7 @@ fn install_caller_gone(
                                     .await;
                                 eff.send(&caller, 0u8).await;
                             }
-                            DynParent::Kill => return eff.terminate().await,
+                            DynParent::Kill => eff.terminate().await,
                         }
                         st
                     })
@@ -2044,7 +2044,7 @@ fn install_parked_call_loses_callee(
                             Mail::Occupy => {
                                 eff.send(&out, Report::Holding).await;
                                 eff.wait(SLOT_WAIT).await;
-                                return eff.terminate().await;
+                                eff.terminate().await;
                             }
                             Mail::Filler(n) => eff.send(&out, Report::Saw(n)).await,
                             Mail::Ping(_) => eff.send(&out, Report::Saw(9)).await,

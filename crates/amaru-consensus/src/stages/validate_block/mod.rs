@@ -170,7 +170,7 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
     let tip = msg.tip;
     if msg.parent == Point::Origin {
         error!(consensus::block::VALIDATE_FROM_GENESIS, tip, current = state.current, parent = msg.parent);
-        return eff.terminate().await;
+        eff.terminate().await;
     }
 
     let root_trace_context = msg.trace_context.clone();
