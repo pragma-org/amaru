@@ -56,6 +56,7 @@ pub struct NodeBuilder {
     target_upstream_peers: Option<usize>,
     target_downstream_peers: Option<usize>,
     listen_address: String,
+    bind_outbound: bool,
     submit_api_address: Option<String>,
     migrate_chain_db: bool,
     max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
@@ -81,6 +82,7 @@ impl NodeBuilder {
             target_upstream_peers: None,
             target_downstream_peers: None,
             listen_address: DEFAULT_PEERS_LISTEN_ON.to_string(),
+            bind_outbound: true,
             submit_api_address: None,
             migrate_chain_db: false,
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
@@ -135,6 +137,11 @@ impl NodeBuilder {
 
     pub fn listen_address(mut self, addr: impl Into<String>) -> Self {
         self.listen_address = addr.into();
+        self
+    }
+
+    pub fn bind_outbound(mut self, bind: bool) -> Self {
+        self.bind_outbound = bind;
         self
     }
 
@@ -223,6 +230,7 @@ impl NodeBuilder {
             peer_snapshot_unresolved,
             network_magic: self.network.to_network_magic(),
             listen_address: self.listen_address,
+            bind_outbound_to_listen_port: self.bind_outbound,
             migrate_chain_db: self.migrate_chain_db,
             submit_api_address: self.submit_api_address,
             observers: self.observers,

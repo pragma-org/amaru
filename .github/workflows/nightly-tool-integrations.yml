@@ -18,6 +18,7 @@ jobs:
       AMARU_DB_CHAIN: ./chain.preprod.db
       AMARU_DB_LEDGER: ./ledger.preprod.db
       AMARU_PEERS_LISTEN_ON: 127.0.0.1:3000
+      AMARU_PEERS_EPHEMERAL_OUTBOUND_PORT: true
       AMARU_PEER: preprod-node.play.dev.cardano.org:3001
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
