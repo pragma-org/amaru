@@ -547,20 +547,10 @@ fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: M
         Until::Blocks(blocks) => slots_for(blocks, nodes),
         Until::Slot(slot) => slot - chain_start + slots_for(1, nodes),
     } * 1_000_000_000;
-    // In-flight performance effects (record_block_valid tails near 5ms) must run after the
-    // stop condition, or the adopted block has no `outcome=valid` lifecycle. A block already
-    // in the pipeline can be adopted during this window.
-    const SETTLE_AFTER_STOP_NANOS: u64 = 20_000_000;
-    let mut settle_at = None;
+    let mut waiting_for_logs = false;
+    let mut completed = false;
     loop_.run_until_horizon_observing(horizon, |world| {
-        if let Some(until) = settle_at {
-            world.schedule_graphs_at(until);
-            if world.now_nanos() >= until {
-                world.halt();
-            }
-            return;
-        }
-        if !world.take_best_chain_tip_updated() {
+        if !world.take_best_chain_tip_updated() && !waiting_for_logs {
             return;
         }
         let tips: Vec<_> = (0..nodes).map(|index| best_tip(world, index)).collect();
@@ -570,13 +560,33 @@ fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: M
             Until::Slot(slot) => tips.iter().all(|tip| u64::from(tip.slot_or_default()) >= slot),
         };
         if agreed && reached {
-            let until = world.now_nanos().saturating_add(SETTLE_AFTER_STOP_NANOS);
-            world.schedule_graphs_at(until);
-            settle_at = Some(until);
+            waiting_for_logs = true;
+            let hash = tips[0].hash().to_string();
+            completed = logs.iter().all(|(_, records)| tip_logs_complete(&records.lock().expect("log"), &hash));
+            if completed {
+                world.halt();
+            }
         }
     });
+    assert!(
+        completed,
+        "minting did not finish adoption and lifecycle logging before the horizon seed={:#x}",
+        world.seed
+    );
     let records = logs.into_iter().map(|(_, records)| records).collect();
     MintRun { seed: world.seed, fixture, world: loop_, logs: records, security_param }
+}
+
+/// A stored tip is complete once adoption and peer validation (or local forging) have been logged.
+fn tip_logs_complete(records: &[LogRecord], hash: &str) -> bool {
+    let has_event = |name, outcome: Option<&str>| {
+        events(records, name).any(|record| {
+            field_hex(record, "header_hash").as_deref() == Some(hash)
+                && outcome.is_none_or(|outcome| field_str(record, "outcome") == Some(outcome))
+        })
+    };
+    has_event("tip.adopt", None)
+        && (has_event("forge.forged", None) || has_event("perf.header.lifecycle", Some("valid")))
 }
 
 #[test]

@@ -265,16 +265,6 @@ impl WorldLoop {
         std::mem::take(&mut self.best_chain_tip_updated)
     }
 
-    /// Schedule each graph at `time_nanos` unless it already has an earlier wake.
-    ///
-    /// A later wake is replaced. Used to stop a run at a settle deadline instead of
-    /// jumping to the next slot timer.
-    pub fn schedule_graphs_at(&mut self, time_nanos: u64) {
-        for index in 0..self.graphs.len() {
-            self.schedule_graph(index, time_nanos, GraphWakeReason::Sleeping);
-        }
-    }
-
     /// Leave the current `run_until_horizon*` loop after the event in progress.
     pub fn halt(&self) {
         self.halt.store(true, Ordering::Relaxed);
