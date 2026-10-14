@@ -25,10 +25,10 @@ use ratatui::{
 use super::super::{
     common::{
         border_title_chrome_width, border_title_line, border_title_prefix_width, button_label, panel_borders,
-        panel_padding, panel_title, render_scrollbar, scroll_panel_border, scroll_panel_border_type, table_body_area,
+        panel_padding, render_scrollbar, scroll_panel_border, scroll_panel_border_type, table_body_area,
     },
     format::{format_count, format_micros},
-    theme::{emphasis_primary, emphasis_white_color, muted_color, striped_row_style, table_header_style},
+    theme::{emphasis_primary, emphasis_white_color, muted, muted_color, striped_row_style, table_header_style},
 };
 use crate::{
     model::{Model, PeerState, PeerUse, ScrollFocus},
@@ -46,7 +46,7 @@ pub(in crate::ui) fn render_peers_table(
     let focused = model.scroll_focus == ScrollFocus::Peers;
     let toggle_label = button_label(peer_toggle_label(model));
     let block = Block::default()
-        .title(panel_title(model.interaction_mode, focused, &peers_title(model)))
+        .title(border_title_line(peers_title_spans(model), model.interaction_mode, focused))
         .title_top(
             border_title_line(
                 vec![ratatui::text::Span::styled(toggle_label.clone(), emphasis_primary(model.interaction_mode))],
@@ -89,7 +89,6 @@ pub(in crate::ui) fn render_peers_table(
             Constraint::Fill(4),
             Constraint::Min(9),
             Constraint::Min(8),
-            Constraint::Min(6),
             Constraint::Min(7),
             Constraint::Min(5),
             Constraint::Min(7),
@@ -112,7 +111,6 @@ pub(in crate::ui) fn render_peers_table(
             "Peer",
             "ChainSync",
             "Adopted",
-            "Duplex?",
             "RTT",
             "Score",
             "Observe",
@@ -138,10 +136,40 @@ fn peer_toggle_label(model: &Model) -> &'static str {
     if model.peer_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
-fn peers_title(model: &Model) -> String {
-    let up = model.peers.values().filter(|peer| peer.local_use == PeerUse::Diffusion).count();
-    let dn = model.peers.values().filter(|peer| peer.remote_use == PeerUse::Diffusion).count();
-    format!("Peers ({} up / {} dn)", format_count(up), format_count(dn))
+/// Diffusion counts stay in the title accent. A non-zero maintenance count is a muted `+N` on that side.
+fn peers_title_spans(model: &Model) -> Vec<Span<'static>> {
+    let mut up = 0;
+    let mut up_maintenance = 0;
+    let mut dn = 0;
+    let mut dn_maintenance = 0;
+    for peer in model.peers.values() {
+        match peer.local_use {
+            PeerUse::Diffusion => up += 1,
+            PeerUse::Maintenance => up_maintenance += 1,
+            PeerUse::None => {}
+        }
+        match peer.remote_use {
+            PeerUse::Diffusion => dn += 1,
+            PeerUse::Maintenance => dn_maintenance += 1,
+            PeerUse::None => {}
+        }
+    }
+
+    let emphasis = emphasis_primary(model.interaction_mode);
+    let mut spans = Vec::with_capacity(7);
+    spans.push(Span::styled("Peers (", emphasis));
+    push_use_count(&mut spans, up, up_maintenance, emphasis);
+    spans.push(Span::styled(" up / ", emphasis));
+    push_use_count(&mut spans, dn, dn_maintenance, emphasis);
+    spans.push(Span::styled(" dn)", emphasis));
+    spans
+}
+
+fn push_use_count(spans: &mut Vec<Span<'static>>, diffusion: usize, maintenance: usize, emphasis: Style) {
+    spans.push(Span::styled(format_count(diffusion), emphasis));
+    if maintenance > 0 {
+        spans.push(Span::styled(format!("+{}", format_count(maintenance)), muted()));
+    }
 }
 
 fn peer_row(index: usize, peer: &PeerState, adopted_block_height: Option<u64>) -> Row<'static> {
@@ -157,11 +185,6 @@ fn peer_row(index: usize, peer: &PeerState, adopted_block_height: Option<u64>) -
     let within_1s = format_share(peer.live_arrival_share_percent(1_000_000));
     let within_3s = format_share(peer.live_arrival_share_percent(3_000_000));
     let within_5s = format_share(peer.live_arrival_share_percent(5_000_000));
-    let can_duplex = match peer.full_duplex {
-        Some(true) => "yes",
-        Some(false) => "no",
-        None => "—",
-    };
 
     Row::new(vec![
         use_cell(peer.local_use),
@@ -170,7 +193,6 @@ fn peer_row(index: usize, peer: &PeerState, adopted_block_height: Option<u64>) -
         Cell::from(peer_address_line(peer)),
         Cell::from(forward_gap).style(Style::default().fg(emphasis_white_color())),
         Cell::from(tip_gap).style(Style::default().fg(emphasis_white_color())),
-        Cell::from(can_duplex).style(Style::default().fg(muted_color())),
         Cell::from(rtt).style(Style::default().fg(emphasis_white_color())),
         Cell::from(announcement_score).style(Style::default().fg(emphasis_white_color())),
         Cell::from(slot_start_to_header).style(Style::default().fg(emphasis_white_color())),
@@ -232,7 +254,7 @@ fn peer_address_line(peer: &PeerState) -> Line<'static> {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect, style::Modifier};
 
     use super::*;
     use crate::{
@@ -358,7 +380,20 @@ mod tests {
         assert!(header.contains("up"));
         assert!(header.contains("dn"));
         assert!(header.contains("ChainSync"));
-        assert!(lines.iter().any(|line| line.contains("0 up / 1 dn")), "{lines:?}");
+        assert!(lines[0].contains("0+1 up / 1 dn"), "{lines:?}");
+        let buffer = terminal.backend().buffer().clone();
+        let symbols: Vec<_> =
+            (0..buffer.area.width).map(|x| buffer.cell((x, 0)).expect("title cell").symbol().to_string()).collect();
+        let plus = symbols.windows(2).position(|pair| pair == ["+", "1"]).expect("maintenance suffix");
+        for x in plus..plus + 2 {
+            let cell = buffer.cell((x as u16, 0)).expect("suffix cell");
+            assert_eq!(cell.fg, muted_color(), "maintenance suffix is muted: {cell:?}");
+            assert!(!cell.modifier.contains(Modifier::BOLD), "maintenance suffix is not bold: {cell:?}");
+        }
+        let diffusion = symbols.windows(4).position(|word| word == ["1", " ", "d", "n"]).expect("diffusion count");
+        let cell = buffer.cell((diffusion as u16, 0)).expect("diffusion cell");
+        assert_eq!(cell.fg, Color::Rgb(110, 228, 150), "diffusion count stays accented: {cell:?}");
+        assert!(cell.modifier.contains(Modifier::BOLD), "diffusion count stays bold: {cell:?}");
         let inbound = lines.iter().find(|line| line.contains("10.1.1.1:3001")).expect("inbound row");
         let outbound = lines.iter().find(|line| line.contains("10.2.2.2:3001")).expect("outbound row");
         assert!(inbound.contains("in"), "{inbound}");
@@ -377,5 +412,21 @@ mod tests {
             vec![("○".to_string(), Color::Yellow), ("●".to_string(), Color::Rgb(110, 228, 150))],
             "{lines:?}"
         );
+    }
+
+    #[test]
+    fn peers_title_omits_a_zero_maintenance_suffix() {
+        let mut model = Model::new(Config::default(), startup());
+        model.peers.insert("1".into(), sample_peer("10.1.1.1:3001", PeerUse::Diffusion, PeerUse::Diffusion, true));
+        model.peers.insert("2".into(), sample_peer("10.2.2.2:3001", PeerUse::Maintenance, PeerUse::None, false));
+
+        let area = Rect::new(0, 0, 80, 6);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut views = Views::default();
+        terminal.draw(|frame| render_peers_table(frame, area, &model, &mut views, Instant::now())).expect("draw");
+        let lines = buffer_lines(terminal.backend().buffer());
+        assert!(lines[0].contains("1+1 up / 1 dn"), "{lines:?}");
+        assert!(!lines[0].contains("+0"), "{lines:?}");
     }
 }

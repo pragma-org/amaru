@@ -53,6 +53,7 @@ Other guiding principles:
 - **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
 - **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
+- **amaru-tui**: the peers title shows maintenance peers as a dimmer `+N` after each diffusion count, as in `10+3 up / 8+1 dn`. A side with no maintenance peers shows only the diffusion count.
 - **amaru-tui**: each peer row shows a header announcement score. The first peer to announce a header scores 6, the second scores 3, and the third scores 1.
 - **amaru-tui**: each chainsync peer row shows the signed gap from that peer's latest roll-forward (`ChainSync`) and advertised tip (`Adopted`) to this node's adopted height. Positive means the peer is ahead.
 - **amaru**: chainsync roll-forward completion is included in debug traces, with the header height and the peer's tip height.
