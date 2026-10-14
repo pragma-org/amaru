@@ -1473,11 +1473,12 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- | --- | --- | --- | --- |
 | `chain_lagging` | `event` | error | public | Near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. Sync that is still adopting faster than 10 blocks per second does not raise this. Emitted at most once a minute. | peer, live_slot, our_slot, lag |  |
 | `initialized` | `event` | info | public | A chainsync session with an upstream peer was initialized | peer, conn_id |  |
-| `intersect_found` | `event` | info | public | An intersection with the peer's chain was found | peer, conn_id, current, highest |  |
+| `intersect_found` | `event` | info | public | An intersection with the peer's chain was found | peer, conn_id, current, highest, tip_height |  |
 | `intersect_not_found` | `event` | info | public | No intersection with the peer's chain was found, so chainsync with it stops | peer, highest |  |
 | `reinitialized` | `event` | warn | public | A chainsync session was re-initialized while still active; prior state is purged | peer, conn_id |  |
-| `roll_backward` | `event` | info | public | A peer rolled back to an earlier point | peer, current, highest |  |
+| `roll_backward` | `event` | info | public | A peer rolled back to an earlier point | peer, current, highest, tip_height |  |
 | `roll_backward_failed` | `event` | error | public | A rollback requested by a peer could not be applied; the peer is adversarial | peer, error |  |
+| `roll_forward_done` | `event` | debug | public | A header announced by a peer was processed. Outcome ∈ {already_stored, stored}. \`current_height\` is that header. \`tip_height\` is the tip the peer advertises. | peer, current, highest, current_height, tip_height, outcome |  |
 | `terminated` | `event` | info | public | A chainsync session terminated and its connection state was purged | peer, conn_id |  |
 | `unknown_intersection_point` | `event` | warn | public | The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike \`INTERSECT_NOT_FOUND\` this points at local state, not at the peer. | peer, current, highest |  |
 
@@ -1509,6 +1510,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `conn_id` | `integer` | ✓ |
 | `current` | `array` | ✓ |
 | `highest` | `array` | ✓ |
+| `tip_height` | `integer` | ✓ |
 
 </details>
 
@@ -1537,6 +1539,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `peer` | `string` | ✓ |
 | `current` | `array` | ✓ |
 | `highest` | `array` | ✓ |
+| `tip_height` | `integer` | ✓ |
 
 </details>
 
@@ -1546,6 +1549,19 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
 | `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>event: `roll_forward_done`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `current` | `array` | ✓ |
+| `highest` | `array` | ✓ |
+| `current_height` | `integer` | ✓ |
+| `tip_height` | `integer` | ✓ |
+| `outcome` | `string` | ✓ |
 
 </details>
 
@@ -3850,7 +3866,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `add` | `span` |  | public | Batch-upsert account entries |  |  |
 | `get` | `span` |  | public | Point-read an account entry |  |  |
 | `remove` | `span` |  | public | Batch-delete account entries |  |  |
-| `reset_many` | `event` | error | public | Reset rewards counters for many accounts |  | credential, reason |
+| `reset_many` | `event` | error | public | Skipped resetting rewards because the account is not in the store |  | credential, reason |
 | `set` | `event` | debug | public | Update rewards balance for a single account |  | credential_type, account, reason |
 
 <details><summary>event: `reset_many`</summary>
@@ -3883,10 +3899,10 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `add` | `event` | error | public | Batch-upsert DRep registrations |  | credential, reason |
+| `add` | `event` | error | public | Skipped a DRep registration that carried no deposit |  | credential, reason |
 | `get` | `span` |  | public | Point-read a DRep entry |  |  |
-| `remove` | `event` | error | public | Record DRep de-registration |  | drep, reason |
-| `set_valid_until` | `event` | warn | public | Refresh DRep expiry after a vote |  | credential, reason |
+| `remove` | `event` | error | public | Skipped de-registration because the DRep is not in the store |  | drep, reason |
+| `set_valid_until` | `event` | warn | public | Skipped refreshing expiry because the DRep is not in the store |  | credential, reason |
 
 <details><summary>event: `add`</summary>
 
@@ -4005,7 +4021,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- | --- | --- | --- | --- |
 | `add` | `span` |  | public | Batch-upsert pool entries |  |  |
 | `get` | `span` |  | public | Point-read a pool entry |  |  |
-| `remove` | `event` | error | public | Schedule pool retirement |  | pool, reason |
+| `remove` | `event` | error | public | Skipped scheduling retirement because the pool is not in the store |  | pool, reason |
 
 <details><summary>event: `remove`</summary>
 

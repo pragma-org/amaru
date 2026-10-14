@@ -52,9 +52,19 @@ Other guiding principles:
 - **amaru**: remove legacy commands that were deprecated and hidden away months ago.
 - **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
+- **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
+- **amaru-tui**: each peer row shows a header announcement score. The first peer to announce a header scores 6, the second scores 3, and the third scores 1.
+- **amaru-tui**: each chainsync peer row shows the signed gap from that peer's latest roll-forward (`ChainSync`) and advertised tip (`Adopted`) to this node's adopted height. Positive means the peer is ahead.
+- **amaru**: chainsync roll-forward completion is included in debug traces, with the header height and the peer's tip height.
 
 ### Fixed
 
+- **amaru**: a fork switch logs each block it adopts. Those blocks, other than the new tip, are recorded as validated headers, so a later chain prune does not report them as pruned.
+- **amaru**: startup no longer logs `db_chain.initialize` when the chain store does not contain the ledger tip. The process still exits with the mismatch error.
+- **amaru**: the trace catalog describes an unknown pool retirement, an unknown reward reset, a DRep registration without a deposit, an unknown DRep removal, and an unknown DRep expiry refresh as those skips.
+- **amaru**: a fork switch that is replaced reports its own duration. A different fork's span is no longer reused.
+- **amaru-tui**: a chainsync roll-forward replaces that peer's advertised tip, including when the new tip is lower. A tip one block behind the header it just sent still shows the header height.
+- **amaru**: adopting a block records its header lifecycle as valid. A chain-selection notice that is still queued when the node stops no longer leaves that block without one.
 - **amaru**: the death of an outbound bearer rejected as a duplicate no longer counts as a failed dial, and does not add connection malus, while that peer still has a live connection.
 - **amaru**: a peer that does not answer a share request within 60 seconds drops that connection. The node does not ask again on it.
 - **amaru**: chainsync stops when a peer has no intersection, and when a peer rolls back to a point this node does not have. The rollback waits 180 seconds before that peer is used upstream again. Neither case bans the peer.

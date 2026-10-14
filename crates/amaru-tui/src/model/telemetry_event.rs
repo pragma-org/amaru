@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::amaru::{bootstrap, consensus, ledger, mempool, protocols};
+use amaru_observability::amaru::{blockperf, bootstrap, consensus, ledger, mempool, protocols};
 
 use crate::events::TelemetryRecord;
 
@@ -30,6 +30,10 @@ pub enum TelemetryEvent {
     GovernanceActivityUpdate,
     GovernanceEnacting,
     GovernanceRatifying,
+    ChainSyncIntersect,
+    ChainSyncRollBackward,
+    ChainSyncRollForwardDone,
+    HeaderAnnounced,
     HeaderLifecycle,
     KeepaliveRoundTrip,
     MempoolStateUpdate,
@@ -89,6 +93,14 @@ impl TelemetryEvent {
             Some(Self::BootstrapPotsImport)
         } else if mempool::state::UPDATE::matches(&record.target, &record.name) {
             Some(Self::MempoolStateUpdate)
+        } else if consensus::chainsync::ROLL_FORWARD_DONE::matches(&record.target, &record.name) {
+            Some(Self::ChainSyncRollForwardDone)
+        } else if consensus::chainsync::INTERSECT_FOUND::matches(&record.target, &record.name) {
+            Some(Self::ChainSyncIntersect)
+        } else if consensus::chainsync::ROLL_BACKWARD::matches(&record.target, &record.name) {
+            Some(Self::ChainSyncRollBackward)
+        } else if blockperf::header::ANNOUNCED::matches(&record.target, &record.name) {
+            Some(Self::HeaderAnnounced)
         } else if consensus::perf::header::LIFECYCLE::matches(&record.target, &record.name) {
             Some(Self::HeaderLifecycle)
         } else if protocols::keepalive::peer::ROUND_TRIP::matches(&record.target, &record.name) {

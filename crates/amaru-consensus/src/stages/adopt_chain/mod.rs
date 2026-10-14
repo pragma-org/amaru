@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, time::Duration};
 
-use amaru_kernel::{BlockHeight, Header, IsHeader, Point};
+use amaru_kernel::{BlockHeight, Header, IsHeader, NonEmptyVec, Point};
 use amaru_observability::{
     CarriedHeader, Instrument, TraceContext, amaru::consensus::block::ADOPT, debug, debug_span, error, info, warn,
 };
@@ -53,17 +53,19 @@ use crate::{
 ///   `consensus_security_param` ("k") blocks behind the new tip; the height
 ///   walk uses a consistent snapshot effect; only the write is separate;
 ///   never moves backward; may be a no-op if no suitable anchor found).
-/// - Then (after logging; while syncing, identical lines inside one second are debug and counted
-///   in `suppressed`; while live, every adoption is info): three `eff.send`s
-///   (in this exact order):
+/// - Then log each adopted header. While syncing, at most one info line per second is emitted
+///   and the rest are debug, counted in `suppressed`. While live, every adoption is info.
+///   A fork switch logs each forward point, not only the new tip. Three `eff.send`s follow,
+///   for the new tip, in this exact order:
 ///   1. `MempoolMsg::NewTip(tip)` — to the mempool (to flush invalidated txs
 ///      and adjust to the new tip).
 ///   2. `ManagerMessage::NewTip(tip)` — to the downstream manager/peer layer.
 ///   3. `BlockSourceMsg::AdoptedTip(tip)` — to block_source (so it can adjust
 ///      its tip distance / fetch window for the newly adopted chain).
-/// - During `drag_anchor_forward`: `Performance::prune_below(tip.height - k, now)` so
-///   peer availability claims and open header lifecycles below the immutable horizon are dropped
-///   (header entries emit `HeaderLifecycleOutcome::Pruned`).
+/// - During `drag_anchor_forward`: every adopted block is `record_block_valid` (chain
+///   selection reports the new tip as well; the second report emits nothing), then
+///   `Performance::prune_below(tip.height - k, now)` drops peer availability claims and any
+///   still-open header lifecycles below the immutable horizon (`HeaderLifecycleOutcome::Pruned`).
 /// - Finally, `current_best_tip` is updated in the returned state.
 ///
 /// Early exits (no adoption, no sends, no anchor drag, no logging of "adopted"):
@@ -203,6 +205,9 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             return state;
         }
 
+        // A roll-forward adopts one header. A fork switch adopts every point from the
+        // fork up to the new tip; only the tip is this message.
+        let mut adopted_points = vec![msg];
         if let Some(current_best) = current_best.as_ref() {
             let adopt_result = adopt_tip(&store, &incoming_header, current_best)
                 .or_terminate_with(&eff, async |error| {
@@ -210,7 +215,8 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                 })
                 .await;
             match adopt_result {
-                AdoptTipResult::BestChainRolledForward | AdoptTipResult::BestChainSwitched => {}
+                AdoptTipResult::BestChainRolledForward => {}
+                AdoptTipResult::BestChainSwitched { forward_points } => adopted_points = Vec::from(forward_points),
                 AdoptTipResult::HeaderNotFound => {
                     error!(consensus::block::INVARIANT_VIOLATED, tip = msg, invariant = "header_missing");
                     return eff.terminate().await;
@@ -234,41 +240,26 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                 .await;
         }
 
-        let now = drag_anchor_forward(&store, &msg, state.consensus_security_param, &eff)
-            .or_terminate_with(&eff, async |error| {
-                error!(
-                    consensus::block::ADOPT_FAILED,
-                    tip = msg,
-                    step = "drag_anchor_forward",
-                    error = error.to_string()
-                );
-            })
-            .await;
+        // The ledger has already applied every one of these blocks. Chain selection also
+        // reports the new tip; a second report does not emit again.
+        let now = drag_anchor_forward(
+            &store,
+            &msg,
+            state.consensus_security_param,
+            state.max_block_height,
+            &adopted_points,
+            &eff,
+        )
+        .or_terminate_with(&eff, async |error| {
+            error!(consensus::block::ADOPT_FAILED, tip = msg, step = "drag_anchor_forward", error = error.to_string());
+        })
+        .await;
 
         let mode = eff.external(UpdateConsensusModeEffect { slot: msg.slot(), now }).await;
         eff.external(Performance::record_sync_adoption(now, mode.is_live())).await;
         // While syncing, print at most one adoption per second. While live, print every one.
-        if mode == ConsensusMode::Live || now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
-            info!(
-                consensus::tip::ADOPT,
-                slot = msg.slot(),
-                header_hash = msg.hash(),
-                block_height = msg.block_height().as_u64(),
-                max_block_height = state.max_block_height.as_u64(),
-                suppressed = state.suppressed
-            );
-            state.last_printed = now;
-            state.suppressed = 0;
-        } else {
-            debug!(
-                consensus::tip::ADOPT,
-                slot = msg.slot(),
-                header_hash = msg.hash(),
-                block_height = msg.block_height().as_u64(),
-                max_block_height = state.max_block_height.as_u64(),
-                suppressed = state.suppressed
-            );
-            state.suppressed += 1;
+        for point in &adopted_points {
+            log_adopted_tip(&mut state, point, now, mode);
         }
         eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
         eff.send(&state.downstream, ManagerMessage::NewTip(msg, trace_context)).await;
@@ -302,7 +293,7 @@ async fn adopt_tip<S>(
         FindAncestorOnBestChainResult::NotFound => Ok(AdoptTipResult::AncestorOnBestChainNotFound),
         FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
             store.switch_to_fork(&fork_point, &forward_points).await?;
-            Ok(AdoptTipResult::BestChainSwitched)
+            Ok(AdoptTipResult::BestChainSwitched { forward_points })
         }
     }
 }
@@ -311,7 +302,7 @@ enum AdoptTipResult {
     HeaderNotFound,
     AncestorOnBestChainNotFound,
     BestChainRolledForward,
-    BestChainSwitched,
+    BestChainSwitched { forward_points: NonEmptyVec<Point> },
 }
 
 /// Drag the store anchor forward so it is at most `consensus_security_param`
@@ -319,13 +310,16 @@ enum AdoptTipResult {
 /// store effect against a consistent snapshot; only the resulting anchor write
 /// is a separate effect. Only moves the anchor forward, never backward.
 ///
-/// After the anchor update (if any), prunes performance maps at the immutable horizon
-/// (`tip.height - k`): peer claims below that height, and open header lifecycles as `Pruned`.
+/// After the anchor update (if any), records every adopted block as valid, then prunes
+/// performance maps at the immutable horizon (`tip.height - k`): peer claims below that
+/// height, and any header lifecycle still open as `Pruned`.
 /// Returns the clock reading used for that prune (also suitable for adoption logging).
 async fn drag_anchor_forward<S>(
     store: &Store<S>,
     tip: &Point,
     consensus_security_param: u64,
+    max_block_height: BlockHeight,
+    adopted_points: &[Point],
     eff: &Effects<AdoptChainMsg>,
 ) -> Result<Instant, StoreError> {
     let target_height = tip.block_height() - consensus_security_param;
@@ -333,8 +327,43 @@ async fn drag_anchor_forward<S>(
         store.set_anchor_point(&new_anchor).await?;
     }
     let now = eff.clock().await;
+    // Close these lifecycles before the prune. A later tip, more than `k` above, would
+    // otherwise report a canonical block as `pruned`, and halting can leave the tip's
+    // chain-selection notice still queued.
+    // While catching up, slot-start-to-header is not a meaningful network-health signal.
+    let syncing = max_block_height > tip.block_height();
+    for point in adopted_points {
+        eff.external(Performance::record_block_valid(point.hash(), point.block_height(), now, syncing)).await;
+    }
     eff.external(Performance::prune_below(target_height, now)).await;
     Ok(now)
+}
+
+/// Log one adopted header. While syncing, at most one line per second is info; the rest are
+/// debug and counted in `suppressed`. While live, every adoption is info.
+fn log_adopted_tip(state: &mut AdoptChain, point: &Point, now: Instant, mode: ConsensusMode) {
+    if mode == ConsensusMode::Live || now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
+        info!(
+            consensus::tip::ADOPT,
+            slot = point.slot(),
+            header_hash = point.hash(),
+            block_height = point.block_height().as_u64(),
+            max_block_height = state.max_block_height.as_u64(),
+            suppressed = state.suppressed
+        );
+        state.last_printed = now;
+        state.suppressed = 0;
+    } else {
+        debug!(
+            consensus::tip::ADOPT,
+            slot = point.slot(),
+            header_hash = point.hash(),
+            block_height = point.block_height().as_u64(),
+            max_block_height = state.max_block_height.as_u64(),
+            suppressed = state.suppressed
+        );
+        state.suppressed += 1;
+    }
 }
 
 #[cfg(test)]

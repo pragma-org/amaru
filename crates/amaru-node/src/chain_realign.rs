@@ -49,7 +49,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
     let has_best_chain = best_chain_hash != ORIGIN_HASH;
 
     if let Err(error) = ensure_store_consistency(chain_store, tip) {
-        info!(consensus::db_chain::INITIALIZE, ledger_tip = tip);
+        // `db_chain.initialize` is the success line. The returned error is the mismatch.
         return Err(error.into());
     }
 

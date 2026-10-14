@@ -296,7 +296,7 @@ fn dispatch_header(peers: &mut PeerPerformance, headers: &mut HeaderPerformance,
             let _ = reply.send(telemetry);
         }
         HeaderOp::RecordBlockValid { effect, reply } => {
-            let telemetry = headers.apply_block_valid(&effect.hash, effect.now, effect.syncing);
+            let telemetry = headers.apply_block_valid(&effect.hash, effect.height, effect.now, effect.syncing);
             let _ = reply.send(telemetry);
         }
         HeaderOp::RecordBlockPruned { effect, reply } => {

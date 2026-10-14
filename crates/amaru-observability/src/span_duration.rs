@@ -18,7 +18,7 @@
 //! that layer ends the exported span. [`offer_span_elapsed`] supplies that elapsed time;
 //! without an offer the layer uses its own start-to-exit clock.
 
-use std::{cell::RefCell, time::SystemTime};
+use std::{cell::RefCell, collections::BTreeMap, time::SystemTime};
 
 use opentelemetry::Value as TraceValue;
 use tracing::field::{Field, Visit};
@@ -27,19 +27,23 @@ use tracing_subscriber::{Layer, registry::LookupSpan};
 use crate::{amaru::network::perf::header::FORWARD, cbor_to_trace_value, note_span_duration};
 
 thread_local! {
-    static OFFERED_ELAPSED: RefCell<Option<(String, u64)>> = const { RefCell::new(None) };
+    static OFFERED_ELAPSED: RefCell<BTreeMap<String, u64>> = const { RefCell::new(BTreeMap::new()) };
 }
 
-/// Elapsed microseconds of the span that is closing on this thread.
+/// Elapsed microseconds of the span that is closing on this thread, keyed by span name.
 ///
 /// The OpenTelemetry span processor calls this from `on_end`, which runs inside the
-/// tracing `on_close` and before [`SpanDurationLayer`] records the value.
+/// tracing `on_close` and before [`SpanDurationLayer`] records the value. One name
+/// does not replace another: fetch and forward close on the same thread.
 pub fn offer_span_elapsed(name: &str, micros: u64) {
-    OFFERED_ELAPSED.with(|slot| *slot.borrow_mut() = Some((name.to_string(), micros)));
+    OFFERED_ELAPSED.with(|slot| {
+        slot.borrow_mut().insert(name.to_string(), micros);
+    });
 }
 
-fn take_offered_elapsed() -> Option<(String, u64)> {
-    OFFERED_ELAPSED.with(|slot| slot.borrow_mut().take())
+/// Take the offer for `name`. Other spans' offers stay put.
+fn take_offered_elapsed(name: &str) -> Option<u64> {
+    OFFERED_ELAPSED.with(|slot| slot.borrow_mut().remove(name))
 }
 
 struct TimedHeader {
@@ -147,7 +151,6 @@ where
     }
 
     fn on_close(&self, id: tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
-        let offered = take_offered_elapsed();
         let Some(span) = ctx.span(&id) else {
             return;
         };
@@ -161,7 +164,7 @@ where
         };
         let own = timed.end.unwrap_or_else(SystemTime::now).duration_since(timed.start).unwrap_or_default().as_micros()
             as u64;
-        let micros = offered.filter(|(offered_name, _)| offered_name == &name).map(|(_, micros)| micros).unwrap_or(own);
+        let micros = take_offered_elapsed(&name).unwrap_or(own);
         note_span_duration(&name, &timed.header_hash, micros);
     }
 }

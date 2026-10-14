@@ -473,6 +473,7 @@ fn test_block_validation_result_valid() {
             te_record_block_valid(
                 "sc-1",
                 tip.hash(),
+                tip.block_height(),
                 Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
                 false,
             ),
@@ -960,7 +961,7 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
             te_has_header("sc-1", prep.headers.h2.hash()),
             te_set_block_valid("sc-1", prep.headers.h2.hash(), true),
             te_clock_read("sc-1"),
-            te_record_block_valid("sc-1", prep.headers.h2.hash(), now, false),
+            te_record_block_valid("sc-1", prep.headers.h2.hash(), prep.headers.h2.block_height(), now, false),
             te_state("sc-1", &after_h2_valid),
             te_input("sc-1", &msg2),
             te_has_header("sc-1", tip.hash()),

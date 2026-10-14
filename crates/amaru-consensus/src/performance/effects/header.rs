@@ -83,8 +83,13 @@ impl Performance {
         RecordForkStartedEffect { tip, started_at }
     }
 
-    pub fn record_block_valid(hash: HeaderHash, now: Instant, syncing: bool) -> RecordBlockValidEffect {
-        RecordBlockValidEffect { hash, now, syncing }
+    pub fn record_block_valid(
+        hash: HeaderHash,
+        height: BlockHeight,
+        now: Instant,
+        syncing: bool,
+    ) -> RecordBlockValidEffect {
+        RecordBlockValidEffect { hash, height, now, syncing }
     }
 
     pub fn record_block_pruned(
@@ -335,6 +340,7 @@ impl ExternalEffectAPI for RecordForkStartedEffect {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordBlockValidEffect {
     pub(crate) hash: HeaderHash,
+    pub(crate) height: BlockHeight,
     pub(crate) now: Instant,
     /// When true, omit `slot_start_to_header_micros` from the emitted lifecycle metric.
     pub(crate) syncing: bool,
