@@ -259,6 +259,7 @@ start_amaru() {
       --tui-off \
       --network "$NETWORK" \
       --peers-listen-on "$AMARU_PEERS_LISTEN_ON" \
+      --peers-ephemeral-outbound-port \
       --submit-api-listen-on "$AMARU_SUBMIT_API_LISTEN_ON" \
       --db-chain "$AMARU_DB_CHAIN" \
       --db-chain-automatic-migration \
