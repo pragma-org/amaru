@@ -127,7 +127,7 @@ jobs:
             if [[ "$adopted_slot" =~ ^[0-9]+$ ]] && (( adopted_slot >= target_slot )); then
               echo "Amaru reached target slot $target_slot at slot $adopted_slot"
               kill -INT "$amaru_pid"
-              wait "$amaru_pid"
+              wait "$amaru_pid" || fail "Amaru shutdown failed"
               amaru_pid=""
               check_log_errors
               trap - EXIT

@@ -66,7 +66,7 @@ use crate::{
     },
 };
 
-const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Store open attempted when startup found a store already in use.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
