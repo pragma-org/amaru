@@ -555,9 +555,9 @@ fn register_resources(
 }
 
 /// This function migrates the database if necessary
-pub(crate) fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
+fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
     let chain_store: Arc<dyn ChainStore> = match config.chain_store {
-        StoreType::Existing(ref chain_store) => chain_store.clone(),
+        StoreType::InMem(ref chain_store) => chain_store.clone(),
         StoreType::RocksDb(ref rocks_db_config) => {
             Arc::new(open_chain_store(rocks_db_config, config.migrate_chain_db)?)
         }

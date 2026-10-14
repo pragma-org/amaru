@@ -41,7 +41,6 @@ pub mod chain_realign;
 pub mod ledger_reset;
 pub mod mithril;
 pub mod peer_snapshot;
-mod stage_runtime;
 pub mod stages;
 pub mod submit_api;
 pub mod system_metrics;

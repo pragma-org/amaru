@@ -82,13 +82,6 @@ Other guiding principles:
 - **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
 - **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
 
-### Fixed
-
-- **amaru-node**: Mithril synchronization removes its cache and store lock files when synchronization finishes.
-- **amaru-node**: Mithril block replay advances the chain anchor as blocks become stable, preventing header validation from slowing down as replay progresses.
-- **amaru-mithril**: repeated sync verifies complete cached immutable files without downloading them again. If cached bytes fail verification, it fetches the affected snapshot range again.
-- **amaru**: console logs print above active bootstrap and Mithril progress bars without splitting or overwriting the bar.
-
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
 ### Added

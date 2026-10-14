@@ -14,10 +14,7 @@
 
 use std::{
     io::{self, Write},
-    sync::{
-        LazyLock,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::LazyLock,
     time::Duration,
 };
 
@@ -31,7 +28,6 @@ pub struct TerminalProgressBar {
 }
 
 static PROGRESS: LazyLock<MultiProgress> = LazyLock::new(MultiProgress::new);
-static ACTIVE_BARS: AtomicUsize = AtomicUsize::new(0);
 
 /// A tracing writer that prints complete console lines above active progress bars.
 pub struct ProgressLogWriter(Vec<u8>);
@@ -49,7 +45,7 @@ impl Write for ProgressLogWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         if !self.0.is_empty() {
-            write_log(&PROGRESS, ACTIVE_BARS.load(Ordering::Acquire) > 0, &self.0)?;
+            PROGRESS.suspend(|| io::stderr().write_all(&self.0))?;
             self.0.clear();
         }
         Ok(())
@@ -62,21 +58,11 @@ impl Drop for ProgressLogWriter {
     }
 }
 
-fn write_log(progress: &MultiProgress, has_active_bar: bool, bytes: &[u8]) -> io::Result<()> {
-    if has_active_bar && !progress.is_hidden() {
-        let line = String::from_utf8_lossy(bytes);
-        progress.println(line.strip_suffix('\n').unwrap_or(&line))
-    } else {
-        io::stderr().write_all(bytes)
-    }
-}
-
 impl TerminalProgressBar {
     #[expect(clippy::unwrap_used)]
     pub fn new(size: impl Into<u64>, template: impl AsRef<str>) -> Self {
         let size = size.into();
         let style = ProgressStyle::with_template(template.as_ref()).unwrap().progress_chars("█▉▊▋▌▍▎▏-");
-        ACTIVE_BARS.fetch_add(1, Ordering::Release);
         let inner = PROGRESS.add(indicatif::ProgressBar::new(size).with_style(style));
         if size == 0 {
             inner.enable_steady_tick(Duration::from_millis(100));
@@ -105,7 +91,6 @@ impl TerminalProgressBar {
 impl Drop for TerminalProgressBar {
     fn drop(&mut self) {
         PROGRESS.remove(&self.inner);
-        ACTIVE_BARS.fetch_sub(1, Ordering::Release);
     }
 }
 

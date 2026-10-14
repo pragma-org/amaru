@@ -458,13 +458,10 @@ async fn download_from_mithril_with_chunk_range(
             )
             .await
     };
-    let first_verification = if reuse_cache {
-        verify_database().await
-    } else {
+    if !reuse_cache {
         download().await?;
-        verify_database().await
-    };
-    let (merkle_proof, reused_cache) = match first_verification {
+    }
+    let (merkle_proof, reused_cache) = match verify_database().await {
         Ok(proof) => (proof, reuse_cache),
         Err(source) if reuse_cache => {
             warn!(mithril::snapshot::REDOWNLOAD_CACHE, from_chunk, through_chunk, reason = source.to_string());
