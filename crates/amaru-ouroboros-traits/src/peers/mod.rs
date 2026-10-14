@@ -46,19 +46,85 @@ impl ObservedAt {
 /// Which initiator groups this node intends to run on a bearer.
 ///
 /// Ordered by inclusion: `Maintenance` includes `None`, and `Diffusion` includes maintenance.
+/// [`RemoteInitiators::derived`] uses the same order for the remote side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-pub enum LocalUse {
+pub enum MiniProtocolUse {
     None,
     Maintenance,
     Diffusion,
 }
 
-impl LocalUse {
+impl MiniProtocolUse {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
             Self::Maintenance => "maintenance",
             Self::Diffusion => "diffusion",
+        }
+    }
+}
+
+/// One remote initiator protocol observed on a bearer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RemoteProtocol {
+    KeepAlive,
+    PeerSharing,
+    ChainSync,
+    BlockFetch,
+    TxSubmission,
+}
+
+/// Which remote initiator protocols are currently open on a bearer.
+///
+/// A bit is set by the first message of that protocol and cleared by `MsgDone` or
+/// `ClientDone`. [`RemoteInitiators::derived`] is the temperature those bits imply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct RemoteInitiators {
+    keepalive: bool,
+    peer_sharing: bool,
+    chainsync: bool,
+    block_fetch: bool,
+    tx_submission: bool,
+}
+
+impl RemoteInitiators {
+    /// Diffusion if any hot protocol is open, otherwise maintenance if keep-alive or
+    /// peer-sharing is open, otherwise none.
+    pub fn derived(self) -> MiniProtocolUse {
+        if self.chainsync || self.block_fetch || self.tx_submission {
+            MiniProtocolUse::Diffusion
+        } else if self.keepalive || self.peer_sharing {
+            MiniProtocolUse::Maintenance
+        } else {
+            MiniProtocolUse::None
+        }
+    }
+
+    /// Whether `protocol` is currently open.
+    pub fn is_active(self, protocol: RemoteProtocol) -> bool {
+        match protocol {
+            RemoteProtocol::KeepAlive => self.keepalive,
+            RemoteProtocol::PeerSharing => self.peer_sharing,
+            RemoteProtocol::ChainSync => self.chainsync,
+            RemoteProtocol::BlockFetch => self.block_fetch,
+            RemoteProtocol::TxSubmission => self.tx_submission,
+        }
+    }
+
+    /// Set or clear one bit. Returns whether the bit changed.
+    pub fn set(&mut self, protocol: RemoteProtocol, active: bool) -> bool {
+        let slot = match protocol {
+            RemoteProtocol::KeepAlive => &mut self.keepalive,
+            RemoteProtocol::PeerSharing => &mut self.peer_sharing,
+            RemoteProtocol::ChainSync => &mut self.chainsync,
+            RemoteProtocol::BlockFetch => &mut self.block_fetch,
+            RemoteProtocol::TxSubmission => &mut self.tx_submission,
+        };
+        if *slot == active {
+            false
+        } else {
+            *slot = active;
+            true
         }
     }
 }
@@ -82,10 +148,10 @@ pub struct ConnectionRecord {
     pub peer: Peer,
     pub conn_id: ConnectionId,
     pub direction: ConnectionDirection,
-    pub full_duplex_capable: bool,
     pub full_duplex: bool,
     pub advertisable: bool,
-    pub local_use: LocalUse,
+    pub local_use: MiniProtocolUse,
+    pub remote_initiators: RemoteInitiators,
     pub established_at: ObservedAt,
 }
 
@@ -106,7 +172,10 @@ pub type PeerTrackingFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static
 /// Ranking for peer selection is not done here.
 pub trait PeerTracking: Send + Sync + 'static {
     /// Handshake succeeded. Also marks the peer ever-connected and records `advertisable`.
-    fn record_connection_established(&self, conn: ConnectionRecord, at: ObservedAt);
+    ///
+    /// The future completes when the worker has applied the row. Callers that then accept
+    /// remote mini-protocol messages must wait for it.
+    fn record_connection_established(&self, conn: ConnectionRecord, at: ObservedAt) -> PeerTrackingFuture<()>;
 
     /// A bearer that had completed handshake is gone.
     ///
@@ -118,9 +187,24 @@ pub trait PeerTracking: Send + Sync + 'static {
     fn record_connect_failed(&self, peer: Peer, at: ObservedAt);
 
     /// The connection task applied `local_use` on an established bearer.
-    fn record_local_use_applied(&self, peer: Peer, conn_id: ConnectionId, local_use: LocalUse, at: ObservedAt);
+    fn record_local_use_applied(&self, peer: Peer, conn_id: ConnectionId, local_use: MiniProtocolUse, at: ObservedAt);
 
-    /// Live bearers whose applied local use is [`LocalUse::Diffusion`].
+    /// Set or clear one remote-initiator bit on an established bearer.
+    ///
+    /// `Some(remote_use)` when the derived temperature changed. `None` when the bit was
+    /// already in that state, the bearer is unknown, or the temperature stayed the same.
+    /// The generation moves only when the derived temperature changes. A bit flip that
+    /// leaves the temperature in place still refreshes the peer's activity time.
+    fn record_remote_use(
+        &self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        protocol: RemoteProtocol,
+        active: bool,
+        at: ObservedAt,
+    ) -> PeerTrackingFuture<Option<MiniProtocolUse>>;
+
+    /// Live bearers whose applied local use is [`MiniProtocolUse::Diffusion`].
     ///
     /// The manager uses this instead of a message from the connection when choosing who may be
     /// asked for blocks. A query enqueued after [`Self::record_local_use_applied`] sees that write.

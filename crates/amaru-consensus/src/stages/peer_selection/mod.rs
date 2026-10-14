@@ -21,7 +21,8 @@
 //! and runs a full round when that view changed, a deadline is due, or thirty seconds have passed
 //! since the last full round. An eviction deadline every five minutes enqueues one bounded
 //! retention batch and does not wait for the worker to finish it. A mark for a live Using bearer
-//! sets Maintenance until its deadline.
+//! sets Maintenance until its deadline. A bearer that is cold on both sides closes at once when
+//! it is not duplex, and thirty seconds after both sides go cold when it is.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -32,7 +33,7 @@ use std::{
 use amaru_kernel::{BlockHeight, Peer, PeerCandidate};
 use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug, debug_span, info, trace, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, ObservedAt};
-use amaru_protocols::{connection::LocalUse, manager::ManagerMessage};
+use amaru_protocols::{connection::MiniProtocolUse, manager::ManagerMessage};
 use amaru_pure_stage::{Effects, Instant, StageRef};
 
 pub use crate::performance::{PeerMix, PeerMixParseError};
@@ -70,6 +71,8 @@ const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 const EVICTION_INTERVAL: Duration = Duration::from_secs(5 * 60);
 /// Do not repeat `SetLocalUse` for one bearer more often than this.
 const LOCAL_USE_MIN_INTERVAL: Duration = Duration::from_secs(30);
+/// How long a duplex bearer stays up after both the local intent and the remote side are cold.
+pub(crate) const REMOTE_COLD_DWELL: Duration = Duration::from_secs(30);
 /// A dial with no outcome after the connect timeout plus this grace is treated as lost.
 const DIAL_LOST_GRACE: Duration = Duration::from_secs(8);
 /// Matches [`amaru_protocols::manager::ManagerConfig`]'s default connect timeout.
@@ -112,45 +115,53 @@ impl SendBudget {
 }
 
 /// Desired bearer. `wanted` is intent; `applied` is the last local use seen in a view.
+/// `remote_use` is the derived remote temperature from that view.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct DesiredBearer {
     id: ConnectionId,
-    full_duplex_capable: bool,
     full_duplex: bool,
-    wanted: LocalUse,
-    applied: LocalUse,
+    wanted: MiniProtocolUse,
+    applied: MiniProtocolUse,
+    remote_use: MiniProtocolUse,
     local_use_sent_at: Option<Instant>,
+    /// When a bearer that is cold on both sides may be closed.
+    remote_cold_until: Option<Instant>,
+    /// The remote side has run an initiator protocol on this bearer at least once.
+    #[serde(default)]
+    remote_was_hot: bool,
 }
 
 impl DesiredBearer {
-    fn adopt(conn: &ViewConnection, wanted: LocalUse) -> Self {
+    fn adopt(conn: &ViewConnection, wanted: MiniProtocolUse) -> Self {
         Self {
             id: conn.conn_id,
-            full_duplex_capable: conn.full_duplex_capable,
             full_duplex: conn.full_duplex,
             wanted,
             applied: conn.local_use,
+            remote_use: conn.remote_use,
             local_use_sent_at: None,
+            remote_cold_until: None,
+            remote_was_hot: false,
         }
     }
 
     fn observe(&mut self, conn: &ViewConnection) {
-        self.full_duplex_capable = conn.full_duplex_capable;
         self.full_duplex = conn.full_duplex;
         self.applied = conn.local_use;
+        self.remote_use = conn.remote_use;
+    }
+
+    fn set_wanted(&mut self, wanted: MiniProtocolUse) {
+        self.wanted = wanted;
+        if wanted != MiniProtocolUse::None {
+            self.remote_cold_until = None;
+        }
     }
 }
 
 impl Display for DesiredBearer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Connection(id={}, duplex={}/{}, use={})",
-            self.id.as_u64(),
-            self.full_duplex_capable,
-            self.full_duplex,
-            self.wanted.as_str()
-        )
+        write!(f, "Connection(id={}, duplex={}, use={})", self.id.as_u64(), self.full_duplex, self.wanted.as_str())
     }
 }
 
@@ -403,17 +414,17 @@ impl PeerSelection {
                 .values()
                 .filter(|state| match state {
                     OutboundIntent::Dialing { .. } => true,
-                    OutboundIntent::Connected(bearer) => bearer.wanted == LocalUse::Diffusion,
+                    OutboundIntent::Connected(bearer) => bearer.wanted == MiniProtocolUse::Diffusion,
                 })
                 .count()
-            + self.inbound_peers.values().filter(|bearer| bearer.wanted == LocalUse::Diffusion).count()
+            + self.inbound_peers.values().filter(|bearer| bearer.wanted == MiniProtocolUse::Diffusion).count()
     }
 
     fn using_peers(&self) -> Vec<Peer> {
         self.outbound_peers
             .iter()
             .filter_map(|(peer, state)| match state {
-                OutboundIntent::Connected(bearer) if bearer.wanted == LocalUse::Diffusion => Some(*peer),
+                OutboundIntent::Connected(bearer) if bearer.wanted == MiniProtocolUse::Diffusion => Some(*peer),
                 OutboundIntent::Dialing { .. } | OutboundIntent::Connected(_) => None,
             })
             .collect()
@@ -447,12 +458,12 @@ impl PeerSelection {
         let Some(bearer) = self.bearer_mut(peer, conn_id) else {
             return false;
         };
-        if bearer.wanted != LocalUse::Diffusion {
+        if bearer.wanted != MiniProtocolUse::Diffusion {
             return false;
         }
         let manager = self.manager.clone();
         if !budget
-            .send(eff, &manager, ManagerMessage::SetLocalUse { peer, conn_id, local_use: LocalUse::Maintenance })
+            .send(eff, &manager, ManagerMessage::SetLocalUse { peer, conn_id, local_use: MiniProtocolUse::Maintenance })
             .await
         {
             return false;
@@ -460,7 +471,7 @@ impl PeerSelection {
         let Some(bearer) = self.bearer_mut(peer, conn_id) else {
             return false;
         };
-        bearer.wanted = LocalUse::Maintenance;
+        bearer.set_wanted(MiniProtocolUse::Maintenance);
         bearer.local_use_sent_at = Some(now);
         self.demoted_until.insert(peer, until);
         info!(protocols::peer_selection::peer::DEMOTED, peer, conn_id = conn_id.as_u64(), reason);
@@ -485,18 +496,18 @@ impl PeerSelection {
         let Some(bearer) = self.bearer_mut(peer, conn_id) else {
             return;
         };
-        if bearer.wanted == LocalUse::Diffusion {
+        if bearer.wanted == MiniProtocolUse::Diffusion {
             return;
         }
         let manager = self.manager.clone();
         if !budget
-            .send(eff, &manager, ManagerMessage::SetLocalUse { peer, conn_id, local_use: LocalUse::Diffusion })
+            .send(eff, &manager, ManagerMessage::SetLocalUse { peer, conn_id, local_use: MiniProtocolUse::Diffusion })
             .await
         {
             return;
         }
         if let Some(bearer) = self.bearer_mut(peer, conn_id) {
-            bearer.wanted = LocalUse::Diffusion;
+            bearer.set_wanted(MiniProtocolUse::Diffusion);
             bearer.local_use_sent_at = Some(now);
         }
     }
@@ -519,7 +530,7 @@ impl PeerSelection {
             let Some(OutboundIntent::Connected(bearer)) = self.outbound_peers.get(&peer) else {
                 continue;
             };
-            if bearer.wanted != LocalUse::Diffusion {
+            if bearer.wanted != MiniProtocolUse::Diffusion {
                 continue;
             }
             let conn_id = bearer.id;
@@ -534,7 +545,7 @@ impl PeerSelection {
             .iter()
             .filter_map(|(peer, bearer)| {
                 if bearer.full_duplex
-                    && bearer.wanted != LocalUse::Diffusion
+                    && bearer.wanted != MiniProtocolUse::Diffusion
                     && !self.demoted_until.get(peer).is_some_and(|until| *until > now)
                     && !self.cooldowns.is_cooling(peer)
                 {
@@ -581,7 +592,7 @@ impl PeerSelection {
             .iter()
             .filter_map(|(peer, state)| match state {
                 OutboundIntent::Connected(bearer)
-                    if bearer.wanted == LocalUse::Maintenance
+                    if bearer.wanted == MiniProtocolUse::Maintenance
                         && !self.demoted_until.get(peer).is_some_and(|until| *until > now) =>
                 {
                     Some((*peer, bearer.id))
@@ -614,7 +625,7 @@ impl PeerSelection {
         excluded.extend(
             self.inbound_peers
                 .iter()
-                .filter(|(_, bearer)| bearer.wanted == LocalUse::Diffusion)
+                .filter(|(_, bearer)| bearer.wanted == MiniProtocolUse::Diffusion)
                 .map(|(peer, _)| PeerCandidate::from(*peer)),
         );
         for peer in self.cooldowns.cooling_peers() {
@@ -673,9 +684,10 @@ impl PeerSelection {
                     .iter()
                     .find(|conn| conn.peer == peer && conn.direction == ConnectionDirection::Outbound)
             });
-            if let Some(conn) = established {
-                self.outbound_peers
-                    .insert(peer, OutboundIntent::Connected(DesiredBearer::adopt(conn, LocalUse::Diffusion)));
+            // The handshake is in the view. Leave the dial in place so this round's adopt
+            // records it and emits `connected`. Installing the bearer here skipped that span,
+            // and the peers view never learned the negotiated duplex flag.
+            if established.is_some() {
                 continue;
             }
             // An inbound bearer for this peer means the dial is no longer needed. A failure
@@ -779,6 +791,7 @@ impl PeerSelection {
                 ConnectionDirection::Inbound => self.adopt_inbound(conn),
                 ConnectionDirection::Outbound => self.adopt_outbound(conn),
             }
+            self.consider_remote_cold(conn.peer, conn.conn_id, now, eff, budget).await;
         }
         self.apply_uninteresting(&view.uninteresting, now);
         self.sync_local_use(now, eff, budget).await;
@@ -793,10 +806,10 @@ impl PeerSelection {
                 let Some(bearer) = self.bearer_mut(mark.peer, mark.conn_id) else {
                     continue;
                 };
-                if bearer.wanted != LocalUse::Diffusion {
+                if bearer.wanted != MiniProtocolUse::Diffusion {
                     continue;
                 }
-                bearer.wanted = LocalUse::Maintenance;
+                bearer.set_wanted(MiniProtocolUse::Maintenance);
             }
             let peer = mark.peer;
             let conn_id = mark.conn_id;
@@ -826,14 +839,14 @@ impl PeerSelection {
             _ => {
                 let peer = conn.peer;
                 let conn_id = conn.conn_id;
-                self.inbound_peers.insert(peer, DesiredBearer::adopt(conn, LocalUse::None));
+                self.inbound_peers.insert(peer, DesiredBearer::adopt(conn, MiniProtocolUse::None));
                 let _span = debug_span!(
                     protocols::peer_selection::peer::CONNECTED,
                     peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Inbound,
-                    full_duplex_capable = conn.full_duplex_capable,
                     full_duplex = conn.full_duplex,
+                    local_use = conn.local_use.as_str(),
                 )
                 .entered();
             }
@@ -849,14 +862,15 @@ impl PeerSelection {
         }
         let peer = conn.peer;
         let conn_id = conn.conn_id;
-        self.outbound_peers.insert(peer, OutboundIntent::Connected(DesiredBearer::adopt(conn, LocalUse::Diffusion)));
+        self.outbound_peers
+            .insert(peer, OutboundIntent::Connected(DesiredBearer::adopt(conn, MiniProtocolUse::Diffusion)));
         let _span = debug_span!(
             protocols::peer_selection::peer::CONNECTED,
             peer,
             conn_id = conn_id.as_u64(),
             direction = ConnectionDirection::Outbound,
-            full_duplex_capable = conn.full_duplex_capable,
             full_duplex = conn.full_duplex,
+            local_use = conn.local_use.as_str(),
         )
         .entered();
     }
@@ -886,11 +900,83 @@ impl PeerSelection {
         }
     }
 
+    /// Close a bearer whose local intent and remote temperature are both [`MiniProtocolUse::None`].
+    ///
+    /// A bearer that has not yet shown a remote initiator, and every duplex bearer, waits
+    /// [`REMOTE_COLD_DWELL`] from the first round that sees both cold. That deadline is not moved
+    /// while both stay cold. A one-way bearer that has already been hot closes on this round.
+    /// A spent send budget leaves the deadline due so the next round retries with one close.
+    async fn consider_remote_cold(
+        &mut self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        now: Instant,
+        eff: &Effects<PeerSelectionMsg>,
+        budget: &mut SendBudget,
+    ) {
+        let close = {
+            let Some(bearer) = self.bearer_mut(peer, conn_id) else {
+                return;
+            };
+            if bearer.remote_use != MiniProtocolUse::None {
+                bearer.remote_was_hot = true;
+            }
+            if bearer.wanted != MiniProtocolUse::None || bearer.remote_use != MiniProtocolUse::None {
+                bearer.remote_cold_until = None;
+                return;
+            }
+            // A brand-new one-way inbound has no remote initiator yet. Closing it on the first
+            // round drops the bearer before that initiator can open.
+            if bearer.full_duplex || !bearer.remote_was_hot {
+                let until = *bearer.remote_cold_until.get_or_insert(now + REMOTE_COLD_DWELL);
+                until <= now
+            } else {
+                // Due immediately. A later round must still find it due if this send did not happen.
+                if !bearer.remote_cold_until.is_some_and(|until| until <= now) {
+                    bearer.remote_cold_until = Some(now);
+                }
+                true
+            }
+        };
+        if !close {
+            return;
+        }
+        let manager = self.manager.clone();
+        if budget.send(eff, &manager, ManagerMessage::Disconnect(peer, conn_id)).await {
+            self.drop_bearer(peer, conn_id);
+        }
+    }
+
+    async fn consider_stored_cold(&mut self, now: Instant, eff: &Effects<PeerSelectionMsg>, budget: &mut SendBudget) {
+        let mut bearers = Vec::new();
+        for (peer, bearer) in &self.inbound_peers {
+            bearers.push((*peer, bearer.id));
+        }
+        for (peer, intent) in &self.outbound_peers {
+            if let OutboundIntent::Connected(bearer) = intent {
+                bearers.push((*peer, bearer.id));
+            }
+        }
+        for (peer, conn_id) in bearers {
+            self.consider_remote_cold(peer, conn_id, now, eff, budget).await;
+        }
+    }
+
+    fn remote_cold_deadlines(&self) -> impl Iterator<Item = Instant> + '_ {
+        let inbound = self.inbound_peers.values().filter_map(|bearer| bearer.remote_cold_until);
+        let outbound = self.outbound_peers.values().filter_map(|intent| match intent {
+            OutboundIntent::Connected(bearer) => bearer.remote_cold_until,
+            OutboundIntent::Dialing { .. } => None,
+        });
+        inbound.chain(outbound)
+    }
+
     fn due(&self, now: Instant) -> bool {
         self.cooldowns.cooldown_until.values().any(|until| *until <= now)
             || self.dial_holdoff.values().any(|until| *until <= now)
             || self.resolve_backoff.values().any(|until| *until <= now)
             || self.demoted_until.values().any(|until| *until <= now)
+            || self.remote_cold_deadlines().any(|until| until <= now)
             || self.next_churn_at.is_some_and(|at| at <= now)
             || self.next_sweep_at.is_some_and(|at| at <= now)
             || self.next_evict_at.is_some_and(|at| at <= now)
@@ -935,6 +1021,9 @@ impl PeerSelection {
             consider(when);
         }
         for when in self.demoted_until.values().copied() {
+            consider(when);
+        }
+        for when in self.remote_cold_deadlines() {
             consider(when);
         }
         if let Some(when) = self.next_churn_at {
@@ -1006,6 +1095,9 @@ impl PeerSelection {
             }
         } else {
             self.expire_lost_dials(None, now);
+            // Generation unchanged means the bearer set and remote temperature are unchanged.
+            // A cold deadline that came due still closes from the last observation.
+            self.consider_stored_cold(now, eff, &mut budget).await;
         }
         self.cooldowns.lift_due(now);
         self.promote_eligible_maintenance(now, eff, &mut budget).await;

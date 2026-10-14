@@ -253,6 +253,7 @@ pub mod env_vars {
     pub const OPERATOR_VRF: &str = "AMARU_OPERATOR_VRF";
     pub const PARENT: &str = "AMARU_PARENT";
     pub const PEER: &str = "AMARU_PEER";
+    pub const PEERS_EPHEMERAL_OUTBOUND_PORT: &str = "AMARU_PEERS_EPHEMERAL_OUTBOUND_PORT";
     pub const PEERS_LISTEN_ON: &str = "AMARU_PEERS_LISTEN_ON";
     pub const PEERS_MAX_DOWNSTREAM: &str = "AMARU_PEERS_MAX_DOWNSTREAM";
     pub const PEERS_MAX_UPSTREAM: &str = "AMARU_PEERS_MAX_UPSTREAM";

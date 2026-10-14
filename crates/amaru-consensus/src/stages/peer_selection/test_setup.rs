@@ -18,8 +18,10 @@ use std::{
 };
 
 use amaru_kernel::{Peer, PeerCandidate, Point};
-use amaru_ouroboros::{ConnectionDirection, ConnectionId, ConnectionRecord, ObservedAt, PeerTracking};
-use amaru_protocols::{connection::LocalUse, manager::ManagerMessage};
+use amaru_ouroboros::{
+    ConnectionDirection, ConnectionId, ConnectionRecord, ObservedAt, PeerTracking, RemoteInitiators,
+};
+use amaru_protocols::{connection::MiniProtocolUse, manager::ManagerMessage};
 use amaru_pure_stage::{
     DeserializerGuards, Instant, ScheduleId, StageGraph, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
@@ -59,6 +61,8 @@ pub struct TestPrep {
     pub learned_share: Option<(Peer, std::net::SocketAddr)>,
     /// Established outbound bearer recorded before the stage runs.
     pub established: Option<(Peer, ConnectionId)>,
+    /// Extra established bearers recorded before the stage runs.
+    pub established_connections: Vec<ConnectionRecord>,
     /// Intersection-not-found mark recorded before the stage runs.
     pub uninteresting: Option<(Peer, ConnectionId, bool)>,
     /// Replaces ledger candidates before the stage runs, bumping the generation.
@@ -93,6 +97,7 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
         scripted_view: None,
         learned_share: None,
         established: None,
+        established_connections: Vec::new(),
         uninteresting: None,
         ledger_write: None,
     }
@@ -184,19 +189,23 @@ fn setup_preload_with_mode(
             }
             let observed = ObservedAt::new(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
             if let Some((peer, conn_id)) = prep.established {
-                performance.record_connection_established(
+                prep.rt.block_on(performance.record_connection_established(
                     ConnectionRecord {
                         peer,
                         conn_id,
                         direction: ConnectionDirection::Outbound,
-                        full_duplex_capable: true,
                         full_duplex: false,
                         advertisable: false,
-                        local_use: LocalUse::Diffusion,
+                        local_use: MiniProtocolUse::Diffusion,
+                        remote_initiators: RemoteInitiators::default(),
                         established_at: observed,
                     },
                     observed,
-                );
+                ));
+            }
+            for conn in &prep.established_connections {
+                let at = conn.established_at;
+                prep.rt.block_on(performance.record_connection_established(conn.clone(), at));
             }
             if let Some((peer, conn_id, after_rollback)) = prep.uninteresting {
                 performance.record_uninteresting(peer, conn_id, after_rollback, observed);

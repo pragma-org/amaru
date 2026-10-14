@@ -22,8 +22,8 @@ use std::{collections::BTreeSet, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::Peer;
 use amaru_ouroboros::{
-    CloseReason, ConnectionId, ConnectionRecord, LocalUse, ObservedAt, PeerTracking, PeerTrackingFuture,
-    PeerTrackingResource,
+    CloseReason, ConnectionId, ConnectionRecord, MiniProtocolUse, ObservedAt, PeerTracking, PeerTrackingFuture,
+    PeerTrackingResource, RemoteProtocol,
 };
 use amaru_pure_stage::Resources;
 use tokio::sync::oneshot;
@@ -48,8 +48,14 @@ impl Performance {
 }
 
 impl PeerTracking for Performance {
-    fn record_connection_established(&self, conn: ConnectionRecord, at: ObservedAt) {
-        self.submit(PerformanceOp::Peer(PeerOp::RecordConnectionEstablished { conn, at }));
+    fn record_connection_established(&self, conn: ConnectionRecord, at: ObservedAt) -> PeerTrackingFuture<()> {
+        let this = self.clone();
+        Box::pin(async move {
+            let (reply, rx) = oneshot::channel();
+            this.submit(PerformanceOp::Peer(PeerOp::RecordConnectionEstablished { conn, at, reply }));
+            #[expect(clippy::expect_used)]
+            rx.await.expect("performance worker dropped connection-established record")
+        })
     }
 
     fn record_connection_closed(&self, peer: Peer, conn_id: ConnectionId, reason: CloseReason, at: ObservedAt) {
@@ -60,7 +66,7 @@ impl PeerTracking for Performance {
         self.submit(PerformanceOp::Peer(PeerOp::RecordConnectFailed { peer, at }));
     }
 
-    fn record_local_use_applied(&self, peer: Peer, conn_id: ConnectionId, local_use: LocalUse, at: ObservedAt) {
+    fn record_local_use_applied(&self, peer: Peer, conn_id: ConnectionId, local_use: MiniProtocolUse, at: ObservedAt) {
         self.submit(PerformanceOp::Peer(PeerOp::RecordLocalUseApplied { peer, conn_id, local_use, at }));
     }
 
@@ -71,6 +77,23 @@ impl PeerTracking for Performance {
             this.submit(PerformanceOp::Peer(PeerOp::MayInitiate { reply }));
             #[expect(clippy::expect_used)]
             rx.await.expect("performance worker dropped may-initiate query")
+        })
+    }
+
+    fn record_remote_use(
+        &self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        protocol: RemoteProtocol,
+        active: bool,
+        at: ObservedAt,
+    ) -> PeerTrackingFuture<Option<MiniProtocolUse>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let (reply, rx) = oneshot::channel();
+            this.submit(PerformanceOp::Peer(PeerOp::RecordRemoteUse { peer, conn_id, protocol, active, at, reply }));
+            #[expect(clippy::expect_used)]
+            rx.await.expect("performance worker dropped remote-use record")
         })
     }
 

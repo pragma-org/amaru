@@ -36,6 +36,9 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Connection {
     peer_addr: SocketAddr,
+    /// `getsockname` after the handshake. The IP is concrete. The port is the listen port
+    /// when outbound sockets bind to it, and an ephemeral source port otherwise.
+    local_addr: SocketAddr,
     reader: Arc<AsyncMutex<(OwnedReadHalf, BytesMut)>>,
     writer: Arc<AsyncMutex<OwnedWriteHalf>>,
 }
@@ -43,10 +46,12 @@ pub struct Connection {
 impl Connection {
     pub fn new(tcp_stream: TcpStream, read_buf_size: usize) -> std::io::Result<Self> {
         tcp_stream.set_nodelay(true)?;
+        let peer_addr = tcp_stream.peer_addr()?;
+        let local_addr = tcp_stream.local_addr()?;
         let (reader, writer) = tcp_stream.into_split();
-        let peer_addr = reader.peer_addr()?;
         Ok(Self {
             peer_addr,
+            local_addr,
             reader: Arc::new(AsyncMutex::new((reader, BytesMut::with_capacity(read_buf_size)))),
             writer: Arc::new(AsyncMutex::new(writer)),
         })
@@ -54,6 +59,10 @@ impl Connection {
 
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 }
 
@@ -108,6 +117,12 @@ struct Inner {
     shutdown: CancellationToken,
     tasks: AsyncMutex<BTreeMap<SocketAddr, JoinHandle<std::io::Result<()>>>>,
     first_listener: watch::Sender<Option<Result<SocketAddr, Arc<std::io::Error>>>>,
+    /// Outbound sockets bind to [`Self::outbound_bind`] when this is set.
+    ///
+    /// Fixed when the provider is built.
+    bind_outbound_to_listen_port: bool,
+    /// Local address of the most recent successful listen, including a kernel-assigned port.
+    outbound_bind: Mutex<Option<SocketAddr>>,
 }
 
 impl Drop for Inner {
@@ -119,7 +134,8 @@ impl Drop for Inner {
 }
 
 impl TokioConnections {
-    pub fn new(read_buf_size: usize) -> Self {
+    /// Outbound sockets bind to the listen port. [`Self::new`] uses that default.
+    pub fn with_bind_outbound_to_listen_port(read_buf_size: usize, bind_outbound_to_listen_port: bool) -> Self {
         let (incoming_tx, incoming_rx) = mpsc::channel(128);
         let inner = Arc::new(Inner {
             connections: Mutex::new(Connections::new()),
@@ -129,8 +145,14 @@ impl TokioConnections {
             shutdown: CancellationToken::new(),
             tasks: AsyncMutex::new(BTreeMap::new()),
             first_listener: watch::channel(None).0,
+            bind_outbound_to_listen_port,
+            outbound_bind: Mutex::new(None),
         });
         Self { inner }
+    }
+
+    pub fn new(read_buf_size: usize) -> Self {
+        Self::with_bind_outbound_to_listen_port(read_buf_size, true)
     }
 
     /// Wait for the first listen attempt to finish, retaining its address or original I/O error.
@@ -179,7 +201,7 @@ impl TokioConnections {
 
 async fn connect(peer: Peer, resource: Arc<Inner>, timeout: Duration) -> std::io::Result<ConnectionId> {
     let addr = SocketAddr::from(peer);
-    let stream = tokio::time::timeout(timeout, TcpStream::connect(addr)).await??;
+    let stream = tokio::time::timeout(timeout, connect_stream(&resource, addr)).await??;
     debug!(network::connection::CONNECTED, peer);
     let mut connections = resource.connections.lock();
     let id = connections.add_connection(Connection::new(stream, resource.read_buf_size)?);
@@ -215,6 +237,7 @@ impl ConnectionProvider for TokioConnections {
                 // Bind the listener with SO_REUSEADDR
                 let listener = bind_address(address)?;
                 let local = listener.local_addr()?;
+                *inner.outbound_bind.lock() = Some(local);
                 debug!(network::connection::LISTENING, local = local.to_string());
 
                 // Accept incoming connections and send them into the channel.
@@ -335,6 +358,18 @@ impl ConnectionProvider for TokioConnections {
         )
     }
 
+    fn local_addr(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
+        let resource = self.inner.clone();
+        Box::pin(async move {
+            resource
+                .connections
+                .lock()
+                .get(&conn)
+                .map(|connection| connection.local_addr())
+                .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for local_addr")))
+        })
+    }
+
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
         let resource = self.inner.clone();
         Box::pin(
@@ -358,6 +393,43 @@ struct PendingAccept {
     peer_addr: SocketAddr,
 }
 
+/// Dial `addr`, binding to the listen port when that is enabled.
+///
+/// A bind the listen socket will not share falls back to an ephemeral port.
+async fn connect_stream(resource: &Inner, addr: SocketAddr) -> std::io::Result<TcpStream> {
+    if let Some(local) = resource.bind_outbound_to_listen_port.then(|| *resource.outbound_bind.lock()).flatten() {
+        match connect_bound(local, addr).await {
+            Ok(stream) => return Ok(stream),
+            Err(err) if local_bind_rejected(&err) => {}
+            Err(err) => return Err(err),
+        }
+    }
+    TcpStream::connect(addr).await
+}
+
+fn local_bind_rejected(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::AddrInUse | std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::PermissionDenied
+    )
+}
+
+/// Connect `remote` from a socket bound to `local`.
+///
+/// Both this socket and the listener set `SO_REUSEADDR` before bind, which is what lets
+/// Windows share the listen port. Unix also sets `SO_REUSEPORT`; Windows has no such option.
+async fn connect_bound(local: SocketAddr, remote: SocketAddr) -> std::io::Result<TcpStream> {
+    let socket = match local {
+        SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()?,
+        SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()?,
+    };
+    socket.set_reuseaddr(true)?;
+    #[cfg(unix)]
+    socket.set_reuseport(true)?;
+    socket.bind(local)?;
+    socket.connect(remote).await
+}
+
 /// Binds a TCP listener to the specified address with
 /// `SO_REUSEADDR` enabled.
 fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
@@ -369,7 +441,10 @@ fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
     let socket = Socket::new(domain, Type::STREAM, None)?;
 
     // Allow rebinding to a port that was recently used (e.g., still in TIME_WAIT).
+    // On Windows this is also what lets an outbound socket bind to the same port.
     socket.set_reuse_address(true)?;
+    #[cfg(unix)]
+    socket.set_reuse_port(true)?;
 
     socket.bind(&addr.into())?;
     socket.listen(1024)?;
@@ -380,6 +455,8 @@ fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
 
 #[cfg(test)]
 mod tests {
+    use std::net::IpAddr;
+
     use bytes::Bytes;
     use tokio::{task::JoinHandle, time::timeout};
 
@@ -411,6 +488,47 @@ mod tests {
         connections.close(connection_id).await?;
         server.await.expect("server task panicked")?;
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn outbound_connect_binds_the_listen_port() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let listen = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        let (id, _accepted) = connect_elsewhere(&connections).await?;
+        let local = connections.local_addr(id).await?;
+        assert_eq!(local, SocketAddr::new(listen.ip(), listen.port()));
+        connections.close(id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn outbound_connect_can_use_an_ephemeral_port() -> anyhow::Result<()> {
+        let connections = TokioConnections::with_bind_outbound_to_listen_port(1024, false);
+        let listen = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        let (id, _accepted) = connect_elsewhere(&connections).await?;
+        let local = connections.local_addr(id).await?;
+        assert_ne!(local.port(), listen.port());
+        connections.close(id).await?;
+        Ok(())
+    }
+
+    async fn connect_elsewhere(connections: &TokioConnections) -> anyhow::Result<(ConnectionId, TcpStream)> {
+        let remote_listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let remote = remote_listener.local_addr()?;
+        let accept = tokio::spawn(async move { remote_listener.accept().await.map(|(stream, _)| stream) });
+        let id = connections.connect(Peer::try_from(remote)?, Duration::from_secs(1)).await?;
+        let accepted = accept.await??;
+        Ok((id, accepted))
+    }
+
+    #[tokio::test]
+    async fn wildcard_listen() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let listen_addr = SocketAddr::from(([0, 0, 0, 0], 0));
+        let addr = connections.listen(listen_addr).await?;
+        // this is needed because we’ll want to bind to wildcard, not to some interface address, for outgoing
+        assert_eq!(addr.ip(), IpAddr::from([0, 0, 0, 0]));
         Ok(())
     }
 

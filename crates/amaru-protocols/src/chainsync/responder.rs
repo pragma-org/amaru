@@ -14,7 +14,7 @@
 
 use amaru_kernel::{EraName, NetworkPoint, Peer, Point};
 use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug_span, info};
-use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros::{ConnectionId, RemoteProtocol};
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use anyhow::{Context, anyhow, ensure};
@@ -22,6 +22,7 @@ use anyhow::{Context, anyhow, ensure};
 use crate::{
     chainsync::messages::{HeaderContent, Message},
     mux::MuxMessage,
+    peer_tracking_effects::PeerTrack,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, Responder, StageState, miniprotocol,
         outcome,
@@ -53,6 +54,8 @@ pub struct ChainSyncResponder {
     pointer: Point,
     conn_id: ConnectionId,
     muxer: StageRef<MuxMessage>,
+    /// Remote chainsync bit to record once the reply is on the mux. `Some(false)` is MsgDone.
+    note_remote_active: Option<bool>,
 }
 
 impl ChainSyncResponder {
@@ -62,7 +65,10 @@ impl ChainSyncResponder {
         conn_id: ConnectionId,
         muxer: StageRef<MuxMessage>,
     ) -> (ResponderState, Self) {
-        (ResponderState::Idle { send_rollback: false }, Self { upstream, peer, pointer: Point::Origin, conn_id, muxer })
+        (
+            ResponderState::Idle { send_rollback: false },
+            Self { upstream, peer, pointer: Point::Origin, conn_id, muxer, note_remote_active: None },
+        )
     }
 }
 
@@ -110,16 +116,19 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                     if let ResponderAction::IntersectFound(point, _tip) = &action {
                         self.pointer = *point;
                     }
+                    self.note_remote_active = Some(true);
                     Ok((Some(action), self))
                 }
                 ResponderResult::RequestNext => {
                     let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
                         .await
                         .context("failed to get next header")?;
+                    self.note_remote_active = Some(true);
                     Ok((action, self))
                 }
                 ResponderResult::Done => {
                     info!(protocols::chainsync::responder::STOPPED);
+                    self.note_remote_active = Some(false);
                     Ok((None, self))
                 }
             }
@@ -130,6 +139,13 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
         &self.muxer
+    }
+
+    async fn after_send(mut self, eff: &Effects<Inputs<Self::LocalIn>>) -> Self {
+        if let Some(active) = self.note_remote_active.take() {
+            PeerTrack::new(eff).note_remote_protocol(self.peer, self.conn_id, RemoteProtocol::ChainSync, active).await;
+        }
+        self
     }
 }
 
@@ -248,7 +264,9 @@ impl ProtocolState<Responder> for ResponderState {
             (Idle { send_rollback }, Message::RequestNext(1)) => {
                 (outcome().result(ResponderResult::RequestNext), CanAwait { send_rollback: *send_rollback })
             }
-            (Idle { .. }, Message::Done) => (outcome().want_next(), Idle { send_rollback: false }),
+            (Idle { .. }, Message::Done) => {
+                (outcome().result(ResponderResult::Done).want_next(), Idle { send_rollback: false })
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

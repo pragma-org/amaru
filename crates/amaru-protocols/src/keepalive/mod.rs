@@ -82,7 +82,7 @@ pub async fn register_keepalive(
             Some(keepalive.contramap(Inputs::<initiator::InitiatorMessage>::Local)),
         )
     } else {
-        let (state, stage) = responder::KeepAliveResponder::new(muxer.clone());
+        let (state, stage) = responder::KeepAliveResponder::new(muxer.clone(), peer, conn_id);
         let keepalive = eff.stage("keepalive-responder", responder::responder()).await;
         let keepalive = eff.supervise(keepalive, tombstone);
         let keepalive = eff.wire_up(keepalive, (state, stage)).await;

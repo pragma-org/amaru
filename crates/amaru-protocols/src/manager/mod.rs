@@ -16,14 +16,14 @@ use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroU8, sync::Arc, tim
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug, debug_span, error, info};
-use amaru_ouroboros::{CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, MempoolMsg};
+use amaru_ouroboros::{CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, MempoolMsg, RemoteInitiators};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 
 use crate::{
     accept::{self, PullAccept},
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
-    connection::{self, ConnectionMessage, LocalUse},
+    connection::{self, ConnectionMessage, MiniProtocolUse},
     network_effects::{ConnectError, Network, NetworkOps},
     peer_sharing::{SHARE_REQUEST_AMOUNT, SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
     peer_tracking::observed_at,
@@ -79,12 +79,13 @@ pub enum ManagerMessage {
         stage: StageRef<ConnectionMessage>,
         conn_id: ConnectionId,
         role: Role,
-        full_duplex_capable: bool,
         full_duplex: bool,
         advertisable: bool,
+        /// Completed after the establish write is applied. `true` when this bearer was kept.
+        caller: StageRef<bool>,
     },
     /// Ask a live connection to converge toward this local use.
-    SetLocalUse { peer: Peer, conn_id: ConnectionId, local_use: LocalUse },
+    SetLocalUse { peer: Peer, conn_id: ConnectionId, local_use: MiniProtocolUse },
 }
 
 impl ManagerMessage {
@@ -156,7 +157,7 @@ impl ManagerMessage {
 ///
 /// Each lifecycle fact is one worker operation: handshake (`record_connection_established`),
 /// a close, and a failed outbound attempt. Outbound local use at handshake is
-/// [`LocalUse::Diffusion`] and inbound is [`LocalUse::None`]. The connection records a later
+/// [`MiniProtocolUse::Diffusion`] and inbound is [`MiniProtocolUse::None`]. The connection records a later
 /// applied use on the peer resource. Fetch reads which bearers may initiate from there.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Manager {
@@ -172,6 +173,8 @@ pub struct Manager {
     era_history: Arc<EraHistory>,
     chain_sync: StageRef<ChainSyncInitiatorMsg>,
     mempool: StageRef<MempoolMsg>,
+    /// Port from the bound listener. The wildcard IP is not kept.
+    listen_port: Option<u16>,
 }
 
 #[derive(Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -208,7 +211,7 @@ struct Connection {
     peer: Peer,
     stage: StageRef<ConnectionMessage>,
     direction: ConnectionDirection,
-    full_duplex_capable: bool,
+    full_duplex: bool,
 }
 
 impl Manager {
@@ -230,6 +233,7 @@ impl Manager {
             era_history,
             chain_sync,
             mempool,
+            listen_port: None,
         }
     }
 
@@ -426,6 +430,7 @@ impl Manager {
         match network.listen(listen_addr).await {
             Ok(listen_addr) => {
                 info!(protocols::manager::listen::STARTED, listen_addr = listen_addr.to_string());
+                self.listen_port = Some(listen_addr.port());
                 let accept_stage = eff.stage("accept", accept::stage).await;
                 let accept_stage = eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
                 let accept_stage =
@@ -481,6 +486,7 @@ impl Manager {
                     self.era_history.clone(),
                     self.mempool.clone(),
                     eff.me(), // manager itself to receive HandshakeComplete
+                    self.listen_port,
                 ),
             )
             .await;
@@ -499,18 +505,20 @@ impl Manager {
         stage: StageRef<ConnectionMessage>,
         conn_id: ConnectionId,
         role: Role,
-        full_duplex_capable: bool,
         full_duplex: bool,
         advertisable: bool,
+        caller: StageRef<bool>,
         eff: &Effects<ManagerMessage>,
     ) {
         let Some(pending) = self.pending.remove(&conn_id) else {
             self.ignore_unknown(peer, conn_id);
+            eff.send(&caller, false).await;
             return;
         };
         if pending.peer != peer || pending.direction != direction_of(role) {
             self.pending.insert(conn_id, pending);
             self.ignore_unknown(peer, conn_id);
+            eff.send(&caller, false).await;
             return;
         }
         let direction = pending.direction;
@@ -518,7 +526,7 @@ impl Manager {
             protocols::manager::peer::HANDSHAKE_COMPLETED,
             peer,
             conn_id = conn_id.as_u64(),
-            full_duplex_capable,
+            role = role.to_string(),
             full_duplex,
             advertisable
         );
@@ -536,16 +544,19 @@ impl Manager {
                 self.peers.remove(&peer);
             }
             self.refuse_handshake(peer, conn_id, pending.stage, stage, eff).await;
+            eff.send(&caller, false).await;
             return;
         }
         let accept_this = self.take_direction_slot(peer, conn_id, direction);
         if accept_this {
             // Outbound handshake records Diffusion on the bearer, so a later fetch sees it.
-            self.connections.insert(conn_id, Connection { stage, direction, full_duplex_capable, peer });
-            record_established(eff, peer, conn_id, direction, full_duplex_capable, full_duplex, advertisable).await;
+            self.connections.insert(conn_id, Connection { stage, direction, full_duplex, peer });
+            record_established(eff, peer, conn_id, direction, full_duplex, advertisable).await;
+            eff.send(&caller, true).await;
         } else {
             info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer, conn_id = conn_id.as_u64());
             self.refuse_handshake(peer, conn_id, pending.stage, stage, eff).await;
+            eff.send(&caller, false).await;
         }
     }
 
@@ -819,27 +830,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 );
                 manager.connection_died(peer, conn_id, role, &eff).instrument(span.into()).await;
             }
-            ManagerMessage::HandshakeComplete {
-                peer,
-                stage,
-                conn_id,
-                role,
-                full_duplex_capable,
-                full_duplex,
-                advertisable,
-            } => {
-                manager
-                    .handshake_complete(
-                        peer,
-                        stage,
-                        conn_id,
-                        role,
-                        full_duplex_capable,
-                        full_duplex,
-                        advertisable,
-                        &eff,
-                    )
-                    .await;
+            ManagerMessage::HandshakeComplete { peer, stage, conn_id, role, full_duplex, advertisable, caller } => {
+                manager.handshake_complete(peer, stage, conn_id, role, full_duplex, advertisable, caller, &eff).await;
             }
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;
@@ -886,10 +878,10 @@ fn direction_of(role: Role) -> ConnectionDirection {
 }
 
 /// Local use stored at handshake: outbound starts in diffusion, inbound stays none.
-fn handshake_local_use(direction: ConnectionDirection) -> LocalUse {
+fn handshake_local_use(direction: ConnectionDirection) -> MiniProtocolUse {
     match direction {
-        ConnectionDirection::Outbound => LocalUse::Diffusion,
-        ConnectionDirection::Inbound => LocalUse::None,
+        ConnectionDirection::Outbound => MiniProtocolUse::Diffusion,
+        ConnectionDirection::Inbound => MiniProtocolUse::None,
     }
 }
 
@@ -898,7 +890,6 @@ async fn record_established(
     peer: Peer,
     conn_id: ConnectionId,
     direction: ConnectionDirection,
-    full_duplex_capable: bool,
     full_duplex: bool,
     advertisable: bool,
 ) {
@@ -907,10 +898,10 @@ async fn record_established(
         peer,
         conn_id,
         direction,
-        full_duplex_capable,
         full_duplex,
         advertisable,
         local_use: handshake_local_use(direction),
+        remote_initiators: RemoteInitiators::default(),
         established_at: observed_at(at),
     };
     PeerTrack::new(eff).record_connection_established(conn, at).await;

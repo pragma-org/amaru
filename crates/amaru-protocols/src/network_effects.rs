@@ -35,6 +35,7 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<SendEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<RecvEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<CloseEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<LocalAddrEffect>().boxed(),
     ]
 }
 
@@ -60,6 +61,8 @@ pub trait NetworkOps {
     ) -> BoxFuture<'static, Result<NonEmptyBytes, ReceiveError>>;
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), CloseError>>;
+
+    fn local_addr(&self, conn: ConnectionId) -> BoxFuture<'static, Result<SocketAddr, LocalAddrError>>;
 }
 
 pub struct Network<'a, T>(&'a Effects<T>);
@@ -103,6 +106,10 @@ impl<T> NetworkOps for Network<'_, T> {
 
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, Result<(), CloseError>> {
         self.0.external(CloseEffect { conn })
+    }
+
+    fn local_addr(&self, conn: ConnectionId) -> BoxFuture<'static, Result<SocketAddr, LocalAddrError>> {
+        self.0.external(LocalAddrEffect { conn })
     }
 }
 
@@ -359,6 +366,37 @@ impl Display for CloseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let CloseError { conn, error } = self;
         write!(f, "CloseError on {conn:?}: {error}")
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LocalAddrEffect {
+    pub conn: ConnectionId,
+}
+
+impl ExternalEffectAPI for LocalAddrEffect {
+    type Response = Result<SocketAddr, LocalAddrError>;
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap(|this| async move {
+            #[expect(clippy::expect_used)]
+            let resource =
+                resources.get::<ConnectionsResource>().expect("LocalAddrEffect requires a ConnectionsResource").clone();
+            resource.local_addr(this.conn).await.map_err(|e| LocalAddrError { conn: this.conn, error: format!("{e}") })
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LocalAddrError {
+    conn: ConnectionId,
+    error: String,
+}
+
+impl Display for LocalAddrError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let LocalAddrError { conn, error } = self;
+        write!(f, "LocalAddrError on {conn:?}: {error}")
     }
 }
 

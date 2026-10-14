@@ -19,8 +19,11 @@ use std::{
 
 use amaru_kernel::PeerCandidate;
 use amaru_observability::tracing::Level;
-use amaru_ouroboros::{CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, ObservedAt, PeerTracking};
-use amaru_protocols::{connection::LocalUse, manager::ManagerMessage};
+use amaru_ouroboros::{
+    CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, ObservedAt, PeerTracking, RemoteInitiators,
+    RemoteProtocol,
+};
+use amaru_protocols::{connection::MiniProtocolUse, manager::ManagerMessage};
 use amaru_pure_stage::{Effect, simulation::SimulationRunning, trace_buffer::TraceEntry};
 
 use super::*;
@@ -40,19 +43,47 @@ fn peer_view(
     PeerView { generation, connections, connect_failures, closes: BTreeMap::new(), uninteresting: Vec::new() }
 }
 
-fn view_conn(peer: Peer, conn_id: ConnectionId, direction: ConnectionDirection, local_use: LocalUse) -> ViewConnection {
-    ViewConnection {
-        peer,
-        conn_id,
-        direction,
-        full_duplex_capable: true,
-        full_duplex: direction == ConnectionDirection::Inbound,
-        advertisable: false,
-        local_use,
+struct ViewConn(ViewConnection);
+
+impl ViewConn {
+    fn new(peer: Peer, conn_id: ConnectionId, direction: ConnectionDirection, local_use: MiniProtocolUse) -> Self {
+        Self(ViewConnection {
+            peer,
+            conn_id,
+            direction,
+            full_duplex: direction == ConnectionDirection::Inbound,
+            advertisable: false,
+            local_use,
+            remote_initiators: RemoteInitiators::default(),
+            remote_use: MiniProtocolUse::None,
+        })
+    }
+
+    fn full_duplex(mut self, full_duplex: bool) -> Self {
+        self.0.full_duplex = full_duplex;
+        self
+    }
+
+    fn remote_use(mut self, remote_use: MiniProtocolUse) -> Self {
+        self.0.remote_use = remote_use;
+        self
+    }
+
+    fn build(self) -> ViewConnection {
+        self.0
     }
 }
 
-fn connected(peer: Peer, conn_id: ConnectionId, wanted: LocalUse, applied: LocalUse) -> OutboundIntent {
+fn view_conn(
+    peer: Peer,
+    conn_id: ConnectionId,
+    direction: ConnectionDirection,
+    local_use: MiniProtocolUse,
+) -> ViewConnection {
+    ViewConn::new(peer, conn_id, direction, local_use).build()
+}
+
+fn connected(peer: Peer, conn_id: ConnectionId, wanted: MiniProtocolUse, applied: MiniProtocolUse) -> OutboundIntent {
     let mut bearer = DesiredBearer::adopt(&view_conn(peer, conn_id, ConnectionDirection::Outbound, applied), wanted);
     bearer.local_use_sent_at = Some(sim_t0());
     OutboundIntent::Connected(bearer)
@@ -129,7 +160,7 @@ fn refill_after_a_close_dials_the_next_static_peer() {
     prep.state.target_upstream_peers = 1;
     prep.state
         .outbound_peers
-        .insert(gone, connected(gone, ConnectionId::initial(), LocalUse::Diffusion, LocalUse::Diffusion));
+        .insert(gone, connected(gone, ConnectionId::initial(), MiniProtocolUse::Diffusion, MiniProtocolUse::Diffusion));
     far_deadlines(&mut prep.state);
     prep.scripted_view = Some(peer_view(1, Vec::new(), BTreeMap::new()));
 
@@ -154,10 +185,10 @@ fn connect_and_close_between_ticks_resolves_on_the_next_round() {
             peer: gone,
             conn_id,
             direction: ConnectionDirection::Outbound,
-            full_duplex_capable: true,
             full_duplex: false,
             advertisable: false,
-            local_use: LocalUse::None,
+            local_use: MiniProtocolUse::None,
+            remote_initiators: RemoteInitiators::default(),
             established_at: at,
         },
         at,
@@ -210,7 +241,7 @@ fn banned_inbound_reconnect_is_disconnected() {
     far_deadlines(&mut prep.state);
     prep.scripted_view = Some(peer_view(
         1,
-        vec![view_conn(peer, conn_id, ConnectionDirection::Inbound, LocalUse::None)],
+        vec![view_conn(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::None)],
         BTreeMap::new(),
     ));
 
@@ -254,11 +285,11 @@ fn a_round_sends_at_most_upstream_plus_downstream_commands() {
         let peer = TestPrep::peer(&format!("7.0.0.{n}:7"));
         let conn_id = ids.get_and_increment();
         prep.state.cooldowns.cooldown_until.insert(peer, sim_t0() + Duration::from_secs(60));
-        connections.push(view_conn(peer, conn_id, ConnectionDirection::Inbound, LocalUse::None));
+        connections.push(view_conn(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::None));
     }
     let peers: Vec<Peer> = connections.iter().map(|conn| conn.peer).collect();
     for conn in &connections {
-        prep.state.inbound_peers.insert(conn.peer, DesiredBearer::adopt(conn, LocalUse::None));
+        prep.state.inbound_peers.insert(conn.peer, DesiredBearer::adopt(conn, MiniProtocolUse::None));
     }
     prep.scripted_view = Some(peer_view(1, connections, BTreeMap::new()));
 
@@ -376,7 +407,7 @@ fn a_failure_next_to_a_live_outbound_keeps_that_connection() {
     connect_failures.insert(peer, ObservedAt::new(Duration::from_secs(10), start_in_era().relative_time));
     prep.scripted_view = Some(peer_view(
         1,
-        vec![view_conn(peer, conn_id, ConnectionDirection::Outbound, LocalUse::Diffusion)],
+        vec![view_conn(peer, conn_id, ConnectionDirection::Outbound, MiniProtocolUse::Diffusion)],
         connect_failures,
     ));
 
@@ -385,7 +416,7 @@ fn a_failure_next_to_a_live_outbound_keeps_that_connection() {
     match state.outbound_peers.get(&peer) {
         Some(OutboundIntent::Connected(bearer)) => {
             assert_eq!(bearer.id, conn_id);
-            assert_eq!(bearer.wanted, LocalUse::Diffusion);
+            assert_eq!(bearer.wanted, MiniProtocolUse::Diffusion);
         }
         other => panic!("live outbound was not kept: {other:?}"),
     }
@@ -403,8 +434,10 @@ fn churn_demotes_the_worst_non_static_peer_without_asking_per_peer() {
     for name in ["1.1.1.1:1", "2.2.2.2:2", "3.3.3.3:3"] {
         let peer = TestPrep::peer(name);
         let conn_id = ids.get_and_increment();
-        prep.state.outbound_peers.insert(peer, connected(peer, conn_id, LocalUse::Diffusion, LocalUse::Diffusion));
-        connections.push(view_conn(peer, conn_id, ConnectionDirection::Outbound, LocalUse::Diffusion));
+        prep.state
+            .outbound_peers
+            .insert(peer, connected(peer, conn_id, MiniProtocolUse::Diffusion, MiniProtocolUse::Diffusion));
+        connections.push(view_conn(peer, conn_id, ConnectionDirection::Outbound, MiniProtocolUse::Diffusion));
     }
     prep.scripted_view = Some(peer_view(1, connections, BTreeMap::new()));
 
@@ -412,7 +445,7 @@ fn churn_demotes_the_worst_non_static_peer_without_asking_per_peer() {
     let demoted: Vec<_> = manager_sends(&running)
         .into_iter()
         .filter_map(|msg| {
-            if let ManagerMessage::SetLocalUse { peer, local_use: LocalUse::Maintenance, .. } = msg {
+            if let ManagerMessage::SetLocalUse { peer, local_use: MiniProtocolUse::Maintenance, .. } = msg {
                 Some(peer)
             } else {
                 None
@@ -437,7 +470,7 @@ fn a_share_result_with_new_candidates_dials_on_the_next_round() {
     assert_eq!(manager_sends(&running), vec![ManagerMessage::AddPeer(learned)]);
 }
 
-fn set_local_uses(running: &SimulationRunning) -> Vec<(Peer, LocalUse)> {
+fn set_local_uses(running: &SimulationRunning) -> Vec<(Peer, MiniProtocolUse)> {
     manager_sends(running)
         .into_iter()
         .filter_map(|msg| {
@@ -446,7 +479,7 @@ fn set_local_uses(running: &SimulationRunning) -> Vec<(Peer, LocalUse)> {
         .collect()
 }
 
-fn wanted(state: &PeerSelection, peer: Peer) -> LocalUse {
+fn wanted(state: &PeerSelection, peer: Peer) -> MiniProtocolUse {
     match state.outbound_peers.get(&peer) {
         Some(OutboundIntent::Connected(bearer)) => bearer.wanted,
         other => panic!("expected a connected bearer for {peer}, got {other:?}"),
@@ -470,19 +503,19 @@ fn an_uninteresting_mark_demotes_on_the_next_round_and_promotes_when_due() {
 
     let (mut running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
     let state = ps_state(&running);
-    assert_eq!(wanted(&state, peer), LocalUse::Maintenance);
+    assert_eq!(wanted(&state, peer), MiniProtocolUse::Maintenance);
     assert_eq!(state.demoted_until.get(&peer).copied(), Some(sim_t0() + UNINTERESTING_RETRY));
-    assert_eq!(set_local_uses(&running), vec![(peer, LocalUse::Maintenance)]);
+    assert_eq!(set_local_uses(&running), vec![(peer, MiniProtocolUse::Maintenance)]);
 
     let deadline = sim_t0() + UNINTERESTING_RETRY;
     drive_until(&mut running, deadline);
     let state = ps_state(&running);
-    assert_eq!(wanted(&state, peer), LocalUse::Diffusion);
+    assert_eq!(wanted(&state, peer), MiniProtocolUse::Diffusion);
     assert!(!state.demoted_until.contains_key(&peer));
     let uses = set_local_uses(&running);
-    assert_eq!(uses.first().copied(), Some((peer, LocalUse::Maintenance)));
-    assert_eq!(uses.last().copied(), Some((peer, LocalUse::Diffusion)));
-    assert_eq!(uses.iter().filter(|(_, local_use)| *local_use == LocalUse::Diffusion).count(), 1);
+    assert_eq!(uses.first().copied(), Some((peer, MiniProtocolUse::Maintenance)));
+    assert_eq!(uses.last().copied(), Some((peer, MiniProtocolUse::Diffusion)));
+    assert_eq!(uses.iter().filter(|(_, local_use)| *local_use == MiniProtocolUse::Diffusion).count(), 1);
 }
 
 #[test]
@@ -509,9 +542,9 @@ fn a_repeated_uninteresting_mark_keeps_the_demotion_deadline() {
     drive_until(&mut running, sim_t0() + Duration::from_secs(1));
 
     let state = ps_state(&running);
-    assert_eq!(wanted(&state, peer), LocalUse::Maintenance);
+    assert_eq!(wanted(&state, peer), MiniProtocolUse::Maintenance);
     assert_eq!(state.demoted_until.get(&peer).copied(), deadline);
-    assert_eq!(set_local_uses(&running), vec![(peer, LocalUse::Maintenance)]);
+    assert_eq!(set_local_uses(&running), vec![(peer, MiniProtocolUse::Maintenance)]);
 }
 
 #[test]
@@ -526,7 +559,7 @@ fn an_uninteresting_mark_after_rollback_demotes_for_180s() {
 
     let (running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
     let state = ps_state(&running);
-    assert_eq!(wanted(&state, peer), LocalUse::Maintenance);
+    assert_eq!(wanted(&state, peer), MiniProtocolUse::Maintenance);
     assert_eq!(state.demoted_until.get(&peer).copied(), Some(sim_t0() + UNINTERESTING_RETRY_AFTER_ROLLBACK));
 }
 
@@ -630,30 +663,34 @@ fn a_due_demotion_lifts_while_upstream_slots_stay_full() {
     prep.state.target_upstream_peers = 2;
     prep.state.next_churn_at = Some(sim_t0() + Duration::from_secs(3600));
     prep.state.next_sweep_at = Some(sim_t0() + Duration::from_secs(3600));
-    prep.state.outbound_peers.insert(keeper, connected(keeper, keeper_id, LocalUse::Diffusion, LocalUse::Diffusion));
-    prep.state.outbound_peers.insert(refill, connected(refill, refill_id, LocalUse::Diffusion, LocalUse::Diffusion));
     prep.state
         .outbound_peers
-        .insert(demoted, connected(demoted, demoted_id, LocalUse::Maintenance, LocalUse::Maintenance));
+        .insert(keeper, connected(keeper, keeper_id, MiniProtocolUse::Diffusion, MiniProtocolUse::Diffusion));
+    prep.state
+        .outbound_peers
+        .insert(refill, connected(refill, refill_id, MiniProtocolUse::Diffusion, MiniProtocolUse::Diffusion));
+    prep.state
+        .outbound_peers
+        .insert(demoted, connected(demoted, demoted_id, MiniProtocolUse::Maintenance, MiniProtocolUse::Maintenance));
     let deadline = sim_t0() + Duration::from_secs(1);
     prep.state.demoted_until.insert(demoted, deadline);
 
     let (mut running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
     let state = ps_state(&running);
     assert_eq!(state.demoted_until.get(&demoted).copied(), Some(deadline), "a future deadline stays");
-    assert_eq!(wanted(&state, demoted), LocalUse::Maintenance);
+    assert_eq!(wanted(&state, demoted), MiniProtocolUse::Maintenance);
 
     drive_until(&mut running, deadline);
     let state = ps_state(&running);
     assert!(!state.demoted_until.contains_key(&demoted));
-    assert_eq!(wanted(&state, demoted), LocalUse::Maintenance);
+    assert_eq!(wanted(&state, demoted), MiniProtocolUse::Maintenance);
     assert!(set_local_uses(&running).is_empty());
     let sweep_after_deadline = state.next_sweep_at;
 
     drive_until(&mut running, deadline + Duration::from_secs(1));
     let state = ps_state(&running);
     assert!(!state.demoted_until.contains_key(&demoted));
-    assert_eq!(wanted(&state, demoted), LocalUse::Maintenance);
+    assert_eq!(wanted(&state, demoted), MiniProtocolUse::Maintenance);
     assert!(set_local_uses(&running).is_empty());
     assert_eq!(state.next_sweep_at, sweep_after_deadline, "the following tick must not run another full round");
     assert_eq!(timeout_delays(&running).last().copied(), Some(Duration::from_secs(1)));
@@ -666,8 +703,8 @@ fn an_inbound_disconnect_clears_a_future_demotion_deadline() {
     let mut prep = test_prep(&[]);
     far_deadlines(&mut prep.state);
     let mut bearer = DesiredBearer::adopt(
-        &view_conn(peer, conn_id, ConnectionDirection::Inbound, LocalUse::Maintenance),
-        LocalUse::Maintenance,
+        &view_conn(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::Maintenance),
+        MiniProtocolUse::Maintenance,
     );
     bearer.local_use_sent_at = Some(sim_t0());
     prep.state.inbound_peers.insert(peer, bearer);
@@ -688,15 +725,15 @@ fn a_cooling_inbound_disconnect_clears_a_future_demotion_deadline() {
     far_deadlines(&mut prep.state);
     prep.state.cooldowns.cooldown_until.insert(peer, sim_t0() + Duration::from_secs(60));
     let mut bearer = DesiredBearer::adopt(
-        &view_conn(peer, conn_id, ConnectionDirection::Inbound, LocalUse::Maintenance),
-        LocalUse::Maintenance,
+        &view_conn(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::Maintenance),
+        MiniProtocolUse::Maintenance,
     );
     bearer.local_use_sent_at = Some(sim_t0());
     prep.state.inbound_peers.insert(peer, bearer);
     prep.state.demoted_until.insert(peer, sim_t0() + Duration::from_secs(120));
     prep.scripted_view = Some(peer_view(
         1,
-        vec![view_conn(peer, conn_id, ConnectionDirection::Inbound, LocalUse::Maintenance)],
+        vec![view_conn(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::Maintenance)],
         BTreeMap::new(),
     ));
 
@@ -705,4 +742,187 @@ fn a_cooling_inbound_disconnect_clears_a_future_demotion_deadline() {
     let state = ps_state(&running);
     assert!(!state.inbound_peers.contains_key(&peer));
     assert!(!state.demoted_until.contains_key(&peer));
+}
+
+fn disconnects(running: &SimulationRunning) -> Vec<(Peer, ConnectionId)> {
+    manager_sends(running)
+        .into_iter()
+        .filter_map(
+            |msg| if let ManagerMessage::Disconnect(peer, conn_id) = msg { Some((peer, conn_id)) } else { None },
+        )
+        .collect()
+}
+
+fn observed_now() -> ObservedAt {
+    ObservedAt::new(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time)
+}
+
+fn cold_inbound(peer: Peer, conn_id: ConnectionId, full_duplex: bool) -> ConnectionRecord {
+    ConnectionRecord {
+        peer,
+        conn_id,
+        direction: ConnectionDirection::Inbound,
+        full_duplex,
+        advertisable: false,
+        local_use: MiniProtocolUse::None,
+        remote_initiators: RemoteInitiators::default(),
+        established_at: observed_now(),
+    }
+}
+
+#[test]
+fn a_new_non_duplex_cold_bearer_waits_out_the_startup_dwell() {
+    let peer = TestPrep::peer("5.5.5.6:6");
+    let conn_id = ConnectionId::initial();
+    let mut prep = test_prep(&[]);
+    prep.state.target_upstream_peers = 0;
+    far_deadlines(&mut prep.state);
+    prep.established_connections.push(cold_inbound(peer, conn_id, false));
+
+    let (mut running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    let deadline = sim_t0() + REMOTE_COLD_DWELL;
+    let state = ps_state(&running);
+    let bearer = state.inbound_peers.get(&peer).expect("bearer kept");
+    assert!(!bearer.remote_was_hot);
+    assert_eq!(bearer.remote_cold_until, Some(deadline));
+    assert!(disconnects(&running).is_empty());
+
+    drive_until(&mut running, deadline);
+    assert_eq!(disconnects(&running), vec![(peer, conn_id)]);
+    assert!(!ps_state(&running).inbound_peers.contains_key(&peer));
+}
+
+#[test]
+fn a_non_duplex_bearer_that_has_been_hot_closes_when_it_goes_cold() {
+    let peer = TestPrep::peer("5.5.5.6:16");
+    let conn_id = ConnectionId::initial();
+    let mut prep = test_prep(&[]);
+    prep.state.target_upstream_peers = 0;
+    far_deadlines(&mut prep.state);
+    let mut bearer = DesiredBearer::adopt(
+        &ViewConn::new(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::None).full_duplex(false).build(),
+        MiniProtocolUse::None,
+    );
+    bearer.remote_was_hot = true;
+    prep.state.inbound_peers.insert(peer, bearer);
+    prep.scripted_view = Some(peer_view(
+        1,
+        vec![
+            ViewConn::new(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::None)
+                .full_duplex(false)
+                .build(),
+        ],
+        BTreeMap::new(),
+    ));
+
+    let (running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    assert_eq!(disconnects(&running), vec![(peer, conn_id)]);
+    assert!(!ps_state(&running).inbound_peers.contains_key(&peer));
+}
+
+#[test]
+fn a_non_duplex_bearer_with_remote_maintenance_is_kept() {
+    let peer = TestPrep::peer("5.5.5.7:7");
+    let conn_id = ConnectionId::initial();
+    let mut prep = test_prep(&[]);
+    far_deadlines(&mut prep.state);
+    prep.scripted_view = Some(peer_view(
+        1,
+        vec![
+            ViewConn::new(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::None)
+                .full_duplex(false)
+                .remote_use(MiniProtocolUse::Maintenance)
+                .build(),
+        ],
+        BTreeMap::new(),
+    ));
+
+    let (running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    assert!(disconnects(&running).is_empty());
+    let state = ps_state(&running);
+    let bearer = state.inbound_peers.get(&peer).expect("bearer kept");
+    assert_eq!(bearer.wanted, MiniProtocolUse::None);
+    assert_eq!(bearer.remote_use, MiniProtocolUse::Maintenance);
+    assert!(bearer.remote_cold_until.is_none());
+}
+
+#[test]
+fn a_duplex_cold_bearer_stays_until_the_dwell_elapses() {
+    let peer = TestPrep::peer("5.5.5.8:8");
+    let conn_id = ConnectionId::initial();
+    let mut prep = test_prep(&[]);
+    prep.state.target_upstream_peers = 0;
+    far_deadlines(&mut prep.state);
+    prep.established_connections.push(cold_inbound(peer, conn_id, true));
+
+    let (mut running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    let deadline = sim_t0() + REMOTE_COLD_DWELL;
+    let state = ps_state(&running);
+    let bearer = state.inbound_peers.get(&peer).expect("duplex bearer kept");
+    assert_eq!(bearer.wanted, MiniProtocolUse::None);
+    assert_eq!(bearer.remote_use, MiniProtocolUse::None);
+    assert_eq!(bearer.remote_cold_until, Some(deadline));
+    assert!(disconnects(&running).is_empty());
+
+    drive_until(&mut running, deadline - Duration::from_secs(1));
+    let state = ps_state(&running);
+    assert_eq!(state.inbound_peers.get(&peer).and_then(|bearer| bearer.remote_cold_until), Some(deadline));
+    assert!(disconnects(&running).is_empty());
+
+    drive_until(&mut running, deadline);
+    assert_eq!(disconnects(&running), vec![(peer, conn_id)]);
+    assert!(!ps_state(&running).inbound_peers.contains_key(&peer));
+}
+
+#[test]
+fn a_duplex_cold_deadline_is_cancelled_when_remote_use_rises() {
+    let peer = TestPrep::peer("5.5.5.9:9");
+    let conn_id = ConnectionId::initial();
+    let mut prep = test_prep(&[]);
+    prep.state.target_upstream_peers = 0;
+    far_deadlines(&mut prep.state);
+    prep.established_connections.push(cold_inbound(peer, conn_id, true));
+
+    let (mut running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    assert_eq!(
+        ps_state(&running).inbound_peers.get(&peer).and_then(|bearer| bearer.remote_cold_until),
+        Some(sim_t0() + REMOTE_COLD_DWELL)
+    );
+
+    let performance = running.resources().get::<ResourcePerformance>().expect("performance").clone();
+    prep.rt.block_on(performance.record_remote_use(peer, conn_id, RemoteProtocol::KeepAlive, true, observed_now()));
+    drive_until(&mut running, sim_t0() + Duration::from_secs(1));
+
+    assert!(disconnects(&running).is_empty());
+    let state = ps_state(&running);
+    let bearer = state.inbound_peers.get(&peer).expect("bearer kept");
+    assert_eq!(bearer.remote_use, MiniProtocolUse::Maintenance);
+    assert!(bearer.remote_cold_until.is_none());
+}
+
+#[test]
+fn a_cold_deadline_wakes_a_round_before_the_sweep() {
+    let peer = TestPrep::peer("5.5.5.10:10");
+    let conn_id = ConnectionId::initial();
+    let mut prep = test_prep(&[]);
+    prep.state.target_upstream_peers = 0;
+    far_deadlines(&mut prep.state);
+    let mut bearer = DesiredBearer::adopt(
+        &ViewConn::new(peer, conn_id, ConnectionDirection::Inbound, MiniProtocolUse::None).build(),
+        MiniProtocolUse::None,
+    );
+    let deadline = sim_t0() + Duration::from_secs(5);
+    bearer.remote_cold_until = Some(deadline);
+    prep.state.inbound_peers.insert(peer, bearer);
+
+    let (mut running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    assert!(disconnects(&running).is_empty(), "the dwell is still ahead of the first tick");
+    assert!(ps_state(&running).inbound_peers.contains_key(&peer));
+
+    drive_until(&mut running, deadline - Duration::from_secs(1));
+    assert!(disconnects(&running).is_empty());
+
+    drive_until(&mut running, deadline);
+    assert_eq!(disconnects(&running), vec![(peer, conn_id)]);
+    assert!(!ps_state(&running).inbound_peers.contains_key(&peer));
 }

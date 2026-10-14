@@ -37,7 +37,8 @@ impl Model {
     }
 
     fn prune_stale_peers(&mut self, now: Instant) {
-        self.peers.retain(|_, peer| !peer.is_stale(now, self.config.peer_inactivity_timeout));
+        let timeout = self.config.peer_inactivity_timeout;
+        self.peers.retain(|_, peer| !peer.is_stale(now, timeout));
     }
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
@@ -81,6 +82,8 @@ impl Model {
             TelemetryEvent::HeaderLifecycle => self.update_peer_header_lifecycle(record),
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
+            TelemetryEvent::LocalUseApplied => self.update_local_use(record),
+            TelemetryEvent::RemoteUse => self.update_remote_use(record),
             TelemetryEvent::PeerDisconnected => self.update_peer_disconnected(record),
             TelemetryEvent::PeerResolved => self.update_peer_resolved(record),
             TelemetryEvent::GovernanceActivityUpdate => {
@@ -242,8 +245,13 @@ impl Model {
     }
 
     fn update_peer_connected(&mut self, record: &TelemetryRecord) {
-        let peer = self.peer_mut(protocols::peer_selection::peer::CONNECTED::peer(record), record.at);
-        peer.mark_connected(record);
+        let Some(conn_id) = record.conn_id() else {
+            return;
+        };
+        let address = protocols::peer_selection::peer::CONNECTED::peer(record).to_string();
+        if let Some(peer) = self.connection_mut(&conn_id, &address, record.at) {
+            peer.mark_connected(record);
+        }
     }
 
     fn update_peer_resolved(&mut self, record: &TelemetryRecord) {
@@ -252,36 +260,62 @@ impl Model {
         if candidate == address {
             return;
         }
-        self.resolved_candidates.insert(address.to_string(), candidate.to_string());
-        if let Some(peer) = self.peers.get_mut(address) {
-            peer.candidate = Some(candidate.to_string());
+        let address = address.to_string();
+        let candidate = candidate.to_string();
+        self.resolved_candidates.insert(address.clone(), candidate.clone());
+        for peer in self.peers.values_mut() {
+            if peer.address == address {
+                peer.candidate = Some(candidate.clone());
+            }
+        }
+    }
+
+    fn update_local_use(&mut self, record: &TelemetryRecord) {
+        let Some(conn_id) = record.conn_id() else {
+            return;
+        };
+        let address = protocols::manager::peer::LOCAL_USE_APPLIED::peer(record).to_string();
+        let label = protocols::manager::peer::LOCAL_USE_APPLIED::local_use(record);
+        if let Some(peer) = self.connection_mut(&conn_id, &address, record.at) {
+            peer.set_local_use(label, record.at);
+        }
+    }
+
+    fn update_remote_use(&mut self, record: &TelemetryRecord) {
+        let Some(conn_id) = record.conn_id() else {
+            return;
+        };
+        let address = protocols::peer_selection::peer::REMOTE_USE::peer(record).to_string();
+        let label = protocols::peer_selection::peer::REMOTE_USE::remote_use(record);
+        if let Some(peer) = self.connection_mut(&conn_id, &address, record.at) {
+            peer.set_remote_use(label, record.at);
         }
     }
 
     fn update_peer_disconnected(&mut self, record: &TelemetryRecord) {
-        let address = protocols::peer_selection::peer::DISCONNECTED::peer(record);
-        if let Some(peer) = self.peers.get_mut(address) {
-            peer.mark_disconnected(record);
-        }
+        let Some(conn_id) = record.conn_id() else {
+            return;
+        };
+        self.peers.remove(&conn_id);
+        self.closed_connections.insert(conn_id);
     }
 
     fn update_peer_rtt(&mut self, record: &TelemetryRecord) {
-        let address = protocols::keepalive::peer::ROUND_TRIP::peer(record);
+        let Some(conn_id) = record.conn_id() else {
+            return;
+        };
+        let address = protocols::keepalive::peer::ROUND_TRIP::peer(record).to_string();
         let round_trip_micros = protocols::keepalive::peer::ROUND_TRIP::round_trip_micros(record);
-
-        let peer = self.peer_mut(address, record.at);
-        peer.connected = true;
-        if !peer.inbound && !peer.outbound {
-            peer.outbound = true;
+        if let Some(peer) = self.connection_mut(&conn_id, &address, record.at) {
+            peer.update_rtt(round_trip_micros, record.at);
         }
-        peer.update_rtt(record, round_trip_micros);
     }
 
     fn update_peer_roll_forward(&mut self, record: &TelemetryRecord) {
-        let peer = consensus::chainsync::ROLL_FORWARD_DONE::peer(record);
+        let peer = consensus::chainsync::ROLL_FORWARD_DONE::peer(record).to_string();
         let height = consensus::chainsync::ROLL_FORWARD_DONE::current_height(record);
         let tip_height = consensus::chainsync::ROLL_FORWARD_DONE::tip_height(record);
-        self.peer_mut(peer, record.at).note_roll_forward(height, tip_height, record.at);
+        self.for_each_address(&peer, record.at, |state| state.note_roll_forward(height, tip_height, record.at));
     }
 
     fn update_peer_tip_height(&mut self, record: &TelemetryRecord) {
@@ -293,15 +327,16 @@ impl Model {
         } else {
             (consensus::chainsync::ROLL_BACKWARD::peer(record), consensus::chainsync::ROLL_BACKWARD::tip_height(record))
         };
-        self.peer_mut(peer, record.at).note_peer_tip(tip_height, record.at);
+        let peer = peer.to_string();
+        self.for_each_address(&peer, record.at, |state| state.note_peer_tip(tip_height, record.at));
     }
 
     fn update_peer_header_announced(&mut self, record: &TelemetryRecord) {
         let Some(points) = announcement_points(blockperf::header::ANNOUNCED::rank(record)) else {
             return;
         };
-        let peer = blockperf::header::ANNOUNCED::peer(record);
-        self.peer_mut(peer, record.at).add_announcement_points(points, record.at);
+        let peer = blockperf::header::ANNOUNCED::peer(record).to_string();
+        self.for_each_address(&peer, record.at, |state| state.add_announcement_points(points, record.at));
     }
 
     fn update_peer_header_lifecycle(&mut self, record: &TelemetryRecord) {
@@ -325,28 +360,68 @@ impl Model {
         };
 
         let capacity = self.config.peer_timing_capacity;
-        let peer = self.peer_mut(peer, record.at);
-        peer.record_header_lifecycle(
-            record.at,
-            capacity,
-            slot_start_to_header_micros,
-            query_header_micros,
-            get_block_micros,
-            adopt_block_micros,
-        );
-        if let Some(micros) = live_arrival_micros {
-            peer.record_live_arrival(micros, capacity);
+        let peer = peer.to_string();
+        self.for_each_address(&peer, record.at, |state| {
+            state.record_header_lifecycle(
+                record.at,
+                capacity,
+                slot_start_to_header_micros,
+                query_header_micros,
+                get_block_micros,
+                adopt_block_micros,
+            );
+            if let Some(micros) = live_arrival_micros {
+                state.record_live_arrival(micros, capacity);
+            }
+        });
+    }
+
+    /// Events that name a peer address and not a connection apply to every live row for it.
+    ///
+    /// Until a connection span exists, the reading is kept on a row keyed by the address.
+    /// [`Self::connection_mut`] moves that row onto the connection id.
+    fn for_each_address(&mut self, address: &str, updated_at: Instant, mut update: impl FnMut(&mut PeerState)) {
+        let matches: Vec<String> =
+            self.peers.iter().filter(|(_, peer)| peer.address == address).map(|(id, _)| id.clone()).collect();
+        if matches.is_empty() {
+            let candidate = self.resolved_candidates.get(address).cloned();
+            let peer = self.peers.entry(address.to_string()).or_insert_with(|| {
+                let mut peer = PeerState::new(address.to_string(), updated_at);
+                peer.candidate = candidate;
+                peer
+            });
+            update(peer);
+            return;
+        }
+        for id in matches {
+            if let Some(peer) = self.peers.get_mut(&id) {
+                update(peer);
+            }
         }
     }
 
-    fn peer_mut(&mut self, address: impl ToString, updated_at: Instant) -> &mut PeerState {
-        let address = address.to_string();
-        let candidate = self.resolved_candidates.get(&address).cloned();
-        self.peers.entry(address.clone()).or_insert_with(|| {
-            let mut peer = PeerState::new(address, updated_at);
-            peer.candidate = candidate;
+    /// The row for `conn_id`, created on the first span that names it.
+    ///
+    /// A connection that has already closed stays gone, including when a late span arrives after it.
+    fn connection_mut(&mut self, conn_id: &str, address: &str, updated_at: Instant) -> Option<&mut PeerState> {
+        if self.closed_connections.contains(conn_id) {
+            return None;
+        }
+        if address != conn_id
+            && let Some(placeholder) = self.peers.remove(address)
+        {
+            self.peers.entry(conn_id.to_string()).or_insert(placeholder);
+        }
+        let candidate = self.resolved_candidates.get(address).cloned();
+        let peer = self.peers.entry(conn_id.to_string()).or_insert_with(|| {
+            let mut peer = PeerState::new(address.to_string(), updated_at);
+            peer.candidate = candidate.clone();
             peer
-        })
+        });
+        if peer.candidate.is_none() {
+            peer.candidate = candidate;
+        }
+        Some(peer)
     }
 
     fn upsert_proposal(&mut self, record: &TelemetryRecord, status: &str, detail: Option<String>) {

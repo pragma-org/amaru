@@ -62,7 +62,13 @@ const TAG_PEER_SEL: u64 = 200;
 const NODE_PORT_OFFSET: u16 = 11;
 
 pub(super) const BLOCKFETCH_FRAGMENT: usize = 6;
-pub(super) const BLOCKFETCH_HORIZON_NANOS: u64 = 5_000_000_000;
+/// Catch-up horizon for a `BLOCKFETCH_FRAGMENT` chain.
+///
+/// Stubbed block validation still samples the production `ValidateBlockEffect` curve.
+/// The stage applies one block at a time, and that curve's maximum is 4.74s. The first
+/// header is the ancestor, so the remaining five extensions can take just under 24s
+/// before the tip is adopted.
+pub(super) const BLOCKFETCH_HORIZON_NANOS: u64 = 30_000_000_000;
 
 fn provider(seed: u64) -> Arc<WorldConnectionProvider> {
     Arc::new(WorldConnectionProvider::new(seed))
@@ -429,7 +435,13 @@ fn run_blockfetch_generated_chain(n: NonZeroU8, base_port: u16) {
     let injector_addr = loopback(base_port);
     let (mut world, headers) = spawn_blockfetch_follower(&run, base_port, n);
     let head = headers.last().expect("fragment HEAD").clone();
-    world.run_until_horizon_on_best_chain_tip(BLOCKFETCH_HORIZON_NANOS, |_| {});
+    let head_point = head.point();
+    world.run_until_horizon_on_best_chain_tip(BLOCKFETCH_HORIZON_NANOS, |world| {
+        let store = world.graphs()[1].resources().get::<ResourceHeaderStore>().expect("node chain store");
+        if store.get_best_chain_tip() == head_point {
+            world.halt();
+        }
+    });
 
     let log = world.heap_log();
     assert_dialed(&log, injector_addr, run.seed, "node must connect");
@@ -484,7 +496,13 @@ fn run_duplex_inbound_upstream(seed: Option<u64>) {
         vec![run.spawn_catch_up(0, node_a), run.spawn_catch_up(1, node_b)],
         &headers,
     );
-    world.run_until_horizon_on_best_chain_tip(BLOCKFETCH_HORIZON_NANOS, |_| {});
+    let head_point = head.point();
+    world.run_until_horizon_on_best_chain_tip(BLOCKFETCH_HORIZON_NANOS, |world| {
+        let store = world.graphs()[2].resources().get::<ResourceHeaderStore>().expect("node chain store");
+        if store.get_best_chain_tip() == head_point {
+            world.halt();
+        }
+    });
 
     let log = world.heap_log();
     assert_dialed(&log, injector_addr, run.seed, "A must dial the injector");

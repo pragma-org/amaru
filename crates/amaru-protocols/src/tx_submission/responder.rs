@@ -23,12 +23,16 @@ use ProtocolError::*;
 use TerminationCause::*;
 use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, cbor::WithOriginalBytes, to_cbor};
 use amaru_observability::{Instrument, debug, debug_span, error, trace, warn};
-use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros::{
+    ConnectionId, MempoolInsertResult, MempoolMsg, MempoolSeqNo, RemoteProtocol, TxInsertResult, TxOrigin,
+    TxRejectReason,
+};
 use amaru_pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 
 use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
+    peer_tracking_effects::PeerTrack,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, TX_SUBMISSION_INGRESS,
         miniprotocol, outcome,
@@ -120,7 +124,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
                     None
                 }
             }
-            ResponderLocalIn::InflightTimeout => self.handle_inflight_timeout(),
+            ResponderLocalIn::InflightTimeout { generation } => self.handle_inflight_timeout(proto, generation),
         };
         Ok((action, self))
     }
@@ -140,20 +144,42 @@ impl StageState<State, Responder> for TxSubmissionResponder {
             let action = match input {
                 ResponderResult::Init => {
                     trace!(protocols::tx_submission::INITIALIZED);
-                    self.initialize_state(&mempool).await
+                    PeerTrack::new(eff)
+                        .note_remote_protocol(self.peer, self.conn_id, RemoteProtocol::TxSubmission, true)
+                        .await;
+                    let action = self.initialize_state(&mempool).await;
+                    if let Some(action) = &action {
+                        self.schedule_inflight_timeout(action, eff).await;
+                    }
+                    action
                 }
-                ResponderResult::ReplyTxIds(tx_ids) => match self.process_tx_ids_reply(&mempool, tx_ids).await? {
-                    FetchOutcome::Action(action) => {
-                        self.schedule_inflight_timeout(&action, eff).await;
-                        Some(action)
+                ResponderResult::ReplyTxIds(tx_ids) => {
+                    // The id timer, if any, belongs to the request this reply answers.
+                    self.cancel_inflight_timeout(eff).await;
+                    match self.process_tx_ids_reply(&mempool, tx_ids).await? {
+                        FetchOutcome::Action(action) => {
+                            self.schedule_inflight_timeout(&action, eff).await;
+                            Some(action)
+                        }
+                        FetchOutcome::AwaitingCapacity => {
+                            self.subscribe_capacity(eff).await;
+                            None
+                        }
                     }
-                    FetchOutcome::AwaitingCapacity => {
-                        self.subscribe_capacity(eff).await;
-                        None
+                }
+                ResponderResult::ReplyTxs(txs) => {
+                    let action = self.insert_txs(txs, eff).await?;
+                    if let Some(action) = &action {
+                        self.schedule_inflight_timeout(action, eff).await;
                     }
-                },
-                ResponderResult::ReplyTxs(txs) => self.insert_txs(txs, eff).await?,
-                ResponderResult::Done => None,
+                    action
+                }
+                ResponderResult::Done => {
+                    PeerTrack::new(eff)
+                        .note_remote_protocol(self.peer, self.conn_id, RemoteProtocol::TxSubmission, false)
+                        .await;
+                    None
+                }
             };
             Ok((action, self))
         }
@@ -195,7 +221,7 @@ impl ProtocolState<Responder> for State {
                 let txs = tagged_txs.into_iter().map(|t| t.tx).collect();
                 (outcome().result(ResponderResult::ReplyTxs(txs)), State::Idle)
             }
-            (State::TxIdsBlocking, Message::Done) => (outcome().want_next(), State::Init),
+            (State::TxIdsBlocking, Message::Done) => (outcome().result(ResponderResult::Done).want_next(), State::Init),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -226,9 +252,10 @@ pub enum ResponderLocalIn {
     /// `NewTip` removed invalidated txs). On firing, the responder re-attempts to drain
     /// `pending_fetch` and resumes the protocol if there is now mempool capacity.
     CapacityAvailable,
-    /// Fired `params.inflight_fetch_timeout` after a `RequestTxs` was sent, unless cancelled by the
-    /// matching `ReplyTxs`.
-    InflightTimeout,
+    /// Fired `params.inflight_fetch_timeout` after a `RequestTxs` or a non-blocking `RequestTxIds`,
+    /// unless cancelled by the matching reply. `generation` distinguishes a timer that was already
+    /// queued when a later request replaced it.
+    InflightTimeout { generation: u64 },
 }
 
 /// Result of `process_tx_ids_reply`. The synchronous decision separates "what to send to the peer"
@@ -280,6 +307,7 @@ impl Display for ResponderResult {
 pub struct TxSubmissionResponder {
     /// The connected peer, sending transactions.
     peer: Peer,
+    conn_id: ConnectionId,
     /// Responder parameters: batch sizes, window sizes, etc.
     params: ResponderParams,
     /// Sequence of tx_ids advertised by the peer in arrival order. May contain duplicates: a
@@ -292,8 +320,14 @@ pub struct TxSubmissionResponder {
     /// is acknowledged.
     tx_states: BTreeMap<TransactionId, TxStateEntry>,
     /// `ScheduleId` of the currently-armed `InflightTimeout`.
-    /// Only contains `Some(...)` while there are Inflight entries in `tx_states`.
+    ///
+    /// Armed while a `RequestTxs` is outstanding, or while a non-blocking `RequestTxIds` is
+    /// outstanding. Never armed for a blocking `RequestTxIds` or while Idle.
     inflight_timeout_id: Option<ScheduleId>,
+    /// Bumped whenever the inflight timer is armed or cancelled, and copied into the scheduled
+    /// `InflightTimeout`. A delivered timeout whose generation does not match was already
+    /// superseded.
+    timeout_generation: u64,
     /// Used to avoid registering multiple capacity subscriptions concurrently.
     capacity_subscribed: bool,
     /// Lazily-initialised contramap from `()` to `ResponderLocalIn::CapacityAvailable`, used as
@@ -320,6 +354,7 @@ pub struct TxStateEntry {
 impl TxSubmissionResponder {
     pub fn new(
         peer: Peer,
+        conn_id: ConnectionId,
         muxer: StageRef<MuxMessage>,
         params: ResponderParams,
         origin: TxOrigin,
@@ -330,10 +365,12 @@ impl TxSubmissionResponder {
             State::Init,
             Self {
                 peer,
+                conn_id,
                 params,
                 unacked: VecDeque::new(),
                 tx_states: BTreeMap::new(),
                 inflight_timeout_id: None,
+                timeout_generation: 0,
                 capacity_subscribed: false,
                 capacity_callback: StageRef::blackhole(),
                 origin,
@@ -547,9 +584,7 @@ impl TxSubmissionResponder {
     ) -> anyhow::Result<Option<ResponderAction>> {
         debug!(protocols::tx_submission::responder::REPLY_TXS_RECEIVED, peer = self.peer, count = txs.len());
 
-        if let Some(id) = self.inflight_timeout_id.take() {
-            eff.cancel_schedule(id).await;
-        }
+        self.cancel_inflight_timeout(eff).await;
 
         {
             let mut sieve = BTreeSet::new();
@@ -659,27 +694,50 @@ impl TxSubmissionResponder {
 
     /// Process an `InflightTimeout`.
     ///
-    /// Fail if items are still in flight, otherwise this timer was already in the mailbox when
-    /// the peer’s response was processed.
-    fn handle_inflight_timeout(&mut self) -> Option<ResponderAction> {
+    /// A non-blocking `RequestTxIds` times out while the protocol is still in `TxIdsNonBlocking`.
+    /// A `RequestTxs` times out while bodies are still in flight. Any other state means the reply
+    /// already moved the protocol on, and a mismatched generation means this delivery belongs to
+    /// a timer that was cancelled or replaced.
+    fn handle_inflight_timeout(&mut self, proto: &State, generation: u64) -> Option<ResponderAction> {
+        if generation != self.timeout_generation {
+            return None;
+        }
         self.inflight_timeout_id = None;
-        if self.has_inflight() { Some(ResponderAction::Error(TxFetchTimeout)) } else { None }
+        match proto {
+            State::TxIdsNonBlocking => Some(ResponderAction::Error(TxIdsTimeout)),
+            State::Txs if self.has_inflight() => Some(ResponderAction::Error(TxFetchTimeout)),
+            State::Init | State::Idle | State::Done | State::Txs | State::TxIdsBlocking => None,
+        }
+    }
+
+    async fn cancel_inflight_timeout(&mut self, eff: &Effects<Inputs<ResponderLocalIn>>) {
+        if let Some(id) = self.inflight_timeout_id.take() {
+            self.timeout_generation = self.timeout_generation.wrapping_add(1);
+            eff.cancel_schedule(id).await;
+        }
     }
 
     async fn schedule_inflight_timeout(&mut self, action: &ResponderAction, eff: &Effects<Inputs<ResponderLocalIn>>) {
-        if matches!(action, ResponderAction::SendRequestTxs(_)) {
-            assert!(
-                self.inflight_timeout_id.is_none(),
-                "schedule_inflight_timeout called with a still-armed timer; ReplyTxs handling should have cancelled it"
-            );
-            let id = eff
-                .schedule_after(
-                    Inputs::Local(ResponderLocalIn::InflightTimeout),
-                    self.params.inflight_fetch_timeout.as_duration(),
-                )
-                .await;
-            self.inflight_timeout_id = Some(id);
+        let arm = matches!(
+            action,
+            ResponderAction::SendRequestTxs(_) | ResponderAction::SendRequestTxIds { blocking: Blocking::No, .. }
+        );
+        if !arm {
+            return;
         }
+        assert!(
+            self.inflight_timeout_id.is_none(),
+            "schedule_inflight_timeout called with a still-armed timer; the reply handler should have cancelled it"
+        );
+        self.timeout_generation = self.timeout_generation.wrapping_add(1);
+        let generation = self.timeout_generation;
+        let id = eff
+            .schedule_after(
+                Inputs::Local(ResponderLocalIn::InflightTimeout { generation }),
+                self.params.inflight_fetch_timeout.as_duration(),
+            )
+            .await;
+        self.inflight_timeout_id = Some(id);
     }
 
     /// Re-attempt to drain Pending entries after the mempool fired our capacity callback.
@@ -706,7 +764,9 @@ impl TxSubmissionResponder {
         // No Pending entries left (e.g. txs landed in mempool via another peer) — re-engage the
         // peer with a normal RequestTxIds.
         let (ack, req, blocking) = self.request_tx_ids(mempool).await;
-        Some(ResponderAction::SendRequestTxIds { ack, req, blocking })
+        let action = ResponderAction::SendRequestTxIds { ack, req, blocking };
+        self.schedule_inflight_timeout(&action, eff).await;
+        Some(action)
     }
 
     fn has_inflight(&self) -> bool {
@@ -1189,6 +1249,7 @@ mod tests {
     fn responder_with(params: ResponderParams) -> TxSubmissionResponder {
         TxSubmissionResponder::new(
             Peer::for_test(3006),
+            ConnectionId::initial(),
             StageRef::<MuxMessage>::blackhole(),
             params,
             TxOrigin::Local,
@@ -1204,7 +1265,7 @@ mod tests {
         let mut responder = new_responder();
         add_tx_id(&mut responder, txs[0].tx_id(), TxStatus::Inflight(to_cbor(&txs[0]).len() as u32));
 
-        let action = responder.handle_inflight_timeout();
+        let action = responder.handle_inflight_timeout(&State::Txs, 0);
         assert_eq!(action, Some(ResponderAction::Error(TxFetchTimeout)));
         assert!(responder.inflight_timeout_id.is_none());
     }
@@ -1218,15 +1279,32 @@ mod tests {
         let mut responder = new_responder();
         add_tx_id(&mut responder, txs[0].tx_id(), TxStatus::Done);
 
-        assert!(responder.handle_inflight_timeout().is_none());
+        assert!(responder.handle_inflight_timeout(&State::Txs, 0).is_none());
         assert!(responder.inflight_timeout_id.is_none());
     }
 
     #[test]
     fn inflight_timeout_with_no_inflight_ids_is_ignored() {
         let mut responder = new_responder();
-        assert!(responder.handle_inflight_timeout().is_none());
+        assert!(responder.handle_inflight_timeout(&State::Idle, 0).is_none());
+        assert!(responder.handle_inflight_timeout(&State::TxIdsBlocking, 0).is_none());
         assert!(responder.inflight_timeout_id.is_none());
+    }
+
+    #[test]
+    fn tx_ids_timeout_while_non_blocking_terminates() {
+        let mut responder = new_responder();
+        let action = responder.handle_inflight_timeout(&State::TxIdsNonBlocking, 0);
+        assert_eq!(action, Some(ResponderAction::Error(TxIdsTimeout)));
+        assert!(responder.inflight_timeout_id.is_none());
+    }
+
+    #[test]
+    fn tx_ids_timeout_with_stale_generation_is_ignored() {
+        let mut responder = new_responder();
+        responder.timeout_generation = 2;
+        assert!(responder.handle_inflight_timeout(&State::TxIdsNonBlocking, 1).is_none());
+        assert!(responder.handle_inflight_timeout(&State::Txs, 1).is_none());
     }
 
     #[test]
@@ -1240,7 +1318,7 @@ mod tests {
         add_tx_id(&mut responder, txs[1].tx_id(), TxStatus::Inflight(to_cbor(&txs[1]).len() as u32));
         responder.tx_states.get_mut(&txs[0].tx_id()).unwrap().status = TxStatus::Done;
 
-        let action = responder.handle_inflight_timeout();
+        let action = responder.handle_inflight_timeout(&State::Txs, 0);
         assert_eq!(action, Some(ResponderAction::Error(TxFetchTimeout)));
     }
 
@@ -1252,6 +1330,9 @@ mod tests {
     fn timeout_harness(rt: &Runtime) -> TimeoutHarness {
         let mut network = SimulationBuilder::default();
         network.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
+        network
+            .resources()
+            .put::<amaru_ouroboros::PeerTrackingResource>(Arc::new(crate::peer_tracking::InMemoryPeerTracking::new()));
 
         let muxer = network.stage("muxer", async |state: (), msg: MuxMessage, eff| {
             match msg {
@@ -1285,6 +1366,7 @@ mod tests {
 
         let (proto, stage_state) = TxSubmissionResponder::new(
             Peer::for_test(3006),
+            ConnectionId::initial(),
             muxer.clone().without_state(),
             test_params(),
             TxOrigin::Local,
@@ -1370,9 +1452,96 @@ mod tests {
         feed(&mut h, reply_txs_msg(&txs, &[0]));
         pump_without_advancing(&mut h).assert_idle();
 
-        h.running.enqueue_msg(&h.tx_sub, [Inputs::Local(ResponderLocalIn::InflightTimeout)]);
+        let generation = {
+            let (_, responder) = h.running.get_state(&h.tx_sub).expect("responder still running");
+            responder.timeout_generation
+        };
+        h.running.enqueue_msg(&h.tx_sub, [Inputs::Local(ResponderLocalIn::InflightTimeout { generation })]);
         pump_without_advancing(&mut h).assert_idle();
         assert!(h.running.get_state(&h.tx_sub).is_some(), "late timeout after ReplyTxs must be ignored");
+    }
+
+    /// Advertise three txs so the byte budget fetches two and leaves one pending. The follow-up
+    /// `RequestTxIds` is then non-blocking.
+    fn arm_nonblocking_request_tx_ids(h: &mut TimeoutHarness) -> Vec<WithOriginalBytes<Transaction>> {
+        let txs = create_transactions(3);
+        feed(h, Message::Init);
+        pump_without_advancing(h).assert_idle();
+        {
+            let (proto, responder) = h.running.get_state(&h.tx_sub).expect("responder idle after init");
+            assert_eq!(*proto, State::TxIdsBlocking, "the first request is blocking");
+            assert!(responder.inflight_timeout_id.is_none(), "a blocking RequestTxIds must not arm a timer");
+        }
+        feed(h, reply_tx_ids_msg(&txs, &[0, 1, 2]));
+        pump_without_advancing(h).assert_sleeping();
+        feed(h, reply_txs_msg(&txs, &[0, 1]));
+        pump_without_advancing(h).assert_sleeping();
+        let (proto, responder) = h.running.get_state(&h.tx_sub).expect("responder waiting on non-blocking ids");
+        assert_eq!(*proto, State::TxIdsNonBlocking);
+        assert!(responder.inflight_timeout_id.is_some(), "a non-blocking RequestTxIds must arm the timer");
+        txs
+    }
+
+    #[test]
+    fn blocking_request_tx_ids_does_not_arm_timer() {
+        let rt = Runtime::new().unwrap();
+        let mut h = timeout_harness(&rt);
+        feed(&mut h, Message::Init);
+        pump_without_advancing(&mut h).assert_idle();
+        let (proto, responder) = h.running.get_state(&h.tx_sub).expect("responder still running");
+        assert_eq!(*proto, State::TxIdsBlocking);
+        assert!(responder.inflight_timeout_id.is_none());
+        h.running.run(Run::skip_and_resolve()).assert_idle();
+    }
+
+    #[test]
+    fn nonblocking_request_tx_ids_times_out_when_peer_is_silent() {
+        let rt = Runtime::new().unwrap();
+        let mut h = timeout_harness(&rt);
+        arm_nonblocking_request_tx_ids(&mut h);
+        h.running.run(Run::skip_and_resolve()).assert_terminated("tx_sub");
+    }
+
+    #[test]
+    fn reply_tx_ids_cancels_nonblocking_timeout() {
+        let rt = Runtime::new().unwrap();
+        let mut h = timeout_harness(&rt);
+        let txs = arm_nonblocking_request_tx_ids(&mut h);
+
+        // Empty non-blocking reply: the pending body is requested next, which replaces the id timer.
+        feed(&mut h, reply_tx_ids_msg(&txs, &[]));
+        pump_without_advancing(&mut h).assert_sleeping();
+        {
+            let (proto, responder) = h.running.get_state(&h.tx_sub).expect("body fetch armed");
+            assert_eq!(*proto, State::Txs);
+            assert!(responder.has_inflight());
+        }
+
+        feed(&mut h, reply_txs_msg(&txs, &[2]));
+        pump_without_advancing(&mut h).assert_idle();
+        let (proto, responder) = h.running.get_state(&h.tx_sub).expect("window drained");
+        assert_eq!(*proto, State::TxIdsBlocking);
+        assert!(responder.inflight_timeout_id.is_none(), "a blocking follow-up must not keep a timer");
+        h.running.run(Run::skip_and_resolve()).assert_idle();
+    }
+
+    #[test]
+    fn late_tx_ids_timeout_after_reply_is_ignored() {
+        let rt = Runtime::new().unwrap();
+        let mut h = timeout_harness(&rt);
+        let txs = arm_nonblocking_request_tx_ids(&mut h);
+        let stale = {
+            let (_, responder) = h.running.get_state(&h.tx_sub).expect("timer armed");
+            responder.timeout_generation
+        };
+
+        feed(&mut h, reply_tx_ids_msg(&txs, &[]));
+        pump_without_advancing(&mut h).assert_sleeping();
+        h.running.enqueue_msg(&h.tx_sub, [Inputs::Local(ResponderLocalIn::InflightTimeout { generation: stale })]);
+        pump_without_advancing(&mut h).assert_sleeping();
+        assert!(h.running.get_state(&h.tx_sub).is_some(), "a superseded id timeout must not terminate");
+        let (_, responder) = h.running.get_state(&h.tx_sub).expect("body timer still armed");
+        assert!(responder.inflight_timeout_id.is_some(), "the replacement body timer stays armed");
     }
 
     #[test]
@@ -1414,6 +1583,7 @@ mod tests {
         let era_history = Arc::new(EraHistory::default());
         let (_state, mut responder) = TxSubmissionResponder::new(
             Peer::for_test(3006),
+            ConnectionId::initial(),
             muxer,
             test_params(),
             TxOrigin::Local,
@@ -1441,6 +1611,7 @@ mod tests {
         let era_history = Arc::new(EraHistory::default());
         let (_state, mut responder) = TxSubmissionResponder::new(
             Peer::for_test(3006),
+            ConnectionId::initial(),
             muxer,
             test_params(),
             TxOrigin::Local,
@@ -1510,6 +1681,7 @@ mod tests {
         run_stage_and_return_state_with(
             TxSubmissionResponder::new(
                 Peer::for_test(3006),
+                ConnectionId::initial(),
                 StageRef::named_for_tests("muxer"),
                 test_params(),
                 TxOrigin::Local,

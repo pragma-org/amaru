@@ -57,11 +57,12 @@
 //! | `prune_below` | adopt_chain | claims and header lifecycles | horizon | awaited |
 //! | `peer_adversarial` | peer selection | sharing filters, outbound ranking | C5 | recorded immediately |
 //! | `record_keepalive_rtt` | keep-alive initiator | `scores`, `snapshot`, `churn_inputs` | C7 | recorded immediately; read on demand; latest sample and EWMA; does not bump generation |
-//! | `record_connection_established` | manager | peer selection | C8 | recorded immediately |
+//! | `record_connection_established` | manager | peer selection | C8 | awaited; the handshake reply follows this write |
 //! | `record_connection_closed` | manager | peer selection | C8 | recorded immediately |
 //! | `record_connect_failed` | manager | malus, sharing filters | C8 | recorded immediately |
 //! | `record_local_use_applied` | connection | peer selection, fetch | C8 | recorded immediately; bumps generation |
 //! | `may_initiate` | manager fetch | fetch | C8 | on demand; bearers whose local use is diffusion |
+//! | `record_remote_use` | keep-alive, peer-sharing, chain-sync, block-fetch, and tx-submission responders | trace, peer view | C8 | awaited; generation and the span move only when the derived temperature changes |
 //! | `record_advertisability` | manager (inside established) and peer selection | sharing filters | C8 | recorded immediately |
 //! | `record_connection_failure` | manager (inside connect-failed) | malus, sharing filters, peer selection | C8 | recorded immediately; bumps generation |
 //! | `clear_peer_availability` | peer selection, track_peers | fetch selection | C8 | recorded immediately |

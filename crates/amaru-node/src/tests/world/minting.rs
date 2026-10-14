@@ -68,6 +68,11 @@ const SMOKE_BLOCKS: u64 = 160;
 const LONG_BLOCKS: u64 = 1_000;
 /// Epochs minted after the anchor in the short-epoch run.
 const SHORT_EPOCHS: u64 = 4;
+/// How far below the highest tip every node must already agree.
+///
+/// A slot battle in the last block leaves the tips unequal, an unresolved battle more than
+/// three blocks deep is extremely unlikely.
+const AGREED_TIP_LAG: u64 = 3;
 
 /// Epoch geometry shared by the chain store, the ledger, and consensus.
 struct MintGeometry {
@@ -564,12 +569,11 @@ fn run_mint(label: &str, nodes: usize, base_port: u16, until: Until, geometry: M
             return;
         }
         let tips: Vec<_> = (0..nodes).map(|index| best_tip(world, index)).collect();
-        let agreed = tips.windows(2).all(|pair| pair[0] == pair[1]);
         let reached = match until {
-            Until::Blocks(blocks) => tips.iter().all(|tip| tip.block_height().as_u64() >= anchor_height + blocks),
-            Until::Slot(slot) => tips.iter().all(|tip| u64::from(tip.slot_or_default()) >= slot),
+            Until::Blocks(blocks) => tips.iter().any(|tip| tip.block_height().as_u64() >= anchor_height + blocks),
+            Until::Slot(slot) => tips.iter().any(|tip| u64::from(tip.slot_or_default()) >= slot),
         };
-        if agreed && reached {
+        if reached && agreed_header(world, nodes, AGREED_TIP_LAG).is_some() {
             let until = world.now_nanos().saturating_add(SETTLE_AFTER_STOP_NANOS);
             world.schedule_graphs_at(until);
             settle_at = Some(until);
@@ -688,19 +692,10 @@ fn test_world_five_nodes_mint_short_epochs() {
     let geometry = MintGeometry::short_epochs();
     let target = geometry.chain_start_slot() + SHORT_EPOCHS * geometry.epoch_length();
     let run = run_mint("five_node_short_epochs", POOLS, 15_050, Until::Slot(target), geometry);
-    let tips: Vec<_> = (0..POOLS).map(|index| best_tip(&run.world, index)).collect();
-    assert!(
-        tips.iter().all(|tip| u64::from(tip.slot_or_default()) >= target),
-        "tip behind {target} seed={:#x} tips={tips:?}",
-        run.seed
-    );
-    let added = tips
-        .iter()
-        .map(|tip| tip.block_height().as_u64() - run.fixture.anchor.block_height().as_u64())
-        .min()
-        .expect("node");
+    let tip = highest_tip(&run.world, POOLS);
+    let added = tip.block_height().as_u64() - run.fixture.anchor.block_height().as_u64();
+    assert!(u64::from(tip.slot_or_default()) >= target, "tip={tip} seed={:#x}", run.seed);
     assert_minted_chain(&run, added);
-    let tip = tips.iter().min_by_key(|tip| tip.block_height()).expect("node");
 
     let logs = snapshot(&run.logs);
     assert!(
@@ -730,51 +725,53 @@ fn test_world_five_nodes_mint_short_epochs() {
     );
 }
 
-/// Every node has the anchor plus at least `at_least` blocks, and those blocks are one chain.
-///
-/// A block still in flight when the stop condition fired may have been adopted by only some
-/// nodes. The shared prefix is the shortest tip. Density, battles, and forwarding cover that
-/// prefix, which is the chain every node has.
-fn assert_minted_chain(run: &MintRun, at_least: u64) {
+/// The highest tip has minted at least `blocks` blocks, and every node has adopted the header
+/// [`AGREED_TIP_LAG`] blocks below that tip. Density, battles, and forwarding cover that prefix.
+fn assert_minted_chain(run: &MintRun, blocks: u64) {
     let seed = run.seed;
     let anchor = &run.fixture.anchor;
     let anchor_height = anchor.block_height().as_u64();
     let anchor_slot = u64::from(anchor.slot());
     let logs = snapshot(&run.logs);
-    let tips: Vec<_> = (0..logs.len()).map(|index| best_tip(&run.world, index)).collect();
-    for tip in &tips {
-        let adopted = tip.block_height().as_u64() - anchor_height;
-        assert!(
-            adopted >= at_least,
-            "adopted {adopted} blocks, want at least {at_least} seed={seed:#x} tip={tip} {}",
-            dump_names(&logs)
+    let nodes = logs.len();
+    let highest = highest_tip(&run.world, nodes);
+    let adopted = highest.block_height().as_u64() - anchor_height;
+    assert!(
+        adopted >= blocks,
+        "adopted {adopted} blocks, want at least {blocks} seed={seed:#x} tip={highest} {}",
+        dump_names(&logs)
+    );
+    let Some(stable) = agreed_header(&run.world, nodes, AGREED_TIP_LAG) else {
+        panic!(
+            "chains differ within {AGREED_TIP_LAG} of the highest tip seed={seed:#x} {} {} {}",
+            lag_report(&run.world, nodes, AGREED_TIP_LAG),
+            connection_summary(&run.world),
+            rejection_dump(&logs)
         );
-    }
-    let shared = tips.iter().min_by_key(|tip| tip.block_height()).expect("node");
-    let span = u64::from(shared.slot_or_default()) - anchor_slot;
-    assert!(span > 0, "span seed={seed:#x} tip={shared}");
+    };
+    let stable_blocks = stable.block_height().as_u64() - anchor_height;
+    assert_eq!(
+        stable_blocks,
+        adopted - AGREED_TIP_LAG,
+        "stable height seed={seed:#x} stable={} highest={highest}",
+        stable.hash()
+    );
+    let span = u64::from(stable.slot()) - anchor_slot;
+    assert!(span > 0, "span seed={seed:#x} stable={}", stable.hash());
 
-    let stores: Vec<_> = (0..logs.len()).map(|index| chain_store(&run.world, index)).collect();
-    let shared_chain = adopted_chain(stores[0].as_ref(), shared.hash(), anchor.hash());
-    let shared_len = shared_chain.len();
-    assert!(shared_len as u64 >= at_least, "shared headers {shared_len}, want at least {at_least} seed={seed:#x}");
-    for (store, tip) in stores.iter().zip(&tips) {
-        let chain = adopted_chain(store.as_ref(), tip.hash(), anchor.hash());
-        assert!(
-            chain.len() >= shared_len && chain[..shared_len] == shared_chain,
-            "fork before the shared tip seed={seed:#x} tip={tip} shared={shared}"
-        );
-    }
+    let stores: Vec<_> = (0..nodes).map(|index| chain_store(&run.world, index)).collect();
     let walked: Vec<_> = stores
         .iter()
-        .map(|store| ancestor_hashes(store.as_ref(), shared.hash(), run.security_param as usize))
+        .map(|store| ancestor_hashes(store.as_ref(), stable.hash(), run.security_param as usize))
         .collect();
     assert!(walked.windows(2).all(|pair| pair[0] == pair[1]), "k headers disagree seed={seed:#x}");
 
     assert_no_forge_failures(seed, &logs);
-    assert_density(seed, shared_len as u64, span, anchor_height, run.security_param, &logs);
-    assert_battles(seed, span, &logs, &shared_chain, anchor);
-    assert_forwarding(seed, &run.fixture, &logs, &shared_chain, anchor);
+    assert_density(seed, stable_blocks, span, anchor_height, run.security_param, &logs);
+    let chain = adopted_chain(stores[0].as_ref(), stable.hash(), anchor.hash());
+    assert_eq!(chain.len(), stable_blocks as usize, "adopted headers seed={seed:#x}");
+    assert_battles(seed, span, &logs, &chain, anchor);
+    assert_forwarding(seed, &run.fixture, &logs, &chain, anchor);
     assert_schedules(seed, &logs);
 }
 
@@ -850,11 +847,11 @@ fn assert_density(seed: u64, blocks: u64, span: u64, anchor_height: u64, securit
 
 fn assert_battles(seed: u64, span: u64, logs: &[Vec<LogRecord>], chain: &[Header], anchor: &Header) {
     let by_slot = forged_by_slot(logs);
+    let end_slot = chain.last().map(|header| u64::from(header.slot())).unwrap_or(u64::from(anchor.slot()));
     let battles = by_slot
-        .values()
-        .filter(|forged| {
-            let hashes: BTreeSet<_> = forged.iter().map(|(_, hash, _)| hash.clone()).collect();
-            hashes.len() >= 2
+        .iter()
+        .filter(|(slot, forged)| {
+            **slot <= end_slot && forged.iter().map(|(_, hash, _)| hash).collect::<BTreeSet<_>>().len() >= 2
         })
         .count();
     let probability = battle_probability();
@@ -965,8 +962,108 @@ fn forged_by_slot(logs: &[Vec<LogRecord>]) -> BTreeMap<u64, Vec<(usize, String, 
     by_slot
 }
 
+fn rejection_dump(logs: &[Vec<LogRecord>]) -> String {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut examples: BTreeMap<String, String> = BTreeMap::new();
+    for records in logs {
+        for record in records {
+            let message = record.fields.get("message").map(String::as_str).unwrap_or("");
+            let interesting = record.name.contains("invalid")
+                || record.name.contains("fail")
+                || record.name.contains("ban")
+                || record.name.contains("adversar")
+                || record.name.contains("disconnect")
+                || record.name.contains("refused")
+                || record.name.contains("child")
+                || record.name.contains("chainsync")
+                || record.name == "event"
+                || message.contains("fail");
+            if !interesting {
+                continue;
+            }
+            let key = if record.name == "event" { message.to_string() } else { record.name.clone() };
+            *counts.entry(key.clone()).or_default() += 1;
+            examples.entry(key).or_insert_with(|| {
+                let operation = record.fields.get("operation").map(String::as_str).unwrap_or("");
+                let error =
+                    record.fields.get("error").or_else(|| record.fields.get("err")).map(String::as_str).unwrap_or("");
+                let child = record.fields.get("child").map(String::as_str).unwrap_or("");
+                format!("op={operation} err={error} child={child} target={}", record.target)
+            });
+        }
+    }
+    format!("counts={counts:?} examples={examples:?}")
+}
+
+fn connection_summary(world: &WorldLoop) -> String {
+    use super::HeapLogKind;
+    let log = world.heap_log();
+    let count = |pred: fn(&HeapLogKind) -> bool| log.iter().filter(|entry| pred(&entry.kind)).count();
+    format!(
+        "connects={} accepts={} timeouts={} delivers={} closes={}",
+        count(|kind| matches!(kind, HeapLogKind::ConnectAttempt { .. })),
+        count(|kind| matches!(kind, HeapLogKind::Accepted { .. })),
+        count(|kind| matches!(kind, HeapLogKind::ConnectTimeout { .. })),
+        count(|kind| matches!(kind, HeapLogKind::Deliver { .. })),
+        count(|kind| matches!(kind, HeapLogKind::Close { .. })),
+    )
+}
+
 fn best_tip(world: &WorldLoop, index: usize) -> Point {
     chain_store(world, index).get_best_chain_tip()
+}
+
+fn highest_tip(world: &WorldLoop, nodes: usize) -> Point {
+    (0..nodes)
+        .map(|index| best_tip(world, index))
+        .max_by_key(|tip| (tip.block_height().as_u64(), u64::from(tip.slot_or_default())))
+        .expect("node")
+}
+
+/// The header `lag` blocks below the highest tip, when every adopted chain contains it.
+fn agreed_header(world: &WorldLoop, nodes: usize, lag: u64) -> Option<Header> {
+    let tips: Vec<_> = (0..nodes).map(|index| best_tip(world, index)).collect();
+    let stores: Vec<_> = (0..nodes).map(|index| chain_store(world, index)).collect();
+    let max_height = tips.iter().map(|tip| tip.block_height().as_u64()).max()?;
+    let stable_height = max_height.checked_sub(lag)?;
+    let mut shared: Option<Header> = None;
+    for (tip, store) in tips.iter().zip(&stores) {
+        let height = tip.block_height().as_u64();
+        let steps = height.checked_sub(stable_height)?;
+        let header = header_below(store.as_ref(), tip.hash(), steps)?;
+        if header.block_height().as_u64() != stable_height {
+            return None;
+        }
+        match &shared {
+            None => shared = Some(header),
+            Some(previous) if previous.hash() == header.hash() => {}
+            Some(_) => return None,
+        }
+    }
+    shared
+}
+
+fn header_below(store: &dyn ChainStore, mut hash: Hash<32>, steps: u64) -> Option<Header> {
+    for _ in 0..steps {
+        hash = store.load_header(&hash)?.parent()?;
+    }
+    store.load_header(&hash)
+}
+
+fn lag_report(world: &WorldLoop, nodes: usize, lag: u64) -> String {
+    let tips: Vec<_> = (0..nodes).map(|index| best_tip(world, index)).collect();
+    let max_height = tips.iter().map(|tip| tip.block_height().as_u64()).max().unwrap_or(0);
+    let stable_height = max_height.saturating_sub(lag);
+    let mut lines = Vec::new();
+    for (index, tip) in tips.iter().enumerate() {
+        let height = tip.block_height().as_u64();
+        let at = height
+            .checked_sub(stable_height)
+            .and_then(|steps| header_below(chain_store(world, index).as_ref(), tip.hash(), steps));
+        let seen = at.map(|header| header.hash().to_string()).unwrap_or_else(|| "missing".to_string());
+        lines.push(format!("node={index} tip={tip} at_lag={seen}"));
+    }
+    lines.join(" ")
 }
 
 fn chain_store(world: &WorldLoop, index: usize) -> ResourceHeaderStore {

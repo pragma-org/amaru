@@ -9009,8 +9009,8 @@
         "conn_id": {
           "type": "integer"
         },
-        "full_duplex_capable": {
-          "type": "boolean"
+        "role": {
+          "type": "string"
         },
         "full_duplex": {
           "type": "boolean"
@@ -9022,7 +9022,7 @@
       "required": [
         "peer",
         "conn_id",
-        "full_duplex_capable",
+        "role",
         "full_duplex",
         "advertisable"
       ],
@@ -9401,26 +9401,26 @@
         "direction": {
           "type": "string"
         },
-        "full_duplex_capable": {
-          "type": "boolean"
-        },
         "full_duplex": {
           "type": "boolean"
+        },
+        "local_use": {
+          "type": "string"
         }
       },
       "required": [
         "peer",
         "conn_id",
         "direction",
-        "full_duplex_capable",
-        "full_duplex"
+        "full_duplex",
+        "local_use"
       ],
       "optional": [],
       "additionalProperties": false,
       "name": "connected",
       "kind": "span",
       "target": "amaru::protocols::peer_selection::peer",
-      "description": "A connection has been established and the handshake completed successfully.",
+      "description": "A connection has been established and the handshake completed successfully. local_use ∈ {none, maintenance, diffusion}.",
       "public": true
     },
     "amaru::protocols::peer_selection::peer::DEMOTED": {
@@ -9482,6 +9482,35 @@
       "target": "amaru::protocols::peer_selection::peer",
       "description": "A connection has been terminated (graceful disconnect, error, handshake refusal, or network error).",
       "public": true
+    },
+    "amaru::protocols::peer_selection::peer::REMOTE_USE": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "remote_use": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "remote_use"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remote_use",
+      "kind": "event",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "The derived remote temperature of a bearer changed. remote_use ∈ {none, maintenance, diffusion}.",
+      "public": true,
+      "levels": [
+        "info"
+      ]
     },
     "amaru::protocols::peer_selection::peer::REMOVED": {
       "type": "object",

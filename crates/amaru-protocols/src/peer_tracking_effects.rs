@@ -21,12 +21,16 @@
 //! who to ask for blocks. The peer-sharing responder queries a reply and
 //! records that it served the request. The initiator records addresses learned from a reply.
 //! track_peers records an intersection miss. The keep-alive initiator records each matching
-//! round trip. The peer-sharing responder records each inbound request it answers.
+//! round trip. The peer-sharing responder records each inbound request it answers. The five
+//! responders record which remote initiator protocols are open on the bearer.
 
 use std::{collections::BTreeSet, net::SocketAddr, time::Duration};
 
 use amaru_kernel::Peer;
-use amaru_ouroboros::{CloseReason, ConnectionId, ConnectionRecord, LocalUse, PeerTrackingResource};
+use amaru_observability::info;
+use amaru_ouroboros::{
+    CloseReason, ConnectionId, ConnectionRecord, MiniProtocolUse, PeerTrackingResource, RemoteProtocol,
+};
 use amaru_pure_stage::{BoxFuture, DeserializerGuards, Effects, ExternalEffectAPI, Instant, Resources, SendData};
 
 use crate::peer_tracking::observed_at;
@@ -37,6 +41,8 @@ pub fn register_deserializers() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<RecordConnectionClosedEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<RecordConnectFailedEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<RecordLocalUseAppliedEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<RecordRemoteUseEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<MiniProtocolUse>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<RecordKeepaliveRttEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<RecordSharedPeersEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_ouroboros::SharedPeersRecorded>().boxed(),
@@ -86,10 +92,42 @@ impl<T> PeerTrack<'_, T> {
         &self,
         peer: Peer,
         conn_id: ConnectionId,
-        local_use: LocalUse,
+        local_use: MiniProtocolUse,
         at: Instant,
     ) -> BoxFuture<'static, ()> {
         self.0.external(RecordLocalUseAppliedEffect { peer, conn_id, local_use, at })
+    }
+
+    fn record_remote_use(
+        &self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        protocol: RemoteProtocol,
+        active: bool,
+        at: Instant,
+    ) -> BoxFuture<'static, Option<MiniProtocolUse>> {
+        self.0.external(RecordRemoteUseEffect { peer, conn_id, protocol, active, at })
+    }
+
+    /// Record one remote-initiator bit and emit `protocols::peer_selection::peer::REMOTE_USE`
+    /// when the derived temperature changes.
+    pub async fn note_remote_protocol(
+        &self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        protocol: RemoteProtocol,
+        active: bool,
+    ) {
+        let at = self.0.clock().await;
+        let Some(remote_use) = self.record_remote_use(peer, conn_id, protocol, active, at).await else {
+            return;
+        };
+        info!(
+            protocols::peer_selection::peer::REMOTE_USE,
+            peer,
+            conn_id = conn_id.as_u64(),
+            remote_use = remote_use.as_str(),
+        );
     }
 
     pub fn record_keepalive_rtt(&self, peer: Peer, rtt: Duration, at: Instant) -> BoxFuture<'static, ()> {
@@ -153,7 +191,7 @@ impl ExternalEffectAPI for RecordConnectionEstablishedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let tracking = require_tracking(&resources);
         self.wrap(move |this| async move {
-            tracking.record_connection_established(this.conn, observed_at(this.at));
+            tracking.record_connection_established(this.conn, observed_at(this.at)).await;
         })
     }
 }
@@ -198,7 +236,7 @@ impl ExternalEffectAPI for RecordConnectFailedEffect {
 pub struct RecordLocalUseAppliedEffect {
     pub peer: Peer,
     pub conn_id: ConnectionId,
-    pub local_use: LocalUse,
+    pub local_use: MiniProtocolUse,
     pub at: Instant,
 }
 
@@ -209,6 +247,26 @@ impl ExternalEffectAPI for RecordLocalUseAppliedEffect {
         let tracking = require_tracking(&resources);
         self.wrap(move |this| async move {
             tracking.record_local_use_applied(this.peer, this.conn_id, this.local_use, observed_at(this.at));
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RecordRemoteUseEffect {
+    pub peer: Peer,
+    pub conn_id: ConnectionId,
+    pub protocol: RemoteProtocol,
+    pub active: bool,
+    pub at: Instant,
+}
+
+impl ExternalEffectAPI for RecordRemoteUseEffect {
+    type Response = Option<MiniProtocolUse>;
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let tracking = require_tracking(&resources);
+        self.wrap(move |this| async move {
+            tracking.record_remote_use(this.peer, this.conn_id, this.protocol, this.active, observed_at(this.at)).await
         })
     }
 }
@@ -310,7 +368,8 @@ mod tests {
 
     use amaru_kernel::Peer;
     use amaru_ouroboros::{
-        CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, LocalUse, PeerTrackingResource,
+        CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, MiniProtocolUse, PeerTrackingResource,
+        RemoteInitiators,
     };
     use amaru_pure_stage::{ExternalEffect, Instant, Resources};
 
@@ -344,10 +403,10 @@ mod tests {
             peer: alice,
             conn_id: ConnectionId::initial(),
             direction: ConnectionDirection::Inbound,
-            full_duplex_capable: false,
             full_duplex: true,
             advertisable: true,
-            local_use: LocalUse::Maintenance,
+            local_use: MiniProtocolUse::Maintenance,
+            remote_initiators: RemoteInitiators::default(),
             established_at: seen,
         };
         let addr = SocketAddr::from(Peer::for_test(3203));
@@ -365,7 +424,7 @@ mod tests {
         drive(Box::new(RecordLocalUseAppliedEffect {
             peer: alice,
             conn_id: conn.conn_id,
-            local_use: LocalUse::Diffusion,
+            local_use: MiniProtocolUse::Diffusion,
             at,
         }));
         drive(Box::new(RecordKeepaliveRttEffect { peer: alice, rtt: Duration::from_millis(15), at }));
@@ -381,7 +440,7 @@ mod tests {
         assert_eq!(recorder.established(), vec![(conn.clone(), seen)]);
         assert_eq!(recorder.closed(), vec![(alice, conn.conn_id, CloseReason::BearerEnded, seen)]);
         assert_eq!(recorder.connect_failures(), vec![(alice, seen)]);
-        assert_eq!(recorder.local_uses(), vec![(alice, conn.conn_id, LocalUse::Diffusion, seen)]);
+        assert_eq!(recorder.local_uses(), vec![(alice, conn.conn_id, MiniProtocolUse::Diffusion, seen)]);
         assert_eq!(recorder.keepalives(), vec![(alice, Duration::from_millis(15), seen)]);
         assert_eq!(recorder.shared_peers(), vec![(alice, vec![addr], seen)]);
         assert_eq!(recorder.share_requests(), vec![(alice, 4, seen)]);

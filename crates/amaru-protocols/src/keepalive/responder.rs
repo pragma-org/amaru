@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Peer;
 use amaru_observability::{Instrument, debug_span};
+use amaru_ouroboros::{ConnectionId, RemoteProtocol};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 use crate::{
@@ -21,6 +23,7 @@ use crate::{
         messages::{Cookie, Message},
     },
     mux::MuxMessage,
+    peer_tracking_effects::PeerTrack,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_KEEP_ALIVE, ProtocolState, Responder, StageState, miniprotocol,
         outcome,
@@ -41,11 +44,13 @@ pub fn responder() -> Miniprotocol<State, KeepAliveResponder, Responder> {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KeepAliveResponder {
     muxer: StageRef<MuxMessage>,
+    peer: Peer,
+    conn_id: ConnectionId,
 }
 
 impl KeepAliveResponder {
-    pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { muxer })
+    pub fn new(muxer: StageRef<MuxMessage>, peer: Peer, conn_id: ConnectionId) -> (State, Self) {
+        (State::Idle, Self { muxer, peer, conn_id })
     }
 }
 
@@ -65,13 +70,27 @@ impl StageState<State, Responder> for KeepAliveResponder {
         self,
         _proto: &State,
         input: ResponderResult,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
-        let cookie = input.cookie.as_u16();
-
-        async move { Ok((Some(ResponderAction::SendResponse(input.cookie)), self)) }
-            .instrument(debug_span!(protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE, cookie).into())
-            .await
+        match input {
+            ResponderResult::KeepAlive { cookie } => {
+                let n = cookie.as_u16();
+                let peer = self.peer;
+                let conn_id = self.conn_id;
+                async move {
+                    PeerTrack::new(eff).note_remote_protocol(peer, conn_id, RemoteProtocol::KeepAlive, true).await;
+                    Ok((Some(ResponderAction::SendResponse(cookie)), self))
+                }
+                .instrument(debug_span!(protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE, cookie = n).into())
+                .await
+            }
+            ResponderResult::Done => {
+                PeerTrack::new(eff)
+                    .note_remote_protocol(self.peer, self.conn_id, RemoteProtocol::KeepAlive, false)
+                    .await;
+                Ok((None, self))
+            }
+        }
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -98,8 +117,8 @@ impl ProtocolState<Responder> for State {
         use State::*;
 
         Ok(match (self, input) {
-            (Idle, Message::KeepAlive(cookie)) => (outcome().result(ResponderResult { cookie }), Waiting),
-            (Idle, Message::Done) => (outcome().want_next(), Idle),
+            (Idle, Message::KeepAlive(cookie)) => (outcome().result(ResponderResult::KeepAlive { cookie }), Waiting),
+            (Idle, Message::Done) => (outcome().result(ResponderResult::Done).want_next(), Idle),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -122,8 +141,9 @@ pub enum ResponderAction {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ResponderResult {
-    pub cookie: Cookie,
+pub enum ResponderResult {
+    KeepAlive { cookie: Cookie },
+    Done,
 }
 
 #[cfg(test)]

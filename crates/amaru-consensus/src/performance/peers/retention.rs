@@ -429,7 +429,9 @@ mod tests {
     use std::{collections::BTreeSet, net::SocketAddr, time::Duration};
 
     use amaru_kernel::{BlockHeight, HeaderHash, Peer, PeerCandidate, Point, Slot};
-    use amaru_ouroboros::{ConnectionDirection, ConnectionId, ConnectionRecord, LocalUse, ObservedAt};
+    use amaru_ouroboros::{
+        ConnectionDirection, ConnectionId, ConnectionRecord, MiniProtocolUse, ObservedAt, RemoteInitiators,
+    };
     use amaru_pure_stage::Instant;
 
     use super::{BAN_STUB_GRACE, EVICTION_BATCH, PEER_RECORD_CAP, PEER_RECORD_RETENTION, SHARED_PEERS_CAP};
@@ -466,10 +468,10 @@ mod tests {
                 peer,
                 conn_id: ConnectionId::initial(),
                 direction: ConnectionDirection::Outbound,
-                full_duplex_capable: true,
                 full_duplex: false,
                 advertisable: true,
-                local_use: LocalUse::None,
+                local_use: MiniProtocolUse::None,
+                remote_initiators: RemoteInitiators::default(),
                 established_at: observed_at,
             },
             observed_at,
@@ -626,10 +628,10 @@ mod tests {
                 peer: Peer::for_test(60_002),
                 conn_id: ConnectionId::initial(),
                 direction: ConnectionDirection::Outbound,
-                full_duplex_capable: true,
                 full_duplex: false,
                 advertisable: false,
-                local_use: LocalUse::None,
+                local_use: MiniProtocolUse::None,
+                remote_initiators: RemoteInitiators::default(),
                 established_at: observed(3_010),
             },
             observed(3_010),

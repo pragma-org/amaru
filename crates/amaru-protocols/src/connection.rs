@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, fmt, sync::Arc};
+use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug_span, error, info};
@@ -28,6 +28,7 @@ use crate::{
     keepalive::{self, register_keepalive},
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, MuxMessage},
+    network_effects::{Network, NetworkOps},
     peer_sharing::{PeerSharingMessage, register_peer_sharing_initiator, register_peer_sharing_responder},
     peer_tracking_effects::PeerTrack,
     protocol::{
@@ -43,6 +44,8 @@ use crate::{
 };
 
 const STOP_TIMEOUT_SLOT: u64 = 1;
+/// The establish write is in-memory. This bound only covers a stalled performance queue.
+const HANDSHAKE_RECORD_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Connection {
@@ -62,9 +65,21 @@ impl Connection {
         era_history: Arc<EraHistory>,
         mempool_stage: StageRef<MempoolMsg>,
         manager: StageRef<ManagerMessage>,
+        listen_port: Option<u16>,
     ) -> Self {
         Self {
-            params: Params { peer, conn_id, role, config, magic, pipeline, era_history, mempool_stage, manager },
+            params: Params {
+                peer,
+                conn_id,
+                role,
+                config,
+                magic,
+                pipeline,
+                era_history,
+                mempool_stage,
+                manager,
+                listen_port,
+            },
             state: State::Initial,
         }
     }
@@ -81,14 +96,17 @@ struct Params {
     era_history: Arc<EraHistory>,
     mempool_stage: StageRef<MempoolMsg>,
     manager: StageRef<ManagerMessage>,
+    /// Listen port to advertise. The bearer's local IP is read from the socket.
+    /// `None` when this node is not listening.
+    listen_port: Option<u16>,
 }
 
-pub use amaru_ouroboros::LocalUse;
+pub use amaru_ouroboros::MiniProtocolUse;
 
-fn local_use_for_role(role: Role) -> LocalUse {
+fn local_use_for_role(role: Role) -> MiniProtocolUse {
     match role {
-        Role::Initiator => LocalUse::Diffusion,
-        Role::Responder => LocalUse::None,
+        Role::Initiator => MiniProtocolUse::Diffusion,
+        Role::Responder => MiniProtocolUse::None,
     }
 }
 
@@ -101,8 +119,8 @@ enum State {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Established {
-    desired_use: LocalUse,
-    actual_use: LocalUse,
+    desired_use: MiniProtocolUse,
+    actual_use: MiniProtocolUse,
     duplex: bool,
     version_number: VersionNumber,
     version_data: VersionData,
@@ -156,7 +174,7 @@ pub enum ConnectionMessage {
     /// Record the desired local use for a live connection.
     ///
     /// The connection stage does not currently reconcile `actual_use`.
-    SetLocalUse(LocalUse),
+    SetLocalUse(MiniProtocolUse),
     /// Last-to-finish group stop exceeded its bound.
     StopTimeout,
 }
@@ -412,32 +430,40 @@ async fn do_handshake(
         }
     };
 
-    let full_duplex_capable = version_data.is_full_duplex_capable();
-    let full_duplex = full_duplex_capable;
+    let full_duplex = version_data.is_full_duplex_capable();
     let advertisable = version_data.is_advertisable();
+    let stage = eff.me();
+    let conn_id = *conn_id;
+    let role = *role;
 
-    eff.send(
-        manager,
-        ManagerMessage::HandshakeComplete {
+    // Responders stay unregistered until the worker has the bearer row, so the first
+    // remote opener is not dropped as an unknown connection.
+    let recorded = eff
+        .call(manager, HANDSHAKE_RECORD_TIMEOUT, move |caller| ManagerMessage::HandshakeComplete {
             peer,
-            stage: eff.me(),
-            conn_id: *conn_id,
-            role: *role,
-            full_duplex_capable,
+            stage,
+            conn_id,
+            role,
             full_duplex,
             advertisable,
-        },
-    )
-    .await;
+            caller,
+        })
+        .await;
+    // `None` is the call timing out. `Some(false)` is the manager refusing the bearer
+    // (unknown id, mismatch, inbound cap, or a duplicate). Either way this stage will not
+    // get another handshake result, so the socket must close.
+    if recorded != Some(true) {
+        return eff.terminate().await;
+    }
 
     eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
 
-    let local_use = local_use_for_role(*role);
-    let run_initiators = *role == Role::Initiator || full_duplex;
-    let run_responders = *role == Role::Responder || full_duplex;
+    let local_use = local_use_for_role(role);
+    let run_initiators = role == Role::Initiator || full_duplex;
+    let run_responders = role == Role::Responder || full_duplex;
     let mut established = Established {
         desired_use: local_use,
-        actual_use: LocalUse::None,
+        actual_use: MiniProtocolUse::None,
         duplex: full_duplex,
         version_number,
         version_data,
@@ -457,7 +483,7 @@ async fn do_handshake(
     if run_responders {
         established = register_responders(established, params, &eff).await;
     }
-    if run_initiators && local_use > LocalUse::None {
+    if run_initiators && local_use > MiniProtocolUse::None {
         established = start_initiators(established, params, &eff).await;
     } else {
         established.actual_use = local_use;
@@ -473,6 +499,7 @@ async fn register_responders(mut s: Established, params: &Params, eff: &Effects<
     let _ = register_tx_submission(
         Role::Responder,
         *peer,
+        *conn_id,
         s.muxer.clone(),
         eff,
         TxOrigin::Remote(*peer),
@@ -496,15 +523,36 @@ async fn register_responders(mut s: Established, params: &Params, eff: &Effects<
         .await,
     );
     s.blockfetch_responder = Some(
-        register_blockfetch_responder(&s.muxer, *peer, eff, ConnectionMessage::ChildDied(ChildId::Responder)).await,
+        register_blockfetch_responder(&s.muxer, *peer, *conn_id, eff, ConnectionMessage::ChildDied(ChildId::Responder))
+            .await,
     );
     if s.version_data.is_advertisable() {
+        let own_address = own_share_address(params, eff).await;
         s.peer_sharing_responder = Some(
-            register_peer_sharing_responder(&s.muxer, *peer, eff, ConnectionMessage::ChildDied(ChildId::Responder))
-                .await,
+            register_peer_sharing_responder(
+                &s.muxer,
+                *peer,
+                *conn_id,
+                own_address,
+                eff,
+                ConnectionMessage::ChildDied(ChildId::Responder),
+            )
+            .await,
         );
     }
     s
+}
+
+/// Address to put in a share reply for this bearer: the connected socket's IP and the listen port.
+///
+/// The socket port is ephemeral on an outbound bearer, so it is not used. An unspecified
+/// address (a wildcard bind that never became a concrete source) is not shared. No listener
+/// means this node has nothing to advertise.
+async fn own_share_address(params: &Params, eff: &Effects<ConnectionMessage>) -> Option<std::net::SocketAddr> {
+    let port = params.listen_port?;
+    let local = Network::new(eff).local_addr(params.conn_id).await.ok()?;
+    let ip = local.ip();
+    if ip.is_unspecified() { None } else { Some(std::net::SocketAddr::new(ip, port)) }
 }
 
 async fn converge_use(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
@@ -525,8 +573,8 @@ async fn converge_use(mut s: Established, params: &Params, eff: &Effects<Connect
 }
 
 async fn begin_stop(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
-    let drop_diffusion = s.actual_use >= LocalUse::Diffusion && s.desired_use < LocalUse::Diffusion;
-    let drop_maintenance = s.actual_use >= LocalUse::Maintenance && s.desired_use < LocalUse::Maintenance;
+    let drop_diffusion = s.actual_use >= MiniProtocolUse::Diffusion && s.desired_use < MiniProtocolUse::Diffusion;
+    let drop_maintenance = s.actual_use >= MiniProtocolUse::Maintenance && s.desired_use < MiniProtocolUse::Maintenance;
 
     if drop_diffusion {
         if let Some(cs) = &s.chainsync_initiator {
@@ -635,7 +683,7 @@ async fn on_expected_stop(
         eff.clear_timeout_at(STOP_TIMEOUT_SLOT).await;
         s.actual_use = s.desired_use;
         notify_local_use(&s, params, eff).await;
-        if s.desired_use > LocalUse::None && (params.role == Role::Initiator || s.duplex) {
+        if s.desired_use > MiniProtocolUse::None && (params.role == Role::Initiator || s.duplex) {
             return start_initiators(s, params, eff).await;
         }
     }
@@ -643,8 +691,8 @@ async fn on_expected_stop(
 }
 
 async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
-    let Params { peer, conn_id, role, config, pipeline, mempool_stage, era_history, .. } = params;
-    if s.desired_use >= LocalUse::Maintenance {
+    let Params { peer, conn_id, config, pipeline, mempool_stage, era_history, .. } = params;
+    if s.desired_use >= MiniProtocolUse::Maintenance {
         if s.keepalive_initiator.is_none() {
             s.keepalive_initiator = register_keepalive(
                 Role::Initiator,
@@ -656,7 +704,7 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
             )
             .await;
         }
-        if s.peer_sharing_initiator.is_none() && *role == Role::Initiator && s.version_data.is_advertisable() {
+        if s.peer_sharing_initiator.is_none() && s.version_data.is_advertisable() {
             s.peer_sharing_initiator = Some(
                 register_peer_sharing_initiator(
                     &s.muxer,
@@ -672,7 +720,7 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
             );
         }
     }
-    if s.desired_use == LocalUse::Diffusion {
+    if s.desired_use == MiniProtocolUse::Diffusion {
         if s.chainsync_initiator.is_none() {
             s.chainsync_initiator = Some(
                 register_chainsync_initiator(
@@ -702,6 +750,7 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
             s.tx_submission_initiator = register_tx_submission(
                 Role::Initiator,
                 *peer,
+                *conn_id,
                 s.muxer.clone(),
                 eff,
                 TxOrigin::Remote(*peer),
@@ -742,11 +791,12 @@ mod tests {
     use amaru_kernel::PREPROD_ERA_HISTORY;
     use amaru_pure_stage::{
         Effect, StageGraph,
-        simulation::{Run, SimulationBuilder},
+        simulation::{Blocked, Run, SimulationBuilder},
     };
     use tokio::runtime::Runtime;
 
     use super::*;
+    use crate::protocol_messages::version_data::PeerSharing;
 
     /// Limits installed for each mini-protocol id, initiator and responder.
     ///
@@ -873,6 +923,97 @@ mod tests {
         assert_eq!(*mailbox_size, mux::MUX_MAILBOX_SIZE);
     }
 
+    /// An established duplex bearer promoted to maintenance starts keep-alive and, when the
+    /// peer is advertisable, the peer-sharing initiator. That holds for an inbound bearer as
+    /// well as an outbound one. Block-fetch and tx-submission stay off until diffusion.
+    #[test]
+    fn maintenance_starts_peer_sharing_on_an_advertisable_bearer() {
+        for role in [Role::Initiator, Role::Responder] {
+            let established = promote(role, true, MiniProtocolUse::Maintenance);
+            assert!(established.keepalive_initiator.is_some(), "{role:?} keep-alive");
+            assert!(established.peer_sharing_initiator.is_some(), "{role:?} peer-sharing");
+            assert!(established.chainsync_initiator.is_none(), "{role:?} chain-sync");
+            assert!(established.blockfetch_initiator.is_none(), "{role:?} block-fetch");
+            assert!(established.tx_submission_initiator.is_none(), "{role:?} tx-submission");
+            assert_eq!(established.actual_use, MiniProtocolUse::Maintenance);
+        }
+    }
+
+    #[test]
+    fn maintenance_skips_peer_sharing_when_the_peer_is_not_advertisable() {
+        let established = promote(Role::Responder, false, MiniProtocolUse::Maintenance);
+        assert!(established.keepalive_initiator.is_some());
+        assert!(established.peer_sharing_initiator.is_none());
+        assert_eq!(established.actual_use, MiniProtocolUse::Maintenance);
+    }
+
+    fn promote(role: Role, advertisable: bool, desired: MiniProtocolUse) -> Established {
+        let mut network = SimulationBuilder::default();
+        network.resources().put::<amaru_ouroboros::PeerTrackingResource>(std::sync::Arc::new(
+            crate::peer_tracking::InMemoryPeerTracking::new(),
+        ));
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(connection, established_connection(role, advertisable));
+        network.preload(&connection, [ConnectionMessage::SetLocalUse(desired)]).unwrap();
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        match running.run(Run::default()) {
+            Blocked::Idle | Blocked::Sleeping { .. } => {}
+            blocked @ (Blocked::Deadlock(_)
+            | Blocked::Breakpoint(_)
+            | Blocked::Busy { .. }
+            | Blocked::Terminated(_)) => {
+                panic!("promotion did not settle: {blocked:?}");
+            }
+        }
+        let state = running.get_state(&connection).expect("connection still running").state.clone();
+        let State::Established(established) = state else {
+            panic!("connection left the established state");
+        };
+        established
+    }
+
+    fn established_connection(role: Role, advertisable: bool) -> Connection {
+        let version_data = VersionData::new(
+            NetworkMagic::PREPROD,
+            false,
+            if advertisable { PeerSharing::Enabled } else { PeerSharing::Disabled },
+            false,
+        );
+        Connection {
+            params: Params {
+                peer: Peer::for_test(3009),
+                conn_id: ConnectionId::initial(),
+                role,
+                config: ManagerConfig::default(),
+                magic: NetworkMagic::PREPROD,
+                pipeline: StageRef::blackhole(),
+                era_history: Arc::new(PREPROD_ERA_HISTORY.clone()),
+                mempool_stage: StageRef::blackhole(),
+                manager: StageRef::blackhole(),
+                listen_port: None,
+            },
+            state: State::Established(Established {
+                desired_use: MiniProtocolUse::None,
+                actual_use: MiniProtocolUse::None,
+                duplex: true,
+                version_number: VersionNumber::new(14),
+                version_data,
+                muxer: StageRef::blackhole(),
+                handshake: StageRef::blackhole(),
+                keepalive_initiator: None,
+                tx_submission_initiator: None,
+                chainsync_initiator: None,
+                blockfetch_initiator: None,
+                peer_sharing_initiator: None,
+                chainsync_responder: None,
+                blockfetch_responder: None,
+                peer_sharing_responder: None,
+                stopping: BTreeSet::new(),
+            }),
+        }
+    }
+
     // HELPERS
 
     fn test_connection(state: State) -> Connection {
@@ -887,6 +1028,7 @@ mod tests {
                 era_history: Arc::new(PREPROD_ERA_HISTORY.clone()),
                 mempool_stage: StageRef::blackhole(),
                 manager: StageRef::blackhole(),
+                listen_port: None,
             },
             state,
         }

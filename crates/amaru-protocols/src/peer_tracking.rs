@@ -26,7 +26,8 @@ use std::{
 
 use amaru_kernel::Peer;
 use amaru_ouroboros::{
-    CloseReason, ConnectionId, ConnectionRecord, LocalUse, ObservedAt, PeerTracking, PeerTrackingFuture,
+    CloseReason, ConnectionId, ConnectionRecord, MiniProtocolUse, ObservedAt, PeerTracking, PeerTrackingFuture,
+    RemoteInitiators, RemoteProtocol,
 };
 use amaru_pure_stage::Instant;
 
@@ -42,13 +43,14 @@ struct Log {
     established: Vec<(ConnectionRecord, ObservedAt)>,
     closed: Vec<(Peer, ConnectionId, CloseReason, ObservedAt)>,
     connect_failures: Vec<(Peer, ObservedAt)>,
-    local_uses: Vec<(Peer, ConnectionId, LocalUse, ObservedAt)>,
+    local_uses: Vec<(Peer, ConnectionId, MiniProtocolUse, ObservedAt)>,
     keepalives: Vec<(Peer, Duration, ObservedAt)>,
     shared: Vec<(Peer, Vec<SocketAddr>, ObservedAt)>,
     share_requests: Vec<(Peer, u8, ObservedAt)>,
     uninteresting: Vec<(Peer, ConnectionId, bool, ObservedAt)>,
     queries: Vec<(Peer, u8, ObservedAt)>,
     share_reply: Vec<SocketAddr>,
+    remote: BTreeMap<ConnectionId, (Peer, RemoteInitiators)>,
 }
 
 /// Call recorder. Share replies are whatever [`Self::set_share_reply`] last set (empty by default).
@@ -78,7 +80,7 @@ impl InMemoryPeerTracking {
         self.lock().connect_failures.clone()
     }
 
-    pub fn local_uses(&self) -> Vec<(Peer, ConnectionId, LocalUse, ObservedAt)> {
+    pub fn local_uses(&self) -> Vec<(Peer, ConnectionId, MiniProtocolUse, ObservedAt)> {
         self.lock().local_uses.clone()
     }
 
@@ -109,25 +111,32 @@ impl InMemoryPeerTracking {
 }
 
 impl PeerTracking for InMemoryPeerTracking {
-    fn record_connection_established(&self, conn: ConnectionRecord, at: ObservedAt) {
-        self.lock().established.push((conn, at));
+    fn record_connection_established(&self, conn: ConnectionRecord, at: ObservedAt) -> PeerTrackingFuture<()> {
+        {
+            let mut log = self.lock();
+            log.remote.insert(conn.conn_id, (conn.peer, conn.remote_initiators));
+            log.established.push((conn, at));
+        }
+        Box::pin(std::future::ready(()))
     }
 
     fn record_connection_closed(&self, peer: Peer, conn_id: ConnectionId, reason: CloseReason, at: ObservedAt) {
-        self.lock().closed.push((peer, conn_id, reason, at));
+        let mut log = self.lock();
+        log.remote.remove(&conn_id);
+        log.closed.push((peer, conn_id, reason, at));
     }
 
     fn record_connect_failed(&self, peer: Peer, at: ObservedAt) {
         self.lock().connect_failures.push((peer, at));
     }
 
-    fn record_local_use_applied(&self, peer: Peer, conn_id: ConnectionId, local_use: LocalUse, at: ObservedAt) {
+    fn record_local_use_applied(&self, peer: Peer, conn_id: ConnectionId, local_use: MiniProtocolUse, at: ObservedAt) {
         self.lock().local_uses.push((peer, conn_id, local_use, at));
     }
 
     fn may_initiate(&self) -> PeerTrackingFuture<BTreeSet<ConnectionId>> {
         let log = self.lock();
-        let mut use_of: BTreeMap<ConnectionId, LocalUse> = BTreeMap::new();
+        let mut use_of: BTreeMap<ConnectionId, MiniProtocolUse> = BTreeMap::new();
         for (conn, _) in &log.established {
             use_of.insert(conn.conn_id, conn.local_use);
         }
@@ -137,8 +146,11 @@ impl PeerTracking for InMemoryPeerTracking {
         for (_, conn_id, _, _) in &log.closed {
             use_of.remove(conn_id);
         }
-        let ids =
-            use_of.into_iter().filter(|(_, local_use)| *local_use == LocalUse::Diffusion).map(|(id, _)| id).collect();
+        let ids = use_of
+            .into_iter()
+            .filter(|(_, local_use)| *local_use == MiniProtocolUse::Diffusion)
+            .map(|(id, _)| id)
+            .collect();
         Box::pin(async move { ids })
     }
 
@@ -163,6 +175,35 @@ impl PeerTracking for InMemoryPeerTracking {
 
     fn record_uninteresting(&self, peer: Peer, conn_id: ConnectionId, after_rollback: bool, at: ObservedAt) {
         self.lock().uninteresting.push((peer, conn_id, after_rollback, at));
+    }
+
+    fn record_remote_use(
+        &self,
+        peer: Peer,
+        conn_id: ConnectionId,
+        protocol: RemoteProtocol,
+        active: bool,
+        at: ObservedAt,
+    ) -> PeerTrackingFuture<Option<MiniProtocolUse>> {
+        let _ = at;
+        let changed = {
+            let mut log = self.lock();
+            let Some(entry) = log.remote.get_mut(&conn_id) else {
+                return Box::pin(std::future::ready(None));
+            };
+            if entry.0 != peer {
+                None
+            } else {
+                let prev = entry.1.derived();
+                if entry.1.set(protocol, active) {
+                    let next = entry.1.derived();
+                    (prev != next).then_some(next)
+                } else {
+                    None
+                }
+            }
+        };
+        Box::pin(std::future::ready(changed))
     }
 
     fn query_share_peers(&self, requester: Peer, amount: u8, now: ObservedAt) -> PeerTrackingFuture<Vec<SocketAddr>> {

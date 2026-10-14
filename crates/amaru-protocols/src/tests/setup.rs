@@ -146,4 +146,8 @@ impl ConnectionProvider for FailingConnectionProvider {
     fn close(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<()>> {
         self.inner.close(conn)
     }
+
+    fn local_addr(&self, conn: ConnectionId) -> BoxFuture<'static, std::io::Result<SocketAddr>> {
+        self.inner.local_addr(conn)
+    }
 }

@@ -58,6 +58,7 @@ pub struct Config {
     pub peer_mix: PeerMix,
     pub network_magic: NetworkMagic,
     pub listen_address: String,
+    pub bind_outbound_to_listen_port: bool,
     pub migrate_chain_db: bool,
     pub submit_api_address: Option<String>,
 
@@ -163,6 +164,7 @@ impl Default for Config {
             peer_mix: PeerMix::default(),
             network_magic: NetworkMagic::PREPROD,
             listen_address: "0.0.0.0:3000".to_string(),
+            bind_outbound_to_listen_port: true,
             migrate_chain_db: false,
             submit_api_address: None,
             peer_removal_cooldown: DEFAULT_PEER_REMOVAL_COOLDOWN,
