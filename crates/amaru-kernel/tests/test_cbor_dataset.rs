@@ -14,7 +14,12 @@
 
 mod common;
 
-use amaru_kernel::protocol_version::PROTOCOL_VERSION_10;
+use std::collections::BTreeMap;
+
+use amaru_kernel::{
+    BlockHeight, EraName, HeaderHash, MultiEraBlock, Point, RawBlock, cardano::era_name::ERA_NAMES, cbor,
+    extract_block_header_cbor, parse_block_header, protocol_version::PROTOCOL_VERSION_10,
+};
 pub use common::*;
 
 /// Conformance against the CBOR corpus published by <https://github.com/r2rationality/cardano-cbor-dataset>.
@@ -47,4 +52,46 @@ fn test_cbor_dataset() {
     // Fail the test if some failures are not acknowledged in the acknowledged-failures.toml file
     // or if some acknowledgements are now obsolete.
     check_unacknowledged_failures(&test_results);
+}
+
+#[test]
+fn test_multi_era_blocks() {
+    #[derive(serde::Deserialize)]
+    struct Fixture {
+        slot: u64,
+        height: BlockHeight,
+        hash: HeaderHash,
+        parent: HeaderHash,
+        cbor: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Fixtures {
+        blocks: BTreeMap<EraName, Fixture>,
+    }
+
+    let fixtures: Fixtures = serde_json::from_str(include_str!("data/multi-era-blocks.json")).unwrap();
+    assert_eq!(fixtures.blocks.keys().copied().collect::<Vec<_>>(), ERA_NAMES[..EraName::Conway as usize]);
+    for (era, fixture) in fixtures.blocks {
+        let mut bytes = hex::decode(fixture.cbor).unwrap();
+        let raw = RawBlock::from(bytes.as_slice());
+        let block = raw.decode_multi_era().unwrap_or_else(|error| panic!("{era}: {error}"));
+        let header = block.header();
+        assert_eq!(header.era(), era);
+        assert_eq!(header.block_variant(), era as u8);
+        assert_eq!(header.point(21_600).unwrap(), Point::Specific(fixture.slot.into(), fixture.hash, fixture.height));
+        assert_eq!(block.parent_hash(), Some(fixture.parent));
+        let mut decoder = cbor::Decoder::new(&bytes);
+        decoder.array().unwrap();
+        decoder.u8().unwrap();
+        decoder.array().unwrap();
+        decoder.skip().unwrap();
+        let header_only = &bytes[..decoder.position()];
+        assert_eq!(parse_block_header(header_only).unwrap().point(21_600).unwrap(), header.point(21_600).unwrap());
+        assert_eq!(extract_block_header_cbor(header_only).unwrap(), header.cbor());
+        assert!(MultiEraBlock::decode(header_only).is_err());
+        assert!(MultiEraBlock::decode(&bytes[..bytes.len() - 1]).is_err());
+        bytes.push(0);
+        assert!(MultiEraBlock::decode(&bytes).is_err());
+    }
 }

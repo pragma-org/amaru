@@ -22,11 +22,264 @@ use std::{
 use minicbor::decode;
 
 use crate::{
-    Block,
-    cardano::{block::TransactionIndex, network_block::NetworkBlock},
+    Block, BlockHeight, EraName, Hasher, HeaderBody, HeaderHash, Point,
+    cardano::{block::TransactionIndex, header::KES_SIGNATURE, network_block::NetworkBlock},
     cbor,
     utils::debug_bytes,
 };
+
+/// A block header borrowed directly from a raw, network-encoded block.
+///
+/// The outer block variant differs from the ChainSync header variant: Byron uses
+/// two block variants, while later eras are offset by one.
+#[derive(Debug, Clone, Copy, Eq)]
+pub struct ParsedBlockHeader<'a> {
+    block_variant: u8,
+    era: EraName,
+    cbor: &'a [u8],
+    metadata: Option<HeaderMetadata>,
+}
+
+impl PartialEq for ParsedBlockHeader<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.block_variant == other.block_variant && self.cbor == other.cbor
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HeaderMetadata {
+    epoch: Option<u64>,
+    slot: u64,
+    height: BlockHeight,
+    parent_hash: Option<HeaderHash>,
+}
+
+impl<'a> ParsedBlockHeader<'a> {
+    /// Associate header CBOR with its network block variant, rejecting unknown variants.
+    #[inline]
+    pub fn from_cbor(block_variant: u8, cbor: &'a [u8]) -> Result<Self, cbor::decode::Error> {
+        let era = match block_variant {
+            0..=1 => EraName::Byron,
+            variant @ 2..=7 => EraName::from_header_variant(variant - 1).map_err(cbor::decode::Error::custom)?,
+            _ => return Err(cbor::decode::Error::message("unsupported historical block variant")),
+        };
+        Ok(Self { block_variant, era, cbor, metadata: None })
+    }
+
+    /// The outer block variant from the network block encoding.
+    pub fn block_variant(&self) -> u8 {
+        self.block_variant
+    }
+
+    /// The Cardano era represented by the outer block variant.
+    pub fn era(&self) -> EraName {
+        self.era
+    }
+
+    /// The original CBOR bytes of the nested header.
+    pub fn cbor(&self) -> &'a [u8] {
+        self.cbor
+    }
+
+    /// Whether this is a Byron epoch-boundary block.
+    pub fn is_epoch_boundary(&self) -> bool {
+        self.block_variant == 0
+    }
+
+    /// Calculate the header hash using the era-specific wire representation.
+    pub fn hash(&self) -> HeaderHash {
+        let mut hasher = Hasher::<256>::new();
+        if self.era == EraName::Byron {
+            hasher.input(&[0x82, self.block_variant]);
+        }
+        hasher.input(self.cbor);
+        hasher.finalize()
+    }
+
+    /// Decode the chain point represented by the header, reusing metadata from complete block decoding.
+    ///
+    /// `byron_slots_per_epoch` is required because Byron headers contain an
+    /// epoch-relative slot rather than the absolute slot used by [`Point`].
+    pub fn point(&self, byron_slots_per_epoch: u64) -> Result<Point, cbor::decode::Error> {
+        let metadata = match self.metadata {
+            Some(metadata) => metadata,
+            None => decode_header_metadata(&mut cbor::Decoder::new(self.cbor), self.block_variant)?,
+        };
+        let slot = if let Some(epoch) = metadata.epoch {
+            if byron_slots_per_epoch == 0 {
+                return Err(cbor::decode::Error::message("Byron epoch length must be nonzero"));
+            }
+            if metadata.slot >= byron_slots_per_epoch {
+                return Err(cbor::decode::Error::message("Byron relative slot exceeds the epoch length"));
+            }
+            epoch
+                .checked_mul(byron_slots_per_epoch)
+                .and_then(|start| start.checked_add(metadata.slot))
+                .ok_or_else(|| cbor::decode::Error::message("Byron slot overflow"))?
+        } else {
+            metadata.slot
+        };
+        Ok(Point::Specific(slot.into(), self.hash(), metadata.height))
+    }
+}
+
+/// A borrowed network block decoded for chain inspection from Byron through Conway.
+///
+/// Decoding checks the era-specific block and header layout and reads the parent hash. The header
+/// provides the slot, height and hash, including Byron epoch-boundary blocks. Transaction bodies,
+/// witnesses and proofs retain their original CBOR; this does not validate ledger rules, signatures
+/// or body commitments. The first block in a chain must be anchored separately by the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MultiEraBlock<'a> {
+    header: ParsedBlockHeader<'a>,
+}
+
+impl<'a> MultiEraBlock<'a> {
+    /// Decode exactly one network block, rejecting missing fields and trailing bytes.
+    pub fn decode(input: &'a [u8]) -> Result<Self, cbor::decode::Error> {
+        let mut decoder = cbor::Decoder::new(input);
+        let block = cbor::heterogeneous_array(&mut decoder, |d, assert_len| {
+            assert_len(2)?;
+            let variant = d.u8()?;
+            Ok(Self { header: decode_multi_era_block(d, variant)? })
+        })?;
+        if decoder.position() != input.len() {
+            return Err(cbor::decode::Error::message("trailing bytes after network block"));
+        }
+        Ok(block)
+    }
+
+    /// Header metadata and the original bytes used to compute its hash.
+    pub fn header(&self) -> ParsedBlockHeader<'a> {
+        self.header
+    }
+
+    /// The hash claimed as the predecessor, or `None` for a Shelley-based genesis header.
+    /// Byron headers always carry a hash, including their network's genesis hash.
+    pub fn parent_hash(&self) -> Option<HeaderHash> {
+        self.header.metadata.and_then(|metadata| metadata.parent_hash)
+    }
+}
+
+fn decode_multi_era_block<'a>(
+    d: &mut cbor::Decoder<'a>,
+    variant: u8,
+) -> Result<ParsedBlockHeader<'a>, cbor::decode::Error> {
+    cbor::heterogeneous_array(d, |d, assert_len| {
+        let (metadata, bytes) = cbor::tee(d, |d| decode_header_metadata(d, variant))?;
+        let mut header = ParsedBlockHeader::from_cbor(variant, bytes)?;
+        header.metadata = Some(metadata);
+        match variant {
+            0..=1 => {
+                assert_len(3)?;
+                if header.is_epoch_boundary() {
+                    cbor::skip_array(d)?;
+                } else {
+                    cbor::heterogeneous_array(d, |d, assert_len| {
+                        assert_len(4)?;
+                        for _ in 0..4 {
+                            cbor::skip_array(d)?;
+                        }
+                        Ok(())
+                    })?;
+                }
+                cbor::heterogeneous_array(d, |d, assert_len| {
+                    assert_len(1)?;
+                    cbor::skip_map(d)
+                })?;
+            }
+            2..=7 => {
+                let has_invalid_transactions = variant >= 5;
+                assert_len(if has_invalid_transactions { 5 } else { 4 })?;
+                cbor::skip_array(d)?;
+                cbor::skip_array(d)?;
+                cbor::skip_map(d)?;
+                if has_invalid_transactions {
+                    cbor::skip_array(d)?;
+                }
+            }
+            _ => return Err(cbor::decode::Error::message("unsupported historical block variant")),
+        }
+        Ok(header)
+    })
+}
+
+fn decode_header_metadata(d: &mut cbor::Decoder<'_>, block_variant: u8) -> Result<HeaderMetadata, cbor::decode::Error> {
+    if block_variant <= 1 {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(5)?;
+            d.u32()?;
+            let parent_hash = Some(decode_hash(d)?);
+            cbor::skip_value(d)?;
+            let (epoch, slot, height) = cbor::heterogeneous_array(d, |d, assert_len| {
+                if block_variant == 0 {
+                    assert_len(2)?;
+                    Ok((d.u64()?, 0, decode_difficulty(d)?))
+                } else {
+                    assert_len(4)?;
+                    let (epoch, slot) = cbor::heterogeneous_array(d, |d, assert_len| {
+                        assert_len(2)?;
+                        Ok((d.u64()?, d.u64()?))
+                    })?;
+                    cbor::decode_bytes(d)?;
+                    let height = decode_difficulty(d)?;
+                    cbor::skip_array(d)?;
+                    Ok((epoch, slot, height))
+                }
+            })?;
+            cbor::skip_array(d)?;
+            Ok(HeaderMetadata { epoch: Some(epoch), slot, height, parent_hash })
+        })
+    } else {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            let metadata = if matches!(block_variant, 6..=7) {
+                let body: HeaderBody = d.decode()?;
+                HeaderMetadata {
+                    epoch: None,
+                    slot: body.slot,
+                    height: body.block_number.into(),
+                    parent_hash: body.prev_hash,
+                }
+            } else {
+                cbor::heterogeneous_array(d, |d, assert_len| {
+                    let fields = match block_variant {
+                        2..=5 => 15,
+                        _ => return Err(cbor::decode::Error::message("unknown block variant")),
+                    };
+                    assert_len(fields)?;
+                    let height = d.decode()?;
+                    let slot = d.u64()?;
+                    let parent_hash = if d.datatype()? == cbor::data::Type::Null {
+                        d.null()?;
+                        None
+                    } else {
+                        Some(decode_hash(d)?)
+                    };
+                    for _ in 3..fields {
+                        cbor::skip_value(d)?;
+                    }
+                    Ok(HeaderMetadata { epoch: None, slot, height, parent_hash })
+                })?
+            };
+            if cbor::decode_bytes(d)?.len() != KES_SIGNATURE {
+                return Err(cbor::decode::Error::message("invalid KES signature length"));
+            }
+            Ok(metadata)
+        })
+    }
+}
+
+fn decode_hash(d: &mut cbor::Decoder<'_>) -> Result<HeaderHash, cbor::decode::Error> {
+    HeaderHash::try_from(cbor::decode_bytes(d)?.as_ref()).map_err(cbor::decode::Error::custom)
+}
+
+fn decode_difficulty(d: &mut cbor::Decoder<'_>) -> Result<BlockHeight, cbor::decode::Error> {
+    cbor::heterogeneous_array(d, |d, assert_len| {
+        assert_len(1)?;
+        d.decode()
+    })
+}
 
 /// Cheaply cloneable block bytes
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,6 +340,14 @@ impl From<Box<[u8]>> for RawBlock {
 }
 
 impl RawBlock {
+    /// Decode the block structure and chain metadata for any supported era.
+    ///
+    /// Transaction bodies remain borrowed CBOR. Use this when checking historical parent links;
+    /// [`Self::decode`] decodes transactions for ledger processing.
+    pub fn decode_multi_era(&self) -> Result<MultiEraBlock<'_>, decode::Error> {
+        MultiEraBlock::decode(&self.0)
+    }
+
     /// Decode the inner Block by first decoding the raw bytes as a NetworkBlock (which contains the
     /// era tag), then by decoding the Block.
     pub fn decode(&self) -> Result<Block, decode::Error> {
@@ -143,18 +404,27 @@ impl RawBlock {
     }
 }
 
-/// Extract the CBOR-encoded block header bytes from a raw block.
+/// Extract the CBOR-encoded block header bytes from a raw network block.
 ///
-/// The expected structure is `[era_tag, [header_cbor, ...], ...]`.
+/// Only the network wrapper and header array are inspected; the block body is not read.
+#[inline]
 pub fn extract_block_header_cbor(input: &[u8]) -> Result<&[u8], cbor::decode::Error> {
-    let mut dec = cbor::Decoder::new(input);
-    dec.array()?;
-    dec.u8()?;
-    dec.array()?;
-    let start = dec.position();
-    dec.skip()?;
-    let end = dec.position();
-    Ok(&input[start..end])
+    Ok(parse_block_header(input)?.cbor())
+}
+
+/// Parse the era tag and nested header without reading the block body or decoding chain metadata.
+#[inline(always)]
+pub fn parse_block_header(input: &[u8]) -> Result<ParsedBlockHeader<'_>, cbor::decode::Error> {
+    let mut decoder = cbor::Decoder::new(input);
+    if decoder.array()?.is_some_and(|length| length != 2) {
+        return Err(cbor::decode::Error::message("expected network block era and payload"));
+    }
+    let block_variant = decoder.u8()?;
+    if decoder.array()? == Some(0) {
+        return Err(cbor::decode::Error::message("missing block header"));
+    }
+    let (_, bytes) = cbor::tee(&mut decoder, cbor::skip_array)?;
+    ParsedBlockHeader::from_cbor(block_variant, bytes)
 }
 
 /// This struct supports the iteration over serialized transactions contained in a block
@@ -219,12 +489,47 @@ impl RawBlockTransactions {
 
 #[cfg(test)]
 mod tests {
-
+    use super::{MultiEraBlock, parse_block_header};
     use crate::{
-        Block, PREPROD_ERA_HISTORY, Transaction,
+        Block, BlockHeight, HeaderHash, PREPROD_ERA_HISTORY, Transaction,
         cardano::network_block::{NetworkBlock, make_block_with_header},
-        from_cbor, include_cbor, make_header, to_cbor,
+        cbor, from_cbor, include_cbor, make_header, to_cbor,
     };
+
+    #[test]
+    fn decodes_byron_epoch_boundary() {
+        let parent = [42; 32];
+        let mut e = cbor::Encoder::new(Vec::new());
+        e.array(2).unwrap().u8(0).unwrap().array(3).unwrap();
+        e.array(5).unwrap().u32(764_824_073).unwrap().bytes(&parent).unwrap().bytes(&[0; 32]).unwrap();
+        e.array(2).unwrap().u64(2).unwrap().array(1).unwrap().u64(9).unwrap();
+        e.array(1).unwrap().map(0).unwrap();
+        e.array(0).unwrap().array(1).unwrap().map(0).unwrap();
+        let bytes = e.into_writer();
+        let block = MultiEraBlock::decode(&bytes).unwrap();
+        let header = block.header();
+        let point = header.point(21_600).unwrap();
+        assert!(header.is_epoch_boundary());
+        assert_eq!(point.slot_or_default().as_u64(), 43_200);
+        assert_eq!(point.block_height(), BlockHeight::from(9));
+        assert_eq!(block.parent_hash(), Some(HeaderHash::from(parent)));
+        assert!(header.point(0).is_err());
+        assert!(header.point(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_network_headers() {
+        for bytes in [
+            &[0x81, 7, 0x81, 0x80][..],
+            &[0x82, 7, 0x80, 0x80],
+            &[0x82, 7, 0x9f, 0xff],
+            &[0x82, 7, 0x81, 0xff],
+            &[0x82, 7, 0x81, 0xf6],
+            &[0x82, 9, 0x81, 0x80],
+        ] {
+            assert!(parse_block_header(bytes).is_err(), "{bytes:02x?}");
+        }
+    }
 
     #[test]
     fn decode_returns_inner_block() {

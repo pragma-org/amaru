@@ -19,6 +19,9 @@ use crate::{
     cbor, cbor::WithSize, size::BLOCK_BODY, traits::is_header::IsHeader,
 };
 
+/// A block with decoded transactions for ledger processing.
+///
+/// Use [`crate::MultiEraBlock`] to inspect headers and parent links across historical eras.
 #[derive(Debug, Clone, PartialEq, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct Block {
@@ -253,12 +256,6 @@ impl<'a> IntoIterator for &'a Block {
     }
 }
 
-// FIXME(cbor): Multi-era decoding
-//
-// We will likely require multi-era decoding too here. Even if we don't expect blocks from
-// previous eras in normal operation (albeit, to be confirmed...), we will require to re-validate
-// that a given chain is indeed at least well-formed, and that means drilling through headers to
-// ensure they form a chain. So at least *some level* of multi-era decoding is necessary.
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {

@@ -45,6 +45,7 @@ Other guiding principles:
 - **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
+- **amaru-kernel**: allow to inspect block headers and parent links from Byron through Conway.
 
 ### Changed
 
@@ -87,6 +88,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
 - **amaru-protocols**: block-fetch peer timeouts are logged as warnings instead of errors.
 
