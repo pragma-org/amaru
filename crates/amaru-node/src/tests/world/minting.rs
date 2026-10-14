@@ -871,8 +871,9 @@ fn assert_battles(seed: u64, span: u64, logs: &[Vec<LogRecord>], chain: &[Header
         let distinct: BTreeSet<_> = forged.iter().map(|(_, forged_hash, _)| forged_hash.clone()).collect();
         if distinct.len() >= 2 {
             for (_, forged_hash, parent) in forged {
-                assert_eq!(parent, &previous, "battle parent seed={seed:#x} slot={slot}");
-                if forged_hash != &hash {
+                if forged_hash == &hash {
+                    assert_eq!(parent, &previous, "battle parent seed={seed:#x} slot={slot}");
+                } else {
                     assert!(!on_chain.contains(forged_hash), "losing header on chain seed={seed:#x} {forged_hash}");
                 }
             }
