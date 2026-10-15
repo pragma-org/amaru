@@ -267,6 +267,7 @@ pub mod env_vars {
     pub const S3_REGION: &str = "AMARU_S3_REGION";
     pub const SNAPSHOT: &str = "AMARU_SNAPSHOT";
     pub const SNAPSHOTS: &str = "AMARU_SNAPSHOTS";
+    pub const SOFTWARE_TAG_OFF: &str = "AMARU_SOFTWARE_TAG_OFF";
     pub const SUBMIT_API_LISTEN_ON: &str = "AMARU_SUBMIT_API_LISTEN_ON";
     pub const TRACE_BUFFER: &str = "AMARU_TRACE_BUFFER";
     pub const TRACE_BUFFER_DUMP: &str = "AMARU_TRACE_BUFFER_DUMP";
