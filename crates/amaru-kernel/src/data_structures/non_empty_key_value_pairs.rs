@@ -14,7 +14,10 @@
 
 use std::ops::Deref;
 
-use crate::{cbor, data_structures::key_value_pairs::has_duplicate};
+use crate::{
+    cbor,
+    data_structures::key_value_pairs::{decode_entries, has_duplicate},
+};
 
 /// A key-value map with at least one key:value element, and no duplicate keys.
 ///
@@ -31,7 +34,7 @@ impl<K: Eq, V> Default for NonEmptyKeyValuePairs<K, V> {
     }
 }
 
-impl<K: Eq, V> TryFrom<Vec<(K, V)>> for NonEmptyKeyValuePairs<K, V> {
+impl<K: Ord, V> TryFrom<Vec<(K, V)>> for NonEmptyKeyValuePairs<K, V> {
     type Error = IntoNonEmptyKeyValuePairsError;
 
     fn try_from(vec: Vec<(K, V)>) -> Result<Self, Self::Error> {
@@ -90,29 +93,12 @@ where
 
 impl<'b, C, K, V> cbor::decode::Decode<'b, C> for NonEmptyKeyValuePairs<K, V>
 where
-    K: for<'k> cbor::Decode<'k, C> + Eq,
+    K: for<'k> cbor::Decode<'k, C> + Ord,
     V: for<'v> cbor::Decode<'v, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let position = d.position();
-        let mut inner = Vec::new();
-
-        cbor::heterogeneous_map_with(
-            d,
-            ctx,
-            &mut inner,
-            |d, ctx| d.decode_with::<C, K>(ctx),
-            |d, ctx, st, k| {
-                for (j, _) in st.iter() {
-                    if j == &k {
-                        return Err(cbor::decode::Error::message(IntoNonEmptyKeyValuePairsError::HasDuplicate));
-                    }
-                }
-                let v = d.decode_with(ctx)?;
-                st.push((k, v));
-                Ok(())
-            },
-        )?;
+        let inner = decode_entries(d, ctx, &IntoNonEmptyKeyValuePairsError::HasDuplicate)?;
 
         // Ensure non-empty.
         if inner.is_empty() {

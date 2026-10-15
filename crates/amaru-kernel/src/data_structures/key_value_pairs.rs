@@ -37,11 +37,11 @@ impl<K: Eq, V> From<BTreeMap<K, V>> for KeyValuePairs<K, V> {
     }
 }
 
-impl<K: Eq, V> TryFrom<Vec<(K, V)>> for KeyValuePairs<K, V> {
+impl<K: Ord, V> TryFrom<Vec<(K, V)>> for KeyValuePairs<K, V> {
     type Error = IntoKeyValuePairsError;
 
     fn try_from(vec: Vec<(K, V)>) -> Result<Self, Self::Error> {
-        if vec.len() > 1 && has_duplicate(vec.as_slice()) {
+        if has_duplicate(vec.as_slice()) {
             return Err(Self::Error::HasDuplicate);
         }
 
@@ -102,30 +102,11 @@ where
 
 impl<'b, C, K, V> cbor::Decode<'b, C> for KeyValuePairs<K, V>
 where
-    K: for<'k> cbor::Decode<'k, C> + Eq,
+    K: for<'k> cbor::Decode<'k, C> + Ord,
     V: for<'v> cbor::Decode<'v, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let mut inner = Vec::new();
-
-        cbor::heterogeneous_map_with(
-            d,
-            ctx,
-            &mut inner,
-            |d, ctx| d.decode_with::<C, K>(ctx),
-            |d, ctx, st, k| {
-                for (j, _) in st.iter() {
-                    if j == &k {
-                        return Err(cbor::decode::Error::message(IntoKeyValuePairsError::HasDuplicate));
-                    }
-                }
-                let v = d.decode_with(ctx)?;
-                st.push((k, v));
-                Ok(())
-            },
-        )?;
-
-        Ok(Self(inner))
+        Ok(Self(decode_entries(d, ctx, &IntoKeyValuePairsError::HasDuplicate)?))
     }
 }
 
@@ -143,28 +124,47 @@ pub enum IntoKeyValuePairsError {
 // Internals
 // ----------------------------------------------------------------------------
 
-/// Check whether a slice contains duplicate relying only on the `Eq` instance and minimizing
-/// allocation. The check is still in O(n*log(n)).
+/// Decode the entries of a CBOR map.
 ///
-/// We do not use HashMap or BTreeMap for mainly two reasons:
-///
-/// 1. They introduce additional requirements on `K` (Hash in one case, and Ord on the other).
-/// 2. We want to preserve the underlying order when possible;
-///
-/// Pre-condition: the slice is NOT empty.
-pub(crate) fn has_duplicate<K: Eq, V>(kvs: &[(K, V)]) -> bool {
-    let last = kvs.len() - 1;
-
-    for i in 0..last {
-        let (k1, _) = &kvs[i];
-        for (k2, _) in kvs.iter().take(last + 1).skip(i + 1) {
-            if k1 == k2 {
-                return true;
+/// Raise an error if a key that was already read.
+pub(crate) fn decode_entries<'b, C, K, V>(
+    d: &mut cbor::Decoder<'b>,
+    ctx: &mut C,
+    duplicate: &dyn std::fmt::Display,
+) -> Result<Vec<(K, V)>, cbor::decode::Error>
+where
+    K: for<'k> cbor::Decode<'k, C> + Ord,
+    V: for<'v> cbor::Decode<'v, C>,
+{
+    let entries = cbor::heterogeneous_map_with(
+        d,
+        ctx,
+        BTreeMap::<K, (usize, V)>::new(),
+        |d, ctx| d.decode_with::<C, K>(ctx),
+        |d, ctx, entries, key| {
+            if entries.contains_key(&key) {
+                return Err(cbor::decode::Error::message(duplicate));
             }
-        }
-    }
 
-    false
+            let position = entries.len();
+            let value = d.decode_with(ctx)?;
+            entries.insert(key, (position, value));
+
+            Ok(())
+        },
+    )?;
+
+    let mut entries = entries.into_iter().map(|(key, (position, value))| (position, (key, value))).collect::<Vec<_>>();
+    entries.sort_unstable_by_key(|(position, _)| *position);
+
+    Ok(entries.into_iter().map(|(_, entry)| entry).collect())
+}
+
+/// Whether two entries carry the same key.
+pub(crate) fn has_duplicate<K: Ord, V>(kvs: &[(K, V)]) -> bool {
+    let mut keys = kvs.iter().map(|(key, _)| key).collect::<Vec<_>>();
+    keys.sort_unstable();
+    keys.windows(2).any(|pair| pair[0] == pair[1])
 }
 
 #[cfg(test)]
@@ -179,13 +179,8 @@ mod tests {
 
     #[test]
     fn has_duplicate_empty() {
-        assert!(matches!(
-            std::panic::catch_unwind(|| {
-                let slice: &[(u8, ())] = &[];
-                has_duplicate(slice)
-            }),
-            Err(..)
-        ))
+        let slice: &[(u8, ())] = &[];
+        assert!(!has_duplicate(slice))
     }
 
     #[test_case(&[1], false)]
