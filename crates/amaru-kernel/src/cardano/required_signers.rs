@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, data_structures::non_empty_unique_vec::encode_sorted_non_empty_set, size::KEY};
+use crate::{Hash, data_structures::non_empty_vec_set::non_empty_vec_set, size::KEY};
 
-encode_sorted_non_empty_set! {
+non_empty_vec_set! {
     /// The public-key hashes a transaction declares it must be signed by.
     ///
     /// The ledger holds this field in a `Set`, so its elements reach the wire in ascending order

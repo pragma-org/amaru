@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::{cbor, data_structures::non_empty_unique_vec::has_duplicate};
+use crate::cbor;
 
 /// Decode a tagged set into a collection that is not itself a set type.
 ///
@@ -25,23 +25,6 @@ use crate::{cbor, data_structures::non_empty_unique_vec::has_duplicate};
 pub struct SerialisedAsSet<T>(pub T);
 
 const HAS_DUPLICATE: &str = "found duplicate elements in a set";
-
-/// A set kept in a `Vec`, so that a small one does not pay for a `BTreeSet`'s nodes.
-/// Duplicated elements are rejected.
-impl<'d, C, E: Eq + cbor::Decode<'d, C>> cbor::Decode<'d, C> for SerialisedAsSet<Vec<E>> {
-    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        decode_set_tag(d)?;
-
-        let position = d.position();
-        let elements: Vec<E> = d.decode_with(ctx)?;
-
-        if has_duplicate(elements.as_slice()) {
-            return Err(cbor::decode::Error::message(HAS_DUPLICATE).at(position));
-        }
-
-        Ok(Self(elements))
-    }
-}
 
 /// A set kept in a `BTreeSet`. Duplicated elements are rejected.
 impl<'d, C, E: Ord + cbor::Decode<'d, C>> cbor::Decode<'d, C> for SerialisedAsSet<BTreeSet<E>> {

@@ -117,47 +117,6 @@ pub(crate) fn has_duplicate<T: Eq>(xs: &[T]) -> bool {
     xs.iter().enumerate().any(|(i, x)| xs[i + 1..].contains(x))
 }
 
-/// Define a newtype over a [`NonEmptyUniqueVec`] to provide an encoder
-/// writing elements in ascending order. This is the equivalent of using a `Set` in the Haskell node
-/// rather than an `OSet`.
-macro_rules! encode_sorted_non_empty_set {
-    ($(#[$doc:meta])* $name:ident($element:ty)) => {
-        $(#[$doc])*
-        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-        pub struct $name($crate::NonEmptyUniqueVec<$element>);
-
-        impl std::ops::Deref for $name {
-            type Target = [$element];
-
-            fn deref(&self) -> &Self::Target {
-                self.0.as_ref()
-            }
-        }
-
-        impl<'b, C: $crate::cbor::HasProtocolVersion> $crate::cbor::Decode<'b, C> for $name {
-            fn decode(
-                d: &mut $crate::cbor::Decoder<'b>,
-                ctx: &mut C,
-            ) -> Result<Self, $crate::cbor::decode::Error> {
-                Ok(Self(d.decode_with(ctx)?))
-            }
-        }
-
-        impl<C: $crate::cbor::HasProtocolVersion> $crate::cbor::Encode<C> for $name {
-            fn encode<W: $crate::cbor::encode::Write>(
-                &self,
-                e: &mut $crate::cbor::Encoder<W>,
-                ctx: &mut C,
-            ) -> Result<(), $crate::cbor::encode::Error<W::Error>> {
-                $crate::utils::cbor::EncodeSorted::encode_sorted(self.0.as_ref(), e, ctx)?;
-                Ok(())
-            }
-        }
-    };
-}
-
-pub(crate) use encode_sorted_non_empty_set;
-
 // ----------------------------------------------------------------------------
 // Internals
 // ----------------------------------------------------------------------------

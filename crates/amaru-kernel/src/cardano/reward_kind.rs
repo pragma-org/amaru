@@ -14,7 +14,7 @@
 
 use crate::cbor;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RewardKind {
     Member,
     Leader,

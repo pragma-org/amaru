@@ -26,7 +26,7 @@ use amaru_kernel::{
     Lovelace, Network, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots,
     Proposal, ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
     ProtocolVersion, RatificationStatus, Relay, Reward, RewardAccount, Slot, TransactionPointer, UnitRationalNumber,
-    Vote, Voter,
+    VecSet, Vote, Voter,
     cbor::{
         self, HasProtocolVersion,
         lazy::{Checkpoint, LazyDecoder},
@@ -172,7 +172,7 @@ fn import_rewards(
     let (progress, unclaimed_rewards, size) = decoder.stream_map(
         |d| {
             let credential = d.decode()?;
-            let SerialisedAsSet(rewards): SerialisedAsSet<Vec<Reward>> = d.decode()?;
+            let rewards: VecSet<Reward> = d.decode()?;
             let amount = rewards.into_iter().fold(0, |total, reward| total + reward.amount);
             Ok((credential, amount))
         },

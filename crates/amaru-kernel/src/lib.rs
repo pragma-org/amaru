@@ -48,9 +48,11 @@ pub use data_structures::{
     non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
     non_empty_unique_vec::{IntoNonEmptyUniqueVecError, NonEmptyUniqueVec},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
+    non_empty_vec_set::{IntoNonEmptyVecSetError, NonEmptyVecSet},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
     set::{IntoSetError, Set},
     sorted_pairs::SortedPairs,
+    vec_set::{IntoVecSetError, VecSet},
 };
 
 pub mod cbor {

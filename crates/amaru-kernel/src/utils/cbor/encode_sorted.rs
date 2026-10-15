@@ -14,10 +14,10 @@
 
 use crate::{KeyValuePairs, NonEmptyKeyValuePairs, cbor};
 
-/// Write a collection with its elements in ascending order.
+/// Write a map with its keys in ascending order.
 ///
-/// The ledger holds such a field in a `Set` or a `Map`, which it re-encodes in key order — unlike a
-/// field it holds in an `OSet` or replays from memoised bytes, which keeps the order it was read in.
+/// The ledger holds such a field in a `Map`, which it re-encodes in key order — unlike a field it
+/// holds in an `OMap` or replays from memoised bytes, which keeps the order it was read in.
 /// Implementing this separately from [`cbor::Encode`] puts that choice at the field rather than in
 /// the collection, so one collection type serves both.
 pub trait EncodeSorted<C> {
@@ -26,23 +26,6 @@ pub trait EncodeSorted<C> {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>>;
-}
-
-/// A set, written as a tagged array of ascending elements.
-impl<C, E: Ord + cbor::Encode<C>> EncodeSorted<C> for [E] {
-    fn encode_sorted<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.tag(cbor::TAG_SET_258)?;
-
-        let mut sorted = self.iter().collect::<Vec<_>>();
-        sorted.sort_unstable();
-        e.encode_with(sorted.as_slice(), ctx)?;
-
-        Ok(())
-    }
 }
 
 /// A map, written with its keys in ascending order.

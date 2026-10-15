@@ -679,7 +679,7 @@ mod test {
                 cost: 0,
                 margin: UnitRationalNumber::new(1, 1).expect("valid unit ratio"),
                 reward_account: RewardAccount::new(Network::Testnet, Credential::ScriptHash(Hash::new([tag; 28]))),
-                owners: Vec::new(),
+                owners: Default::default(),
                 relays: Vec::new(),
                 metadata: None,
             },
