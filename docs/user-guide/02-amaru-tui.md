@@ -5,14 +5,14 @@ sidebar_label: "The Amaru TUI"
 description: A tour of the Amaru node's embedded terminal dashboard.
 ---
 
-`amaru node run` opens an embeded terminal dashboard. It shows important information about your node, such as sync progress, resource usage, connected peers, and logs.
+`amaru node run` opens an embedded terminal dashboard. It shows important information about your node, such as sync progress, resource usage, connected peers, and logs.
 
-## When the TUI runs
+## Turning the TUI off
 
 The dashboard starts by default when Amaru runs in an interactive terminal on Linux or macOS. It stays off when any of these hold:
 
-- Flag `--tui-off` (`--no-tui`) is used
-- Environment variable `AMARU_TUI_OFF` is set to `true` 
+- Flag `--tui-off` is set
+- Environment variable `AMARU_TUI_OFF` is set to `true`
 - JSON traces are enabled
 - Environment variable `TERM` is set to `dumb`
 
@@ -26,7 +26,7 @@ When the TUI is disabled, logs go to standard output. That mode is recommended w
 
 ## Startup
 
-Every time it starts, Amaru loads the stake distributions for the last two epochs from disk before it can follow the chain. The dashboard appears when loading finishes.
+Every time it starts, Amaru loads some initial stake distributions from disk before it can follow the chain. The dashboard appears when loading finishes.
 
 ![Amaru TUI startup](img/Amaru_Splash_TUI.png)
 
@@ -34,17 +34,23 @@ Every time it starts, Amaru loads the stake distributions for the last two epoch
 
 The page tabs `[Amaru] [Cardano] [Config]` sit in the top-left corner of the frame. Click a tab, or press `Tab`/`Shift+Tab` to cycle through the pages.
 
-The center shows `AMARU` followed by the ndoe version and commit. For example,`10.11.20260807 (493bffb)`.
+The center shows `AMARU` followed by the node version and commit. For example, `10.11.20260807 (493bffb)`.
 
 The bottom-right corner lists the keys that work right now, written as `<key> ACTION`. The list changes with the mode. If you forget a key, look there.
 
-The Amaru and Cardano pages stack three things. The epoch progress bar is at the top, the page's panels are in middle, and the log pane fills the rest. The Config page gives the whole screen to its tables.
+The Amaru and Cardano pages stack three elements:
+
+1. the epoch progress bar at the top;
+2. the page's panels in the middle; and
+3. the log pane at the bottom.
+
+The Config page gives the whole screen to its tables.
 
 ### Epoch bar
 
 Once the node has a tip, a bar across the top tracks the current epoch in slots, for example `86,338 / 432,000`.
 
-While Amaru catches up, the title reads `Epoch 307 / 308 (ETA 2m 56s)`. The first number is the epoch your local node has reached, and the second is the network's current epoch. The ETA is an estimate of how lon the sync has left. Overall sync progress would appear on the right.
+While Amaru catches up, the title reads `Epoch 307 / 308 (ETA 2m 56s)`. The first number is the epoch your local node has reached, and the second is the network's current epoch. The ETA is an estimate of how long the sync has left. Overall sync progress would appear on the right.
 
 Once Amaru reaches the tip, the title drops to just the epoch number, and the percentage disappears.
 
@@ -74,7 +80,6 @@ The top row has five gauges.
 | Disk Write | Write rate | All writes on the host |
 
 ### Node, Throughput, Local Tip, Chain quality
-
 
 | Card | Field | Meaning |
 |---|---|---|
@@ -234,7 +239,7 @@ Press `q`, then confirm with `q` or `y`. Press `n` or `Esc` to cancel. The title
 
 ## Keyboard and mouse reference
 
-### Normal mode
+<details><summary>Normal mode</summary>
 
 | Key | Action |
 |---|---|
@@ -250,7 +255,9 @@ Press `q`, then confirm with `q` or `y`. Press `n` or `Esc` to cancel. The title
 | `Esc` | Enter copy mode |
 | `q` | Quit, after confirmation |
 
-### Log menu, after `f`
+</details>
+
+<details><summary>Log menu, after <code>f</code></summary>
 
 | Key | Action |
 |---|---|
@@ -260,7 +267,9 @@ Press `q`, then confirm with `q` or `y`. Press `n` or `Esc` to cancel. The title
 | `w` | Toggle wrap |
 | `Esc` | Close the menu |
 
-### Copy mode
+</details>
+
+<details><summary>Copy mode</summary>
 
 | Key | Action |
 |---|---|
@@ -271,14 +280,18 @@ Press `q`, then confirm with `q` or `y`. Press `n` or `Esc` to cancel. The title
 | `Esc` | Clear the selection, then leave copy mode |
 | `q` | Quit, after confirmation |
 
-### Quit confirmation
+</details>
+
+<details><summary>Quit confirmation</summary>
 
 | Key | Action |
 |---|---|
 | `q` or `y` | Shut down |
 | `n` or `Esc` | Cancel |
 
-### Mouse
+</details>
+
+<details><summary>Mouse</summary>
 
 | Action | Effect |
 |---|---|
@@ -290,10 +303,11 @@ Press `q`, then confirm with `q` or `y`. Press `n` or `Esc` to cancel. The title
 | `Shift` + scroll wheel | Scroll log lines sideways |
 | Drag the log scrollbar | Move through log history |
 
+</details>
+
 ## Customizing keys
 
 Some shells and multiplexers use the same keybinds the TUI uses. Remap keys in the TUI with `AMARU_TUI_ALIASES`, a comma-separated list of `key=alias` pairs. For example:
-
 
 ```sh
 AMARU_TUI_ALIASES="esc=~,ctrl+up=k,ctrl+down=j" amaru node run
@@ -303,8 +317,8 @@ An alias replaces the original key. After `esc=~`, `Esc` does nothing and `~` ta
 
 Write modifiers as `ctrl+` and `shift+`. Special keys are `esc`, `enter`, `tab`, `up`, `down`, `left`, `right`, `pageup`, `pagedown`, `home`, `end`, `backspace`, `delete`, `insert`, `space`, and `f1` to `f12`. Anything else is a single character.
 
-These controls accept an alias: `esc`, `enter`, `tab`, `shift+tab`, the four arrows with and without `ctrl+`, `pageup`, `pagedown`, `home`, `end`, `;`, `e`, `f`, `h`, `n`, `q`, `t`, `w` and `y`.
+These controls accept an alias: `esc`, `enter`, `tab`, `shift+tab`, `up`, `left`, `down`, `right` with and without `ctrl+`, `pageup`, `pagedown`, `home`, `end`, `;`, `e`, `f`, `h`, `n`, `q`, `t`, `w` and `y`.
 
-If there  are mulitple control that is mapped to the same key, Amaru will not start and name the collisions.
+If two controls map to the same key, Amaru refuses to start and names the collisions.
 
 The footer shows your aliases. For page and scroll keys it shows `aliased` instead of listing each one.
