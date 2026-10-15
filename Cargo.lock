@@ -491,7 +491,6 @@ dependencies = [
  "axum",
  "diff_json",
  "futures-util",
- "getrandom 0.3.4",
  "hex",
  "minicbor",
  "num",

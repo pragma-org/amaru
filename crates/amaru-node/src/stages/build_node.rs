@@ -153,38 +153,6 @@ struct NodeLifecycle {
     performance: Box<dyn FnOnce() -> std::thread::Result<()> + Send + Sync>,
 }
 
-impl NodeLifecycle {
-    async fn shutdown(self, tokio_running: TokioRunning) -> Result<ShutdownReport, ShutdownError> {
-        let Self { ledger_thread, connections, performance } = self;
-
-        tokio_running.request_abort();
-        let mut unexpected_exits = match tokio_running.join().await {
-            Ok(report) => {
-                report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
-            }
-            Err(error) => vec![ComponentFailure::Stage(error.to_string())],
-        };
-        unexpected_exits.extend(
-            connections.shutdown().await.into_iter().map(|error| ComponentFailure::NetworkListener(error.to_string())),
-        );
-        drop(connections);
-        let (ledger, performance) = tokio::task::spawn_blocking(move || {
-            (ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT), performance())
-        })
-        .await
-        .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
-        let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
-        let ledger = match ledger {
-            Ok(()) => None,
-            Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
-            Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
-        };
-
-        unexpected_exits.extend([ledger, performance].into_iter().flatten());
-        Ok(ShutdownReport { unexpected_exits })
-    }
-}
-
 /// Outcome of a shutdown that released every owned resource.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 #[must_use = "inspect unexpected_exits even when cleanup completed successfully"]
@@ -240,10 +208,10 @@ pub enum ShutdownError {
 ///
 /// Incompatible ledger and chain tips return [`NodeStartError::StorePairMismatch`].
 pub async fn build_and_run_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
-    await_readiness(launch_node(config, runtime).await?, runtime).await
+    await_readiness(launch_node(config, runtime)?, runtime).await
 }
 
-async fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
+fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
     let listen_address = config
         .listen_address()
         .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
@@ -259,20 +227,7 @@ async fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, No
     let sender = stage_builder.input(node_stages.mempool_stage());
     let pool = stage_builder.resources().take::<Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>>()?;
     let tokio_running = stage_builder.run(runtime.clone());
-    let mempool_runtime = match MempoolRuntime::new(pool, sender, tokio_running.termination()) {
-        Ok(mempool_runtime) => mempool_runtime,
-        Err(error) => {
-            tokio_running.request_abort();
-            let cleanup = runtime
-                .spawn(lifecycle.shutdown(tokio_running))
-                .await
-                .unwrap_or_else(|error| Err(ShutdownError::JoinTask { reason: error.to_string() }));
-            return Err(match cleanup {
-                Ok(_) => NodeStartError::from(error),
-                Err(cleanup) => NodeStartError::CleanupFailed { source: Box::new(error.into()), cleanup },
-            });
-        }
-    };
+    let mempool_runtime = MempoolRuntime::new(pool, sender, tokio_running.termination());
     Ok(NodeRunning { tokio_running, mempool_runtime, lifecycle, listen_address })
 }
 
@@ -381,7 +336,34 @@ impl NodeRunning {
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
         let Self { tokio_running, mempool_runtime, lifecycle, listen_address: _ } = self;
         mempool_runtime.close();
-        lifecycle.shutdown(tokio_running).await
+        drop(mempool_runtime);
+        let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
+
+        tokio_running.request_abort();
+        let mut unexpected_exits = match tokio_running.join().await {
+            Ok(report) => {
+                report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
+            }
+            Err(error) => vec![ComponentFailure::Stage(error.to_string())],
+        };
+        unexpected_exits.extend(
+            connections.shutdown().await.into_iter().map(|error| ComponentFailure::NetworkListener(error.to_string())),
+        );
+        drop(connections);
+        let (ledger, performance) = tokio::task::spawn_blocking(move || {
+            (ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT), performance())
+        })
+        .await
+        .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
+        let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
+        let ledger = match ledger {
+            Ok(()) => None,
+            Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
+            Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
+        };
+
+        unexpected_exits.extend([ledger, performance].into_iter().flatten());
+        Ok(ShutdownReport { unexpected_exits })
     }
 }
 
@@ -761,7 +743,7 @@ mod tests {
         let test_config = lifecycle_test_config(NetworkName::Preprod, "127.0.0.1:0".parse()?)?;
         let config = test_config.make_node_configuration()?;
         let ledger_config = config.ledger_config.ledger_store.clone();
-        let running = launch_node(config, &Handle::current()).await?;
+        let running = launch_node(config, &Handle::current())?;
         running.request_abort();
         let error = timeout(Duration::from_secs(15), await_readiness(running, &Handle::current()))
             .await?
@@ -817,7 +799,6 @@ mod tests {
         }
 
         let mut retained = Vec::new();
-        let mut run_ids = BTreeSet::new();
         for index in [0, 1, 0] {
             let test_config = &configs[index];
             let network = test_config.network_name;
@@ -829,8 +810,7 @@ mod tests {
 
             let running = build_and_run_node(config, &Handle::current()).await?;
             let mempool = running.mempool();
-            let (snapshot, receiver) = mempool.subscribe()?;
-            assert!(run_ids.insert(snapshot.generation.run_id));
+            let (_, receiver) = mempool.subscribe()?;
             let abort = running.abort_callback();
             assert_eq!(running.listen_address(), listen_address);
             drop(TcpStream::connect(listen_address).await?);

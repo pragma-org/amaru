@@ -71,7 +71,7 @@ async fn submit_tx(State(submitter): State<MempoolServices>, headers: HeaderMap,
     }
 
     match submitter.submit(&body).await {
-        Ok(TxInsertResult::Accepted { tx_id, .. }) => (StatusCode::ACCEPTED, Json(tx_id.to_string())).into_response(),
+        Ok(TxInsertResult::Accepted { tx_id, .. }) => json_response(StatusCode::ACCEPTED, tx_id.to_string()),
         Err(error @ MempoolError::InputTooLarge { .. }) => {
             text_response(StatusCode::PAYLOAD_TOO_LARGE, error.to_string())
         }
@@ -86,20 +86,29 @@ async fn submit_tx(State(submitter): State<MempoolServices>, headers: HeaderMap,
             },
             reason.to_string(),
         ),
-        Err(MempoolError::Call(source)) => {
-            let (reason, body) = match source {
-                CallError::SendFailed => ("send_failed", "mempool unavailable"),
-                CallError::ResponseDropped => ("response_dropped", "mempool unavailable"),
-                CallError::ResponseDeserializeFailed => ("deserialize_failed", "mempool returned an invalid response"),
-                CallError::TimedOut => return text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool timed out"),
-            };
-            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = reason);
-            text_response(StatusCode::INTERNAL_SERVER_ERROR, body)
+        Err(MempoolError::Call(CallError::TimedOut)) => {
+            text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool timed out")
+        }
+        Err(MempoolError::Call(CallError::SendFailed)) => {
+            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "send_failed");
+            text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
+        }
+        Err(MempoolError::Call(CallError::ResponseDropped)) => {
+            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "response_dropped");
+            text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
+        }
+        Err(MempoolError::Call(CallError::ResponseDeserializeFailed)) => {
+            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "deserialize_failed");
+            text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool returned an invalid response")
         }
         Err(MempoolError::Closed | MempoolError::Lagged(_)) => {
             text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool unavailable")
         }
     }
+}
+
+fn json_response(status: StatusCode, body: String) -> Response {
+    (status, Json(body)).into_response()
 }
 
 fn text_response(status: StatusCode, body: impl Into<String>) -> Response {
@@ -196,9 +205,7 @@ mod tests {
 
         let tx = create_transaction(0);
         let expected_tx_id = tx.tx_id();
-        let canonical = to_cbor(&tx);
-        assert_eq!(canonical[0], 0x84);
-        let body = [&[0x98, 0x04][..], &canonical[1..]].concat();
+        let body = non_canonical_transaction_cbor(&tx);
         let (_, mut receiver) = server.runtime.services().subscribe()?;
 
         let resp = submit_tx(addr, body.clone()).await?;
@@ -210,8 +217,8 @@ mod tests {
         assert_eq!(to_cbor(&stored), body);
         let snapshot = server.runtime.services().snapshot()?;
         assert_eq!(snapshot.entries[0].original_bytes, body);
-        assert!(matches!(receiver.recv().await?, MempoolEvent::Inserted { generation, entry }
-            if generation == snapshot.generation && entry == snapshot.entries[0]));
+        assert!(matches!(receiver.recv().await?.as_ref(), MempoolEvent::Inserted { generation, entry }
+            if *generation == snapshot.generation && entry == &snapshot.entries[0]));
         Ok(())
     }
 
@@ -338,6 +345,14 @@ mod tests {
     }
 
     // HELPERS
+
+    /// Re-encode a transaction's outer array header with a redundant one-byte length: still valid
+    /// CBOR, but no longer byte-identical to what our encoder produces.
+    fn non_canonical_transaction_cbor(tx: &WithOriginalBytes<Transaction>) -> Vec<u8> {
+        let canonical = to_cbor(tx);
+        assert_eq!(canonical[0], 0x84, "expected a definite-length array of 4 elements");
+        [&[0x98, 0x04][..], &canonical[1..]].concat()
+    }
 
     async fn start_test_server() -> anyhow::Result<TestSubmitApi> {
         let mempool: TestMempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());

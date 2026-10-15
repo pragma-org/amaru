@@ -66,7 +66,6 @@ pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
 pub use mempool::{
     MempoolError, MempoolEvent, MempoolReceiver, MempoolServices, MempoolSnapshot, MempoolSnapshotEntry,
-    NodeGeneration, NodeRunId,
 };
 pub use mithril::{
     DefaultMithrilObserver, MithrilCancellation, MithrilObserver, MithrilProgress, MithrilStage, MithrilSyncError,

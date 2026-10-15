@@ -25,9 +25,7 @@ use amaru_ouroboros_traits::{
 };
 use tokio::sync::broadcast;
 
-use crate::inspection::{
-    Generation, MAX_MEMPOOL_QUEUED_EVENTS, MempoolSnapshotEntry, PoolChange, PoolReceiver, PoolSnapshot,
-};
+use crate::inspection::{MAX_MEMPOOL_QUEUED_EVENTS, MempoolSnapshotEntry, PoolChange, PoolReceiver, PoolSnapshot};
 
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
@@ -48,7 +46,7 @@ impl<Tx: 'static> Default for InMemoryMempool<Tx> {
 
 impl<Tx> InMemoryMempool<Tx> {
     pub fn new(config: MempoolConfig) -> Self {
-        Self { config, inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())) }
+        InMemoryMempool { config, inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())) }
     }
 }
 
@@ -77,7 +75,7 @@ impl<Tx> Default for MempoolInner<Tx> {
 
 impl<Tx> MempoolInner<Tx> {
     fn commit(&mut self, event: impl FnOnce(u64, &Self) -> PoolChange) {
-        self.generation = self.generation.next();
+        self.generation += 1;
         if self.changes.receiver_count() > 0 {
             let _ = self.changes.send(Arc::new(event(self.generation, self)));
         }

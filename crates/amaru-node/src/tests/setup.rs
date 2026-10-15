@@ -288,6 +288,6 @@ pub(crate) fn make_mempool_runtime(
     builder.resources().put::<ResourceTxValidation>(validator);
     let sender = builder.input(mempool_stage.without_state());
     let running = builder.run(Handle::current());
-    let runtime = MempoolRuntime::new(pool, sender, running.termination()).unwrap();
+    let runtime = MempoolRuntime::new(pool, sender, running.termination());
     (runtime, running)
 }

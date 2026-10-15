@@ -47,7 +47,6 @@ Other guiding principles:
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
 - **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
 - **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection. Duplicate offers preserve admission time; removal followed by reinsertion records a new time.
-- **amaru-node**: embedding applications can submit original CBOR transactions, inspect complete mempool snapshots with admission timestamps, and receive membership updates with explicit loss detection.
 
 ### Changed
 
@@ -83,9 +82,6 @@ Other guiding principles:
 - **amaru-protocols**: fixed transition of the initiator from Diffusion to Maintenance so that churned connections are not forcibly closed.
 - **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
 - **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
-
-### Fixed
-
 - **amaru-node**: HTTP transaction submission returns status 503 when the node is closing or stopped, so clients can retry during restarts.
 - **amaru-node**: embedded and HTTP transaction submission reject CBOR inputs larger than 64 KiB before decoding. HTTP callers receive status 413; ledger transaction-size limits still apply to smaller inputs.
 
@@ -98,7 +94,6 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: completed terminal progress bars disappear and are replaced by a log summarizing the completed work.
 - **amaru-protocols**: block-fetch peer timeouts are logged as warnings instead of errors.
 

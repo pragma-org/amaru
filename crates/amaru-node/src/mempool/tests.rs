@@ -22,7 +22,6 @@ use std::{
 };
 
 use amaru_kernel::{Point, Transaction, to_cbor};
-use amaru_mempool::inspection::Generation;
 use amaru_ouroboros::{MempoolMsg, TxInsertResult};
 use amaru_ouroboros_traits::{TransactionValidationError, TxRejectReason};
 use parking_lot::Mutex;
@@ -53,10 +52,10 @@ async fn revalidation_emits_one_complete_removal_generation() {
     runtime.sender.send(MempoolMsg::NewTip(Point::Origin)).await.unwrap();
     let event = timeout(Duration::from_secs(2), receiver.recv()).await.unwrap().unwrap();
     assert!(
-        matches!(event, MempoolEvent::Removed { generation, transaction_ids } if generation == snapshot.generation.next() && transaction_ids == [first.tx_id(), second.tx_id()])
+        matches!(event.as_ref(), MempoolEvent::Removed { generation, transaction_ids } if *generation == snapshot.generation + 1 && transaction_ids == &[first.tx_id(), second.tx_id()])
     );
     let empty = mempool.snapshot().unwrap();
-    assert_eq!(empty.generation, snapshot.generation.next());
+    assert_eq!(empty.generation, snapshot.generation + 1);
     assert_eq!(empty.transaction_count, 0);
     assert_eq!(empty.total_size_bytes, 0);
     assert!(matches!(
