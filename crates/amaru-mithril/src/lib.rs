@@ -32,7 +32,8 @@ pub use download::{
 };
 pub use immutable::{
     ImmutableBlock, ImmutableBlocksIter, chunk_for_slot, first_missing_immutable_chunk, from_chunk_for_resume_point,
-    get_latest_chunk, iter_immutable_blocks, read_blocks_after_point, read_stable_blocks_after_point,
+    get_latest_chunk, iter_immutable_blocks, last_immutable_point, read_blocks_after_point,
+    read_stable_blocks_after_point,
 };
 #[derive(Debug)]
 pub struct ParsedHeader {

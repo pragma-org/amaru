@@ -24,39 +24,46 @@ use std::{
 };
 
 use amaru_consensus::{
-    block_validator::{BlockValidator, LedgerThreadStop},
-    validate_header::validate_header,
+    block_validator::{LedgerThreadJoinError, LedgerThreadStop},
+    effects::{
+        ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourcePoolSummaries,
+    },
+    performance::Performance,
 };
-use amaru_kernel::{
-    Block, ConsensusParameters, EraHistory, IsHeader, NetworkName, NetworkPoint, ORIGIN_HASH, Point, RawBlock, Slot,
-    cardano::network_block::NetworkBlock,
-};
+use amaru_kernel::{IsHeader, NetworkName, NetworkPoint, ORIGIN_HASH, Point, RawBlock, Slot};
 use amaru_ledger::store::ReadStore;
 use amaru_mithril::{
     MithrilDownloadError, MithrilDownloadObserver, MithrilDownloadProgress, MithrilDownloadReport,
-    MithrilDownloadStage, download_from_mithril_for_range_with_observer, read_blocks_after_point,
+    MithrilDownloadStage, download_from_mithril_for_range_with_observer, last_immutable_point, read_blocks_after_point,
 };
 use amaru_observability::info;
-use amaru_ouroboros::{ChainStore, PoolSummaries, can_validate_blocks::CanValidateBlocks};
+use amaru_ouroboros::ChainStore;
 use amaru_progress_bar::{ProgressBar, ProgressBarExt, TerminalProgressBar};
+use amaru_protocols::store_effects::ResourceHeaderStore;
+use amaru_pure_stage::{
+    StageGraph, StageGraphRunning,
+    tokio::{TokioBuilder, TokioRunning},
+};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use anyhow::anyhow;
-use futures_util::FutureExt;
+use futures_util::{FutureExt, StreamExt};
+use same_file::Handle;
 use thiserror::Error;
-use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ClearValidity, NodeStartError,
+    ClearValidity, ComponentFailure, NodeStartError, ShutdownError, ShutdownReport,
     chain_realign::ensure_store_consistency,
     realign_chain_store_to,
     stages::{
         build_node::{StoreOpenOperation, ledger_store_error, make_block_validator, make_state, open_chain_store},
-        config::LedgerConfig,
+        config::{Config, LedgerConfig},
     },
 };
 
-const LEDGER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+mod block_source;
+use block_source::{MithrilBlockEvent, MithrilInput, wire_mithril_stages};
+
 const STRUCTURED_PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Cooperative cancellation for [`MithrilSynchronizer::synchronize`].
@@ -122,6 +129,10 @@ pub enum MithrilProgress {
         completed_files: u64,
         total_files: u64,
         total_bytes: Option<u64>,
+    },
+    /// Number of blocks expected from the downloaded immutable database after the resume point.
+    IngestPlanned {
+        total_blocks: u64,
     },
     BlocksIngested {
         blocks: u64,
@@ -213,6 +224,7 @@ impl StructuredRenderer {
             MithrilProgress::Completed { .. } => self.finish_download(),
             MithrilProgress::SnapshotSelected { .. }
             | MithrilProgress::CertificateValidated
+            | MithrilProgress::IngestPlanned { .. }
             | MithrilProgress::BlocksIngested { .. } => {}
         }
         if self.should_render(&progress, Instant::now()) {
@@ -237,6 +249,7 @@ impl StructuredRenderer {
             MithrilProgress::StageChanged { .. }
             | MithrilProgress::SnapshotSelected { .. }
             | MithrilProgress::CertificateValidated
+            | MithrilProgress::IngestPlanned { .. }
             | MithrilProgress::Completed { .. } => return true,
         };
         let should_render =
@@ -251,6 +264,8 @@ impl StructuredRenderer {
 #[derive(Default)]
 struct TerminalRenderer {
     downloaded_bytes: u64,
+    ingested_blocks: u64,
+    planned_blocks: u64,
     total_bytes: Option<u64>,
     download: Option<Box<dyn ProgressBar>>,
     verification: Option<(&'static str, Box<dyn ProgressBar>)>,
@@ -258,6 +273,24 @@ struct TerminalRenderer {
 
 impl TerminalRenderer {
     fn render(&mut self, progress: MithrilProgress) {
+        if matches!(progress, MithrilProgress::StageChanged { .. } | MithrilProgress::Completed { .. }) {
+            if let Some((phase, verification)) = self.verification.take() {
+                verification.finish(|| {
+                    info!(mithril::progress::PHASE_COMPLETED, phase);
+                });
+            }
+            if !matches!(progress, MithrilProgress::StageChanged { stage: MithrilStage::Downloading })
+                && let Some(download) = self.download.take()
+            {
+                download.finish(|| {
+                    info!(
+                        mithril::progress::PHASE_COMPLETED,
+                        phase = MithrilStage::Downloading.as_str(),
+                        downloaded_bytes = self.downloaded_bytes
+                    );
+                });
+            }
+        }
         match progress {
             MithrilProgress::Downloaded { downloaded_bytes, total_bytes, .. } => {
                 let total_bytes = total_bytes.filter(|total_bytes| *total_bytes > 0);
@@ -279,21 +312,8 @@ impl TerminalRenderer {
                 self.total_bytes = total_bytes;
             }
             MithrilProgress::StageChanged { stage } => {
-                if let Some((phase, verification)) = self.verification.take() {
-                    verification.finish(|| {
-                        info!(mithril::progress::PHASE_COMPLETED, phase);
-                    });
-                }
-                if stage != MithrilStage::Downloading
-                    && let Some(download) = self.download.take()
-                {
-                    download.finish(|| {
-                        info!(
-                            mithril::progress::PHASE_COMPLETED,
-                            phase = MithrilStage::Downloading.as_str(),
-                            downloaded_bytes = self.downloaded_bytes
-                        );
-                    });
+                if stage == MithrilStage::Ingesting {
+                    self.ingested_blocks = 0;
                 }
                 let template = match stage {
                     MithrilStage::ValidatingCertificate => Some(
@@ -302,33 +322,34 @@ impl TerminalRenderer {
                     MithrilStage::VerifyingDatabase { .. } => {
                         Some("{spinner:.green} {elapsed_precise} verifying Mithril database")
                     }
+                    MithrilStage::Ingesting if self.planned_blocks > 0 => {
+                        Some("{spinner:.green} Ingesting {pos}/{len} blocks {wide_bar:.green} {per_sec} ETA {eta}")
+                    }
+                    MithrilStage::Ingesting => Some("{spinner:.green} Ingesting {pos} blocks ({per_sec})"),
                     MithrilStage::ResolvingResumePoint
                     | MithrilStage::FetchingSnapshot
                     | MithrilStage::Downloading
                     | MithrilStage::DatabaseVerified
-                    | MithrilStage::RecoveringStores
-                    | MithrilStage::Ingesting => None,
+                    | MithrilStage::RecoveringStores => None,
                 };
+                let length = if stage == MithrilStage::Ingesting { self.planned_blocks } else { 0 };
                 self.verification =
-                    template.map(|template| (stage.as_str(), TerminalProgressBar::new(0_u64, template).boxed()));
+                    template.map(|template| (stage.as_str(), TerminalProgressBar::new(length, template).boxed()));
             }
+            MithrilProgress::IngestPlanned { total_blocks } => self.planned_blocks = total_blocks,
             MithrilProgress::CertificateValidated => {
                 if let Some((_, verification)) = &self.verification {
                     verification.increment();
                 }
             }
-            MithrilProgress::Completed { .. } => {
-                if let Some(download) = self.download.take() {
-                    download.finish(|| {
-                        info!(
-                            mithril::progress::PHASE_COMPLETED,
-                            phase = MithrilStage::Downloading.as_str(),
-                            downloaded_bytes = self.downloaded_bytes
-                        );
-                    });
+            MithrilProgress::BlocksIngested { blocks, .. } => {
+                if let Some((_, verification)) = &self.verification {
+                    verification
+                        .tick(usize::try_from(blocks.saturating_sub(self.ingested_blocks)).unwrap_or(usize::MAX));
                 }
+                self.ingested_blocks = blocks;
             }
-            MithrilProgress::SnapshotSelected { .. } | MithrilProgress::BlocksIngested { .. } => {}
+            MithrilProgress::SnapshotSelected { .. } | MithrilProgress::Completed { .. } => {}
         }
     }
 }
@@ -361,6 +382,7 @@ fn render_structured(progress: MithrilProgress) {
                 total_bytes = @total_bytes
             );
         }
+        MithrilProgress::IngestPlanned { .. } => {}
         MithrilProgress::BlocksIngested { blocks, point } => {
             info!(mithril::progress::INGEST, blocks, point);
         }
@@ -675,34 +697,75 @@ impl MithrilSynchronizer {
         if self.ingest_maximum_blocks == Some(0) {
             return Ok((resume_point, 0));
         }
-        let ledger_config = ledger_config_for_network(self.network, self.ledger_dir.clone())?;
-        let era_history = Arc::new(ledger_config.era_history.clone());
-        let consensus_parameters = Arc::new(ledger_config.to_consensus_parameters());
-        let state = make_state(&ledger_config, None, chain_store.clone())
-            .map_err(|source| MithrilSyncError::Startup(source.into()))?;
-        let stable_tip = state.tip().into_owned();
-        if NetworkPoint::from(stable_tip) != NetworkPoint::from(resume_point) {
-            return Err(MithrilSyncError::ResumePointMismatch {
-                requested: NetworkPoint::from(resume_point),
-                stored: NetworkPoint::from(stable_tip),
-            });
-        }
-        let (pool_summaries_tx, pool_summaries_rx) = watch::channel(state.pool_summaries());
-        let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())
-            .map_err(|source| store_error("start ledger worker", source))?;
-        let ledger_stop = block_validator.thread_stop();
-        block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
-            pool_summaries_tx.send_replace(summaries);
-        }));
+        let (source, mut events, running, ledger_thread, performance) = {
+            let ledger_config = ledger_config_for_network(self.network, self.ledger_dir.clone())?;
+            let config = Config { ledger_config, ..Config::default() };
+            let mut stage_graph =
+                TokioBuilder::default().with_global_epoch_offset(config.compute_global_clock_offset());
+            let ledger_config = &config.ledger_config;
+            let state = make_state(ledger_config, None, chain_store.clone())
+                .map_err(|source| MithrilSyncError::Startup(source.into()))?;
+            let ledger_tip = state.tip().into_owned();
+            if NetworkPoint::from(ledger_tip) != NetworkPoint::from(resume_point) {
+                return Err(MithrilSyncError::ResumePointMismatch {
+                    requested: resume_point.into(),
+                    stored: ledger_tip.into(),
+                });
+            }
+            let security_param = ledger_config.global_parameters.consensus_security_param;
+            advance_replay_anchor(chain_store.as_ref(), ledger_tip, security_param)?;
+            let ledger_tip = resolve_resume_point(chain_store.as_ref(), ledger_tip.into())
+                .map_err(|_| MithrilSyncError::Startup(anyhow!("ledger tip header not found").into()))?;
+            let pool_summaries = state.pool_summaries();
+            let validator = Arc::new(
+                make_block_validator(ledger_config, state, chain_store.clone())
+                    .map_err(|source| MithrilSyncError::Startup(source.into()))?,
+            );
+            stage_graph.resources().put::<ResourceHeaderStore>(chain_store.clone());
+            stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
+            stage_graph.resources().put::<ResourceBlockValidation>(validator.clone());
+            stage_graph
+                .resources()
+                .put::<ResourceConsensusParameters>(Arc::new(ledger_config.to_consensus_parameters()));
+            stage_graph.resources().put::<ResourceEraHistory>(ledger_config.era_history.clone());
+            stage_graph.resources().put(ConsensusMode::Sync);
+            let ledger_thread = validator.thread_stop();
+            let performance = Performance::new().install(stage_graph.resources());
+            let (source, events) =
+                wire_mithril_stages(&mut stage_graph, ledger_tip, security_param, self.ingest_until_slot);
+            // The validator lives in these resources; a strong capture would keep the stores open.
+            let resources = stage_graph.resources().downgrade();
+            let stake_updates = source.clone();
+            validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
+                let max_epoch = summaries.max_epoch();
+                resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
+                let send = async {
+                    if stake_updates.send(MithrilInput::StakeDistUpdated(max_epoch)).await.is_err() {
+                        amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
+                    }
+                };
+                // This runs on the ledger thread; its join also covers notification delivery.
+                #[expect(clippy::expect_used)]
+                let rt =
+                    tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
+                rt.block_on(send);
+            }));
+            let running = stage_graph.run(tokio::runtime::Handle::current());
+            (source, events, running, ledger_thread, performance)
+        };
+        let mut termination = running.termination();
 
         let before = Instant::now();
-        let ingestion_store = chain_store.clone();
         let ingestion = async move {
-            let chain_store = ingestion_store;
+            let last_point = last_immutable_point(immutable_dir, self.ingest_until_slot)
+                .map_err(|source| MithrilSyncError::InvalidCache { source })?;
+            let total_blocks = last_point
+                .map(|point| point.block_height() - resume_point.block_height())
+                .unwrap_or(0)
+                .min(self.ingest_maximum_blocks.unwrap_or(usize::MAX) as u64);
+            observer.on_progress(MithrilProgress::IngestPlanned { total_blocks });
             observer.on_progress(MithrilProgress::StageChanged { stage: MithrilStage::Ingesting });
-            let mut current_tip = stable_tip;
-            let mut pool_summaries = pool_summaries_rx;
-            let blocks = read_blocks_after_point(immutable_dir, self.network, current_tip)
+            let blocks = read_blocks_after_point(immutable_dir, self.network, resume_point)
                 .map_err(|source| MithrilSyncError::InvalidCache { source })?;
             let mut processed = 0_u64;
             for raw_block in blocks.take(self.ingest_maximum_blocks.unwrap_or(usize::MAX)) {
@@ -712,40 +775,53 @@ impl MithrilSynchronizer {
                 let raw_block = RawBlock::from(
                     raw_block.map_err(|source| MithrilSyncError::InvalidCache { source })?.into_boxed_slice(),
                 );
-                let network_block = NetworkBlock::try_from(raw_block.clone())
-                    .map_err(|source| MithrilSyncError::Validation { point: current_tip, source: source.into() })?;
-                let block = network_block
-                    .decode_block()
-                    .map_err(|source| MithrilSyncError::Validation { point: current_tip, source: source.into() })?;
-                let point = block.header.point();
-                if self.ingest_until_slot.is_some_and(|until| point.slot_or_default() > until) {
-                    break;
+                tokio::select! {
+                    result = source.send(MithrilInput::Block(raw_block)) => {
+                        result.map_err(|source| store_error("send block to Mithril stage", source))?;
+                    }
+                    _ = cancellation.cancelled() => return Err(MithrilSyncError::Cancelled),
                 }
-                process_block(
-                    &chain_store,
-                    consensus_parameters.clone(),
-                    &block_validator,
-                    &mut pool_summaries,
-                    era_history.clone(),
-                    cancellation,
-                    &raw_block,
-                    block,
-                )
-                .await?;
-                current_tip = point;
+                let event = tokio::select! {
+                    event = events.next() => event.ok_or_else(|| store_error("receive Mithril stage result", anyhow!("stage output closed")))?,
+                    _ = &mut termination => return Err(store_error("run Mithril stages", anyhow!("stage graph terminated"))),
+                    _ = cancellation.cancelled() => return Err(MithrilSyncError::Cancelled),
+                };
+                let point = match event {
+                    MithrilBlockEvent::Applied(point) => point,
+                    MithrilBlockEvent::Finished => break,
+                    MithrilBlockEvent::Failed(point, reason) => {
+                        return Err(MithrilSyncError::Validation { point, source: anyhow!(reason) });
+                    }
+                };
                 processed += 1;
                 observer.on_progress(MithrilProgress::BlocksIngested { blocks: processed, point });
             }
             if cancellation.is_cancelled() {
                 return Err(MithrilSyncError::Cancelled);
             }
-            Ok((current_tip, processed))
+            Ok(processed)
         };
         let cleanup = async {
-            stop_ledger_worker(ledger_stop, LEDGER_SHUTDOWN_TIMEOUT).await?;
+            let stage_report = shutdown_replay(running, ledger_thread, performance, Duration::from_secs(10))
+                .await
+                .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?;
 
+            if let Some(failure) = stage_report
+                .unexpected_exits
+                .iter()
+                .find(|failure| matches!(failure, crate::ComponentFailure::Ledger(_)))
+            {
+                return Err(MithrilSyncError::WorkerShutdown { source: anyhow!("{failure:?}") });
+            }
             let ledger_tip = resolve_ledger_tip(&self.ledger_dir, chain_store.as_ref())?;
-            recover_stores(chain_store.as_ref(), ledger_tip).map(StoreRecoveryOutcome::point)
+            let point = recover_stores(chain_store.as_ref(), ledger_tip).map(StoreRecoveryOutcome::point)?;
+            if !stage_report.unexpected_exits.is_empty() {
+                return Err(store_error(
+                    "join Mithril stages",
+                    anyhow!("stages exited before shutdown: {:?}", stage_report.unexpected_exits),
+                ));
+            }
+            Ok(point)
         };
         let (final_point, processed) = complete_ingestion(ingestion, cleanup).await?;
         let duration_seconds = Instant::now().saturating_duration_since(before).as_secs_f64();
@@ -775,23 +851,45 @@ where
     result.map_err(|source| MithrilSyncError::TaskFailed { source })?
 }
 
-async fn stop_ledger_worker(ledger_stop: LedgerThreadStop, timeout: Duration) -> Result<(), MithrilSyncError> {
-    tokio::task::spawn_blocking(move || ledger_stop.join_timeout(timeout))
-        .await
-        .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?
-        .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })
+/// Stop stages before joining their workers and releasing the stores.
+async fn shutdown_replay(
+    tokio_running: TokioRunning,
+    ledger_thread: LedgerThreadStop,
+    performance: impl FnOnce() -> std::thread::Result<()> + Send + 'static,
+    timeout: Duration,
+) -> Result<ShutdownReport, ShutdownError> {
+    tokio_running.request_abort();
+    let mut unexpected_exits = match tokio_running.join().await {
+        Ok(report) => {
+            report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
+        }
+        Err(error) => vec![ComponentFailure::Stage(error.to_string())],
+    };
+    let (ledger, performance) =
+        tokio::task::spawn_blocking(move || (ledger_thread.join_timeout(timeout), performance()))
+            .await
+            .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
+    let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
+    let ledger = match ledger {
+        Ok(()) => None,
+        Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
+        Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
+    };
+
+    unexpected_exits.extend([ledger, performance].into_iter().flatten());
+    Ok(ShutdownReport { unexpected_exits })
 }
 
-/// Drop the ingestion future (and its validator) before joining the worker, even on panic.
+/// Drop the ingestion future before joining the worker, even on panic.
 /// Return the reconciled store tip with the ingestion block count.
 async fn complete_ingestion(
-    ingestion: impl Future<Output = Result<(Point, u64), MithrilSyncError>>,
+    ingestion: impl Future<Output = Result<u64, MithrilSyncError>>,
     cleanup: impl Future<Output = Result<Point, MithrilSyncError>>,
 ) -> Result<(Point, u64), MithrilSyncError> {
     let result = AssertUnwindSafe(ingestion).catch_unwind().await;
     let final_point = cleanup.await?;
     match result {
-        Ok(result) => result.map(|(_, processed)| (final_point, processed)),
+        Ok(result) => result.map(|processed| (final_point, processed)),
         Err(payload) => std::panic::resume_unwind(payload),
     }
 }
@@ -806,7 +904,7 @@ fn resolve_ledger_tip(ledger_dir: &Path, chain_store: &dyn ChainStore) -> Result
 fn resolve_resume_point(chain_store: &dyn ChainStore, stored: NetworkPoint) -> Result<Point, MithrilSyncError> {
     chain_store
         .load_point(&stored.hash())
-        .filter(|point| NetworkPoint::from(point) == stored)
+        .filter(|point| NetworkPoint::from(*point) == stored)
         .ok_or(MithrilSyncError::ResumePointNotFound { point: stored })
 }
 
@@ -899,7 +997,20 @@ fn validate_store_directory(path: &Path, operation: &'static str) -> Result<(), 
     }
 }
 
-fn acquire_sync_locks<const N: usize>(directories: [&Path; N]) -> Result<Vec<File>, MithrilSyncError> {
+struct SyncLock {
+    file: File,
+    path: PathBuf,
+}
+
+impl Drop for SyncLock {
+    fn drop(&mut self) {
+        if matches!(lock_points_to_path(&self.file, &self.path), Ok(true)) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn acquire_sync_locks<const N: usize>(directories: [&Path; N]) -> Result<Vec<SyncLock>, MithrilSyncError> {
     let mut directories = directories
         .into_iter()
         .map(|directory| {
@@ -912,12 +1023,23 @@ fn acquire_sync_locks<const N: usize>(directories: [&Path; N]) -> Result<Vec<Fil
     directories
         .iter()
         .map(|directory| {
-            let lock = File::create(sync_lock_path(directory)?)
-                .map_err(|source| store_error("create synchronization lock", source))?;
-            lock_sync_file(&lock, directory)?;
-            Ok(lock)
+            let path = sync_lock_path(directory)?;
+            let file = File::create(&path).map_err(|source| store_error("create synchronization lock", source))?;
+            lock_sync_file(&file, &path, directory)?;
+            Ok(SyncLock { file, path })
         })
         .collect()
+}
+
+/// Detect a lock file replaced between opening it and acquiring its lock.
+fn lock_points_to_path(file: &File, path: &Path) -> io::Result<bool> {
+    let locked = Handle::from_file(file.try_clone()?)?;
+    let current = match Handle::from_path(path) {
+        Ok(current) => current,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => return Err(source),
+    };
+    Ok(locked == current)
 }
 
 fn sync_lock_path(directory: &Path) -> Result<PathBuf, MithrilSyncError> {
@@ -933,9 +1055,15 @@ fn sync_lock_path(directory: &Path) -> Result<PathBuf, MithrilSyncError> {
     Ok(directory.with_file_name(lock_name))
 }
 
-fn lock_sync_file(lock: &File, directory: &Path) -> Result<(), MithrilSyncError> {
+fn lock_sync_file(lock: &File, path: &Path, directory: &Path) -> Result<(), MithrilSyncError> {
     match lock.try_lock() {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            if lock_points_to_path(lock, path).map_err(|source| store_error("verify synchronization lock", source))? {
+                Ok(())
+            } else {
+                Err(MithrilSyncError::Concurrent { path: directory.to_path_buf() })
+            }
+        }
         Err(TryLockError::WouldBlock) => Err(MithrilSyncError::Concurrent { path: directory.to_path_buf() }),
         Err(source) => Err(store_error("acquire synchronization lock", source)),
     }
@@ -943,13 +1071,19 @@ fn lock_sync_file(lock: &File, directory: &Path) -> Result<(), MithrilSyncError>
 
 fn recover_stores(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<StoreRecoveryOutcome, MithrilSyncError> {
     let chain_tip = chain_store.get_best_chain_tip();
-    if ledger_tip == chain_tip {
+    if chain_tip == ledger_tip {
         return Ok(StoreRecoveryOutcome::AlreadyConsistent { point: ledger_tip });
     }
-    if can_adopt(chain_store, ledger_tip, chain_tip) {
-        info!(cli::mithril::RECOVER_CHAIN_TIP, ledger_tip, chain_tip);
+    let can_adopt = chain_store.load_header_with_validity(&ledger_tip.hash()).is_some_and(|(header, validity)| {
+        header.point() == ledger_tip
+            && validity != Some(false)
+            && header.parent_hash().unwrap_or(ORIGIN_HASH) == chain_tip.hash()
+            && chain_store.get_nonces(&ledger_tip.hash()).is_some()
+    });
+    if can_adopt {
         adopt_validated_block(chain_store, ledger_tip)
             .map_err(|source| store_error("adopt recovered ledger tip", source))?;
+        info!(cli::mithril::RECOVER_CHAIN_TIP, ledger_tip, chain_tip);
     } else {
         ensure_store_consistency(chain_store, ledger_tip).map_err(|source| {
             MithrilSyncError::RebootstrapRequired(Box::new(RebootstrapRequired {
@@ -964,15 +1098,6 @@ fn recover_stores(chain_store: &dyn ChainStore, ledger_tip: Point) -> Result<Sto
     Ok(StoreRecoveryOutcome::Recovered { before: chain_tip, after: ledger_tip })
 }
 
-fn can_adopt(chain_store: &dyn ChainStore, ledger_tip: Point, chain_tip: Point) -> bool {
-    chain_store.load_header_with_validity(&ledger_tip.hash()).is_some_and(|(header, validity)| {
-        header.point() == ledger_tip
-            && validity != Some(false)
-            && header.parent_hash().unwrap_or(ORIGIN_HASH) == chain_tip.hash()
-            && chain_store.get_nonces(&ledger_tip.hash()).is_some()
-    })
-}
-
 fn adopt_validated_block(chain_store: &dyn ChainStore, point: Point) -> anyhow::Result<()> {
     chain_store.set_block_valid(&point.hash(), true)?;
     chain_store.roll_forward_chain(&point)?;
@@ -983,80 +1108,31 @@ fn adopt_validated_block(chain_store: &dyn ChainStore, point: Point) -> anyhow::
     Ok(())
 }
 
-#[expect(clippy::too_many_arguments)]
-async fn process_block(
-    chain_store: &Arc<dyn ChainStore>,
-    consensus_parameters: Arc<ConsensusParameters>,
-    block_validator: &BlockValidator,
-    pool_summaries: &mut watch::Receiver<PoolSummaries>,
-    era_history: Arc<EraHistory>,
-    cancellation: &MithrilCancellation,
-    raw_block: &RawBlock,
-    block: Block,
+/// Catch up an old replay anchor once, walking backward from the tip by the security parameter.
+/// Subsequent adoptions advance it through the regular consensus stage.
+fn advance_replay_anchor(
+    chain_store: &dyn ChainStore,
+    tip: Point,
+    security_param: u64,
 ) -> Result<(), MithrilSyncError> {
-    let point = block.header.point();
-    // Keep adoption last: an interruption after the ledger commit then leaves its tip off the
-    // adopted chain, which normal startup detects before opening the node.
-    chain_store
-        .store_block(&point.hash(), raw_block)
-        .map_err(|source| MithrilSyncError::Validation { point, source: source.into() })?;
-    let nonces = loop {
-        let summaries = Arc::new(pool_summaries.borrow_and_update().clone());
-        match validate_header(
-            &block.header,
-            consensus_parameters.clone(),
-            chain_store.clone(),
-            summaries,
-            era_history.clone(),
-        ) {
-            Ok(nonces) => break nonces,
-            Err(source) => {
-                let Some(target) = source.missing_stake_distribution() else {
-                    return Err(MithrilSyncError::Validation { point, source: source.into() });
-                };
-                if !wait_for_stake_distribution(pool_summaries, target, cancellation).await? {
-                    return Err(MithrilSyncError::Validation { point, source: source.into() });
-                }
-            }
-        }
-    };
-    chain_store
-        .store_validated_header(&block.header, &nonces)
-        .map_err(|source| MithrilSyncError::Validation { point, source: source.into() })?;
-    block_validator
-        .roll_forward_block(block)
-        .await
-        .map_err(|source| MithrilSyncError::Validation {
-            point,
-            source: anyhow!("ledger worker failed at {point}: {source:?}"),
-        })?
-        .map_err(|source| MithrilSyncError::Validation {
-            point,
-            source: anyhow!("ledger rejected block at {point}: {source:?}"),
-        })?;
-    adopt_validated_block(chain_store.as_ref(), point)
-        .map_err(|source| MithrilSyncError::Validation { point, source })?;
-    Ok(())
-}
-
-async fn wait_for_stake_distribution(
-    pool_summaries: &mut watch::Receiver<PoolSummaries>,
-    target: amaru_kernel::Epoch,
-    cancellation: &MithrilCancellation,
-) -> Result<bool, MithrilSyncError> {
-    loop {
-        if pool_summaries.borrow().by_epoch.contains_key(&target) {
-            return Ok(true);
-        }
-        tokio::select! {
-            changed = pool_summaries.changed() => {
-                if changed.is_err() {
-                    return Ok(false);
-                }
-            }
-            _ = cancellation.cancelled() => return Err(MithrilSyncError::Cancelled),
-        }
+    let snapshot = chain_store.snapshot();
+    if snapshot.get_best_chain_tip() != tip {
+        return Err(store_error("find replay anchor", anyhow!("{tip} is not the adopted best-chain tip")));
     }
+    let target_height = tip.block_height() - security_param;
+    if target_height <= snapshot.get_anchor_point().block_height() {
+        return Ok(());
+    }
+    let anchor =
+        std::iter::successors(snapshot.load_header(&tip.hash()), |header| snapshot.load_header(&header.parent()?))
+            .find(|header| header.block_height() <= target_height)
+            .ok_or_else(|| {
+                store_error("find replay anchor", anyhow!("missing best-chain ancestor at height {target_height}"))
+            })?
+            .point();
+    drop(snapshot);
+    chain_store.set_anchor_point(&anchor).map_err(|source| store_error("advance replay anchor", source))?;
+    Ok(())
 }
 
 fn store_error(operation: &'static str, source: impl Into<anyhow::Error>) -> MithrilSyncError {
@@ -1078,19 +1154,32 @@ fn classify_download_error(source: MithrilDownloadError) -> MithrilSyncError {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Mutex};
+    use std::{fs::File, sync::Mutex, time::Duration};
 
-    use amaru_kernel::{Epoch, Header, make_header};
-    use amaru_ouroboros::{
-        BaseReadChainStore, Nonces, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
-        overriding_chain_store::OverridingChainStore,
+    use amaru_consensus::{
+        effects::{ConsensusMode, ResourceBlockValidation, ResourceEraHistory},
+        performance::{Performance, ResourcePerformance},
     };
+    use amaru_kernel::{Epoch, EraHistory, Header, IsHeader, cardano::network_block::EncodedTestBlock, make_header};
+    use amaru_ledger::store::ReadStore;
+    use amaru_ouroboros::{
+        BaseReadChainStore, MockBlockValidator, Nonces, StoreError, WriteChainStore,
+        in_memory_chain_store::InMemoryChainStore, overriding_chain_store::OverridingChainStore,
+    };
+    use amaru_protocols::store_effects::ResourceHeaderStore;
+    use amaru_pure_stage::{StageGraph, tokio::TokioBuilder};
     use amaru_stores::rocksdb::{RocksDB, consensus::RocksDBStore};
     use tempfile::tempdir;
     use test_case::test_case;
 
-    use super::*;
-    use crate::tests::configuration::NodeTestConfig;
+    use super::{
+        block_source::{MithrilBlockSource, mithril_block_source},
+        *,
+    };
+    use crate::{
+        stages::build_node::{make_block_validator, make_state},
+        tests::configuration::NodeTestConfig,
+    };
 
     #[derive(Default)]
     struct RecordingObserver(Mutex<Vec<MithrilProgress>>);
@@ -1109,6 +1198,30 @@ mod tests {
         store.roll_forward_chain(&from.point()).unwrap();
         store.store_validated_header(&target, &Nonces::for_tests()).unwrap();
         (store, from, target)
+    }
+
+    #[test]
+    fn replay_anchor_catches_up_to_the_stable_horizon() {
+        let store = InMemoryChainStore::new();
+        let mut parent = None;
+        let mut points = Vec::new();
+        for height in 1..=8 {
+            let header = make_header(height, height, parent);
+            parent = Some(header.hash());
+            store.store_header(&header).unwrap();
+            store.roll_forward_chain(&header.point()).unwrap();
+            points.push(header.point());
+        }
+        store.set_anchor_point(&points[0]).unwrap();
+        advance_replay_anchor(&store, points[7], 8).unwrap();
+        assert_eq!(store.get_anchor_point(), points[0]);
+
+        for security_param in [2, 2, 4] {
+            advance_replay_anchor(&store, points[7], security_param).unwrap();
+            assert_eq!(store.get_anchor_point(), points[5]);
+        }
+        assert!(advance_replay_anchor(&store, points[6], 2).is_err());
+        assert_eq!(store.get_anchor_point(), points[5]);
     }
 
     #[tokio::test]
@@ -1205,7 +1318,7 @@ mod tests {
 
                 let error = recover_stores(&failing, ledger_tip).unwrap_err();
                 assert!(matches!(error, MithrilSyncError::Store { source, .. }
-                    if source.downcast_ref::<StoreError>() == Some(&failure)));
+                        if source.downcast_ref::<StoreError>() == Some(&failure)));
                 assert_eq!(store.get_best_chain_tip(), before);
             }
         }
@@ -1250,22 +1363,21 @@ mod tests {
             let idle_references = Arc::strong_count(&test_config.chain_store);
             let state = make_state(&config.ledger_config, None, test_config.chain_store.clone()).unwrap();
             let validator =
-                make_block_validator(&config.ledger_config, state, test_config.chain_store.clone()).unwrap();
-            let stop = validator.thread_stop();
+                Arc::new(make_block_validator(&config.ledger_config, state, test_config.chain_store.clone()).unwrap());
+            let ledger_thread = validator.thread_stop();
+            let running = TokioBuilder::default().run(tokio::runtime::Handle::current());
             let retained = validator.clone();
-            let cancellation = MithrilCancellation::new();
             let mut reconciled = false;
             let result = complete_ingestion(
                 async move {
-                    if matches!(ingestion_error, MithrilSyncError::Cancelled) {
-                        cancellation.cancel();
-                        cancellation.cancelled().await;
-                    }
                     drop(validator);
-                    Err::<(Point, u64), _>(ingestion_error)
+                    Err::<u64, _>(ingestion_error)
                 },
                 async {
-                    stop_ledger_worker(stop, Duration::ZERO).await?;
+                    let report = shutdown_replay(running, ledger_thread, || Ok(()), Duration::ZERO)
+                        .await
+                        .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?;
+                    assert!(report.is_clean());
                     reconciled = true;
                     Ok(Point::Origin)
                 },
@@ -1282,8 +1394,8 @@ mod tests {
             .unwrap();
             assert!(!reconciled);
             assert!(matches!(result, Err(MithrilSyncError::WorkerShutdown { source })
-                if matches!(source.downcast_ref::<amaru_consensus::block_validator::LedgerThreadJoinError>(),
-                    Some(amaru_consensus::block_validator::LedgerThreadJoinError::Timeout { .. }))));
+                    if matches!(source.downcast_ref::<crate::ShutdownError>(),
+                        Some(crate::ShutdownError::LedgerTimeout { .. }))));
         }
     }
 
@@ -1320,32 +1432,48 @@ mod tests {
         assert!(!synchronizer.ledger_dir.exists());
     }
 
-    #[test]
-    fn forwards_download_and_verification_progress_in_order() {
-        let observer = Arc::new(RecordingObserver::default());
-        let forwarder = ForwardDownloadProgress(observer.clone());
-        let stages = [
-            (MithrilDownloadStage::FetchingSnapshot, MithrilStage::FetchingSnapshot),
-            (MithrilDownloadStage::ValidatingCertificate, MithrilStage::ValidatingCertificate),
-            (MithrilDownloadStage::Downloading { files: 6 }, MithrilStage::Downloading),
-            (
-                MithrilDownloadStage::VerifyingDatabase { from_chunk: 10, through_chunk: 11, files: 6 },
-                MithrilStage::VerifyingDatabase { from_chunk: 10, through_chunk: 11, files: 6 },
-            ),
-            (MithrilDownloadStage::DatabaseVerified, MithrilStage::DatabaseVerified),
-        ];
-        let mut expected = Vec::new();
-        for (download_stage, stage) in stages {
-            forwarder.on_progress(MithrilDownloadProgress::StageChanged { stage: download_stage });
-            expected.push(MithrilProgress::StageChanged { stage });
-            if stage == MithrilStage::ValidatingCertificate {
-                for _ in 0..2 {
-                    forwarder.on_progress(MithrilDownloadProgress::CertificateValidated);
-                    expected.push(MithrilProgress::CertificateValidated);
-                }
-            }
+    #[test_case(false; "valid_block")]
+    #[test_case(true; "rejected_block")]
+    #[tokio::test]
+    async fn mithril_blocks_use_the_shared_validation_and_adoption_stages(reject: bool) {
+        let parent = make_header(1, 1, None);
+        let block = EncodedTestBlock::from_seed(&make_header(2, 2, Some(parent.hash())), &EraHistory::default());
+        let store = Arc::new(InMemoryChainStore::new());
+        store.store_validated_header(&parent, &Nonces::for_tests()).unwrap();
+        store.store_validated_header(&block.header, &Nonces::for_tests()).unwrap();
+        store.roll_forward_chain(&parent.point()).unwrap();
+        store.set_anchor_point(&parent.point()).unwrap();
+
+        let mut builder = TokioBuilder::default();
+        builder.resources().put::<ResourceHeaderStore>(store.clone());
+        let validator = Arc::new(MockBlockValidator::new(parent.point()));
+        if reject {
+            validator.with_validate_fails(block.header.point());
         }
-        assert_eq!(*observer.0.lock().unwrap(), expected);
+        builder.resources().put::<ResourceBlockValidation>(validator);
+        builder.resources().put::<ResourcePerformance>(Arc::new(Performance::new()));
+        builder.resources().put::<ResourceEraHistory>(EraHistory::default());
+        builder.resources().put(ConsensusMode::Sync);
+        let (source, mut events) = wire_mithril_stages(&mut builder, parent.point(), 2, None);
+        let running = builder.run(tokio::runtime::Handle::current());
+        source.send(MithrilInput::Block(block.raw)).await.unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(5), events.next()).await.unwrap().unwrap();
+        match event {
+            MithrilBlockEvent::Applied(point) => {
+                assert!(!reject);
+                assert_eq!(point, block.header.point());
+            }
+            MithrilBlockEvent::Failed(point, _) => {
+                assert!(reject);
+                assert_eq!(point, block.header.point());
+            }
+            MithrilBlockEvent::Finished => panic!("unexpected Mithril stage event"),
+        }
+        assert_eq!(store.load_header_with_validity(&block.header.hash()).unwrap().1, Some(!reject));
+        assert_eq!(store.get_best_chain_tip(), if reject { parent.point() } else { block.header.point() });
+
+        running.request_abort();
+        assert!(running.join().await.unwrap().unexpected_exits.is_empty());
     }
 
     #[test_case(true; "dropped_future")]
@@ -1373,7 +1501,7 @@ mod tests {
                 started_tx.send(()).unwrap();
                 cancellation.cancelled().await;
                 drop(validator);
-                Err::<(Point, u64), _>(MithrilSyncError::Cancelled)
+                Err::<u64, _>(MithrilSyncError::Cancelled)
             };
             let cleanup = async move {
                 stopping_tx.send(()).unwrap();
@@ -1436,7 +1564,7 @@ mod tests {
                 let ingestion = async move {
                     PanickingObserver.on_progress(progress);
                     drop(validator);
-                    Ok((Point::Origin, 0))
+                    Ok(0)
                 };
                 complete_ingestion(ingestion, async move {
                     let ledger_tip = worker.await.unwrap();
@@ -1517,7 +1645,26 @@ mod tests {
             Err(MithrilSyncError::Concurrent { .. })
         ));
         drop(locks);
-        acquire_sync_locks([&second_cache, &ledger_dir, &chain_dir]).unwrap();
+        for path in [&first_cache, &ledger_dir, &chain_dir] {
+            assert!(!sync_lock_path(path).unwrap().exists());
+        }
+        let locks = acquire_sync_locks([&second_cache, &ledger_dir, &chain_dir]).unwrap();
+        drop(locks);
+        for path in [&second_cache, &ledger_dir, &chain_dir] {
+            assert!(!sync_lock_path(path).unwrap().exists());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replaced_lock_file_is_not_accepted() {
+        let directory = tempdir().unwrap();
+        let path = sync_lock_path(directory.path()).unwrap();
+        let stale = File::create(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        File::create(&path).unwrap();
+
+        assert!(matches!(lock_sync_file(&stale, &path, directory.path()), Err(MithrilSyncError::Concurrent { .. })));
     }
 
     #[derive(Clone, Copy)]
@@ -1602,38 +1749,107 @@ mod tests {
         assert!(store.is_on_best_chain(NetworkPoint::from(tip.point())));
     }
 
-    #[test]
-    fn recovery_rewinds_the_adopted_chain_to_the_durable_ledger_tip() {
-        let durable = make_header(1, 1, None);
-        let volatile_1 = make_header(2, 2, Some(durable.hash()));
-        let volatile_2 = make_header(3, 3, Some(volatile_1.hash()));
-        let store = InMemoryChainStore::new();
-        for header in [&durable, &volatile_1, &volatile_2] {
-            store.store_validated_header(header, &Nonces::for_tests()).unwrap();
-            store.set_block_valid(&header.hash(), true).unwrap();
-            store.roll_forward_chain(&header.point()).unwrap();
+    #[tokio::test]
+    async fn replay_retries_a_pending_block_on_stake_distribution_update() {
+        let target = Epoch::from(1120);
+        let parent = make_header(1, 1, None);
+        let block = EncodedTestBlock::from_seed(&make_header(2, 2, Some(parent.hash())), &EraHistory::default());
+        let store = Arc::new(InMemoryChainStore::new());
+        store.store_validated_header(&block.header, &Nonces::for_tests()).unwrap();
+        let mut builder = TokioBuilder::default();
+        builder.resources().put::<ResourceHeaderStore>(store.clone());
+        let (validate_block, mut validations) = builder.output("validate", 1);
+        let (events, _) = builder.output("events", 1);
+        let stage = builder.stage("source", mithril_block_source);
+        let stage = builder.wire_up(
+            stage,
+            MithrilBlockSource {
+                validate_block,
+                events,
+                tip: parent.point(),
+                until_slot: None,
+                pending: Some((target, block.raw)),
+            },
+        );
+        let sender = builder.input(stage);
+        let running = builder.run(tokio::runtime::Handle::current());
+        sender.send(MithrilInput::StakeDistUpdated(target)).await.unwrap();
+        let message = tokio::time::timeout(Duration::from_secs(5), validations.next()).await.unwrap().unwrap();
+        assert_eq!(
+            message,
+            amaru_consensus::stages::validate_block::ValidateBlockMsg::new(
+                block.header.point(),
+                parent.point(),
+                block.header.point().block_height(),
+            )
+        );
+        running.request_abort();
+        assert!(running.join().await.unwrap().unexpected_exits.is_empty());
+    }
+
+    #[test_case("parent"; "wrong_parent")]
+    #[test_case("height"; "skipped_height")]
+    #[test_case("cbor"; "malformed_block")]
+    #[test_case("limit"; "slot_limit")]
+    #[test_case("origin"; "origin_replay")]
+    #[tokio::test]
+    async fn replay_checks_input_before_dispatching_validation(case: &str) {
+        let parent = make_header(1, 1, None);
+        let tip = if case == "origin" { Point::Origin } else { parent.point() };
+        let header = if case == "origin" {
+            parent
+        } else {
+            make_header(
+                if case == "height" { 3 } else { 2 },
+                2,
+                Some(if case == "parent" { Point::Origin.hash() } else { parent.hash() }),
+            )
+        };
+        let block = EncodedTestBlock::from_seed(&header, &EraHistory::default());
+        let raw = if case == "cbor" { RawBlock::from(vec![0xff].into_boxed_slice()) } else { block.raw };
+        let mut builder = TokioBuilder::default();
+        let (source, mut events) =
+            wire_mithril_stages(&mut builder, tip, 2, (case == "limit").then_some(Slot::from(1)));
+        let running = builder.run(tokio::runtime::Handle::current());
+        source.send(MithrilInput::Block(raw)).await.unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(5), events.next()).await.unwrap().unwrap();
+        if case == "limit" {
+            assert_eq!(event, MithrilBlockEvent::Finished);
+        } else if case == "origin" {
+            assert_eq!(event, MithrilBlockEvent::Failed(header.point(), "replay from origin is not supported".into()));
+        } else {
+            assert!(matches!(event, MithrilBlockEvent::Failed(..)), "{event:?}");
         }
-
-        recover_stores(&store, durable.point()).unwrap();
-
-        assert_eq!(store.get_anchor_point(), durable.point());
-        assert_eq!(store.get_best_chain_tip(), durable.point());
-        assert_eq!(store.load_header_with_validity(&volatile_1.hash()).unwrap().1, None);
-        assert_eq!(store.load_header_with_validity(&volatile_2.hash()).unwrap().1, None);
+        running.request_abort();
+        assert!(running.join().await.unwrap().unexpected_exits.is_empty());
     }
 
     #[tokio::test]
-    async fn replay_waits_for_a_background_stake_distribution() {
-        let target = Epoch::from(1120);
-        let (sender, mut receiver) = watch::channel(PoolSummaries::default());
-        let update = tokio::spawn(async move {
-            tokio::task::yield_now().await;
-            sender.send_modify(|summaries| {
-                summaries.by_epoch.insert(target, BTreeMap::new());
-            });
-        });
-
-        assert!(wait_for_stake_distribution(&mut receiver, target, &MithrilCancellation::new()).await.unwrap());
-        update.await.unwrap();
+    async fn failed_ingestion_releases_existing_rocksdb_stores() {
+        let test_config = NodeTestConfig::default();
+        let config = test_config.make_node_configuration().unwrap();
+        let directory = tempdir().unwrap();
+        let chain_config = RocksDbConfig::new(directory.path().join("chain"));
+        let chain_store = Arc::new(RocksDBStore::open_and_migrate(&chain_config).unwrap());
+        let synchronizer = MithrilSynchronizer::new(
+            config.network(),
+            config.ledger_config.ledger_store.dir.clone(),
+            chain_config.dir.clone(),
+            directory.path().join("snapshots"),
+        );
+        let result = synchronizer
+            .ingest(
+                chain_store.clone(),
+                &directory.path().join("missing-immutable"),
+                Point::Origin,
+                &MithrilCancellation::new(),
+                &RecordingObserver::default(),
+            )
+            .await;
+        assert!(matches!(result, Err(MithrilSyncError::InvalidCache { .. })), "{result:?}");
+        assert_eq!(Arc::strong_count(&chain_store), 1);
+        drop(chain_store);
+        drop(RocksDBStore::open(&chain_config).unwrap());
+        drop(RocksDB::new(&config.ledger_config.ledger_store).unwrap());
     }
 }
