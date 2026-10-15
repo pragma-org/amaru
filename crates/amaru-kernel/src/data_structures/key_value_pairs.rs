@@ -17,11 +17,6 @@ use std::{collections::BTreeMap, ops::Deref};
 use crate::cbor;
 
 /// A key-value map with no duplicate keys.
-///
-/// Note: we use an underlying `Vec` to:
-///
-/// - keep the order of elements unchanged from original values;
-/// - lower requirements on `K` & `V`;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct KeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 
@@ -92,10 +87,6 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        // The entries keep the order they were read in. A field the ledger writes in key order is
-        // one it holds in a `Map` and re-encodes, and the sorting belongs at that field rather than
-        // here: transaction metadata reaches the wire through a memoised type that replays what it
-        // read, so sorting it here would rewrite bytes the auxiliary data hash is taken over.
         cbor::encode_variable_length_map(e, self.iter().map(|(k, v)| (k, v)), ctx)
     }
 }
@@ -139,25 +130,21 @@ where
     let entries = cbor::heterogeneous_map_with(
         d,
         ctx,
-        BTreeMap::<K, (usize, V)>::new(),
+        BTreeMap::<K, V>::new(),
         |d, ctx| d.decode_with::<C, K>(ctx),
         |d, ctx, entries, key| {
             if entries.contains_key(&key) {
                 return Err(cbor::decode::Error::message(duplicate));
             }
 
-            let position = entries.len();
             let value = d.decode_with(ctx)?;
-            entries.insert(key, (position, value));
+            entries.insert(key, value);
 
             Ok(())
         },
     )?;
 
-    let mut entries = entries.into_iter().map(|(key, (position, value))| (position, (key, value))).collect::<Vec<_>>();
-    entries.sort_unstable_by_key(|(position, _)| *position);
-
-    Ok(entries.into_iter().map(|(_, entry)| entry).collect())
+    Ok(entries.into_iter().collect())
 }
 
 /// Whether two entries carry the same key.
@@ -209,7 +196,7 @@ mod tests {
     #[test_case("A0", &[], true; "empty map")]
     #[test_case("A1016161", &[(1, "a")], true; "singleton")]
     #[test_case("BF016161026162036161FF", &[(1, "a"), (2, "b"), (3, "a")], false; "indef map")]
-    #[test_case("A3046162016163026161", &[(4, "b"), (1, "c"), (2, "a")], true; "def map, keys out of order")]
+    #[test_case("A3046162016163026161", &[(1, "c"), (2, "a"), (4, "b")], false; "def map, keys out of order")]
     fn from_cbor_success(s: &str, expected: &[(u8, &str)], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
         match from_cbor_no_leftovers::<KeyValuePairs<u8, String>>(original_bytes.as_slice()) {

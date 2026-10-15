@@ -30,6 +30,9 @@ pub use corpus::*;
 mod normalize;
 pub use normalize::*;
 
+mod metadata_order;
+pub use metadata_order::*;
+
 mod report;
 pub use report::*;
 

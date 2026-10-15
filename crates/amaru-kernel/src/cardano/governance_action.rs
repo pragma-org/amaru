@@ -22,7 +22,7 @@ use proptest::{
 
 use crate::{
     Constitution, Credential, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
-    RewardAccount, Set, UnitRationalNumber, cbor, hash, utils::cbor::EncodeSorted,
+    RewardAccount, Set, UnitRationalNumber, cbor, hash,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -139,9 +139,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GovernanceAction {
                 e.u16(4)?;
                 e.encode_with(a, ctx)?;
                 e.encode_with(b, ctx)?;
-                // The members to add are a `Map` in the ledger, which writes its entries in key order,
-                // while the pairs themselves keep the order they were read in.
-                c.encode_sorted(e, ctx)?;
+                e.encode_with(c, ctx)?;
                 e.encode_with(d, ctx)?;
             }
 

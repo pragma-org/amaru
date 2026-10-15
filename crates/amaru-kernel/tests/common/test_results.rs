@@ -18,7 +18,7 @@ use minicbor::decode;
 
 use crate::{
     AcknowledgedFailure, Category, TestConfiguration, TestKey, TestOutcome, drop_optional_set_tags, error_class,
-    forgives_optional_set_tags, normalize_shape,
+    forgives_metadata_order, forgives_optional_set_tags, normalize_shape, sort_metadata_labels,
 };
 
 /// Rules for data types whose bytes are hashed.
@@ -189,15 +189,21 @@ impl TestResults {
 }
 
 /// Whether a re-encoding says the same thing as the reference, once the differences the format allows are
-/// rewritten away: the shape of every container and string, and for a witness set the optional set tags.
+/// rewritten away.
 fn agrees_in_shape(rule: &str, re_encoded: &[u8], expected: &[u8]) -> anyhow::Result<bool> {
-    let re_encoded = normalize_shape(re_encoded)?;
-    let expected = normalize_shape(expected)?;
+    Ok(rewrite_what_is_forgiven(rule, re_encoded)? == rewrite_what_is_forgiven(rule, expected)?)
+}
 
-    // We need a special case to test witness_set because the set tag #6.258 might be missing
-    if forgives_optional_set_tags(rule) {
-        return Ok(drop_optional_set_tags(rule, &re_encoded)? == drop_optional_set_tags(rule, &expected)?);
-    }
+/// Rewrite away every difference the format allows: the shape of each container and string, the set tag a
+/// witness set field may or may not carry, and the order of the labels in a metadata map.
+fn rewrite_what_is_forgiven(rule: &str, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let bytes = normalize_shape(bytes)?;
 
-    Ok(re_encoded == expected)
+    // The set tag #6.258 is optional on the fields of a witness set below protocol version 12.
+    let bytes = if forgives_optional_set_tags(rule) { drop_optional_set_tags(rule, &bytes)? } else { bytes };
+
+    // The node replays the bytes it read for metadata, where amaru rebuilds them in label order.
+    let bytes = if forgives_metadata_order(rule) { sort_metadata_labels(rule, &bytes)? } else { bytes };
+
+    Ok(bytes)
 }
