@@ -4,6 +4,10 @@ This document is the payload specification for Amaru under [CIP-0203, Block Prod
 
 The identifier registered for Amaru is `65` under scheme `0`.
 
+An operator who does not want to disclose their software passes `--software-tag-off` to
+`amaru node run`, or sets `AMARU_SOFTWARE_TAG_OFF=true`. Amaru then writes the CIP-0203 opt-out
+value: a minor of `255`, with no payload.
+
 ## Payload layout
 
 ```
