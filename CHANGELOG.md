@@ -64,6 +64,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-tui**: on a large terminal the dashboard keeps the full height and uses at most 65,536 characters. The columns past that stay blank.
 - **amaru**: a fork switch logs each block it adopts. Those blocks, other than the new tip, are recorded as validated headers, so a later chain prune does not report them as pruned.
 - **amaru**: startup no longer logs `db_chain.initialize` when the chain store does not contain the ledger tip. The process still exits with the mismatch error.
 - **amaru**: the trace catalog describes an unknown pool retirement, an unknown reward reset, a DRep registration without a deposit, an unknown DRep removal, and an unknown DRep expiry refresh as those skips.

@@ -7,6 +7,8 @@ description: A tour of the Amaru node's embedded terminal dashboard.
 
 When using `amaru node run`, it opens an embedded terminal dashboard live in your shell. It's the quickest way to see whether the node is syncing, how it's performing, and what it's doing right now.
 
+On a very large terminal the dashboard keeps the full height and uses only as many columns as it can draw, 65,536 characters in total. The columns to the right stay blank.
+
 ## Tabs
 
 The top bar switches between three views: **AMARU**, **CARDANO**, and **CONFIG**, described below.  

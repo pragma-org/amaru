@@ -21,7 +21,7 @@ use crossterm::{
     cursor, event, execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Frame, Terminal, backend::CrosstermBackend, buffer::Buffer};
+use ratatui::{Frame, Terminal, TerminalOptions, Viewport, backend::CrosstermBackend, buffer::Buffer, layout::Rect};
 
 static TERMINAL_STATE: AtomicU8 = AtomicU8::new(TerminalState::Inactive as u8);
 
@@ -36,8 +36,27 @@ enum TerminalState {
 pub struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<TerminalOutput>>,
     mouse_capture_enabled: bool,
+    /// Area actually drawn. Narrower than the terminal when the screen has more cells than ratatui can address.
+    viewport: Rect,
     /// Last frame `draw` put on screen. A text drag paints this back instead of rendering again.
     screen: Buffer,
+}
+
+/// `Buffer::pos_of` stores the cell index in a `u16`. Indexes `0..=65_535` are 65,536 cells.
+/// One more cell and later rows are painted over earlier ones.
+const MAX_TERMINAL_CELLS: u32 = u16::MAX as u32 + 1;
+
+/// Keep the full height. Use only as many columns as fit in `MAX_TERMINAL_CELLS`.
+pub(crate) fn fit_terminal_area(width: u16, height: u16) -> Rect {
+    if width == 0 || height == 0 {
+        return Rect::new(0, 0, width, height);
+    }
+    let cells = u32::from(width) * u32::from(height);
+    if cells <= MAX_TERMINAL_CELLS {
+        return Rect::new(0, 0, width, height);
+    }
+    let fitted_width = u16::try_from(MAX_TERMINAL_CELLS / u32::from(height)).unwrap_or(u16::MAX);
+    Rect::new(0, 0, fitted_width.max(1), height)
 }
 
 impl TerminalGuard {
@@ -60,8 +79,10 @@ impl TerminalGuard {
             let mut output = TerminalOutput::default();
             execute!(output, EnterAlternateScreen, event::EnableMouseCapture)?;
             let backend = CrosstermBackend::new(output);
-            let terminal = Terminal::new(backend)?;
-            Ok(Self { terminal, mouse_capture_enabled: true, screen: Buffer::default() })
+            let size = ratatui::backend::Backend::size(&backend)?;
+            let viewport = fit_terminal_area(size.width, size.height);
+            let terminal = Terminal::with_options(backend, TerminalOptions { viewport: Viewport::Fixed(viewport) })?;
+            Ok(Self { terminal, mouse_capture_enabled: true, viewport, screen: Buffer::default() })
         };
         match setup() {
             Ok(_) if TERMINAL_STATE.load(Ordering::SeqCst) == TerminalState::Shutdown as u8 => {
@@ -78,6 +99,7 @@ impl TerminalGuard {
 
     pub fn draw(&mut self, render: impl FnOnce(&mut Frame<'_>)) -> io::Result<()> {
         with_active(|| {
+            self.sync_viewport()?;
             let completed = self.terminal.draw(render)?;
             self.screen = completed.buffer.clone();
             Ok(())
@@ -92,12 +114,23 @@ impl TerminalGuard {
     /// Paint `snapshot` plus a small overlay. Does not replace [`Self::snapshot_screen`].
     pub fn draw_buffer(&mut self, snapshot: &Buffer, paint: impl FnOnce(&mut Buffer)) -> io::Result<()> {
         with_active(|| {
+            self.sync_viewport()?;
             self.terminal.draw(|frame| {
                 copy_cells(frame.buffer_mut(), snapshot);
                 paint(frame.buffer_mut());
             })?;
             Ok(())
         })
+    }
+
+    fn sync_viewport(&mut self) -> io::Result<()> {
+        let size = self.terminal.size()?;
+        let area = fit_terminal_area(size.width, size.height);
+        if area != self.viewport {
+            self.terminal.resize(area)?;
+            self.viewport = area;
+        }
+        Ok(())
     }
 
     /// Write bytes that are not a ratatui frame, such as an OSC 52 clipboard sequence.
@@ -223,5 +256,71 @@ fn copy_cells(target: &mut Buffer, source: &Buffer) {
             };
             *slot = cell.clone();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, TerminalOptions, Viewport, backend::TestBackend, layout::Rect, widgets::Paragraph};
+
+    use super::{MAX_TERMINAL_CELLS, fit_terminal_area};
+
+    fn marked_corner(width: u16, height: u16) -> (u16, u16) {
+        let area = Rect::new(0, 0, width, height);
+        let mut marked = ratatui::buffer::Buffer::empty(area);
+        marked[(width - 1, height - 1)].set_symbol("Z");
+        let blank = ratatui::buffer::Buffer::empty(area);
+        blank
+            .diff(&marked)
+            .into_iter()
+            .find(|(_, _, cell)| cell.symbol() == "Z")
+            .map(|(x, y, _)| (x, y))
+            .expect("corner")
+    }
+
+    #[test]
+    fn ratatui_addresses_65536_cells_and_not_one_more() {
+        assert_eq!(marked_corner(256, 256), (255, 255));
+        assert_ne!(marked_corner(256, 257), (255, 256));
+    }
+
+    #[test]
+    fn fit_keeps_a_normal_terminal_and_narrows_a_large_one() {
+        assert_eq!(fit_terminal_area(80, 24), Rect::new(0, 0, 80, 24));
+        assert_eq!(fit_terminal_area(0, 40), Rect::new(0, 0, 0, 40));
+
+        let wide = fit_terminal_area(400, 200);
+        assert_eq!(wide.height, 200);
+        assert_eq!(wide.width, 327);
+        assert!(u32::from(wide.width) * u32::from(wide.height) <= MAX_TERMINAL_CELLS);
+        assert!(u32::from(wide.width + 1) * u32::from(wide.height) > MAX_TERMINAL_CELLS);
+
+        let tall = fit_terminal_area(2, 65_535);
+        assert_eq!(tall, Rect::new(0, 0, 1, 65_535));
+        assert!(u32::from(tall.width) * u32::from(tall.height) <= MAX_TERMINAL_CELLS);
+    }
+
+    #[test]
+    fn a_wide_terminal_draws_full_height_and_leaves_the_extra_columns_blank() {
+        let backend = TestBackend::new(400, 200);
+        let mut terminal =
+            Terminal::with_options(backend, TerminalOptions { viewport: Viewport::Fixed(Rect::new(0, 0, 1, 1)) })
+                .expect("terminal");
+        let size = terminal.size().expect("size");
+        let area = fit_terminal_area(size.width, size.height);
+        terminal.resize(area).expect("resize");
+
+        terminal
+            .draw(|frame| {
+                assert_eq!(frame.area(), area);
+                let line = "X".repeat(frame.area().width as usize);
+                frame.render_widget(Paragraph::new(line), Rect::new(0, 0, frame.area().width, 1));
+            })
+            .expect("draw");
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer.cell((326, 0)).expect("last used column").symbol(), "X");
+        assert_eq!(buffer.cell((327, 0)).expect("first unused column").symbol(), " ");
+        assert_eq!(buffer.cell((399, 199)).expect("bottom right").symbol(), " ");
     }
 }
