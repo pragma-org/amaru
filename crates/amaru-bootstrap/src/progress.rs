@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{Epoch, NetworkPoint};
 use amaru_observability::info;
-use amaru_progress_bar::{NoProgressBar, ProgressBar, ProgressBarExt, ProgressBarFactory, TerminalProgressBar};
+use amaru_progress_bar::{NoProgressBar, ProgressBar, ProgressBarFactory, TerminalProgressBar};
 
 const STRUCTURED_DOWNLOAD_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -85,122 +85,88 @@ pub trait BootstrapObserver: Send + Sync {
 ///
 /// It renders an aggregate download bar on an interactive terminal and emits structured telemetry
 /// otherwise. Renderer selection does not affect the events produced by bootstrap.
-pub(crate) struct DefaultBootstrapObserver {
-    renderer: Mutex<DefaultRenderer>,
-}
+pub(crate) struct DefaultBootstrapObserver(Mutex<Renderer>);
 
 impl DefaultBootstrapObserver {
     pub(crate) fn new() -> Self {
-        let renderer = if io::stderr().is_terminal() {
-            DefaultRenderer::Terminal(TerminalRenderer::default())
-        } else {
-            DefaultRenderer::Structured(StructuredRenderer::default())
-        };
-        Self { renderer: Mutex::new(renderer) }
+        Self(Mutex::new(Renderer { terminal: io::stderr().is_terminal(), ..Renderer::default() }))
     }
 }
 
 impl BootstrapObserver for DefaultBootstrapObserver {
     fn on_progress(&self, progress: BootstrapProgress) {
-        match &mut *self.renderer.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
-            DefaultRenderer::Terminal(renderer) => renderer.render(progress),
-            DefaultRenderer::Structured(renderer) => renderer.render(progress),
-        }
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).render(progress);
     }
 }
 
-enum DefaultRenderer {
-    Terminal(TerminalRenderer),
-    Structured(StructuredRenderer),
-}
-
 #[derive(Default)]
-struct TerminalRenderer {
+struct Renderer {
+    terminal: bool,
     total_bytes: Option<u64>,
     downloaded_bytes: u64,
     completed_snapshots: usize,
     download_progress: Option<Box<dyn ProgressBar>>,
-}
-
-impl TerminalRenderer {
-    fn render(&mut self, progress: BootstrapProgress) {
-        match progress {
-            BootstrapProgress::SnapshotsSelected { total_bytes, .. } => self.total_bytes = total_bytes,
-            BootstrapProgress::StageChanged { stage: BootstrapStage::DownloadingSnapshots } => {
-                self.download_progress = Some(
-                    TerminalProgressBar::new(
-                        self.total_bytes.unwrap_or(0),
-                        "{spinner:.green} Downloading snapshots {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
-                    )
-                    .boxed(),
-                );
-            }
-            BootstrapProgress::DownloadProgress { downloaded_bytes, completed_snapshots } => {
-                let delta = downloaded_bytes.saturating_sub(self.downloaded_bytes);
-                self.downloaded_bytes = downloaded_bytes;
-                self.completed_snapshots = completed_snapshots;
-                if let Some(progress) = self.download_progress.as_ref() {
-                    progress.tick(usize::try_from(delta).unwrap_or(usize::MAX));
-                }
-            }
-            BootstrapProgress::StageChanged { .. } | BootstrapProgress::Completed { .. } => {
-                if let Some(progress) = self.download_progress.take() {
-                    progress.finish(|| {
-                        info!(
-                            bootstrap::progress::PHASE_COMPLETED,
-                            phase = "download_snapshots",
-                            downloaded_bytes = self.downloaded_bytes,
-                            completed_snapshots = self.completed_snapshots
-                        );
-                    });
-                }
-            }
-        }
-    }
-}
-
-#[derive(Default)]
-struct StructuredRenderer {
     last_download_at: Option<Instant>,
     stage: Option<BootstrapStage>,
-    downloaded_bytes: u64,
-    completed_snapshots: usize,
 }
 
-impl StructuredRenderer {
+impl Renderer {
     fn render(&mut self, progress: BootstrapProgress) {
         match progress {
+            BootstrapProgress::SnapshotsSelected { snapshot_count, total_bytes } => {
+                self.total_bytes = total_bytes;
+                if !self.terminal {
+                    info!(bootstrap::progress::SNAPSHOTS_SELECTED, snapshot_count, total_bytes = @total_bytes);
+                }
+            }
             BootstrapProgress::StageChanged { stage } => {
-                if stage != BootstrapStage::DownloadingSnapshots {
+                if stage == BootstrapStage::DownloadingSnapshots {
+                    if self.terminal {
+                        self.download_progress = Some(TerminalProgressBar::new(
+                            self.total_bytes.unwrap_or(0),
+                            "{spinner:.green} Downloading snapshots {bytes_per_sec:>10} {bar:40.green} [{bytes:>10}/{total_bytes:<10}] ({eta} remaining)",
+                        ).boxed());
+                    }
+                } else {
                     self.finish_download();
                 }
                 self.stage = Some(stage);
-                info!(bootstrap::progress::STAGE, stage = stage.as_str().to_owned());
-            }
-            BootstrapProgress::SnapshotsSelected { snapshot_count, total_bytes } => {
-                info!(bootstrap::progress::SNAPSHOTS_SELECTED, snapshot_count, total_bytes = @total_bytes);
+                if !self.terminal {
+                    info!(bootstrap::progress::STAGE, stage = stage.as_str().to_owned());
+                }
             }
             BootstrapProgress::DownloadProgress { downloaded_bytes, completed_snapshots } => {
+                if let Some(progress) = &self.download_progress {
+                    progress.tick(
+                        usize::try_from(downloaded_bytes.saturating_sub(self.downloaded_bytes)).unwrap_or(usize::MAX),
+                    );
+                }
                 let now = Instant::now();
-                let snapshot_completed = completed_snapshots > self.completed_snapshots;
-                let interval_elapsed = self.last_download_at.is_none_or(|last_download_at| {
-                    now.duration_since(last_download_at) >= STRUCTURED_DOWNLOAD_INTERVAL
-                });
-                self.downloaded_bytes = downloaded_bytes;
-                self.completed_snapshots = completed_snapshots;
-                if snapshot_completed || interval_elapsed {
+                if !self.terminal
+                    && (completed_snapshots > self.completed_snapshots
+                        || self
+                            .last_download_at
+                            .is_none_or(|last| now.duration_since(last) >= STRUCTURED_DOWNLOAD_INTERVAL))
+                {
                     self.last_download_at = Some(now);
                     info!(bootstrap::progress::DOWNLOAD, downloaded_bytes, completed_snapshots);
                 }
+                self.downloaded_bytes = downloaded_bytes;
+                self.completed_snapshots = completed_snapshots;
             }
             BootstrapProgress::Completed { epoch, point } => {
                 self.finish_download();
-                info!(bootstrap::progress::COMPLETE, epoch, point = point.to_string());
+                if !self.terminal {
+                    info!(bootstrap::progress::COMPLETE, epoch, point = point.to_string());
+                }
             }
         }
     }
 
     fn finish_download(&mut self) {
+        if let Some(progress) = self.download_progress.take() {
+            progress.clear();
+        }
         if self.stage.take() == Some(BootstrapStage::DownloadingSnapshots) {
             info!(
                 bootstrap::progress::PHASE_COMPLETED,

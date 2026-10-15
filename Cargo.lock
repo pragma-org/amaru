@@ -140,7 +140,6 @@ dependencies = [
  "minicbor",
  "pallas-network",
  "reqwest",
- "serde",
  "serde_json",
  "tar",
  "tempfile",
@@ -436,12 +435,9 @@ dependencies = [
  "amaru-progress-bar",
  "anyhow",
  "async-trait",
- "flate2",
  "mithril-client",
- "tar",
  "tempfile",
  "thiserror 2.0.21",
- "tokio",
 ]
 
 [[package]]

@@ -28,8 +28,8 @@ pub mod version;
 // Re-export bootstrap for CLI callers; new code should depend on `amaru-bootstrap`.
 pub use amaru_bootstrap as bootstrap;
 pub use amaru_bootstrap::{
-    AnonymousS3Client, DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config,
-    S3Snapshot, aws, cardano_node, default_snapshots_dir,
+    AnonymousS3Client, DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config, aws,
+    default_snapshots_dir,
 };
 pub use amaru_node::{DEFAULT_LOCAL_PEER_ADDRESS, DEFAULT_PEERS_LISTEN_ON, default_chain_dir, default_ledger_dir};
 
