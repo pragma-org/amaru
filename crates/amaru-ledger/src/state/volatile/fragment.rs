@@ -51,7 +51,9 @@ pub use tests::*;
 pub type AccountDiff = DiffBind<Credential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace, 4, 2>;
 pub type DRepDiff = DiffBind<Credential, Box<Anchor>, Empty, DRepRegistration, 1, 1>;
 pub type CommitteeDiff = DiffBind<Credential, ConstitutionalCommitteeMemberStatus, Epoch, Empty, 1, 1>;
-pub type DRepDeregistrations = CompactMap<Credential, CertificatePointer, 1>;
+/// Every DRep deregistration, with a storage removal pointer only if the DRep existed at block start.
+/// `None` explicitly cancels a registration created within this block.
+pub type DRepDeregistrations = CompactMap<Credential, Option<CertificatePointer>, 1>;
 pub type Withdrawals = CompactSet<Credential, 4>;
 pub type Proposals = CompactMap<ProposalId, Arc<ProposalState>, 1>;
 pub type VoteDiff = DiffSet<BallotId, Ballot, 1, 1>;
@@ -250,12 +252,12 @@ pub(crate) fn remove_dreps(
     iterator: impl Iterator<Item = Credential>,
     mut deregistrations: DRepDeregistrations,
 ) -> impl Iterator<Item = (dreps::Key, CertificatePointer)> {
-    iterator.map(move |credential| {
+    iterator.filter_map(move |credential| {
         #[expect(clippy::expect_used)]
         let pointer =
             deregistrations.remove(&credential).expect("every 'unregistered' drep must have a matching deregistration");
 
-        (credential, pointer)
+        pointer.map(|pointer| (credential, pointer))
     })
 }
 
