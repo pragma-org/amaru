@@ -128,7 +128,7 @@ OTEL_METRIC_EXPORT_INTERVAL=1000
 
 You can get the full config list with the TUI under the config menu (press `ESC` on the Config page to enter copy mode and select values with the terminal):
 
-![Amuru_config_TUI.png](img/Amuru_Config_TUI.png)
+![Amaru TUI Config page](img/Amaru_Config_TUI.png)
 
 <details>
 <summary><strong>Here is the same config list in txt</strong></summary>
