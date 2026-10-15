@@ -77,6 +77,7 @@ Other guiding principles:
 - **amaru**: only a failed connect or a dial that never finishes holds off the next dial. Starting a dial, or a connection that closed, does not. A replacement dial after a close is not cancelled when that same close is seen again.
 - **amaru**: a notice that an old connection died is not counted as a failed dial when a later dial to that peer is already in progress.
 - **amaru**: block fetch reads which connections may initiate from the peer resource. A connection no longer sends that fact to the connection manager, so a full tip burst cannot deadlock the two.
+- **amaru-protocols**: fixed transition of the initiator from Diffusion to Maintenance so that churned connections are not forcibly closed.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 

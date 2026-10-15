@@ -33,7 +33,7 @@ pub async fn stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept
         }
         Err(AcceptError::Other(err)) => {
             error!(protocols::connection::ACCEPT_FAILED, reason = "error", error = err.to_string());
-            return eff.terminate().await;
+            eff.terminate().await;
         }
     }
     eff.schedule_after(PullAccept, state.manager_config.accept_interval).await;

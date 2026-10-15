@@ -134,7 +134,7 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                         peer = self.peer,
                         conn_id = self.conn_id.as_u64()
                     );
-                    return eff.terminate().await;
+                    eff.terminate().await;
                 }
                 if self.closing {
                     return Ok((None, self));
@@ -185,7 +185,7 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                 InitiatorResult::SharePeers { peers } => {
                     if !self.in_flight {
                         warn!(protocols::peer_sharing::initiator::PROTOCOL_VIOLATION, reason = "no_request_in_flight");
-                        return eff.terminate().await;
+                        eff.terminate().await;
                     }
                     if self.closing {
                         self.in_flight = false;
@@ -198,7 +198,7 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                             requested = self.amount,
                             received = peers.len()
                         );
-                        return eff.terminate().await;
+                        eff.terminate().await;
                     }
                     self.in_flight = false;
                     let now = eff.clock().await;

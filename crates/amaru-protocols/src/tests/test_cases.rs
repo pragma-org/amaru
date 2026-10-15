@@ -17,6 +17,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use amaru_kernel::{EraHistory, NetworkMagic, PREPROD_ERA_HISTORY, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_observability::tracing;
+use amaru_ouroboros::{CloseReason, ConnectionId, MiniProtocolUse};
 use amaru_ouroboros_traits::ConnectionProvider;
 use amaru_pure_stage::{
     StageGraph, StageRef,
@@ -28,6 +29,7 @@ use crate::{
     chainsync::ChainSyncInitiatorMsg,
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage},
+    peer_tracking::InMemoryPeerTracking,
     protocol_messages::version_number::VersionNumber,
     tests::{
         accept_stage::{AcceptState, PullAccept, accept_stage},
@@ -52,7 +54,7 @@ use crate::{
 async fn test_connect_initiator_responder() -> anyhow::Result<()> {
     setup_logging();
     let (responder, addr, responder_done) = start_responder().await?;
-    let (initiator, initiator_done, _) = start_initiator_at(addr).await?;
+    let (initiator, initiator_done, _, _) = start_initiator_at(addr).await?;
 
     wait_for_termination(responder_done, initiator_done).await?;
     check_state(initiator, responder)?;
@@ -65,7 +67,7 @@ async fn test_connect_v15_initiator_v14_responder() -> anyhow::Result<()> {
     setup_logging();
     let (responder, addr, responder_done) =
         start_responder_with_configuration(Configuration::responder().with_max_n2n_version(VersionNumber::V14)).await?;
-    let (initiator, initiator_done, _) = start_initiator_at(addr).await?;
+    let (initiator, initiator_done, _, _) = start_initiator_at(addr).await?;
 
     wait_for_termination(responder_done, initiator_done).await?;
     check_state(initiator, responder)?;
@@ -77,7 +79,7 @@ async fn test_connect_initiator_reconnection() -> anyhow::Result<()> {
     setup_logging();
     let addr = ephemeral_localhost_addr()?;
     tracing::info!("starting test at address {}", addr);
-    let (initiator, initiator_done, initiator_sender) = start_initiator_with_configuration(
+    let (initiator, initiator_done, initiator_sender, _) = start_initiator_with_configuration(
         Configuration::initiator().with_addr(addr).with_reconnect_delay(Duration::from_millis(500)),
     )
     .await?;
@@ -100,7 +102,7 @@ async fn test_connect_initiator_reconnection_on_responder_restart() -> anyhow::R
     // the initiator doesn't start synchronizing right away
     let (responder, addr, _) =
         start_responder_with_configuration(Configuration::responder().with_slow_manager()).await?;
-    let (initiator, initiator_done, initiator_sender) = start_initiator_with_configuration(
+    let (initiator, initiator_done, initiator_sender, _) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
             .with_reconnect_delay(Duration::from_millis(1000))
@@ -147,7 +149,7 @@ async fn test_accept_stage_supervised_restart() -> anyhow::Result<()> {
         start_responder_with_failing_accept(Configuration::responder(), 1, 1).await?;
 
     // Start an initiator that will connect to the responder
-    let (initiator, initiator_done, _) = start_initiator_with_configuration(
+    let (initiator, initiator_done, _, _) = start_initiator_with_configuration(
         Configuration::initiator()
             .with_addr(addr)
             .with_reconnect_delay(Duration::from_millis(500))
@@ -163,6 +165,102 @@ async fn test_accept_stage_supervised_restart() -> anyhow::Result<()> {
     check_state(initiator, responder)?;
 
     Ok(())
+}
+
+/// An outbound bearer starts in diffusion, drops to maintenance, then to none, and is removed.
+///
+/// The chains do not meet, so chain-sync records the peer uninteresting and leaves the bearer up.
+/// Demotion is the step peer selection takes from that mark. Idle block-fetch then terminates
+/// after `ClientDone`. Maintenance is recorded only after chain-sync, block-fetch, and
+/// tx-submission have stopped.
+#[tokio::test]
+async fn connection_steps_down_through_maintenance_and_is_removed() -> anyhow::Result<()> {
+    setup_logging();
+    let (_responder, addr, _responder_done) = start_responder().await?;
+    let (_initiator, _initiator_done, sender, tracking) = start_initiator_with_configuration(
+        Configuration::initiator().with_addr(addr).with_disjoint_chain().with_empty_mempool(),
+    )
+    .await?;
+    let peer = Peer::try_from(addr).expect("test listen address is a peer");
+
+    let conn_id = wait_for_local_use(&tracking, None, MiniProtocolUse::Diffusion).await?;
+    wait_for_uninteresting(&tracking, conn_id).await?;
+    sender.send(ManagerMessage::SetLocalUse { peer, conn_id, local_use: MiniProtocolUse::Maintenance }).await.unwrap();
+    wait_for_local_use(&tracking, Some(conn_id), MiniProtocolUse::Maintenance).await?;
+    sender.send(ManagerMessage::SetLocalUse { peer, conn_id, local_use: MiniProtocolUse::None }).await.unwrap();
+    wait_for_local_use(&tracking, Some(conn_id), MiniProtocolUse::None).await?;
+
+    sender.send(ManagerMessage::RemovePeer(peer)).await.unwrap();
+    wait_for_close(&tracking, conn_id).await?;
+    let uses = recorded_uses(&tracking);
+    let diffusion = uses.iter().position(|(_, use_of)| *use_of == MiniProtocolUse::Diffusion);
+    let maintenance = uses.iter().position(|(_, use_of)| *use_of == MiniProtocolUse::Maintenance);
+    let none = uses.iter().position(|(_, use_of)| *use_of == MiniProtocolUse::None);
+    assert!(
+        matches!((diffusion, maintenance, none), (Some(diffusion), Some(maintenance), Some(none))
+            if diffusion < maintenance && maintenance < none),
+        "local use did not step diffusion, then maintenance, then none: {uses:?}"
+    );
+    Ok(())
+}
+
+async fn wait_for_uninteresting(tracking: &InMemoryPeerTracking, conn_id: ConnectionId) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        if tracking.uninteresting().iter().any(|(_, id, after_rollback, _)| *id == conn_id && !*after_rollback) {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!(
+                "timed out waiting for {conn_id} to be recorded uninteresting; recorded {:?}",
+                tracking.uninteresting()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn wait_for_local_use(
+    tracking: &InMemoryPeerTracking,
+    conn_id: Option<ConnectionId>,
+    expected: MiniProtocolUse,
+) -> anyhow::Result<ConnectionId> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        if let Some(id) = recorded_uses(tracking)
+            .into_iter()
+            .rev()
+            .find_map(|(id, use_of)| (use_of == expected && conn_id.is_none_or(|wanted| wanted == id)).then_some(id))
+        {
+            return Ok(id);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for {expected:?} on {conn_id:?}; recorded {}", uses_of(tracking));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn wait_for_close(tracking: &InMemoryPeerTracking, conn_id: ConnectionId) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        if tracking.closed().iter().any(|(_, id, reason, _)| *id == conn_id && *reason == CloseReason::LocalDisconnect)
+        {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for {conn_id} to close; recorded {:?}", tracking.closed());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn recorded_uses(tracking: &InMemoryPeerTracking) -> Vec<(ConnectionId, MiniProtocolUse)> {
+    tracking.local_uses().into_iter().map(|(_, id, use_of, _)| (id, use_of)).collect()
+}
+
+fn uses_of(tracking: &InMemoryPeerTracking) -> String {
+    format!("{:?}", recorded_uses(tracking))
 }
 
 /// Create and start a responder node that listens for incoming connections on a free port found at
@@ -219,7 +317,7 @@ async fn start_responder_with_configuration(
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
 async fn start_initiator_at(
     addr: impl Into<Option<SocketAddr>>,
-) -> anyhow::Result<(TokioRunning, Arc<Notify>, amaru_pure_stage::Sender<ManagerMessage>)> {
+) -> anyhow::Result<(TokioRunning, Arc<Notify>, amaru_pure_stage::Sender<ManagerMessage>, Arc<InMemoryPeerTracking>)> {
     let addr = addr.into().unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3000)));
     start_initiator_with_configuration(Configuration::initiator().with_addr(addr)).await
 }
@@ -228,7 +326,7 @@ async fn start_initiator_at(
 /// ChainSync events are sent to a stage that stores them in the in-memory store without further processing.
 async fn start_initiator_with_configuration(
     configuration: Configuration,
-) -> anyhow::Result<(TokioRunning, Arc<Notify>, amaru_pure_stage::Sender<ManagerMessage>)> {
+) -> anyhow::Result<(TokioRunning, Arc<Notify>, amaru_pure_stage::Sender<ManagerMessage>, Arc<InMemoryPeerTracking>)> {
     tracing::info!("Creating the initiator");
     let addr = configuration.addr;
     let peer = Peer::try_from(addr).expect("test listen address is a peer");
@@ -260,13 +358,14 @@ async fn start_initiator_with_configuration(
     let initiator_sender = initiator_network.input(initiator_stage);
 
     let initiator_connections = TokioConnections::new(CONNECTION_BUFFER_SIZE);
-    set_resources(configuration.chain_store, configuration.mempool, &mut initiator_network, initiator_connections)?;
+    let tracking =
+        set_resources(configuration.chain_store, configuration.mempool, &mut initiator_network, initiator_connections)?;
 
     tracing::info!("Start the initiator");
     let running_initiator = initiator_network.run(Handle::current());
     initiator_sender.send(ManagerMessage::AddPeer(peer)).await.unwrap();
 
-    Ok((running_initiator, notify, initiator_sender))
+    Ok((running_initiator, notify, initiator_sender, tracking))
 }
 
 /// Create and start a responder node that uses the manager's supervised accept stage.

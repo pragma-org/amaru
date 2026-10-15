@@ -108,17 +108,45 @@ impl Configuration {
         self.max_n2n_version = version;
         self
     }
+
+    /// Replace the chain with one block whose root the default test chain does not contain.
+    pub(super) fn with_disjoint_chain(mut self) -> Self {
+        let chain_store = Arc::new(InMemoryChainStore::default());
+        initialize_chain_from(1, chain_store.as_ref(), disjoint_root_hash().expect("disjoint root hash")).unwrap();
+        self.chain_store = chain_store;
+        self.chain_length = 1;
+        self
+    }
+
+    pub(super) fn with_empty_mempool(mut self) -> Self {
+        self.mempool = Arc::new(InMemoryMempool::default());
+        self
+    }
 }
 
 pub const RESPONDER_BLOCKS_NB: usize = 10;
 pub const INITIATOR_BLOCKS_NB: usize = 4;
 
+fn shared_root_hash() -> anyhow::Result<HeaderHash> {
+    // Same root for the default initiator and responder chains, so they intersect.
+    Ok(amaru_kernel::Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")?)
+}
+
+fn disjoint_root_hash() -> anyhow::Result<HeaderHash> {
+    Ok(amaru_kernel::Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77302")?)
+}
+
+fn initialize_chain_store(chain_length: usize, chain_store: &dyn ChainStore) -> anyhow::Result<()> {
+    initialize_chain_from(chain_length, chain_store, shared_root_hash()?)
+}
+
 /// Initialize the chain store with a chain of headers.
 /// The responder chain is longer than the initiator chain to force the initiator to catch up.
-fn initialize_chain_store(chain_length: usize, chain_store: &dyn ChainStore) -> anyhow::Result<()> {
-    // Use the same root header for both initiator and responder
-    let origin_hash: HeaderHash =
-        amaru_kernel::Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")?;
+fn initialize_chain_from(
+    chain_length: usize,
+    chain_store: &dyn ChainStore,
+    origin_hash: HeaderHash,
+) -> anyhow::Result<()> {
     let root_header = make_header(100_000_000, 100_000_000, Some(origin_hash));
     let mut seeds = run_strategy(any_headers_chain_with_root(
         chain_length - 1, // -1 since we already have the root header

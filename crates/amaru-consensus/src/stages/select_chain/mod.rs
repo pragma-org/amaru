@@ -224,7 +224,7 @@ impl SelectChain {
 
         let Some((header, validity)) = store.load_header_with_validity(&tip.hash()).await else {
             error!(consensus::chain::HEADER_NOT_FOUND, role = "tip", tip, header_hash = tip.hash());
-            return eff.terminate().await;
+            eff.terminate().await;
         };
 
         // Block-body validity is independent of header validation. During startup,
@@ -329,7 +329,7 @@ impl SelectChain {
         let store = Store::new(eff.clone()).with_trace_context(&trace_context);
         if !store.has_header(&tip.hash()).await {
             error!(consensus::chain::HEADER_NOT_FOUND, role = "validation_target", tip, header_hash = tip.hash());
-            return eff.terminate().await;
+            eff.terminate().await;
         }
 
         let tip_hash = tip.hash();
@@ -414,7 +414,7 @@ impl SelectChain {
                 }
                 Err(e) => {
                     error!(consensus::chain::FIND_BEST_CANDIDATE_FAILED, error = e.to_string());
-                    return eff.terminate().await;
+                    eff.terminate().await;
                 }
             }
         } else if removed > 0 {

@@ -72,7 +72,7 @@ pub async fn accept_stage(state: AcceptState, _msg: PullAccept, eff: Effects<Pul
         }
         Err(err) => {
             tracing::error!(?err, "failed to accept a connection");
-            return eff.terminate().await;
+            eff.terminate().await;
         }
     }
     eff.schedule_after(PullAccept, Duration::from_millis(100)).await;

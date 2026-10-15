@@ -422,11 +422,11 @@ async fn do_handshake(
         HandshakeResult::Accepted(version_number, version_data) => (version_number, version_data),
         HandshakeResult::Refused(refuse_reason) => {
             error!(protocols::connection::HANDSHAKE_REFUSED, reason = format!("{refuse_reason:?}"));
-            return eff.terminate().await;
+            eff.terminate().await;
         }
         HandshakeResult::Query(version_table) => {
             info!(protocols::connection::HANDSHAKE_QUERY_REPLY, version_table = format!("{version_table:?}"));
-            return eff.terminate().await;
+            eff.terminate().await;
         }
     };
 
@@ -453,7 +453,7 @@ async fn do_handshake(
     // (unknown id, mismatch, inbound cap, or a duplicate). Either way this stage will not
     // get another handshake result, so the socket must close.
     if recorded != Some(true) {
-        return eff.terminate().await;
+        eff.terminate().await;
     }
 
     eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
