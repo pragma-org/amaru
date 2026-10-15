@@ -268,7 +268,7 @@ where
                 proto = s;
                 if let Some(e) = outcome.terminate_with {
                     warn("protocol error")(e).await;
-                    return eff.terminate().await;
+                    eff.terminate().await;
                 }
                 if outcome.want_next {
                     eff.send(stage.muxer(), MuxMessage::WantNext(proto_id.erase())).await;
@@ -281,7 +281,7 @@ where
                     .await;
                 }
                 if outcome.finished {
-                    return eff.terminate().await;
+                    eff.terminate().await;
                 }
             }
 

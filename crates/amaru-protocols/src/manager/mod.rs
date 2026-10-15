@@ -443,7 +443,7 @@ impl Manager {
                     listen_addr = listen_addr.to_string(),
                     error = error.to_string()
                 );
-                return eff.terminate().await;
+                eff.terminate().await;
             }
         }
     }

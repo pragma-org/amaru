@@ -265,7 +265,7 @@ impl FetchBlocks {
         if from.hash() == ORIGIN_HASH {
             if to != ORIGIN_HASH {
                 error!(consensus::blocks::RECOVER_INCONSISTENT, from, to, reason = "ledger_tip_is_origin");
-                return eff.terminate().await;
+                eff.terminate().await;
             }
             return;
         }
@@ -274,7 +274,7 @@ impl FetchBlocks {
 
         let Some(to_replay) = store.ancestors_between(from, to).await else {
             error!(consensus::blocks::RECOVER_INCONSISTENT, from, to, reason = "broken_chain");
-            return eff.terminate().await;
+            eff.terminate().await;
         };
 
         let best_tip_header = store
@@ -320,7 +320,7 @@ impl FetchBlocks {
                 }
                 Err(error) => {
                     error!(consensus::blocks::RECOVER_FAILED, error = error.to_string(), header_hash = hash);
-                    return eff.terminate().await;
+                    eff.terminate().await;
                 }
             }
         }
@@ -345,7 +345,7 @@ impl FetchBlocks {
         let missing = match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_PER_BATCH).await {
             Ok(MissingBlocksResult::StartHeaderNotFound) => {
                 error!(consensus::blocks::HEADER_NOT_FOUND, header_hash = tip.hash());
-                return eff.terminate().await;
+                eff.terminate().await;
             }
             Ok(MissingBlocksResult::BoundaryNotFound) => {
                 debug!(consensus::blocks::NO_BOUNDARY);
@@ -355,7 +355,7 @@ impl FetchBlocks {
             Ok(MissingBlocksResult::Found(missing_blocks)) => missing_blocks,
             Err(error) => {
                 error!(consensus::blocks::FIND_MISSING_FAILED, error = error.to_string());
-                return eff.terminate().await;
+                eff.terminate().await;
             }
         };
 
@@ -398,7 +398,7 @@ impl FetchBlocks {
                         Ok(false) => {}
                         Err(error) => {
                             error!(consensus::blocks::FIND_MISSING_FAILED, error = error.to_string());
-                            return eff.terminate().await;
+                            eff.terminate().await;
                         }
                     }
                 }

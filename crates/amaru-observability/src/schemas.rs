@@ -2054,6 +2054,19 @@ define_schemas! {
                     required from_chunk: u64
                     required through_chunk: u64
                 }
+                /// Reuse cached immutable files after verifying them against the selected snapshot
+                public event REUSE_CACHE {
+                    levels: info
+                    required from_chunk: u64
+                    required through_chunk: u64
+                }
+                /// Cached immutable files did not verify, so fetch the selected range again
+                public event REDOWNLOAD_CACHE {
+                    levels: warn
+                    required from_chunk: u64
+                    required through_chunk: u64
+                    required reason: String
+                }
                 /// Download and verify the digests for a Mithril snapshot
                 public event VERIFY_DIGESTS {
                     levels: info

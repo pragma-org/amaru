@@ -542,13 +542,13 @@ impl<M> Effects<M> {
     /// ```ignore
     /// async |state, msg, eff| {
     ///     if msg.is_fatal() {
-    ///         return eff.terminate().await;
+    ///         eff.terminate().await;
     ///     }
     ///     // ...
     ///     state
     /// }
     /// ```
-    pub fn terminate<T>(&self) -> BoxFuture<'static, T> {
+    pub fn terminate(&self) -> BoxFuture<'static, !> {
         airlock_effect(&self.effect, StageEffect::Terminate, |_eff| never())
     }
 

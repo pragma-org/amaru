@@ -276,7 +276,7 @@ pub enum CredentialsError {
         "block forging key files are refused on mainnet; they are available on preprod, preview, and other testnets"
     )]
     Mainnet,
-    #[error("block forging needs --operator-kes, --operator-vrf, and --operator-operational-certificate together")]
+    #[error("block forging needs --operator-kes, --operator-vrf, and --operator-cert together")]
     PartialFlags,
 }
 

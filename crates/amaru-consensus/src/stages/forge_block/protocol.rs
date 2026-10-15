@@ -217,7 +217,7 @@ async fn handle_adopted_tip(
                             tip = state.adopted_tip,
                             invariant = error.to_string()
                         );
-                        return eff.terminate().await;
+                        eff.terminate().await;
                     }
                 },
                 None => true,
@@ -368,7 +368,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         }
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "sign_header", error = error.to_string());
-            return session.terminate().await;
+            session.terminate().await;
         }
     };
     let session = session.finish().receive(&Publish, eff.clone());
@@ -379,7 +379,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "validate_header", error = error.to_string());
             // A header we just signed must validate; this is an invariant, not a protocol choice.
-            return eff.terminate().await;
+            eff.terminate().await;
         }
     };
 
@@ -389,20 +389,20 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         Ok(block) => block,
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
-            return eff.terminate().await;
+            eff.terminate().await;
         }
     };
     let (stored, session) = session.external(StoreValidatedHeaderEffect::new(header, nonces)).await;
     if let Err(error) = stored {
         error!(consensus::forge::FORGE_FAILED, slot, step = "store_header", error = error.to_string());
         // Chain-store invariant; Amaru is shutting down regardless of this remainder.
-        return eff.terminate().await;
+        eff.terminate().await;
     }
 
     let (stored, session) = session.external(StoreBlockEffect::new(&header_hash, block)).await;
     if let Err(error) = stored {
         error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
-        return eff.terminate().await;
+        eff.terminate().await;
     }
 
     let (now, mut session) = session.clock().await;

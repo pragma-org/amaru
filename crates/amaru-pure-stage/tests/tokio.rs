@@ -157,7 +157,7 @@ async fn terminating_dynamic_parent_drops_child() {
             if let Some(guard) = guard {
                 let mut guard = Some(guard);
                 let parent = eff
-                    .stage("parent", move |state, (): (), eff| {
+                    .stage("parent", move |_state, (): (), eff| {
                         let guard = guard.take().unwrap();
                         async move {
                             let child = eff
@@ -167,8 +167,7 @@ async fn terminating_dynamic_parent_drops_child() {
                                 })
                                 .await;
                             eff.wire_up(child, ()).await;
-                            eff.terminate::<()>().await;
-                            state
+                            eff.terminate().await;
                         }
                     })
                     .await;

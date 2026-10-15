@@ -738,9 +738,8 @@ pub trait SessionOps<M, Rem>: Sized {
         Rem: super::DiscardRepeat;
 
     /// Protocol terminate. Consumes a [`Terminate`] allowance. Never returns.
-    fn terminate<T, I>(self) -> impl Future<Output = T> + Send
+    fn terminate<I>(self) -> impl Future<Output = !> + Send
     where
-        T: Send,
         Rem: Take<Terminate, I>;
 
     /// End the session when a remainder branch is [`To<S>`].
@@ -888,9 +887,8 @@ impl<M, Rem> SessionOps<M, Rem> for Session<M, Rem> {
         Session::new(self.effects)
     }
 
-    fn terminate<T, I>(self) -> impl Future<Output = T> + Send
+    fn terminate<I>(self) -> impl Future<Output = !> + Send
     where
-        T: Send,
         Rem: Take<Terminate, I>,
     {
         self.effects.terminate()

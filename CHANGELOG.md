@@ -45,11 +45,13 @@ Other guiding principles:
 - **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
+- **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
 
 ### Changed
 
 - **amaru**: align command-line with the guidelines from EDR-0019; as a consequence, many options (and their corresponding environment variables) have been renamed. However, aliases are in place so that existing scripts or usage of Amaru should keep working. Yet, old options and variables are now deprecated and will be remove in the future.
 - **amaru**: remove legacy commands that were deprecated and hidden away months ago.
+- **amaru**: the operational certificate for block forging is passed with `--operator-cert` (or `AMARU_OPERATOR_CERT`). The legacy `--operational-certificate` and `AMARU_OPERATIONAL_CERTIFICATE` are still accepted.
 - **amaru**: the connection manager and peer selection each keep one extra mailbox slot per allowed upstream and downstream peer, on top of the default of 10. The mux mailbox holds 24 messages. The chain-sync initiator mailbox holds the pipeline depth plus 4. A block-fetch handler mailbox stays at 10 unless its pipeline is deeper than 3.
 - **amaru**: the connection manager refuses a new inbound handshake once `max_inbound` live inbound connections exist. The default is 10, and the node sets it from the downstream peer target.
 - **amaru-tui**: the peer table's Adopt column is the time from receiving the block to adopting it. Each peer row shows the share of recent live arrivals within 1s, 3s, and 5s.
@@ -77,6 +79,10 @@ Other guiding principles:
 - **amaru**: only a failed connect or a dial that never finishes holds off the next dial. Starting a dial, or a connection that closed, does not. A replacement dial after a close is not cancelled when that same close is seen again.
 - **amaru**: a notice that an old connection died is not counted as a failed dial when a later dial to that peer is already in progress.
 - **amaru**: block fetch reads which connections may initiate from the peer resource. A connection no longer sends that fact to the connection manager, so a full tip burst cannot deadlock the two.
+- **amaru-protocols**: fixed transition of the initiator from Diffusion to Maintenance so that churned connections are not forcibly closed.
+- **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
+- **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
+- **amaru-ledger**: DReps registered and deregistered within one block no longer produce spurious "unknown drep" errors during persistence.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
@@ -115,7 +121,7 @@ Other guiding principles:
 
 ### Added
 
-- **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--operator-kes`, `--operator-vrf`, and `--operator-operational-certificate` (unencrypted cardano-cli files). Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the certificate's cold signature does not verify, or when its sequence number is not the chain's counter for that pool or exactly one ahead.
+- **amaru**: on preprod, preview, and other testnets, `amaru node run` forges blocks when given `--operator-kes`, `--operator-vrf`, and `--operator-cert` (unencrypted cardano-cli files). Mainnet refuses those flags. Omitting them leaves the node a follower. Startup fails when the certificate's cold signature does not verify, or when its sequence number is not the chain's counter for that pool or exactly one ahead.
 - **amaru-bootstrap**: embedding applications can observe canonical bootstrap stages through a public API.
 - **amaru-node**: embedding applications can run cancellable Mithril synchronization through a public API.
 - **amaru**: `amaru dev env generate` to generate a (curated) list of environment variables available for Amaru main commands, acting as a configuration file.

@@ -168,7 +168,7 @@ fn call_then_terminate() {
             let response = eff.call(&state, dur(1000), move |cr| CallMsg(msg, cr)).await;
             if let Some(_value) = response {
                 // We received a response, now terminate
-                return eff.terminate().await;
+                eff.terminate().await;
             }
             state
         });
@@ -392,7 +392,7 @@ fn supervision() {
                 // always terminates before the simulation ends--this termination is an important
                 // aspect of the test.
                 eff.wait(Duration::from_millis(500)).await;
-                return eff.terminate().await;
+                eff.terminate().await;
             }
         });
         let trigger = builder.wire_up(trigger, ());

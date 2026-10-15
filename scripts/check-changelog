@@ -470,7 +470,7 @@ def failure_report_markdown(
 
     return (
         "## Changelog check failed\n\n"
-        f"Expected release heading: `{expected_version}` (planned for {expected_day.isoformat()})\n\n"
+        f"Expected release heading: `{expected_version}` _[unreleased; planned for {expected_day.isoformat()}]_\n\n"
         "Errors:\n\n"
         + rendered_failures
         + "\n\n"
