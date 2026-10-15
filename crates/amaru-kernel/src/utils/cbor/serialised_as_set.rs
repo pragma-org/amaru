@@ -48,17 +48,40 @@ impl<'d, C, E: Ord + cbor::Decode<'d, C>> cbor::Decode<'d, C> for SerialisedAsSe
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         decode_set_tag(d)?;
 
-        let position = d.position();
-        let elements: Vec<E> = d.decode_with(ctx)?;
-        let length = elements.len();
-
-        let elements = BTreeSet::from_iter(elements);
-        if elements.len() != length {
-            return Err(cbor::decode::Error::message(HAS_DUPLICATE).at(position));
+        let mut elements = BTreeSet::new();
+        match d.array()? {
+            // definite form
+            Some(len) => {
+                for _ in 0..len {
+                    insert_element(d, ctx, &mut elements)?;
+                }
+            }
+            // indefinite form
+            None => {
+                while d.datatype()? != cbor::Type::Break {
+                    insert_element(d, ctx, &mut elements)?;
+                }
+                // skip the break
+                d.skip()?;
+            }
         }
-
         Ok(Self(elements))
     }
+}
+
+/// Decode one element into `elements` and raise an error for a duplicated element
+fn insert_element<'d, C, E: Ord + cbor::Decode<'d, C>>(
+    d: &mut cbor::Decoder<'d>,
+    ctx: &mut C,
+    elements: &mut BTreeSet<E>,
+) -> Result<(), cbor::decode::Error> {
+    let position = d.position();
+
+    if !elements.insert(d.decode_with(ctx)?) {
+        return Err(cbor::decode::Error::message(HAS_DUPLICATE).at(position));
+    }
+
+    Ok(())
 }
 
 fn decode_set_tag(d: &mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error> {
