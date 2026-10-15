@@ -162,7 +162,13 @@ impl AmaruTag {
 
     const LAYOUT_VERSION: u32 = 0;
 
-    const FLAGS_MASK: u32 = (1 << 6) - 1;
+    const LAYOUT_VERSION_SHIFT: u32 = 20;
+
+    const RELEASE_DAY_SHIFT: u32 = 4;
+
+    const RELEASE_DAY_MASK: u32 = (1 << 16) - 1;
+
+    const FLAGS_MASK: u32 = (1 << 4) - 1;
 
     pub const fn new(release_day: ReleaseDay) -> Self {
         Self { release_day }
@@ -173,20 +179,18 @@ impl AmaruTag {
     }
 
     pub const fn software_tag(&self) -> SoftwareTag {
-        let payload = (Self::LAYOUT_VERSION << 20) | ((self.release_day.0 as u32) << 6);
+        let payload = (Self::LAYOUT_VERSION << Self::LAYOUT_VERSION_SHIFT)
+            | (self.release_day.fields() << Self::RELEASE_DAY_SHIFT);
         SoftwareTag::Attributed { id: Self::ID, payload: Payload(payload) }
     }
 }
 
 impl fmt::Display for AmaruTag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "layout {}, release day {} ({}), no flags",
-            Self::LAYOUT_VERSION,
-            self.release_day.0,
-            self.release_day
-        )
+        match self.release_day.date() {
+            Some(date) => write!(f, "layout {}, released {date}, no flags", Self::LAYOUT_VERSION),
+            None => write!(f, "layout {}, unreleased, no flags", Self::LAYOUT_VERSION),
+        }
     }
 }
 
@@ -200,7 +204,7 @@ impl TryFrom<SoftwareTag> for AmaruTag {
             SoftwareTag::Attributed { id, .. } if id != Self::ID => return Err(AmaruTagError::Id(id)),
             SoftwareTag::Attributed { payload, .. } => payload.0,
         };
-        let layout_version = payload >> 20;
+        let layout_version = payload >> Self::LAYOUT_VERSION_SHIFT;
         if layout_version != Self::LAYOUT_VERSION {
             return Err(AmaruTagError::LayoutVersion(layout_version));
         }
@@ -208,8 +212,8 @@ impl TryFrom<SoftwareTag> for AmaruTag {
         if flags != 0 {
             return Err(AmaruTagError::UnassignedFlags(flags));
         }
-        let days = (payload >> 6) & ReleaseDay::MAX.0 as u32;
-        Ok(Self::new(ReleaseDay(days as u16)))
+        let fields = (payload >> Self::RELEASE_DAY_SHIFT) & Self::RELEASE_DAY_MASK;
+        ReleaseDay::from_fields(fields).map(Self::new).map_err(AmaruTagError::ReleaseDay)
     }
 }
 
@@ -223,21 +227,30 @@ pub enum AmaruTagError {
     Id(ProducerId),
     #[error("payload layout version {0} is unknown")]
     LayoutVersion(u32),
-    #[error("unassigned flag bits set: {0:#08b}")]
+    #[error("unassigned flag bits set: {0:#06b}")]
     UnassignedFlags(u32),
+    #[error("release day: {0}")]
+    ReleaseDay(ReleaseDayError),
 }
 
-/// Days since 2026-01-01 (UTC); `0` is an unreleased build.
+/// UTC day a release was cut, or none for an unreleased build.
+///
+/// Packed into 16 bits as `YY` (7 bits), `MM` (4 bits) and `DD` (5 bits);
+/// an unreleased build packs to `0`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[repr(transparent)]
-pub struct ReleaseDay(u16);
+pub struct ReleaseDay(Option<CalendarDate>);
 
 impl ReleaseDay {
-    pub const UNRELEASED: Self = Self(0);
+    pub const UNRELEASED: Self = Self(None);
 
-    pub const MAX: Self = Self((1 << 14) - 1);
+    const FIRST_YEAR: u16 = 2000;
 
-    const EPOCH: CalendarDate = CalendarDate { year: 2026, month: 1, day: 1 };
+    const LAST_YEAR: u16 = Self::FIRST_YEAR + (1 << 7) - 1;
+
+    const YEAR_SHIFT: u32 = 9;
+
+    const MONTH_SHIFT: u32 = 5;
 
     pub const fn from_version_patch(patch: &str) -> Result<Self, ReleaseDayError> {
         let digits = patch.as_bytes();
@@ -267,28 +280,42 @@ impl ReleaseDay {
         if !date.is_valid() {
             return Err(ReleaseDayError::InvalidDate(date));
         }
-        let days = date.days_from_civil() - Self::EPOCH.days_from_civil();
-        if days < 1 || days > Self::MAX.0 as i64 {
+        if date.year < Self::FIRST_YEAR || date.year > Self::LAST_YEAR {
             return Err(ReleaseDayError::OutOfRange(date));
         }
-        Ok(Self(days as u16))
+        Ok(Self(Some(date)))
     }
 
     pub const fn date(&self) -> Option<CalendarDate> {
-        if self.0 == 0 {
-            return None;
-        }
-        Some(CalendarDate::civil_from_days(Self::EPOCH.days_from_civil() + self.0 as i64))
+        self.0
     }
 
-    pub const fn days(&self) -> u16 {
-        self.0
+    const fn fields(&self) -> u32 {
+        match self.0 {
+            None => 0,
+            Some(date) => {
+                ((date.year - Self::FIRST_YEAR) as u32) << Self::YEAR_SHIFT
+                    | (date.month as u32) << Self::MONTH_SHIFT
+                    | date.day as u32
+            }
+        }
+    }
+
+    const fn from_fields(fields: u32) -> Result<Self, ReleaseDayError> {
+        if fields == 0 {
+            return Ok(Self::UNRELEASED);
+        }
+        Self::from_date(CalendarDate {
+            year: Self::FIRST_YEAR + (fields >> Self::YEAR_SHIFT) as u16,
+            month: ((fields >> Self::MONTH_SHIFT) & 0xF) as u8,
+            day: (fields & 0x1F) as u8,
+        })
     }
 }
 
 impl fmt::Display for ReleaseDay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.date() {
+        match self.0 {
             Some(date) => write!(f, "{date}"),
             None => write!(f, "unreleased"),
         }
@@ -301,7 +328,7 @@ pub enum ReleaseDayError {
     Malformed,
     #[error("{0} is not a calendar date")]
     InvalidDate(CalendarDate),
-    #[error("{0} is outside the representable range, 2026-01-02 to 2070-11-09")]
+    #[error("{0} is outside the representable range, 2000-01-01 to 2127-12-31")]
     OutOfRange(CalendarDate),
 }
 
@@ -330,30 +357,6 @@ impl CalendarDate {
     const fn is_leap_year(&self) -> bool {
         self.year.is_multiple_of(4) && (!self.year.is_multiple_of(100) || self.year.is_multiple_of(400))
     }
-
-    const fn days_from_civil(&self) -> i64 {
-        let y = self.year as i64 - if self.month <= 2 { 1 } else { 0 };
-        let m = self.month as i64;
-        let d = self.day as i64;
-        let era = y.div_euclid(400);
-        let yoe = y - era * 400;
-        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        era * 146097 + doe - 719468
-    }
-
-    const fn civil_from_days(days: i64) -> Self {
-        let z = days + 719468;
-        let era = z.div_euclid(146097);
-        let doe = z - era * 146097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        Self { year: (if m <= 2 { y + 1 } else { y }) as u16, month: m as u8, day: d as u8 }
-    }
 }
 
 impl fmt::Display for CalendarDate {
@@ -372,13 +375,17 @@ mod tests {
         CalendarDate { year, month, day }
     }
 
+    const fn released(year: u16, month: u8, day: u8) -> ReleaseDay {
+        ReleaseDay(Some(date(year, month, day)))
+    }
+
     #[test_case("0" => Ok(ReleaseDay::UNRELEASED); "unreleased")]
-    #[test_case("20260611" => Ok(ReleaseDay(161)); "first release")]
-    #[test_case("20260925" => Ok(ReleaseDay(267)); "later release")]
-    #[test_case("20701109" => Ok(ReleaseDay::MAX); "last representable day")]
-    #[test_case("20701110" => Err(ReleaseDayError::OutOfRange(date(2070, 11, 10))); "past the last day")]
-    #[test_case("20260101" => Err(ReleaseDayError::OutOfRange(date(2026, 1, 1))); "epoch day would read as unreleased")]
-    #[test_case("20251231" => Err(ReleaseDayError::OutOfRange(date(2025, 12, 31))); "before the epoch")]
+    #[test_case("20260611" => Ok(released(2026, 6, 11)); "first release")]
+    #[test_case("20260925" => Ok(released(2026, 9, 25)); "later release")]
+    #[test_case("20000101" => Ok(released(2000, 1, 1)); "first representable day")]
+    #[test_case("21271231" => Ok(released(2127, 12, 31)); "last representable day")]
+    #[test_case("21280101" => Err(ReleaseDayError::OutOfRange(date(2128, 1, 1))); "past the last day")]
+    #[test_case("19991231" => Err(ReleaseDayError::OutOfRange(date(1999, 12, 31))); "before the first day")]
     #[test_case("20260230" => Err(ReleaseDayError::InvalidDate(date(2026, 2, 30))); "no such day")]
     #[test_case("2026061" => Err(ReleaseDayError::Malformed); "too short")]
     #[test_case("00" => Err(ReleaseDayError::Malformed); "zero padded")]
@@ -387,36 +394,29 @@ mod tests {
         ReleaseDay::from_version_patch(patch)
     }
 
-    #[test_case(0 => None; "unreleased")]
-    #[test_case(161 => Some(date(2026, 6, 11)); "first release")]
-    #[test_case(267 => Some(date(2026, 9, 25)); "later release")]
-    #[test_case(16383 => Some(date(2070, 11, 9)); "last representable day")]
-    fn release_day_to_date(days: u16) -> Option<CalendarDate> {
-        ReleaseDay(days).date()
-    }
-
     #[test]
-    fn every_representable_day_round_trips() {
-        for days in 1..=ReleaseDay::MAX.0 {
-            let day = ReleaseDay(days);
-            let date = day.date().unwrap();
-            assert!(date.is_valid(), "{date}");
-            assert_eq!(ReleaseDay::from_date(date), Ok(day), "{date}");
+    fn every_valid_release_day_round_trips() {
+        for fields in 0..=AmaruTag::RELEASE_DAY_MASK {
+            if let Ok(day) = ReleaseDay::from_fields(fields) {
+                assert_eq!(day.fields(), fields, "{day}");
+            }
         }
     }
 
     #[test_case(ReleaseDay::UNRELEASED => 0x0000_0041; "unreleased")]
-    #[test_case(ReleaseDay(161) => 0x0028_4041; "release 20260611")]
-    #[test_case(ReleaseDay(267) => 0x0042_C041; "release 20260925")]
-    #[test_case(ReleaseDay::MAX => 0x0FFF_C041; "last representable day")]
+    #[test_case(released(2026, 6, 11) => 0x034C_B041; "release 20260611")]
+    #[test_case(released(2026, 9, 25) => 0x0353_9041; "release 20260925")]
+    #[test_case(released(2127, 12, 31) => 0x0FF9_F041; "last representable day")]
     fn amaru_tag_minor(release_day: ReleaseDay) -> u32 {
         u32::from(AmaruTag::new(release_day).software_tag())
     }
 
     #[test_case(0x0000_0041 => Ok(AmaruTag::new(ReleaseDay::UNRELEASED)); "unreleased")]
-    #[test_case(0x0042_C041 => Ok(AmaruTag::new(ReleaseDay(267))); "release 20260925")]
-    #[test_case(0x0042_C141 => Err(AmaruTagError::UnassignedFlags(1)); "flag bit 0 set")]
-    #[test_case(0x1042_C041 => Err(AmaruTagError::LayoutVersion(1)); "layout version 1")]
+    #[test_case(0x0353_9041 => Ok(AmaruTag::new(released(2026, 9, 25))); "release 20260925")]
+    #[test_case(0x0353_9141 => Err(AmaruTagError::UnassignedFlags(1)); "flag bit 0 set")]
+    #[test_case(0x1353_9041 => Err(AmaruTagError::LayoutVersion(1)); "layout version 1")]
+    #[test_case(0x0345_E041 => Err(AmaruTagError::ReleaseDay(ReleaseDayError::InvalidDate(date(2026, 2, 30)))); "no such day")]
+    #[test_case(0x0000_1041 => Err(AmaruTagError::ReleaseDay(ReleaseDayError::InvalidDate(date(2000, 0, 1)))); "month zero")]
     #[test_case(0x0000_00FF => Err(AmaruTagError::OptOut); "opted out")]
     #[test_case(0x0000_0000 => Err(AmaruTagError::NoSignal); "no signal")]
     #[test_case(0x0000_0045 => Err(AmaruTagError::Id(ProducerId(69))); "another producer")]
@@ -436,15 +436,15 @@ mod tests {
 
     #[test]
     fn software_tag_round_trips() {
-        for minor in [0, 255, 0x45, 0x0042_C041, 0x3FFF_FF45] {
+        for minor in [0, 255, 0x45, 0x0353_9041, 0x3FFF_FF45] {
             assert_eq!(u32::from(SoftwareTag::try_from(minor).unwrap()), minor);
         }
     }
 
     #[test]
     fn amaru_tag_round_trips() {
-        for days in [0, 1, 161, 267, ReleaseDay::MAX.0] {
-            let tag = AmaruTag::new(ReleaseDay(days));
+        for day in [ReleaseDay::UNRELEASED, released(2000, 1, 1), released(2026, 9, 25), released(2127, 12, 31)] {
+            let tag = AmaruTag::new(day);
             assert_eq!(AmaruTag::try_from(tag.software_tag()), Ok(tag));
         }
     }
