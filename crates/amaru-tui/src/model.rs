@@ -27,6 +27,7 @@ use self::{
     rate_counter::RateCounter,
     stake_snapshot_state::StakeSnapshotState,
     telemetry_event::TelemetryEvent,
+    text_selection::{HeldCell, TextClick, TextDrag, TextPress},
     tip_state::TipState,
 };
 use crate::{
@@ -62,7 +63,10 @@ mod target_filter;
 mod telemetry_event;
 mod telemetry_update;
 mod terminal_event_outcome;
+pub(crate) mod text_selection;
 mod tip_state;
+
+pub(crate) use text_selection::TextPane;
 
 pub(crate) use self::{
     command_menu::CommandMenu,
@@ -108,6 +112,11 @@ pub struct Model {
     pub log_scrollbar_focused: bool,
     log_scrollbar_drag: bool,
     log_select_drag: bool,
+    text_press: Option<TextPress>,
+    text_drag: Option<TextDrag>,
+    last_text_click: Option<TextClick>,
+    held_cells: Vec<HeldCell>,
+    copy_status: Option<String>,
     pub peer_scroll: usize,
     pub proposal_scroll: usize,
     pub config_scroll: usize,
@@ -179,6 +188,11 @@ impl Model {
             log_scrollbar_focused: false,
             log_scrollbar_drag: false,
             log_select_drag: false,
+            text_press: None,
+            text_drag: None,
+            last_text_click: None,
+            held_cells: Vec::new(),
+            copy_status: None,
             peer_scroll: 0,
             proposal_scroll: 0,
             config_scroll: 0,
@@ -274,7 +288,10 @@ mod tests {
     use crate::{
         events::{FieldValue, Message, TelemetryRecord},
         startup::ProcessInfo,
-        ui::Views,
+        ui::{
+            Views,
+            text_map::{push_address_cell, push_plain_cell},
+        },
     };
 
     fn telemetry_record<const N: usize>(
@@ -2033,5 +2050,54 @@ mod tests {
         model.enter_copy_mode();
         click_log(&mut model, &views, 0);
         assert_eq!(model.selected_log_count(), None);
+    }
+
+    fn mouse_at(kind: MouseEventKind, column: u16, row: u16) -> Event {
+        Event::Mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE })
+    }
+
+    #[test]
+    fn double_click_on_a_peer_address_copies_the_whole_value() {
+        let mut model = ready_model();
+        let mut views = Views::default();
+        let record = views.text_map.next_record();
+        push_address_cell(&mut views.text_map, 4, 2, 8, "1.2.3.4:3001", Some("relay"), TextPane::Peers, record);
+
+        let first = model.handle_terminal_event(mouse_at(MouseEventKind::Down(MouseButton::Left), 4, 2), &views);
+        assert_eq!(first, TerminalEventOutcome::Continue);
+        let outcome = model.handle_terminal_event(mouse_at(MouseEventKind::Down(MouseButton::Left), 5, 2), &views);
+        let TerminalEventOutcome::CopyText { text, cells } = outcome else {
+            panic!("expected the address, got {outcome:?}");
+        };
+        assert_eq!(text, "1.2.3.4:3001");
+        assert_eq!(cells.len(), 8);
+    }
+
+    #[test]
+    fn a_text_drag_ignores_page_changes() {
+        let mut model = ready_model();
+        let mut views = Views::default();
+        let record = views.text_map.next_record();
+        push_plain_cell(&mut views.text_map, 2, 3, 6, "hello", TextPane::Logs, record);
+        let page = model.page;
+
+        assert_eq!(
+            model.handle_terminal_event(mouse_at(MouseEventKind::Down(MouseButton::Left), 2, 3), &views),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_terminal_event(mouse_at(MouseEventKind::Drag(MouseButton::Left), 5, 3), &views),
+            TerminalEventOutcome::StartTextDrag
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.page, page);
+        assert!(model.is_text_dragging());
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            TerminalEventOutcome::Shutdown
+        );
     }
 }

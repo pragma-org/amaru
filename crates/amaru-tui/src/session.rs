@@ -28,15 +28,17 @@ use std::{
 use amaru_metrics::MetricsEvent;
 use amaru_observability::TelemetryCaptureLayer;
 use crossterm::event;
+use ratatui::buffer::Buffer;
 
 use crate::{
     Config,
     capture::from_observability,
+    clipboard,
     events::{Message, MetricRecord},
-    model::{ENVIRONMENT_VARIABLE, KeyAliases, Model, Page, TerminalEventOutcome},
+    model::{ENVIRONMENT_VARIABLE, KeyAliases, Model, Page, TerminalEventOutcome, text_selection::HeldCell},
     startup::StartupContext,
     terminal_guard::TerminalGuard,
-    ui::{self, Views},
+    ui::{self, Views, text_map},
 };
 
 pub struct Session {
@@ -145,6 +147,18 @@ enum Control {
     Shutdown,
 }
 
+/// The frame on screen when a text drag started. Later paints copy this back and only change the highlight.
+struct FrozenFrame {
+    buffer: Buffer,
+    map: text_map::TextMap,
+}
+
+/// Live `ui::render` runs for a tick or an immediate update, and stays still during a text drag.
+/// Copy mode still draws an immediate frame, and does not redraw on the tick.
+pub(crate) fn should_draw_live(dragging: bool, immediate: bool, due: bool, copy_mode: bool) -> bool {
+    !dragging && (immediate || (due && !copy_mode))
+}
+
 fn run_terminal(
     config: Config,
     startup: StartupContext,
@@ -159,6 +173,7 @@ fn run_terminal(
     let mut views = Views::default();
     let mut next_draw_at = Instant::now();
     let mut immediate_draw = true;
+    let mut frozen: Option<FrozenFrame> = None;
 
     loop {
         if control_rx.try_recv().is_ok() {
@@ -167,13 +182,14 @@ fn run_terminal(
 
         if signal_count.load(Ordering::SeqCst) > 0 && !model.is_shutdown_mode() {
             model.enter_shutdown_mode();
+            frozen = None;
             terminal.set_mouse_capture(true)?;
             immediate_draw = true;
         }
 
         let now = Instant::now();
         let due = now >= next_draw_at;
-        if immediate_draw || (due && !model.is_copy_mode()) {
+        if should_draw_live(model.is_text_dragging(), immediate_draw, due, model.is_copy_mode()) {
             model.sync_logs();
             terminal.draw(|frame| ui::render(frame, &model, &mut views, now))?;
             immediate_draw = false;
@@ -201,8 +217,39 @@ fn run_terminal(
                     export_logs_to_cwd(&mut model);
                     immediate_draw = true;
                 }
-                TerminalEventOutcome::Shutdown => request_shutdown()?,
+                TerminalEventOutcome::Shutdown => {
+                    frozen = None;
+                    request_shutdown()?;
+                }
+                TerminalEventOutcome::StartTextDrag | TerminalEventOutcome::UpdateTextDrag => {
+                    if frozen.is_none() {
+                        frozen = Some(FrozenFrame { buffer: terminal.snapshot_screen(), map: views.text_map.clone() });
+                    }
+                    if let Some(frame) = frozen.as_ref() {
+                        paint_frozen_selection(&mut terminal, frame, &model)?;
+                    }
+                    immediate_draw = false;
+                }
+                TerminalEventOutcome::FinishTextDrag { anchor, current } => {
+                    if let Some(frame) = frozen.take() {
+                        copy_drag(&mut terminal, &mut model, &frame, anchor, current);
+                    }
+                    immediate_draw = true;
+                }
+                TerminalEventOutcome::CopyText { text, cells } => {
+                    let screen = terminal.snapshot_screen();
+                    copy_text(&mut terminal, &mut model, &text, &cells, &screen);
+                    immediate_draw = true;
+                }
             }
+        }
+
+        if model.is_text_dragging() {
+            while let Ok(message) = telemetry_rx.try_recv() {
+                model.handle_message(message);
+            }
+            let _ = event::poll(Duration::from_millis(16))?;
+            continue;
         }
 
         if immediate_draw {
@@ -224,6 +271,56 @@ fn run_terminal(
             Err(RecvTimeoutError::Disconnected) => {}
         }
     }
+}
+
+fn paint_frozen_selection(terminal: &mut TerminalGuard, frozen: &FrozenFrame, model: &Model) -> io::Result<()> {
+    let Some((anchor, current)) = model.text_drag_points() else {
+        return Ok(());
+    };
+    let cells = text_map::selection_cells(&frozen.map, anchor, current);
+    let style = ui::text_selection_style();
+    terminal.draw_buffer(&frozen.buffer, |buffer| {
+        for (x, y) in cells {
+            if let Some(cell) = buffer.cell_mut((x, y)) {
+                cell.set_style(style);
+            }
+        }
+    })
+}
+
+fn copy_drag(
+    terminal: &mut TerminalGuard,
+    model: &mut Model,
+    frozen: &FrozenFrame,
+    anchor: (u16, u16),
+    current: (u16, u16),
+) {
+    let text = text_map::drag_plain(&frozen.map, &frozen.buffer, anchor, current);
+    if text.is_empty() {
+        return;
+    }
+    let cells = text_map::selection_cells(&frozen.map, anchor, current);
+    copy_text(terminal, model, &text, &cells, &frozen.buffer);
+}
+
+fn copy_text(terminal: &mut TerminalGuard, model: &mut Model, text: &str, cells: &[(u16, u16)], buffer: &Buffer) {
+    if text.is_empty() {
+        return;
+    }
+    let attempt = clipboard::prepare_copy(text);
+    let osc_written = terminal.write_raw(&attempt.osc52).is_ok();
+    model.set_copy_status(clipboard::copy_status(attempt.pbcopy, attempt.tmux, osc_written));
+    model.hold_cells(cells_on_screen(buffer, cells));
+}
+
+fn cells_on_screen(buffer: &Buffer, cells: &[(u16, u16)]) -> Vec<HeldCell> {
+    cells
+        .iter()
+        .filter_map(|&(x, y)| {
+            let symbol = buffer.cell((x, y))?.symbol();
+            (!symbol.is_empty()).then(|| HeldCell { x, y, symbol: symbol.to_string() })
+        })
+        .collect()
 }
 
 fn enter_copy_mode(terminal: &mut TerminalGuard, model: &Model, views: &mut Views, now: Instant) -> io::Result<()> {
@@ -270,4 +367,19 @@ fn request_shutdown() -> io::Result<()> {
 #[cfg(not(unix))]
 fn request_shutdown() -> io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_draw_live;
+
+    #[test]
+    fn a_text_drag_skips_the_live_render() {
+        assert!(!should_draw_live(true, true, true, false));
+        assert!(!should_draw_live(true, false, true, false));
+        assert!(should_draw_live(false, true, false, true));
+        assert!(should_draw_live(false, false, true, false));
+        assert!(!should_draw_live(false, false, true, true));
+        assert!(!should_draw_live(false, false, false, false));
+    }
 }

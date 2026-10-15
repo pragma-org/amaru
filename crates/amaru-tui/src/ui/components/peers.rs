@@ -31,8 +31,11 @@ use super::super::{
     theme::{emphasis_primary, emphasis_white_color, muted, muted_color, striped_row_style, table_header_style},
 };
 use crate::{
-    model::{Model, PeerState, PeerUse, ScrollFocus},
-    ui::Views,
+    model::{InteractionMode, Model, PeerState, PeerUse, ScrollFocus, TextPane, scrollbar::ScrollbarGeometry},
+    ui::{
+        Views,
+        text_map::{column_offsets, push_address_cell, push_plain_cell},
+    },
 };
 
 pub(in crate::ui) fn render_peers_table(
@@ -65,12 +68,19 @@ pub(in crate::ui) fn render_peers_table(
     let peers = model.sorted_peers();
     let visible = body.height as usize;
     let start = model.peer_scroll.min(peers.len().saturating_sub(visible));
+    let columns = peer_columns();
+    let offsets = column_offsets(inner.width, &columns);
+    record_peer_header(&mut views.text_map, inner, &offsets);
     let rows = peers
         .into_iter()
         .skip(start)
         .take(visible)
         .enumerate()
-        .map(|(index, peer)| peer_row(start + index, peer, model.adopted_block_height))
+        .map(|(index, peer)| {
+            let y = body.y.saturating_add(u16::try_from(index).unwrap_or(u16::MAX));
+            record_peer_row(&mut views.text_map, inner.x, y, &offsets, peer, model.adopted_block_height);
+            peer_row(start + index, peer, model.adopted_block_height)
+        })
         .collect::<Vec<_>>();
     views.peer_toggle = Rect {
         x: area.x
@@ -80,56 +90,145 @@ pub(in crate::ui) fn render_peers_table(
         width: toggle_label.len() as u16,
         height: 1,
     };
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(6),
-            Constraint::Fill(4),
-            Constraint::Min(9),
-            Constraint::Min(8),
-            Constraint::Min(7),
-            Constraint::Min(5),
-            Constraint::Min(7),
-            Constraint::Length(1),
-            Constraint::Min(7),
-            Constraint::Length(1),
-            Constraint::Min(7),
-            Constraint::Length(1),
-            Constraint::Min(7),
-            Constraint::Length(5),
-            Constraint::Length(5),
-            Constraint::Length(5),
-        ],
-    )
-    .header(
-        Row::new(vec![
-            "up",
-            "dn",
-            "in/out",
-            "Peer",
-            "ChainSync",
-            "Adopted",
-            "RTT",
-            "Score",
-            "Observe",
-            "→",
-            "Select",
-            "→",
-            "Fetch",
-            "→",
-            "Adopt",
-            "≤1s",
-            "≤3s",
-            "≤5s",
-        ])
-        .style(table_header_style(model.interaction_mode)),
-    )
-    .column_spacing(1)
-    .block(block);
+    let table = Table::new(rows, columns)
+        .header(
+            Row::new(vec![
+                "up",
+                "dn",
+                "in/out",
+                "Peer",
+                "ChainSync",
+                "Adopted",
+                "RTT",
+                "Score",
+                "Observe",
+                "→",
+                "Select",
+                "→",
+                "Fetch",
+                "→",
+                "Adopt",
+                "≤1s",
+                "≤3s",
+                "≤5s",
+            ])
+            .style(table_header_style(model.interaction_mode)),
+        )
+        .column_spacing(1)
+        .block(block);
     frame.render_widget(table, area);
     render_scrollbar(frame, body, model.peers.len(), visible, start, model.interaction_mode, false);
+    note_scrollbar(&mut views.text_map, body, model.peers.len(), visible, start, model.interaction_mode);
+}
+
+fn peer_columns() -> [Constraint; 18] {
+    [
+        Constraint::Length(2),
+        Constraint::Length(2),
+        Constraint::Length(6),
+        Constraint::Fill(4),
+        Constraint::Min(9),
+        Constraint::Min(8),
+        Constraint::Min(7),
+        Constraint::Min(5),
+        Constraint::Min(7),
+        Constraint::Length(1),
+        Constraint::Min(7),
+        Constraint::Length(1),
+        Constraint::Min(7),
+        Constraint::Length(1),
+        Constraint::Min(7),
+        Constraint::Length(5),
+        Constraint::Length(5),
+        Constraint::Length(5),
+    ]
+}
+
+const PEER_HEADERS: [&str; 18] = [
+    "up",
+    "dn",
+    "in/out",
+    "Peer",
+    "ChainSync",
+    "Adopted",
+    "RTT",
+    "Score",
+    "Observe",
+    "→",
+    "Select",
+    "→",
+    "Fetch",
+    "→",
+    "Adopt",
+    "≤1s",
+    "≤3s",
+    "≤5s",
+];
+
+fn record_peer_header(map: &mut crate::ui::text_map::TextMap, inner: Rect, offsets: &[(u16, u16)]) {
+    if inner.height == 0 {
+        return;
+    }
+    let record = map.next_record();
+    for (label, (dx, width)) in PEER_HEADERS.iter().zip(offsets) {
+        push_plain_cell(map, inner.x.saturating_add(*dx), inner.y, *width, label, TextPane::Peers, record);
+    }
+}
+
+fn record_peer_row(
+    map: &mut crate::ui::text_map::TextMap,
+    origin_x: u16,
+    y: u16,
+    offsets: &[(u16, u16)],
+    peer: &PeerState,
+    adopted: Option<u64>,
+) {
+    let record = map.next_record();
+    let candidate = peer.candidate_label().map(str::to_owned);
+    let plains = [
+        use_symbol(peer.local_use).to_string(),
+        use_symbol(peer.remote_use).to_string(),
+        dial_label(peer).to_string(),
+        String::new(),
+        signed_height_gap(adopted, peer.roll_forward_height()),
+        signed_height_gap(adopted, peer.peer_tip_height()),
+        peer.last_rtt_micros.map(|value| format!("{:.1} ms", value as f64 / 1_000.0)).unwrap_or_else(|| "—".into()),
+        peer.announcement_score().to_string(),
+        peer.mean_slot_start_to_header_micros().map(format_micros).unwrap_or_else(|| "—".into()),
+        "→".into(),
+        peer.mean_query_header_micros().map(format_micros).unwrap_or_else(|| "—".into()),
+        "→".into(),
+        peer.mean_get_block_micros().map(format_micros).unwrap_or_else(|| "—".into()),
+        "→".into(),
+        peer.mean_adopt_block_micros().map(format_micros).unwrap_or_else(|| "—".into()),
+        format_share(peer.live_arrival_share_percent(1_000_000)),
+        format_share(peer.live_arrival_share_percent(3_000_000)),
+        format_share(peer.live_arrival_share_percent(5_000_000)),
+    ];
+    for (index, ((dx, width), plain)) in offsets.iter().zip(plains).enumerate() {
+        let x = origin_x.saturating_add(*dx);
+        if index == 3 {
+            push_address_cell(map, x, y, *width, &peer.address, candidate.as_deref(), TextPane::Peers, record);
+        } else {
+            push_plain_cell(map, x, y, *width, &plain, TextPane::Peers, record);
+        }
+    }
+}
+
+fn note_scrollbar(
+    map: &mut crate::ui::text_map::TextMap,
+    area: Rect,
+    total: usize,
+    visible: usize,
+    position: usize,
+    mode: InteractionMode,
+) {
+    if mode == InteractionMode::Copy || area.width == 0 || area.height == 0 {
+        return;
+    }
+    if ScrollbarGeometry::new(total, visible, position, area.height as usize).is_some() {
+        map.exclude(Rect { x: area.x + area.width.saturating_sub(1), y: area.y, width: 1, height: area.height });
+    }
 }
 
 fn peer_toggle_label(model: &Model) -> &'static str {
@@ -228,6 +327,14 @@ fn dial_label(peer: &PeerState) -> &'static str {
         (true, _) => "in",
         (false, Some(true)) => "out+",
         (false, _) => "out",
+    }
+}
+
+fn use_symbol(use_of: PeerUse) -> &'static str {
+    match use_of {
+        PeerUse::None => "-",
+        PeerUse::Maintenance => "○",
+        PeerUse::Diffusion => "●",
     }
 }
 
@@ -394,6 +501,10 @@ mod tests {
         let cell = buffer.cell((diffusion as u16, 0)).expect("diffusion cell");
         assert_eq!(cell.fg, Color::Rgb(110, 228, 150), "diffusion count stays accented: {cell:?}");
         assert!(cell.modifier.contains(Modifier::BOLD), "diffusion count stays bold: {cell:?}");
+        let (address_x, address_y) = views.text_map.token_origin("10.1.1.1:3001").expect("address span");
+        let address_cell = buffer.cell((address_x, address_y)).expect("address cell");
+        assert_eq!(address_cell.symbol(), "1", "the address span starts on the first glyph");
+
         let inbound = lines.iter().find(|line| line.contains("10.1.1.1:3001")).expect("inbound row");
         let outbound = lines.iter().find(|line| line.contains("10.2.2.2:3001")).expect("outbound row");
         assert!(inbound.contains("in"), "{inbound}");

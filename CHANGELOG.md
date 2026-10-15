@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru-tui**: double-click a value to copy it, or drag across a row to copy those characters. A peer address copies as `ip:port`. The screen stays still during the drag. On this Mac the text goes to the clipboard. Over tmux it also goes to the tmux paste buffer.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
 - **amaru**: `--log-output PATH:FILTER` (or `AMARU_LOG_OUTPUT`) writes an extra log file without replacing the terminal, the TUI, or OpenTelemetry. Repeat the flag for more files. The value is split at the first colon. A path ending in `.ndjson` uses the same JSON format as `--with-json-traces`, one object per line; any other path is text. Span close lines include busy and idle time. `amaru --log-output effects.ndjson:amaru_pure_stage::effect=debug node run` records how long each external effect runs.
   `try_setup_observability` and `setup_observability` take those file specs as an extra argument.
@@ -65,6 +66,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-tui**: on a large terminal the dashboard keeps the full height and uses at most 65,536 characters. The columns past that stay blank.
 - **amaru**: a fork switch logs each block it adopts. Those blocks, other than the new tip, are recorded as validated headers, so a later chain prune does not report them as pruned.
 - **amaru**: startup no longer logs `db_chain.initialize` when the chain store does not contain the ledger tip. The process still exits with the mismatch error.
 - **amaru**: the trace catalog describes an unknown pool retirement, an unknown reward reset, a DRep registration without a deposit, an unknown DRep removal, and an unknown DRep expiry refresh as those skips.

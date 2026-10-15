@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod capture;
+mod clipboard;
 mod config;
 mod events;
 mod model;

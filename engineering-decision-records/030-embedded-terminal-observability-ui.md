@@ -203,6 +203,9 @@ While copy mode is active:
   visible lines in that range (or every visible line if nothing is selected) to
   a plain-text file in the working directory
 - on the Config page, mouse capture is released so the terminal can select text
+- outside copy mode, a double-click copies the value under the pointer (a peer
+  address copies as the full `ip:port`) and a drag copies the plain characters.
+  The dashboard does not redraw while that drag is in progress
 - shell and widget borders, scrollbars, and separators are omitted so the log
   pane is easier to read and so Config text can be copied cleanly
 - directional keys keep scrolling available, while `f` opens the log command

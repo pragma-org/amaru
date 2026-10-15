@@ -12,11 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalEventOutcome {
     Continue,
     EnterCopyMode,
     ExitCopyMode,
     ExportLogs,
     Shutdown,
+    /// The pointer moved on a text row. The session freezes the frame it has already painted.
+    StartTextDrag,
+    UpdateTextDrag,
+    /// Mouse-up after a text drag. Coordinates are the press and the release.
+    FinishTextDrag {
+        anchor: (u16, u16),
+        current: (u16, u16),
+    },
+    /// Double-click. `cells` are the visible columns of the value.
+    CopyText {
+        text: String,
+        cells: Vec<(u16, u16)>,
+    },
 }
