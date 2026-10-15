@@ -24,7 +24,11 @@ use super::super::{
     common::{blit_buffer, panel_borders, panel_padding},
     theme::{border_secondary, emphasis_white_color, striped_row_style, table_header_style},
 };
-use crate::{model::InteractionMode, startup::ConfigSection};
+use crate::{
+    model::{InteractionMode, TextPane},
+    startup::ConfigSection,
+    ui::text_map::{TextMap, column_offsets, push_plain_cell},
+};
 
 const BLOCK_HORIZONTAL_CHROME: u16 = 2;
 const TABLE_COLUMN_SPACING: u16 = 1;
@@ -37,6 +41,7 @@ pub(in crate::ui) fn render_section_groups(
     show_environment: bool,
     scroll: usize,
     mode: InteractionMode,
+    text: &mut TextMap,
 ) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -63,12 +68,19 @@ pub(in crate::ui) fn render_section_groups(
         })
         .collect::<Vec<_>>();
     let chunks = Layout::default().direction(Direction::Vertical).constraints(constraints).split(offscreen_area);
+    let mut placed = PlacedText { map: text, view: area, scroll };
 
     for (chunk, section) in chunks.iter().copied().zip(sections.iter()) {
-        render_config_section(&mut offscreen, chunk, section, show_environment, mode);
+        render_config_section(&mut offscreen, chunk, section, show_environment, mode, &mut placed);
     }
 
     blit_buffer(frame, area, &offscreen, scroll);
+}
+
+struct PlacedText<'a> {
+    map: &'a mut TextMap,
+    view: Rect,
+    scroll: usize,
 }
 
 fn render_config_section(
@@ -77,90 +89,134 @@ fn render_config_section(
     section: &ConfigSection,
     show_environment: bool,
     mode: InteractionMode,
+    placed: &mut PlacedText<'_>,
 ) {
-    if section.entries.iter().all(|entry| entry.option.is_none() && entry.env_var.is_none()) {
-        let rows = section
-            .entries
+    let label = Style::default().fg(Color::Rgb(215, 225, 235));
+    let value = Style::default().fg(emphasis_white_color());
+    let parameter_only = section.entries.iter().all(|entry| entry.option.is_none() && entry.env_var.is_none());
+    let (header, columns, plains, rows) = if parameter_only {
+        let plains =
+            section.entries.iter().map(|entry| vec![entry.label.clone(), entry.value.clone()]).collect::<Vec<_>>();
+        let rows = plains
             .iter()
             .enumerate()
-            .map(|(index, entry)| {
+            .map(|(index, cells)| {
+                Row::new(vec![Cell::from(cells[0].clone()).style(label), Cell::from(cells[1].clone()).style(value)])
+                    .style(striped_row_style(index))
+            })
+            .collect::<Vec<_>>();
+        (
+            vec!["Parameter", "Value"],
+            configuration_columns(section, "Parameter", |entry| Some(entry.label.as_str())).to_vec(),
+            plains,
+            rows,
+        )
+    } else if show_environment {
+        let env = Style::default().fg(Color::Rgb(170, 185, 205));
+        let plains = section
+            .entries
+            .iter()
+            .map(|entry| {
+                vec![
+                    entry.option.clone().unwrap_or_else(|| "—".into()),
+                    entry.env_var.clone().unwrap_or_else(|| "—".into()),
+                    entry.value.clone(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let rows = plains
+            .iter()
+            .enumerate()
+            .map(|(index, cells)| {
                 Row::new(vec![
-                    Cell::from(entry.label.as_str()).style(Style::default().fg(Color::Rgb(215, 225, 235))),
-                    Cell::from(entry.value.clone()).style(Style::default().fg(emphasis_white_color())),
+                    Cell::from(cells[0].clone()).style(label),
+                    Cell::from(cells[1].clone()).style(env),
+                    Cell::from(cells[2].clone()).style(value),
                 ])
                 .style(striped_row_style(index))
             })
             .collect::<Vec<_>>();
-
-        let table = Table::new(rows, configuration_columns(section, "Parameter", |entry| Some(entry.label.as_str())))
-            .column_spacing(TABLE_COLUMN_SPACING)
-            .header(Row::new(vec!["Parameter", "Value"]).style(table_header_style(mode)))
-            .block(
-                Block::default()
-                    .title(super::super::theme::block_title(mode, &section.title))
-                    .borders(panel_borders(mode))
-                    .border_style(border_secondary(mode))
-                    .padding(panel_padding(mode)),
-            );
-        table.render(area, buffer);
-        return;
-    }
-
-    let table = if show_environment {
-        let rows = section
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                Row::new(vec![
-                    Cell::from(entry.option.as_deref().unwrap_or("—"))
-                        .style(Style::default().fg(Color::Rgb(215, 225, 235))),
-                    Cell::from(entry.env_var.as_deref().unwrap_or("—"))
-                        .style(Style::default().fg(Color::Rgb(170, 185, 205))),
-                    Cell::from(entry.value.clone()).style(Style::default().fg(emphasis_white_color())),
-                ])
-                .style(striped_row_style(index))
-            })
-            .collect::<Vec<_>>();
-
-        Table::new(rows, configuration_columns_with_env(section))
-            .column_spacing(TABLE_COLUMN_SPACING)
-            .header(Row::new(vec!["Option", "Env", "Value"]).style(table_header_style(mode)))
-            .block(
-                Block::default()
-                    .title(super::super::theme::block_title(mode, &section.title))
-                    .borders(panel_borders(mode))
-                    .border_style(border_secondary(mode))
-                    .padding(panel_padding(mode)),
-            )
+        (vec!["Option", "Env", "Value"], configuration_columns_with_env(section).to_vec(), plains, rows)
     } else {
-        let rows = section
+        let plains = section
             .entries
             .iter()
+            .map(|entry| vec![entry.option.clone().unwrap_or_else(|| "—".into()), entry.value.clone()])
+            .collect::<Vec<_>>();
+        let rows = plains
+            .iter()
             .enumerate()
-            .map(|(index, entry)| {
-                Row::new(vec![
-                    Cell::from(entry.option.as_deref().unwrap_or("—"))
-                        .style(Style::default().fg(Color::Rgb(215, 225, 235))),
-                    Cell::from(entry.value.clone()).style(Style::default().fg(emphasis_white_color())),
-                ])
-                .style(striped_row_style(index))
+            .map(|(index, cells)| {
+                Row::new(vec![Cell::from(cells[0].clone()).style(label), Cell::from(cells[1].clone()).style(value)])
+                    .style(striped_row_style(index))
             })
             .collect::<Vec<_>>();
-
-        Table::new(rows, configuration_columns(section, "Option", |entry| entry.option.as_deref()))
-            .column_spacing(TABLE_COLUMN_SPACING)
-            .header(Row::new(vec!["Option", "Value"]).style(table_header_style(mode)))
-            .block(
-                Block::default()
-                    .title(super::super::theme::block_title(mode, &section.title))
-                    .borders(panel_borders(mode))
-                    .border_style(border_secondary(mode))
-                    .padding(panel_padding(mode)),
-            )
+        (
+            vec!["Option", "Value"],
+            configuration_columns(section, "Option", |entry| entry.option.as_deref()).to_vec(),
+            plains,
+            rows,
+        )
     };
 
-    table.render(area, buffer);
+    let block = Block::default()
+        .title(super::super::theme::block_title(mode, &section.title))
+        .borders(panel_borders(mode))
+        .border_style(border_secondary(mode))
+        .padding(panel_padding(mode));
+    record_config_table(placed, area, &block, &columns, &header, &plains);
+    Table::new(rows, columns)
+        .column_spacing(TABLE_COLUMN_SPACING)
+        .header(Row::new(header).style(table_header_style(mode)))
+        .block(block)
+        .render(area, buffer);
+}
+
+fn record_config_table(
+    placed: &mut PlacedText<'_>,
+    area: Rect,
+    block: &Block<'_>,
+    columns: &[Constraint],
+    header: &[&str],
+    rows: &[Vec<String>],
+) {
+    let inner = block.inner(area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let offsets = column_offsets(inner.width, columns);
+    push_config_line(placed, inner.x, inner.y, &offsets, header);
+    for (index, row) in rows.iter().enumerate() {
+        let y = inner.y.saturating_add(1).saturating_add(u16::try_from(index).unwrap_or(u16::MAX));
+        if y >= inner.y.saturating_add(inner.height) {
+            break;
+        }
+        let cells = row.iter().map(String::as_str).collect::<Vec<_>>();
+        push_config_line(placed, inner.x, y, &offsets, &cells);
+    }
+}
+
+fn push_config_line(placed: &mut PlacedText<'_>, x: u16, y: u16, offsets: &[(u16, u16)], cells: &[&str]) {
+    let Some(screen_y) = screen_row(placed.view, placed.scroll, y) else {
+        return;
+    };
+    let record = placed.map.next_record();
+    for ((dx, width), plain) in offsets.iter().zip(cells) {
+        let screen_x = placed.view.x.saturating_add(x).saturating_add(*dx);
+        push_plain_cell(placed.map, screen_x, screen_y, *width, plain, TextPane::Config, record);
+    }
+}
+
+fn screen_row(view: Rect, scroll: usize, offscreen_y: u16) -> Option<u16> {
+    let y = usize::from(offscreen_y);
+    if y < scroll {
+        return None;
+    }
+    let local = y - scroll;
+    if local >= usize::from(view.height) {
+        return None;
+    }
+    Some(view.y.saturating_add(u16::try_from(local).unwrap_or(u16::MAX)))
 }
 
 /// Return the narrowest panel width that keeps a configuration table's content visible.

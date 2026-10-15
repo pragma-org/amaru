@@ -76,7 +76,7 @@ These apply across all three tabs:
 
 | Key | Action                                                                |
 |-----|-----------------------------------------------------------------------|
-| Mouse | Navigate between panels                                               |
+| Mouse | Navigate between panels. Double-click a value to copy it; a peer address copies as `ip:port`. Drag across characters to copy them. The dashboard stays still until the button is released. |
 | `Esc` | Enter copy mode. On log pages, click a line then click another to mark a time range (a later click moves the nearer end; drag also works); `e` writes the currently visible lines in that range (or every visible line if nothing is selected) to a file in the working directory. On the Config page, copy mode still allows native text selection. |
 | `Tab` / `Shift+Tab` | Focus next / previous panel                                           |
 | `←` `→` | Move focus within a panel                                             |

@@ -14,6 +14,7 @@
 
 use ratatui::layout::Rect;
 
+use super::text_map::TextMap;
 use crate::model::{LevelFilter, Page, ScrollFocus, TargetFilter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +41,7 @@ pub struct Views {
     pub proposals_area: Rect,
     pub proposals_body: Rect,
     pub config_area: Rect,
+    pub text_map: TextMap,
 }
 
 impl Views {
@@ -60,6 +62,7 @@ impl Views {
         self.proposals_area = Rect::default();
         self.proposals_body = Rect::default();
         self.config_area = Rect::default();
+        self.text_map.clear();
     }
 
     pub fn page_at(&self, point: Rect) -> Option<Page> {

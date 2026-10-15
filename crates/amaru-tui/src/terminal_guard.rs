@@ -21,7 +21,7 @@ use crossterm::{
     cursor, event, execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Frame, Terminal, backend::CrosstermBackend};
+use ratatui::{Frame, Terminal, backend::CrosstermBackend, buffer::Buffer};
 
 static TERMINAL_STATE: AtomicU8 = AtomicU8::new(TerminalState::Inactive as u8);
 
@@ -36,6 +36,8 @@ enum TerminalState {
 pub struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<TerminalOutput>>,
     mouse_capture_enabled: bool,
+    /// Last frame `draw` put on screen. A text drag paints this back instead of rendering again.
+    screen: Buffer,
 }
 
 impl TerminalGuard {
@@ -59,7 +61,7 @@ impl TerminalGuard {
             execute!(output, EnterAlternateScreen, event::EnableMouseCapture)?;
             let backend = CrosstermBackend::new(output);
             let terminal = Terminal::new(backend)?;
-            Ok(Self { terminal, mouse_capture_enabled: true })
+            Ok(Self { terminal, mouse_capture_enabled: true, screen: Buffer::default() })
         };
         match setup() {
             Ok(_) if TERMINAL_STATE.load(Ordering::SeqCst) == TerminalState::Shutdown as u8 => {
@@ -75,7 +77,36 @@ impl TerminalGuard {
     }
 
     pub fn draw(&mut self, render: impl FnOnce(&mut Frame<'_>)) -> io::Result<()> {
-        with_active(|| self.terminal.draw(render).map(|_| ()))
+        with_active(|| {
+            let completed = self.terminal.draw(render)?;
+            self.screen = completed.buffer.clone();
+            Ok(())
+        })
+    }
+
+    /// The frame last painted by [`Self::draw`].
+    pub fn snapshot_screen(&self) -> Buffer {
+        self.screen.clone()
+    }
+
+    /// Paint `snapshot` plus a small overlay. Does not replace [`Self::snapshot_screen`].
+    pub fn draw_buffer(&mut self, snapshot: &Buffer, paint: impl FnOnce(&mut Buffer)) -> io::Result<()> {
+        with_active(|| {
+            self.terminal.draw(|frame| {
+                copy_cells(frame.buffer_mut(), snapshot);
+                paint(frame.buffer_mut());
+            })?;
+            Ok(())
+        })
+    }
+
+    /// Write bytes that are not a ratatui frame, such as an OSC 52 clipboard sequence.
+    pub fn write_raw(&mut self, bytes: &[u8]) -> io::Result<()> {
+        with_active(|| {
+            let backend = self.terminal.backend_mut();
+            backend.write_all(bytes)?;
+            backend.flush()
+        })
     }
 
     pub fn set_mouse_capture(&mut self, enabled: bool) -> io::Result<()> {
@@ -177,4 +208,20 @@ impl Write for TerminalOutput {
 
 fn terminal_shutdown_error() -> io::Error {
     io::Error::new(io::ErrorKind::BrokenPipe, "terminal lifecycle has shut down")
+}
+
+fn copy_cells(target: &mut Buffer, source: &Buffer) {
+    let width = target.area.width.min(source.area.width);
+    let height = target.area.height.min(source.area.height);
+    for y in 0..height {
+        for x in 0..width {
+            let Some(cell) = source.cell((source.area.x.saturating_add(x), source.area.y.saturating_add(y))) else {
+                continue;
+            };
+            let Some(slot) = target.cell_mut((target.area.x.saturating_add(x), target.area.y.saturating_add(y))) else {
+                continue;
+            };
+            *slot = cell.clone();
+        }
+    }
 }

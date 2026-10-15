@@ -35,8 +35,8 @@ use super::super::{
 };
 use crate::{
     events::TelemetryRecord,
-    model::{LevelFilter, LogViewItem, Model, RetentionTier, ScrollFocus, TargetFilter},
-    ui::{LogLineHit, Views},
+    model::{LevelFilter, LogViewItem, Model, RetentionTier, ScrollFocus, TargetFilter, TextPane},
+    ui::{LogLineHit, Views, text_map::push_log_row},
 };
 
 pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
@@ -104,6 +104,7 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     let (paragraph, _, position) =
         log_paragraph(lines, body, window.scroll_from_bottom, model.log_wrap, model.log_hscroll);
     populate_log_hits(views, window.start, &row_counts, body, position);
+    record_log_spans(views, &items[window.start..window.end], &row_counts, body, position, model);
     frame.render_widget(paragraph, body);
 
     let total = items.len();
@@ -309,17 +310,84 @@ fn log_view_line(item: &LogViewItem, model: &Model, width: u16) -> Line<'static>
 }
 
 fn tier_boundary_line(tier: RetentionTier, width: u16, mode: crate::model::InteractionMode) -> Line<'static> {
+    Line::from(Span::styled(tier_boundary_text(tier, width), style_for_tier_boundary(mode))).alignment(Alignment::Left)
+}
+
+fn tier_boundary_text(tier: RetentionTier, width: u16) -> String {
     let label = format!(" ↑ {} retention ↑ ", tier.label());
     let width = width as usize;
-    let line = if width <= label.len() {
+    if width <= label.len() {
         label
     } else {
         let pad = width.saturating_sub(label.len());
         let left = pad / 2;
         let right = pad - left;
         format!("{}{label}{}", "─".repeat(left), "─".repeat(right))
-    };
-    Line::from(Span::styled(line, style_for_tier_boundary(mode))).alignment(Alignment::Left)
+    }
+}
+
+fn log_item_plain(item: &LogViewItem, model: &Model, width: u16) -> String {
+    match item {
+        LogViewItem::Record { record, .. } => record.plain_text(),
+        LogViewItem::TierBoundary { tier } => {
+            let width = if model.log_wrap {
+                width
+            } else {
+                width.saturating_add(u16::try_from(model.log_hscroll).unwrap_or(u16::MAX))
+            };
+            tier_boundary_text(*tier, width)
+        }
+    }
+}
+
+/// One record per log item, shared by its wrapped visual rows.
+/// The paragraph wraps at `body.width`; a drawn scrollbar covers the last column.
+fn record_log_spans(
+    views: &mut Views,
+    items: &[LogViewItem],
+    row_counts: &[usize],
+    body: Rect,
+    skip_rows: usize,
+    model: &Model,
+) {
+    if body.height == 0 || body.width == 0 {
+        return;
+    }
+    let scrollbar = !model.is_copy_mode() && views.logs_scrollbar.width > 0 && views.logs_scrollbar.height > 0;
+    if scrollbar {
+        views.text_map.exclude(views.logs_scrollbar);
+    }
+    let visible_width = if scrollbar { body.width.saturating_sub(1) } else { body.width };
+    if visible_width == 0 {
+        return;
+    }
+
+    let hscroll = u16::try_from(model.log_hscroll).unwrap_or(u16::MAX);
+    let mut skip = skip_rows;
+    let mut y = body.y;
+    let bottom = body.y.saturating_add(body.height);
+    for (offset, item) in items.iter().enumerate() {
+        let rows = row_counts.get(offset).copied().unwrap_or(1).max(1);
+        let plain = log_item_plain(item, model, body.width);
+        let mut record = None;
+        for row in 0..rows {
+            if skip > 0 {
+                skip -= 1;
+                continue;
+            }
+            if y >= bottom {
+                return;
+            }
+            let record = *record.get_or_insert_with(|| views.text_map.next_record());
+            let skip_cols = if model.log_wrap {
+                u16::try_from(row.saturating_mul(usize::from(body.width))).unwrap_or(u16::MAX)
+            } else {
+                hscroll
+            };
+            push_log_row(&mut views.text_map, body.x, y, visible_width, &plain, skip_cols, TextPane::Logs, record);
+            y = y.saturating_add(1);
+        }
+    }
 }
 
 fn log_record_line(record: &TelemetryRecord, model: &Model) -> Line<'static> {

@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru-tui**: double-click a value to copy it, or drag across a row to copy those characters. A peer address copies as `ip:port`. The screen stays still during the drag. On this Mac the text goes to the clipboard. Over tmux it also goes to the tmux paste buffer.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
 - **amaru**: `--log-output PATH:FILTER` (or `AMARU_LOG_OUTPUT`) writes an extra log file without replacing the terminal, the TUI, or OpenTelemetry. Repeat the flag for more files. The value is split at the first colon. A path ending in `.ndjson` uses the same JSON format as `--with-json-traces`, one object per line; any other path is text. Span close lines include busy and idle time. `amaru --log-output effects.ndjson:amaru_pure_stage::effect=debug node run` records how long each external effect runs.
   `try_setup_observability` and `setup_observability` take those file specs as an extra argument.

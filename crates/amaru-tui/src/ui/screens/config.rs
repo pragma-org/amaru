@@ -59,6 +59,7 @@ pub(in crate::ui) fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Mo
         show_environment,
         scroll,
         model.interaction_mode,
+        &mut views.text_map,
     );
     render_section_groups(
         frame,
@@ -67,6 +68,7 @@ pub(in crate::ui) fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Mo
         false,
         scroll,
         model.interaction_mode,
+        &mut views.text_map,
     );
 
     if overflowing {

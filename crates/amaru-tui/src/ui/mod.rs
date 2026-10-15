@@ -34,6 +34,7 @@ mod common;
 mod components;
 mod format;
 mod screens;
+pub(crate) mod text_map;
 mod theme;
 mod views;
 
@@ -73,9 +74,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
     };
     if !is_ready {
         render_splash(frame, inner, model, views);
-        if model.is_shutdown_mode() {
-            apply_shutdown_overlay(frame, inner);
-        }
+        finish_frame(frame, model, inner);
         return;
     }
 
@@ -85,25 +84,19 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
 
     if model.page == Page::Amaru && model.peer_pane_mode.is_maximized() {
         render_peers_table(frame, inner, model, views, now);
-        if model.is_shutdown_mode() {
-            apply_shutdown_overlay(frame, inner);
-        }
+        finish_frame(frame, model, inner);
         return;
     }
 
     if model.page == Page::Cardano && model.proposal_pane_mode.is_maximized() {
         render_proposals_table(frame, inner, model, views);
-        if model.is_shutdown_mode() {
-            apply_shutdown_overlay(frame, inner);
-        }
+        finish_frame(frame, model, inner);
         return;
     }
 
     if model.log_pane_mode.is_maximized() && model.page != Page::Config {
         render_logs(frame, inner, model, views);
-        if model.is_shutdown_mode() {
-            apply_shutdown_overlay(frame, inner);
-        }
+        finish_frame(frame, model, inner);
         return;
     }
 
@@ -148,9 +141,34 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
         }
     }
 
+    finish_frame(frame, model, inner);
+}
+
+fn finish_frame(frame: &mut Frame<'_>, model: &Model, inner: Rect) {
+    paint_held_selection(frame, model);
     if model.is_shutdown_mode() {
         apply_shutdown_overlay(frame, inner);
     }
+}
+
+fn paint_held_selection(frame: &mut Frame<'_>, model: &Model) {
+    if model.held_cells().is_empty() {
+        return;
+    }
+    let style = theme::style_for_text_selection();
+    let buffer = frame.buffer_mut();
+    for cell in model.held_cells() {
+        let Some(target) = buffer.cell_mut((cell.x, cell.y)) else {
+            continue;
+        };
+        if target.symbol() == cell.symbol {
+            target.set_style(style);
+        }
+    }
+}
+
+pub(crate) fn text_selection_style() -> Style {
+    theme::style_for_text_selection()
 }
 
 fn shell_block(model: &Model, is_ready: bool, width: u16) -> Block<'static> {
@@ -281,6 +299,7 @@ fn shell_hint(model: &Model) -> Line<'static> {
                 spans.push(Span::raw("  "));
                 spans.push(Span::styled(status.to_string(), theme::muted()));
             }
+            push_copy_status(&mut spans, model);
         }
         (false, CommandMenu::Default) => {
             append_control(&mut spans, &model.key_label("esc"), "COPY MODE", model);
@@ -292,10 +311,18 @@ fn shell_hint(model: &Model) -> Line<'static> {
             }
             append_control(&mut spans, &model.key_label("f"), "LOGS & FILTERS", model);
             append_control(&mut spans, &model.key_label("q"), "QUIT", model);
+            push_copy_status(&mut spans, model);
         }
     }
 
     border_title_line(spans, model.interaction_mode, false)
+}
+
+fn push_copy_status(spans: &mut Vec<Span<'static>>, model: &Model) {
+    if let Some(status) = model.copy_status() {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(status.to_string(), theme::muted()));
+    }
 }
 
 fn append_control(spans: &mut Vec<Span<'static>>, key: &str, label: &str, model: &Model) {
