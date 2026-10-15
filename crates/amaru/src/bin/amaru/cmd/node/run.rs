@@ -98,7 +98,7 @@ pub struct Args {
 
     /// KES signing key, as raw bytes (legacy cardano-cli `kes.skey` text envelopes are also accepted).
     ///
-    /// Together with `--operator-vrf` and `--operator-operational-certificate`, the node forges
+    /// Together with `--operator-vrf` and `--operator-cert`, the node forges
     /// blocks. Preprod, preview, and other testnets only. Mainnet refuses these flags.
     #[arg(
         long,
@@ -116,12 +116,12 @@ pub struct Args {
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
-        env = amaru::env_vars::OPERATOR_OPERATIONAL_CERTIFICATE,
+        env = amaru::env_vars::OPERATOR_CERT,
         display_order = 0,
         help_heading = "Block forging options",
         alias = "operational-certificate",
     )]
-    operator_operational_certificate: Option<PathBuf>,
+    operator_cert: Option<PathBuf>,
 
     /// VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
     #[arg(
@@ -624,7 +624,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         u64::from(global_parameters.max_kes_evolution),
         args.operator_kes.as_deref(),
         args.operator_vrf.as_deref(),
-        args.operator_operational_certificate.as_deref(),
+        args.operator_cert.as_deref(),
     )?;
 
     let db_ledger = args.db_ledger.into_path_buf(network);

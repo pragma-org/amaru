@@ -248,8 +248,8 @@ pub mod env_vars {
     pub const MITHRIL_SNAPSHOTS: &str = "AMARU_MITHRIL_SNAPSHOTS";
     pub const MITHRIL_UNTIL_SLOT: &str = "AMARU_MITHRIL_UNTIL_SLOT";
     pub const NETWORK: &str = "AMARU_NETWORK";
+    pub const OPERATOR_CERT: &str = "AMARU_OPERATOR_CERT";
     pub const OPERATOR_KES: &str = "AMARU_OPERATOR_KES";
-    pub const OPERATOR_OPERATIONAL_CERTIFICATE: &str = "AMARU_OPERATOR_OPERATIONAL_CERTIFICATE";
     pub const OPERATOR_VRF: &str = "AMARU_OPERATOR_VRF";
     pub const PARENT: &str = "AMARU_PARENT";
     pub const PEER: &str = "AMARU_PEER";
