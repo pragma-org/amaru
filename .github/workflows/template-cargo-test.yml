@@ -69,6 +69,8 @@ jobs:
 
       - uses: ./.github/actions/stage-peer-snapshots
 
+      - uses: ./.github/actions/fetch-cbor-dataset
+
       - uses: ./.github/actions/cache
         with:
           mode: ${{ inputs.cache-mode }}

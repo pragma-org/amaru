@@ -1,0 +1,153 @@
+name: Conformance Reports
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      artifact_prefix:
+        description: Prefix used for uploaded report artifacts
+        required: false
+        type: string
+        default: amaru
+  push:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-09-04
+  RUSTUP_LOG: error
+  BENCHMARK_URL: https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.xz
+  BENCHMARK_SHA256: fffe2e959fb8bdb47ee4834008dcceb89fcde53afb659a454beca26cf95507cc
+  BENCHMARK_CACHE_KEY: turbo-benchmarks-v1
+
+permissions:
+  contents: read
+
+jobs:
+  cbor-decoding:
+    name: CBOR decoding conformance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - uses: ./.github/actions/fetch-cbor-dataset
+
+      - name: Run the decoding conformance suite
+        id: cbor
+        env:
+          AMARU_TEST_REPORT_DIRECTORY: crates/amaru-kernel/tests/results
+        run: cargo test --locked -p amaru-kernel --test test_cbor_dataset -- --nocapture
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: ${{ inputs.artifact_prefix }}-cbor-conformance
+          path: crates/amaru-kernel/tests/results/*.json
+          if-no-files-found: error
+
+      - name: Preserve suite failure status
+        if: steps.cbor.outcome == 'failure'
+        run: exit 1
+
+  uplc-turbo:
+    name: UPLC turbo benchmarks
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - name: Cache benchmark data
+        id: cache-benchmarks
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # https://github.com/actions/cache/releases/tag/v6.1.0
+        with:
+          path: uplc-benchmarks-turbo.tar.xz
+          key: ${{ env.BENCHMARK_CACHE_KEY }}
+
+      - name: Download benchmark data
+        if: steps.cache-benchmarks.outputs.cache-hit != 'true'
+        run: curl --fail --show-error --location --retry 3 -o uplc-benchmarks-turbo.tar.xz "$BENCHMARK_URL"
+
+      - name: Verify benchmark data
+        run: echo "$BENCHMARK_SHA256 uplc-benchmarks-turbo.tar.xz" | sha256sum --check --strict
+
+      - name: Extract benchmark data
+        run: |
+          mkdir -p crates/amaru-uplc/benches/turbo/samples
+          tar -xf uplc-benchmarks-turbo.tar.xz -C crates/amaru-uplc/benches/turbo/samples
+
+      - name: Generate report
+        env:
+          UPLC_TURBO_REPORT: uplc-turbo.json
+        run: cargo bench --locked -p amaru-uplc --bench turbo
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix }}-uplc-turbo
+          path: uplc-turbo.json
+
+  uplc-conformance:
+    name: UPLC conformance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - name: Run conformance tests
+        id: conformance
+        env:
+          UPLC_CONFORMANCE_REPORT: /tmp/uplc-conformance-details.jsonl
+        run: cargo test --locked -p amaru-uplc --test conformance --test conformance_extra -- --format json -Z unstable-options --nocapture > /tmp/uplc-conformance.jsonl 2>&1
+
+      - name: Build report
+        run: |
+          cat /tmp/uplc-conformance-details.jsonl >> /tmp/uplc-conformance.jsonl
+          python3 scripts/structured-test-report.py \
+            --scenario uplc-conformance \
+            --implementation amaru \
+            --corpus amaru-uplc/conformance \
+            --input auto /tmp/uplc-conformance.jsonl \
+            --output uplc-conformance.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix }}-uplc-conformance
+          path: uplc-conformance.json
+
+      - name: Preserve suite failure status
+        if: steps.conformance.outcome == 'failure'
+        run: exit 1
+
+  ledger-rules:
+    name: Ledger rules
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - name: Run ledger transaction scenarios
+        id: ledger
+        run: cargo test --locked -p amaru-ledger --lib rules::transaction::tests::conformance -- --format json -Z unstable-options > /tmp/ledger-rules.jsonl 2>&1
+
+      - name: Build report
+        run: |
+          python3 scripts/structured-test-report.py \
+            --scenario ledger-rules \
+            --implementation amaru \
+            --corpus amaru-ledger/tests/data/transaction/scenarios \
+            --scenario-root crates/amaru-ledger/tests/data/transaction/scenarios \
+            --input amaru /tmp/ledger-rules.jsonl \
+            --output ledger-rules.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix }}-ledger-rules
+          path: ledger-rules.json
+
+      - name: Preserve suite failure status
+        if: steps.ledger.outcome == 'failure'
+        run: exit 1
