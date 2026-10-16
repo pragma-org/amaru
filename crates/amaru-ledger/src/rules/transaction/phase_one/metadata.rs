@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{AuxiliaryData, Hash, ProtocolVersion, TransactionBody};
-use amaru_plutus::arena_pool::ArenaPool;
 use amaru_uplc::{
     arena::Arena,
+    arena_pool::ArenaPool,
     flat::{FlatDecodeError, decode_plutus_script},
 };
 use thiserror::Error;

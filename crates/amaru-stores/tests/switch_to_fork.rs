@@ -61,7 +61,7 @@
 
 use amaru_kernel::{PREPROD_GLOBAL_PARAMETERS, Point};
 use amaru_ledger::state::{BackwardError, ForkSwitchOutcome, StateError};
-use amaru_plutus::arena_pool::ArenaPool;
+use amaru_uplc::arena_pool::ArenaPool;
 
 use crate::{
     MockStore, StateAcrossEpochBoundary, assert_invalid_switch_to_fork_from, empty_block_at, epoch_of, forward_to,

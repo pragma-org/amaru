@@ -39,7 +39,6 @@ use amaru_ouroboros::{
     BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
     StoreError as ChainStoreError,
 };
-use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
@@ -51,6 +50,7 @@ use amaru_pure_stage::{
     trace_buffer::TraceBuffer,
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
+use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use thiserror::Error;

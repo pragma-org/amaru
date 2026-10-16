@@ -169,11 +169,11 @@ pub(crate) mod tests {
     };
 
     use amaru_kernel::{
-        Credential, DRep, Hash, MemoizedTransactionOutput, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, ProtocolParameters, TransactionInput,
-        cardano::network_block::CONWAY_BLOCK, cbor, hash,
+        cardano::network_block::CONWAY_BLOCK, cbor, hash, Credential, DRep, Hash, MemoizedTransactionOutput,
+        NetworkName, ProtocolParameters, TransactionInput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
+        PREPROD_GLOBAL_PARAMETERS,
     };
-    use amaru_plutus::arena_pool::ArenaPool;
+    use amaru_uplc::arena_pool::ArenaPool;
 
     use super::*;
     use crate::{

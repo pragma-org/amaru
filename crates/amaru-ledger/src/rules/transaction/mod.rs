@@ -23,7 +23,7 @@ mod tests {
     use std::{fs, path::Path};
 
     use amaru_kernel::{EraHistory, ProtocolParameters, Transaction, cbor, json, utils::serde::FilesystemRefResolver};
-    use amaru_plutus::arena_pool::ArenaPool;
+    use amaru_uplc::arena_pool::ArenaPool;
 
     use super::fixture::{Expected, Fixture, Predicate};
     use crate::{context::DefaultValidationContext, rules::block::validate_transaction};

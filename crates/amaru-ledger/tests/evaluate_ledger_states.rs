@@ -36,7 +36,7 @@ pub mod tests {
         rules::transaction,
         snapshot,
     };
-    use amaru_plutus::arena_pool::ArenaPool;
+    use amaru_uplc::arena_pool::ArenaPool;
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));

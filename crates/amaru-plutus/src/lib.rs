@@ -15,7 +15,6 @@
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
-pub mod arena_pool;
 pub mod macros;
 pub mod script_context;
 pub mod to_plutus_data;

@@ -16,6 +16,7 @@
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
 pub mod arena;
+pub mod arena_pool;
 pub mod binder;
 pub mod bls;
 pub mod builtin;
@@ -34,8 +35,8 @@ pub use bumpalo;
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        PlutusVersion,
         protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
+        PlutusVersion,
     };
     use bumpalo::collections::Vec as BumpVec;
     use pretty_assertions::assert_eq;
