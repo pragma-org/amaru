@@ -19,7 +19,7 @@ pub trait Cost {
 }
 
 // Struct using the trait
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Costing<T: Cost> {
     pub mem: T,
     pub cpu: T,
@@ -44,7 +44,7 @@ where
 // function represented as its own type; each implementing the `Cost` trait. This would allow to
 // then attach costing functions directly to the relevant builtins, and remove entirely the need for
 // this ugly enum.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum OneArgument {
     Constant(i64),
     LinearInX(LinearSize),
@@ -71,7 +71,7 @@ impl Cost for OneArgument {
 
 pub type OneArgumentCosting = Costing<OneArgument>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TwoArguments {
     Constant(i64),
     LinearInX(LinearSize),
@@ -183,7 +183,7 @@ impl Cost for TwoArguments {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ThreeArguments {
     Constant(i64),
     LinearInX(LinearSize),
@@ -253,7 +253,7 @@ impl Cost for ThreeArguments {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum FourArguments {
     Constant(i64),
     LinearInU(LinearSize),
@@ -273,7 +273,7 @@ impl Cost for FourArguments {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum SixArguments {
     Constant(i64),
 }
@@ -288,65 +288,65 @@ impl Cost for SixArguments {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct LinearSize {
     pub intercept: i64,
     pub slope: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct TwoVariableLinearSize {
     pub intercept: i64,
     pub slope1: i64,
     pub slope2: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct AddedSizes {
     pub intercept: i64,
     pub slope: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct SubtractedSizes {
     pub intercept: i64,
     pub slope: i64,
     pub minimum: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct MultipliedSizes {
     pub intercept: i64,
     pub slope: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct MinSize {
     pub intercept: i64,
     pub slope: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct MaxSize {
     pub intercept: i64,
     pub slope: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct ConstantOrLinear {
     pub constant: i64,
     pub intercept: i64,
     pub slope: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct QuadraticFunction {
     pub coeff_0: i64,
     pub coeff_1: i64,
     pub coeff_2: i64,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct TwoArgumentsQuadraticFunction {
     pub minimum: i64,
     pub coeff_00: i64,
@@ -357,7 +357,7 @@ pub struct TwoArgumentsQuadraticFunction {
     pub coeff_20: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct WithInteraction {
     pub coeff_00: i64,
     pub coeff_10: i64,
@@ -365,7 +365,7 @@ pub struct WithInteraction {
     pub coeff_11: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct ExpModCost {
     pub coeff_00: i64,
     pub coeff_11: i64,

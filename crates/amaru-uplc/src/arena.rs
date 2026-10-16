@@ -49,6 +49,22 @@ impl Arena {
         &self.bump
     }
 
+    pub fn allocated_bytes(&self) -> usize {
+        self.bump.allocated_bytes()
+    }
+
+    /// Returns the bytes occupied by allocations in the arena's chunks.
+    ///
+    /// Unlike [`Self::allocated_bytes`], this excludes unused capacity in the
+    /// chunks. This is useful for measuring the live high-water mark of an
+    /// evaluation when the arena has been given an initial capacity.
+    pub fn used_bytes(&self) -> usize {
+        // We only inspect chunk lengths; the raw iterator's pointers are never
+        // dereferenced, so the iterator's initialization guarantees are not
+        // relevant here.
+        unsafe { self.bump.iter_allocated_chunks_raw().map(|(_, length)| length).sum() }
+    }
+
     pub fn reset(&mut self) {
         // Drop all allocated integers
         self.integers = AppendOnlyVec::new();

@@ -20,7 +20,14 @@ use proptest::{
     prelude::{Arbitrary, BoxedStrategy, Strategy, any},
 };
 
-use crate::{CostModel, PlutusVersion, cbor};
+use crate::{
+    CostModel, PlutusVersion, ProtocolVersion, cbor,
+    cost_model::{
+        DEFAULT_COST_MODEL_A_V1, DEFAULT_COST_MODEL_A_V2, DEFAULT_COST_MODEL_B_V1, DEFAULT_COST_MODEL_B_V2,
+        DEFAULT_COST_MODEL_C_V3, DEFAULT_COST_MODEL_D_V1, DEFAULT_COST_MODEL_D_V2, DEFAULT_COST_MODEL_E_V3,
+    },
+    protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_11},
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CostModels {
@@ -44,6 +51,27 @@ pub struct CostModels {
 }
 
 impl CostModels {
+    /// Build the default Plutus cost models for a protocol version.
+    pub fn default_for(protocol_version: ProtocolVersion) -> Self {
+        let (plutus_v1, plutus_v2): (&[i64], &[i64]) = if protocol_version < PROTOCOL_VERSION_9 {
+            (&DEFAULT_COST_MODEL_A_V1, &DEFAULT_COST_MODEL_A_V2)
+        } else if protocol_version < PROTOCOL_VERSION_11 {
+            (&DEFAULT_COST_MODEL_B_V1, &DEFAULT_COST_MODEL_B_V2)
+        } else {
+            (&DEFAULT_COST_MODEL_D_V1, &DEFAULT_COST_MODEL_D_V2)
+        };
+
+        let plutus_v3: &[i64] =
+            if protocol_version < PROTOCOL_VERSION_11 { &DEFAULT_COST_MODEL_C_V3 } else { &DEFAULT_COST_MODEL_E_V3 };
+
+        Self {
+            plutus_v1: Some(plutus_v1.to_vec()),
+            plutus_v2: Some(plutus_v2.to_vec()),
+            plutus_v3: Some(plutus_v3.to_vec()),
+            unknown: Default::default(),
+        }
+    }
+
     /// Apply an update on top of these cost models.
     ///
     /// A language carried by the update replaces the model currently held for it; languages absent

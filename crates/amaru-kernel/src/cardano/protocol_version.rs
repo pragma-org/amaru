@@ -19,6 +19,10 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::cbor;
 
+pub const PROTOCOL_VERSION_8: ProtocolVersion = ProtocolVersion::new(8, 0);
+
+pub const PROTOCOL_VERSION_9: ProtocolVersion = ProtocolVersion::new(9, 0);
+
 pub const PROTOCOL_VERSION_10: ProtocolVersion = ProtocolVersion::new(10, 0);
 
 pub const PROTOCOL_VERSION_11: ProtocolVersion = ProtocolVersion::new(11, 0);

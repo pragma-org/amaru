@@ -18,74 +18,48 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::LazyLock,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
-use amaru_kernel::{PROTOCOL_VERSION_10, PlutusVersion, ProtocolVersion};
+use amaru_kernel::{
+    utils::duration, Epoch, PlutusVersion, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_11,
+    PROTOCOL_VERSION_8, PROTOCOL_VERSION_9,
+};
 use amaru_minicbor_extra::decode_bytes;
 use amaru_uplc::{
     arena::Arena,
+    arena_pool::ArenaPool,
     binder::DeBruijn,
-    flat,
+    flat::{self, DataDecoding},
     machine::{CostModel, ExBudget},
 };
-use bumpalo::Bump;
-use divan::Bencher;
 use itertools::Itertools;
 use rayon::prelude::*;
+use serde_json::json;
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
-#[cfg(feature = "alloc_profiler")]
-#[global_allocator]
-static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
-
+const TURBO_REPORT_DIR: &str = "benches/turbo";
 const TURBO_DATA_DIR: &str = "benches/turbo/samples";
 const TURBO_ARCHIVE_URL: &str = "https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.xz";
-
-// Protocol version to use for all the turbo benchmarks
-const PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION_10;
 
 // Initial capacity of the arena, in bytes.
 const BUMP_ARENA_CAPACITY: usize = 20 * 1048576; // 20 MB
 
+// Total number of samples per script.
+const SAMPLE_COUNT: usize = 50;
+
+// Benchmarks run in parallel and there's often noise, so we keep the best 30 out of 50 runs to keep
+// results somewhat uniform across re-runs. The point is to identify outliers and regressions.
+const RETAINED_SAMPLE_COUNT: usize = 30;
+
 // All known samples, loaded lazily
-static SAMPLES: LazyLock<Vec<PathBuf>> = LazyLock::new(samples);
+static SAMPLES: LazyLock<Vec<(Epoch, PathBuf)>> = LazyLock::new(samples);
 
-#[derive(Debug)]
-struct CborWrapped(Vec<u8>);
-
-impl<'d, C> minicbor::Decode<'d, C> for CborWrapped {
-    fn decode(d: &mut minicbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let bytes = decode_bytes(d)?;
-        Ok(CborWrapped(bytes.into_owned()))
-    }
-}
-
-fn cost_model(plutus_version: PlutusVersion) -> CostModel {
-    CostModel::new(
-        plutus_version,
-        PROTOCOL_VERSION,
-        match plutus_version {
-            PlutusVersion::V1 => &CostModel::DEFAULT_V1[..],
-            PlutusVersion::V2 => &CostModel::DEFAULT_V2[..],
-            PlutusVersion::V3 => &CostModel::DEFAULT_V3[..],
-        },
-    )
-}
-
-fn detect_plutus_version(file_name: &str) -> PlutusVersion {
-    if file_name.ends_with("v1") {
-        PlutusVersion::V1
-    } else if file_name.ends_with("v2") {
-        PlutusVersion::V2
-    } else if file_name.ends_with("v3") {
-        PlutusVersion::V3
-    } else {
-        panic!("cannot decode plutus version from filename: {file_name}");
-    }
-}
-
-fn samples() -> Vec<PathBuf> {
+fn samples() -> Vec<(Epoch, PathBuf)> {
     let data_dir = Path::new(TURBO_DATA_DIR);
+    let filters = std::env::var("UPLC_TURBO_FILTER").ok().map(|value| {
+        value.split(',').map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned).collect::<Vec<_>>()
+    });
 
     // Check directory exists and has content
     let entries: Vec<_> =
@@ -99,24 +73,45 @@ fn samples() -> Vec<PathBuf> {
         );
     }
 
+    let limit = std::env::var("UPLC_TURBO_LIMIT")
+        .map(|value| value.parse().expect("invalid UPLC_TURBO_LIMIT"))
+        .unwrap_or(usize::MAX);
+
     // Collect all files from all subdirectories.
     entries
         .into_iter()
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| path.is_dir())
-        .flat_map(|dir| fs::read_dir(&dir).into_iter().flatten().map(|entry| entry.unwrap().path()).collect::<Vec<_>>())
+        .flat_map(|dir| match dir.file_stem().unwrap_or_default().to_string_lossy().parse::<u64>() {
+            Ok(epoch) => fs::read_dir(&dir)
+                .into_iter()
+                .flatten()
+                .map(|entry| (Epoch::from(epoch), entry.unwrap().path()))
+                .collect::<Vec<_>>(),
+            Err(_) => vec![],
+        })
+        .filter(|(_epoch, path)| {
+            filters.as_ref().is_none_or(|filters| {
+                let stem = path.file_stem().and_then(|stem| stem.to_str());
+                let name = path.file_name().and_then(|name| name.to_str());
+                filters.iter().any(|filter| Some(filter.as_str()) == stem || Some(filter.as_str()) == name)
+            })
+        })
         .sorted()
+        .take(limit)
         .collect()
 }
 
-fn collect_scripts(files: &[PathBuf]) -> Vec<(String, Vec<u8>, PlutusVersion)> {
+fn collect_scripts(files: &[(Epoch, PathBuf)]) -> Vec<(String, Vec<u8>, PlutusVersion, ProtocolVersion)> {
     files
         .iter()
-        .map(|path| {
-            let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+        .map(|(epoch, path)| {
+            let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
 
-            let plutus_version = detect_plutus_version(file_stem);
+            let plutus_version = detect_plutus_version(file_name);
+
+            let protocol_version = infer_protocol_version(*epoch);
 
             let cbor = std::fs::read(path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path.display(), e));
 
@@ -124,105 +119,175 @@ fn collect_scripts(files: &[PathBuf]) -> Vec<(String, Vec<u8>, PlutusVersion)> {
                 .unwrap_or_else(|e| panic!("Failed to decode CBOR from {}: {}", path.display(), e))
                 .0;
 
-            (file_stem.to_string(), flat, plutus_version)
+            (file_name.to_string(), flat, plutus_version, protocol_version)
         })
         .collect::<Vec<_>>()
 }
 
-fn analyze_turbo(arena: &mut Arena, flat: Vec<u8>, plutus_version: PlutusVersion) -> (Duration, Duration, Duration) {
-    let instant = Instant::now();
-
-    let (program, _) =
-        flat::decode::<DeBruijn>(arena, &flat, PlutusVersion::V3, PROTOCOL_VERSION_10).expect("Failed to decode");
-    let elapsed_unflat = instant.elapsed();
-
-    let result = program.eval(arena, cost_model(plutus_version), ExBudget::max());
-    let elapsed_eval = instant.elapsed();
-
-    let _term = result.term.expect("Failed to evaluate");
-
-    arena.reset();
-    let elapsed_reset = instant.elapsed();
-
-    (
-        elapsed_unflat,
-        elapsed_eval.saturating_sub(elapsed_unflat),
-        elapsed_reset.saturating_sub(elapsed_unflat).saturating_sub(elapsed_eval),
-    )
+#[derive(Debug, Copy, Clone)]
+struct Measurement {
+    flat_us: u64,
+    cpu_us: u64,
+    mem_bytes: u64,
+    budget: ExBudget,
 }
 
-#[expect(clippy::print_stdout)]
-fn analyze_slow_evals(threshold: Duration) {
-    eprintln!("Collecting script executions slower than {}ms", threshold.as_millis());
-    let scripts = collect_scripts(&SAMPLES);
-    scripts
-        .into_par_iter()
-        .map_init(
-            || Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY)),
-            |arena, (filename, flat, plutus_version)| {
-                let (elapsed_unflat, elapsed_eval, elapsed_reset) = analyze_turbo(arena, flat, plutus_version);
-                if elapsed_unflat + elapsed_eval + elapsed_reset > threshold {
-                    Some((filename, elapsed_unflat, elapsed_eval, elapsed_reset))
-                } else {
-                    None
-                }
-            },
+impl Measurement {
+    fn new(
+        arena: &Arena,
+        flat: &[u8],
+        plutus_version: PlutusVersion,
+        protocol_version: ProtocolVersion,
+        costs: CostModel,
+    ) -> Self {
+        let mut meter = Instant::now();
+
+        let (program, _) = flat::decode_with_data_decoding::<DeBruijn>(
+            arena,
+            flat,
+            plutus_version,
+            protocol_version,
+            DataDecoding::Unbounded,
         )
-        .filter_map(|result| result)
-        .for_each(|(filename, elapsed_unflat, elapsed_eval, elapsed_reset)| {
-            fn display_duration(d: Duration) -> String {
-                if d > Duration::from_millis(10) {
-                    format!("{}ms", d.as_millis())
-                } else if d > Duration::from_nanos(10000) {
-                    format!("{}μs", d.as_nanos() / 1000)
-                } else {
-                    format!("{}ns", d.as_nanos())
-                }
-            }
+        .expect("Failed to decode");
 
-            println!(
-                "{filename} in {}ms\n\telapsed unflat: {}\n\telapsed eval:   {}\n\telapsed reset:  {}",
-                (elapsed_unflat + elapsed_eval + elapsed_reset).as_millis(),
-                display_duration(elapsed_unflat),
-                display_duration(elapsed_eval),
-                display_duration(elapsed_reset),
-            );
-        })
-}
+        let flat_us = duration::elapsed_and_reset(&mut meter);
 
-#[divan::bench(sample_count = SAMPLES.len() as u32, sample_size = 3)]
-fn turbo_decode_eval(bencher: Bencher<'_, '_>) {
-    let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
-    let scripts = collect_scripts(&SAMPLES);
-    let mut i = 0;
-    bencher
-        .with_inputs(|| {
-            let (_, ref flat, plutus_version) = scripts[i % scripts.len()];
-            i += 1;
-            (flat, cost_model(plutus_version))
-        })
-        .bench_local_values(|(flat, costs)| {
-            arena.reset();
-            let (program, _) =
-                flat::decode::<DeBruijn>(&arena, flat, PlutusVersion::V2, PROTOCOL_VERSION).expect("Failed to decode");
-            let result = program.eval(&arena, costs, ExBudget::max());
-            let _term = result.term.expect("Failed to evaluate");
-        });
-}
+        let arena_before_eval = arena.used_bytes();
+        let result = program.eval(arena, costs, ExBudget::max());
 
-#[divan::bench(sample_count = SAMPLES.len() as u32)]
-fn turbo_decode_only(bencher: Bencher<'_, '_>) {
-    let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
-    let mut scripts = collect_scripts(&SAMPLES);
-    bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, _)| {
-        arena.reset();
-        flat::decode::<DeBruijn>(&arena, &flat, PlutusVersion::V3, PROTOCOL_VERSION).expect("Failed to decode");
-    });
+        let budget = result.info.consumed_budget;
+        let _term = result.term.expect("failed to evaluate");
+
+        let mem_bytes = arena.used_bytes().saturating_sub(arena_before_eval) as u64;
+
+        let cpu_us = duration::elapsed_and_reset(&mut meter);
+
+        Self { flat_us, cpu_us, mem_bytes, budget }
+    }
 }
 
 fn main() {
-    match std::env::var("UPLC_TURBO_ANALYZE_SLOW") {
-        Ok(threshold) => analyze_slow_evals(Duration::from_millis(threshold.parse().expect("invalid time limit"))),
-        Err(..) => divan::main(),
+    eprintln!("Collecting samples...");
+    let scripts = collect_scripts(&SAMPLES);
+
+    eprintln!("Benchmarking...");
+    let arenas = ArenaPool::new(8, BUMP_ARENA_CAPACITY);
+    let benchmarks = scripts
+        .iter()
+        .enumerate()
+        .map(|(ix, (id, flat_bytes, plutus_version, protocol_version))| {
+            let costs = cost_model(*plutus_version, *protocol_version);
+
+            let measurements: Vec<Measurement> = (0..SAMPLE_COUNT)
+                .into_par_iter()
+                .map(|_| {
+                    Measurement::new(&arenas.acquire(), flat_bytes, *plutus_version, *protocol_version, costs.clone())
+                })
+                .collect();
+
+            eprintln!("[{ix}/{} {id}", scripts.len());
+
+            json!({
+                "bench": id,
+                "plutus_version": plutus_version.to_string(),
+                "protocol_version": protocol_version.to_string(),
+                "budget_cpu": measurements[0].budget.cpu,
+                "budget_mem": measurements[0].budget.mem,
+                "cpu_us": mean(measurements.iter().map(|m| m.cpu_us).collect()),
+                "flat_us": mean(measurements.iter().map(|m| m.flat_us).collect()),
+                "mem_bytes": mean(measurements.iter().map(|m| m.mem_bytes).collect()),
+                "size_bytes": flat_bytes.len(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    eprintln!("Writing report to {}...", TURBO_REPORT_DIR);
+
+    let report = json!({
+        "schema_version": "1",
+        "scenario": "uplc-turbo",
+        "generated_at": duration::since_unix_epoch(),
+        "implementation": { "name": "amaru" },
+        "machine": machine(),
+        "benchmarks": benchmarks,
+    });
+
+    fs::write(
+        PathBuf::from(TURBO_REPORT_DIR).join("results.json"),
+        serde_json::to_vec_pretty(&report).expect("serialize UPLC turbo report"),
+    )
+    .unwrap_or_else(|error| panic!("failed to write {TURBO_REPORT_DIR}: {error}"));
+}
+
+// -------------------------------------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct CborWrapped(Vec<u8>);
+
+impl<'d, C> minicbor::Decode<'d, C> for CborWrapped {
+    fn decode(d: &mut minicbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        let bytes = decode_bytes(d)?;
+        Ok(CborWrapped(bytes.into_owned()))
     }
+}
+
+fn cost_model(plutus_version: PlutusVersion, protocol_version: ProtocolVersion) -> CostModel {
+    CostModel::default_for(plutus_version, protocol_version)
+}
+
+fn machine() -> serde_json::Value {
+    let system = System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_cpu(CpuRefreshKind::everything().without_frequency())
+            .with_memory(MemoryRefreshKind::nothing().with_ram()),
+    );
+    let cpu = system
+        .cpus()
+        .first()
+        .map(|cpu| cpu.brand().trim())
+        .filter(|brand| !brand.is_empty());
+
+    json!({
+        "os": System::name().unwrap_or_else(|| std::env::consts::OS.to_owned()),
+        "os_version": System::long_os_version(),
+        "architecture": std::env::consts::ARCH,
+        "cpu": cpu,
+        "logical_cores": system.cpus().len().max(1),
+        "memory_bytes": system.total_memory(),
+    })
+}
+
+fn detect_plutus_version(file_name: &str) -> PlutusVersion {
+    if file_name.ends_with("v1") || file_name.ends_with("v1.flat") {
+        PlutusVersion::V1
+    } else if file_name.ends_with("v2") || file_name.ends_with("v2.flat") {
+        PlutusVersion::V2
+    } else if file_name.ends_with("v3") || file_name.ends_with("v3.flat") {
+        PlutusVersion::V3
+    } else {
+        panic!("cannot decode plutus version from filename: {file_name}");
+    }
+}
+
+// See also: https://cardano.org/hardforks/
+fn infer_protocol_version(epoch: Epoch) -> ProtocolVersion {
+    if epoch >= Epoch::from(644) {
+        PROTOCOL_VERSION_11
+    } else if epoch >= Epoch::from(537) {
+        PROTOCOL_VERSION_10
+    } else if epoch >= Epoch::from(507) {
+        PROTOCOL_VERSION_9
+    } else {
+        PROTOCOL_VERSION_8
+    }
+}
+
+fn mean(mut samples: Vec<u64>) -> u64 {
+    samples.sort_unstable();
+    let retained = samples.iter().take(RETAINED_SAMPLE_COUNT);
+    let count = retained.clone().count().max(1);
+    (retained.map(|sample| *sample as f64).sum::<f64>() / count as f64).ceil() as u64
 }
