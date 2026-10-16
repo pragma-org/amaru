@@ -144,7 +144,7 @@ impl From<Payload> for u32 {
 
 impl fmt::Display for Payload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0x{:06x}", self.0)
+        write!(f, "{} (0x{:06x})", self.0, self.0)
     }
 }
 
@@ -152,6 +152,15 @@ impl fmt::Display for Payload {
 #[error("payload {0} does not fit in 22 bits")]
 pub struct PayloadError(u32);
 
+/// Amaru's [`Payload`]:
+///
+/// ```text
+///  21 20 | 19       13 | 12      9 | 8       4 | 3     0
+/// +------+-------------+-----------+-----------+---------+
+/// | ver  |     YY      |    MM     |    DD     |  flags  |
+/// +------+-------------+-----------+-----------+---------+
+///
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AmaruTag {
     release_day: ReleaseDay,
@@ -166,9 +175,9 @@ impl AmaruTag {
 
     const RELEASE_DAY_SHIFT: u32 = 4;
 
-    const RELEASE_DAY_MASK: u32 = (1 << 16) - 1;
+    const RELEASE_DAY_MASK: u32 = (1 << (Self::LAYOUT_VERSION_SHIFT - Self::RELEASE_DAY_SHIFT)) - 1;
 
-    const FLAGS_MASK: u32 = (1 << 4) - 1;
+    const FLAGS_MASK: u32 = (1 << Self::RELEASE_DAY_SHIFT) - 1;
 
     pub const fn new(release_day: ReleaseDay) -> Self {
         Self { release_day }
@@ -246,11 +255,17 @@ impl ReleaseDay {
 
     const FIRST_YEAR: u16 = 2000;
 
-    const LAST_YEAR: u16 = Self::FIRST_YEAR + (1 << 7) - 1;
+    const LAST_YEAR: u16 = Self::FIRST_YEAR + (AmaruTag::RELEASE_DAY_MASK >> Self::YEAR_SHIFT) as u16;
 
     const YEAR_SHIFT: u32 = 9;
 
     const MONTH_SHIFT: u32 = 5;
+
+    const MONTH_MASK: u32 = (1 << (Self::YEAR_SHIFT - Self::MONTH_SHIFT)) - 1;
+
+    const DAY_MASK: u32 = (1 << Self::MONTH_SHIFT) - 1;
+
+    const LAST: Self = Self(Some(CalendarDate { year: Self::LAST_YEAR, month: 12, day: 31 }));
 
     pub const fn from_version_patch(patch: &str) -> Result<Self, ReleaseDayError> {
         let digits = patch.as_bytes();
@@ -307,11 +322,13 @@ impl ReleaseDay {
         }
         Self::from_date(CalendarDate {
             year: Self::FIRST_YEAR + (fields >> Self::YEAR_SHIFT) as u16,
-            month: ((fields >> Self::MONTH_SHIFT) & 0xF) as u8,
-            day: (fields & 0x1F) as u8,
+            month: ((fields >> Self::MONTH_SHIFT) & Self::MONTH_MASK) as u8,
+            day: (fields & Self::DAY_MASK) as u8,
         })
     }
 }
+
+const _: () = assert!(ReleaseDay::LAST.fields() <= AmaruTag::RELEASE_DAY_MASK);
 
 impl fmt::Display for ReleaseDay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
