@@ -35,6 +35,12 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20261022 _[unreleased; planned for 2026-10-22]_
+
+### Fixed
+
+- **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
+
 ## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
 
 ### Added
@@ -85,7 +91,6 @@ Other guiding principles:
 - **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
 - **amaru-mithril**: snapshot downloads use less CPU to track progress as the number of immutable files grows.
 - **amaru-ledger**: DReps registered and deregistered within one block no longer produce spurious "unknown drep" errors during persistence.
-- **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
 
 ## v10.11.20261008 _[unreleased; planned for 2026-10-08]_
 
